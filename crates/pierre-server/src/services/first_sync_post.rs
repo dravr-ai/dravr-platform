@@ -61,7 +61,7 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_FIRST_SYNC_PROMPT;
-use pierre_core::models::TenantId;
+use pierre_core::models::{PostPurpose, TenantId};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::global_registry;
@@ -74,7 +74,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::platform_post::{PlatformPost, PostPurpose, PostSurface};
+use crate::services::platform_post::{PlatformPost, PostSurface};
 use crate::services::post_delivery::{linked_dms, post_in_app, post_to_dm, PostAthlete};
 use crate::services::training_status::request_status_depth;
 

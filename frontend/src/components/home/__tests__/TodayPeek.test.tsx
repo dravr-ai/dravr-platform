@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests Home's folded Today line — today's session, the form as a share of fitness, the latest route, one tap to open
-// ABOUTME: Folded away it leaves the reading order and the tab order, not only the screen
+// ABOUTME: It ends with Getting started's count while that section is open; folded away it leaves the reading and tab order
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TodayPeek } from '../TodayPeek';
@@ -14,11 +14,22 @@ const api = vi.hoisted(() => ({
   getTrainingPlan: vi.fn(),
   getTrainingStatus: vi.fn(),
   getRecentActivities: vi.fn(),
+  getGettingStarted: vi.fn(),
+  getHomePreferences: vi.fn(),
+  updateHomePreferences: vi.fn(),
 }));
 
-vi.mock('../../../services/api', () => ({ athleteApi: api }));
+vi.mock('../../../services/api', () => ({
+  athleteApi: api,
+  gettingStartedApi: { get: api.getGettingStarted },
+}));
 
 const TODAY = '2026-10-05';
+
+/** Getting started with two of five done, as the server answers it. */
+function progress(overrides: Record<string, unknown> = {}) {
+  return { rows: [], done_count: 2, total: 5, folded_at: null, hidden: false, ...overrides };
+}
 
 function renderPeek(hidden = false, onOpen = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -33,6 +44,8 @@ function renderPeek(hidden = false, onOpen = vi.fn()) {
 describe('TodayPeek', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false, getting_started_hidden: false });
+    api.getGettingStarted.mockResolvedValue(progress());
     api.getTrainingPlan.mockResolvedValue({
       today: TODAY,
       plan: {
@@ -98,5 +111,28 @@ describe('TodayPeek', () => {
     expect(wrapper).toHaveAttribute('aria-hidden', 'true');
     expect(wrapper).toHaveAttribute('inert');
     expect(screen.queryByRole('button', { name: 'Open Today' })).toBeNull();
+  });
+
+  // carnet#1098: below lg the line ends with Getting started's count, read
+  // from the query the section in the sheet reads.
+  it('ends with the Getting started count while that section is open', async () => {
+    renderPeek();
+    expect(await screen.findByTestId('home-today-peek-progress')).toHaveTextContent('2 of 5');
+  });
+
+  it('drops the count once Getting started is hidden, folded or gone', async () => {
+    api.getHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false, getting_started_hidden: true });
+    renderPeek();
+    await screen.findByText('Easy trail · 45 min');
+    await waitFor(() => expect(api.getGettingStarted).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-today-peek-progress')).toBeNull();
+  });
+
+  it('drops the count once every flow is done and the section folded', async () => {
+    api.getGettingStarted.mockResolvedValue(progress({ done_count: 5, folded_at: new Date().toISOString() }));
+    renderPeek();
+    await screen.findByText('Easy trail · 45 min');
+    await waitFor(() => expect(api.getGettingStarted).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-today-peek-progress')).toBeNull();
   });
 });

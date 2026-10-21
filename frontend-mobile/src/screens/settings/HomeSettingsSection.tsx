@@ -33,10 +33,7 @@ export function HomeSettingsSection(): React.JSX.Element {
           accessibilityLabel={label}
           value={home.preferences ? !home.preferences.plan_suggestion_hidden : true}
           onValueChange={(offered) =>
-            home.update({
-              ...(home.preferences ?? { plan_suggestion_hidden: false }),
-              plan_suggestion_hidden: !offered,
-            })
+            home.update({ plan_suggestion_hidden: !offered })
           }
           trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
           disabled={home.preferences === null || home.isUpdating}

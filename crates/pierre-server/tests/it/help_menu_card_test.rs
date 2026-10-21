@@ -34,6 +34,7 @@ use pierre_commands::{
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::AgentsCtx;
+use pierre_services::first_run::{self, FINISH_PROFILE};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -123,8 +124,9 @@ async fn run(is_direct_message: bool) -> Result<CommandResponse> {
 }
 
 /// The athlete's own thread offers the starters ranked for them: a fresh
-/// athlete with nothing connected is offered "Connect my watch" first, worded
-/// in their language, posting back its slot — never a command line.
+/// athlete is offered Meet your team first, the first-run flow still open
+/// (carnet#1099), and with nothing connected "Connect my watch", worded in
+/// their language, each posting back its slot — never a command line.
 #[tokio::test]
 async fn help_in_a_personal_thread_offers_the_starters_ranked_for_the_athlete() -> Result<()> {
     let (resources, user_id, tenant) = setup().await?;
@@ -143,9 +145,13 @@ async fn help_in_a_personal_thread_offers_the_starters_ranked_for_the_athlete() 
         "1-3 starters, got {}",
         response.actions.len()
     );
-    let connect = &response.actions[0];
+    assert_eq!(response.actions[0].value, "uc:0:meet_team");
+    let connect = response
+        .actions
+        .iter()
+        .find(|action| action.value.ends_with(":connect"))
+        .expect("an athlete with nothing connected is told to connect");
     assert_eq!(connect.action_type, "postback");
-    assert_eq!(connect.value, "uc:0:connect");
     assert_eq!(
         connect.label,
         resources
@@ -177,13 +183,39 @@ async fn help_in_a_personal_thread_with_no_starter_left_offers_the_command_short
 {
     let (resources, user_id, tenant) = setup().await?;
     // Every starter a newcomer's state admits is a `once` starter, retired by
-    // its tap whatever the agent's domain.
-    for id in ["connect", "about_me", "can_see", "zone2", "fuel"] {
+    // its tap whatever the agent's domain — Meet your team included.
+    for id in [
+        "meet_team",
+        "connect",
+        "about_me",
+        "can_see",
+        "zone2",
+        "fuel",
+    ] {
         resources
             .common
             .repos
             .use_case_exposures
             .record_use_case_tapped(tenant, user_id, id, Utc::now())
+            .await?;
+    }
+    // Finish your profile is a recurring first-run flow: a tap never retires
+    // it, and showings retire it only once the flow is done (carnet#1099).
+    first_run::record(
+        &resources.common.repos,
+        user_id,
+        tenant,
+        FINISH_PROFILE,
+        Utc::now().date_naive(),
+        "app",
+    )
+    .await?;
+    for _ in 0..3 {
+        resources
+            .common
+            .repos
+            .use_case_exposures
+            .record_use_cases_shown(tenant, user_id, &[FINISH_PROFILE], Utc::now())
             .await?;
     }
 

@@ -15,6 +15,7 @@ use pierre_database::database::agents::{
     AgentVisibility, CreateSystemAgentRequest as DbCreateSystemAgentRequest, UpdateAgentRequest,
 };
 use pierre_services::agent_package::PackageReview;
+use pierre_services::team_rules::TeamRule;
 use serde::{Deserialize, Serialize};
 
 // ============================================
@@ -755,6 +756,46 @@ pub struct ProposedAgent {
     pub reason: String,
 }
 
+/// An agent the team rule table puts beside the lead (carnet#1097).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TeamMember {
+    /// The member agent.
+    pub agent: AgentResponse,
+    /// Which rule picked it; the clients key its source line on this.
+    pub rule: TeamRule,
+    /// The provider's display name for [`TeamRule::SleepSource`] ("from your
+    /// Garmin data"); absent for every other rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Whether it arrives ticked. Mobility is offered unticked.
+    pub preselected: bool,
+    /// One-sentence, second-person reason: LLM-written, or the rule's own.
+    pub reason: String,
+}
+
+/// The starting team: the lead and the members beside it.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProposedTeam {
+    /// The lead — `agents[0]`, the athlete's Home thread agent.
+    pub lead: ProposedAgent,
+    /// Rule-picked members, never the lead, in rule order.
+    pub members: Vec<TeamMember>,
+}
+
+/// The onboarding agent proposal, as both the REST route and the messaging
+/// auto-send build it.
+#[derive(Debug)]
+pub struct AgentProposal {
+    /// The inferred sport profile.
+    pub profile: SportProfileSummary,
+    /// Re-rank top N, lead first — the messaging numbered menu indexes this.
+    pub agents: Vec<ProposedAgent>,
+    /// The starting team; `None` when no agent could be proposed.
+    pub team: Option<ProposedTeam>,
+    /// The athlete's own goal, sanitised and capped, for the step's goal line.
+    pub goal: Option<String>,
+}
+
 /// Response for `GET /api/agents/proposal`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AgentProposalResponse {
@@ -762,6 +803,14 @@ pub struct AgentProposalResponse {
     pub profile: SportProfileSummary,
     /// Up to `COACH_REC_MAX_RECOMMENDED` proposed agents, best fit first.
     pub agents: Vec<ProposedAgent>,
+    /// The starting team: `agents[0]` as lead plus the rule-picked members.
+    /// Absent when no agent could be proposed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<ProposedTeam>,
+    /// The athlete's goal as they wrote it (sanitised, capped). Absent
+    /// without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<String>,
     /// Standard response metadata.
     pub metadata: AgentsMetadata,
 }

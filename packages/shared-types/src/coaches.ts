@@ -146,12 +146,44 @@ export interface ProposedAgent {
   reason: string;
 }
 
+/**
+ * Why the team rule table put an agent on the starting team (carnet#1097).
+ * The client keys the member's source line on it.
+ */
+export type TeamRule = 'goal' | 'long_sessions' | 'sleep_source' | 'strength';
+
+/** An agent the rule table puts beside the lead. */
+export interface TeamMember {
+  /** The member agent */
+  agent: Agent;
+  /** Which rule picked it */
+  rule: TeamRule;
+  /** Provider display name for `sleep_source` ("from your Garmin data"); absent otherwise */
+  source?: string;
+  /** Whether it arrives ticked; Mobility is offered unticked */
+  preselected: boolean;
+  /** One-sentence, second-person reason */
+  reason: string;
+}
+
+/** The starting team: the lead plus the rule-picked members. */
+export interface ProposedTeam {
+  /** The lead — `agents[0]`, the agent of the athlete's Home thread */
+  lead: ProposedAgent;
+  /** Rule-picked members, never the lead */
+  members: TeamMember[];
+}
+
 /** Response for GET /api/agents/proposal. */
 export interface AgentProposalResponse {
   /** The inferred sport profile shown before the agent list */
   profile: SportProfileSummary;
-  /** Up to 3 proposed agents, best fit first */
+  /** Up to 3 proposed agents, best fit first; the lead is the first */
   agents: ProposedAgent[];
+  /** The starting team; absent when no agent could be proposed */
+  team?: ProposedTeam;
+  /** The athlete's goal as they wrote it (sanitised, capped); absent without one */
+  goal?: string;
 }
 
 /** Request to update an existing agent */

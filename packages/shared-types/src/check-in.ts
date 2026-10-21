@@ -14,6 +14,18 @@ export type CheckInCadence = (typeof CHECK_IN_CADENCES)[number];
 export interface CheckInPreference {
   /** The cadence the athlete chose, or null when they never chose (never checked in on). */
   cadence: CheckInCadence | null;
+  /**
+   * The local hour (0–23) a due check-in goes out from — the server's
+   * `CHECK_IN_HOUR`, sent so no client keeps a copy. Optional because a
+   * choice is written into the cache before the server answers, and that
+   * optimistic entry carries the cadence alone.
+   */
+  local_hour?: number;
+}
+
+/** Whether `value` is an hour of the day, 0 to 23. */
+function isLocalHour(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 23;
 }
 
 /** Whether `value` is one of the four cadences. */
@@ -26,7 +38,9 @@ export function parseCheckInPreference(body: unknown): CheckInPreference | null 
   if (typeof body !== 'object' || body === null || Array.isArray(body) || !('cadence' in body)) {
     return null;
   }
-  const { cadence } = body as { cadence: unknown };
+  const { cadence, local_hour: localHour } = body as { cadence: unknown; local_hour?: unknown };
   if (cadence !== null && !isCheckInCadence(cadence)) return null;
-  return { cadence };
+  if (localHour === undefined) return { cadence };
+  if (!isLocalHour(localHour)) return null;
+  return { cadence, local_hour: localHour };
 }

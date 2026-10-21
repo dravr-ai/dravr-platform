@@ -19,8 +19,10 @@
 //! ([`CheckInCadence::due_at`]), and their quiet hours for coach
 //! notifications do not cover the moment: the rule that holds a push holds a
 //! check-in. An account that is not active is never checked in on, nor is
-//! one with no provider connected: a check-in reads the athlete's own data,
-//! and with none to read its reply could only be withheld.
+//! one with no data yet — no activity and no sleep or recovery source
+//! (carnet#1099): a check-in reads the athlete's own data, and with none to
+//! read its reply could only be withheld. A plan is not needed: without one
+//! the check-in advises on the day.
 //!
 //! ## Once a day, across replicas
 //!
@@ -30,7 +32,8 @@
 //! reply was withheld, so a check-in costs at most one model call a day; only
 //! a check-in nothing could be attempted for — no instruction in the
 //! athlete's language, no thread to post into — releases it for the next
-//! tick.
+//! tick. A check-in whose reply was stored is marked posted, which is how the
+//! athlete's reply that day is known to answer it (carnet#1099).
 //!
 //! ## Where
 //!
@@ -51,18 +54,20 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PLATFORM_POST_CHECK_IN_DAILY_PROMPT, KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT,
     KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT,
 };
+use pierre_contremaitre::use_case_catalogue::Predicate;
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::AppResult;
 use pierre_core::models::messaging::ChannelType;
-use pierre_core::models::{CheckInCadence, ConnectionType, TenantId, UserStatus};
+use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, UserStatus};
 use pierre_database::repositories::CheckInSubscriber;
+use pierre_services::athlete_state::AthleteState;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::platform_post::{PlatformPost, PostPurpose, PostSurface};
+use crate::services::platform_post::{PlatformPost, PostSurface};
 use crate::services::post_delivery::{linked_dms, post_in_app, post_to_dm, PostAthlete};
 
 /// How often the check-in tick runs.
@@ -195,10 +200,10 @@ impl CheckInPoster {
             return;
         };
         outcome.due += 1;
-        if !reads_a_provider(resources, user_id, tenant_id).await {
+        if !has_data(resources, user_id, tenant_id, now).await {
             debug!(
                 cadence = cadence.as_str(),
-                "Check-in skipped: no provider connected to read"
+                "Check-in skipped: no activity or recovery data to read yet"
             );
             return;
         }
@@ -223,6 +228,7 @@ impl CheckInPoster {
                 report_check_in(user_id, tenant_id, cadence, surface, posted);
                 if posted {
                     outcome.posted += 1;
+                    mark_check_in_posted(resources, user_id, tenant_id, now).await;
                 }
             }
             None => release_check_in(resources, user_id, tenant_id).await,
@@ -303,25 +309,44 @@ async fn due_zone(
         .then_some(zone)
 }
 
-/// Whether the athlete has a provider connected in `tenant_id` — a real
-/// connection, not a synthetic one — for the check-in to read. An unreadable
-/// list reads as none (logged): no model call is spent on a post that cannot
-/// ground.
-async fn reads_a_provider(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) -> bool {
-    match resources
-        .common
-        .repos
-        .provider_connections
-        .get_for_user(user_id, Some(tenant_id))
-        .await
-    {
-        Ok(connections) => connections
-            .iter()
-            .any(|connection| connection.connection_type != ConnectionType::Synthetic),
+/// Whether the athlete has data for the check-in to read: activities (or a
+/// connected provider nobody has read yet), or a sleep or recovery source —
+/// the catalogue's `has_activities` and `has_recovery_source`, read as the
+/// starters read them. An unreadable state reads as none (logged): no model
+/// call is spent on a post that cannot ground.
+async fn has_data(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    now: DateTime<Utc>,
+) -> bool {
+    match AthleteState::read(&resources.common.repos, tenant_id, user_id, now).await {
+        Ok((state, _)) => {
+            state.holds(Predicate::HasActivities) || state.holds(Predicate::HasRecoverySource)
+        }
         Err(e) => {
-            warn!(error = %e, "Check-in: provider connections unreadable");
+            warn!(error = %e, "Check-in: the athlete's data is unreadable");
             false
         }
+    }
+}
+
+/// Mark today's check-in posted, so a reply the athlete sends later that day
+/// is read as answering it. Logged on failure: the check-in itself landed.
+async fn mark_check_in_posted(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    now: DateTime<Utc>,
+) {
+    if let Err(e) = resources
+        .common
+        .repos
+        .platform_post_claims
+        .mark_platform_post_posted(tenant_id, user_id, PostPurpose::CheckIn.as_str(), now)
+        .await
+    {
+        warn!(error = %e, "Check-in: marking the check-in posted failed");
     }
 }
 

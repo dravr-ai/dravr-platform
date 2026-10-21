@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use pierre_core::models::check_in::CHECK_IN_HOUR;
 use pierre_core::models::CheckInCadence;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::check_in::CheckInRoutes;
@@ -58,11 +59,15 @@ async fn read_cadence(setup: &Setup) -> Value {
 }
 
 /// An athlete who never chose reads `null` — never checked in on — and every
-/// cadence, `off` among them, is stored and read back as chosen.
+/// cadence, `off` among them, is stored and read back as chosen. Every answer
+/// names the hour the scheduler sends at, so no client keeps a copy of it.
 #[tokio::test]
 async fn the_cadence_reads_null_until_chosen_then_what_was_chosen() {
     let setup = setup().await;
-    assert_eq!(read_cadence(&setup).await, json!({ "cadence": null }));
+    assert_eq!(
+        read_cadence(&setup).await,
+        json!({ "cadence": null, "local_hour": CHECK_IN_HOUR })
+    );
 
     for cadence in ["daily", "three_per_week", "weekly", "off"] {
         let answered: Value = AxumTestRequest::put("/api/me/check-in")
@@ -72,10 +77,11 @@ async fn the_cadence_reads_null_until_chosen_then_what_was_chosen() {
             .await
             .assert_status(StatusCode::OK)
             .json();
-        assert_eq!(answered, json!({ "cadence": cadence }), "PUT echoes it");
+        let expected = json!({ "cadence": cadence, "local_hour": CHECK_IN_HOUR });
+        assert_eq!(answered, expected, "PUT echoes it");
         assert_eq!(
             read_cadence(&setup).await,
-            json!({ "cadence": cadence }),
+            expected,
             "GET reads back what was chosen"
         );
     }
@@ -123,7 +129,10 @@ async fn an_unknown_cadence_is_refused_and_nothing_is_stored() {
             .status_code();
         assert!(status.is_client_error(), "{body} must be refused: {status}");
     }
-    assert_eq!(read_cadence(&setup).await, json!({ "cadence": null }));
+    assert_eq!(
+        read_cadence(&setup).await,
+        json!({ "cadence": null, "local_hour": CHECK_IN_HOUR })
+    );
 }
 
 /// The onboarding step the web and the phone ask the cadence in is a step the

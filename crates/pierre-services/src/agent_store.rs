@@ -290,7 +290,7 @@ pub async fn install_store_agent(
             .await?
             .is_some_and(|published| published.agent.is_coach_facing());
         if coach_facing {
-            return Err(AppError::not_found(format!("Published coach {agent_id}")));
+            return Err(AppError::not_found(format!("Published agent {agent_id}")));
         }
     }
 
@@ -334,6 +334,69 @@ pub async fn install_store_agent(
         handle: installed.handle,
         author_id: None,
     })
+}
+
+/// Whether [`join_team`] can put `agent_id` on the caller's team: they hold
+/// it already, or it is published in the Store.
+///
+/// Checked for every agent before any of them joins, so a request naming one
+/// that cannot join writes nothing. Visibility to this caller (readable,
+/// coach-facing only for coaches) is [`crate::agents::require_bindable_agent`]'s
+/// check and runs before this one.
+///
+/// # Errors
+///
+/// Returns [`AppError::not_found`] for an agent neither held nor published,
+/// or the repository error when a read fails.
+pub async fn require_joinable(
+    repos: &AgentRepos,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppResult<()> {
+    if repos
+        .store_listings
+        .holds_install(agent_id, user_id, tenant_id)
+        .await?
+        || repos
+            .store_listings
+            .get_published_agent(agent_id)
+            .await?
+            .is_some()
+    {
+        return Ok(());
+    }
+    Err(AppError::not_found(format!("Published agent {agent_id}")))
+}
+
+/// Put a Store agent on the caller's team, idempotently.
+///
+/// `false` when they already hold it — a membership on the agent or their own
+/// copy of it — so a retried request converges instead of failing on "already
+/// installed". Otherwise it is the one Store install
+/// ([`install_store_agent`]): a membership for a catalogue agent, the reviewed
+/// copy for another tenant's, `agent.installed` emitted once; `true`.
+///
+/// # Errors
+///
+/// As [`install_store_agent`], plus the repository error when the held check
+/// fails.
+pub async fn join_team(
+    repos: &AgentRepos,
+    agent_id: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    coach_tools: CoachTools,
+) -> AppResult<bool> {
+    if repos
+        .store_listings
+        .holds_install(agent_id, user_id, tenant_id)
+        .await?
+    {
+        return Ok(false);
+    }
+    install_store_agent(repos, agent_id, user_id, tenant_id, coach_tools).await?;
+    Ok(true)
 }
 
 /// Re-rank a page of store agents by agent grade, degrading to the existing

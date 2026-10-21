@@ -48,6 +48,39 @@ fn the_pinned_catalogue_loads_whole() {
     );
 }
 
+/// The first run is four flows in a fixed order (carnet#1099): Getting
+/// started lists them so, the ranker offers the lowest open one first, and
+/// each flow's close links to the next. Build your season stays optional.
+#[test]
+fn the_pinned_catalogue_names_the_four_first_run_flows_in_order() {
+    let pinned = UseCaseCatalogue::pinned();
+    let flows: Vec<(&str, Option<u8>)> = pinned
+        .first_run()
+        .iter()
+        .map(|flow| (flow.id.as_str(), flow.first_run))
+        .collect();
+    assert_eq!(
+        flows,
+        [
+            ("meet_team", Some(1)),
+            ("last_workout", Some(2)),
+            ("about_me_more", Some(3)),
+            ("check_in", Some(4)),
+        ]
+    );
+    assert_eq!(
+        pinned
+            .get("season")
+            .expect("season is catalogued")
+            .first_run,
+        None,
+        "the season is never counted"
+    );
+    let next = |id| pinned.next_first_run(id).map(|flow| flow.id.as_str());
+    assert_eq!(next("meet_team"), Some("last_workout"));
+    assert_eq!(next("check_in"), None);
+}
+
 #[test]
 fn every_starter_has_its_words_in_every_locale() {
     let strings = MessagingStringsRegistry::new();

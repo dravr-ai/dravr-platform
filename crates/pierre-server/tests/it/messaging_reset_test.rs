@@ -79,6 +79,7 @@ mod reset_locale {
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_runtime_context::CommandCtx;
+    use pierre_services::first_run::{self, FINISH_PROFILE};
     use serial_test::serial;
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
@@ -1177,6 +1178,18 @@ mod reset_locale {
         // athlete speaks before resetting it.
         e2e.send_dm(&member, "How was my week?").await;
         let spoken = e2e.wait_outbound_for_session(&session, bound + 1).await;
+        // Past Finish your profile, which an empty dossier keeps open in the
+        // first slot (carnet#1099), so the welcome leaves its example a slot.
+        first_run::record(
+            &e2e.resources.common.repos,
+            member.user_id,
+            member.home_tenant,
+            FINISH_PROFILE,
+            chrono::Utc::now().date_naive(),
+            "telegram",
+        )
+        .await
+        .unwrap();
 
         reset_bodies(&e2e, &member, &session, spoken).await;
         // The welcome is ledgered after the confirmation `reset_bodies` waited on.

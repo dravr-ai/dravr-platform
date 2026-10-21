@@ -28,6 +28,9 @@ export type {
   SportProfileSummary,
   ProposedAgent,
   AgentProposalResponse,
+  TeamRule,
+  TeamMember,
+  ProposedTeam,
   AgentContentSnapshot,
   AgentVersion,
   ListAgentVersionsResponse,
@@ -216,6 +219,7 @@ export type {
   TrainingLoadRatio,
   TrainingStatusResponse,
   HomePreferences,
+  HomePreferencesUpdate,
   CalendarActivity,
   CalendarResponse,
 } from './home.js';
@@ -228,6 +232,7 @@ export {
   FORM_BANDS,
   parseTrainingStatusResponse,
   parseHomePreferences,
+  DEFAULT_HOME_PREFERENCES,
   parseCalendarResponse,
 } from './home.js';
 
@@ -264,6 +269,10 @@ export { parseTrainingVolumeResponse } from './training-volume.js';
 // How often the coach checks in on its own: daily, three a week, weekly or off (carnet#831)
 export type { CheckInCadence, CheckInPreference } from './check-in.js';
 export { CHECK_IN_CADENCES, isCheckInCadence, parseCheckInPreference } from './check-in.js';
+
+// Home's Getting started list: connect, then the first-run flows (carnet#1099)
+export type { GettingStartedResponse, GettingStartedRow } from './getting-started.js';
+export { parseGettingStartedResponse } from './getting-started.js';
 
 // The athlete's units: metric unless they chose imperial in Settings (carnet#835, carnet#1044)
 export type { UnitPreferences, UnitSystem } from './units.js';

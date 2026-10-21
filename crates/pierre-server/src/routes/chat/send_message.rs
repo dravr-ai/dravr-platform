@@ -73,7 +73,8 @@ const COMMAND_PROVIDER: &str = "platform";
 /// `PlatformCommandContext.channel_type` field and the persisted conversation
 /// origin. An ad-hoc caller that sets nothing is read as the browser, which is
 /// the shape a hand-written `curl` turn has.
-pub(super) fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
+#[must_use]
+pub fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
     let platform = headers
         .get(CLIENT_PLATFORM_HEADER)
         .and_then(|v| v.to_str().ok());

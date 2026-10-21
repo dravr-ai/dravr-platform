@@ -13,10 +13,12 @@ use axum::{
     Json,
 };
 use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::personal_thread::{
     find_personal_thread, open_topic, resolve_personal_thread, PersonalForge, TopicOpening,
 };
+use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::fresh_title_fallback;
@@ -124,4 +126,51 @@ pub async fn open_personal_topic(
         divider: topic.divider.map(message_response),
     };
     Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+/// Open the caller's personal thread with the welcome of the lead the
+/// onboarding team step named (carnet#1099): the first-run Meet your team
+/// turn, posted on Skip as on Start so every surface lands on it.
+///
+/// Forges the thread when there is none yet, bound to the athlete's
+/// selection with no guided walk, as "+" opens one. Posts only when the
+/// thread answers with `lead` — a thread the athlete had pointed elsewhere
+/// keeps its own agent — and the introduction ledger makes it once per
+/// topic, so the topic Start opens next finds it already welcomed.
+/// Best-effort: the step is the athlete's answer, and a welcome that cannot
+/// be written is logged.
+pub async fn welcome_onboarding_lead(
+    resources: &ServerContext,
+    headers: &HeaderMap,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    lead: &str,
+) {
+    let user = user_id.to_string();
+    let title_fallback = fresh_title_fallback(resources, &user).await;
+    let forge = PersonalForge {
+        title_fallback: &title_fallback,
+        guided_flow: false,
+        llm_chain: &resources.common.config.llm_chain,
+    };
+    let thread = match resolve_personal_thread(&resources.common.repos, &user, tenant_id, forge)
+        .await
+    {
+        Ok(thread) => thread.conversation,
+        Err(e) => {
+            tracing::warn!(error = %e, "onboarding lead: the personal thread could not be resolved; no welcome");
+            return;
+        }
+    };
+    if thread.agent_id.as_deref() == Some(lead) {
+        post_welcome_best_effort(
+            resources,
+            &thread,
+            lead,
+            user_id,
+            tenant_id,
+            client_surface(headers),
+        )
+        .await;
+    }
 }

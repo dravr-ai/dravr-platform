@@ -21,14 +21,16 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::AddMessageParams;
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_providers::ai_scope;
 use tracing::warn;
 
-use crate::envelope::{build_envelope, TurnEnvelope, TurnState, TurnTelemetry};
+use crate::envelope::{build_envelope, ReplyBlockKind, TurnEnvelope, TurnState, TurnTelemetry};
 use crate::next_steps::NextSteps;
 use crate::quota_policy::settle_turn_notice;
 use crate::surface_profile::SurfaceProfile;
+use crate::team_offer;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
@@ -134,6 +136,13 @@ pub async fn deliver(
     } else {
         NextSteps::default()
     };
+    // An offer's links are tapped, never typed: a surface that writes its
+    // controls as text is made no offer.
+    let next_steps = if profile.render.renders(ReplyBlockKind::Actions) {
+        next_steps
+    } else {
+        next_steps.without_team_offer()
+    };
 
     // A platform reply carries no chart or plan, so its steps are the row's
     // only stored block.
@@ -174,6 +183,11 @@ pub async fn deliver(
         input.conversation_tenant_id,
         profile.surface,
     );
+    if let (Some(pillar), Ok(user_id)) =
+        (next_steps.team_offer_pillar(), parse_uuid(&input.user_id))
+    {
+        team_offer::record_shown(&ctx.repos, input.tool_tenant_id, user_id, pillar).await;
+    }
 
     Ok(build_envelope(
         profile,

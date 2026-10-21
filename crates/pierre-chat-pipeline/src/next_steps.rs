@@ -34,7 +34,7 @@
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::use_case_catalogue::{Repeat, UseCase, UseCaseCatalogue, UseCaseRun};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Pillar, TenantId};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::ConversationRecord;
 use pierre_database::repositories::UseCaseExposure;
@@ -51,6 +51,7 @@ use crate::stages::onboarding::season_laid_out;
 use crate::stages::platform_grounding;
 use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_NEXT_STEP};
 use crate::surface_profile::{SurfaceId, SurfaceProfile};
+use crate::team_offer::TeamOfferChoice;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
@@ -62,6 +63,10 @@ const ANALYSIS_USE_CASE: &str = "last_workout";
 /// as many as `WhatsApp` shows as reply buttons before it folds them into a
 /// list.
 pub const MAX_NEXT_STEPS: usize = 3;
+
+/// The links an add-to-team offer takes of those slots: "Add X to my team"
+/// and "Not now".
+const TEAM_OFFER_LINKS: usize = 2;
 
 /// What a reply's next steps follow: one row of the transition table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,15 +99,18 @@ impl StepsAfter {
     #[must_use]
     pub const fn candidates(self) -> &'static [&'static str] {
         match self {
-            // A walk that ended with pillars open offers itself again: the
-            // season needs every pillar, a calibration needs a plan.
-            Self::PillarsWalk => &["season", "harder", "about_me_more"],
+            // The first run's profile flow closes on the daily check-in, with
+            // the season as the second, optional link (carnet#1099). A walk
+            // that ended with pillars open offers itself again: the season
+            // needs every pillar, a calibration needs a plan.
+            Self::PillarsWalk => &["check_in", "season", "harder", "about_me_more"],
             Self::SeasonWalk => &["fortnight"],
             Self::FortnightSaved => &["calendar", "today"],
-            Self::FirstAnalysis => &["compare_week"],
+            // The first run's analysis flow closes on finishing the profile.
+            Self::FirstAnalysis => &["about_me_more", "compare_week"],
             // What an athlete reading their account does next: connect a
-            // source, tell the coach about themselves, plan the season.
-            Self::StatusCommand => &["connect", "about_me", "season"],
+            // source, tell the agent about themselves, plan the season.
+            Self::StatusCommand => &["connect", "about_me_more", "season"],
             // `/plan` already shows today: the season when there is none to
             // show, else the next two weeks and the calendar.
             Self::PlanCommand => &["season", "fortnight", "calendar"],
@@ -113,7 +121,8 @@ impl StepsAfter {
     }
 
     /// The row the answer to the athlete's first tap of the catalogue entry
-    /// `id` offers: a first workout analysis leads to the weekly comparison.
+    /// `id` offers: a first workout analysis leads to finishing the profile and
+    /// the weekly comparison.
     /// `None` for every other entry, whose answer is an ordinary coaching
     /// turn and offers no step.
     #[must_use]
@@ -187,10 +196,20 @@ struct Step {
 }
 
 /// The next steps a reply offers, at most [`MAX_NEXT_STEPS`], in the order
-/// they were picked.
+/// they were picked — and, after a pillars walk, the add-to-team offer beside
+/// them ([`crate::team_offer`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NextSteps {
     steps: Vec<Step>,
+    offer: Option<TeamOfferLinks>,
+}
+
+/// The add-to-team offer's two links, and the pillar it was made for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TeamOfferLinks {
+    pillar: Pillar,
+    add: Step,
+    not_now: Step,
 }
 
 /// Who a reply's next steps are for, and where they are read.
@@ -268,13 +287,76 @@ impl NextSteps {
                 label: worded.label,
             })
             .collect();
-        Self { steps }
+        Self { steps, offer: None }
+    }
+
+    /// These steps with the add-to-team offer for `pillar` beside them: the
+    /// links `add` ("Add X to my team") and `not_now`.
+    ///
+    /// The offer takes the last [`TEAM_OFFER_LINKS`] of the [`MAX_NEXT_STEPS`]
+    /// slots, so the reply still fits one row of buttons and `WhatsApp`'s
+    /// three reply buttons: the first step — the flow the walk closes on —
+    /// keeps its slot.
+    #[must_use]
+    pub(crate) fn with_team_offer(self, pillar: Pillar, add: String, not_now: String) -> Self {
+        Self {
+            offer: Some(TeamOfferLinks {
+                pillar,
+                add: Step {
+                    postback: Postback::TeamOffer {
+                        choice: TeamOfferChoice::Add,
+                        pillar,
+                    },
+                    label: add,
+                },
+                not_now: Step {
+                    postback: Postback::TeamOffer {
+                        choice: TeamOfferChoice::NotNow,
+                        pillar,
+                    },
+                    label: not_now,
+                },
+            }),
+            ..self
+        }
+    }
+
+    /// These steps without the add-to-team offer, for a surface that cannot
+    /// draw its links as buttons: a link written as text could not be
+    /// tapped, and nothing typed back reaches it.
+    #[must_use]
+    pub(crate) fn without_team_offer(self) -> Self {
+        Self {
+            offer: None,
+            ..self
+        }
+    }
+
+    /// The pillar the add-to-team offer was made for, if one rides along.
+    #[must_use]
+    pub(crate) fn team_offer_pillar(&self) -> Option<Pillar> {
+        self.offer.as_ref().map(|offer| offer.pillar)
+    }
+
+    /// The controls the reply shows, in order: the steps that fit, then the
+    /// offer's two links.
+    fn shown(&self) -> impl Iterator<Item = &Step> {
+        let room = if self.offer.is_some() {
+            MAX_NEXT_STEPS.saturating_sub(TEAM_OFFER_LINKS)
+        } else {
+            MAX_NEXT_STEPS
+        };
+        self.steps.iter().take(room).chain(
+            self.offer
+                .iter()
+                .flat_map(|offer| [&offer.add, &offer.not_now]),
+        )
     }
 
     /// Whether there is nothing to offer.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.steps.is_empty()
+        self.steps.is_empty() && self.offer.is_none()
     }
 
     /// Report each step shown, on the surfaces that draw it as a button.
@@ -293,7 +375,7 @@ impl NextSteps {
             surface: SURFACE_NEXT_STEP,
             channel: surface.as_str(),
         };
-        for step in &self.steps {
+        for step in self.shown() {
             emit_shown(&event, &step.postback);
         }
     }
@@ -302,10 +384,9 @@ impl NextSteps {
     /// [`crate::TurnState::actions`] carries into the envelope.
     #[must_use]
     pub fn into_actions(self) -> Vec<TurnAction> {
-        self.steps
-            .into_iter()
+        self.shown()
             .map(|step| TurnAction {
-                label: step.label,
+                label: step.label.clone(),
                 kind: ActionKind::Postback,
                 value: step.postback.encode(),
             })
@@ -326,7 +407,7 @@ impl NextSteps {
     /// the entry cannot be encoded. The caller then persists the reply without
     /// its steps rather than losing the reply.
     pub fn stored_blocks(&self, stored: Option<&str>) -> Result<Option<String>, serde_json::Error> {
-        if self.steps.is_empty() {
+        if self.is_empty() {
             return Ok(stored.map(ToOwned::to_owned));
         }
         let mut entries: Vec<Value> = stored
@@ -399,8 +480,7 @@ mod tests {
     /// The rows' entries as the catalogue writes them, plus one no row names.
     const CATALOGUE: &str = "
 - {id: connect, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [any], repeat: once}
-- {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}
-- {id: about_me_more, run: command, command: /pillars, requires: [pillars_open], stage: any, domains: [any], repeat: recurring}
+- {id: about_me_more, run: command, command: /pillars, requires: [dossier_empty | pillars_open], stage: any, domains: [any], repeat: recurring}
 - {id: season, run: command, command: /season, requires: [pillars_done, no_season], stage: first_week, domains: [training], repeat: once}
 - {id: harder, run: command, command: /calibrate, requires: [plan_active], stage: first_week, domains: [training], repeat: once}
 - {id: today, run: command, command: /plan today, requires: [plan_active], stage: any, domains: [training], repeat: recurring}
@@ -408,6 +488,7 @@ mod tests {
 - {id: calendar, run: prompt, command: null, requires: [season_set, calendar_writable], stage: any, domains: [training], repeat: once}
 - {id: compare_week, run: prompt, command: null, requires: [weeks_of_data>=2], stage: any, domains: [analysis, training], repeat: recurring}
 - {id: zone2, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [training], repeat: once}
+- {id: check_in, run: prompt, command: null, requires: [check_in_on], stage: any, domains: [any], repeat: recurring}
 ";
 
     fn catalogue() -> UseCaseCatalogue {
@@ -513,6 +594,44 @@ mod tests {
     }
 
     #[test]
+    fn the_profile_flow_closes_on_the_check_in_then_the_season() {
+        let armed = AthleteState {
+            check_in_on: true,
+            ..pillars_done()
+        };
+        assert_eq!(
+            picked(StepsAfter::PillarsWalk, &armed),
+            ["check_in", "season"],
+            "the check-in first, the season the optional second link"
+        );
+        let armed_with_plan = AthleteState {
+            plan_active: true,
+            ..armed
+        };
+        assert_eq!(
+            picked(StepsAfter::PillarsWalk, &armed_with_plan),
+            ["check_in", "season", "harder"],
+            "three links at most"
+        );
+    }
+
+    #[test]
+    fn a_first_analysis_closes_on_finishing_the_profile_while_pillars_are_open() {
+        let open = AthleteState {
+            dossier: DossierCoverage {
+                covered: 2,
+                complete: false,
+                empty: false,
+            },
+            ..pillars_done()
+        };
+        assert_eq!(
+            picked(StepsAfter::FirstAnalysis, &open),
+            ["about_me_more", "compare_week"]
+        );
+    }
+
+    #[test]
     fn the_season_leads_to_the_fortnight_only_once_it_is_laid_out() {
         assert_eq!(
             picked(StepsAfter::SeasonWalk, &pillars_done()),
@@ -554,7 +673,7 @@ mod tests {
     fn a_command_reply_offers_its_row_and_never_the_command_that_ran() {
         assert_eq!(
             picked(StepsAfter::StatusCommand, &newcomer()),
-            ["connect", "about_me"]
+            ["connect", "about_me_more"]
         );
         assert_eq!(picked(StepsAfter::PlanCommand, &pillars_done()), ["season"]);
         assert_eq!(
@@ -621,7 +740,18 @@ mod tests {
             StepsAfter::PlanCommand,
             StepsAfter::FortnightCommand,
         ] {
-            assert!(after.candidates().len() <= MAX_NEXT_STEPS, "{after:?}");
+            // A row may name one more entry than a reply shows: the pillars
+            // walk's first-run close puts the check-in ahead of the three it
+            // offered before, and `pick` keeps the first three that fit.
+            assert!(after.candidates().len() <= MAX_NEXT_STEPS + 1, "{after:?}");
+            let mut unique = after.candidates().to_vec();
+            unique.sort_unstable();
+            unique.dedup();
+            assert_eq!(
+                unique.len(),
+                after.candidates().len(),
+                "{after:?} repeats an entry"
+            );
             for id in after.candidates() {
                 assert!(
                     pinned.get(id).is_some(),
@@ -648,6 +778,7 @@ mod tests {
                 .enumerate()
                 .map(|(position, (id, label))| step(position, id, label))
                 .collect(),
+            offer: None,
         }
     }
 
@@ -745,6 +876,63 @@ mod tests {
             none.stored_blocks(Some(chart)).unwrap().as_deref(),
             Some(chart)
         );
+    }
+
+    #[test]
+    fn a_team_offer_keeps_the_first_step_and_adds_its_two_links() {
+        let offered = steps(&[
+            ("check_in", "Check in"),
+            ("season", "Season"),
+            ("harder", "Harder"),
+        ])
+        .with_team_offer(
+            Pillar::Fuelling,
+            "Add Fuel to my team".to_owned(),
+            "Not now".to_owned(),
+        );
+        assert_eq!(offered.team_offer_pillar(), Some(Pillar::Fuelling));
+        let stored = offered
+            .stored_blocks(None)
+            .unwrap()
+            .expect("the offer is stored");
+        let blocks: Vec<PersistedReplyBlock> = serde_json::from_str(&stored).unwrap();
+        assert_eq!(
+            blocks,
+            [PersistedReplyBlock::Actions {
+                title: None,
+                actions: vec![
+                    persisted("Check in", "nx:0:check_in"),
+                    persisted("Add Fuel to my team", "ta:add:fuelling"),
+                    persisted("Not now", "ta:no:fuelling"),
+                ],
+            }]
+        );
+        let actions = offered.clone().into_actions();
+        assert_eq!(actions.len(), MAX_NEXT_STEPS, "one row of three buttons");
+
+        let plain = offered.without_team_offer();
+        assert_eq!(plain.team_offer_pillar(), None);
+        let values: Vec<String> = plain
+            .into_actions()
+            .into_iter()
+            .map(|action| action.value)
+            .collect();
+        assert_eq!(
+            values,
+            ["nx:0:check_in", "nx:1:season", "nx:2:harder"],
+            "without the offer every step is back"
+        );
+    }
+
+    #[test]
+    fn an_offer_alone_is_something_to_offer() {
+        let offer_only = NextSteps::default().with_team_offer(
+            Pillar::SleepAndRecovery,
+            "Add Sleep to my team".to_owned(),
+            "Not now".to_owned(),
+        );
+        assert!(!offer_only.is_empty());
+        assert_eq!(offer_only.into_actions().len(), 2);
     }
 
     #[test]

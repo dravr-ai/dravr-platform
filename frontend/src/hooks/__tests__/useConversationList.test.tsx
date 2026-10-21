@@ -261,7 +261,7 @@ describe('usePersonalConversation', () => {
   it('never asks for an operator, who has no Home thread', () => {
     const { result } = renderHook(() => usePersonalConversation(false), { wrapper: wrapperFor(newClient()) });
 
-    expect(result.current).toEqual({ id: null, isLoading: false });
+    expect(result.current).toEqual({ id: null, agentId: null, isLoading: false });
     expect(getPersonalConversation).not.toHaveBeenCalled();
   });
 });

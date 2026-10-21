@@ -95,6 +95,7 @@ const ChatTab = lazy(() => import('./ChatTab'));
 // the thread on a narrow screen.
 const HomeBriefing = lazy(() => import('./home/Home').then((module) => ({ default: module.HomeBriefing })));
 const TodayPeek = lazy(() => import('./home/TodayPeek').then((module) => ({ default: module.TodayPeek })));
+const PickTeamSheet = lazy(() => import('./home/YourTeam').then((module) => ({ default: module.PickTeamSheet })));
 const ActivityView = lazy(() => import('./activity/ActivityView'));
 const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
 const UserToolOverrides = lazy(() => import('./UserToolOverrides'));
@@ -619,6 +620,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // and the rest fall into the off-canvas drawer. Active <768px only.
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Home's Pick your team, over the page rather than inside Today's sheet.
+  const [teamPickerOpen, setTeamPickerOpen] = useState(false);
   // While the athlete types, a phone's tab bar steps aside so the composer
   // sits on the keyboard (Phil, 2026-10-05).
   const composing = useComposerFocused();
@@ -627,9 +630,19 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // draft into the open conversation, and the one line above it on a phone
   // or a tablet.
   const personalToday = useMemo<PersonalToday>(() => ({
-    panel: (onOpenChatDraft, compact) => (
+    panel: (actions, compact) => (
       <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-        <HomeBriefing onNavigate={applyRoute} onOpenChatDraft={onOpenChatDraft} compact={compact} />
+        <HomeBriefing
+          onNavigate={applyRoute}
+          actions={actions}
+          // The picker opens over the page, not inside the Today sheet,
+          // which steps aside first on a narrow screen.
+          onPickTeam={() => {
+            actions.dismiss();
+            setTeamPickerOpen(true);
+          }}
+          compact={compact}
+        />
       </Suspense>
     ),
     peek: (onOpen, hidden) => (
@@ -1171,6 +1184,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <NotificationsPanel onNavigate={applyRoute} />
+          </Suspense>
+        )}
+        {teamPickerOpen && (
+          <Suspense fallback={null}>
+            <PickTeamSheet side={isMobile ? 'bottom' : 'right'} onClose={() => setTeamPickerOpen(false)} />
           </Suspense>
         )}
         {activeTab === 'coach-replies' && (

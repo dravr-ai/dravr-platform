@@ -19,6 +19,15 @@ import {
   type OnboardingContext,
 } from '../onboarding/steps';
 
+/** What the Your team step writes: Start (`complete`) or Skip (`skipped`, the lead alone). */
+export interface TeamStepChoice {
+  status: 'complete' | 'skipped';
+  /** The agent that leads the athlete's thread. */
+  leadAgentId?: string;
+  /** Every agent joining the team, the lead included. */
+  teamAgentIds?: string[];
+}
+
 /** The onboarding context plus the per-step completion callbacks the flow wires into each step. */
 export interface OnboardingState {
   ctx: OnboardingContext;
@@ -34,11 +43,15 @@ export interface OnboardingState {
   /** The check-in cadence chosen (stored by the step) or skipped — persist + advance. */
   completeCheckIn: (status: 'complete' | 'skipped') => void;
   /**
-   * Coach proposal dismissed/accepted — persist + advance to the dashboard.
-   * `leadAgentId` is the agent the athlete started with (the first proposed one
-   * on Skip); the server makes it their selected agent. None when no proposal loaded.
+   * Write the Your team step and wait for it. The server joins every agent in
+   * `teamAgentIds` to the team, makes `leadAgentId` the selected agent and
+   * binds the personal thread to it — so a failure rejects, and the step keeps
+   * the athlete on screen to retry rather than reaching Home with no team.
+   * A step written with neither id (no proposal loaded) changes no agent.
    */
-  completeCoachProposal: (leadAgentId?: string) => void;
+  persistCoachProposal: (choice: TeamStepChoice) => Promise<void>;
+  /** Advance past the Your team step (local flag only; the write is {@link persistCoachProposal}). */
+  completeCoachProposal: () => void;
   /** The coach's group step finished (`complete`) or put off (`skipped`) — persist + advance. */
   completeCoachGroup: (status: 'complete' | 'skipped') => void;
   /** Continue past the connect step once a first provider is connected this session. */
@@ -253,15 +266,22 @@ export function useOnboardingState(): OnboardingState {
     [athleteStepsWaivedKey, profileTypeKey, persistStep],
   );
 
-  const completeCoachProposal = useCallback(
-    (leadAgentId?: string) => {
-      if (coachProposalKey) localStorage.setItem(coachProposalKey, '1');
-      setCoachProposalDoneLocal(true);
-      setJustOnboarded(false);
-      persistStep('coach_proposal', 'complete', { agentId: leadAgentId });
-    },
-    [coachProposalKey, persistStep],
+  // Not best-effort like the other steps: this write is what puts agents on
+  // the athlete's team, so its failure reaches the step.
+  const persistCoachProposal = useCallback(
+    ({ status, leadAgentId, teamAgentIds }: TeamStepChoice) =>
+      userApi.setOnboardingStep('coach_proposal', status, {
+        agentId: leadAgentId,
+        teamAgentIds,
+      }),
+    [],
   );
+
+  const completeCoachProposal = useCallback(() => {
+    if (coachProposalKey) localStorage.setItem(coachProposalKey, '1');
+    setCoachProposalDoneLocal(true);
+    setJustOnboarded(false);
+  }, [coachProposalKey]);
 
   const completeCoachGroup = useCallback(
     (status: 'complete' | 'skipped') => {
@@ -347,6 +367,7 @@ export function useOnboardingState(): OnboardingState {
     completeAboutYou,
     completeParq,
     completeCheckIn,
+    persistCoachProposal,
     completeCoachProposal,
     completeCoachGroup,
     completeConnectProvider,

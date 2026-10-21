@@ -17,6 +17,7 @@ use common::{
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_database::database::Agent;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -998,5 +999,73 @@ async fn test_update_of_an_agent_the_athlete_does_not_own_is_not_found_and_leave
             .len(),
         before,
         "the refused edit snapshots no version"
+    );
+}
+
+/// A French overlay on an agent, as the seeder writes for a catalogue agent.
+const PLANT_FRENCH_TITLE: &str = "INSERT INTO agent_translations \
+     (agent_id, locale, title, description, purpose, instructions, tags, sample_prompts, created_at, updated_at) \
+     VALUES ($1, 'fr', 'Agent Ravitaillement', 'Spécialiste du ravitaillement', 'Ravitailler.', 'Tu ravitailles.', '[]', '[]', \
+     '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')";
+
+#[tokio::test]
+async fn the_list_names_agents_in_the_athletes_language_and_get_keeps_the_stored_text() {
+    let (router, auth_token, seed) = setup_test_environment().await;
+    let created = seed
+        .agent(json!({ "title": "Fuelling Agent", "system_prompt": "Fuel." }))
+        .await;
+    let database = &seed.resources.agent.database;
+    match database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(PLANT_FRENCH_TITLE)
+                .bind(&created.id)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(PLANT_FRENCH_TITLE)
+                .bind(&created.id)
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+    let list = |router: axum::Router| {
+        let token = auth_token.clone();
+        async move {
+            AxumTestRequest::get("/api/agents")
+                .header("authorization", &token)
+                .send(router)
+                .await
+                .json::<ListAgentsResponse>()
+        }
+    };
+
+    let set_locale = |locale: &'static str| {
+        let users = Arc::clone(&seed.resources.common.repos.users);
+        let user_id = seed.user_id;
+        async move { users.update_locale(user_id, locale).await.unwrap() }
+    };
+    set_locale("en").await;
+    assert_eq!(list(router.clone()).await.agents[0].title, "Fuelling Agent");
+
+    set_locale("fr").await;
+    let french = list(router.clone()).await;
+    assert_eq!(french.agents[0].title, "Agent Ravitaillement");
+    assert_eq!(
+        french.agents[0].description.as_deref(),
+        Some("Spécialiste du ravitaillement")
+    );
+
+    let detail: AgentResponse = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
+        .header("authorization", &auth_token)
+        .send(router)
+        .await
+        .json();
+    assert_eq!(
+        detail.title, "Fuelling Agent",
+        "the editor loads the stored text, so an edit never saves a translation"
     );
 }

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Home's Today — today's plan, the week, the training status, the latest activities — beside the athlete's conversation
-// ABOUTME: A tap on a day drafts its question in that conversation, one on an activity opens its view
+// ABOUTME: Home's Today — Getting started, Your team, today's plan, the week, the status, the latest activities — beside the conversation
+// ABOUTME: A tap on a day drafts its question in that conversation, a first step sends its starter, one on an activity opens its view
 
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import { planWindow } from '@pierre/ui-logic';
+import { DEFAULT_HOME_PREFERENCES } from '@pierre/shared-types';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { useHomePreferences, useTrainingPlan } from '../../hooks/useHome';
@@ -15,12 +16,17 @@ import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
 import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
+import { GettingStarted } from './GettingStarted';
+import { YourTeam } from './YourTeam';
+import type { TodayActions } from '../ChatTab';
 
 interface HomeBriefingProps {
   /** Dashboard route navigator, `tab[/subview]`. */
   onNavigate: (route: string) => void;
-  /** Put `text` in the conversation's composer, for the athlete to finish and send. */
-  onOpenChatDraft: (text: string) => void;
+  /** What Today's sections do to the conversation beside them: draft, send, open a topic. */
+  actions: TodayActions;
+  /** Open the team picker over the page, for an athlete with no team. */
+  onPickTeam: () => void;
   /** Laid out for the docked side panel: the latest activity's map in its shorter frame. */
   compact?: boolean;
 }
@@ -65,7 +71,7 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
     // The links wait until the choice is known, so a dismissed suggestion
     // never flashes back on load; a choice that could not be read offers it.
     // Set aside, the section keeps its one plain sentence.
-    const preferences = home.preferences ?? (home.isError ? { plan_suggestion_hidden: false } : null);
+    const preferences = home.preferences ?? (home.isError ? DEFAULT_HOME_PREFERENCES : null);
     return (
       <Section title={t('chat.dayToday')} headingLevel={3} data-testid="home-today">
         <div data-testid="home-plan-empty">
@@ -87,7 +93,7 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
                   data-testid="home-plan-hide"
                   className="rounded text-on-surface-variant hover:text-on-surface hover:underline focus-ring"
                   aria-label={t('home.plan.hideSuggestionAria')}
-                  onClick={() => home.update({ ...preferences, plan_suggestion_hidden: true })}
+                  onClick={() => home.update({ plan_suggestion_hidden: true })}
                 >
                   {t('home.plan.hideSuggestion')}
                 </button>
@@ -112,15 +118,18 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
 }
 
 /**
- * Home's own sections, in the order the page always had them. The personal
- * surface draws them in its Today panel beside the conversation on a wide
- * screen, and in a drawer or a sheet on a narrower one.
- *
- * LIMITATION(registre#1098): `HomeBriefing` has no Getting started or Your team section, and no link to Discover.
+ * Home's own sections. Getting started and Your team lead (carnet#1098), so
+ * a new athlete meets what to do next and who they work with first, then the
+ * sections the page always had. The personal surface draws them in its Today
+ * panel beside the conversation on a wide screen, and in a drawer or a sheet
+ * on a narrower one — which therefore opens on the same two sections.
  */
-export function HomeBriefing({ onNavigate, onOpenChatDraft, compact = false }: HomeBriefingProps) {
+export function HomeBriefing({ onNavigate, actions, onPickTeam, compact = false }: HomeBriefingProps) {
+  const onOpenChatDraft = actions.draft;
   return (
     <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
+      <GettingStarted actions={actions} onNavigate={onNavigate} />
+      <YourTeam actions={actions} onNavigate={onNavigate} onPickTeam={onPickTeam} />
       <HomePlan onOpenChatDraft={onOpenChatDraft} />
       <HomeWeek onOpenChatDraft={onOpenChatDraft} onNavigate={onNavigate} />
       <HomeStatus />

@@ -17,7 +17,12 @@ const CONTROL =
   'focus:ring-2 focus:ring-primary focus:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed';
 
 interface ChoiceProps {
-  label: string;
+  /**
+   * What the control chooses. Usually a string; a row that names an agent
+   * passes its title, source line and reason so the whole row is the label
+   * and one tap anywhere on it toggles the control.
+   */
+  label: React.ReactNode;
   /**
    * The label's ink. Defaults to the body ink; a control sitting on a tinted
    * hue passes that hue's `on-*-container` ink (DESIGN.md §2, bound ink).

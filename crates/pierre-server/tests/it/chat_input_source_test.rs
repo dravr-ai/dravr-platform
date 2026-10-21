@@ -237,8 +237,8 @@ async fn a_tapped_command_step_runs_it_teaches_it_and_offers_the_next() {
     );
 
     // Nothing connected and nothing told: connect a source, then tell the
-    // coach about yourself.
-    assert_eq!(offered(&turn), ["nx:0:connect", "nx:1:about_me"]);
+    // agent about yourself.
+    assert_eq!(offered(&turn), ["nx:0:connect", "nx:1:about_me_more"]);
     let tapped = only(&events, "suggestion.tapped");
     assert_eq!(tapped.field("use_case"), "can_see");
     assert_eq!(tapped.field("source"), "next_step");
@@ -259,7 +259,7 @@ async fn a_tapped_command_step_runs_it_teaches_it_and_offers_the_next() {
         shown,
         [
             ("connect", "0", "next_step", "next_step"),
-            ("about_me", "1", "next_step", "next_step"),
+            ("about_me_more", "1", "next_step", "next_step"),
         ]
     );
 
@@ -277,7 +277,7 @@ async fn a_tapped_command_step_runs_it_teaches_it_and_offers_the_next() {
         .iter()
         .map(|action| action.value.as_str())
         .collect();
-    assert_eq!(stored, ["nx:0:connect", "nx:1:about_me"]);
+    assert_eq!(stored, ["nx:0:connect", "nx:1:about_me_more"]);
 
     let tapped_at = fx
         .resources
@@ -308,7 +308,7 @@ async fn a_typed_command_offers_its_steps_and_teaches_nothing() {
         "{}",
         turn.assistant.message.content
     );
-    assert_eq!(offered(&turn), ["nx:0:connect", "nx:1:about_me"]);
+    assert_eq!(offered(&turn), ["nx:0:connect", "nx:1:about_me_more"]);
     assert!(named(&events, "suggestion.tapped").is_empty());
 }
 
@@ -339,9 +339,9 @@ async fn a_command_in_a_thread_a_walk_owns_offers_no_step() {
     assert!(offered(&turn).is_empty(), "{:?}", turn.assistant.blocks);
 }
 
-/// The athlete's first tapped workout analysis ends on the week-on-week
-/// comparison, once there are two weeks to compare; a second analysis is an
-/// ordinary coaching turn.
+/// The athlete's first tapped workout analysis ends on finishing the profile
+/// and the week-on-week comparison, once there are two weeks to compare
+/// (carnet#1099); a second analysis is an ordinary coaching turn.
 #[tokio::test]
 async fn a_first_tapped_analysis_leads_to_the_weekly_comparison_once() {
     let fx = setup("next-step-analysis@test.com").await;
@@ -369,14 +369,19 @@ async fn a_first_tapped_analysis_leads_to_the_weekly_comparison_once() {
         first.user_message.content,
         string(&fx, "use_cases.last_workout.prompt")
     );
-    assert_eq!(offered(&first), ["nx:0:compare_week"]);
+    assert_eq!(offered(&first), ["nx:0:about_me_more", "nx:1:compare_week"]);
     let stored = messages(&fx)
         .await
         .into_iter()
         .rfind(|row| row.role == "assistant")
         .and_then(|row| row.actions)
-        .expect("the step is stored with the answer");
-    assert_eq!(stored.actions[0].value, "nx:0:compare_week");
+        .expect("the steps are stored with the answer");
+    let stored: Vec<&str> = stored
+        .actions
+        .iter()
+        .map(|action| action.value.as_str())
+        .collect();
+    assert_eq!(stored, ["nx:0:about_me_more", "nx:1:compare_week"]);
 
     let second = send(&fx, &json!({ "content": "uc:0:last_workout" })).await;
     assert!(

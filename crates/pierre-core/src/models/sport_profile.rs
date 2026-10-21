@@ -26,6 +26,12 @@ pub struct SportProfile {
     pub window_days: u32,
     /// Canonical `snake_case` sport label → activity count.
     pub sport_counts: HashMap<String, u32>,
+    /// The longest single session in the window, in whole minutes — what the
+    /// team's long-event rule reads against
+    /// [`LONG_SESSION_MIN`](crate::models::LONG_SESSION_MIN). A profile cached
+    /// before the field existed reads 0 until it expires.
+    #[serde(default)]
+    pub longest_session_min: u32,
 }
 
 impl SportProfile {
@@ -33,15 +39,18 @@ impl SportProfile {
     #[must_use]
     pub fn from_activities(activities: &[Activity], window_days: u32) -> Self {
         let mut sport_counts: HashMap<String, u32> = HashMap::new();
+        let mut longest_seconds: u64 = 0;
         for activity in activities {
             *sport_counts
                 .entry(canonical_sport_label(activity))
                 .or_insert(0) += 1;
+            longest_seconds = longest_seconds.max(activity.duration_seconds());
         }
         Self {
             total_activities: u32::try_from(activities.len()).unwrap_or(u32::MAX),
             window_days,
             sport_counts,
+            longest_session_min: u32::try_from(longest_seconds / 60).unwrap_or(u32::MAX),
         }
     }
 

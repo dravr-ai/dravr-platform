@@ -9,6 +9,8 @@ import { webNavLabels } from '@pierre/shared-constants';
 import {
   setupDashboardMocks,
   loginToDashboard,
+  signInThroughHostedPage,
+  mockHomeFirstArrival,
   navigateToTab,
   ONBOARDED_STATUS,
 } from './test-helpers';
@@ -288,6 +290,117 @@ async function sweepThread(page: Page, theme: (typeof THEMES)[number]) {
   expect(layoutFailures, `layout contract broken:\n${layoutFailures.join('\n')}`).toEqual([]);
 }
 
+// Onboarding's Your team step (carnet#1095) is not a nav surface, so the
+// registry walk never reaches it: an athlete meets it once, right after the
+// connect step. This pass opens it the way that athlete does — every earlier
+// step done, no team step recorded — on a proposal where every rule fired
+// (two members ticked, Mobility offered unticked), then the Browse all agents
+// sheet over it. Onboarding has no page shell for the gutter gate to read, so
+// the one layout contract checked is that nothing scrolls the page sideways.
+const TEAM_LEAD = {
+  agent: { id: 'agent-endurance', title: 'Endurance', category: 'training' },
+  match_score: 0.92,
+  reason: 'You ride four times a week and named a long event in June. It reads every session and plans toward that day.',
+};
+const TEAM_PROPOSAL = {
+  profile: {
+    has_profile: true,
+    window_days: 90,
+    total_activities: 46,
+    primary_sport: 'ride',
+    sport_mix: [
+      { sport: 'ride', count: 33, share: 0.72 },
+      { sport: 'run', count: 10, share: 0.21 },
+      { sport: 'strength_training', count: 3, share: 0.07 },
+    ],
+  },
+  goal: 'a gran fondo in June',
+  agents: [TEAM_LEAD],
+  team: {
+    lead: TEAM_LEAD,
+    members: [
+      {
+        agent: { id: 'agent-fuelling', title: 'Fuelling', category: 'nutrition' },
+        rule: 'goal',
+        preselected: true,
+        reason: 'A five-hour day is won or lost on what you eat in the last two hours.',
+      },
+      {
+        agent: { id: 'agent-recovery', title: 'Recovery', category: 'recovery' },
+        rule: 'sleep_source',
+        source: 'Garmin',
+        preselected: true,
+        reason: 'Garmin sends your sleep and HRV, so it has something real to read every morning.',
+      },
+      {
+        agent: { id: 'agent-mobility', title: 'Mobility', category: 'mobility' },
+        rule: 'strength',
+        preselected: false,
+        reason: 'Short routines that pair with your strength days. Add it now or later.',
+      },
+    ],
+  },
+};
+const TEAM_STORE_LISTINGS = ['Endurance', 'Fuelling', 'Mind'].map((title, i) => ({
+  id: `listing-${i}`,
+  title,
+  description: `${title} agent from the catalogue.`,
+  category: ['training', 'nutrition', 'custom'][i],
+  tags: [],
+  sample_prompts: [],
+  token_count: 900,
+  install_count: 12 + i,
+  icon_url: null,
+  published_at: '2026-09-01T00:00:00Z',
+  author_id: null,
+}));
+
+async function sweepOnboardingTeam(page: Page, theme: (typeof THEMES)[number]) {
+  await page.addInitScript(() => {
+    for (const step of ['profile_type_chosen', 'about_you_done', 'parq_done', 'check_in_done']) {
+      window.localStorage.setItem(`dravr.${step}.user-123`, '1');
+    }
+  });
+  await setupDashboardMocks(page, { role: 'user', displayName: 'Camille' });
+  // Registered after the shared mocks, so these win.
+  await page.route('**/api/me/onboarding-status', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ needs_provider_connection: false, steps: [] }),
+    }),
+  );
+  await page.route('**/api/agents/proposal', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TEAM_PROPOSAL) }),
+  );
+  await page.route('**/api/store/agents**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ agents: TEAM_STORE_LISTINGS, next_cursor: null, has_more: false }),
+    }),
+  );
+  await page.goto('/');
+  await signInThroughHostedPage(page);
+  page.setDefaultTimeout(5_000);
+  await expect(page.getByRole('heading', { name: "Camille, here's your starting team" })).toBeVisible({
+    timeout: 15_000,
+  });
+
+  const sidewaysScroll = () =>
+    page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  await page.waitForTimeout(700);
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/user-onboarding-team.png`, fullPage: true });
+  expect(await sidewaysScroll(), 'the Your team step scrolls sideways').toBeLessThanOrEqual(0);
+
+  await page.getByRole('button', { name: 'Browse all agents' }).click();
+  await expect(page.getByRole('dialog', { name: 'All agents' })).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `design-sweep/${theme}/user-onboarding-team-browse.png`, fullPage: true });
+  expect(await sidewaysScroll(), 'the Browse all agents sheet scrolls sideways').toBeLessThanOrEqual(0);
+}
+
 test.describe('design sweep', () => {
   // Each surface carries an entrance animation, a theme-transition settle and a
   // full-page capture. The default 30s cap is sized for a single interaction,
@@ -301,6 +414,9 @@ test.describe('design sweep', () => {
     test(`the open thread renders in ${theme}`, async ({ page }) => {
       await sweepThread(page, theme);
     });
+    test(`the onboarding Your team step renders in ${theme}`, async ({ page }) => {
+      await sweepOnboardingTeam(page, theme);
+    });
   }
 
   for (const theme of THEMES) {
@@ -310,6 +426,45 @@ test.describe('design sweep', () => {
 
     test(`admin surfaces render in ${theme}`, async ({ page }) => {
       await sweep(page, { role: 'admin', surfaces: ADMIN_SURFACES, theme });
+    });
+  }
+});
+
+// Home's first arrival (carnet#1098): Getting started open on Meet your team
+// and a team of three at the top of Today — the state no registry walk
+// reaches, since the shared mocks model an established athlete. Wide, Today
+// is the docked panel; narrow, the Today line carries the count and its sheet
+// opens on the same two sections. Both pass the page's layout contract.
+async function sweepHomeFirstArrival(page: Page, theme: (typeof THEMES)[number]) {
+  await setupDashboardMocks(page, { role: 'user', displayName: 'Camille' });
+  await mockHomeFirstArrival(page);
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await expect(page.getByTestId('home-getting-started')).toBeVisible();
+  await expect(page.getByTestId('home-team')).toBeVisible();
+  await page.waitForTimeout(700);
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/user-home-first-arrival.png`, fullPage: true });
+  const wide = describeLayoutFailures('user/home-first-arrival', await measurePageLayout(page));
+  expect(wide, `layout contract broken:\n${wide.join('\n')}`).toEqual([]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId('home-today-peek-progress')).toHaveText('1 of 5');
+  await page.getByTestId('home-today-peek').click();
+  await expect(page.getByRole('dialog', { name: 'Today' }).getByTestId('home-getting-started')).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `design-sweep/${theme}/user-home-first-arrival-phone.png`, fullPage: true });
+  const sideways = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(sideways, 'the Today sheet scrolls sideways at 390px').toBeLessThanOrEqual(0);
+}
+
+test.describe('design sweep — Home first arrival', () => {
+  test.describe.configure({ timeout: 180_000 });
+  for (const theme of THEMES) {
+    test(`Home's first arrival renders in ${theme}`, async ({ page }) => {
+      await sweepHomeFirstArrival(page, theme);
     });
   }
 });

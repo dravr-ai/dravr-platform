@@ -51,6 +51,13 @@ pub enum CalibrationTopic {
     EventDemand,
 }
 
+/// Minutes from which a session marks a long-session athlete.
+///
+/// Three hours is where carbohydrate intake stops being optional, so it earns
+/// them the fueling topic here and the Fuelling agent on their team
+/// (`pierre_services::team_rules`): one threshold, read by both.
+pub const LONG_SESSION_MIN: u32 = 180;
+
 /// Raw observations about the athlete that decide which conditional topics
 /// they are asked. Policy lives in [`CalibrationTopic::for_conditions`]; these
 /// are the inputs, each meaning exactly what it says.

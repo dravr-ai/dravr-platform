@@ -21,27 +21,33 @@ use pierre_cache::{CacheKey, CacheResource};
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::agents::{
-    AgentCategory, AgentListItem, AgentPrerequisites, ListAgentsFilter, UpdateAgentRequest,
+    AgentCategory, AgentHandle, AgentListItem, AgentPrerequisites, ListAgentsFilter,
+    UpdateAgentRequest,
 };
 use pierre_core::models::{SportProfile, TenantId};
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
+use pierre_services::activity_sports::MessagingStringsRegistry;
 use pierre_services::agent_generation::resolve_chat_provider;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::agents as agents_service;
 use pierre_services::locale::resolve_user_locale;
+use pierre_services::team_rules::{self, pick_members, TeamPick, TeamRule, TeamSignals};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{field, warn, Span};
 use uuid::Uuid;
 
-use super::proposal_profile::{build_profile_view, pillar_context_prompt, ProfileView};
+use super::proposal_profile::{
+    build_profile_view, pillar_context_prompt, proposal_goal, ProfileView,
+};
 use super::types::{
-    validate_max_tool_iterations, AgentProposalResponse, AgentResponse, ListAgentsQuery,
-    ListAgentsResponse, MissingPrerequisite, ProposedAgent, RecordUsageResponse,
-    SportProfileSummary, SubmitForReviewResponse, UpdateAgentBody,
+    validate_max_tool_iterations, AgentProposal, AgentProposalResponse, AgentResponse,
+    ListAgentsQuery, ListAgentsResponse, MissingPrerequisite, ProposedAgent, ProposedTeam,
+    RecordUsageResponse, SubmitForReviewResponse, TeamMember, UpdateAgentBody,
 };
 
 /// [`agents_service::user_sees_coach_tools`] for this route's context.
@@ -81,6 +87,15 @@ pub(super) async fn handle_list<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     let users = MiddlewareCtx::repos(ctx.as_ref()).users.as_ref();
     agents_service::retain_visible_agents(users, auth.user_id, &mut agents, |item| &item.agent)
         .await;
+    // The list reads in the athlete's locale, as the proposal does: Your team,
+    // the chat header and Discover name a catalogue agent the way onboarding
+    // offered it. Only this read view is translated; GET, which the editor
+    // loads, keeps the stored text so an edit never saves a translation.
+    let locale = resolve_user_locale(users, auth.user_id).await;
+    MiddlewareCtx::repos(ctx.as_ref())
+        .agents
+        .apply_translations(&mut agents, &locale)
+        .await?;
     // `total` is the user's global agent count (drives pagination) and stays
     // independent of the per-page `agents` view, which other query filters
     // (favorites_only / category) and the agent-facing filter narrow.
@@ -249,15 +264,16 @@ async fn load_sport_profile<C: ToolRuntime>(
 
 /// Handle GET /api/agents/proposal - Onboarding agent proposal.
 ///
-/// Drives the post-onboarding "we analyzed your data → here are your coaches"
-/// screen in one call: infers the user's recent sport profile, deterministically
-/// prefilters the system-agent catalog to an eligible candidate pool, then asks
-/// the LLM to re-rank that pool down to the top
-/// [`max_recommended`](AgentRecommendationConfig::max_recommended) with a
-/// one-line rationale each. The LLM step reads each candidate's "when to use"
-/// text so a situational agent (e.g. a race-week taper builder) is rejected for
-/// an athlete it does not fit. Any LLM failure falls back to deterministic
-/// prefilter order, so the proposal never hard-fails.
+/// Drives the onboarding "Your team" step in one call: infers the user's
+/// recent sport profile, deterministically prefilters the system-agent catalog
+/// to an eligible candidate pool, then asks the LLM to re-rank that pool down
+/// to the top [`max_recommended`](AgentRecommendationConfig::max_recommended)
+/// with a one-line rationale each. The LLM step reads each candidate's "when
+/// to use" text so a situational agent (e.g. a race-week taper builder) is
+/// rejected for an athlete it does not fit. Beside the lead, the team rule
+/// table ([`pierre_services::team_rules`]) picks the members; the same LLM
+/// call writes their reasons. Any LLM failure falls back to deterministic
+/// order and the rules' own reasons, so the proposal never hard-fails.
 pub(super) async fn handle_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -269,10 +285,12 @@ pub(super) async fn handle_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
         auth.user_id,
     )
     .await;
-    let (profile, agents) = build_agent_proposal(&ctx, auth.user_id, tenant_id, &locale).await?;
+    let proposal = build_agent_proposal(&ctx, auth.user_id, tenant_id, &locale).await?;
     let response = AgentProposalResponse {
-        profile,
-        agents,
+        profile: proposal.profile,
+        agents: proposal.agents,
+        team: proposal.team,
+        goal: proposal.goal,
         metadata: super::build_metadata(),
     };
     Ok((StatusCode::OK, Json(response)).into_response())
@@ -285,6 +303,14 @@ pub(super) async fn handle_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
 /// prefilters the system-agent catalog to an eligible pool, LLM-re-ranks it to the
 /// top [`max_recommended`](AgentRecommendationConfig::max_recommended) with a
 /// rationale each, and falls back to deterministic order on any LLM failure.
+///
+/// The team is `agents[0]` as lead plus the members the rule table picks
+/// (published, bindable and provider-satisfiable catalogue agents only, never
+/// the lead). Members are never re-rank candidates, so the model cannot make
+/// one the lead; it writes their reasons in the same call. A cold start (no
+/// usable profile) leads with Fuelling, then Recovery, then Mobility, and
+/// never with RED-S; it is re-ranked when the athlete's about-you or pillar
+/// answers give the model something to read.
 ///
 /// `locale` is the user's BCP-47 language code; it drives the language of each
 /// agent's rationale (the LLM re-rank prompt and the deterministic fallback),
@@ -299,7 +325,7 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     user_id: uuid::Uuid,
     tenant_id: TenantId,
     locale: &str,
-) -> Result<(SportProfileSummary, Vec<ProposedAgent>), AppError> {
+) -> Result<AgentProposal, AppError> {
     let manager = super::get_agents_manager(ctx);
     let rec_config = AgentRecommendationConfig::from_env();
 
@@ -326,11 +352,11 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
         locale,
     );
 
-    // Enrich the re-rank prompt with onboarding pillar context (North Star +
-    // covered pillars). Graceful: when the user has no pillar context yet, the
-    // match falls back to sport-mix exactly as before. Best-effort — a dossier
-    // compose failure never blocks the proposal.
-    if let Ok(dossier) = MiddlewareCtx::repos(ctx.as_ref())
+    // Onboarding pillar context (North Star + covered pillars) enriches the
+    // re-rank prompt, and the goal feeds the team rules. Best-effort — a
+    // dossier compose failure never blocks the proposal; without one the match
+    // falls back to sport-mix exactly as before.
+    let dossier = MiddlewareCtx::repos(ctx.as_ref())
         .dossier
         .compose_dossier(
             tenant_id,
@@ -339,14 +365,13 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
             &ai_scope::admit_derived,
         )
         .await
-    {
-        if let Some(context) = pillar_context_prompt(&dossier) {
-            profile_view.prompt_text = format!("{}\n\n{context}", profile_view.prompt_text);
-        }
+        .ok();
+    let pillar_context = dossier.as_ref().and_then(pillar_context_prompt);
+    if let Some(context) = &pillar_context {
+        profile_view.prompt_text = format!("{}\n\n{context}", profile_view.prompt_text);
     }
 
-    // Score the full system-agent catalog and keep only eligible candidates,
-    // best deterministic score first, capped to the re-rank pool size.
+    // Score the full system-agent catalog and keep only eligible candidates.
     let filter = ListAgentsFilter {
         category: None,
         favorites_only: false,
@@ -360,8 +385,7 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     // Agent-facing builder personas are proposed only to users in Agent mode;
     // an athlete never gets an agent-facing builder recommended.
     let sees_coach_tools = sees_coach_tools(ctx, user_id).await;
-
-    let mut eligible: Vec<(AgentListItem, f32)> = items
+    let eligible: Vec<(AgentListItem, f32)> = items
         .into_iter()
         .filter_map(|item| {
             if !sees_coach_tools && item.agent.is_coach_facing() {
@@ -378,22 +402,40 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
                 .then_some((item, recommendation.match_score))
         })
         .collect();
-    eligible.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| a.0.agent.id.cmp(&b.0.agent.id))
-    });
-    eligible.truncate(rec_config.rerank_pool_size);
 
-    // Re-rank the candidate pool with the LLM. Cold start (no profile) skips the
-    // LLM — there is nothing situational to reason about — and just takes the
-    // deterministic top set.
-    let ranked = rerank_candidates(
+    // The rule table's members, resolved to published agents the athlete may
+    // be given. They are resolved from the eligible list, so the same
+    // coach-facing and prerequisite gates apply.
+    let sleep_source = sleep_source_name(
+        ToolRuntime::provider_registry(ctx.as_ref()),
+        &user_providers,
+    );
+    let signals = TeamSignals::read(sport_profile.as_ref(), dossier.as_ref(), sleep_source);
+    let picks = resolve_team_picks(
+        ctx,
+        &pick_members(&signals, rec_config.min_activities_for_sport),
+        &eligible,
+    )
+    .await;
+
+    let cold_start = sport_profile.is_none();
+    let mut pool = eligible;
+    pool.sort_by(|a, b| proposal_order(a, b, cold_start));
+    pool.truncate(rec_config.rerank_pool_size);
+
+    // Re-rank the candidate pool with the LLM when there is something to
+    // reason about: a sport profile, or the athlete's own answers. A cold
+    // start with neither takes the deterministic order.
+    let (mut ranked, member_reasons) = rerank_candidates(
         ctx,
         &profile_view,
-        eligible,
-        rec_config.max_recommended,
-        sport_profile.is_some(),
+        pool,
+        &picks,
+        RerankOptions {
+            max: rec_config.max_recommended,
+            use_llm: sport_profile.is_some() || pillar_context.is_some(),
+            cold_start,
+        },
         locale,
     )
     .await;
@@ -402,14 +444,34 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     // already do, and the agent titles take the same translation overlay the
     // store applies, so a French athlete is offered « Agent de trail », not
     // its English name.
-    let mut ranked = ranked;
     let agent_repo = &MiddlewareCtx::repos(ctx.as_ref()).agents;
     for (item, _, _) in &mut ranked {
         agent_repo
             .translate_agents(slice::from_mut(&mut item.agent), locale)
             .await?;
     }
+    let mut picks = picks;
+    for (item, _) in &mut picks {
+        agent_repo
+            .translate_agents(slice::from_mut(&mut item.agent), locale)
+            .await?;
+    }
 
+    let team = ranked.first().map(|(lead, score, reason)| ProposedTeam {
+        lead: ProposedAgent {
+            agent: lead.clone().into(),
+            match_score: *score,
+            reason: reason.clone(),
+        },
+        members: team_members(
+            picks,
+            &lead.agent.id.to_string(),
+            &member_reasons,
+            sleep_source,
+            ToolRuntime::messaging_strings_registry(ctx.as_ref()),
+            locale,
+        ),
+    });
     let agents: Vec<ProposedAgent> = ranked
         .into_iter()
         .map(|(item, match_score, reason)| ProposedAgent {
@@ -419,31 +481,158 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
         })
         .collect();
 
-    Ok((profile_view.summary, agents))
+    Ok(AgentProposal {
+        profile: profile_view.summary,
+        agents,
+        team,
+        goal: dossier.as_ref().and_then(proposal_goal),
+    })
 }
 
-/// Re-rank `eligible` candidates into the final proposal list.
+/// The deterministic proposal order: best score first, then (on a cold
+/// start) the cold-start lead order, then the title — never an id, which
+/// would make the lead an accident of UUID generation.
+fn proposal_order(
+    a: &(AgentListItem, f32),
+    b: &(AgentListItem, f32),
+    cold_start: bool,
+) -> Ordering {
+    let rank = |item: &AgentListItem| {
+        if cold_start {
+            team_rules::cold_start_rank(item.agent.handle.as_deref())
+        } else {
+            0
+        }
+    };
+    b.1.partial_cmp(&a.1)
+        .unwrap_or(Ordering::Equal)
+        .then_with(|| rank(&a.0).cmp(&rank(&b.0)))
+        .then_with(|| a.0.agent.title.cmp(&b.0.agent.title))
+        .then_with(|| a.0.agent.handle.cmp(&b.0.agent.handle))
+}
+
+/// Display name of the first connected provider (by name, for a stable
+/// answer) that sends sleep or recovery data.
+fn sleep_source_name(
+    registry: &ProviderRegistry,
+    user_providers: &HashSet<String>,
+) -> Option<&'static str> {
+    let mut providers: Vec<&String> = user_providers.iter().collect();
+    providers.sort();
+    providers
+        .into_iter()
+        .find(|name| registry.supports_sleep(name) || registry.supports_recovery(name))
+        .and_then(|name| registry.get_display_name(name))
+}
+
+/// The rule table's picks as agents the athlete may be given: the published
+/// catalogue agent owning each handle, kept only when it is in `eligible`
+/// (readable, not a coach tool for an athlete, prerequisites met). A handle
+/// the catalogue does not publish is skipped.
+async fn resolve_team_picks<C: MiddlewareCtx>(
+    ctx: &Arc<C>,
+    picks: &[TeamPick],
+    eligible: &[(AgentListItem, f32)],
+) -> Vec<(AgentListItem, TeamPick)> {
+    let store = &MiddlewareCtx::repos(ctx.as_ref()).store_listings;
+    let mut resolved = Vec::with_capacity(picks.len());
+    for pick in picks {
+        let Ok(handle) = AgentHandle::parse(pick.handle()) else {
+            continue;
+        };
+        let published = match store.find_published_by_handle(&handle).await {
+            Ok(Some(published)) => published.agent.id,
+            Ok(None) => continue,
+            Err(e) => {
+                warn!(error = %e, handle = pick.handle(), "team proposal: member lookup failed");
+                continue;
+            }
+        };
+        if let Some((item, _)) = eligible.iter().find(|(item, _)| item.agent.id == published) {
+            resolved.push((item.clone(), *pick));
+        }
+    }
+    resolved
+}
+
+/// The members beside `lead_id`, each with the LLM's reason or its rule's own.
+fn team_members(
+    picks: Vec<(AgentListItem, TeamPick)>,
+    lead_id: &str,
+    llm_reasons: &HashMap<String, String>,
+    sleep_source: Option<&str>,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+) -> Vec<TeamMember> {
+    picks
+        .into_iter()
+        .filter(|(item, _)| item.agent.id.to_string() != lead_id)
+        .map(|(item, pick)| {
+            let source = (pick.rule == TeamRule::SleepSource)
+                .then(|| sleep_source.map(ToOwned::to_owned))
+                .flatten();
+            let reason = llm_reasons
+                .get(&item.agent.id.to_string())
+                .cloned()
+                .unwrap_or_else(|| {
+                    strings.render(
+                        pick.rule.fallback_reason_key(),
+                        locale,
+                        &[source.as_deref().unwrap_or_default()],
+                    )
+                });
+            TeamMember {
+                agent: item.into(),
+                rule: pick.rule,
+                source,
+                preselected: pick.preselected(),
+                reason,
+            }
+        })
+        .collect()
+}
+
+/// How [`rerank_candidates`] ranks.
+struct RerankOptions {
+    /// How many agents the proposal offers.
+    max: usize,
+    /// Whether to ask the LLM at all.
+    use_llm: bool,
+    /// No usable profile: RED-S never leads.
+    cold_start: bool,
+}
+
+/// Re-rank `eligible` candidates into the final proposal list, and collect
+/// the LLM's reasons for the team `members`.
 ///
 /// When `use_llm` is true, asks the configured chat provider to pick the best
-/// `max` agents with a rationale each; selections are applied in the model's
-/// order. Any LLM failure (no provider, request error, unparseable output)
-/// yields no selections and the function fills entirely from deterministic
-/// prefilter order. When the LLM returns fewer than `max`, the remaining slots
-/// are filled deterministically. Returns `(agent, match_score, reason)` tuples.
+/// `max` agents with a rationale each, and to write one reason per member;
+/// selections are applied in the model's order. Members are never offered to
+/// the model as candidates, so it cannot make one the lead. Any LLM failure
+/// (no provider, request error, unparseable output) yields no selections and
+/// no reasons, and the function fills entirely from deterministic order. When
+/// the LLM returns fewer than `max`, the remaining slots are filled
+/// deterministically, members last. Returns `(agent, match_score, reason)`
+/// tuples and the member reasons by id.
 async fn rerank_candidates<C: AgentsCtx>(
     ctx: &Arc<C>,
     profile: &ProfileView,
     eligible: Vec<(AgentListItem, f32)>,
-    max: usize,
-    use_llm: bool,
+    members: &[(AgentListItem, TeamPick)],
+    options: RerankOptions,
     locale: &str,
-) -> Vec<(AgentListItem, f32, String)> {
+) -> (Vec<(AgentListItem, f32, String)>, HashMap<String, String>) {
     if eligible.is_empty() {
-        return Vec::new();
+        return (Vec::new(), HashMap::new());
     }
+    let member_ids: HashSet<String> = members
+        .iter()
+        .map(|(item, _)| item.agent.id.to_string())
+        .collect();
 
     let candidates: Vec<agents_service::ProposalCandidate> = eligible
         .iter()
+        .filter(|(item, _)| !member_ids.contains(&item.agent.id.to_string()))
         .map(|(item, score)| {
             // Rank on the explicit "when to use" guidance, then purpose, then
             // description — whichever the agent defines first.
@@ -464,20 +653,27 @@ async fn rerank_candidates<C: AgentsCtx>(
             }
         })
         .collect();
-    let valid_ids: HashSet<String> = candidates.iter().map(|c| c.id.clone()).collect();
+    let member_context: Vec<team_rules::MemberContext> = members
+        .iter()
+        .map(|(item, pick)| team_rules::MemberContext {
+            id: item.agent.id.to_string(),
+            title: item.agent.title.clone(),
+            why: team_rules::rule_context(pick.rule),
+        })
+        .collect();
 
-    let selections = if use_llm {
+    let (selections, member_reasons) = if options.use_llm && !candidates.is_empty() {
         llm_rerank_selections(
             ctx,
             &profile.prompt_text,
             &candidates,
-            &valid_ids,
-            max,
+            &member_context,
+            options.max,
             locale,
         )
         .await
     } else {
-        Vec::new()
+        (Vec::new(), HashMap::new())
     };
 
     // Index candidates by id so selections pull out in the model's order.
@@ -486,7 +682,7 @@ async fn rerank_candidates<C: AgentsCtx>(
         .map(|(item, score)| (item.agent.id.to_string(), (item, score)))
         .collect();
 
-    let mut out: Vec<(AgentListItem, f32, String)> = Vec::with_capacity(max);
+    let mut out: Vec<(AgentListItem, f32, String)> = Vec::with_capacity(options.max);
     for selection in selections {
         if let Some((item, score)) = by_id.remove(&selection.id) {
             out.push((item, score, selection.reason));
@@ -494,15 +690,16 @@ async fn rerank_candidates<C: AgentsCtx>(
     }
 
     // Deterministic fill for any unfilled slots (LLM returned too few, or off).
-    if out.len() < max {
+    if out.len() < options.max {
         let mut remaining: Vec<(AgentListItem, f32)> = by_id.into_values().collect();
         remaining.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| a.0.agent.id.cmp(&b.0.agent.id))
+            let member = |item: &AgentListItem| member_ids.contains(&item.agent.id.to_string());
+            member(&a.0)
+                .cmp(&member(&b.0))
+                .then_with(|| proposal_order(a, b, options.cold_start))
         });
         for (item, score) in remaining {
-            if out.len() >= max {
+            if out.len() >= options.max {
                 break;
             }
             let reason = fallback_reason(&item, profile.primary_sport.as_deref(), locale);
@@ -510,29 +707,48 @@ async fn rerank_candidates<C: AgentsCtx>(
         }
     }
 
-    out
+    // A cold start never leads with RED-S, whoever ranked it first.
+    if options.cold_start {
+        if let Some(first_lead) = out
+            .iter()
+            .position(|(item, _, _)| team_rules::may_lead_cold_start(item.agent.handle.as_deref()))
+        {
+            out[..=first_lead].rotate_right(1);
+        }
+    }
+
+    (out, member_reasons)
 }
 
-/// Run the LLM re-rank call, returning ordered selections or an empty vec on any
-/// failure (logged, never propagated — onboarding falls back deterministically).
+/// Run the LLM re-rank call, returning ordered selections and the member
+/// reasons, or empty on any failure (logged, never propagated — onboarding
+/// falls back deterministically).
 async fn llm_rerank_selections<C: AgentsCtx>(
     ctx: &Arc<C>,
     profile_prompt: &str,
     candidates: &[agents_service::ProposalCandidate],
-    valid_ids: &HashSet<String>,
+    members: &[team_rules::MemberContext],
     max: usize,
     locale: &str,
-) -> Vec<agents_service::RankedSelection> {
+) -> (
+    Vec<agents_service::RankedSelection>,
+    HashMap<String, String>,
+) {
     let provider = match resolve_chat_provider(ctx.chat_provider(), ctx.llm_provider()) {
         Ok(provider) => provider,
         Err(e) => {
             warn!(error = %e, "coach proposal: no chat provider, using deterministic order");
-            return Vec::new();
+            return (Vec::new(), HashMap::new());
         }
     };
 
-    let user_prompt =
-        agents_service::build_rerank_user_prompt(profile_prompt, candidates, max, locale);
+    let valid_ids: HashSet<String> = candidates.iter().map(|c| c.id.clone()).collect();
+    let member_ids: HashSet<String> = members.iter().map(|m| m.id.clone()).collect();
+    let user_prompt = format!(
+        "{}{}",
+        agents_service::build_rerank_user_prompt(profile_prompt, candidates, max, locale),
+        team_rules::members_prompt_section(members),
+    );
     let rerank_prompt = ctx.agent_rerank_prompt();
     let messages = vec![
         ChatMessage::system(rerank_prompt.trim()),
@@ -540,10 +756,13 @@ async fn llm_rerank_selections<C: AgentsCtx>(
     ];
 
     match provider.complete(&ChatRequest::new(messages)).await {
-        Ok(response) => agents_service::parse_rerank_response(&response.content, valid_ids, max),
+        Ok(response) => (
+            agents_service::parse_rerank_response(&response.content, &valid_ids, max),
+            team_rules::parse_member_reasons(&response.content, &member_ids),
+        ),
         Err(e) => {
             warn!(error = %e, "coach proposal: re-rank LLM call failed, using deterministic order");
-            Vec::new()
+            (Vec::new(), HashMap::new())
         }
     }
 }

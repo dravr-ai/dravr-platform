@@ -1,4 +1,3 @@
-| `text-md` | 15 / 20 | A row's second line when it is read, not scanned: the chat preview, a Discover description |
 # Design System: Dravr Boreal — Product Tier
 
 > **Source of truth.** Every token value lives once, in
@@ -461,8 +460,8 @@ The one carve-out is the chat composer (`chat/MessageInput.tsx`): a chat
 surface, not a form field, and it needs an enclosing box to host its embedded
 send button. It carries a local `eslint-disable` naming the reason.
 
-Checkbox, radio, number, file and range have no primitive yet — that is why the
-raw-`<input>` rule is a ratchet rather than a hard zero.
+A checkbox is `ui/Checkbox`; radio, number, file and range have no primitive
+yet — that is why the raw-`<input>` rule is a ratchet rather than a hard zero.
 
 ### Page header
 
@@ -588,8 +587,10 @@ followed yet: its Chat tab still holds every thread.
 | Home and Chat tab headers — **mobile only** | `surface` | `surface` | The full lockup: the badge mark **and** the DRAVR wordmark, in place of the screen title — on Chat followed by the appearance toggle, the bell and the `+`. The lockup is a button named Home (`nav.home`): from Chat it goes to Home, on Home it scrolls back to the top. It gains a press, not a look — no recolour, no badge, no pressed ink beyond a dimming. Discover and Settings keep their own titles. |
 | List column (320/340px) — Groups | `surface` | `surface` | A 52px title row with the `+` as an ink icon button, a quiet 32px search field (`SearchField`), text tabs (All / Unread) under a primary underline, then rows. A hairline on the right separates it from the thread. History draws the same list in its sheet without the title row, its tabs All / Unread / Agents. |
 | Notification bell — **web** | `surface` | `surface` | The right-most control of the header on Home (beside History and the Today toggle), Groups (the list's title row, after the `+`) and Discover (after the search): an 18px `Bell` ink icon button, the unread count on a `bg-primary text-on-primary` 18px pill at its corner, the count also in its accessible name. It opens the notification centre as a `Sheet` — from the right, from the bottom on a phone — so reading them never leaves the surface; a row that goes somewhere closes the sheet there. Notifications are not a rail destination (carnet#820). |
-| Today panel (320/360px) — **web, ≥`lg`** | `surface` | `surface` | Home's own sections — Today, the week, the training status, the recent activities with the latest on its map in a 192px frame — scrolling on their own behind a hairline on the left. The header's toggle (`PanelRight`) folds it away. |
-| Today line — **web, <`lg`** | `surface-container-low` | same token | One 52px row above the thread, radius 12: "Today", the session, the form as a share of fitness, the latest route's sketch, a chevron. Not white: the composer stays the one white shape. |
+| Today panel (320/360px) — **web, ≥`lg`** | `surface` | `surface` | Home's own sections — **Getting started** and **Your team** first, then Today, the week, the training status, the recent activities with the latest on its map in a 192px frame — scrolling on their own behind a hairline on the left. The header's toggle (`PanelRight`) folds it away. Both first-run sections are `ui/Section`s (13/600 headings), never Cards. |
+| Getting started — **web** | `surface`, current row `surface-container-low` | same tokens | `GET /api/me/getting-started`: the five first steps in order, a mono `{{done}} of 5` and a quiet **Hide** link in the header. A 20px circle leads each row — filled `primary` with a check when done, a 2px `primary` ring on the current row (`aria-current="step"`, 600), a 1.5px `outline` ring otherwise; a 12px `outline` hint under the title, naming the missing prerequisite when there is one. Done rows and rows waiting on a prerequisite are plain text; open rows are buttons — Connect opens Settings › Connections, the others send their starter into the Home thread. After the last step it folds to one line naming Settings, and is gone seven days later; Settings › Home has the switch that brings it back. |
+| Your team — **web** | `surface` | `surface` | The assigned agents (`/api/agents`, `is_assigned`) as 32px-avatar rows: the thread's lead first with "Leads your thread", each member with `@handle` · description on one truncated line; a row opens that agent's personal topic. A quiet **Find more** header link and a dashed-circle **Add an agent** row go to Discover. No team: "No team yet." with **Pick your team**, which opens the onboarding `TeamPicker` in a `Sheet` and re-sends the `coach_proposal` step. |
+| Today line — **web, <`lg`** | `surface-container-low` | same token | One 52px row above the thread, radius 12: "Today", the session, the form as a share of fitness, the latest route's sketch, a chevron — and, while Getting started is open, a mono `{{done}} of 5` at its end (hidden once folded or hidden). Not white: the composer stays the one white shape. |
 | Sheet (`ui/Sheet`) | `surface` over `bg-scrim/60` | same tokens | One component for every slide-over Home needs: bottom (full height, radius 16 top, a grabber), right (360px) or left (360px, full screen on a phone). 52px header with the title and a 44px close; Escape and the scrim close it; focus is trapped and returned. |
 | List row (60px) | hover `surface-container-low` at 60 %, selected `surface-container-low` | same tokens | 36px initials avatar, title (13px, 600 when unread) + time on line 1, preview + unread pill on line 2, inset `ghost-border-faint` divider. Unread pill = `bg-primary text-on-primary`, 18px. |
 | Thread header (52px) | `surface` | `surface` | 28px avatar, title (the way into the info drawer) with the subtitle beside it on one line, `+`; a hairline below. |

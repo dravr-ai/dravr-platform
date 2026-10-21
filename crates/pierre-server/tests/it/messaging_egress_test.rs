@@ -917,6 +917,64 @@ fn untitled_next_steps_are_listed_under_the_reply() {
     }
 }
 
+/// An add-to-team offer's links cannot be typed back, so a wrap-up carrying
+/// one stays buttons on every channel that draws them — on a card whose text
+/// is the reply itself, since Telegram and `WhatsApp` refuse a card with none
+/// (carnet#1097).
+#[test]
+fn untitled_steps_with_an_offer_ride_as_buttons_under_the_reply() {
+    let mut state = turn_state("Ton profil est complet à 3 sur 6.");
+    state.actions = vec![
+        TurnAction {
+            label: "Mon check-in".to_owned(),
+            kind: ActionKind::Postback,
+            value: "nx:0:check_in".to_owned(),
+        },
+        TurnAction {
+            label: "Ajouter Fuelling Agent à mon équipe".to_owned(),
+            kind: ActionKind::Postback,
+            value: "ta:add:fuelling".to_owned(),
+        },
+        TurnAction {
+            label: "Pas maintenant".to_owned(),
+            kind: ActionKind::Postback,
+            value: "ta:no:fuelling".to_owned(),
+        },
+    ];
+
+    for channel in [
+        ChannelType::Telegram,
+        ChannelType::WhatsApp,
+        ChannelType::Slack,
+    ] {
+        let turn = envelope(channel, state.clone());
+        let rendered = render_reply(&profile(channel).render, &turn.assistant, &strings(), "fr");
+        assert!(
+            rendered.prose.is_empty(),
+            "{channel:?}: the reply rides on the card: {:?}",
+            rendered.prose
+        );
+        assert_eq!(rendered.attachments.len(), 1, "{channel:?}");
+        match &rendered.attachments[0] {
+            MessageContent::Card {
+                title,
+                body,
+                actions,
+            } => {
+                assert_eq!(title, "", "{channel:?}");
+                assert_eq!(body, "Ton profil est complet à 3 sur 6.", "{channel:?}");
+                let values: Vec<&str> = actions.iter().map(|a| a.value.as_str()).collect();
+                assert_eq!(
+                    values,
+                    ["nx:0:check_in", "ta:add:fuelling", "ta:no:fuelling"],
+                    "{channel:?}"
+                );
+            }
+            other => panic!("{channel:?}: the offer must stay buttons: {other:?}"),
+        }
+    }
+}
+
 /// The positional chart markers are stripped before the split, so they never
 /// reach the athlete and never spend the channel's ceiling.
 #[test]

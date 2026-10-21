@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for StoreScreen component
-// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, team membership, and fork-on-edit
+// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, team membership, fork-on-edit and the pick modes
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -804,6 +804,79 @@ describe('StoreScreen', () => {
         await i18n.changeLanguage('en');
         vi.mocked(storeApi.get).mockImplementation(original!);
       }
+    });
+  });
+
+  describe('pick modes (the team step\'s sheets)', () => {
+    function renderPicking(
+      mode: 'pickTeam' | 'pickLead',
+      props: { pickedIds?: string[]; onPick?: ReturnType<typeof vi.fn> } = {},
+    ) {
+      const onPick = props.onPick ?? vi.fn();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <StoreScreen mode={mode} onPick={onPick} pickedIds={props.pickedIds} onNavigate={mockOnNavigate} />
+        </QueryClientProvider>,
+      );
+      return onPick;
+    }
+
+    it('hands the listing back on Add to my team and installs nothing', async () => {
+      const user = userEvent.setup();
+      const onPick = renderPicking('pickTeam');
+      const grid = await screen.findByTestId('store-coach-grid');
+      const rows = within(grid).getAllByTestId('coach-card');
+      await user.click(within(rows[1]).getByRole('button', { name: 'Add to my team' }));
+
+      expect(onPick).toHaveBeenCalledTimes(1);
+      expect(onPick.mock.calls[0][0]).toMatchObject({ id: 'coach-2', title: 'Nutrition Expert' });
+      expect(storeApi.install).not.toHaveBeenCalled();
+      expect(chatApi.openPersonalTopic).not.toHaveBeenCalled();
+      expect(mockOnNavigate).not.toHaveBeenCalled();
+      // A pick never opens the detail view.
+      expect(screen.queryByText('You are an expert marathon coach...')).not.toBeInTheDocument();
+    });
+
+    it('drops the Discover header and bell: the sheet carries the title', async () => {
+      renderPicking('pickTeam');
+      await screen.findByTestId('store-coach-grid');
+      expect(screen.queryByText('Find AI agents')).not.toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: /search/i })).toBeInTheDocument();
+    });
+
+    it('shows an agent already on the list, or already on the saved team, as on your team', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [coach1OnTeam], total: 1, metadata: metadata() });
+      renderPicking('pickTeam', { pickedIds: ['coach-3'] });
+      const grid = await screen.findByTestId('store-coach-grid');
+      const rows = within(grid).getAllByTestId('coach-card');
+      await waitFor(() => expect(within(rows[0]).getByText('On your team')).toBeInTheDocument());
+      expect(within(rows[0]).queryByRole('button')).not.toBeInTheDocument();
+      expect(within(rows[2]).getByText('On your team')).toBeInTheDocument();
+      expect(within(rows[1]).getByRole('button', { name: 'Add to my team' })).toBeInTheDocument();
+    });
+
+    it('offers every other agent to lead and marks the current lead', async () => {
+      const user = userEvent.setup();
+      const onPick = renderPicking('pickLead', { pickedIds: ['coach-1'] });
+      const grid = await screen.findByTestId('store-coach-grid');
+      const rows = within(grid).getAllByTestId('coach-card');
+      expect(within(rows[0]).getByText('Leads your thread')).toBeInTheDocument();
+      await user.click(within(rows[2]).getByRole('button', { name: 'Choose Recovery Coach to lead your thread' }));
+      expect(onPick.mock.calls[0][0]).toMatchObject({ id: 'coach-3' });
+      expect(storeApi.install).not.toHaveBeenCalled();
+    });
+
+    it('never offers an agent written for a human coach', async () => {
+      const page = await storeApi.browse({});
+      vi.mocked(storeApi.browse).mockResolvedValueOnce({
+        ...page,
+        agents: [...page.agents, { ...page.agents[0], id: 'roster', title: 'Roster Agent', tags: ['coach-tool'] }],
+      });
+      renderPicking('pickLead');
+      await screen.findByTestId('store-coach-grid');
+      expect(screen.getByText('Recovery Coach')).toBeInTheDocument();
+      expect(screen.queryByText('Roster Agent')).not.toBeInTheDocument();
     });
   });
 });

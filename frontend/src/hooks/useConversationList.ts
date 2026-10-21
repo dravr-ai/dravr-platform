@@ -170,6 +170,11 @@ export function useConversationList(query = ''): ConversationListState {
 export interface PersonalConversation {
   /** The athlete's personal thread; `null` until the server answers, when it could not, or when the athlete has none yet. */
   id: string | null;
+  /**
+   * The agent the thread is bound to — the one that leads the athlete's team
+   * (carnet#1101); `null` while unknown or when the thread names none.
+   */
+  agentId: string | null;
   /** True until the server first answers. */
   isLoading: boolean;
 }
@@ -190,7 +195,11 @@ export function usePersonalConversation(enabled = true): PersonalConversation {
     queryFn: () => chatApi.getPersonalConversation(),
     enabled,
   });
-  return { id: data?.id ?? null, isLoading: enabled && isLoading };
+  return {
+    id: data?.id ?? null,
+    agentId: data?.agent_id ?? null,
+    isLoading: enabled && isLoading,
+  };
 }
 
 /**

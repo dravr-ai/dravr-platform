@@ -1,5 +1,5 @@
 // ABOUTME: HTTP tests for PUT /api/me/onboarding/steps/{step_id} — status (incl. not_applicable) + chosen_channel validation
-// ABOUTME: Pins the slug guard, the coach-only answer clearing the selected agent, and the proposal's lead becoming it
+// ABOUTME: Pins the slug guard, the coach-only answer, the proposal's lead becoming selected and the team step joining it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,6 +9,8 @@
 
 use crate::common;
 use crate::helpers;
+use crate::helpers::agent_fixtures::publish_catalogue_agent;
+use crate::helpers::notify_capture::{capture_notify, named, only};
 
 use std::sync::Arc;
 
@@ -17,15 +19,22 @@ use serde_json::json;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use pierre_contremaitre::messaging_strings::{
+    format_template, KEY_AGENT_WELCOME_DISCOVER_LINE, KEY_AGENT_WELCOME_LIST_AND,
+    KEY_AGENT_WELCOME_REACH_LINE, KEY_AGENT_WELCOME_TEAM_MANY, KEY_AGENT_WELCOME_TEAM_SOLO,
+};
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
-use pierre_core::models::TenantId;
+use pierre_core::models::{MessageRecord, TenantId};
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::onboarding::OnboardingRoutes;
 use pierre_services::conversation_forge::selected_or_system_agent;
 use pierre_services::default_agent::ROSTER_AGENT_HANDLE;
+use pierre_services::intake::MAX_ONBOARDING_TEAM;
+use pierre_services::locale::resolve_user_locale;
+use pierre_services::personal_thread::find_personal_thread;
 use uuid::Uuid;
 
 async fn setup() -> (axum::Router, String) {
@@ -226,6 +235,25 @@ async fn system_agent(
         .to_string()
 }
 
+/// A catalogue agent published in the Store, as every agent the proposal
+/// offers is: the team step joins it through the Store install.
+async fn published_agent(
+    resources: &ServerContext,
+    owner: Uuid,
+    tenant: TenantId,
+    title: &str,
+) -> String {
+    publish_catalogue_agent(
+        resources.agent.database.repositories(),
+        owner,
+        tenant,
+        title,
+        "Test.",
+    )
+    .await
+    .to_string()
+}
+
 /// A coach who does not train runs their practice with the roster agent, and
 /// an answer that changes later takes them back to an athlete's agent: the
 /// selection is left empty and their thread resolves it from the answer.
@@ -354,8 +382,8 @@ async fn put_proposal(router: &axum::Router, token: &str, body: serde_json::Valu
 async fn start_and_skip_make_the_proposals_lead_the_selected_agent() {
     let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
     let tenants = Arc::clone(&resources.agent.database.repositories().tenants);
-    let tempo = system_agent(&resources, user_id, tenant, "Tempo Coach", vec![]).await;
-    let hills = system_agent(&resources, user_id, tenant, "Hill Coach", vec![]).await;
+    let tempo = published_agent(&resources, user_id, tenant, "Tempo Coach").await;
+    let hills = published_agent(&resources, user_id, tenant, "Hill Coach").await;
 
     assert_eq!(
         put_proposal(
@@ -424,7 +452,7 @@ async fn the_personal_thread_follows_the_lead_unless_the_athlete_moved_it() {
         .await
         .unwrap()
         .id;
-    let tempo = system_agent(&resources, user_id, tenant, "Tempo Coach", vec![]).await;
+    let tempo = published_agent(&resources, user_id, tenant, "Tempo Coach").await;
 
     assert_eq!(
         put_proposal(
@@ -444,7 +472,7 @@ async fn the_personal_thread_follows_the_lead_unless_the_athlete_moved_it() {
     assert_eq!(rebound.agent_id.as_deref(), Some(tempo.as_str()));
 
     // The athlete points the thread at an agent of their own choosing.
-    let hills = system_agent(&resources, user_id, tenant, "Hill Coach", vec![]).await;
+    let hills = published_agent(&resources, user_id, tenant, "Hill Coach").await;
     let mine = system_agent(&resources, user_id, tenant, "My Pick", vec![]).await;
     repos
         .chat
@@ -542,7 +570,7 @@ async fn a_lead_the_athlete_cannot_be_given_is_refused() {
 async fn a_coach_who_does_not_train_is_not_given_the_lead() {
     let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
     let tenants = Arc::clone(&resources.agent.database.repositories().tenants);
-    let tempo = system_agent(&resources, user_id, tenant, "Tempo Coach", vec![]).await;
+    let tempo = published_agent(&resources, user_id, tenant, "Tempo Coach").await;
     let resp = AxumTestRequest::put("/api/me/onboarding/steps/about_you")
         .header("Authorization", &token)
         .json(&json!({ "status": "not_applicable" }))
@@ -563,4 +591,429 @@ async fn a_coach_who_does_not_train_is_not_given_the_lead() {
         tenants.get_selected_agent(tenant, user_id).await.unwrap(),
         None
     );
+    assert!(
+        !is_member(&resources, &tempo, user_id).await,
+        "a coach who does not train joins no athlete's agent"
+    );
+}
+
+// ============================================================================
+// The team step joins every agent it names (carnet#1095)
+// ============================================================================
+
+async fn is_member(resources: &ServerContext, agent_id: &str, user_id: Uuid) -> bool {
+    resources
+        .agent
+        .database
+        .repositories()
+        .agents
+        .get_user_preferences(agent_id, user_id)
+        .await
+        .unwrap()
+        .is_member
+}
+
+async fn install_count(resources: &ServerContext, agent_id: &str) -> u32 {
+    resources
+        .agent
+        .database
+        .repositories()
+        .store_listings
+        .get_published_agent(agent_id)
+        .await
+        .unwrap()
+        .expect("the agent is published")
+        .listing
+        .install_count
+}
+
+async fn proposal_step_written(resources: &ServerContext, user_id: Uuid) -> bool {
+    resources
+        .agent
+        .database
+        .repositories()
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
+        .await
+        .unwrap()
+        .iter()
+        .any(|step| step.step_id == "coach_proposal")
+}
+
+/// Start puts the lead and every ticked agent on the team and selects the
+/// lead; sending the same write again changes nothing, and each agent's
+/// install count grew once.
+#[tokio::test]
+async fn start_joins_every_ticked_agent_and_selects_the_lead() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let lead = published_agent(&resources, user_id, tenant, "Endurance Coach").await;
+    let fuel = published_agent(&resources, user_id, tenant, "Fuelling Coach").await;
+    let rest = published_agent(&resources, user_id, tenant, "Recovery Coach").await;
+    let unticked = published_agent(&resources, user_id, tenant, "Mobility Coach").await;
+    let body = json!({ "status": "complete", "agent_id": lead, "team_agent_ids": [fuel, rest] });
+
+    assert_eq!(
+        put_proposal(&router, &token, body.clone()).await,
+        StatusCode::NO_CONTENT
+    );
+    for agent in [&lead, &fuel, &rest] {
+        assert!(
+            is_member(&resources, agent, user_id).await,
+            "{agent} joined"
+        );
+        assert_eq!(install_count(&resources, agent).await, 1);
+    }
+    assert!(
+        !is_member(&resources, &unticked, user_id).await,
+        "an unticked agent stays off the team"
+    );
+    let tenants = &resources.agent.database.repositories().tenants;
+    assert_eq!(
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
+        Some(lead.clone()),
+        "the lead is selected"
+    );
+
+    assert_eq!(
+        put_proposal(&router, &token, body).await,
+        StatusCode::NO_CONTENT,
+        "a retried Start converges"
+    );
+    for agent in [&lead, &fuel, &rest] {
+        assert_eq!(
+            install_count(&resources, agent).await,
+            1,
+            "a retry installs nothing twice"
+        );
+    }
+}
+
+/// Skip sends the lead alone, and the lead still joins: the team is never
+/// empty.
+#[tokio::test]
+async fn skip_joins_the_lead_only() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let lead = published_agent(&resources, user_id, tenant, "Endurance Coach").await;
+    let fuel = published_agent(&resources, user_id, tenant, "Fuelling Coach").await;
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "skipped", "agent_id": lead, "team_agent_ids": [lead] })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    assert!(is_member(&resources, &lead, user_id).await);
+    assert!(!is_member(&resources, &fuel, user_id).await);
+}
+
+/// A member the athlete cannot read is not found and a coach-facing one is
+/// refused — and either way nothing is written: no agent joins, the
+/// selection stays, the step stays unanswered.
+#[tokio::test]
+async fn a_team_member_that_cannot_join_writes_nothing() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let held = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .get_selected_agent(tenant, user_id)
+        .await
+        .unwrap();
+    let lead = published_agent(&resources, user_id, tenant, "Endurance Coach").await;
+    let fuel = published_agent(&resources, user_id, tenant, "Fuelling Coach").await;
+    let coach_tool = system_agent(
+        &resources,
+        user_id,
+        tenant,
+        "Roster Agent",
+        vec![Agent::COACH_TOOL_TAG.to_owned()],
+    )
+    .await;
+    let unpublished = system_agent(&resources, user_id, tenant, "Draft Coach", vec![]).await;
+
+    for (member, expected) in [
+        (Uuid::new_v4().to_string(), StatusCode::NOT_FOUND),
+        (unpublished, StatusCode::NOT_FOUND),
+        (coach_tool, StatusCode::BAD_REQUEST),
+    ] {
+        assert_eq!(
+            put_proposal(
+                &router,
+                &token,
+                json!({ "status": "complete", "agent_id": lead, "team_agent_ids": [fuel, member] })
+            )
+            .await,
+            expected
+        );
+    }
+    assert!(
+        !is_member(&resources, &lead, user_id).await,
+        "the lead did not join"
+    );
+    assert!(
+        !is_member(&resources, &fuel, user_id).await,
+        "no member joined"
+    );
+    assert_eq!(
+        resources
+            .agent
+            .database
+            .repositories()
+            .tenants
+            .get_selected_agent(tenant, user_id)
+            .await
+            .unwrap(),
+        held,
+        "the selection is untouched"
+    );
+    assert!(
+        !proposal_step_written(&resources, user_id).await,
+        "a refused team leaves the step unwritten"
+    );
+}
+
+/// The list is the athlete's own input, so its length is bounded.
+#[tokio::test]
+async fn an_oversized_team_is_refused() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let lead = published_agent(&resources, user_id, tenant, "Endurance Coach").await;
+    let members: Vec<String> = (0..=MAX_ONBOARDING_TEAM)
+        .map(|_| Uuid::new_v4().to_string())
+        .collect();
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "complete", "agent_id": lead, "team_agent_ids": members })
+        )
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+    assert!(!is_member(&resources, &lead, user_id).await);
+    assert!(!proposal_step_written(&resources, user_id).await);
+}
+
+// ============================================================================
+// The funnel's step event (carnet#1100) and the lead's welcome (carnet#1099)
+// ============================================================================
+
+async fn put_step(router: &axum::Router, token: &str, step: &str, status: &str) -> StatusCode {
+    AxumTestRequest::put(&format!("/api/me/onboarding/steps/{step}"))
+        .header("Authorization", token)
+        .json(&json!({ "status": status }))
+        .send(router.clone())
+        .await
+        .status_code()
+}
+
+/// A step write reports `onboarding.step_completed` once per stored change:
+/// the first write and a changed status do, a repeat of the same status and
+/// a refused write do not.
+#[tokio::test]
+async fn a_step_reports_completed_only_when_its_stored_status_changes() {
+    let (_resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let (events, _guard) = capture_notify();
+
+    assert_eq!(
+        put_step(&router, &token, "parq", "complete").await,
+        StatusCode::NO_CONTENT
+    );
+    let first = only(&events, "onboarding.step_completed");
+    assert_eq!(first.field("step_id"), "parq");
+    assert_eq!(first.field("status"), "complete");
+    assert_eq!(first.field("user_id"), user_id.to_string());
+    assert_eq!(first.field("tenant_id"), tenant.to_string());
+    let seconds: i64 = first.field("seconds_since_signup").parse().unwrap();
+    assert!((0..3600).contains(&seconds), "timed from signup: {seconds}");
+
+    assert_eq!(
+        put_step(&router, &token, "parq", "complete").await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        named(&events, "onboarding.step_completed").len(),
+        1,
+        "the same status again is not a new step"
+    );
+
+    assert_eq!(
+        put_step(&router, &token, "parq", "skipped").await,
+        StatusCode::NO_CONTENT
+    );
+    let steps = named(&events, "onboarding.step_completed");
+    assert_eq!(steps.len(), 2, "a changed status is");
+    assert_eq!(steps[1].field("status"), "skipped");
+
+    assert_eq!(
+        put_step(&router, &token, "parq", "bogus").await,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        put_step(&router, &token, "nope", "complete").await,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        named(&events, "onboarding.step_completed").len(),
+        2,
+        "a refused write reports nothing"
+    );
+}
+
+/// A coach's Later on the group step reports both its own event and the
+/// funnel's step, from one user read.
+#[tokio::test]
+async fn the_coach_group_skip_reports_its_event_and_the_step() {
+    let (_resources, router, token, _user_id, _tenant) = user_with_selected_agent().await;
+    let (events, _guard) = capture_notify();
+    assert_eq!(
+        put_step(&router, &token, "coach_group", "skipped").await,
+        StatusCode::NO_CONTENT
+    );
+    only(&events, "onboarding.coach_group_skipped");
+    assert_eq!(
+        only(&events, "onboarding.step_completed").field("step_id"),
+        "coach_group"
+    );
+}
+
+/// The athlete's own words for `key`, as the welcome was written in them.
+async fn said(resources: &ServerContext, user_id: Uuid, key: &str) -> String {
+    let locale = resolve_user_locale(resources.common.repos.users.as_ref(), user_id).await;
+    resources.mcp.messaging_strings_registry.get(key, &locale)
+}
+
+/// The newest welcome row of the athlete's personal thread.
+async fn personal_welcome(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> Option<String> {
+    let repos = resources.agent.database.repositories();
+    let thread = find_personal_thread(&resources.common.repos, &user_id.to_string(), tenant)
+        .await
+        .unwrap()?;
+    repos
+        .chat
+        .get_messages(&thread.id, &user_id.to_string(), tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(MessageRecord::is_agent_welcome)
+        .map(|row| row.content)
+}
+
+/// An athlete who holds no agent yet, with a token for their tenant.
+async fn bare_athlete() -> (Arc<ServerContext>, axum::Router, String, Uuid, TenantId) {
+    let resources = create_test_server_resources()
+        .await
+        .expect("server resources");
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()[0]
+        .id;
+    let token = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    let router = OnboardingRoutes::routes(Arc::clone(&resources));
+    (resources, router, token, user_id, tenant)
+}
+
+/// Skip posts the lead's welcome into the personal thread, forged for it, as
+/// Start does: the first-run Meet your team turn is never missing. A lead
+/// alone says it is the whole team; there is nobody to reach yet.
+#[tokio::test]
+async fn skip_opens_the_personal_thread_on_the_leads_welcome() {
+    let (resources, router, token, user_id, tenant) = bare_athlete().await;
+    let lead = published_agent(&resources, user_id, tenant, "Tempo Coach").await;
+    assert!(personal_welcome(&resources, user_id, tenant)
+        .await
+        .is_none());
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "skipped", "agent_id": lead, "team_agent_ids": [lead] })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    let welcome = personal_welcome(&resources, user_id, tenant)
+        .await
+        .expect("Skip opens the thread on the lead's welcome");
+    assert!(welcome.contains("Tempo Coach"), "{welcome}");
+    let solo = said(&resources, user_id, KEY_AGENT_WELCOME_TEAM_SOLO).await;
+    let discover = said(&resources, user_id, KEY_AGENT_WELCOME_DISCOVER_LINE).await;
+    let reach = said(&resources, user_id, KEY_AGENT_WELCOME_REACH_LINE).await;
+    assert!(welcome.contains(&solo), "{welcome}");
+    assert!(welcome.contains(&discover), "{welcome}");
+    assert!(!welcome.contains(&reach), "nobody to reach: {welcome}");
+}
+
+/// Start names the rest of the team in the lead's welcome — the members it
+/// ticked and the agent the athlete already held — says how to reach them in
+/// the app, and a second write posts no second welcome.
+#[tokio::test]
+async fn start_names_the_team_in_the_leads_welcome_once() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let lead = published_agent(&resources, user_id, tenant, "Tempo Coach").await;
+    let fuel = published_agent(&resources, user_id, tenant, "Fuel Coach").await;
+    let body = json!({ "status": "complete", "agent_id": lead, "team_agent_ids": [lead, fuel] });
+
+    assert_eq!(
+        put_proposal(&router, &token, body.clone()).await,
+        StatusCode::NO_CONTENT
+    );
+    let welcome = personal_welcome(&resources, user_id, tenant)
+        .await
+        .expect("Start opens the thread on the lead's welcome");
+    let and = said(&resources, user_id, KEY_AGENT_WELCOME_LIST_AND).await;
+    let names = [
+        format_template(&and, &["Fuel Coach", "Endurance"]),
+        format_template(&and, &["Endurance", "Fuel Coach"]),
+    ];
+    let many = said(&resources, user_id, KEY_AGENT_WELCOME_TEAM_MANY).await;
+    assert!(
+        names
+            .iter()
+            .any(|names| welcome.contains(&format_template(&many, &[names]))),
+        "both teammates, named once: {welcome}"
+    );
+    let reach = said(&resources, user_id, KEY_AGENT_WELCOME_REACH_LINE).await;
+    assert!(
+        welcome.contains(&reach),
+        "the web app says how to reach a teammate: {welcome}"
+    );
+
+    assert_eq!(
+        put_proposal(&router, &token, body).await,
+        StatusCode::NO_CONTENT
+    );
+    let thread = find_personal_thread(&resources.common.repos, &user_id.to_string(), tenant)
+        .await
+        .unwrap()
+        .expect("the thread");
+    let welcomes = resources
+        .agent
+        .database
+        .repositories()
+        .chat
+        .get_messages(&thread.id, &user_id.to_string(), tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(MessageRecord::is_agent_welcome)
+        .count();
+    assert_eq!(welcomes, 1, "the introduction ledger keeps it once");
 }

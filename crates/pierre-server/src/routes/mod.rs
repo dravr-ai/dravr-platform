@@ -87,6 +87,9 @@ pub mod check_in;
 pub mod coach_access;
 /// A coach's after-the-fact review of the agent's group replies (carnet#847)
 pub mod coach_replies;
+/// Home's Getting started list: connect, then the first-run flows (carnet#1099)
+#[cfg(feature = "client-chat")]
+pub mod getting_started;
 pub mod onboarding;
 
 /// API key management routes

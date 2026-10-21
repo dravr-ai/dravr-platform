@@ -9,6 +9,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import {
   addCivilDays,
+  DEFAULT_HOME_PREFERENCES,
   mondayOf,
   phaseWeekOn,
   planDayOn,
@@ -224,7 +225,7 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
 function EmptyPlan({ openDraft }: { openDraft: OpenDraft }) {
   const { t } = useTranslation();
   const home = useHomePreferences();
-  const preferences = home.preferences ?? (home.isError ? { plan_suggestion_hidden: false } : null);
+  const preferences = home.preferences ?? (home.isError ? DEFAULT_HOME_PREFERENCES : null);
   return (
     <View className="px-4" testID="home-plan-empty">
       <Text className="text-sm font-medium text-text-primary">{t('home.plan.emptyTitle')}</Text>
@@ -242,7 +243,7 @@ function EmptyPlan({ openDraft }: { openDraft: OpenDraft }) {
             </Text>
             <Text
               className="min-h-11 py-3 text-sm text-text-secondary"
-              onPress={() => home.update({ ...preferences, plan_suggestion_hidden: true })}
+              onPress={() => home.update({ plan_suggestion_hidden: true })}
               accessibilityRole="button"
               accessibilityLabel={t('home.plan.hideSuggestionAria')}
               testID="home-plan-hide"

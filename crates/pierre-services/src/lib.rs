@@ -75,6 +75,9 @@ pub mod athlete_claim_context;
 /// The use-case starters ranked from that state, worded for a surface.
 pub mod use_case_rank;
 
+/// The athlete's first-run flows: which are done, and the one write that marks them (carnet#1099).
+pub mod first_run;
+
 /// Athlete physiology snapshot builder for the personalized-physiology layer.
 #[cfg(feature = "tools-verification")]
 pub mod athlete_snapshot;
@@ -151,6 +154,10 @@ pub mod conversation_forge;
 /// Which system agent answers when nobody picked one: a person's own thread,
 /// or a group.
 pub mod default_agent;
+
+/// The rule table that picks the agents beside an athlete's lead
+/// (carnet#1097).
+pub mod team_rules;
 
 /// Admin browser over pierre-evals golden fixtures
 #[cfg(feature = "tools-verification")]

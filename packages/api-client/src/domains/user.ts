@@ -537,13 +537,16 @@ export function createUserApi(axios: AxiosInstance) {
      * set only for the coach-proposal step: the agent the athlete picked (or the
      * first proposed one on Skip), which the server makes their selected agent
      * and binds their personal thread to. Absent, the server changes neither.
-     * Returns nothing (204); callers treat failure as non-fatal — the local flag
-     * still advances the flow, the server write is a durability best-effort.
+     * `teamAgentIds` is also the coach-proposal step's: every agent the athlete
+     * starts with (the lead included), each joined to their team before the
+     * lead is selected; an id the athlete cannot be given refuses the whole
+     * write. Returns nothing (204); most steps treat failure as non-fatal —
+     * the local flag still advances the flow — but the team step awaits it.
      */
     async setOnboardingStep(
       stepId: string,
       status: 'complete' | 'skipped' | 'not_applicable',
-      options?: { chosenChannel?: string; agentId?: string },
+      options?: { chosenChannel?: string; agentId?: string; teamAgentIds?: string[] },
     ): Promise<void> {
       // An undefined field is dropped by JSON serialization, so a step that
       // carries neither sends `{ status }` alone.
@@ -551,6 +554,7 @@ export function createUserApi(axios: AxiosInstance) {
         status,
         chosen_channel: options?.chosenChannel,
         agent_id: options?.agentId,
+        team_agent_ids: options?.teamAgentIds,
       });
     },
   };

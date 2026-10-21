@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
+import type { PersonalToday } from '../ChatTab';
 
 const viewProps = vi.fn();
 
@@ -22,9 +23,11 @@ vi.mock('../../hooks/useNotifications', () => ({
 }));
 // Home is ChatTab's personal layout; it draws the Today panel the shell hands it.
 vi.mock('../ChatTab', () => ({
-  default: (props: { layout?: string; today?: { panel: (draft: (text: string) => void, compact: boolean) => unknown } }) =>
+  default: (props: { layout?: string; today?: PersonalToday }) =>
     props.layout === 'personal' ? (
-      <div data-testid="home-tab">{props.today?.panel(() => undefined, true) as never}</div>
+      <div data-testid="home-tab">
+        {props.today?.panel({ draft: () => {}, send: () => {}, openTopic: () => {}, dismiss: () => {} }, true)}
+      </div>
     ) : (
       <div data-testid="chat-tab" />
     ),

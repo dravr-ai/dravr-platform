@@ -236,10 +236,10 @@ async fn personal_thread(resources: &ServerContext, athlete: PostAthlete) -> Opt
         athlete.tenant_id,
         PersonalForge {
             title_fallback: &title_fallback,
-            // The platform opens the thread to deliver into: an athlete who
-            // has answered nothing yet is walked through who they are on
-            // their first reply, like a thread `/reset` opens in the app.
-            guided_flow: true,
+            // In the app the pillars walk is offered, never started for the
+            // athlete (carnet#1099): Finish your profile is a link they take.
+            // A DM post lands in the DM's own conversation, not forged here.
+            guided_flow: false,
             llm_chain: &resources.common.config.llm_chain,
         },
     )

@@ -304,6 +304,17 @@ fn turn(conversation_id: &str, user: Uuid, tenant: TenantId, is_direct_message: 
     }
 }
 
+/// The system prompt of the coaching turn the model saw since `from`. The
+/// memory extractor runs detached after a turn on the same model, so the last
+/// prompt recorded can be its own rather than the turn's.
+fn turn_prompt_since(prompts: &Mutex<Vec<String>>, from: usize) -> Option<String> {
+    prompts.lock().unwrap()[from..]
+        .iter()
+        .rev()
+        .find(|prompt| !prompt.starts_with("You are a memory extractor"))
+        .cloned()
+}
+
 #[tokio::test]
 async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
     let model = RecordingModel::new(None);
@@ -323,6 +334,7 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
         .unwrap();
     let ctx = resources.chat_pipeline_context();
 
+    let before_dm = prompts.lock().unwrap().len();
     pierre_chat_pipeline::run(
         &ctx,
         turn(&conversation.id, user, tenant, true),
@@ -331,11 +343,8 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
     )
     .await
     .expect("the direct turn completes");
-    let dm_prompt = prompts
-        .lock()
-        .unwrap()
-        .pop()
-        .expect("the direct turn reached the model");
+    let dm_prompt =
+        turn_prompt_since(&prompts, before_dm).expect("the direct turn reached the model");
     assert!(
         dm_prompt.contains(PLAN_BLOCK),
         "the DM carries the plan block"
@@ -345,6 +354,7 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
         "with the athlete's season in it"
     );
 
+    let before_room = prompts.lock().unwrap().len();
     pierre_chat_pipeline::run(
         &ctx,
         turn(&conversation.id, user, tenant, false),
@@ -353,11 +363,8 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
     )
     .await
     .expect("the room turn completes");
-    let room_prompt = prompts
-        .lock()
-        .unwrap()
-        .pop()
-        .expect("the room turn reached the model");
+    let room_prompt =
+        turn_prompt_since(&prompts, before_room).expect("the room turn reached the model");
     assert!(
         !room_prompt.contains(PLAN_BLOCK) && !room_prompt.contains("Ultra Trail"),
         "a room turn's prompt carries no plan block: the reply goes to every member"

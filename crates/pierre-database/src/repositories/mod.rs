@@ -73,6 +73,8 @@ pub mod feature_flags;
 pub mod federated_identities;
 /// The outbox of Firebase identities still to delete at Google after their account went.
 pub mod firebase_identity_deletions;
+/// Repository trait for the days each athlete met a first-run flow's done rule (carnet#1099).
+pub mod first_run_progress;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
 /// Shared statements for a coaching group's room transcript.
@@ -252,6 +254,7 @@ pub use federated_identities::FederatedIdentityRepository;
 pub use firebase_identity_deletions::{
     FirebaseIdentityDeletionRepository, PendingFirebaseDeletion,
 };
+pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;
@@ -286,7 +289,9 @@ pub use uploaded_activity_files::UploadedActivityFileRepository;
 pub use usage::*;
 pub use use_case_exposures::{UseCaseExposure, UseCaseExposureRepository};
 pub use user_access::*;
-pub use user_home_preferences::{HomePreferences, HomePreferencesRepository};
+pub use user_home_preferences::{
+    HomePreferences, HomePreferencesRepository, HomePreferencesUpdate,
+};
 pub use user_invitations::UserInvitationRepository;
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;

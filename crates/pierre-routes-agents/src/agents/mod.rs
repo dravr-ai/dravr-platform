@@ -35,8 +35,9 @@ use pierre_runtime_context::{AgentsCtx, MiddlewareCtx};
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 pub use types::{
-    AgentProposalResponse, AgentResponse, AgentsMetadata, ListAgentsQuery, ListAgentsResponse,
-    ProposedAgent, RecordUsageResponse, SportProfileSummary, SportShare, UpdateAgentBody,
+    AgentProposal, AgentProposalResponse, AgentResponse, AgentsMetadata, ListAgentsQuery,
+    ListAgentsResponse, ProposedAgent, ProposedTeam, RecordUsageResponse, SportProfileSummary,
+    SportShare, TeamMember, UpdateAgentBody,
 };
 /// Shared agent-proposal builder — used by the REST route and the messaging
 /// auto-send so both surfaces propose identically.

@@ -38,21 +38,24 @@
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_CAN_SEE,
-    KEY_AGENT_WELCOME_GREETING, KEY_AGENT_WELCOME_GREETING_NO_ROLE,
-    KEY_AGENT_WELCOME_STARTERS_TITLE,
+    KEY_AGENT_WELCOME_DISCOVER_LINE, KEY_AGENT_WELCOME_GREETING,
+    KEY_AGENT_WELCOME_GREETING_NO_ROLE, KEY_AGENT_WELCOME_LIST_AND, KEY_AGENT_WELCOME_REACH_LINE,
+    KEY_AGENT_WELCOME_STARTERS_TITLE, KEY_AGENT_WELCOME_TEAM_MANY, KEY_AGENT_WELCOME_TEAM_ONE,
+    KEY_AGENT_WELCOME_TEAM_SOLO,
 };
 use pierre_contremaitre::use_case_catalogue::UseCase;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::TranscriptSpeaker;
 use pierre_core::models::onboarding::{GuidedFlow, OnboardingState};
 use pierre_core::models::{
-    AddMessageParams, Agent, ConversationRecord, MessageRecord, TenantId,
+    AddMessageParams, Agent, ConversationRecord, ListAgentsFilter, MessageRecord, TenantId,
     AGENT_WELCOME_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
 use pierre_services::agents::meets_prerequisites;
+use pierre_services::first_run::{FirstRun, MEET_TEAM};
 use pierre_services::use_case_rank::{rank_for_athlete, rotation_for, worded, MAX_STARTERS};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -126,6 +129,18 @@ pub struct WelcomeTemplates {
     pub starters_title: String,
     /// What the coach can see and cannot do, said to one athlete.
     pub can_see: String,
+    /// The lead's first welcome naming one teammate: `{0}` = its title.
+    pub team_one: String,
+    /// The same naming several: `{0}` = the names, joined by `list_and`.
+    pub team_many: String,
+    /// Joins the last two names: `{0}`, `{1}`.
+    pub list_and: String,
+    /// The lead's first welcome when it is the whole team.
+    pub team_solo: String,
+    /// How to reach a teammate: `@` in a message, `+` for its own thread.
+    pub reach_line: String,
+    /// The one sentence pointing at Discover.
+    pub discover_line: String,
 }
 
 impl WelcomeTemplates {
@@ -137,8 +152,26 @@ impl WelcomeTemplates {
             greeting_no_role: strings.get(KEY_AGENT_WELCOME_GREETING_NO_ROLE, locale),
             starters_title: strings.get(KEY_AGENT_WELCOME_STARTERS_TITLE, locale),
             can_see: strings.get(KEY_AGENT_WELCOME_CAN_SEE, locale),
+            team_one: strings.get(KEY_AGENT_WELCOME_TEAM_ONE, locale),
+            team_many: strings.get(KEY_AGENT_WELCOME_TEAM_MANY, locale),
+            list_and: strings.get(KEY_AGENT_WELCOME_LIST_AND, locale),
+            team_solo: strings.get(KEY_AGENT_WELCOME_TEAM_SOLO, locale),
+            reach_line: strings.get(KEY_AGENT_WELCOME_REACH_LINE, locale),
+            discover_line: strings.get(KEY_AGENT_WELCOME_DISCOVER_LINE, locale),
         }
     }
+}
+
+/// The rest of the athlete's team, as the lead's first welcome in their
+/// personal thread names it — the first-run Meet your team turn
+/// (carnet#1099).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamIntro {
+    /// The other members' titles, in team order.
+    pub members: Vec<String>,
+    /// Say how to reach one — `@` in a message, `+` for its own thread: the
+    /// web app's composer has both, a messaging DM has neither.
+    pub reach: bool,
 }
 
 /// One starter a welcome offers.
@@ -200,6 +233,25 @@ impl WelcomeText {
         }
     }
 
+    /// Introduce the rest of the team under the greeting: who else is on it,
+    /// how to reach them when there is someone to reach, then Discover. A
+    /// sentence the strings hold no words for is left out.
+    pub fn introduce_team(&mut self, templates: &WelcomeTemplates, team: &TeamIntro) {
+        let reach = (team.reach && !team.members.is_empty()).then_some(&templates.reach_line);
+        let lines = [
+            Some(team_line(templates, &team.members)),
+            reach.cloned(),
+            Some(templates.discover_line.clone()),
+        ];
+        for line in lines.into_iter().flatten() {
+            let line = line.trim();
+            if !line.is_empty() {
+                self.content.push_str("\n\n");
+                self.content.push_str(line);
+            }
+        }
+    }
+
     /// The starters' postbacks, slot by slot.
     #[must_use]
     pub(crate) fn postbacks(&self) -> Vec<Postback> {
@@ -248,6 +300,68 @@ impl WelcomeText {
         }
         text
     }
+}
+
+/// The sentence naming `members`: one, several joined with `list_and` for
+/// the last pair, or none.
+fn team_line(templates: &WelcomeTemplates, members: &[String]) -> String {
+    match members {
+        [] => templates.team_solo.clone(),
+        [one] => format_template(&templates.team_one, &[one]),
+        [head @ .., last] => {
+            let names = format_template(&templates.list_and, &[&head.join(", "), last]);
+            format_template(&templates.team_many, &[&names])
+        }
+    }
+}
+
+/// The team the lead's welcome introduces, when this is the first-run Meet
+/// your team turn: the athlete's own personal thread, and the flow still
+/// open. `None` otherwise, and when the first run or the team cannot be read
+/// (logged) — the welcome then goes out as it always has.
+async fn first_welcome_team(
+    repos: &RepositoryRegistry,
+    target: &WelcomeTarget<'_>,
+    user: Uuid,
+) -> Option<TeamIntro> {
+    let conversation = target.conversation;
+    if !conversation.personal || conversation.group_id.is_some() {
+        return None;
+    }
+    match FirstRun::read(repos, target.agent_tenant_id, user).await {
+        Ok(first_run) if first_run.is_done(MEET_TEAM) => return None,
+        Ok(_) => {}
+        Err(e) => {
+            warn!(error = %e, "first-run progress unreadable; the welcome does not introduce the team");
+            return None;
+        }
+    }
+    let mut team = repos
+        .agents
+        .list(
+            user,
+            target.agent_tenant_id,
+            &ListAgentsFilter::with_defaults(),
+        )
+        .await
+        .inspect_err(|e| warn!(error = %e, "team unreadable; the welcome does not introduce it"))
+        .ok()?;
+    team.retain(|item| item.is_assigned && item.agent.id.to_string() != target.agent_id);
+    if let Err(e) = repos
+        .agents
+        .apply_translations(&mut team, target.locale)
+        .await
+    {
+        warn!(error = %e, locale = target.locale, "team translations unreadable; naming the team in English");
+    }
+    let members = team
+        .iter()
+        .filter_map(|item| display_title(None, &item.agent.title))
+        .collect();
+    Some(TeamIntro {
+        members,
+        reach: target.surface == SurfaceId::Web,
+    })
 }
 
 /// The agent's Example Inputs as starters for the slots from `first_slot`,
@@ -453,13 +567,16 @@ async fn welcome_text(
         .group_id
         .is_none()
         .then_some(templates.can_see.as_str());
-    let text = WelcomeText::compose(
+    let mut text = WelcomeText::compose(
         &templates,
         &title,
         localized.description.as_deref(),
         capability,
         starters,
     );
+    if let Some(team) = first_welcome_team(repos, target, user).await {
+        text.introduce_team(&templates, &team);
+    }
     if text.content.trim().is_empty() {
         // The catalogue lacks the greeting in every locale: an instance whose
         // strings predate the welcome keys. A blank row would read as the
@@ -624,7 +741,61 @@ mod tests {
             greeting_no_role: "Hi! Dravr's {0} here.".to_owned(),
             starters_title: "To get started, you can ask me:".to_owned(),
             can_see: CAN_SEE.to_owned(),
+            team_one: "{0} is on your team too.".to_owned(),
+            team_many: "{0} are on your team too.".to_owned(),
+            list_and: "{0} and {1}".to_owned(),
+            team_solo: "For now it's just me on your team.".to_owned(),
+            reach_line: "Mention one with @.".to_owned(),
+            discover_line: "More agents live in Discover.".to_owned(),
         }
+    }
+
+    fn team(members: &[&str], reach: bool) -> TeamIntro {
+        TeamIntro {
+            members: members.iter().map(|m| (*m).to_owned()).collect(),
+            reach,
+        }
+    }
+
+    fn introduced(members: &[&str], reach: bool) -> String {
+        let mut text = WelcomeText::compose(&templates(), "Agent", None, None, Vec::new());
+        text.introduce_team(&templates(), &team(members, reach));
+        text.content
+    }
+
+    #[test]
+    fn the_first_welcome_names_the_team_then_how_to_reach_it_then_discover() {
+        assert_eq!(
+            introduced(&["Fuelling Agent"], true),
+            "Hi! Dravr's Agent here.\n\nFuelling Agent is on your team too.\n\nMention one with @.\n\nMore agents live in Discover."
+        );
+        assert_eq!(
+            introduced(&["Fuelling", "Recovery"], false),
+            "Hi! Dravr's Agent here.\n\nFuelling and Recovery are on your team too.\n\nMore agents live in Discover.",
+            "a DM has no + to press, so it is not told to"
+        );
+        assert!(introduced(&["A", "B", "C"], true).contains("A, B and C are on your team too."));
+    }
+
+    #[test]
+    fn a_lead_alone_says_so_and_has_nobody_to_reach() {
+        assert_eq!(
+            introduced(&[], true),
+            "Hi! Dravr's Agent here.\n\nFor now it's just me on your team.\n\nMore agents live in Discover."
+        );
+    }
+
+    #[test]
+    fn a_team_sentence_without_words_is_left_out() {
+        let mut blank = templates();
+        blank.discover_line = String::new();
+        blank.reach_line = "  ".to_owned();
+        let mut text = WelcomeText::compose(&blank, "Agent", None, None, Vec::new());
+        text.introduce_team(&blank, &team(&["Fuelling"], true));
+        assert_eq!(
+            text.content,
+            "Hi! Dravr's Agent here.\n\nFuelling is on your team too."
+        );
     }
 
     fn samples(items: &[&str]) -> Vec<String> {
@@ -640,7 +811,7 @@ mod tests {
     }
 
     const CATALOGUE: &str = "
-- {id: about_me, run: command, command: /pillars, requires: [], stage: any, domains: [any], repeat: once}
+- {id: about_me_more, run: command, command: /pillars, requires: [], stage: any, domains: [any], repeat: recurring}
 - {id: last_workout, run: prompt, command: null, requires: [], stage: any, domains: [training], repeat: recurring}
 - {id: not_in_the_strings, run: prompt, command: null, requires: [], stage: any, domains: [training], repeat: once}
 ";
@@ -718,13 +889,13 @@ mod tests {
         let starter =
             |id: &str, slot| use_case_starter(catalogue.get(id).expect(id), &strings, "en", slot);
 
-        let about_me = starter("about_me", 0).expect("about_me has words");
+        let profile = starter("about_me_more", 0).expect("about_me_more has words");
         assert_eq!(
-            about_me.label,
-            strings.get("use_cases.about_me.label", "en")
+            profile.label,
+            strings.get("use_cases.about_me_more.label", "en")
         );
-        assert_eq!(about_me.line, format!("/pillars — {}", about_me.label));
-        assert_eq!(about_me.postback.encode(), "uc:0:about_me");
+        assert_eq!(profile.line, format!("/pillars — {}", profile.label));
+        assert_eq!(profile.postback.encode(), "uc:0:about_me_more");
 
         let last = starter("last_workout", 1).expect("last_workout has words");
         assert_eq!(

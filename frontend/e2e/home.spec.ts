@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
-import { fulfillCalendar, setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { fulfillCalendar, setupDashboardMocks, loginToDashboard, mockHomeFirstArrival } from './test-helpers';
 
 const TODAY = '2026-09-24';
 
@@ -402,6 +402,72 @@ async function login(page: Page) {
 }
 
 test.describe('Athlete Home', () => {
+  // carnet#1098: a first arrival meets what to do next and who it works with
+  // before anything else on Today.
+  test('a first arrival opens Today on Getting started and Your team, and a first step goes out as a turn', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockHomeFirstArrival(page);
+    await login(page);
+
+    const panel = page.getByTestId('home-today-panel');
+    const started = panel.getByTestId('home-getting-started');
+    await expect(started).toBeVisible();
+    await expect(started.getByTestId('home-getting-started-count')).toHaveText('1 of 5');
+    await expect(started.getByTestId('home-getting-started-row-connect')).toHaveAttribute('data-state', 'done');
+    await expect(started.getByTestId('home-getting-started-row-meet_team')).toHaveAttribute('aria-current', 'step');
+    await expect(started.getByTestId('home-getting-started-row-meet_team')).toContainText(
+      'Reply to Endurance in your thread',
+    );
+
+    const team = panel.getByTestId('home-team');
+    await expect(team.getByTestId('home-team-lead')).toContainText('Leads your thread');
+    await expect(team.getByTestId('home-team-member')).toHaveText([/@fuelling/, /@recovery/]);
+    // Getting started, then Your team, then the sections Today always had.
+    await expect(panel.getByTestId('home-today')).toBeVisible();
+    const order = await panel
+      .locator('[data-testid="home-getting-started"], [data-testid="home-team"], [data-testid="home-today"]')
+      .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-testid')));
+    expect(order).toEqual(['home-getting-started', 'home-team', 'home-today']);
+    await expect(panel.locator('.btn-primary')).toHaveCount(0);
+
+    const sent = page.waitForRequest(
+      (request) => request.method() === 'POST' && /\/api\/chat\/conversations\/[^/]+\/messages/.test(request.url()),
+    );
+    await started.getByTestId('home-getting-started-row-meet_team').getByRole('button').click();
+    expect((await sent).postDataJSON()).toMatchObject({ content: 'gs:2:meet_team' });
+  });
+
+  test('an athlete with no team is offered Pick your team, which opens the picker over Home', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await login(page);
+
+    const team = page.getByTestId('home-today-panel').getByTestId('home-team');
+    await expect(team.getByTestId('home-team-empty')).toHaveText(/No team yet\./);
+    await team.getByTestId('home-team-pick').click();
+    await expect(page.getByRole('dialog', { name: 'Pick your team' })).toBeVisible();
+  });
+
+  test('Getting started hides on the server and Settings brings it back; Find more leads to Discover', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockHomeFirstArrival(page);
+    await login(page);
+
+    const panel = page.getByTestId('home-today-panel');
+    const put = page.waitForRequest(
+      (request) => request.method() === 'PUT' && request.url().includes('/api/me/home-preferences'),
+    );
+    await panel.getByRole('button', { name: 'Hide Getting started' }).click();
+    expect((await put).postDataJSON()).toEqual({ getting_started_hidden: true });
+    await expect(panel.getByTestId('home-getting-started')).toHaveCount(0);
+    await expect(panel.getByTestId('home-team')).toBeVisible();
+
+    await panel.getByTestId('home-team').getByRole('button', { name: 'Find more' }).click();
+    await expect(page).toHaveURL(/#discover/);
+  });
+
   test('sign-in lands on Home: today, the week, and the latest activities', async ({ page }) => {
     await signInAthlete(page);
     const calls = await mockHome(page);

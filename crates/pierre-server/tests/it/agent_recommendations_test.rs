@@ -8,9 +8,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::Utc;
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::models::agents::AgentPrerequisites;
-use pierre_core::models::{SportProfile, SportType};
+use pierre_core::models::{ActivityBuilder, SportProfile, SportType};
 use pierre_services::agents::score_agent;
 
 /// Build a sport profile directly from `(canonical_sport_label, count)` pairs.
@@ -22,6 +23,7 @@ fn profile(counts: &[(&str, u32)]) -> SportProfile {
         total_activities,
         window_days: 90,
         sport_counts,
+        longest_session_min: 0,
     }
 }
 
@@ -452,4 +454,22 @@ fn overlap_normalizes_titlecase_agent_activity_types() {
         cfg.min_share_for_sport,
     );
     assert!(ride_overlap.abs() < f32::EPSILON);
+}
+
+/// The profile carries the longest session in whole minutes, which the team's
+/// long-event rule reads (carnet#1097).
+#[test]
+fn from_activities_records_the_longest_session_in_minutes() {
+    let session = |id: &str, seconds: u64| {
+        ActivityBuilder::new(id, id, SportType::Ride, Utc::now(), seconds, "strava").build()
+    };
+    let profile = SportProfile::from_activities(
+        &[session("a", 3_600), session("b", 11_000), session("c", 600)],
+        90,
+    );
+    assert_eq!(profile.longest_session_min, 183);
+    assert_eq!(
+        SportProfile::from_activities(&[], 90).longest_session_min,
+        0
+    );
 }

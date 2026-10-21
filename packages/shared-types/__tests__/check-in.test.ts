@@ -15,6 +15,15 @@ describe('parseCheckInPreference', () => {
     expect(parseCheckInPreference({ cadence: null })).toEqual({ cadence: null });
   });
 
+  it('reads the local hour the server sends, and rejects one that is not an hour of the day', () => {
+    expect(parseCheckInPreference({ cadence: 'daily', local_hour: 8 })).toEqual({ cadence: 'daily', local_hour: 8 });
+    expect(parseCheckInPreference({ cadence: null, local_hour: 0 })).toEqual({ cadence: null, local_hour: 0 });
+    expect(parseCheckInPreference({ cadence: 'daily', local_hour: 24 })).toBeNull();
+    expect(parseCheckInPreference({ cadence: 'daily', local_hour: 7.5 })).toBeNull();
+    expect(parseCheckInPreference({ cadence: 'daily', local_hour: '8' })).toBeNull();
+    expect(parseCheckInPreference({ cadence: 'daily', local_hour: null })).toBeNull();
+  });
+
   it('rejects an unknown cadence, a missing key or a body that is not an object', () => {
     expect(parseCheckInPreference({ cadence: 'monthly' })).toBeNull();
     expect(parseCheckInPreference({ cadence: 'Daily' })).toBeNull();

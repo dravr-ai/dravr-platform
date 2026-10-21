@@ -35,14 +35,10 @@
 use std::sync::Arc;
 
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_USE_CASES_NEXT_TIME, KEY_USE_CASES_UNAVAILABLE,
-};
+use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_USE_CASES_NEXT_TIME};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
-use pierre_core::models::{
-    ConversationRecord, ConversationTurnId, InputSource, OnboardingState, TenantId, TurnOrigin,
-};
+use pierre_core::models::{ConversationTurnId, InputSource, OnboardingState, TenantId, TurnOrigin};
 use pierre_core::transport::Transport;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::stage::LlmStage;
@@ -68,7 +64,6 @@ use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
 };
 use crate::stages::persistence::fan_out_to_group_transcript;
-use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext};
 use crate::surface_profile::{SurfaceId, SurfaceProfile};
 use crate::turn::{AmbientContext, TurnInput};
 use crate::turn_stop::StopScope;
@@ -76,6 +71,9 @@ use crate::usage_counters::{
     increment_usage_counters_scoped, quota_tokens_from_envelope, UsageIncrementScope,
 };
 use crate::ChatPipelineContext;
+
+mod suggestion_tap;
+use suggestion_tap::{resolve_suggestion_tap, TapOutcome};
 
 /// Everything a surface knows about one inbound turn before the ladder runs.
 pub struct TurnRequest<'a> {
@@ -336,7 +334,7 @@ async fn execute_turn(
     let steps_after =
         match resolve_suggestion_tap(ctx, &mut request, conversation.as_ref(), profile).await? {
             TapOutcome::Proceed { steps_after } => steps_after,
-            TapOutcome::Unavailable(notice) => {
+            TapOutcome::Answered(notice) => {
                 let quota = settle_quota_notice(
                     ctx.repos.usage_counters.as_ref(),
                     request.tool_tenant_id,
@@ -819,129 +817,6 @@ async fn welcome_if_bound(
             warn!(error = %e, agent_id, conversation_id, "agent welcome not posted after the bind");
             None
         }
-    }
-}
-
-/// What resolving a turn's text as a tapped suggestion concluded.
-enum TapOutcome {
-    /// The turn goes on, with its text resolved or as it was sent.
-    Proceed {
-        /// The transition the turn completes, whose next steps its reply
-        /// offers; `None` for every turn but the athlete's first tapped
-        /// workout analysis.
-        steps_after: Option<StepsAfter>,
-    },
-    /// A postback that no longer resolves, answered with this notice — no
-    /// model runs and nothing is written.
-    Unavailable(Box<CommandTurn>),
-}
-
-/// Rewrite `request` in place when its text is a suggestion's postback: the
-/// words it stands for become the content, and the turn is reported as a
-/// tapped starter or next step (carnet#828, carnet#830).
-///
-/// # Errors
-///
-/// Returns the repository error when the thread's agent cannot be read.
-async fn resolve_suggestion_tap(
-    ctx: &ChatPipelineContext,
-    request: &mut TurnRequest<'_>,
-    conversation: Option<&ConversationRecord>,
-    profile: &SurfaceProfile,
-) -> AppResult<TapOutcome> {
-    let tap = TapContext {
-        conversation,
-        user_id: request.user_id,
-        agent_tenant_id: request.tool_tenant_id,
-        locale: &profile.locale,
-    };
-    match suggestions::resolve(
-        &ctx.repos,
-        &ctx.messaging_strings_registry,
-        &tap,
-        &request.content,
-    )
-    .await?
-    {
-        Resolution::NotAPostback => Ok(TapOutcome::Proceed { steps_after: None }),
-        Resolution::Resolved { content, postback } => {
-            // Read before this tap is recorded, which would make every tap
-            // look like a repeat.
-            let steps_after = match postback.catalogue_id() {
-                Some(id) => match StepsAfter::on_first_tap(id) {
-                    Some(after) if !ever_tapped(ctx, request, id).await => Some(after),
-                    _ => None,
-                },
-                None => None,
-            };
-            let user_id = request.user_id.to_string();
-            suggestions::record_tap(
-                &ctx.repos,
-                &SuggestionEvent {
-                    user_id: &user_id,
-                    tenant_id: request.conversation_tenant_id,
-                    surface: postback.surface(),
-                    channel: profile.surface.as_str(),
-                },
-                &postback,
-                request.tool_tenant_id,
-                request.user_id,
-            )
-            .await;
-            request.content = content;
-            request.input_source = postback.input_source();
-            Ok(TapOutcome::Proceed { steps_after })
-        }
-        Resolution::Unresolvable { postback } => {
-            warn!(
-                use_case = %postback.use_case(),
-                conversation_id = %request.conversation_id,
-                "a tapped suggestion no longer resolves; the athlete is told, no model runs"
-            );
-            Ok(TapOutcome::Unavailable(Box::new(unavailable_suggestion(
-                ctx,
-                &profile.locale,
-            ))))
-        }
-    }
-}
-
-/// Whether the athlete tapped the catalogue entry `id` before this tap. An
-/// unreadable ledger answers yes, so a first-time step is never offered on a
-/// guess.
-async fn ever_tapped(ctx: &ChatPipelineContext, request: &TurnRequest<'_>, id: &str) -> bool {
-    match ctx
-        .repos
-        .use_case_exposures
-        .use_case_exposures(request.tool_tenant_id, request.user_id)
-        .await
-    {
-        Ok(exposures) => exposures
-            .iter()
-            .any(|exposure| exposure.use_case_id == id && exposure.tapped_at.is_some()),
-        Err(e) => {
-            warn!(error = %e, use_case = %id, "use-case taps unreadable; the tap is not taken for a first one");
-            true
-        }
-    }
-}
-
-/// The reply to a suggestion that no longer resolves: a notice in the
-/// athlete's language, no model call. Not written to the transcript — the
-/// athlete's line would be the postback, which means nothing to them.
-fn unavailable_suggestion(ctx: &ChatPipelineContext, locale: &str) -> CommandTurn {
-    CommandTurn {
-        command_name: None,
-        text: ctx
-            .messaging_strings_registry
-            .get(KEY_USE_CASES_UNAVAILABLE, locale),
-        is_rich_text: false,
-        card_title: None,
-        actions: Vec::new(),
-        rotated_to: None,
-        opened_topic: None,
-        persisted: None,
-        welcome: None,
     }
 }
 

@@ -767,6 +767,24 @@ impl CommandE2e {
     }
 
     /// Poll (≤10s) until the coaching-turn call count reaches `at_least`.
+    /// Wait for a coaching turn whose request carries `needle` (the
+    /// athlete's own words), among the turns recorded from index `from`. A
+    /// count of turns cannot say which one ran: the agent proposal a new
+    /// athlete is offered spends a model call of its own.
+    pub async fn wait_turn_request_containing(&self, from: usize, needle: &str) -> Option<String> {
+        for _ in 0..50 {
+            let found = self.llm.seen_turn_requests.lock().unwrap()[from..]
+                .iter()
+                .find(|request| request.contains(needle))
+                .cloned();
+            if found.is_some() {
+                return found;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        None
+    }
+
     pub async fn wait_llm_turns(&self, at_least: usize) -> bool {
         for _ in 0..50 {
             if self.llm.turn_calls.load(Ordering::SeqCst) >= at_least {

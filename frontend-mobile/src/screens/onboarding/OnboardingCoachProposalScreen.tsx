@@ -65,7 +65,7 @@ export function OnboardingCoachProposalScreen() {
     retry: 1,
   });
 
-  // LIMITATION(registre#1095): Start and Skip select the lead but add nothing to a team.
+  // LIMITATION(registre#1102): the native step shows no members, ticks or Browse all agents; only the lead joins the team.
   const handleStart = async (agentId: string) => {
     setSelecting(agentId);
     try {

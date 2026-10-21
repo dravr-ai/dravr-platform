@@ -422,10 +422,23 @@ describe('parseTrainingStatusResponse', () => {
 });
 
 describe('parseHomePreferences', () => {
-  it('reads the stored choice', () => {
-    expect(parseHomePreferences({ plan_suggestion_hidden: true })).toEqual({ plan_suggestion_hidden: true });
-    expect(parseHomePreferences({ plan_suggestion_hidden: false, later_field: 1 })).toEqual({
+  it('reads the stored choices', () => {
+    expect(parseHomePreferences({ plan_suggestion_hidden: true, getting_started_hidden: true })).toEqual({
+      plan_suggestion_hidden: true,
+      getting_started_hidden: true,
+    });
+    expect(
+      parseHomePreferences({ plan_suggestion_hidden: false, getting_started_hidden: false, later_field: 1 }),
+    ).toEqual({
       plan_suggestion_hidden: false,
+      getting_started_hidden: false,
+    });
+  });
+
+  it('reads an answer that predates Getting started as shown', () => {
+    expect(parseHomePreferences({ plan_suggestion_hidden: true })).toEqual({
+      plan_suggestion_hidden: true,
+      getting_started_hidden: false,
     });
   });
 
@@ -433,6 +446,9 @@ describe('parseHomePreferences', () => {
     expect(parseHomePreferences(null)).toBeNull();
     expect(parseHomePreferences({})).toBeNull();
     expect(parseHomePreferences({ plan_suggestion_hidden: 'yes' })).toBeNull();
+    expect(parseHomePreferences({ getting_started_hidden: true })).toBeNull();
+    expect(parseHomePreferences({ plan_suggestion_hidden: false, getting_started_hidden: 'no' })).toBeNull();
+    expect(parseHomePreferences({ plan_suggestion_hidden: false, getting_started_hidden: null })).toBeNull();
   });
 });
 

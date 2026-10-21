@@ -13,6 +13,7 @@ import { TurnFailedError, TurnRequestError } from '@pierre/api-client';
 import { i18n } from '@pierre/i18n';
 import ChatTab from '../ChatTab';
 import { ToastProvider } from '../ui';
+import { QUERY_KEYS } from '../../constants/queryKeys';
 
 const CONVERSATION_ID = 'conv-1';
 
@@ -85,10 +86,11 @@ function answeredTurn(content: string) {
   };
 }
 
-function renderChat() {
-  const queryClient = new QueryClient({
+function renderChat(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
@@ -251,5 +253,38 @@ describe('ChatTab — a failed turn, in French', () => {
     // The refused question still stands in the thread, without a retry.
     expect(screen.getAllByText(QUESTION)).toHaveLength(1);
     expect(screen.queryByRole('button', { name: i18n.t('chat.retry') })).toBeNull();
+  });
+
+  // carnet#1099: a turn is where a first-run flow is done, and a starter tap is
+  // recorded before the reply — so Getting started re-reads after an answered
+  // turn and after a failed one alike.
+  it('re-reads Getting started after a failed turn and after an answered one', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+    const rereadGettingStarted = () =>
+      invalidate.mock.calls.filter(
+        ([filters]) =>
+          JSON.stringify(filters?.queryKey) === JSON.stringify(QUERY_KEYS.home.gettingStarted()),
+      ).length;
+    sendTurn.mockImplementationOnce((_id: string, _content: string, options: TurnOptions) => {
+      options.onError?.(
+        new TurnRequestError(SERVER_TEXT, 503, { code: 'ResourceUnavailable', message: SERVER_TEXT }),
+      );
+      return Promise.resolve();
+    });
+    renderChat(queryClient);
+    const user = await send(QUESTION);
+    await screen.findByTestId('turn-error');
+    expect(rereadGettingStarted()).toBe(1);
+
+    sendTurn.mockImplementationOnce((_id: string, _content: string, options: TurnOptions) => {
+      options.onDone?.(answeredTurn(REPLY));
+      return Promise.resolve();
+    });
+    await user.click(screen.getByRole('button', { name: i18n.t('chat.retry') }));
+    await screen.findByText(REPLY);
+    expect(rereadGettingStarted()).toBe(2);
   });
 });

@@ -13,6 +13,8 @@ pub mod chat_scenario;
 pub mod cloud_tasks_stub;
 #[cfg(feature = "client-messaging")]
 pub mod command_e2e;
+/// The dravr-contremaitre tree the build compiled against, found without cargo.
+pub mod contremaitre_checkout;
 /// Providers that hang, a `WhatsApp` athlete and the outbound ledger, for the
 /// suites that interrupt a live turn (drain, watchdog).
 #[cfg(feature = "client-messaging")]

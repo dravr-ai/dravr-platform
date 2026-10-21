@@ -25,7 +25,7 @@
 //!
 //! [`TurnEnvelope`]: pierre_chat_pipeline::TurnEnvelope
 
-use dravr_canot::rich_text::{parse_markdown, render_plain};
+use dravr_canot::rich_text::{escape_markdown, parse_markdown, render_plain};
 use pierre_chat_pipeline::suggestions::suggestion_lines;
 use pierre_chat_pipeline::{
     AssistantTurn, NoticeKind, QuotaLevel, QuotaWarningState, RenderCapabilities, ReplyBlock,
@@ -178,12 +178,23 @@ pub fn render_reply(
             // Untitled suggestions — the next steps a reply ends on — are the
             // exception, listed as text: a channel card needs a heading they
             // do not have, and a listed command is one the athlete can type.
+            // An untitled set holding a link nothing typed reaches — the
+            // add-to-team offer (carnet#1097) — stays buttons, on a card whose
+            // body is the reply's last message: Telegram and WhatsApp refuse
+            // a card with no text, and the buttons answer those words.
             ReplyBlock::Actions { title, actions } => {
                 match (title, suggestion_lines(actions, registry, locale)) {
                     (None, Some(lines)) => append_lines(&mut prose, &lines, render.max_reply_chars),
                     _ => attachments.push(MessageContent::Card {
                         title: title.clone().unwrap_or_default(),
-                        body: String::new(),
+                        body: if title.is_none() {
+                            prose
+                                .pop()
+                                .map(|last| escape_markdown(&last))
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        },
                         actions: actions
                             .iter()
                             .map(|action| CardAction {

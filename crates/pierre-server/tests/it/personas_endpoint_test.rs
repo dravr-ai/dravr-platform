@@ -18,58 +18,22 @@
 use crate::common;
 use crate::helpers;
 
-use std::env;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::Router;
 use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
+use helpers::contremaitre_checkout::contremaitre_tree;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::personas::PersonasRoutes;
 use pierre_services::personas::resolve_persona_locale;
 
-/// Read `config/persona_contracts.yaml` from the pinned dravr-contremaitre
-/// checkout, resolved WITHOUT invoking cargo: a `cargo metadata` subprocess
-/// inside a running test blocks on the package-cache lock whenever another
-/// cargo process is alive — which in CI is always. Instead the locked rev
-/// comes from the workspace `Cargo.lock` and the checkout directory is the
-/// rev's 7-char prefix under `$CARGO_HOME/git/checkouts`, the same
-/// resolution `scripts/ci/check-contremaitre-sync.sh` performs shell-side.
-/// The checkout is guaranteed present wherever this test compiles, because
-/// building the workspace required fetching it.
+/// Read `config/persona_contracts.yaml` from the contremaitre tree the build
+/// compiled against — the document production syncs.
 fn shipped_persona_contracts_yaml() -> String {
-    let lock =
-        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Cargo.lock"))
-            .expect("read workspace Cargo.lock");
-    let rev = lock
-        .lines()
-        .find(|l| l.contains("dravr-ai/dravr-contremaitre") && l.contains('#'))
-        .and_then(|l| l.rsplit('#').next())
-        .map(|r| r.trim_end_matches('"').trim())
-        .expect("dravr-contremaitre rev in Cargo.lock");
-    let cargo_home = env::var("CARGO_HOME").map_or_else(
-        |_| {
-            PathBuf::from(env::var("HOME").expect("HOME set when CARGO_HOME is not")).join(".cargo")
-        },
-        PathBuf::from,
-    );
-    let checkouts = cargo_home.join("git/checkouts");
-    let repo_dir = fs::read_dir(&checkouts)
-        .unwrap_or_else(|e| panic!("read {}: {e}", checkouts.display()))
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .find(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("dravr-contremaitre-"))
-        })
-        .expect("dravr-contremaitre checkout dir");
-    let yaml_path = repo_dir
-        .join(&rev[..7])
-        .join("config/persona_contracts.yaml");
+    let yaml_path = contremaitre_tree().join("config/persona_contracts.yaml");
     fs::read_to_string(&yaml_path).unwrap_or_else(|e| panic!("read {}: {e}", yaml_path.display()))
 }
 

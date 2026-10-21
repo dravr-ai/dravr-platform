@@ -33,14 +33,15 @@
 
 use chrono::{DateTime, Utc};
 use pierre_contremaitre::messaging_strings::{
-    KEY_CALIBRATE_COMPLETE_HEADER, KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN,
-    KEY_CALIBRATE_FOLLOWUP_PLAN, KEY_CALIBRATE_TOPIC_INJURY, KEY_CALIBRATE_TOPIC_RECOVERY,
-    KEY_FORTNIGHT_RECHECK_LANDED, KEY_FORTNIGHT_RECHECK_MISSING, KEY_PILLARS_COMPLETED,
-    KEY_SEASON_COMPLETE_HEADER, KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
+    KEY_AGENTS_TEAM_OFFER_ADD, KEY_AGENTS_TEAM_OFFER_NOT_NOW, KEY_CALIBRATE_COMPLETE_HEADER,
+    KEY_CALIBRATE_COMPLETE_MISSING, KEY_CALIBRATE_FOLLOWUP_NO_PLAN, KEY_CALIBRATE_FOLLOWUP_PLAN,
+    KEY_CALIBRATE_TOPIC_INJURY, KEY_CALIBRATE_TOPIC_RECOVERY, KEY_FORTNIGHT_RECHECK_LANDED,
+    KEY_FORTNIGHT_RECHECK_MISSING, KEY_PILLARS_COMPLETED, KEY_SEASON_COMPLETE_HEADER,
+    KEY_SEASON_COMPLETE_MISSING_GOAL, KEY_SEASON_FOLLOWUP_LAY_OUT,
 };
 use pierre_core::models::{
-    CalibrationTopic, CoverageMap, CoverageTarget, Dossier, OnboardingState, SeasonTopic, TenantId,
-    WalkAudience,
+    CalibrationTopic, CoverageMap, CoverageTarget, Dossier, OnboardingState, Pillar, SeasonTopic,
+    TenantId, WalkAudience,
 };
 use pierre_memory::{FactKind, FactSource, UserFact};
 use pierre_providers::ai_scope;
@@ -51,6 +52,7 @@ use uuid::Uuid;
 use super::deterministic_reply::PlatformReply;
 use super::onboarding::{calibration_conditions, season_conditions};
 use crate::next_steps::{NextSteps, StepsAfter, StepsFor};
+use crate::team_offer::{self, OfferFor};
 use crate::ChatPipelineContext;
 
 /// Upper bound on facts pulled when counting what the interview landed. An
@@ -457,12 +459,19 @@ pub async fn render_fortnight(
 /// the North Star by the kind extraction forces on that answer, a pillar by
 /// the pillar extraction stamps on it. `facts_landed` is the window's count,
 /// so it reports what this walk captured and nothing an earlier walk did.
+///
+/// A pillar a fact in that window is about is newly covered: when its agent
+/// is not on the athlete's team, the wrap-up also offers it, as two quiet
+/// links beside the steps ([`team_offer`], carnet#1097). `thread_agent` is
+/// the agent the walk's thread is bound to — the lead, never offered. A room
+/// is never made an offer, as it is offered no step.
 pub async fn render_pillars(
     ctx: &ChatPipelineContext,
     state: &OnboardingState,
     facts_tenant: TenantId,
     subject_user_id: &str,
     dossier: &Dossier,
+    thread_agent: Option<&str>,
     locale: &str,
 ) -> PlatformReply {
     let asked = pillars_asked(state);
@@ -488,22 +497,68 @@ pub async fn render_pillars(
     );
 
     let (covered, audible) = CoverageMap::from_dossier(dossier).audible_progress(state.audience);
+    let next_steps = steps_after(
+        ctx,
+        StepsAfter::PillarsWalk,
+        state.audience,
+        facts_tenant,
+        subject_user_id,
+        locale,
+    )
+    .await;
+    let newly_covered: Vec<Pillar> = Pillar::ALL
+        .into_iter()
+        .filter(|pillar| in_window.iter().any(|fact| fact.pillar == Some(*pillar)))
+        .collect();
+    let next_steps = match (state.audience, subject_user_id.parse::<Uuid>()) {
+        (WalkAudience::Private, Ok(user_id)) if !newly_covered.is_empty() => {
+            with_team_offer(
+                ctx,
+                next_steps,
+                &OfferFor {
+                    user_id,
+                    tenant_id: facts_tenant,
+                    thread_agent,
+                    locale,
+                },
+                &newly_covered,
+            )
+            .await
+        }
+        _ => next_steps,
+    };
     PlatformReply {
         text: ctx.messaging_strings_registry.render(
             KEY_PILLARS_COMPLETED,
             locale,
             &[&covered.to_string(), &audible.to_string()],
         ),
-        next_steps: steps_after(
-            ctx,
-            StepsAfter::PillarsWalk,
-            state.audience,
-            facts_tenant,
-            subject_user_id,
-            locale,
-        )
-        .await,
+        next_steps,
     }
+}
+
+/// `next_steps` with the add-to-team offer for the first of `covered` whose
+/// agent may join, when one may and its links have words in `locale`.
+async fn with_team_offer(
+    ctx: &ChatPipelineContext,
+    next_steps: NextSteps,
+    offer_for: &OfferFor<'_>,
+    covered: &[Pillar],
+) -> NextSteps {
+    let Some(offered) = team_offer::pick(&ctx.repos, offer_for, covered).await else {
+        return next_steps;
+    };
+    let strings = &ctx.messaging_strings_registry;
+    let add = strings.render(
+        KEY_AGENTS_TEAM_OFFER_ADD,
+        offer_for.locale,
+        &[&offered.name],
+    );
+    let not_now = strings.get(KEY_AGENTS_TEAM_OFFER_NOT_NOW, offer_for.locale);
+    if add.trim().is_empty() || not_now.trim().is_empty() {
+        return next_steps;
+    }
+    next_steps.with_team_offer(offered.pillar, add, not_now)
 }
 
 /// The distinct pillars-walk topics the ledger records a delivered probe

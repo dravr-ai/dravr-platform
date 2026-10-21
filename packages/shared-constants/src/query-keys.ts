@@ -91,8 +91,13 @@ export const QUERY_KEYS = {
     trainingStatus: () => ['home', 'training-status'] as const,
     /** The weekly volume. Numbers and sport keys only, so no locale. */
     trainingVolume: () => ['home', 'training-volume'] as const,
-    /** What the athlete chose about Home: whether the plan suggestion is set aside. */
+    /** What the athlete chose about Home: whether the plan suggestion and Getting started are set aside. */
     preferences: () => ['home', 'preferences'] as const,
+    /**
+     * Getting started's five rows and where the athlete stands on them —
+     * one key, so Today's section and the narrow-screen Today line agree.
+     */
+    gettingStarted: () => ['home', 'getting-started'] as const,
     /** The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid. */
     calendar: (from: string, to: string) => ['home', 'calendar', from, to] as const,
     /** Every calendar span: the prefix a pull to refresh or a return to Home invalidates. */

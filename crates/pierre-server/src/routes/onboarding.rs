@@ -28,6 +28,10 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::mcp::resources::ServerContext;
+#[cfg(feature = "client-chat")]
+use crate::routes::chat::welcome_onboarding_lead;
+#[cfg(feature = "client-chat")]
+use crate::routes::getting_started::get_getting_started;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::extract_auth_from_headers;
@@ -386,27 +390,59 @@ pub struct SetOnboardingStepRequest {
     #[serde(default)]
     pub chosen_channel: Option<String>,
     /// For the `coach_proposal` step: the lead agent the proposal offered,
-    /// sent on Start and on Skip; it becomes the athlete's selected agent.
+    /// sent on Start and on Skip; it joins the team and becomes the athlete's
+    /// selected agent.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// For the `coach_proposal` step: every agent the athlete ticked (and
+    /// added from Discover). Each joins the team with the lead; Skip sends
+    /// the lead alone. Absent reads as none.
+    #[serde(default)]
+    pub team_agent_ids: Vec<String>,
+}
+
+/// Post the onboarding lead's welcome into the athlete's personal thread.
+#[cfg(feature = "client-chat")]
+async fn welcome_lead(
+    resources: &ServerContext,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+    tenant_id: TenantId,
+    lead: &str,
+) {
+    welcome_onboarding_lead(resources, headers, user_id, tenant_id, lead).await;
+}
+
+/// A build without the in-app chat has no personal thread to welcome the
+/// lead into; the team is still joined and the lead still selected.
+#[cfg(not(feature = "client-chat"))]
+async fn welcome_lead(
+    _resources: &ServerContext,
+    _headers: &HeaderMap,
+    _user_id: uuid::Uuid,
+    _tenant_id: TenantId,
+    _lead: &str,
+) {
 }
 
 /// `PUT /api/me/onboarding/steps/{step_id}` — persist a step's completion status.
 ///
 /// Durable, server-side onboarding progress: the web/mobile flows call this as
 /// each step completes so onboarding follows the user across devices. Scoped by
-/// the authenticated `user_id`.
-///
-/// LIMITATION(registre#1100): `handle_step_put` emits no `onboarding.step_completed` event; flows emit no `flow.completed`.
+/// the authenticated `user_id`. A write that changes the stored status
+/// reports `onboarding.step_completed` (carnet#1100); the team step also
+/// posts the lead's welcome into the personal thread (carnet#1099).
 ///
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, the step id or status is not
-/// recognised, `chosen_channel` is too long, the `coach_proposal` lead is an
-/// agent the athlete cannot be given, or persistence fails.
+/// recognised, `chosen_channel` is too long, the `coach_proposal` lead or a
+/// team member is an agent the athlete cannot be given or join, or
+/// persistence fails.
 pub async fn handle_step_put(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
+    headers: HeaderMap,
     Path(step_id): Path<String>,
     Json(req): Json<SetOnboardingStepRequest>,
 ) -> Result<Response, AppError> {
@@ -435,20 +471,40 @@ pub async fn handle_step_put(
         }
         Some(c) => Some(c),
     };
-    // The lead is checked before the step is written, so a refused lead
-    // leaves no half-made write behind.
+    // The team step, in one order: every agent it names is checked, then
+    // each joins, then the lead is selected, then the step is written — so a
+    // refused agent leaves nothing behind, and a retry converges.
     if let Some(active_tenant) = auth.active_tenant_id {
-        intake::select_onboarding_lead(
-            &resources.common.repos,
+        let active_tenant = TenantId::from_uuid(active_tenant);
+        let repos = &resources.common.repos;
+        let team = intake::validate_onboarding_team(
+            repos,
             auth.user_id,
-            TenantId::from_uuid(active_tenant),
+            active_tenant,
+            &step_id,
+            &req.status,
+            req.agent_id.as_deref(),
+            &req.team_agent_ids,
+        )
+        .await?;
+        intake::join_onboarding_team(repos, auth.user_id, active_tenant, &team).await?;
+        intake::select_onboarding_lead(
+            repos,
+            auth.user_id,
+            active_tenant,
             &step_id,
             &req.status,
             req.agent_id.as_deref(),
         )
         .await?;
+        // The team step's lead opens the personal thread, on Skip as on Start.
+        let lead = req.agent_id.as_deref().filter(|_| !team.is_empty());
+        if let Some(lead) = lead {
+            welcome_lead(&resources, &headers, auth.user_id, active_tenant, lead).await;
+        }
     }
     let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
+    let previous = stored_step_status(&resources, auth.user_id, &step_id).await;
     resources
         .common
         .repos
@@ -468,37 +524,118 @@ pub async fn handle_step_put(
         &req.status,
     )
     .await?;
-    if step_id == COACH_GROUP_STEP_ID && req.status == intake::STATUS_SKIPPED {
-        record_coach_group_skipped(&resources, auth.user_id, tenant_id.as_deref()).await;
-    }
+    let written = WrittenStep {
+        step_id: &step_id,
+        status: &req.status,
+        changed: previous.as_deref() != Some(req.status.as_str()),
+    };
+    report_step_written(&resources, auth.user_id, tenant_id.as_deref(), &written).await;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// Emit `onboarding.coach_group_skipped`: the coach tapped **Later** on the
-/// group step, timed from their signup (carnet#739). The step is already
-/// stored, so a failed user lookup is logged rather than failing the request.
-async fn record_coach_group_skipped(
+/// The status `step_id` holds for `user_id` before this write, read so the
+/// write can say whether it changed anything. An unreadable list reads as no
+/// status (logged): the step then counts as reached once more, never as not
+/// reached at all.
+async fn stored_step_status(
+    resources: &ServerContext,
+    user_id: uuid::Uuid,
+    step_id: &str,
+) -> Option<String> {
+    match resources
+        .common
+        .repos
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
+        .await
+    {
+        Ok(steps) => steps
+            .into_iter()
+            .find(|step| step.step_id == step_id)
+            .map(|step| step.status),
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "onboarding step: stored status unreadable");
+            None
+        }
+    }
+}
+
+/// A step write as the funnel events report it.
+struct WrittenStep<'a> {
+    step_id: &'a str,
+    status: &'a str,
+    /// The stored status differed, or there was none.
+    changed: bool,
+}
+
+/// Report a stored step write, timed from the athlete's signup: the funnel's
+/// `onboarding.step_completed` when the status changed (carnet#1100), and
+/// `onboarding.coach_group_skipped` when a coach tapped **Later** on the
+/// group step (carnet#739). The step is already stored, so a failed user
+/// lookup is logged rather than failing the request.
+async fn report_step_written(
     resources: &ServerContext,
     user_id: uuid::Uuid,
     tenant_id: Option<&str>,
+    step: &WrittenStep<'_>,
 ) {
+    let group_skipped =
+        step.step_id == COACH_GROUP_STEP_ID && step.status == intake::STATUS_SKIPPED;
+    if !step.changed && !group_skipped {
+        return;
+    }
     let user = match resources.common.repos.users.get_global(user_id).await {
         Ok(Some(user)) => user,
         Ok(None) => return,
         Err(e) => {
-            warn!(user_id = %user_id, error = %e, "coach group skip: user lookup failed");
+            warn!(user_id = %user_id, error = %e, "onboarding step: user lookup failed");
             return;
         }
     };
+    let seconds_since_signup = Utc::now()
+        .signed_duration_since(user.created_at)
+        .num_seconds()
+        .max(0);
+    if step.changed {
+        emit_step_completed(user_id, tenant_id, step, seconds_since_signup);
+    }
+    if group_skipped {
+        emit_coach_group_skipped(user_id, tenant_id, seconds_since_signup);
+    }
+}
+
+/// `onboarding.step_completed`: the funnel's step, reported once per change.
+fn emit_step_completed(
+    user_id: uuid::Uuid,
+    tenant_id: Option<&str>,
+    step: &WrittenStep<'_>,
+    seconds_since_signup: i64,
+) {
+    info!(
+        target: "notify",
+        event = "onboarding.step_completed",
+        user_id = %user_id,
+        tenant_id = tenant_id.unwrap_or_default(),
+        step_id = step.step_id,
+        status = step.status,
+        seconds_since_signup,
+        "onboarding step recorded"
+    );
+}
+
+/// `onboarding.coach_group_skipped`: the coach tapped **Later** on the group
+/// step (carnet#739).
+fn emit_coach_group_skipped(
+    user_id: uuid::Uuid,
+    tenant_id: Option<&str>,
+    seconds_since_signup: i64,
+) {
     info!(
         target: "notify",
         event = "onboarding.coach_group_skipped",
         user_id = %user_id,
         tenant_id = tenant_id.unwrap_or_default(),
-        seconds_since_signup = Utc::now()
-            .signed_duration_since(user.created_at)
-            .num_seconds()
-            .max(0),
+        seconds_since_signup,
         "coach skipped the onboarding group step"
     );
 }
@@ -510,11 +647,14 @@ pub struct OnboardingRoutes;
 impl OnboardingRoutes {
     /// User-facing route. Requires a valid session; no admin gate.
     pub fn routes(resources: Arc<ServerContext>) -> Router {
-        Router::new()
+        let router = Router::new()
             .route("/api/me/onboarding-status", get(handle_self_get))
             .route("/api/me/onboarding/steps/{step_id}", put(handle_step_put))
             .route("/api/me/parq", get(handle_parq_get).post(handle_parq_post))
-            .route("/api/me/about-you", post(handle_about_you_post))
-            .with_state(resources)
+            .route("/api/me/about-you", post(handle_about_you_post));
+        // Getting started reads the first-run flows the chat pipeline records.
+        #[cfg(feature = "client-chat")]
+        let router = router.route("/api/me/getting-started", get(get_getting_started));
+        router.with_state(resources)
     }
 }

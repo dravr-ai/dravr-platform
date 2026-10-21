@@ -215,11 +215,15 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // flip, and that tab must still meet the proposal (carnet#1042). The
     // tab that did see it still meets the connect step first, which stays up
     // until Continue. `coachProposalDone` reads the server record, so a user
-    // who finished it on any surface is not asked again.
+    // who finished it on any surface is not asked again. An athlete who
+    // continues without connecting meets it too, offered the agents that need
+    // no provider, so nobody reaches Home without a team (carnet#1095).
     id: 'coach_proposal',
     labelKey: 'onboarding.stepAgent',
     isApplicable: (c) =>
-      c.onboardingActive && c.needsProviderConnection === false && !c.athleteStepsWaived,
+      c.onboardingActive &&
+      !c.athleteStepsWaived &&
+      (c.needsProviderConnection === false || c.skippedProvider),
     isComplete: (c) => c.coachProposalDone,
   },
   {

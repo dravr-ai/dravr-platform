@@ -132,6 +132,16 @@ pub trait StoreListingsRepository: Send + Sync {
     async fn increment_install_count(&self, agent_id: &str) -> AppResult<()>;
     /// Decrement install count for an agent's store listing
     async fn decrement_install_count(&self, agent_id: &str) -> AppResult<()>;
+    /// Whether the user already holds a Store agent: a membership on the
+    /// origin itself, or their own copy of it in the tenant. Exactly the
+    /// check [`Self::install_from_store`] refuses a second install on, so a
+    /// caller that wants an idempotent join asks this first.
+    async fn holds_install(
+        &self,
+        source_agent_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
     /// Install an agent from the Store: put it on the user's team.
     ///
     /// A system (catalogue) agent is never copied: the user gains a

@@ -5,7 +5,13 @@
 // ABOUTME: Tapping an activity opens chat with the draft at this width too; whatever is topmost (page, banner, admin header) clears the notch
 
 import { test, expect, type Page } from '@playwright/test';
-import { fulfillCalendar, setupDashboardMocks, loginToDashboard, setupAndLoginAsAdmin } from './test-helpers';
+import {
+  fulfillCalendar,
+  setupDashboardMocks,
+  loginToDashboard,
+  mockHomeFirstArrival,
+  setupAndLoginAsAdmin,
+} from './test-helpers';
 
 /**
  * What `viewport-fit=cover` plus a black-translucent status bar hands an
@@ -204,6 +210,34 @@ async function openToday(page: Page) {
   await page.getByTestId('home-today-peek').click();
   await expect(page.getByRole('dialog', { name: 'Today' })).toBeVisible();
 }
+
+test.describe('Athlete Home — mobile viewport, first arrival', () => {
+  // carnet#1098: no extra line above the thread — the Today line ends with
+  // the count, and the sheet opens on Getting started and Your team.
+  test('a first arrival’s Today line ends with the Getting started count, and the sheet opens on it', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page);
+    await mockHomeFirstArrival(page);
+    await loginToDashboard(page);
+    await expect(page.getByTestId('home-page')).toBeVisible();
+
+    await expect(page.getByTestId('home-today-peek-progress')).toHaveText('1 of 5');
+    await openToday(page);
+    const sheet = page.getByRole('dialog', { name: 'Today' });
+    await expect(sheet.getByTestId('home-getting-started')).toBeVisible();
+    await expect(sheet.getByTestId('home-team')).toBeVisible();
+    await expect(sheet.getByTestId('home-today')).toBeVisible();
+    const order = await sheet
+      .locator('[data-testid="home-getting-started"], [data-testid="home-team"], [data-testid="home-today"]')
+      .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-testid')));
+    expect(order).toEqual(['home-getting-started', 'home-team', 'home-today']);
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+  });
+});
 
 test.describe('Athlete Home — mobile viewport', () => {
   test.beforeEach(async ({ page }) => {

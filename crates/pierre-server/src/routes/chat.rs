@@ -45,6 +45,7 @@ use axum::Router;
 use crate::mcp::resources::ServerContext;
 use crate::services::chat_verdicts;
 
+pub(crate) use common::get_tenant_id;
 pub use dto::{
     preview_text, AddParticipantRequest, ChatMessageAction, ConversationListResponse,
     ConversationResponse, ConversationSummaryResponse, CreateConversationRequest, FeedbackRating,
@@ -54,7 +55,9 @@ pub use dto::{
     StarterResponse, StartersResponse, UpdateConversationRequest, UpsertFeedbackRequest,
     MAX_LIST_LIMIT,
 };
+pub(crate) use personal::welcome_onboarding_lead;
 pub use read_marker::MarkReadRequest;
+pub(crate) use send_message::client_surface;
 pub use stop_turn::StopTurnResponse;
 pub use turn_response::{
     AssistantResponse, NoticeResponse, ReplyBlockResponse, TurnResponse, TurnTelemetryResponse,

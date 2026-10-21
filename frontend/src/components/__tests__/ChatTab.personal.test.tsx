@@ -57,12 +57,17 @@ vi.mock('../../hooks/useUsageStatus', () => ({
 
 const DRAFT = 'Walk me through my session on Monday 5 October: Easy trail';
 
-/** Today as the host draws it, reduced to what the surface places: a day to tap and the folded line. */
+/** Today as the host draws it, reduced to what the surface places: a day to tap, a first step, and the folded line. */
 const TODAY: PersonalToday = {
-  panel: (onOpenChatDraft) => (
-    <button type="button" onClick={() => onOpenChatDraft(DRAFT)}>
-      tap day
-    </button>
+  panel: (actions) => (
+    <>
+      <button type="button" onClick={() => actions.draft(DRAFT)}>
+        tap day
+      </button>
+      <button type="button" onClick={() => actions.send('gs:1:meet_team', 'Meet your team')}>
+        tap first step
+      </button>
+    </>
   ),
   peek: (onOpen, hidden) => (
     <button type="button" data-testid="peek" data-hidden={String(hidden)} onClick={onOpen}>
@@ -171,6 +176,27 @@ describe('Home — the personal surface', () => {
     expect(composer()).toHaveValue(DRAFT);
     expect(createConversation).not.toHaveBeenCalled();
     expect(sendTurn).not.toHaveBeenCalled();
+  });
+
+  // carnet#1098: a Getting started row sends its starter, as the empty
+  // thread's starters do, after the Today sheet steps aside.
+  it('sends a Today first step into the open thread as the athlete’s turn, the sheet closed first', async () => {
+    const user = userEvent.setup();
+    renderHome('conv-1');
+
+    await user.click(await screen.findByTestId('peek'));
+    const sheet = await screen.findByRole('dialog', { name: 'Today' });
+    await user.click(within(sheet).getByRole('button', { name: 'tap first step' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Today' })).toBeNull());
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    const [conversationId, content] = sendTurn.mock.calls[0];
+    expect(conversationId).toBe('conv-1');
+    expect(content).toBe('gs:1:meet_team');
+    expect(createConversation).not.toHaveBeenCalled();
+    // The bubble shows the row's words, never the postback.
+    expect(await screen.findByText('Meet your team')).toBeInTheDocument();
+    expect(screen.queryByText('gs:1:meet_team')).toBeNull();
   });
 
   it('lists the athlete’s own threads behind History, never a room, and opens the one picked', async () => {

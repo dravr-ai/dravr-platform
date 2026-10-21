@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::athlete_state::AthleteState;
 use crate::conversation_forge::selected_or_system_agent;
+use crate::first_run::{done_flows, FirstRun};
 
 /// The most starters a surface offers.
 ///
@@ -65,41 +66,106 @@ pub fn use_case_postback(position: usize, id: &str) -> String {
 /// slot may hold one cross-domain setup starter (D13); the rest are the
 /// agent's own domain (D4). The chosen starters are then rotated by
 /// `rotation`, so a tap says something about the starter rather than its slot.
+///
+/// The first run comes first (carnet#1099): while a first-run flow the
+/// athlete can take is open, the lowest one takes the first slot whatever the
+/// agent's domain, and stays there through the rotation; the setup starter
+/// follows it, so an athlete with nothing connected is still told to connect. An open flow is
+/// never retired by showings — it waits on a done rule, not on a tap — and a
+/// `once` flow in `done` is retired like a tapped one.
+///
+/// No two starters offered together run the same thing — the same command,
+/// or the same prompt: the higher-ranked one is kept and the other gives its
+/// slot to the next.
 #[must_use]
 fn rank<'a>(
     catalogue: &'a UseCaseCatalogue,
     state: &AthleteState,
     category: AgentCategory,
     exposures: &[UseCaseExposure],
+    done: &[String],
     rotation: usize,
 ) -> Vec<&'a UseCase> {
     let mut ordered: Vec<&UseCase> = catalogue
         .entries()
         .iter()
         .filter(|entry| entry.eligible(|predicate| state.holds(predicate)))
-        .filter(|entry| !retired(entry, exposures))
+        .filter(|entry| !retired(entry, exposures, done))
         .collect();
     ordered.sort_by_key(|entry| stage_order(entry.stage, state.stage));
 
-    let mut chosen: Vec<&UseCase> = ordered
+    let is_open_flow = |entry: &UseCase| entry.first_run.is_some() && !done.contains(&entry.id);
+    let next_flow = ordered
         .iter()
         .copied()
-        .find(|entry| entry.domains == Domains::Any)
-        .into_iter()
-        .collect();
-    let room = MAX_STARTERS.saturating_sub(chosen.len());
-    chosen.extend(
-        ordered
+        .filter(|entry| is_open_flow(entry))
+        .min_by_key(|entry| entry.first_run);
+    // Two starters that run the same thing are one offer: the higher-ranked
+    // one keeps it, so the next flow wins over any starter sharing its run.
+    let mut runs: Vec<RunTarget<'_>> = next_flow.iter().map(|flow| run_target(flow)).collect();
+    // The setup starter is never another open flow: one flow is offered at
+    // a time, and the next one takes the first slot when this one is done.
+    let setup = ordered.iter().copied().find(|entry| {
+        entry.domains == Domains::Any && !is_open_flow(entry) && !runs.contains(&run_target(entry))
+    });
+    runs.extend(setup.map(run_target));
+    let taken = |entry: &UseCase| {
+        [next_flow, setup]
             .iter()
-            .copied()
-            .filter(|entry| entry.domains.includes(category))
-            .take(room),
-    );
-    if !chosen.is_empty() {
-        let len = chosen.len();
-        chosen.rotate_left(rotation % len);
+            .flatten()
+            .any(|t| t.id == entry.id)
+    };
+    let room = MAX_STARTERS
+        .saturating_sub(usize::from(next_flow.is_some()) + usize::from(setup.is_some()));
+    let mut chosen: Vec<&UseCase> = setup.into_iter().collect();
+    let mut added = 0;
+    for entry in ordered
+        .iter()
+        .copied()
+        .filter(|entry| entry.domains.includes(category) && !taken(entry))
+    {
+        if added == room {
+            break;
+        }
+        let run = run_target(entry);
+        if !runs.contains(&run) {
+            runs.push(run);
+            chosen.push(entry);
+            added += 1;
+        }
+    }
+    rotate(&mut chosen, rotation);
+    // The next flow keeps its slot; only the starters after it turn.
+    if let Some(flow) = next_flow {
+        chosen.insert(0, flow);
     }
     chosen
+}
+
+/// What a starter runs when tapped: its command, or its own prompt.
+#[derive(Debug, PartialEq, Eq)]
+enum RunTarget<'a> {
+    /// The slash command, arguments included.
+    Command(&'a str),
+    /// The prompt the starter sends, named by its catalogue id.
+    Prompt(&'a str),
+}
+
+/// The run target of `entry`, so two starters that would send the same
+/// command are told apart from two that merely look alike.
+fn run_target(entry: &UseCase) -> RunTarget<'_> {
+    match &entry.run {
+        UseCaseRun::Command(command) => RunTarget::Command(command.trim()),
+        UseCaseRun::Prompt => RunTarget::Prompt(&entry.id),
+    }
+}
+
+/// Turn `starters` left by `rotation`.
+fn rotate(starters: &mut [&UseCase], rotation: usize) {
+    if !starters.is_empty() {
+        let len = starters.len();
+        starters.rotate_left(rotation % len);
+    }
 }
 
 /// A stable rotation for `key` — a thread id, or the athlete's id where no
@@ -113,8 +179,25 @@ pub fn rotation_for(key: &str) -> usize {
 }
 
 /// Whether the athlete retired `entry`: tapped a `once` starter, or let any
-/// starter go untapped through [`MAX_UNTAPPED_SHOWINGS`] showings.
-fn retired(entry: &UseCase, exposures: &[UseCaseExposure]) -> bool {
+/// starter go untapped through [`MAX_UNTAPPED_SHOWINGS`] showings. An open
+/// first-run flow is never retired by showings, only a `once` one by its
+/// tap; a done `once` flow is retired whether or not it was tapped.
+fn retired(entry: &UseCase, exposures: &[UseCaseExposure], done: &[String]) -> bool {
+    let tapped = || {
+        exposures
+            .iter()
+            .any(|exposure| exposure.use_case_id == entry.id && exposure.tapped_at.is_some())
+    };
+    if entry.first_run.is_some() {
+        if !done.contains(&entry.id) {
+            // A tap outside the thread that would make it done still uses a
+            // once-only flow up; showings alone never do.
+            return entry.repeat == Repeat::Once && tapped();
+        }
+        if entry.repeat == Repeat::Once {
+            return true;
+        }
+    }
     exposures
         .iter()
         .find(|exposure| exposure.use_case_id == entry.id)
@@ -257,16 +340,20 @@ pub async fn rank_for_athlete(
             warn!(error = %e, user_id = %user, "starter exposures unreadable; ranking as if none were shown");
             Vec::new()
         });
+    let catalogue = UseCaseCatalogue::pinned();
+    // An unreadable first run ranks every flow open: one offered once more
+    // than it should, never one hidden.
+    let first_run = FirstRun::read(repos, tenant, user)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, user_id = %user, "first-run progress unreadable; ranking every flow open");
+            FirstRun::default()
+        });
+    let done = done_flows(catalogue, &first_run);
     Ok(RankedStarters {
         state,
         policy,
-        entries: rank(
-            UseCaseCatalogue::pinned(),
-            &state,
-            category,
-            &exposures,
-            rotation,
-        ),
+        entries: rank(catalogue, &state, category, &exposures, &done, rotation),
     })
 }
 
@@ -307,7 +394,7 @@ mod tests {
 
     const CATALOGUE: &str = "
 - {id: connect, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [any], repeat: once}
-- {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}
+- {id: about_me_more, run: command, command: /pillars, requires: [dossier_empty | pillars_open], stage: any, domains: [any], repeat: recurring}
 - {id: last_workout, run: prompt, command: null, requires: [has_activities], stage: first_session, domains: [analysis, training], repeat: recurring}
 - {id: zone2, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [training], repeat: once}
 - {id: fuel, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [nutrition], repeat: once}
@@ -397,7 +484,7 @@ mod tests {
     #[test]
     fn a_newcomer_gets_one_setup_starter_and_only_no_data_starters_on_topic() {
         let catalogue = catalogue();
-        let rank_for = |category| ids(&rank(&catalogue, &newcomer(), category, &[], 0));
+        let rank_for = |category| ids(&rank(&catalogue, &newcomer(), category, &[], &[], 0));
         assert_eq!(rank_for(AgentCategory::Training), ["connect", "zone2"]);
         assert_eq!(rank_for(AgentCategory::Nutrition), ["connect", "fuel"]);
         assert_eq!(rank_for(AgentCategory::Recovery), ["connect"]);
@@ -407,7 +494,7 @@ mod tests {
     #[test]
     fn the_athletes_own_stage_leads_then_any_then_the_rest() {
         let catalogue = catalogue();
-        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &[], 0);
+        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &[], &[], 0);
         assert_eq!(ids(&ranked), ["season", "recovered", "last_workout"]);
     }
 
@@ -415,22 +502,43 @@ mod tests {
     fn a_tapped_setup_starter_gives_its_slot_to_the_next() {
         let catalogue = catalogue();
         let tapped = [exposure("connect", 0, true)];
-        let ranked = rank(&catalogue, &newcomer(), AgentCategory::Training, &tapped, 0);
-        assert_eq!(ids(&ranked), ["about_me", "zone2"]);
+        let ranked = rank(
+            &catalogue,
+            &newcomer(),
+            AgentCategory::Training,
+            &tapped,
+            &[],
+            0,
+        );
+        assert_eq!(ids(&ranked), ["about_me_more", "zone2"]);
     }
 
     #[test]
     fn three_untapped_showings_retire_a_starter_and_a_tap_keeps_a_recurring_one() {
         let catalogue = catalogue();
         let ignored = [exposure("recovered", 3, false)];
-        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &ignored, 0);
+        let ranked = rank(
+            &catalogue,
+            &settled(),
+            AgentCategory::Training,
+            &ignored,
+            &[],
+            0,
+        );
         assert_eq!(ids(&ranked), ["season", "last_workout"]);
 
         let used = [
             exposure("recovered", 0, true),
             exposure("last_workout", 2, false),
         ];
-        let ranked = rank(&catalogue, &settled(), AgentCategory::Training, &used, 0);
+        let ranked = rank(
+            &catalogue,
+            &settled(),
+            AgentCategory::Training,
+            &used,
+            &[],
+            0,
+        );
         assert_eq!(ids(&ranked), ["season", "recovered", "last_workout"]);
     }
 
@@ -443,6 +551,7 @@ mod tests {
                 &settled(),
                 AgentCategory::Training,
                 &[],
+                &[],
                 rotation,
             ))
         };
@@ -452,20 +561,238 @@ mod tests {
         assert_ne!(rotation_for("conv-1") % 3, rotation_for("conv-2") % 3);
     }
 
+    /// The four first-run flows beside two ordinary starters.
+    const FLOWS: &str = "
+- {id: meet_team, run: prompt, command: null, requires: [], stage: first_session, domains: [any], repeat: once, first_run: 1}
+- {id: about_me_more, run: command, command: /pillars, requires: [dossier_empty | pillars_open], stage: any, domains: [any], repeat: recurring, first_run: 3}
+- {id: last_workout, run: prompt, command: null, requires: [has_activities], stage: first_session, domains: [analysis, training], repeat: recurring, first_run: 2}
+- {id: fuel, run: prompt, command: null, requires: [], stage: first_session, domains: [nutrition], repeat: once}
+- {id: hydrate, run: prompt, command: null, requires: [], stage: first_session, domains: [nutrition], repeat: recurring}
+- {id: check_in, run: prompt, command: null, requires: [check_in_on], stage: any, domains: [any], repeat: recurring, first_run: 4}
+";
+
+    fn catalogue_with_connect() -> UseCaseCatalogue {
+        let connect = "- {id: connect, run: prompt, command: null, requires: [no_provider], stage: first_session, domains: [any], repeat: once}";
+        UseCaseCatalogue::parse(&format!("{connect}{FLOWS}")).expect("the fixture parses")
+    }
+
+    fn flows_state() -> AthleteState {
+        AthleteState {
+            has_provider: true,
+            activities: ActivityHistory::Present,
+            dossier: DossierCoverage {
+                covered: 2,
+                complete: false,
+                empty: false,
+            },
+            check_in_on: true,
+            ..newcomer()
+        }
+    }
+
+    fn done(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| (*id).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_next_open_flow_takes_the_first_slot_whatever_the_agents_domain() {
+        let catalogue = UseCaseCatalogue::parse(FLOWS).expect("the fixture parses");
+        let state = flows_state();
+        let at = |finished: &[&str], rotation| {
+            ids(&rank(
+                &catalogue,
+                &state,
+                AgentCategory::Nutrition,
+                &[],
+                &done(finished),
+                rotation,
+            ))
+        };
+        assert_eq!(at(&[], 0), ["meet_team", "fuel", "hydrate"]);
+        assert!(
+            !at(&[], 0).contains(&"about_me_more".to_owned()),
+            "one open flow at a time"
+        );
+        assert_eq!(
+            at(&[], 1),
+            ["meet_team", "hydrate", "fuel"],
+            "the flow keeps its slot through the rotation"
+        );
+        assert_eq!(
+            at(&["meet_team"], 0),
+            ["last_workout", "fuel", "hydrate"],
+            "a nutrition lead still offers the analysis flow"
+        );
+        assert_eq!(at(&["meet_team", "last_workout"], 0)[0], "about_me_more");
+        assert_eq!(
+            at(&["meet_team", "last_workout", "about_me_more"], 0)[0],
+            "check_in"
+        );
+    }
+
+    #[test]
+    fn an_unconnected_athlete_is_offered_the_flow_then_the_setup_starter() {
+        let catalogue = catalogue_with_connect();
+        let state = AthleteState {
+            has_provider: false,
+            activities: ActivityHistory::Absent,
+            ..flows_state()
+        };
+        let at = |rotation| {
+            ids(&rank(
+                &catalogue,
+                &state,
+                AgentCategory::Nutrition,
+                &[],
+                &[],
+                rotation,
+            ))
+        };
+        assert_eq!(at(0), ["meet_team", "connect", "fuel"]);
+        assert_eq!(
+            at(1),
+            ["meet_team", "fuel", "connect"],
+            "only the starters after the flow turn"
+        );
+    }
+
+    #[test]
+    fn a_flow_the_athlete_cannot_take_yet_gives_the_slot_to_the_next_one() {
+        let catalogue = UseCaseCatalogue::parse(FLOWS).expect("the fixture parses");
+        let state = AthleteState {
+            activities: ActivityHistory::Absent,
+            ..flows_state()
+        };
+        let ranked = rank(
+            &catalogue,
+            &state,
+            AgentCategory::Training,
+            &[],
+            &done(&["meet_team"]),
+            0,
+        );
+        assert_eq!(ids(&ranked), ["about_me_more"]);
+    }
+
+    #[test]
+    fn showings_never_retire_an_open_flow_and_a_done_once_flow_is_retired() {
+        let catalogue = UseCaseCatalogue::parse(FLOWS).expect("the fixture parses");
+        let ignored = [exposure("meet_team", 5, false)];
+        let ranked = rank(
+            &catalogue,
+            &flows_state(),
+            AgentCategory::Nutrition,
+            &ignored,
+            &[],
+            0,
+        );
+        assert_eq!(ids(&ranked)[0], "meet_team");
+        let tapped = [exposure("meet_team", 0, true)];
+        let ranked = rank(
+            &catalogue,
+            &flows_state(),
+            AgentCategory::Nutrition,
+            &tapped,
+            &[],
+            0,
+        );
+        assert!(
+            !ids(&ranked).contains(&"meet_team".to_owned()),
+            "a tapped once-only flow is used up even before it is done"
+        );
+
+        let everything_done = done(&["meet_team", "last_workout", "about_me_more", "check_in"]);
+        let ranked = rank(
+            &catalogue,
+            &flows_state(),
+            AgentCategory::Nutrition,
+            &[],
+            &everything_done,
+            0,
+        );
+        assert!(
+            !ids(&ranked).contains(&"meet_team".to_owned()),
+            "a done once-only flow is not offered again"
+        );
+        assert_eq!(
+            ids(&ranked)[0],
+            "about_me_more",
+            "a done recurring flow is an ordinary setup starter again"
+        );
+    }
+
+    #[test]
+    fn two_starters_that_run_the_same_command_are_offered_once() {
+        let about_me = "- {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}";
+        let catalogue =
+            UseCaseCatalogue::parse(&format!("{about_me}{FLOWS}")).expect("the fixture parses");
+        let state = AthleteState {
+            dossier: DossierCoverage {
+                covered: 0,
+                complete: false,
+                empty: true,
+            },
+            ..flows_state()
+        };
+        assert!(catalogue
+            .get("about_me")
+            .is_some_and(|entry| entry.eligible(|predicate| state.holds(predicate))));
+        assert!(catalogue
+            .get("about_me_more")
+            .is_some_and(|entry| entry.eligible(|predicate| state.holds(predicate))));
+        let at = |finished: &[&str]| {
+            ids(&rank(
+                &catalogue,
+                &state,
+                AgentCategory::Nutrition,
+                &[],
+                &done(finished),
+                0,
+            ))
+        };
+        assert_eq!(
+            at(&["meet_team", "last_workout"]),
+            ["about_me_more", "fuel", "hydrate"],
+            "the open flow keeps /pillars and about_me gives its setup slot away"
+        );
+        assert_eq!(
+            at(&["meet_team"]),
+            ["last_workout", "about_me", "fuel"],
+            "with the flow not yet next, the setup starter runs /pillars alone"
+        );
+        let all_done = done(&["meet_team", "last_workout", "about_me_more", "check_in"]);
+        let ranked = ids(&rank(
+            &catalogue,
+            &state,
+            AgentCategory::Nutrition,
+            &[],
+            &all_done,
+            0,
+        ));
+        assert_eq!(
+            ranked
+                .iter()
+                .filter(|id| id.starts_with("about_me"))
+                .count(),
+            1,
+            "{ranked:?}"
+        );
+    }
+
     #[test]
     fn nothing_eligible_ranks_nothing() {
         let catalogue = catalogue();
         let quiet = AthleteState {
             has_provider: true,
             dossier: DossierCoverage {
-                covered: 1,
-                complete: false,
+                covered: 6,
+                complete: true,
                 empty: false,
             },
             ..newcomer()
         };
         assert_eq!(
-            rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], 5),
+            rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], &[], 5),
             [] as [&UseCase; 0]
         );
     }
@@ -474,10 +801,10 @@ mod tests {
     fn a_command_starter_is_listed_with_its_command_and_a_prompt_starter_as_its_prompt() {
         let catalogue = catalogue();
         let strings = strings();
-        let about_me = catalogue.get("about_me").expect("in the fixture");
-        let worded_about_me = worded(about_me, &strings, "en").expect("worded");
-        assert_eq!(worded_about_me.label, "Label about_me");
-        assert_eq!(worded_about_me.line, "/pillars — Label about_me");
+        let about_me_more = catalogue.get("about_me_more").expect("in the fixture");
+        let worded_profile = worded(about_me_more, &strings, "en").expect("worded");
+        assert_eq!(worded_profile.label, "Label about_me_more");
+        assert_eq!(worded_profile.line, "/pillars — Label about_me_more");
 
         let connect = catalogue.get("connect").expect("in the fixture");
         assert_eq!(
@@ -500,7 +827,7 @@ mod tests {
     fn an_offer_numbers_its_slots_after_dropping_what_has_no_words() {
         let catalogue = catalogue();
         let strings = strings();
-        let entries: Vec<&UseCase> = ["zone2", "connect", "about_me"]
+        let entries: Vec<&UseCase> = ["zone2", "connect", "about_me_more"]
             .iter()
             .map(|id| catalogue.get(id).expect("in the fixture"))
             .collect();
@@ -514,9 +841,9 @@ mod tests {
                     postback: "uc:0:connect".to_owned(),
                 },
                 OfferedStarter {
-                    id: "about_me".to_owned(),
-                    label: "Label about_me".to_owned(),
-                    postback: "uc:1:about_me".to_owned(),
+                    id: "about_me_more".to_owned(),
+                    label: "Label about_me_more".to_owned(),
+                    postback: "uc:1:about_me_more".to_owned(),
                 },
             ]
         );

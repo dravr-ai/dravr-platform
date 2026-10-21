@@ -123,14 +123,28 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ today: new Date().toISOString().slice(0, 10), weeks: [] }),
     });
   });
-  // Home's stored choices (carnet#820): the plan suggestion is offered; a
-  // PUT answers with what it stored.
+  // Home's stored choices (carnet#820, carnet#1098): the plan suggestion and
+  // Getting started are shown; a PUT merges the choices it names, as the
+  // server does, and answers with every choice as it now stands.
+  let homePreferences = { plan_suggestion_hidden: false, getting_started_hidden: false };
   await page.route('**/api/me/home-preferences', async (route) => {
-    const body = route.request().method() === 'PUT' ? route.request().postData() : null;
+    if (route.request().method() === 'PUT') {
+      homePreferences = { ...homePreferences, ...(route.request().postDataJSON() as Partial<typeof homePreferences>) };
+    }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: body ?? JSON.stringify({ plan_suggestion_hidden: false }),
+      body: JSON.stringify(homePreferences),
+    });
+  });
+  // Getting started (carnet#1098): the mocked athlete is an established one,
+  // every first step done over a week ago, so the section is gone. A spec of
+  // a first arrival overrides this with `mockHomeFirstArrival`.
+  await page.route('**/api/me/getting-started', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(GETTING_STARTED_DONE),
     });
   });
   // The athlete's units (carnet#835, carnet#1044): metric until a PUT
@@ -884,4 +898,109 @@ export async function setupAndLoginAsSuperAdmin(page: Page) {
 export async function setupAndLoginAsUser(page: Page) {
   await setupDashboardMocks(page, { role: 'user' });
   await loginToDashboard(page);
+}
+
+/** Getting started for an athlete whose first steps were all done weeks ago: the section is gone. */
+const GETTING_STARTED_DONE = {
+  rows: ['connect', 'meet_team', 'last_workout', 'about_me_more', 'check_in'].map((id, index) => ({
+    id,
+    order: index + 1,
+    eligible: true,
+    done: true,
+    current: false,
+    postback: index === 0 ? null : `gs:${index + 1}:${id}`,
+  })),
+  done_count: 5,
+  total: 5,
+  folded_at: '2026-01-05T08:00:00Z',
+  hidden: false,
+};
+
+/** Getting started on a first arrival: data connected, meeting the team next, no check-in data yet. */
+const GETTING_STARTED_FIRST_ARRIVAL = {
+  rows: [
+    { id: 'connect', order: 1, eligible: true, done: true, current: false, postback: null },
+    { id: 'meet_team', order: 2, eligible: true, done: false, current: true, postback: 'gs:2:meet_team' },
+    { id: 'last_workout', order: 3, eligible: true, done: false, current: false, postback: 'gs:3:last_workout' },
+    { id: 'about_me_more', order: 4, eligible: true, done: false, current: false, postback: 'gs:4:about_me_more' },
+    { id: 'check_in', order: 5, eligible: true, done: false, current: false, postback: 'gs:5:check_in' },
+  ],
+  done_count: 1,
+  total: 5,
+  folded_at: null,
+  hidden: false,
+};
+
+/** The first-arrival team: the lead the thread is bound to and the two members the rules ticked. */
+const FIRST_ARRIVAL_TEAM = [
+  { id: 'agent-endurance', title: 'Endurance', handle: 'endurance', description: 'Plans and reads every session', category: 'training' },
+  { id: 'agent-fuelling', title: 'Fuelling', handle: 'fuelling', description: 'long days, race food', category: 'nutrition' },
+  { id: 'agent-recovery', title: 'Recovery', handle: 'recovery', description: 'sleep, HRV, load', category: 'recovery' },
+].map((agent) => ({
+  ...agent,
+  system_prompt: '',
+  tags: [],
+  token_count: 0,
+  is_favorite: false,
+  use_count: 0,
+  last_used_at: null,
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
+  is_system: true,
+  is_assigned: true,
+}));
+
+/**
+ * A first arrival on Home (carnet#1098): Getting started open on Meet your
+ * team, a team of three led by Endurance, a daily check-in. Call after
+ * `setupDashboardMocks` so these routes win.
+ */
+export async function mockHomeFirstArrival(page: Page): Promise<void> {
+  await page.route('**/api/me/getting-started', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GETTING_STARTED_FIRST_ARRIVAL) });
+  });
+  await page.route('**/api/me/check-in', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ cadence: 'daily' }) });
+  });
+  await page.route('**/api/me/onboarding-status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...ONBOARDED_STATUS, pillars_covered: 2, pillars_total: 7 }),
+    });
+  });
+  await page.route('**/api/agents**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/agents') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agents: FIRST_ARRIVAL_TEAM,
+        total: FIRST_ARRIVAL_TEAM.length,
+        metadata: { timestamp: new Date().toISOString(), api_version: 'v1' },
+      }),
+    });
+  });
+  await page.route('**/api/chat/personal', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversation: {
+          id: 'conv-home',
+          title: 'Endurance',
+          agent_id: 'agent-endurance',
+          personal: true,
+          channel_type: 'web',
+          unread_count: 0,
+          created_at: '2026-10-21T07:40:00Z',
+          updated_at: '2026-10-21T07:42:00Z',
+        },
+      }),
+    });
+  });
 }

@@ -144,7 +144,7 @@ async fn build_agent_proposal_message(
         return None;
     }
 
-    let (profile, agents) = build_agent_proposal(
+    let proposal = build_agent_proposal(
         &dispatch.resources,
         dispatch.auth_result.user_id,
         dispatch.user_tenant_id,
@@ -153,6 +153,7 @@ async fn build_agent_proposal_message(
     .await
     .inspect_err(|e| warn!(error = %e, "coach proposal: build failed; skipping"))
     .ok()?;
+    let (profile, agents) = (proposal.profile, proposal.agents);
 
     if agents.is_empty() {
         return None;

@@ -68,30 +68,6 @@ impl PostSurface {
     }
 }
 
-/// What a platform post is for: the key its claim is taken under.
-///
-/// An athlete gets each such post once however many triggers fire for it —
-/// the first-sync post once ever, a check-in once per day its cadence posts
-/// on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PostPurpose {
-    /// The coach's first post once the athlete's data lands.
-    FirstSync,
-    /// The coach's check-in on the cadence the athlete chose.
-    CheckIn,
-}
-
-impl PostPurpose {
-    /// The purpose as its claim row stores it.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::FirstSync => "first_sync",
-            Self::CheckIn => "check_in",
-        }
-    }
-}
-
 /// One platform post: who it is for, where it lands, and the instruction it
 /// answers. Borrowed so the request allocates nothing.
 pub struct PlatformPostRequest<'a> {

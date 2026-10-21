@@ -12,7 +12,8 @@ use uuid::Uuid;
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::platform_post_claims::{
     impl_platform_post_claim_repository, PlatformPostClaimRepository, CLAIM_PLATFORM_POST_ONCE_SQL,
-    CLAIM_PLATFORM_POST_SINCE_SQL, MARK_PLATFORM_POST_POSTED_SQL, RELEASE_PLATFORM_POST_SQL,
+    CLAIM_PLATFORM_POST_SINCE_SQL, MARK_PLATFORM_POST_POSTED_SQL, PLATFORM_POST_POSTED_AT_SQL,
+    RELEASE_PLATFORM_POST_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

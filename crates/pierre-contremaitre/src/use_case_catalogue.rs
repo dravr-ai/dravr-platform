@@ -281,9 +281,9 @@ impl UseCase {
     }
 }
 
-/// The parsed catalogue, in priority order.
-///
-/// LIMITATION(registre#1099): `UseCaseCatalogue` has no meet-your-team or daily check-in entry and no first-run marking.
+/// The parsed catalogue, in priority order. Its first-run flows
+/// ([`Self::first_run`]) are the entries carrying a `first_run:` order
+/// (carnet#1099).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UseCaseCatalogue {
     entries: Vec<UseCase>,
@@ -507,7 +507,7 @@ mod tests {
   domains: [recovery, training]
   repeat: recurring
   first_run: null
-- id: about_me
+- id: about_me_more
   run: command
   command: /pillars
   requires: []
@@ -574,7 +574,7 @@ mod tests {
     fn a_catalogue_parses_in_order_with_its_alternatives() {
         let catalogue = UseCaseCatalogue::parse(ENTRY).expect("parses");
         let ids: Vec<&str> = catalogue.entries().iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, ["recovered", "about_me"]);
+        assert_eq!(ids, ["recovered", "about_me_more"]);
 
         let recovered = catalogue.get("recovered").expect("recovered");
         assert_eq!(recovered.run, UseCaseRun::Prompt);
@@ -587,11 +587,11 @@ mod tests {
         assert!(!recovered.domains.includes(AgentCategory::Nutrition));
         assert_eq!(recovered.prompt_key(), "use_cases.recovered.prompt");
 
-        let about_me = catalogue.get("about_me").expect("about_me");
-        assert_eq!(about_me.run, UseCaseRun::Command("/pillars".to_owned()));
-        assert_eq!(about_me.domains, Domains::Any);
-        assert!(!about_me.domains.includes(AgentCategory::Training));
-        assert_eq!(about_me.label_key(), "use_cases.about_me.label");
+        let profile = catalogue.get("about_me_more").expect("about_me_more");
+        assert_eq!(profile.run, UseCaseRun::Command("/pillars".to_owned()));
+        assert_eq!(profile.domains, Domains::Any);
+        assert!(!profile.domains.includes(AgentCategory::Training));
+        assert_eq!(profile.label_key(), "use_cases.about_me_more.label");
     }
 
     #[test]
@@ -604,8 +604,8 @@ mod tests {
         let season_set = |p: Predicate| matches!(p, Predicate::HasRecoverySource);
         assert!(!recovered.eligible(season_set));
         assert!(catalogue
-            .get("about_me")
-            .expect("about_me")
+            .get("about_me_more")
+            .expect("about_me_more")
             .eligible(|_| false));
     }
 
@@ -635,7 +635,13 @@ mod tests {
     fn a_catalogue_without_first_run_has_no_flows() {
         let catalogue = UseCaseCatalogue::parse(ENTRY).expect("parses");
         assert_eq!(catalogue.first_run().len(), 0);
-        assert_eq!(catalogue.get("about_me").expect("about_me").first_run, None);
+        assert_eq!(
+            catalogue
+                .get("about_me_more")
+                .expect("about_me_more")
+                .first_run,
+            None
+        );
     }
 
     #[test]
@@ -700,9 +706,12 @@ mod tests {
             &ENTRY.replace("command: /pillars", "command: pillars"),
             "not a slash command",
         );
-        rejects(&ENTRY.replace("id: about_me", "id: recovered"), "repeats");
         rejects(
-            &ENTRY.replace("id: about_me", "id: About"),
+            &ENTRY.replace("id: about_me_more", "id: recovered"),
+            "repeats",
+        );
+        rejects(
+            &ENTRY.replace("id: about_me_more", "id: About"),
             "not snake_case",
         );
         rejects(
@@ -714,7 +723,7 @@ mod tests {
             "teaches",
         );
         rejects(
-            &ENTRY.replace("id: about_me", &format!("id: a{}", "b".repeat(60))),
+            &ENTRY.replace("id: about_me_more", &format!("id: a{}", "b".repeat(60))),
             "exceeds 64 bytes",
         );
     }

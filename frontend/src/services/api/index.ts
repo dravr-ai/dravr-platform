@@ -59,6 +59,8 @@ export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';
 // The personal thread's topics, which the web History lists (carnet#840).
 export { topicsApi } from './topics';
+// Home's Getting started, web-only until native Home has it (registre#1102).
+export { gettingStartedApi } from './gettingStarted';
 export type { ThreadTopic } from './topics';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';
 

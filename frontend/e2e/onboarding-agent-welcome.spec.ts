@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for carnet#735 — « Start » on the onboarding proposal lands in a thread the agent has already opened
+// ABOUTME: E2E for carnet#735/#1095 — Start on Your team writes the team, then lands in a thread the lead has opened
 // ABOUTME: The welcome renders under the agent's name with its starters as buttons; tapping one sends its postback as the next turn
 
 import { test, expect, type Page, type Route } from '@playwright/test';
@@ -46,13 +46,34 @@ const welcome = {
  * recorded — so the proposal step is next once the connect step is passed.
  */
 async function installMocks(page: Page) {
-  const state = { needsProvider: true, created: false, sentTurns: [] as string[] };
+  const state = {
+    needsProvider: true,
+    created: false,
+    sentTurns: [] as string[],
+    stepWrites: [] as Array<Record<string, unknown>>,
+    /** Step writes still to refuse with a 503, the server's own failure. */
+    failWrites: 0,
+  };
 
   await page.route('**/api/me/onboarding-status', (route) =>
     json(route, { needs_provider_connection: state.needsProvider }),
   );
-  await page.route('**/api/me/onboarding/steps/**', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/me/onboarding/steps/**', (route) => {
+    if (route.request().url().endsWith('/coach_proposal')) {
+      state.stepWrites.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (state.failWrites > 0) {
+        state.failWrites -= 1;
+        return json(route, { error: 'unavailable' }, 503);
+      }
+    }
+    return route.fulfill({ status: 204, body: '' });
+  });
   await page.route('**/api/messaging/channels/available', (route) => json(route, []));
+  const lead = {
+    agent: { id: AGENT_ID, title: AGENT_TITLE, category: 'nutrition' },
+    match_score: 0.9,
+    reason: 'You run long and fuel little.',
+  };
   await page.route('**/api/agents/proposal', (route) =>
     json(route, {
       profile: {
@@ -62,13 +83,9 @@ async function installMocks(page: Page) {
         primary_sport: null,
         sport_mix: [],
       },
-      agents: [
-        {
-          agent: { id: AGENT_ID, title: AGENT_TITLE, category: 'nutrition' },
-          match_score: 0.9,
-          reason: 'You run long and fuel little.',
-        },
-      ],
+      agents: [lead],
+      // A cold start: no rule fires, the lead is the whole team.
+      team: { lead, members: [] },
     }),
   );
   await page.route('**/api/agents/*/usage', (route) => route.fulfill({ status: 204, body: '' }));
@@ -176,7 +193,8 @@ async function installMocks(page: Page) {
   };
 }
 
-test('« Start » on the proposal opens a thread the agent has already welcomed', async ({ page }) => {
+/** Sign a first-run athlete in and walk them through connect to the Your team step. */
+async function reachTeamStep(page: Page) {
   await page.addInitScript((userId) => {
     window.localStorage.setItem(`dravr.profile_type_chosen.${userId}`, '1');
     window.localStorage.setItem(`dravr.about_you_done.${userId}`, '1');
@@ -202,7 +220,17 @@ test('« Start » on the proposal opens a thread the agent has already welcomed'
   await page.getByTestId('onboarding-connect-continue').getByRole('button', { name: 'Continue' }).click({ timeout: 15_000 });
 
   await expect(page.getByRole('heading', { name: AGENT_TITLE })).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'Start' }).click();
+  return mocks;
+}
+
+test('Start on Your team writes the team and opens a thread the lead has already welcomed', async ({ page }) => {
+  const mocks = await reachTeamStep(page);
+  await page.getByRole('button', { name: 'Start with my team · 1' }).click();
+
+  // The team is written before the thread opens: the lead, alone on it.
+  await expect
+    .poll(() => mocks.state.stepWrites)
+    .toEqual([{ status: 'complete', agent_id: AGENT_ID, team_agent_ids: [AGENT_ID] }]);
 
   await expect(page.getByText(/Dravr's Fuelling Agent here/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('To get started, you can ask me:')).toBeVisible();
@@ -214,4 +242,31 @@ test('« Start » on the proposal opens a thread the agent has already welcomed'
   await page.getByRole('button', { name: STARTERS[0].label }).click();
   await expect.poll(() => mocks.state.sentTurns).toEqual([STARTERS[0].postback]);
   await expect(page.getByText(/\b(uc|ex):\d/)).toHaveCount(0);
+});
+
+test('a refused team write keeps the athlete on Your team until Try again lands it', async ({ page }) => {
+  const mocks = await reachTeamStep(page);
+  mocks.state.failWrites = 1;
+  await page.getByRole('button', { name: 'Start with my team · 1' }).click();
+
+  await expect(page.getByRole('alert')).toContainText("We couldn't set up your team just now.");
+  // Nothing opened on a failed write: still the step, no thread.
+  expect(mocks.state.created).toBe(false);
+  await expect(page.getByRole('button', { name: 'Start with my team · 1' })).toBeEnabled();
+
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText(/Dravr's Fuelling Agent here/)).toBeVisible({ timeout: 15_000 });
+  expect(mocks.state.stepWrites).toHaveLength(2);
+});
+
+test('Skip on Your team writes the lead alone, as skipped', async ({ page }) => {
+  const mocks = await reachTeamStep(page);
+  await page.getByRole('button', { name: `Skip — start with ${AGENT_TITLE} only` }).click();
+
+  await expect
+    .poll(() => mocks.state.stepWrites)
+    .toEqual([{ status: 'skipped', agent_id: AGENT_ID, team_agent_ids: [AGENT_ID] }]);
+  // The step hands over to Home, and no topic was opened for the lead.
+  await expect(page.getByRole('button', { name: 'Start with my team · 1' })).toHaveCount(0, { timeout: 15_000 });
+  expect(mocks.state.created).toBe(false);
 });

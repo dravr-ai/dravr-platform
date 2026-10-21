@@ -34,6 +34,11 @@ pub async fn conversation_response(
 /// Resolve the caller's tenant id via the canonical resolver. Returns an
 /// auth error if the user has no tenants — never fabricates an id from
 /// the user uuid.
+///
+/// # Errors
+///
+/// Returns the resolver's error, and an auth error for a user with no
+/// tenant.
 pub async fn get_tenant_id(
     auth: &AuthResult,
     resources: &Arc<ServerContext>,

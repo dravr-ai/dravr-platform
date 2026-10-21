@@ -335,6 +335,7 @@ export const ENDPOINTS = {
     TRAINING_VOLUME: '/api/me/training-volume',
     /** What the athlete chose about Home — today, whether the plan suggestion is set aside (`GET`, `PUT`) */
     HOME_PREFERENCES: '/api/me/home-preferences',
+    /** Home's Getting started list: connect, then the first-run flows, done or not (`GET`) */
     /** The athlete's units, metric unless they chose imperial (`GET`, `PUT`) */
     UNITS: '/api/me/units',
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */

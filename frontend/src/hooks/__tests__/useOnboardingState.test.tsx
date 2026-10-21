@@ -99,7 +99,7 @@ describe('useOnboardingState — coach proposal in a fresh tab (carnet#1042)', (
   });
 });
 
-describe('useOnboardingState — the coach step records the lead agent (carnet#1101)', () => {
+describe('useOnboardingState — the team step writes the team and waits for it (carnet#1101, carnet#1095)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setOnboardingStep.mockResolvedValue(undefined);
@@ -108,28 +108,70 @@ describe('useOnboardingState — the coach step records the lead agent (carnet#1
     getOnboardingStatus.mockResolvedValue(connectedStatus([]));
   });
 
-  it('completing with a lead sends its id, which the server makes the selected agent', async () => {
+  it('Start sends the lead and every agent joining, and advances nothing by itself', async () => {
     const { result } = renderHook(() => useOnboardingState(), { wrapper });
     await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
 
-    act(() => result.current.completeCoachProposal('coach-trail'));
+    await act(() =>
+      result.current.persistCoachProposal({
+        status: 'complete',
+        leadAgentId: 'agent-endurance',
+        teamAgentIds: ['agent-endurance', 'agent-fuel'],
+      }),
+    );
 
     expect(setOnboardingStep).toHaveBeenCalledTimes(1);
     expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete', {
-      agentId: 'coach-trail',
+      agentId: 'agent-endurance',
+      teamAgentIds: ['agent-endurance', 'agent-fuel'],
     });
+    // The step opens the lead's topic before Home mounts, so advancing is its call.
+    expect(result.current.ctx.coachProposalDone).toBe(false);
+
+    act(() => result.current.completeCoachProposal());
     expect(result.current.ctx.coachProposalDone).toBe(true);
+    expect(setOnboardingStep).toHaveBeenCalledTimes(1);
   });
 
-  it('completing without a lead sends no agent id, so the server changes no selection', async () => {
+  it('Skip is recorded as skipped with the lead alone', async () => {
     const { result } = renderHook(() => useOnboardingState(), { wrapper });
     await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
 
-    act(() => result.current.completeCoachProposal());
+    await act(() =>
+      result.current.persistCoachProposal({
+        status: 'skipped',
+        leadAgentId: 'agent-endurance',
+        teamAgentIds: ['agent-endurance'],
+      }),
+    );
+
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'skipped', {
+      agentId: 'agent-endurance',
+      teamAgentIds: ['agent-endurance'],
+    });
+  });
+
+  it('a failed write rejects, so the step can keep the athlete on it', async () => {
+    setOnboardingStep.mockRejectedValueOnce(new Error('503'));
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
+
+    await expect(
+      result.current.persistCoachProposal({ status: 'complete', leadAgentId: 'agent-endurance' }),
+    ).rejects.toThrow('503');
+    expect(result.current.ctx.coachProposalDone).toBe(false);
+  });
+
+  it('a step written with no proposal sends no agent id, so the server changes no selection', async () => {
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
+
+    await act(() => result.current.persistCoachProposal({ status: 'complete' }));
 
     expect(setOnboardingStep).toHaveBeenCalledTimes(1);
     const [stepId, status, options] = setOnboardingStep.mock.calls[0];
     expect([stepId, status]).toEqual(['coach_proposal', 'complete']);
     expect(options?.agentId).toBeUndefined();
+    expect(options?.teamAgentIds).toBeUndefined();
   });
 });

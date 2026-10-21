@@ -374,7 +374,7 @@ pub fn parse_rerank_response<S: BuildHasher>(
 
 /// Slice the substring spanning the first `[` to the last `]`, or `None` when
 /// the content holds no bracket pair.
-fn extract_json_array(content: &str) -> Option<&str> {
+pub(crate) fn extract_json_array(content: &str) -> Option<&str> {
     let start = content.find('[')?;
     let end = content.rfind(']')?;
     (end > start).then(|| &content[start..=end])

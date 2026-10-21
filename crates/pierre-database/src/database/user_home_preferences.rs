@@ -12,7 +12,8 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::repositories::user_home_preferences::{
     home_preferences_error, impl_home_preferences_repository, HomePreferences,
-    HomePreferencesRepository, GET_HOME_PREFERENCES_SQL, UPSERT_HOME_PREFERENCES_SQL,
+    HomePreferencesRepository, HomePreferencesUpdate, GET_HOME_PREFERENCES_SQL,
+    UPSERT_HOME_PREFERENCES_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Home's Today folded to one line above the conversation on a narrow screen — today's session, form, the latest route
-// ABOUTME: A tap opens the whole of Today; it steps aside while the athlete reads back up the thread
+// ABOUTME: It ends with Getting started's count while that section is open; a tap opens the whole of Today
 
 import { useMemo } from 'react';
 import { clsx } from 'clsx';
@@ -15,6 +15,7 @@ import { decodePolyline } from '@pierre/domain-utils';
 import { planWindow } from '@pierre/ui-logic';
 import { recentActivitiesQuery, useTrainingPlan, useTrainingStatus } from '../../hooks/useHome';
 import { RouteSketch } from './RouteSketch';
+import { useGettingStarted } from './gettingStartedState';
 
 interface TodayPeekProps {
   /** Open the whole of Today — a drawer on a tablet, a sheet on a phone. */
@@ -62,6 +63,10 @@ export function TodayPeek({ onOpen, hidden }: TodayPeekProps) {
   const headline = useTodayHeadline();
   const form = useFormSummary();
   const recent = useQuery(recentActivitiesQuery());
+  // Getting started's count, from the query the section reads, so the line
+  // and the sheet never disagree; gone with the section once folded or hidden.
+  const gettingStarted = useGettingStarted();
+  const progress = gettingStarted.state === 'open' ? (gettingStarted.query.data ?? null) : null;
   const latest = recent.data?.activities[0] ?? null;
   const points = useMemo(
     () => (latest?.summary_polyline ? decodePolyline(latest.summary_polyline) : null),
@@ -96,6 +101,11 @@ export function TodayPeek({ onOpen, hidden }: TodayPeekProps) {
         {points !== null && points.length > 1 && latest !== null && (
           <span className="shrink-0">
             <RouteSketch points={points} label={latest.name} compact />
+          </span>
+        )}
+        {progress !== null && (
+          <span className="shrink-0 font-mono text-xs text-on-surface-variant" data-testid="home-today-peek-progress">
+            {t('home.gettingStarted.count', { done: progress.done_count, total: progress.total })}
           </span>
         )}
         <ChevronDown className="h-5 w-5 shrink-0 text-on-surface-variant" aria-hidden="true" />

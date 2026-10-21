@@ -162,9 +162,9 @@ mod messaging_welcome {
 
     /// The welcome as Telegram gets it: a card, its body the greeting and no
     /// postback, its buttons the three starters the thread's row carries —
-    /// those ranked from the athlete's state lead (carnet#828), and the
-    /// agent's first example fills a slot they leave. The starters were
-    /// counted as shown, since a tap can reach them.
+    /// those ranked from the athlete's state (carnet#828), Meet your team
+    /// first while that first-run flow is open (carnet#1099). The starters
+    /// were counted as shown, since a tap can reach them.
     async fn assert_welcome_card(e2e: &CommandE2e, m: &Member, session: &str, conversation: &str) {
         let bodies = e2e.outbound_bodies_for_session(session).await;
         let types = e2e.outbound_types_for_session(session).await;
@@ -177,9 +177,9 @@ mod messaging_welcome {
         );
         let postbacks = welcome_postbacks(e2e, m, conversation).await;
         assert_eq!(postbacks.len(), 3, "{postbacks:?}");
-        assert!(
-            postbacks.contains(&format!("ex:{}:0", postbacks.len() - 1)),
-            "the first example fills the slot the ranked starters leave: {postbacks:?}"
+        assert_eq!(
+            postbacks[0], "uc:0:meet_team",
+            "the open first-run flow leads, whatever the agent's domain (carnet#1099): {postbacks:?}"
         );
         assert!(
             !e2e.resources

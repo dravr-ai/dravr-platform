@@ -172,12 +172,17 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     ).toBeNull();
   });
 
-  it('"continue without connecting" (skipped) → null (dashboard)', () => {
-    expect(
-      currentOnboardingStep(
-        ctx({ needsProviderConnection: true, skippedProvider: true, profileTypeChosen: false }),
-      ),
-    ).toBeNull();
+  it('"continue without connecting" (skipped) → coach_proposal, then the dashboard', () => {
+    // The team step offers the agents that need no provider, so an athlete
+    // who skips connecting still reaches Home with a team (carnet#1095).
+    const skipped = ctx({
+      needsProviderConnection: true,
+      skippedProvider: true,
+      profileTypeChosen: false,
+      coachProposalDone: false,
+    });
+    expect(currentOnboardingStep(skipped)?.id).toBe('coach_proposal');
+    expect(currentOnboardingStep({ ...skipped, coachProposalDone: true })).toBeNull();
   });
 
   it('admin / inactive user (onboardingActive=false, needs=undefined) → null', () => {
@@ -535,7 +540,7 @@ describe('coach who does not train — athlete steps leave the journey', () => {
       checkInDone: true,
     });
     expect(currentOnboardingStep(trains)?.id).toBe('connect_provider');
-    expect(currentOnboardingStep({ ...trains, skippedProvider: true })).toBeNull();
+    expect(currentOnboardingStep({ ...trains, skippedProvider: true })?.id).toBe('coach_proposal');
   });
 
   it('a coach who trains still gets the agent step before the group step', () => {

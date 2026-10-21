@@ -33,6 +33,19 @@ use pierre_core::models::agents::Agent;
 /// LIMITATION(registre#1103): `ROSTER_AGENT_HANDLE` is a coach's whole first run: no team step, Getting started or flows.
 pub const ROSTER_AGENT_HANDLE: &str = "roster-agent";
 
+/// Catalogue handle of the Fuelling agent (dravr-contremaitre
+/// `prompts/agents/nutrition/fuelling-agent`): the team's long-event member,
+/// and the first a cold start leads with ([`crate::team_rules`]).
+pub const FUELLING_AGENT_HANDLE: &str = "fuelling-agent";
+
+/// Catalogue handle of the Recovery agent: the team's member for an athlete
+/// whose provider sends sleep or HRV ([`crate::team_rules`]).
+pub const RECOVERY_AGENT_HANDLE: &str = "recovery-agent";
+
+/// Catalogue handle of the Mobility agent: offered, unticked, to an athlete
+/// who does strength work ([`crate::team_rules`]).
+pub const MOBILITY_AGENT_HANDLE: &str = "mobility-agent";
+
 /// The first agent an athlete may be answered by.
 #[must_use]
 pub fn first_athlete_facing(system: &[Agent]) -> Option<&Agent> {

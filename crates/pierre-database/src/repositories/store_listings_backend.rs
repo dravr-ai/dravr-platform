@@ -545,6 +545,24 @@ macro_rules! impl_store_listings_repository {
                 Ok(())
             }
 
+            async fn holds_install(
+                &self,
+                source_agent_id: &str,
+                user_id: Uuid,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                let existing = sqlx::query(EXISTING_INSTALL_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(tenant_id)
+                    .bind(source_agent_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to check existing installation: {e}"))
+                    })?;
+                Ok(existing.is_some())
+            }
+
             async fn install_from_store(
                 &self,
                 source_agent_id: &str,
@@ -555,22 +573,15 @@ macro_rules! impl_store_listings_repository {
                     .get_published_agent(source_agent_id)
                     .await?
                     .ok_or_else(|| {
-                        AppError::not_found(format!("Published coach {source_agent_id}"))
+                        AppError::not_found(format!("Published agent {source_agent_id}"))
                     })?;
 
-                let existing = sqlx::query(EXISTING_INSTALL_SQL)
-                    .bind($ids::bind(user_id))
-                    .bind(tenant_id)
-                    .bind(source_agent_id)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to check existing installation: {e}"))
-                    })?;
-
-                if existing.is_some() {
+                if self
+                    .holds_install(source_agent_id, user_id, tenant_id)
+                    .await?
+                {
                     return Err(AppError::invalid_input(format!(
-                        "Coach {} is already installed",
+                        "Agent {} is already installed",
                         source.agent.title
                     )));
                 }

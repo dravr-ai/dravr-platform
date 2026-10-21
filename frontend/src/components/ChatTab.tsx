@@ -148,17 +148,35 @@ export interface PendingComposerAction {
 }
 
 /**
+ * What Today's sections can do to the conversation beside them. Each closes
+ * the Today sheet first on a narrow screen, so the athlete sees the thread
+ * the action landed in; docked, the panel stays.
+ */
+export interface TodayActions {
+  /** Put `text` in this thread's composer, for the athlete to finish and send. */
+  draft: (text: string) => void;
+  /**
+   * Send `text` as the athlete's turn — a starter's postback, which the
+   * bubble shows as `display` until the turn echoes the words it stands for.
+   */
+  send: (text: string, display: string) => void;
+  /** Open the personal thread where one of its topics starts. */
+  openTopic: (conversationId: string, dividerId: string | null) => void;
+  /** Step out of the Today sheet, before something opens over the page. */
+  dismiss: () => void;
+}
+
+/**
  * Home's Today, as the host draws it: the whole of it for the panel, the
  * drawer or the sheet, and the one line that stands for it above the thread
  * on a narrow screen. The chat surface only places them.
  */
 export interface PersonalToday {
   /**
-   * The panel's content. `onOpenChatDraft` puts text in this thread's
-   * composer; `compact` is the docked side panel, as opposed to a drawer or a
-   * sheet.
+   * The panel's content. `actions` reach this thread from inside Today;
+   * `compact` is the docked side panel, as opposed to a drawer or a sheet.
    */
-  panel: (onOpenChatDraft: (text: string) => void, compact: boolean) => ReactNode;
+  panel: (actions: TodayActions, compact: boolean) => ReactNode;
   /** The folded line; `hidden` while the athlete reads back up the thread or types. */
   peek: (onOpen: () => void, hidden: boolean) => ReactNode;
 }
@@ -943,6 +961,11 @@ export default function ChatTab({
 
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
 
+        // A turn is where a first-run flow is done — a reply, a tapped
+        // starter, a grounded answer, a check-in answer — so Getting started
+        // re-reads its rows after every one.
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.home.gettingStarted() });
+
         // The turn joined the room too, and so may have other members'
         // lines since the room was last read.
         if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });
@@ -986,6 +1009,9 @@ export default function ChatTab({
         const note = describeTurnFailure(error, { t, online: navigator.onLine });
         setErrorMessage(note);
         queryClient.invalidateQueries({ queryKey: conversationKey });
+        // A starter tap is recorded before the reply, so a failed reply can
+        // still have finished a first-run flow.
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.home.gettingStarted() });
         if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });
         // Failed while the athlete was away — the idle stop dropped the
         // stream, or the network went with a sleeping laptop. The server kept
@@ -1574,9 +1600,21 @@ export default function ChatTab({
         onHistoryOpenChange={setHistoryOpen}
         bell={bell}
         peekHidden={!atLatest || composing}
-        onDraft={(text) => {
-          setTodaySheetOpen(false);
-          runComposerAction({ kind: 'draft', text });
+        todayActions={{
+          draft: (text) => {
+            setTodaySheetOpen(false);
+            runComposerAction({ kind: 'draft', text });
+          },
+          send: (text, display) => {
+            setTodaySheetOpen(false);
+            runComposerAction({ kind: 'send', text, display });
+          },
+          openTopic: (conversationId, dividerId) => {
+            setTodaySheetOpen(false);
+            setPendingTopic({ conversationId, dividerId });
+            onSelectConversation(conversationId);
+          },
+          dismiss: () => setTodaySheetOpen(false),
         }}
         onSelectConversation={onSelectConversation}
         onOpenTopic={(conversationId, dividerId) => {
@@ -1690,7 +1728,8 @@ interface PersonalSurfaceProps {
   /** The notifications bell, the right-most control of the header. */
   bell: ReactNode;
   peekHidden: boolean;
-  onDraft: (text: string) => void;
+  /** What Today's sections do to this thread. */
+  todayActions: TodayActions;
   onSelectConversation: (id: string | null) => void;
   /** Open the personal thread where one of its topics starts. */
   onOpenTopic: (conversationId: string, dividerId: string | null) => void;
@@ -1731,7 +1770,7 @@ function PersonalSurface({
   onHistoryOpenChange,
   bell,
   peekHidden,
-  onDraft,
+  todayActions,
   onSelectConversation,
   onOpenTopic,
   onNewConversation,
@@ -1828,7 +1867,7 @@ function PersonalSurface({
           data-testid="home-today-panel"
           className="flex w-[320px] shrink-0 flex-col border-l ghost-border bg-surface xl:w-[360px]"
         >
-          <div className="min-h-0 flex-1 overflow-y-auto">{today.panel(onDraft, true)}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto">{today.panel(todayActions, true)}</div>
         </aside>
       )}
 
@@ -1839,7 +1878,7 @@ function PersonalSurface({
           onClose={() => onTodaySheetOpenChange(false)}
           data-testid="home-today-sheet"
         >
-          {today.panel(onDraft, false)}
+          {today.panel(todayActions, false)}
         </Sheet>
       )}
 

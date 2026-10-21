@@ -47,7 +47,7 @@ BASELINE_WEB_LEGACY_PIERRE=0
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
 # ratcheted from the count the refresh left, so they can only fall.
 BASELINE_WEB_BACKDROP_BLUR=15
-BASELINE_WEB_HERO_GRADIENT=5
+BASELINE_WEB_HERO_GRADIENT=4
 # Boreal v2.1 (DESIGN.md §5, §9): a group is a Section, not a Card; the
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.

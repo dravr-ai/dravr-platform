@@ -11,6 +11,7 @@ use pierre_core::models::{Dossier, Pillar, SportProfile};
 use pierre_core::untrusted::{cap, flatten_line};
 use pierre_services::activity_sports::{sport_label, MessagingStringsRegistry};
 use pierre_services::agents::sport_code;
+use pierre_services::team_rules::first_goal;
 
 use super::types::{SportProfileSummary, SportShare};
 
@@ -31,9 +32,9 @@ fn sanitize_for_prompt(s: &str) -> String {
 /// Carries their North Star (sanitized, the most match-relevant signal) plus
 /// which pillars they have shared context on (labels only). `None` when the
 /// user has no non-stale pillar context yet — the proposal then matches on
-/// sport-mix.
-///
-/// LIMITATION(registre#1097): `pillar_context_prompt` only feeds the LLM re-rank; no rule table picks team members.
+/// sport-mix. It steers the lead's re-rank only: the members beside the lead
+/// come from the rule table (`pierre_services::team_rules`), and a present
+/// context is what lets a cold start be re-ranked at all.
 #[must_use]
 pub fn pillar_context_prompt(dossier: &Dossier) -> Option<String> {
     let mut parts = Vec::new();
@@ -67,6 +68,18 @@ pub fn pillar_context_prompt(dossier: &Dossier) -> Option<String> {
     }
 
     (!parts.is_empty()).then(|| parts.join(". "))
+}
+
+/// The athlete's goal for the team step's goal line.
+///
+/// Their first live goal fact, flattened and capped exactly as a prompt fact
+/// is. It is their own
+/// text echoed back to them, so it is shown as text, never as markup.
+#[must_use]
+pub fn proposal_goal(dossier: &Dossier) -> Option<String> {
+    first_goal(dossier)
+        .map(sanitize_for_prompt)
+        .filter(|goal| !goal.is_empty())
 }
 
 /// The user's sport profile in the two shapes the proposal needs: the

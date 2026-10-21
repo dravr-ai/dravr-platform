@@ -46,6 +46,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationResponse, MessageResponse, MessagesListResponse, TurnResponse,
 };
+use pierre_services::first_run::{record, FINISH_PROFILE, MEET_TEAM};
 
 const SAMPLES: [&str; 3] = [
     "What should I eat before a 6am run?",
@@ -72,6 +73,22 @@ async fn setup(email: &str) -> Fixture {
             .await
             .unwrap();
     let auth = format!("Bearer {}", generate_test_token(&resources, &user).await);
+    // Past the first-run Meet your team and Finish your profile, the flows
+    // an athlete with nothing connected keeps open (carnet#1099): the first
+    // slot is the setup starter's again, which is what these welcomes are
+    // judged by.
+    for flow in [MEET_TEAM, FINISH_PROFILE] {
+        record(
+            &resources.common.repos,
+            user_id,
+            tenant_id,
+            flow,
+            Utc::now().date_naive(),
+            "web_chat",
+        )
+        .await
+        .unwrap();
+    }
     Fixture {
         resources,
         provider,

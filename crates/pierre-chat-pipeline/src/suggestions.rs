@@ -29,6 +29,12 @@
 //!   `starter_samples` order, shown in slot `position`. The two numbers are
 //!   kept apart because ranked starters can take the slots ahead of the
 //!   examples.
+//! - `gs:<position>:<id>` — the first-run flow `id` tapped in row `position`
+//!   of Home's Getting started list (carnet#1100). It resolves exactly as a
+//!   starter does and is reported under the `getting_started` surface.
+//! - `ta:<choice>:<pillar>` — a link of the add-to-team offer a pillars
+//!   walk's wrap-up made for `pillar` ([`crate::team_offer`], carnet#1097).
+//!   It resolves to no words: the platform answers it in one line itself.
 //!
 //! A value parses only when it is exactly that shape, so a question an athlete
 //! types — and every slash-command button, whose value starts with `/` — is
@@ -42,9 +48,10 @@ use chrono::Utc;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::use_case_catalogue::{is_use_case_id, UseCaseCatalogue, UseCaseRun};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{ConversationRecord, InputSource, TenantId};
+use pierre_core::models::{ConversationRecord, InputSource, Pillar, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
+use pierre_services::first_run::{getting_started_postback, GETTING_STARTED_POSTBACK_PREFIX};
 use pierre_services::use_case_rank::{
     offer, rank_for_athlete, rotation_for, starter_category, use_case_line, use_case_postback,
     OfferedStarter, USE_CASE_POSTBACK_PREFIX,
@@ -55,6 +62,7 @@ use uuid::Uuid;
 use crate::agent_welcome::{localized_agent, starter_samples};
 use crate::envelope::TurnAction;
 use crate::surface_profile::SurfaceId;
+use crate::team_offer::{self, TeamOfferChoice, TEAM_OFFER_PREFIX};
 
 /// The `surface` an agent welcome's starters are reported under.
 pub(crate) const SURFACE_AGENT_WELCOME: &str = "agent_welcome";
@@ -67,6 +75,9 @@ pub(crate) const SURFACE_NEXT_STEP: &str = "next_step";
 /// The `surface` the starters of an empty thread are reported under: the web
 /// pane with no thread open, the phone's thread before its first message.
 pub(crate) const SURFACE_EMPTY_THREAD: &str = "empty_thread";
+
+/// The `surface` Home's Getting started rows are reported under (carnet#1100).
+pub(crate) const SURFACE_GETTING_STARTED: &str = "getting_started";
 
 const EXAMPLE_PREFIX: &str = "ex:";
 const NEXT_STEP_PREFIX: &str = "nx:";
@@ -119,6 +130,20 @@ pub(crate) enum Postback {
         /// The entry's catalogue id.
         id: String,
     },
+    /// The first-run flow `id`, tapped in row `position` of Getting started.
+    GettingStarted {
+        /// 0-based row the flow was shown in.
+        position: usize,
+        /// The flow's catalogue id.
+        id: String,
+    },
+    /// A link of the add-to-team offer a pillars walk's wrap-up made.
+    TeamOffer {
+        /// Which link was tapped.
+        choice: TeamOfferChoice,
+        /// The newly covered pillar whose agent was offered.
+        pillar: Pillar,
+    },
 }
 
 impl Postback {
@@ -129,6 +154,8 @@ impl Postback {
             Self::Example { position, index } => format!("{EXAMPLE_PREFIX}{position}:{index}"),
             Self::UseCase { position, id } => use_case_postback(*position, id),
             Self::NextStep { position, id } => format!("{NEXT_STEP_PREFIX}{position}:{id}"),
+            Self::GettingStarted { position, id } => getting_started_postback(*position, id),
+            Self::TeamOffer { choice, pillar } => team_offer::encode(*choice, *pillar),
         }
     }
 
@@ -147,17 +174,29 @@ impl Postback {
             let (position, id) = catalogue_slot(rest)?;
             return Some(Self::NextStep { position, id });
         }
+        if let Some(rest) = text.strip_prefix(GETTING_STARTED_POSTBACK_PREFIX) {
+            let (position, id) = catalogue_slot(rest)?;
+            return Some(Self::GettingStarted { position, id });
+        }
+        if let Some(rest) = text.strip_prefix(TEAM_OFFER_PREFIX) {
+            let (choice, pillar) = team_offer::parse(rest)?;
+            return Some(Self::TeamOffer { choice, pillar });
+        }
         let (position, id) = catalogue_slot(text.strip_prefix(USE_CASE_POSTBACK_PREFIX)?)?;
         Some(Self::UseCase { position, id })
     }
 
-    /// The suggestion's identity in analytics: a starter's catalogue id, or
-    /// `ex:<index>` for an example — the same whichever slot it was offered in.
+    /// The suggestion's identity in analytics: a starter's catalogue id,
+    /// `ex:<index>` for an example, or `team_offer_<pillar>` for an offer's
+    /// link — the same whichever slot it was offered in.
     #[must_use]
     pub fn use_case(&self) -> String {
         match self {
             Self::Example { index, .. } => format!("{EXAMPLE_PREFIX}{index}"),
-            Self::UseCase { id, .. } | Self::NextStep { id, .. } => id.clone(),
+            Self::TeamOffer { pillar, .. } => team_offer::exposure_id(*pillar),
+            Self::UseCase { id, .. }
+            | Self::NextStep { id, .. }
+            | Self::GettingStarted { id, .. } => id.clone(),
         }
     }
 
@@ -167,7 +206,9 @@ impl Postback {
         match self {
             Self::Example { position, .. }
             | Self::UseCase { position, .. }
-            | Self::NextStep { position, .. } => *position,
+            | Self::NextStep { position, .. }
+            | Self::GettingStarted { position, .. } => *position,
+            Self::TeamOffer { choice, .. } => choice.position(),
         }
     }
 
@@ -176,13 +217,15 @@ impl Postback {
     pub const fn source(&self) -> SuggestionSource {
         match self {
             Self::Example { .. } => SuggestionSource::Static,
-            Self::UseCase { .. } => SuggestionSource::State,
-            Self::NextStep { .. } => SuggestionSource::NextStep,
+            // A Getting started row is chosen from the athlete's first run.
+            Self::UseCase { .. } | Self::GettingStarted { .. } => SuggestionSource::State,
+            // An offer rides a walk's wrap-up, beside its next steps.
+            Self::NextStep { .. } | Self::TeamOffer { .. } => SuggestionSource::NextStep,
         }
     }
 
     /// The placement a tap on the suggestion is reported under: a welcome's
-    /// starter, or a step a reply ended on.
+    /// starter, a step a reply ended on, or a Getting started row.
     ///
     /// A tap carries nothing but its grammar, so a starter is a welcome's
     /// whichever surface showed it; a showing names its own placement
@@ -191,7 +234,8 @@ impl Postback {
     pub const fn surface(&self) -> &'static str {
         match self {
             Self::Example { .. } | Self::UseCase { .. } => SURFACE_AGENT_WELCOME,
-            Self::NextStep { .. } => SURFACE_NEXT_STEP,
+            Self::NextStep { .. } | Self::TeamOffer { .. } => SURFACE_NEXT_STEP,
+            Self::GettingStarted { .. } => SURFACE_GETTING_STARTED,
         }
     }
 
@@ -199,17 +243,22 @@ impl Postback {
     #[must_use]
     pub const fn input_source(&self) -> InputSource {
         match self {
-            Self::Example { .. } | Self::UseCase { .. } => InputSource::UseCase,
-            Self::NextStep { .. } => InputSource::NextStep,
+            Self::Example { .. } | Self::UseCase { .. } | Self::GettingStarted { .. } => {
+                InputSource::UseCase
+            }
+            Self::NextStep { .. } | Self::TeamOffer { .. } => InputSource::NextStep,
         }
     }
 
-    /// The catalogue entry the suggestion stands for; `None` for an example.
+    /// The catalogue entry the suggestion stands for; `None` for an example
+    /// or an offer's link.
     #[must_use]
     pub fn catalogue_id(&self) -> Option<&str> {
         match self {
-            Self::Example { .. } => None,
-            Self::UseCase { id, .. } | Self::NextStep { id, .. } => Some(id),
+            Self::Example { .. } | Self::TeamOffer { .. } => None,
+            Self::UseCase { id, .. }
+            | Self::NextStep { id, .. }
+            | Self::GettingStarted { id, .. } => Some(id),
         }
     }
 }
@@ -257,6 +306,15 @@ pub(crate) enum Resolution {
         /// The postback that was tapped.
         postback: Postback,
     },
+    /// A link of an add-to-team offer, which the platform answers itself.
+    TeamOffer {
+        /// Which link was tapped.
+        choice: TeamOfferChoice,
+        /// The pillar whose agent was offered.
+        pillar: Pillar,
+        /// The postback that was tapped.
+        postback: Postback,
+    },
 }
 
 /// Who tapped, where, for [`resolve`] and the analytics it emits.
@@ -293,8 +351,17 @@ pub(crate) async fn resolve(
         return Ok(Resolution::NotAPostback);
     };
     let words = match &postback {
+        Postback::TeamOffer { choice, pillar } => {
+            return Ok(Resolution::TeamOffer {
+                choice: *choice,
+                pillar: *pillar,
+                postback,
+            });
+        }
         Postback::Example { index, .. } => example_words(repos, tap, *index).await?,
-        Postback::UseCase { id, .. } | Postback::NextStep { id, .. } => {
+        Postback::UseCase { id, .. }
+        | Postback::NextStep { id, .. }
+        | Postback::GettingStarted { id, .. } => {
             use_case_words(UseCaseCatalogue::pinned(), strings, tap.locale, id)
         }
     };
@@ -388,9 +455,9 @@ pub(crate) struct SuggestionEvent<'a> {
     pub user_id: &'a str,
     /// Tenant of the conversation the suggestion lives in.
     pub tenant_id: TenantId,
-    /// The placement: [`SURFACE_AGENT_WELCOME`], [`SURFACE_EMPTY_THREAD`] or
-    /// [`SURFACE_NEXT_STEP`] where it was shown, [`Postback::surface`] for a
-    /// tap.
+    /// The placement: [`SURFACE_AGENT_WELCOME`], [`SURFACE_EMPTY_THREAD`],
+    /// [`SURFACE_NEXT_STEP`] or [`SURFACE_GETTING_STARTED`] where it was
+    /// shown, [`Postback::surface`] for a tap.
     pub surface: &'a str,
     /// The chat surface, as [`crate::SurfaceId::as_str`] names it.
     pub channel: &'a str,
@@ -518,6 +585,36 @@ pub async fn resolve_command_tap(
     })
 }
 
+/// Report Home's Getting started rows as shown to `user` on `surface`: one
+/// `suggestion.shown` per row offered as a link, `(slot, flow id)`.
+///
+/// Never counted toward retiring a starter, as a next step is not: Home is
+/// read on every visit, and three visits would retire the flows from every
+/// welcome before the athlete could take them.
+pub fn report_getting_started_shown(
+    user: Uuid,
+    tenant: TenantId,
+    surface: SurfaceId,
+    rows: &[(usize, &str)],
+) {
+    let user_id = user.to_string();
+    let shown = SuggestionEvent {
+        user_id: &user_id,
+        tenant_id: tenant,
+        surface: SURFACE_GETTING_STARTED,
+        channel: surface.as_str(),
+    };
+    for (position, id) in rows {
+        emit_shown(
+            &shown,
+            &Postback::GettingStarted {
+                position: *position,
+                id: (*id).to_owned(),
+            },
+        );
+    }
+}
+
 /// Who an empty thread's starters are offered to, and where.
 pub struct EmptyThreadOffer<'a> {
     /// The athlete's tenant.
@@ -602,7 +699,7 @@ mod tests {
     use crate::envelope::ActionKind;
 
     const CATALOGUE: &str = "
-- {id: about_me, run: command, command: /pillars, requires: [dossier_empty], stage: first_session, domains: [any], repeat: once}
+- {id: about_me_more, run: command, command: /pillars, requires: [dossier_empty | pillars_open], stage: any, domains: [any], repeat: recurring}
 - {id: season, run: command, command: /season, requires: [pillars_done, no_season], stage: first_week, domains: [training], repeat: once}
 - {id: today, run: command, command: /plan today, requires: [plan_active], stage: any, domains: [training], repeat: recurring}
 ";
@@ -623,6 +720,35 @@ mod tests {
         assert_eq!(postback.use_case(), "ex:5");
         assert_eq!(postback.position(), 2);
         assert_eq!(postback.source(), SuggestionSource::Static);
+    }
+
+    #[test]
+    fn a_team_offer_postback_round_trips_as_a_step_outside_the_catalogue() {
+        let postback = Postback::TeamOffer {
+            choice: TeamOfferChoice::NotNow,
+            pillar: Pillar::Fuelling,
+        };
+        assert_eq!(postback.encode(), "ta:no:fuelling");
+        assert_eq!(Postback::parse("ta:no:fuelling"), Some(postback.clone()));
+        assert_eq!(postback.use_case(), "team_offer_fuelling");
+        assert_eq!(postback.position(), 1);
+        assert_eq!(postback.source(), SuggestionSource::NextStep);
+        assert_eq!(postback.surface(), SURFACE_NEXT_STEP);
+        assert_eq!(postback.catalogue_id(), None);
+        assert!(is_postback("ta:add:sleep_and_recovery"));
+        assert!(!is_postback("ta:add:nutrition"));
+
+        // An offer's link cannot be typed back, so a set holding one is never
+        // listed as text: a channel draws it as buttons.
+        let offer = TurnAction {
+            label: "Add Fuel to my team".to_owned(),
+            kind: ActionKind::Postback,
+            value: "ta:add:fuelling".to_owned(),
+        };
+        assert_eq!(
+            suggestion_lines(&[offer], &MessagingStringsRegistry::new(), "en"),
+            None
+        );
     }
 
     #[test]
@@ -661,6 +787,50 @@ mod tests {
         assert_eq!(example.surface(), "agent_welcome");
         assert_eq!(example.input_source(), InputSource::UseCase);
         assert_eq!(example.catalogue_id(), None);
+    }
+
+    #[test]
+    fn a_getting_started_postback_round_trips_and_reports_its_own_surface() {
+        let row = Postback::GettingStarted {
+            position: 2,
+            id: "last_workout".to_owned(),
+        };
+        assert_eq!(row.encode(), "gs:2:last_workout");
+        assert_eq!(Postback::parse("gs:2:last_workout"), Some(row.clone()));
+        assert_eq!(row.use_case(), "last_workout");
+        assert_eq!(row.catalogue_id(), Some("last_workout"));
+        assert_eq!(row.position(), 2);
+        assert_eq!(row.source().as_str(), "state");
+        assert_eq!(row.surface(), "getting_started");
+        assert_eq!(row.input_source(), InputSource::UseCase);
+        assert!(is_postback("gs:1:meet_team"));
+        for text in [
+            "gs:",
+            "gs:1",
+            "gs::meet_team",
+            "gs:x:meet_team",
+            "gs:1:Meet",
+            "GS:1:meet_team",
+        ] {
+            assert_eq!(Postback::parse(text), None, "{text:?} must not parse");
+        }
+    }
+
+    #[test]
+    fn a_getting_started_row_resolves_to_the_words_its_flow_stands_for() {
+        let catalogue = catalogue();
+        let strings = MessagingStringsRegistry::new();
+        let row = Postback::parse("gs:3:about_me_more").expect("a row");
+        assert_eq!(
+            use_case_words(
+                &catalogue,
+                &strings,
+                "en",
+                row.catalogue_id().expect("an id")
+            )
+            .as_deref(),
+            Some("/pillars")
+        );
     }
 
     #[test]
@@ -733,7 +903,7 @@ mod tests {
         let catalogue = catalogue();
         let strings = MessagingStringsRegistry::new();
         assert_eq!(
-            use_case_words(&catalogue, &strings, "en", "about_me").as_deref(),
+            use_case_words(&catalogue, &strings, "en", "about_me_more").as_deref(),
             Some("/pillars")
         );
         assert_eq!(

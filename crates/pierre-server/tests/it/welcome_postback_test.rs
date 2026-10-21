@@ -34,6 +34,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
+use chrono::Utc;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -57,6 +58,7 @@ use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationResponse, MessageResponse, MessagesListResponse, StarterResponse,
     StartersResponse, TurnResponse,
 };
+use pierre_services::first_run::{record, FirstRun, FINISH_PROFILE, MEET_TEAM};
 use pierre_services::locale::resolve_user_locale;
 
 const SAMPLES: [&str; 3] = [
@@ -76,9 +78,46 @@ struct Fixture {
     locale: String,
 }
 
-/// An athlete with no provider connected, and a nutrition agent whose
-/// Example Inputs are [`SAMPLES`].
+/// An athlete with no provider connected, past the first-run Meet your
+/// team (carnet#1099) so the first slot is the setup starter's again, and a
+/// nutrition agent whose Example Inputs are [`SAMPLES`].
 async fn setup(email: &str) -> Fixture {
+    let fx = newcomer(email).await;
+    record(
+        &fx.resources.common.repos,
+        fx.user_id,
+        fx.tenant_id,
+        MEET_TEAM,
+        Utc::now().date_naive(),
+        "web_chat",
+    )
+    .await
+    .unwrap();
+    fx
+}
+
+/// [`setup`]'s athlete past Finish your profile too, which an empty dossier
+/// otherwise keeps as the open first-run flow in the first slot
+/// (carnet#1099): the welcome is the setup starter, a domain starter and the
+/// agent's first example, the shape the starter mechanics below are pinned on.
+async fn past_finish_profile(email: &str) -> Fixture {
+    let fx = setup(email).await;
+    record(
+        &fx.resources.common.repos,
+        fx.user_id,
+        fx.tenant_id,
+        FINISH_PROFILE,
+        Utc::now().date_naive(),
+        "web_chat",
+    )
+    .await
+    .unwrap();
+    fx
+}
+
+/// [`setup`]'s athlete before they met their team: Meet your team is the
+/// open first-run flow.
+async fn newcomer(email: &str) -> Fixture {
     let provider = Arc::new(RecordingProvider::answering(REPLY));
     let resources = create_test_server_resources_with_chat_provider(provider.clone())
         .await
@@ -223,7 +262,7 @@ fn origins(events: &CapturedEvents, name: &str) -> Vec<String> {
 /// counted as one.
 #[tokio::test]
 async fn a_tapped_starter_is_its_question_and_counts_as_a_tap() {
-    let fx = setup("tap@test.com").await;
+    let fx = past_finish_profile("tap@test.com").await;
     let (events, _guard) = capture_notify();
     let conv = create_conversation(&fx, Some(&fx.agent_id)).await;
 
@@ -410,7 +449,7 @@ async fn a_command_starter_runs_its_command_and_an_unknown_one_is_told() {
 /// time: the next setup starter takes its slot.
 #[tokio::test]
 async fn three_untapped_showings_retire_a_starter() {
-    let fx = setup("uc-ignored@test.com").await;
+    let fx = past_finish_profile("uc-ignored@test.com").await;
     for _ in 0..3 {
         let conv = create_conversation(&fx, Some(&fx.agent_id)).await;
         assert_eq!(ranked(&offered(&fx, &conv).await), ["connect", "fuel"]);
@@ -430,7 +469,7 @@ async fn three_untapped_showings_retire_a_starter() {
 /// nothing connected: "Analyse my last ride" is never offered to them.
 #[tokio::test]
 async fn examples_wait_for_the_agents_prerequisites() {
-    let fx = setup("uc-prereq@test.com").await;
+    let fx = past_finish_profile("uc-prereq@test.com").await;
     let id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
     fx.resources
@@ -560,7 +599,7 @@ async fn channel_welcome(fx: &Fixture, surface: SurfaceId, renders_buttons: bool
 /// suggestions.
 #[tokio::test]
 async fn a_text_welcome_shows_no_suggestion() {
-    let fx = setup("text-welcome@test.com").await;
+    let fx = past_finish_profile("text-welcome@test.com").await;
     let (events, _guard) = capture_notify();
     let posted = channel_welcome(&fx, SurfaceId::Telegram, false).await;
 
@@ -599,7 +638,7 @@ async fn a_text_welcome_shows_no_suggestion() {
 /// on that channel, and the ranked ones count toward retiring them.
 #[tokio::test]
 async fn a_button_welcome_is_a_card_and_its_starters_are_shown() {
-    let fx = setup("card-welcome@test.com").await;
+    let fx = past_finish_profile("card-welcome@test.com").await;
     let (events, _guard) = capture_notify();
     let posted = channel_welcome(&fx, SurfaceId::Telegram, true).await;
 
@@ -660,7 +699,10 @@ async fn the_empty_thread_offers_the_ranked_starters_and_counts_each_read() {
     let offered = starters(&fx, &fx.auth).await;
 
     let postbacks: Vec<String> = offered.iter().map(|s| s.postback.clone()).collect();
-    assert_eq!(ranked(&postbacks), ["connect", "fuel"]);
+    // Finish your profile, the first-run flow an empty dossier leaves open,
+    // takes the first slot beside them (carnet#1099).
+    assert_eq!(postbacks[0], "uc:0:about_me_more");
+    assert_eq!(ranked(&postbacks), ["about_me_more", "connect", "fuel"]);
     for (slot, starter) in offered.iter().enumerate() {
         assert_eq!(starter.postback, format!("uc:{slot}:{}", starter.id));
         let label = string(&fx, &format!("use_cases.{}.label", starter.id));
@@ -688,7 +730,14 @@ async fn the_empty_thread_offers_the_ranked_starters_and_counts_each_read() {
         .map(|e| (e.use_case_id, e.shown_count))
         .collect();
     counted.sort();
-    assert_eq!(counted, [("connect".to_owned(), 1), ("fuel".to_owned(), 1)]);
+    assert_eq!(
+        counted,
+        [
+            ("about_me_more".to_owned(), 1),
+            ("connect".to_owned(), 1),
+            ("fuel".to_owned(), 1)
+        ]
+    );
 }
 
 /// The ranking follows the athlete's state: once a provider is connected,
@@ -719,7 +768,11 @@ async fn the_empty_threads_starters_follow_what_the_athlete_has_connected() {
 
     assert!(!ids.contains(&"connect".to_owned()), "{ids:?}");
     assert!(!ids.contains(&"fuel".to_owned()), "{ids:?}");
-    assert_eq!(ids, ["about_me"]);
+    assert_eq!(
+        ids,
+        ["last_workout", "about_me"],
+        "a connection makes the analysis flow the next one, whatever the agent's domain"
+    );
 }
 
 /// Showings are the athlete's own, under their own tenant: three reads
@@ -727,7 +780,7 @@ async fn the_empty_threads_starters_follow_what_the_athlete_has_connected() {
 /// touch what another athlete, in another tenant, is offered.
 #[tokio::test]
 async fn three_untapped_reads_retire_my_starters_and_no_one_elses() {
-    let fx = setup("empty-thread-mine@test.com").await;
+    let fx = past_finish_profile("empty-thread-mine@test.com").await;
     let (other_id, other, other_tenant) = create_test_user_with_plan(
         &fx.resources.agent.database,
         "empty-thread-other@test.com",
@@ -793,4 +846,92 @@ async fn three_untapped_reads_retire_my_starters_and_no_one_elses() {
         their_counts.iter().all(|count| *count == 1),
         "their one read is counted once: {their_counts:?}"
     );
+}
+
+// ============================================================================
+// The first run (carnet#1099, carnet#1100)
+// ============================================================================
+
+/// A newcomer's welcome opens on Meet your team, the first-run flow still
+/// open, whatever the agent's domain; the setup starter follows it.
+#[tokio::test]
+async fn a_newcomers_welcome_opens_on_meet_your_team() {
+    let fx = newcomer("first-run-welcome@test.com").await;
+    let conv = create_conversation(&fx, Some(&fx.agent_id)).await;
+    let values = offered(&fx, &conv).await;
+    assert_eq!(values[0], "uc:0:meet_team", "{values:?}");
+    assert!(
+        values.iter().any(|v| v.ends_with(":connect")),
+        "an athlete with nothing connected is still told to connect: {values:?}"
+    );
+}
+
+/// A Getting started row's tap is its flow's words, reported under the
+/// `getting_started` surface and counted as a tap like any starter's.
+#[tokio::test]
+async fn a_getting_started_tap_is_its_flow_and_reports_its_surface() {
+    let fx = newcomer("first-run-gs@test.com").await;
+    let (events, _guard) = capture_notify();
+    let conv = create_conversation(&fx, Some(&fx.agent_id)).await;
+    let prompt = string(&fx, "use_cases.meet_team.prompt");
+
+    let turn = send(&fx, &conv, &json!({ "content": "gs:1:meet_team" })).await;
+
+    assert_eq!(turn.user_message.content, prompt);
+    let tapped = only(&events, "suggestion.tapped");
+    assert_eq!(tapped.field("use_case"), "meet_team");
+    assert_eq!(tapped.field("surface"), "getting_started");
+    assert_eq!(tapped.field("source"), "state");
+    assert_eq!(tapped.field("position"), "1");
+    assert_eq!(origins(&events, "chat.question_asked"), ["use_case"]);
+    assert!(
+        fx.resources
+            .common
+            .repos
+            .use_case_exposures
+            .use_case_exposures(fx.tenant_id, fx.user_id)
+            .await
+            .unwrap()
+            .iter()
+            .any(|e| e.use_case_id == "meet_team" && e.tapped_at.is_some()),
+        "the tap is remembered"
+    );
+}
+
+/// The athlete's first turn in their personal thread meets the team, once;
+/// the same turn in any other thread does not.
+#[tokio::test]
+async fn a_turn_in_the_personal_thread_meets_the_team_once() {
+    let fx = newcomer("first-run-turn@test.com").await;
+    let (events, _guard) = capture_notify();
+    let repos = &fx.resources.common.repos;
+
+    let elsewhere = create_conversation(&fx, Some(&fx.agent_id)).await;
+    send(&fx, &elsewhere, &json!({ "content": "Hello there" })).await;
+    assert!(
+        named(&events, "flow.completed").is_empty(),
+        "not the personal thread"
+    );
+
+    let resp = AxumTestRequest::post("/api/chat/personal/topics")
+        .header("authorization", &fx.auth)
+        .json(&json!({ "agent_id": fx.agent_id }))
+        .send(ChatRoutes::routes(Arc::clone(&fx.resources)))
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::CREATED);
+    let personal = resp.json::<Value>()["conversation"]["id"]
+        .as_str()
+        .expect("the personal thread")
+        .to_owned();
+    for _ in 0..2 {
+        send(&fx, &personal, &json!({ "content": "Who are you?" })).await;
+    }
+
+    let completed = only(&events, "flow.completed");
+    assert_eq!(completed.field("flow"), MEET_TEAM);
+    assert_eq!(completed.field("surface"), "web_chat");
+    assert!(FirstRun::read(repos, fx.tenant_id, fx.user_id)
+        .await
+        .unwrap()
+        .is_done(MEET_TEAM));
 }

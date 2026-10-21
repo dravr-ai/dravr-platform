@@ -217,6 +217,34 @@ pub const KEY_AGENT_PROPOSAL_FOOTER: &str = "messaging.agent_proposal.footer";
 /// placeholders.
 pub const KEY_AGENT_PROPOSAL_FOOTER_BUTTONS: &str = "messaging.agent_proposal.footer_buttons";
 
+// ── Team member reason keys ───────────────────────────────────────────────
+// The one-line reason under a team member the rule table picked
+// (carnet#1097), rendered when the LLM wrote none for it.
+
+/// Key: why the Fuelling agent joins — a goal or long sessions. No
+/// placeholders.
+pub const KEY_AGENTS_TEAM_REASON_FUELLING: &str = "agents.team_reason.fuelling";
+/// Key: why the Recovery agent joins — a connected sleep/HRV source.
+/// `{0}` = the provider's display name.
+pub const KEY_AGENTS_TEAM_REASON_RECOVERY: &str = "agents.team_reason.recovery";
+/// Key: why the Mobility agent is offered — strength sessions. No
+/// placeholders.
+pub const KEY_AGENTS_TEAM_REASON_MOBILITY: &str = "agents.team_reason.mobility";
+
+// ── Team offer keys ───────────────────────────────────────────────────────
+// The quiet offer the pillars walk's wrap-up makes when a newly covered
+// pillar has an agent the athlete's team lacks (carnet#1097).
+
+/// Key: the link that adds the offered agent. `{0}` = the agent's name.
+pub const KEY_AGENTS_TEAM_OFFER_ADD: &str = "agents.team_offer.add";
+/// Key: the link that declines the offer. No placeholders.
+pub const KEY_AGENTS_TEAM_OFFER_NOT_NOW: &str = "agents.team_offer.not_now";
+/// Key: the one line confirming the offered agent joined. `{0}` = the
+/// agent's name.
+pub const KEY_AGENTS_TEAM_OFFER_ADDED: &str = "agents.team_offer.added";
+/// Key: the one line acknowledging a declined offer. No placeholders.
+pub const KEY_AGENTS_TEAM_OFFER_DISMISSED: &str = "agents.team_offer.dismissed";
+
 // ── Telegram bot profile keys ─────────────────────────────────────────────
 // Published at startup beside the `/` menu, per `language_code`: what
 // Telegram shows in an empty chat with the bot and on its profile.
@@ -241,6 +269,21 @@ pub const KEY_AGENT_WELCOME_STARTERS_TITLE: &str = "messaging.agent_welcome.star
 /// Key: what the coach can see and cannot do, said under a one-to-one
 /// welcome's greeting (carnet#829). No placeholders.
 pub const KEY_AGENT_WELCOME_CAN_SEE: &str = "messaging.agent_welcome.can_see";
+/// Key: the lead's first welcome naming its one teammate (carnet#1099).
+/// `{0}` = the member's title.
+pub const KEY_AGENT_WELCOME_TEAM_ONE: &str = "messaging.agent_welcome.team_one";
+/// Key: the lead's first welcome naming two or more teammates. `{0}` = the
+/// names, joined with [`KEY_AGENT_WELCOME_LIST_AND`] for the last pair.
+pub const KEY_AGENT_WELCOME_TEAM_MANY: &str = "messaging.agent_welcome.team_many";
+/// Key: joins the last two names of a list. `{0}` and `{1}` = the names.
+pub const KEY_AGENT_WELCOME_LIST_AND: &str = "messaging.agent_welcome.list_and";
+/// Key: the lead's first welcome when it is the whole team. No placeholders.
+pub const KEY_AGENT_WELCOME_TEAM_SOLO: &str = "messaging.agent_welcome.team_solo";
+/// Key: how to reach a teammate — `@` in a message, `+` for a thread of its
+/// own. Said in the app only, where the composer has `+`. No placeholders.
+pub const KEY_AGENT_WELCOME_REACH_LINE: &str = "messaging.agent_welcome.reach_line";
+/// Key: the one sentence pointing at Discover. No placeholders.
+pub const KEY_AGENT_WELCOME_DISCOVER_LINE: &str = "messaging.agent_welcome.discover_line";
 
 /// Key: the reply to a tapped suggestion that no longer resolves — the thread
 /// lost its agent, or the agent's examples changed since it was posted

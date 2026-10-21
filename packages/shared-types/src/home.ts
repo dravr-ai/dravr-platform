@@ -782,8 +782,9 @@ export function parseTrainingStatusResponse(body: unknown): TrainingStatusRespon
 }
 
 /**
- * Body of `GET` and `PUT /api/me/home-preferences`: what the athlete chose
- * about Home, stored per user so the web and the phone show the same page.
+ * Body of `GET /api/me/home-preferences`, and the answer to a `PUT`: what the
+ * athlete chose about Home, stored per user so the web and the phone show the
+ * same page.
  */
 export interface HomePreferences {
   /**
@@ -791,12 +792,36 @@ export interface HomePreferences {
    * stops offering it while they have none, until Settings brings it back.
    */
   plan_suggestion_hidden: boolean;
+  /**
+   * The athlete hid Getting started, the first-steps list at the top of
+   * Today, until Settings brings it back (carnet#1098). Optional on the type
+   * so a client built before it still compiles; every server answer carries
+   * it, and the parser reads an absent one as shown.
+   */
+  getting_started_hidden?: boolean;
 }
+
+/**
+ * Body of `PUT /api/me/home-preferences`: the choices to change. The server
+ * merges, so a field left out keeps what is stored.
+ */
+export type HomePreferencesUpdate = Partial<HomePreferences>;
+
+/** What an athlete who chose nothing reads. */
+export const DEFAULT_HOME_PREFERENCES: Readonly<Required<HomePreferences>> = Object.freeze({
+  plan_suggestion_hidden: false,
+  getting_started_hidden: false,
+});
 
 /** Read a `/api/me/home-preferences` body, or null when it is not one. */
 export function parseHomePreferences(body: unknown): HomePreferences | null {
   if (!isRecord(body) || typeof body.plan_suggestion_hidden !== 'boolean') return null;
-  return { plan_suggestion_hidden: body.plan_suggestion_hidden };
+  const gettingStarted = body.getting_started_hidden;
+  if (gettingStarted !== undefined && typeof gettingStarted !== 'boolean') return null;
+  return {
+    plan_suggestion_hidden: body.plan_suggestion_hidden,
+    getting_started_hidden: gettingStarted ?? false,
+  };
 }
 
 function isCivilDate(value: unknown): value is string {

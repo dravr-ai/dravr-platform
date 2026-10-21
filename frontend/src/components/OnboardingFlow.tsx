@@ -90,6 +90,7 @@ function renderStep(
       return (
         <OnboardingCoachProposal
           userDisplayName={userDisplayName}
+          onSave={state.persistCoachProposal}
           onComplete={state.completeCoachProposal}
         />
       );

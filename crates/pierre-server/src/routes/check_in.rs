@@ -7,8 +7,10 @@
 //! The athlete's check-in cadence.
 //!
 //! - `GET /api/me/check-in` — `{"cadence": "daily" | "three_per_week" |
-//!   "weekly" | "off" | null}`. `null` is an athlete who never chose: they are
-//!   never checked in on, and the onboarding step asks them.
+//!   "weekly" | "off" | null, "local_hour": 8}`. `null` is an athlete who
+//!   never chose: they are never checked in on, and the onboarding step asks
+//!   them. `local_hour` is [`CHECK_IN_HOUR`], the local hour a due check-in
+//!   goes out from, so a surface that names the time keeps no copy of it.
 //! - `PUT /api/me/check-in` with `{"cadence": "…"}` — store the choice and
 //!   answer as `GET` does.
 //!
@@ -22,6 +24,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::Utc;
 use pierre_core::errors::AppResult;
+use pierre_core::models::check_in::CHECK_IN_HOUR;
 use pierre_core::models::CheckInCadence;
 use pierre_middleware::extractors::AuthenticatedUser;
 use serde::{Deserialize, Serialize};
@@ -35,6 +38,18 @@ use crate::routes::onboarding::active_tenant;
 struct CheckInBody {
     /// The cadence the athlete chose, or `null` when they never chose one.
     pub cadence: Option<CheckInCadence>,
+    /// The local hour a due check-in goes out from.
+    pub local_hour: u32,
+}
+
+impl CheckInBody {
+    /// The body for `cadence`, with the hour the scheduler sends at.
+    const fn new(cadence: Option<CheckInCadence>) -> Self {
+        Self {
+            cadence,
+            local_hour: CHECK_IN_HOUR,
+        }
+    }
 }
 
 /// Body of `PUT /api/me/check-in`.
@@ -56,7 +71,7 @@ async fn get_check_in(
         .check_in_preferences
         .check_in_cadence(tenant_id, auth.user_id)
         .await?;
-    Ok(Json(CheckInBody { cadence }))
+    Ok(Json(CheckInBody::new(cadence)))
 }
 
 /// `PUT /api/me/check-in`.
@@ -81,9 +96,7 @@ async fn put_check_in(
         surface = "app",
         "check-in cadence chosen"
     );
-    Ok(Json(CheckInBody {
-        cadence: Some(update.cadence),
-    }))
+    Ok(Json(CheckInBody::new(Some(update.cadence))))
 }
 
 /// Mount-helper for the check-in cadence endpoints.

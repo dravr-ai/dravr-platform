@@ -87,6 +87,16 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         user_id: Uuid,
         purpose: &str,
     ) -> AppResult<bool>;
+
+    /// When the post for `purpose` to `user_id` in `tenant_id` last landed:
+    /// `None` when none was ever marked posted. A periodic post's claim is one
+    /// row, so this is its latest post (carnet#1099 reads the day's check-in).
+    async fn platform_post_posted_at(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        purpose: &str,
+    ) -> AppResult<Option<DateTime<Utc>>>;
 }
 
 /// The primary key is the claim: a row an earlier trigger inserted is left
@@ -122,6 +132,11 @@ pub(crate) const CLAIM_PLATFORM_POST_SINCE_SQL: &str = r"
 
 pub(crate) const RELEASE_PLATFORM_POST_SQL: &str = r"
             DELETE FROM platform_post_claims
+            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3
+            ";
+
+pub(crate) const PLATFORM_POST_POSTED_AT_SQL: &str = r"
+            SELECT posted_at_ms FROM platform_post_claims
             WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3
             ";
 
@@ -214,6 +229,36 @@ macro_rules! impl_platform_post_claim_repository {
                         AppError::database(format!("Failed to release the platform post: {e}"))
                     })?;
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn platform_post_posted_at(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                purpose: &str,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let posted_at_ms: Option<Option<i64>> =
+                    sqlx::query_scalar(PLATFORM_POST_POSTED_AT_SQL)
+                        .bind($ids::bind(tenant_id.as_uuid()))
+                        .bind($ids::bind(user_id))
+                        .bind(purpose)
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to read when the platform post landed: {e}"
+                            ))
+                        })?;
+                posted_at_ms
+                    .flatten()
+                    .map(|ms| {
+                        DateTime::from_timestamp_millis(ms).ok_or_else(|| {
+                            AppError::database(format!(
+                                "platform_post_claims.posted_at_ms {ms} is not a representable instant"
+                            ))
+                        })
+                    })
+                    .transpose()
             }
         }
     };

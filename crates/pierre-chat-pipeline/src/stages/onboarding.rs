@@ -29,7 +29,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::models::{
     CalibrationConditions, CalibrationTopic, ConversationRecord, CoverageMap, CoverageTarget,
     Dossier, GuidedFlow, GuidedWindow, LoadSnapshot, OnboardingState, Pillar, SeasonConditions,
-    SeasonTopic, TenantId, TopicSlug, WalkAudience,
+    SeasonTopic, TenantId, TopicSlug, WalkAudience, LONG_SESSION_MIN,
 };
 use pierre_memory::{FactKind, FactSource};
 use pierre_providers::ai_scope;
@@ -49,11 +49,6 @@ use crate::ChatPipelineContext;
 /// simply changes the subject would be answered by the fortnight rail for
 /// the rest of the day.
 pub const FORTNIGHT_FLOW_TURNS: u8 = 3;
-
-/// A session over this many minutes marks the athlete as a long-session
-/// athlete, which earns them the fueling topic. Three hours is where
-/// carbohydrate intake stops being optional.
-const LONG_SESSION_MIN: u32 = 180;
 
 /// What a guided turn is capturing, in whichever flow owns the conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -498,8 +493,16 @@ async fn leave_guided_mode(inputs: LeaveGuidedMode<'_>) -> GuidedResolution {
             completion::render_season(ctx, &state, facts_tenant, subject_user_id, locale).await,
         ),
         GuidedFlow::Pillars => Some(
-            completion::render_pillars(ctx, &state, facts_tenant, subject_user_id, dossier, locale)
-                .await,
+            completion::render_pillars(
+                ctx,
+                &state,
+                facts_tenant,
+                subject_user_id,
+                dossier,
+                conv.agent_id.as_deref(),
+                locale,
+            )
+            .await,
         ),
         // The intake writes its own wrap-up when the platform closes it out,
         // and the fortnight's is the command's own reply — neither has a

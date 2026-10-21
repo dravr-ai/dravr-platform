@@ -373,8 +373,10 @@ mod room_walk_e2e {
         let before = e2e.llm.seen_turn_requests.lock().unwrap().len();
         room.send_room(&athlete, "et pour cette fin de semaine ?")
             .await;
-        assert!(e2e.wait_llm_turns(4).await, "the next room turn must run");
-        let next_turn = e2e.llm.seen_turn_requests.lock().unwrap()[before..].join("\n");
+        let next_turn = e2e
+            .wait_turn_request_containing(before, "cette fin de semaine")
+            .await
+            .expect("the next room turn must run");
         assert!(
             next_turn.contains(NORTH_STAR_OBJECT),
             "the next room turn's prompt must carry the North Star filed in the athlete's workspace"

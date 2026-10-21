@@ -84,7 +84,7 @@ async fn a_tap_on_a_starter_never_counted_shown_is_recorded() {
 
     repos
         .use_case_exposures
-        .record_use_case_tapped(tenant, user, "about_me", tap)
+        .record_use_case_tapped(tenant, user, "about_me_more", tap)
         .await
         .unwrap();
 
@@ -96,7 +96,7 @@ async fn a_tap_on_a_starter_never_counted_shown_is_recorded() {
     assert_eq!(
         read,
         [UseCaseExposure {
-            use_case_id: "about_me".to_owned(),
+            use_case_id: "about_me_more".to_owned(),
             shown_count: 0,
             last_shown_at: None,
             tapped_at: Some(tap),

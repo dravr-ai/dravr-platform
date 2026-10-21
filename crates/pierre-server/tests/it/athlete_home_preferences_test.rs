@@ -1,10 +1,10 @@
 // ABOUTME: GET and PUT /api/me/home-preferences — the defaults before any choice, a stored choice, and one user per row
-// ABOUTME: Pins that the plan suggestion's dismissal is server-side, so the web and the phone show the same Home
+// ABOUTME: Pins that Home's choices are server-side and a PUT merges, so an old phone cannot wipe a web Hide
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Athlete Home preferences suite (carnet#820).
+//! Athlete Home preferences suite (carnet#820, carnet#1098).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -71,7 +71,10 @@ async fn an_athlete_who_chose_nothing_is_offered_the_plan() {
 
     let (status, body) = call(&resources, Method::GET, Some(&token), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body, json!({ "plan_suggestion_hidden": false }));
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": false, "getting_started_hidden": false })
+    );
 }
 
 #[tokio::test]
@@ -90,14 +93,23 @@ async fn hiding_the_plan_suggestion_is_stored_and_can_be_undone() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body, json!({ "plan_suggestion_hidden": true }));
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": true, "getting_started_hidden": false })
+    );
 
     // A later read — the phone's, say — sees the same choice.
     let (_, body) = call(&resources, Method::GET, Some(&token), None).await;
-    assert_eq!(body, json!({ "plan_suggestion_hidden": true }));
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": true, "getting_started_hidden": false })
+    );
     // Another athlete's Home is untouched.
     let (_, body) = call(&resources, Method::GET, Some(&other_token), None).await;
-    assert_eq!(body, json!({ "plan_suggestion_hidden": false }));
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": false, "getting_started_hidden": false })
+    );
 
     // Settings brings it back.
     let (status, body) = call(
@@ -109,7 +121,81 @@ async fn hiding_the_plan_suggestion_is_stored_and_can_be_undone() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     let (_, body) = call(&resources, Method::GET, Some(&token), None).await;
-    assert_eq!(body, json!({ "plan_suggestion_hidden": false }));
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": false, "getting_started_hidden": false })
+    );
+}
+
+#[tokio::test]
+async fn a_put_without_getting_started_keeps_it_hidden() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let user = athlete(&resources).await;
+    let token = common::generate_test_token(&resources, &user).await;
+
+    // The web hides Getting started.
+    let (status, body) = call(
+        &resources,
+        Method::PUT,
+        Some(&token),
+        Some(json!({ "getting_started_hidden": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": false, "getting_started_hidden": true })
+    );
+
+    // A phone build that predates the field writes only the plan choice.
+    let (status, body) = call(
+        &resources,
+        Method::PUT,
+        Some(&token),
+        Some(json!({ "plan_suggestion_hidden": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": true, "getting_started_hidden": true })
+    );
+
+    // Settings brings Getting started back without touching the plan choice.
+    let (status, _) = call(
+        &resources,
+        Method::PUT,
+        Some(&token),
+        Some(json!({ "getting_started_hidden": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, body) = call(&resources, Method::GET, Some(&token), None).await;
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": true, "getting_started_hidden": false })
+    );
+}
+
+#[tokio::test]
+async fn a_put_with_a_non_boolean_choice_is_rejected() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let user = athlete(&resources).await;
+    let token = common::generate_test_token(&resources, &user).await;
+
+    let (status, _) = call(
+        &resources,
+        Method::PUT,
+        Some(&token),
+        Some(json!({ "getting_started_hidden": "yes" })),
+    )
+    .await;
+    assert!(status.is_client_error(), "{status}");
+    let (_, body) = call(&resources, Method::GET, Some(&token), None).await;
+    assert_eq!(
+        body,
+        json!({ "plan_suggestion_hidden": false, "getting_started_hidden": false })
+    );
 }
 
 #[tokio::test]

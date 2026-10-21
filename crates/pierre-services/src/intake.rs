@@ -54,15 +54,16 @@ use pierre_contremaitre::messaging_strings::{
     KEY_INTAKE_PARQ_DIZZINESS, KEY_INTAKE_PARQ_HEART_CONDITION, KEY_INTAKE_PARQ_JOINT_PROBLEM,
     KEY_INTAKE_PARQ_MEDICATION, KEY_INTAKE_PARQ_SUPERVISED_ONLY, KEY_INTAKE_PERSONA,
 };
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CheckInCadence, TenantId, TopicSlug};
 use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };
-use pierre_database::RepositoryRegistry;
+use pierre_database::{AgentRepos, RepositoryRegistry};
 use uuid::Uuid;
 
-use crate::agents::require_bindable_agent;
+use crate::agent_store::{join_team, require_joinable};
+use crate::agents::{coach_tools_for, require_bindable_agent};
 use crate::parq::{persist_parq_flags, retire_parq_flags};
 use crate::personal_thread::find_personal_thread;
 
@@ -552,8 +553,9 @@ where
 /// opens, so the step write is the one place every surface passes through.
 /// The selection is what the Home thread, a thread created without an agent
 /// and the messaging DM answer with, so the athlete's pick replaces the
-/// starter signup chose. It sets the selection only; joining the team is the
-/// proposal's own step (carnet#1095).
+/// starter signup chose. It sets the selection only: the team the step names
+/// — the lead and every ticked member — joined just before, through
+/// [`validate_onboarding_team`] and [`join_onboarding_team`] (carnet#1095).
 ///
 /// The athlete's personal thread follows when it still runs on the agent the
 /// selection named before (or on none), so the thread the athlete lands on
@@ -610,6 +612,104 @@ pub async fn select_onboarding_lead(
                 .set_conversation_agent_id(&thread.id, Some(lead), tenant_id)
                 .await?;
         }
+    }
+    Ok(())
+}
+
+/// Most agents one team-step write may name besides its lead: the proposal
+/// offers a handful, and Discover adds a few more by hand.
+pub const MAX_ONBOARDING_TEAM: usize = 12;
+
+/// The agents the onboarding team step puts on the athlete's team, each one
+/// checked before any of them joins.
+///
+/// The lead comes first, then every ticked member, duplicates dropped — Skip
+/// sends the lead alone, so the team is never empty. Every agent must be one
+/// the athlete may be given ([`require_bindable_agent`]: not found when they
+/// cannot read it, invalid input for a coach-facing one) and one they can
+/// join ([`require_joinable`]: held already, or published in the Store). The
+/// first refusal fails the request, before anything is written.
+///
+/// Empty — nothing to join — under the same conditions
+/// [`select_onboarding_lead`] stands aside on: another step or status, and a
+/// coach who does not train.
+///
+/// # Errors
+///
+/// Returns invalid input for a list over [`MAX_ONBOARDING_TEAM`], the refusal
+/// of the first agent that cannot join, or the repository error when a read
+/// fails.
+pub async fn validate_onboarding_team(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    step_id: &str,
+    status: &str,
+    lead: Option<&str>,
+    members: &[String],
+) -> AppResult<Vec<String>> {
+    if members.len() > MAX_ONBOARDING_TEAM {
+        return Err(AppError::invalid_input(format!(
+            "team_agent_ids names more than {MAX_ONBOARDING_TEAM} agents"
+        )));
+    }
+    if step_id != STEP_COACH_PROPOSAL || !(status == STATUS_COMPLETE || status == STATUS_SKIPPED) {
+        return Ok(Vec::new());
+    }
+    let mut team: Vec<String> = Vec::with_capacity(members.len() + 1);
+    for id in lead.into_iter().chain(members.iter().map(String::as_str)) {
+        if !id.is_empty() && !team.iter().any(|held| held == id) {
+            team.push(id.to_owned());
+        }
+    }
+    if team.is_empty() {
+        return Ok(team);
+    }
+    let steps = repos
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
+        .await?;
+    if athlete_steps_waived(&steps) {
+        return Ok(Vec::new());
+    }
+    let agent_repos = AgentRepos::from_registry(repos);
+    for id in &team {
+        require_bindable_agent(
+            repos.agents.as_ref(),
+            repos.users.as_ref(),
+            id,
+            user_id,
+            tenant_id,
+        )
+        .await?;
+        require_joinable(&agent_repos, id, user_id, tenant_id).await?;
+    }
+    Ok(team)
+}
+
+/// Put every agent [`validate_onboarding_team`] returned on the athlete's
+/// team, through the one Store install path ([`join_team`]).
+///
+/// Idempotent: an agent already on the team is left as it is, so a retried
+/// Start converges and the install count grows once per agent.
+///
+/// # Errors
+///
+/// Returns the first install's error. Agents joined before it stay joined; a
+/// retry joins the rest.
+pub async fn join_onboarding_team(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    team: &[String],
+) -> AppResult<()> {
+    if team.is_empty() {
+        return Ok(());
+    }
+    let agent_repos = AgentRepos::from_registry(repos);
+    let coach_tools = coach_tools_for(repos.users.as_ref(), user_id).await;
+    for id in team {
+        join_team(&agent_repos, id, user_id, tenant_id, coach_tools).await?;
     }
     Ok(())
 }

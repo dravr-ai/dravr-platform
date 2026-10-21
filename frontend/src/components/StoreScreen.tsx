@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Discover — the Agent Store: browse, search, install, and the edit sheet for the athlete's own agents
-// ABOUTME: Installing ends with a hint that teaches /agent add @handle; editing is the one agent UI outside chat
+// ABOUTME: Installing ends with a hint that teaches /agent add @handle; the pick modes hand a listing back and install nothing
 
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -18,7 +18,7 @@ import PostInstallHint from './discover/PostInstallHint';
 import { homeConversationRoute } from './home/homeRoute';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
-import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
+import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import type { StoreAgent, StoreAgentDetail } from '@pierre/shared-types';
 
@@ -69,7 +69,27 @@ interface InstalledAgent {
   handle: string | undefined;
 }
 
+/**
+ * What a tap on a listing does. `install` is the Discover tab: the detail
+ * view, Add and the post-install hint. The two pick modes host the same
+ * catalogue in a sheet over the team step and hand the listing back through
+ * `onPick` instead: `pickTeam` adds it to the team being assembled,
+ * `pickLead` makes it the agent that leads the athlete's thread. Neither
+ * installs anything — the team step writes the whole team in one call.
+ */
+export type StoreScreenMode = 'install' | 'pickTeam' | 'pickLead';
+
 interface StoreScreenProps {
+  /** Defaults to `install`, the Discover tab. */
+  mode?: StoreScreenMode;
+  /** The picked listing, in a pick mode. */
+  onPick?: (agent: StoreAgent) => void;
+  /**
+   * Listings the sheet's host already holds: the team being assembled in
+   * `pickTeam` (shown as on the team), the current lead in `pickLead` (shown
+   * as leading). The athlete's saved team counts as on the team as well.
+   */
+  pickedIds?: readonly string[];
   /**
    * Dashboard route navigator, `tab[/subview]`. t('discover.openChat') on the post-install
    * hint starts a conversation bound to the installed agent and routes to
@@ -86,8 +106,15 @@ interface StoreScreenProps {
 }
 
 
-export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps) {
+export default function StoreScreen({
+  mode = 'install',
+  onPick,
+  pickedIds = [],
+  onNavigate,
+  ownCoachId,
+}: StoreScreenProps) {
   const { t } = useTranslation();
+  const picking = mode !== 'install';
   const queryClient = useQueryClient();
   const [selectedAgentId, setSelectedCoachId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
@@ -306,13 +333,33 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     forkMutation.mutate(teamEntryId);
   }, [teamEntryId, selectedAgentId, forkMutation]);
 
-  // Flatten pages for rendering
+  // Flatten pages for rendering. A pick chooses an agent the athlete talks
+  // to, so an agent written for a human coach is never offered there.
   const coaches = useMemo(() => {
-    if (debouncedSearch && searchData) {
-      return searchData.agents;
+    const listed =
+      debouncedSearch && searchData
+        ? searchData.agents
+        : (browseData?.pages.flatMap((page) => page.agents) ?? []);
+    return picking ? listed.filter((coach) => !isCoachFacing(coach)) : listed;
+  }, [debouncedSearch, searchData, browseData, picking]);
+
+  // The trailing action of a row in a pick mode, or none on the Discover tab.
+  const pickActionFor = (coach: StoreAgent): PickAction | undefined => {
+    if (!picking) return undefined;
+    const held = pickedIds.includes(coach.id);
+    if (mode === 'pickLead') {
+      return held
+        ? { label: t('home.team.leads') }
+        : {
+            label: t('discover.pickChooseLead'),
+            ariaLabel: t('discover.pickChooseLeadAria', { agent: coach.title }),
+            onPick: () => onPick?.(coach),
+          };
     }
-    return browseData?.pages.flatMap(page => page.agents) ?? [];
-  }, [debouncedSearch, searchData, browseData]);
+    return held || teamEntryBySource.has(coach.id)
+      ? { label: t('discover.pickOnTeam') }
+      : { label: t('discover.pickAddToTeam'), onPick: () => onPick?.(coach) };
+  };
 
   const isLoading = debouncedSearch ? isSearching : isBrowsing;
   const isListError = debouncedSearch ? isSearchError : isBrowseError;
@@ -375,8 +422,9 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     <CoachEditSheet agentId={editingCoachId} onClose={handleCloseEditSheet} />
   ) : null;
 
-  // Render detail view if an agent is selected
-  if (selectedAgentId) {
+  // Render detail view if an agent is selected (a pick mode has none: its
+  // rows act in place)
+  if (selectedAgentId && !picking) {
     return (
       <>
         <CoachDetailView
@@ -404,6 +452,18 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   return (
     <div className="h-full flex flex-col bg-surface">
       {editSheet}
+      {picking ? (
+        // The sheet carries the title; the search is the one control it adds.
+        <div className="flex items-center gap-2 px-4 py-2">
+          <SearchField
+            className="w-full"
+            placeholder={t('discover.searchAgentsPlaceholder')}
+            aria-label={t('discover.searchAgentsLabel')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      ) : (
       <TabHeader
         title={t('nav.discover')}
         description={t('discover.headerDescription')}
@@ -426,11 +486,17 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           </>
         }
       />
+      )}
 
       <div className="flex-1 overflow-y-auto min-h-0">
 
       {/* Categories as text tabs on the left, the sort as quiet words on the right — one row, no chips. */}
-      <div className="flex items-center justify-between gap-6 border-b ghost-border px-6 overflow-x-auto">
+      <div
+        className={clsx(
+          'flex items-center justify-between gap-6 border-b ghost-border overflow-x-auto',
+          picking ? 'px-4' : 'px-6',
+        )}
+      >
         <div className="flex gap-5">
           {CATEGORY_FILTERS.map((filter) => (
             <button
@@ -467,7 +533,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       </div>
 
       {/* The catalogue: a hairline list, not a grid of cards */}
-      <div className="px-6 py-2 sidebar-scroll">
+      <div className={clsx('py-2 sidebar-scroll', picking ? 'px-4' : 'px-6')}>
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -503,7 +569,12 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           <>
             <div className="max-w-[1040px]" data-testid="store-coach-grid">
               {coaches.map((coach) => (
-                <CoachCard key={coach.id} coach={coach} onClick={() => handleSelectCoach(coach.id)} />
+                <CoachCard
+                  key={coach.id}
+                  coach={coach}
+                  onClick={() => handleSelectCoach(coach.id)}
+                  pick={pickActionFor(coach)}
+                />
               ))}
             </div>
 
@@ -530,10 +601,20 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   );
 }
 
+/** A pick-mode row's trailing action, in place of the install count. */
+interface PickAction {
+  label: string;
+  ariaLabel?: string;
+  /** Absent when the listing is already on the team or already leading: a word, not a button. */
+  onPick?: () => void;
+}
+
 // Store agent card - memoized to prevent unnecessary re-renders during scrolling
 interface CoachCardProps {
   coach: StoreAgent;
   onClick: () => void;
+  /** Set in a pick mode: the row is not a link, its trailing action picks. */
+  pick?: PickAction;
 }
 
 /**
@@ -543,15 +624,59 @@ interface CoachCardProps {
  * showed the same four facts in three columns of boxes; the tags wait for
  * the detail view, where there is room to read them.
  */
-const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
+const CoachCard = memo(function CoachCard({ coach, onClick, pick }: CoachCardProps) {
   const { t } = useTranslation();
   const categoryDot = COACH_CATEGORY_DOT[coach.category] ?? 'bg-outline-variant';
+  const rowClass =
+    'group flex min-h-[64px] w-full items-center gap-3.5 border-t ghost-border-faint py-3 text-left transition-colors first:border-t-0';
+
+  if (pick) {
+    // A sheet is narrow: the name, its category and one line of description
+    // stack, and the action takes the install count's place on the right.
+    return (
+      <div data-testid="coach-card" className={rowClass}>
+        <span
+          aria-hidden="true"
+          className="flex h-9 w-9 shrink-0 select-none items-center justify-center rounded-full bg-primary-container font-display text-xs font-semibold text-on-primary-container"
+        >
+          {initialsFor(coach.title)}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <h3 className="truncate font-sans text-sm font-semibold tracking-normal text-on-surface">
+            {coach.title}
+          </h3>
+          <span
+            data-testid="coach-category-badge"
+            className="inline-flex items-center gap-1.5 text-xs text-on-surface-variant"
+          >
+            <span aria-hidden="true" className={clsx('h-1.5 w-1.5 rounded-full', categoryDot)} />
+            {t(coachCategoryLabelKey(coach.category))}
+          </span>
+          {coach.description ? (
+            <span className="truncate text-xs text-outline">{coach.description}</span>
+          ) : null}
+        </span>
+        {!pick.onPick ? (
+          <span className="shrink-0 text-xs text-outline">{pick.label}</span>
+        ) : (
+          <button
+            type="button"
+            onClick={pick.onPick}
+            aria-label={pick.ariaLabel}
+            className="btn-base btn-tertiary btn-sm touch-target shrink-0"
+          >
+            {pick.label}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <button
       onClick={onClick}
       data-testid="coach-card"
-      className="group flex min-h-[64px] w-full items-center gap-3.5 border-t ghost-border-faint py-3 text-left transition-colors first:border-t-0 hover:bg-surface-container-low/60 focus-ring"
+      className={clsx(rowClass, 'hover:bg-surface-container-low/60 focus-ring')}
     >
       <span
         aria-hidden="true"

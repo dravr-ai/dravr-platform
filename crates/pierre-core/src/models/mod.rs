@@ -56,6 +56,8 @@ pub mod onboarding;
 /// The canonical six fitness-adapted health pillars (single source of truth
 /// for per-user context, pillar-tagged facts, and the OKF bundle).
 pub mod pillar;
+/// What a server-initiated agent post is for: its claim row's purpose.
+pub mod platform_post;
 mod provider_thresholds;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
@@ -168,7 +170,7 @@ pub use user::{
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
-pub use calibration::{CalibrationConditions, CalibrationTopic};
+pub use calibration::{CalibrationConditions, CalibrationTopic, LONG_SESSION_MIN};
 pub use dossier::{Dossier, DossierFact};
 pub use gear::{
     default_pair, parse_shoe_sport, shoe_sport_slug, ActivityGearKey, AthleteGear,
@@ -181,6 +183,7 @@ pub use onboarding::{
     TopicVisibility, WalkAudience, COMPLETION_RELEASE_WINDOW_MINUTES, MAX_PROBE_ATTEMPTS,
 };
 pub use pillar::Pillar;
+pub use platform_post::PostPurpose;
 pub use season::{SeasonConditions, SeasonTopic};
 pub use sport_family::SportFamily;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};

@@ -39,6 +39,8 @@
 
 pub mod agent_welcome;
 pub mod envelope;
+/// Where an athlete's turn meets the first-run done rules (carnet#1099).
+mod first_run_hooks;
 /// What a turn still owes once its reply is persisted.
 mod follow_through;
 pub mod hooks;
@@ -51,6 +53,7 @@ pub(crate) mod recovery;
 pub mod stages;
 pub mod suggestions;
 pub mod surface_profile;
+pub(crate) mod team_offer;
 mod tool_budget;
 pub mod turn;
 pub mod turn_service;
@@ -435,6 +438,7 @@ pub async fn run(
     )
     .await;
     let origin = input.analytics_origin();
+    let first_run = first_run_hooks::TurnFacts::of(&input);
     info!(
         target: "notify",
         event = "chat.question_asked",
@@ -493,13 +497,17 @@ pub async fn run(
     }
     // A withheld platform reply reached nobody, so no answer was delivered.
     if let Some(envelope) = outcome.as_ref().ok().filter(|envelope| envelope.posted) {
+        let served = ai_scope::current_provenance().is_some_and(|p| p.served_provider_data());
         emit_answer_delivered(
             persona,
             origin,
             asker_created_at,
             &envelope.telemetry,
-            ai_scope::current_provenance().is_some_and(|p| p.served_provider_data()),
+            served,
         );
+        first_run
+            .after_turn(&ctx.repos, envelope, profile, served)
+            .await;
     }
 
     if let Some(agui) = &hooks.agui {
@@ -556,9 +564,7 @@ fn emit_answer_delivered(
         event = "chat.answer_delivered",
         persona = persona.as_str(),
         origin = origin,
-        grounded = telemetry.activity_list_captured
-            || telemetry.activities_prefetched
-            || provider_data_served,
+        grounded = first_run_hooks::grounded(telemetry, provider_data_served),
         account_age_hours = Utc::now().signed_duration_since(created_at).num_hours(),
         "answer delivered"
     );

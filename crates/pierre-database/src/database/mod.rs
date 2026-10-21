@@ -56,6 +56,8 @@ pub mod feature_flags;
 pub mod federated_identities;
 /// Firebase identity deletion outbox (`SQLite`) backing `FirebaseIdentityDeletionRepository`.
 pub mod firebase_identity_deletions;
+/// The days each athlete met a first-run flow's done rule (`SQLite`)
+pub mod first_run_progress;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
 /// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.

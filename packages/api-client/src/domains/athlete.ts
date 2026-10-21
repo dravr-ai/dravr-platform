@@ -26,6 +26,7 @@ import {
   type CalendarResponse,
   type HomeActivity,
   type HomePreferences,
+  type HomePreferencesUpdate,
   type UnitPreferences,
   type UnitSystem,
   type CheckInCadence,
@@ -257,8 +258,11 @@ export function createAthleteApi(axios: AxiosInstance) {
       return requireShape(parseHomePreferences(response.data), ENDPOINTS.ATHLETE.HOME_PREFERENCES);
     },
 
-    /** Store the athlete's Home choices; answers with what is now stored. */
-    async updateHomePreferences(prefs: HomePreferences): Promise<HomePreferences> {
+    /**
+     * Change some of the athlete's Home choices; a field left out keeps what
+     * is stored. Answers with every choice as it now stands.
+     */
+    async updateHomePreferences(prefs: HomePreferencesUpdate): Promise<HomePreferences> {
       const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.HOME_PREFERENCES, prefs);
       return requireShape(parseHomePreferences(response.data), ENDPOINTS.ATHLETE.HOME_PREFERENCES);
     },

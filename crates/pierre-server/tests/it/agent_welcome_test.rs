@@ -412,12 +412,14 @@ async fn creating_an_agent_thread_posts_one_localized_welcome() {
         Some(render(&resources, KEY_AGENT_WELCOME_STARTERS_TITLE, "fr", &[]).as_str())
     );
     let offered = starters(welcome);
-    assert_eq!(offered.ranked, ["about_me"]);
+    // Meet your team, the first-run flow still open, takes the first slot
+    // whatever the agent's domain (carnet#1099).
+    assert_eq!(offered.ranked, ["about_me", "meet_team"]);
     assert_eq!(
         offered.labels["about_me"],
         render(&resources, "use_cases.about_me.label", "fr", &[])
     );
-    assert_eq!(offered.examples, first(&FUELLING_SAMPLES_FR, 2));
+    assert_eq!(offered.examples, first(&FUELLING_SAMPLES_FR, 1));
     assert!(
         introduced(&resources, &conv, &agent, alice.tenant_id).await,
         "the welcome is the agent's introduction"
@@ -466,8 +468,8 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
         )
     );
     let offered = starters(&rows[0]);
-    assert_eq!(offered.ranked, ["about_me"]);
-    assert_eq!(offered.examples, first(&FUELLING_SAMPLES, 2));
+    assert_eq!(offered.ranked, ["about_me", "meet_team"]);
+    assert_eq!(offered.examples, first(&FUELLING_SAMPLES, 1));
 
     let bare = own_agent(&resources, &bea, "Bare Agent", None, &[]).await;
     let conv = create_conversation(&resources, &bea, Some(&bare)).await;
@@ -487,7 +489,7 @@ async fn missing_copy_falls_back_to_the_canonical_agent() {
         )
     );
     let offered = starters(&rows[0]);
-    assert_eq!(offered.ranked, ["about_me", "last_workout"]);
+    assert_eq!(offered.ranked, ["about_me", "last_workout", "meet_team"]);
     assert!(
         offered.examples.is_empty(),
         "no examples to fill the slot left"
@@ -552,8 +554,13 @@ async fn agent_add_welcomes_after_the_command_rows() {
         .as_ref()
         .expect("the turn carries the welcome");
     let offered = starters(carried);
-    assert_eq!(offered.ranked, ["about_me", "last_workout"]);
-    assert_eq!(offered.examples, ["Plan my tempo week"]);
+    // Meet your team, the first-run flow still open, takes the first slot
+    // whatever the agent's domain (carnet#1099).
+    assert_eq!(offered.ranked, ["about_me", "last_workout", "meet_team"]);
+    assert!(
+        offered.examples.is_empty(),
+        "three ranked starters leave no slot"
+    );
     let rows = messages(&resources, &dan, &conv).await;
     let reasons: Vec<Option<&str>> = rows.iter().map(|m| m.finish_reason.as_deref()).collect();
     assert_eq!(
@@ -1008,8 +1015,11 @@ async fn reset_reopens_the_fresh_thread_with_the_agent_welcome() {
         )
     );
     let offered = starters(posted[0]);
-    assert_eq!(offered.ranked, ["about_me", "last_workout"]);
-    assert_eq!(offered.examples, ["Plan my week"]);
+    assert_eq!(offered.ranked, ["about_me", "last_workout", "meet_team"]);
+    assert!(
+        offered.examples.is_empty(),
+        "three ranked starters leave no slot"
+    );
     assert!(introduced(&resources, &fresh, &agent, kai.tenant_id).await);
     assert_eq!(
         welcomes(&messages(&resources, &kai, &old).await).len(),

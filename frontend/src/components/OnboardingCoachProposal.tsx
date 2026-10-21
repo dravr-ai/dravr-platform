@@ -1,81 +1,72 @@
-// ABOUTME: Post-connect onboarding step — "analyzing your data" then an inferred profile + top-3 coach proposal
-// ABOUTME: Renders between OnboardingConnectProvider and the dashboard; backed by GET /api/agents/proposal
+// ABOUTME: Post-connect onboarding step "Your team" — analyzing your data, then the lead and the members to start with
+// ABOUTME: Renders between OnboardingConnectProvider and Home; the picker is TeamPicker, the write is the coach_proposal step
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import type { ProposedAgent } from '@pierre/shared-types';
-import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
+import { useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from '@pierre/i18n';
+import { QUERY_KEYS } from '../constants/queryKeys';
+import type { TeamStepChoice } from '../hooks/useOnboardingState';
 import { chatApi, coachesApi } from '../services/api';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
 import { homeConversationRoute } from './home/homeRoute';
-import { useTranslation } from '@pierre/i18n';
-
-/** One-time onboarding snapshot; not invalidated elsewhere. */
-const COACH_PROPOSAL_QUERY_KEY = ['coaches', 'proposal'] as const;
+import { TeamPicker, type TeamChoice } from './onboarding/TeamPicker';
+import { useTeamProposal } from './onboarding/useTeamProposal';
 
 /**
- * Onboarding coach proposal.
+ * Onboarding's Your team step (carnet#1095).
  *
- * Shown once, right after the user connects their first provider and before the
- * dashboard. On mount it calls `GET /api/agents/proposal`, which scans the
- * user's recent activities, infers a sport profile, and asks the LLM to pick the
- * best ≤3 agents with a rationale each. While that runs we show an "analyzing
- * your data" spinner — the deliberate pause in the
- * `connect → analyzing → profile → coaches` flow.
+ * Shown once, right after the athlete connects their first provider and
+ * before Home. On mount it calls `GET /api/agents/proposal`, which scans the
+ * recent activities, infers a sport profile, re-ranks the agents for a lead
+ * and picks the members the team rules fire for. While that runs we show an
+ * "analyzing your data" spinner.
  *
- * Completion is persisted in `localStorage` (keyed by user) so the screen is a
- * one-time onboarding step, not a recurring interstitial.
+ * Start and Skip write the step and wait for it: the server joins every agent
+ * to the team, then makes the lead the selected agent. Only then does Start
+ * open the lead's topic in the personal thread and the step hand over to
+ * Home — a failed write keeps the athlete here to retry.
  */
 export default function OnboardingCoachProposal({
   userDisplayName,
+  onSave,
   onComplete,
 }: {
   userDisplayName?: string | null;
-  /** The step is done; `leadAgentId` is the agent to select, absent when no proposal loaded. */
-  onComplete: (leadAgentId?: string) => void;
+  /** Write the step; rejects when the team was not saved. */
+  onSave: (choice: TeamStepChoice) => Promise<void>;
+  /** The step is done: advance to Home. */
+  onComplete: () => void;
 }) {
   const { t } = useTranslation();
-  const [selecting, setSelecting] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError } = useTeamProposal();
 
-  // A sport as the profile spells it, in the athlete's language when the
-  // vocabulary knows it and as spelled on the wire when it does not.
-  const sportLabel = (sport: string): string => {
-    const key = activitySportLabelKey(sport);
-    return key ? t(key) : sport;
-  };
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: COACH_PROPOSAL_QUERY_KEY,
-    queryFn: () => coachesApi.getProposal(),
-    // The proposal reflects a one-time onboarding snapshot; no need to refetch.
-    staleTime: Infinity,
-    retry: 1,
-  });
-
-  // LIMITATION(registre#1095): Start and Skip select the lead but add nothing to a team.
-  const handleStart = async (agentId: string) => {
-    setSelecting(agentId);
-    try {
-      // Mark the chosen agent as used so it surfaces first on the dashboard.
-      await coachesApi.recordUsage(agentId);
-    } catch {
-      // Non-fatal: the choice below still opens the agent's thread.
+  const handleSubmit = async (choice: TeamChoice) => {
+    await onSave(choice);
+    // The team is now the athlete's: Home's Your team and Discover read it.
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.lists() });
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
+    if (choice.status === 'complete') {
+      try {
+        // The lead surfaces first wherever agents are listed by use.
+        await coachesApi.recordUsage(choice.leadAgentId);
+      } catch {
+        // Non-fatal: the team is saved; the topic below still opens.
+      }
+      try {
+        // Start means start talking to the lead: a topic in the athlete's
+        // personal thread bound to it, opened on Home. The dashboard reads
+        // the hash when it mounts, so it is set before the step hands over.
+        const { conversation } = await chatApi.openPersonalTopic({ agent_id: choice.leadAgentId });
+        window.location.hash = `#${homeConversationRoute(conversation.id)}`;
+      } catch {
+        // Home still opens on the personal thread; its "+" starts the topic.
+      }
     }
-    try {
-      // « Démarrer » means start talking to this agent: a topic in the
-      // athlete's personal thread bound to it, opened on Home. The dashboard
-      // reads the hash when it mounts, so it is set before onboarding hands
-      // over to it.
-      const { conversation } = await chatApi.openPersonalTopic({ agent_id: agentId });
-      window.location.hash = `#${homeConversationRoute(conversation.id)}`;
-    } catch {
-      // The dashboard still opens on Home; its "+" starts the topic.
-    }
-    onComplete(agentId);
+    onComplete();
   };
 
   // "Analyzing your data" — shown while the activity scan + LLM re-rank run.
@@ -93,14 +84,21 @@ export default function OnboardingCoachProposal({
     );
   }
 
-  if (isError || !data) {
+  // No proposal, or one with no agent to lead: the step records itself done
+  // without an agent (best-effort, as every step without a team is) and the
+  // athlete goes on to Home, where Pick your team waits.
+  if (isError || !data || !(data.team?.lead ?? data.agents[0])) {
     return (
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
-          <p className="text-sm text-on-surface">
-            {t('onboarding.agentSuggestionsFailed')}
-          </p>
-          <Button variant="primary" onClick={() => onComplete()}>
+          <p className="text-sm text-on-surface">{t('onboarding.agentSuggestionsFailed')}</p>
+          <Button
+            variant="primary"
+            onClick={() => {
+              void onSave({ status: 'complete' }).catch(() => {});
+              onComplete();
+            }}
+          >
             {t('onboarding.continueToDashboard')}
           </Button>
         </div>
@@ -108,108 +106,22 @@ export default function OnboardingCoachProposal({
     );
   }
 
-  const { profile, agents } = data;
-  const primary = profile.primary_sport;
-
   return (
     <OnboardingShell
       heading={
-        userDisplayName ? t('app.obStartingLineup', { name: userDisplayName }) : t('frag.startingLineup')
+        userDisplayName
+          ? t('onboarding.team.heading', { name: userDisplayName })
+          : t('onboarding.team.headingNoName')
       }
     >
-      {/* Inferred profile summary */}
-      <div className="mt-6 rounded-xl border border-outline-variant bg-surface-container px-5 py-4">
-        {profile.has_profile ? (
-          <>
-            <p className="text-sm text-on-surface">
-              {t('app.obWindowSummary', {
-                days: profile.window_days,
-                count: profile.total_activities,
-              })}
-              {primary ? t('app.obMostlySport', { sport: sportLabel(primary) }) : ''}
-            </p>
-            <div className="mt-3 space-y-1.5">
-              {profile.sport_mix.map((s) => (
-                <div key={s.sport} className="flex items-center gap-3">
-                  <span className="w-20 text-xs text-on-surface-variant">{sportLabel(s.sport)}</span>
-                  <div className="flex-1 h-2 rounded-full bg-surface-container-high overflow-hidden">
-                    <div
-                      className="h-full boreal-hero-gradient"
-                      style={{ width: `${Math.round(s.share * 100)}%` }}
-                    />
-                  </div>
-                  <span className="w-10 text-right text-xs text-on-surface-variant">
-                    {Math.round(s.share * 100)}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-on-surface-variant">
-            {t('onboarding.agentProposalNoActivities')}
-          </p>
-        )}
-      </div>
-
-      {/* Proposed coaches */}
-      <div className="mt-6 space-y-3">
-        {agents.map((proposed) => (
-          <CoachProposalCard
-            key={proposed.agent.id}
-            proposed={proposed}
-            selecting={selecting === proposed.agent.id}
-            disabled={selecting !== null}
-            onStart={() => void handleStart(proposed.agent.id)}
-          />
-        ))}
-      </div>
-
-      <div className="mt-8">
-        {/* Skipping still leaves the athlete with an agent: the proposal's first. */}
-        <Button
-          variant="secondary"
-          onClick={() => onComplete(agents[0]?.agent.id)}
-          className="w-full"
-          disabled={selecting !== null}
-        >
-          {t('onboarding.skipForNow')}
-        </Button>
+      <div className="mx-auto max-w-[560px]">
+        <p className="mt-2 text-center font-serif text-lg italic text-on-surface-variant">
+          {t('onboarding.team.subline')}
+        </p>
+        <div className="mt-7">
+          <TeamPicker proposal={data} onSubmit={handleSubmit} />
+        </div>
       </div>
     </OnboardingShell>
-  );
-}
-
-/** A single proposed-agent card with its match rationale and a start CTA. */
-function CoachProposalCard({
-  proposed,
-  selecting,
-  disabled,
-  onStart,
-}: {
-  proposed: ProposedAgent;
-  selecting: boolean;
-  disabled: boolean;
-  onStart: () => void;
-}) {
-  const { t } = useTranslation();
-  const { agent, reason } = proposed;
-  return (
-    <div className="rounded-xl border border-outline-variant bg-surface-container-low px-5 py-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h3 className="font-display font-semibold text-base text-on-surface truncate">
-            {agent.title}
-          </h3>
-          <p className="mt-0.5 text-xs text-on-surface-variant">
-            {t(coachCategoryLabelKey(agent.category))}
-          </p>
-        </div>
-        <Button variant="primary" onClick={onStart} disabled={disabled}>
-          {selecting ? t('onboarding.starting') : t('onboarding.startButton')}
-        </Button>
-      </div>
-      {reason ? <p className="mt-2 text-sm text-on-surface-variant">{reason}</p> : null}
-    </div>
   );
 }
