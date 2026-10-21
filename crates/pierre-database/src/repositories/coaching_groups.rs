@@ -86,6 +86,8 @@ macro_rules! member_columns {
         concat!(
             "m.id, m.group_id, m.user_id, m.tenant_id, m.role,
               m.peer_sharing_consent, m.coach_sharing_consent, m.consent_given_at,
+              m.coach_calendar_write, m.coach_calendar_write_at,
+              m.coach_wellness_read, m.coach_wellness_read_at,
               m.joined_at, m.left_at,
               ",
             person_name_column!(),
@@ -209,12 +211,14 @@ pub(crate) const SET_GROUP_COACH_USER_SQL: &str = r"UPDATE coaching_groups SET c
 // coaching_group_members
 // ============================================================================
 
-/// One membership; `$7` serves both the consent and the join instant, and
-/// `$8` is the coach-sharing grant joining carries.
+/// One membership; `$7` serves both the consent and the join instant, `$8`
+/// is the coach-sharing grant joining carries, and `$9`..`$12` the coach
+/// consents the membership starts with (none, for a member who just joined).
 pub(crate) const INSERT_MEMBER_SQL: &str = r"INSERT INTO coaching_group_members
               (id, group_id, user_id, tenant_id, role, peer_sharing_consent, consent_given_at, joined_at,
-               coach_sharing_consent)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8)";
+               coach_sharing_consent, coach_calendar_write, coach_calendar_write_at,
+               coach_wellness_read, coach_wellness_read_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)";
 
 /// Mark a live membership as left.
 pub(crate) const REMOVE_MEMBER_SQL: &str = r"UPDATE coaching_group_members SET left_at = $1
@@ -253,6 +257,19 @@ pub(crate) const UPDATE_PEER_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group
 /// Record a live member's coach-sharing decision and when it was made.
 pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET coach_sharing_consent = $1, consent_given_at = $2
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
+
+/// A live member sets what their coach may do beyond reading their training:
+/// `$1` calendar write and `$2` wellness read, NULL to leave one as it
+/// stands; a consent whose value changes is stamped `$3`. Every SET
+/// expression reads the row as it stood before the update, on both engines.
+pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
+        SET coach_calendar_write = COALESCE($1, coach_calendar_write),
+            coach_calendar_write_at = CASE WHEN $1 IS NULL OR $1 = coach_calendar_write
+                                           THEN coach_calendar_write_at ELSE $3 END,
+            coach_wellness_read = COALESCE($2, coach_wellness_read),
+            coach_wellness_read_at = CASE WHEN $2 IS NULL OR $2 = coach_wellness_read
+                                          THEN coach_wellness_read_at ELSE $3 END
+      WHERE group_id = $4 AND user_id = $5 AND left_at IS NULL";
 
 /// Live members of a group, counted by group alone: they may span tenants.
 pub(crate) const COUNT_MEMBERS_SQL: &str = r"SELECT COUNT(*) as cnt FROM coaching_group_members
@@ -427,6 +444,12 @@ macro_rules! impl_coaching_group_repository {
                 role: parse_role(&role),
                 peer_sharing_consent: column(r, "peer_sharing_consent")?,
                 coach_sharing_consent: column(r, "coach_sharing_consent")?,
+                coach_consents: CoachConsents {
+                    calendar_write: column(r, "coach_calendar_write")?,
+                    calendar_write_at: column(r, "coach_calendar_write_at")?,
+                    wellness_read: column(r, "coach_wellness_read")?,
+                    wellness_read_at: column(r, "coach_wellness_read_at")?,
+                },
                 consent_given_at: instant(r, "consent_given_at")?,
                 joined_at: instant(r, "joined_at")?,
                 left_at: column(r, "left_at")?,
@@ -752,6 +775,10 @@ macro_rules! impl_coaching_group_repository {
                     .bind(member.peer_sharing_consent)
                     .bind(Utc::now())
                     .bind(member.coach_sharing_consent)
+                    .bind(member.coach_consents.calendar_write)
+                    .bind(member.coach_consents.calendar_write_at)
+                    .bind(member.coach_consents.wellness_read)
+                    .bind(member.coach_consents.wellness_read_at)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add member: {e}")))?;
@@ -855,6 +882,31 @@ macro_rules! impl_coaching_group_repository {
                     })?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn set_coach_consents(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                calendar_write: Option<bool>,
+                wellness_read: Option<bool>,
+                now: DateTime<Utc>,
+            ) -> AppResult<Option<GroupMember>> {
+                let result = sqlx::query(SET_COACH_CONSENTS_SQL)
+                    .bind(calendar_write)
+                    .bind(wellness_read)
+                    .bind(now)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to set a member's coach consents: {e}"))
+                    })?;
+                if result.rows_affected() == 0 {
+                    return Ok(None);
+                }
+                self.get_member(group_id, user_id).await
             }
 
             async fn count_members(&self, group_id: &str) -> AppResult<i64> {

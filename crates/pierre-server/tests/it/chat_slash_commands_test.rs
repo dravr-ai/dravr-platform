@@ -31,7 +31,7 @@ use pierre_core::models::agents::{
     AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter,
 };
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{AddMessageParams, COMMAND_FINISH_REASON};
 use pierre_core::models::{ConnectionType, TenantId};
@@ -309,6 +309,7 @@ async fn seed_group_membership(
             role,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

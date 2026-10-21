@@ -512,6 +512,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
         &repos.auth_repos(),
         repos.activity_cache.clone(),
         repos.provider_connections.clone(),
+        repos.groups.clone(),
         Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );

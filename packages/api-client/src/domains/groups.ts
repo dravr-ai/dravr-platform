@@ -31,7 +31,8 @@ import type {
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,
   ConfirmDelegatedConnectionRequest,
-  UpdateDelegatedConnectionConsentsRequest,
+  CoachConsentsResponse,
+  UpdateCoachConsentsRequest,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -62,7 +63,8 @@ export type {
   DelegationRosterResponse,
   ProposeDelegatedConnectionRequest,
   ConfirmDelegatedConnectionRequest,
-  UpdateDelegatedConnectionConsentsRequest,
+  CoachConsentsResponse,
+  UpdateCoachConsentsRequest,
 };
 
 /**
@@ -245,18 +247,25 @@ export function createGroupsApi(axios: AxiosInstance) {
     },
 
     /**
-     * The member grants or revokes what their confirmed link shares beyond
-     * the read; a consent left out stays as it stands. Revoking
-     * `wellness_read` deletes the wellness the link synced. Answers with the
-     * link as it now stands.
+     * What the caller, a live member, lets the group's coach do beyond
+     * reading their training, and what the relationship offers.
      */
-    async setDelegatedLinkConsents(
+    async getCoachConsents(groupId: string): Promise<CoachConsentsResponse> {
+      const response = await axios.get<CoachConsentsResponse>(ENDPOINTS.GROUPS.MY_COACH_CONSENTS(groupId));
+      return response.data;
+    },
+
+    /**
+     * The member grants or revokes what the group's coach may do; a consent
+     * left out stays as it stands. Revoking `wellness_read` deletes the
+     * wellness their links synced. Answers with the consents as they now stand.
+     */
+    async updateCoachConsents(
       groupId: string,
-      connectionId: string,
-      consents: UpdateDelegatedConnectionConsentsRequest,
-    ): Promise<DelegatedConnection> {
-      const response = await axios.put<DelegatedConnection>(
-        ENDPOINTS.GROUPS.DELEGATED_CONNECTION_CONSENTS(groupId, connectionId),
+      consents: UpdateCoachConsentsRequest,
+    ): Promise<CoachConsentsResponse> {
+      const response = await axios.put<CoachConsentsResponse>(
+        ENDPOINTS.GROUPS.MY_COACH_CONSENTS(groupId),
         consents,
       );
       return response.data;

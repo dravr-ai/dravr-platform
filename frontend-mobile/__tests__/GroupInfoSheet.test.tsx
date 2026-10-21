@@ -42,7 +42,22 @@ const mockLeaveGroup = jest.fn();
 const mockDeleteGroup = jest.fn();
 
 const mockConfirmLink = jest.fn();
-const mockSetConsents = jest.fn();
+const mockGetCoachConsents = jest.fn();
+const mockUpdateCoachConsents = jest.fn();
+
+/** What the caller lets the group's coach do: nothing granted, nothing offered unless overridden. */
+function coachConsents(overrides: Record<string, unknown> = {}) {
+  return {
+    calendar_write: false,
+    calendar_write_at: null,
+    calendar_write_supported: false,
+    wellness_read: false,
+    wellness_read_at: null,
+    wellness_read_supported: false,
+    wellness_read_skipped: null,
+    ...overrides,
+  };
+}
 jest.mock('../src/services/api', () => ({
   coachesApi: { list: jest.fn().mockResolvedValue({ agents: [] }) },
   oauthApi: { getProvidersStatus: jest.fn().mockResolvedValue({ providers: [] }) },
@@ -52,7 +67,8 @@ jest.mock('../src/services/api', () => ({
     getDelegationRoster: jest.fn(),
     proposeDelegatedConnection: jest.fn(),
     confirmDelegatedConnection: (...args: unknown[]) => mockConfirmLink(...args),
-    setDelegatedLinkConsents: (...args: unknown[]) => mockSetConsents(...args),
+    getCoachConsents: (...args: unknown[]) => mockGetCoachConsents(...args),
+    updateCoachConsents: (...args: unknown[]) => mockUpdateCoachConsents(...args),
     endDelegatedConnection: jest.fn(),
     listMembers: jest.fn(),
     getStats: jest.fn().mockResolvedValue({ stats: null }),
@@ -139,6 +155,7 @@ describe('GroupInfoSheet', () => {
     (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(false));
     (userApi.getCoachAccessRequest as jest.Mock).mockResolvedValue({ request: null });
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(GROUP);
+    mockGetCoachConsents.mockResolvedValue(coachConsents());
     (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
       can_create: true,
       policy: 'everyone',
@@ -673,7 +690,7 @@ describe('GroupInfoSheet', () => {
     expect(mockConfirmLink).toHaveBeenCalledWith('group-1', 'dc-1', undefined);
   });
 
-  it('shows every live link of a member with its own platform and controls, a newer proposal hiding none', async () => {
+  it('shows every live link of a member with its own platform, and one coach-consents block for them all', async () => {
     mockCallerId = 'user-phil';
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
     const link = {
@@ -721,7 +738,9 @@ describe('GroupInfoSheet', () => {
       total: 2,
       viewer: 'member',
     });
-    mockSetConsents.mockResolvedValue({ ...intervals, wellness_read: false });
+    const held = coachConsents({ calendar_write_supported: true, wellness_read: true, wellness_read_supported: true });
+    mockGetCoachConsents.mockResolvedValue(held);
+    mockUpdateCoachConsents.mockResolvedValue({ ...held, wellness_read: false });
     const { findByTestId, getByTestId, getByText } = renderSheet();
 
     const proposal = await findByTestId('delegation-member-link-dc-trainingpeaks');
@@ -733,7 +752,10 @@ describe('GroupInfoSheet', () => {
     expect(within(confirmed).getByTestId('delegation-linked')).toHaveTextContent(
       /Your Intervals\.icu workouts are read through Casey Coach's account\./,
     );
-    const wellness = within(confirmed).getByTestId('delegation-consent-wellness_read');
+    // The consents live on the coach relationship: one block, none on the link.
+    expect(within(confirmed).queryByTestId('delegation-consent-wellness_read')).toBeNull();
+    expect(getByText('What your human coach can do')).toBeTruthy();
+    const wellness = await findByTestId('coach-consent-wellness_read');
     expect(wellness).toHaveProp('value', true);
     await act(async () => {
       fireEvent(wellness, 'valueChange', false);
@@ -748,12 +770,40 @@ describe('GroupInfoSheet', () => {
     await act(async () => {
       await stop[2].find((button) => button.text === 'Stop sharing')?.onPress?.();
     });
-    expect(mockSetConsents).toHaveBeenCalledWith('group-1', 'dc-intervals', { wellness_read: false });
+    expect(mockUpdateCoachConsents).toHaveBeenCalledWith('group-1', { wellness_read: false });
 
     // Leaving ends both, and the warning names both.
     fireEvent.press(getByTestId('leave-group-button'));
     const confirm = (Alert.alert as jest.Mock).mock.calls.at(-1) as [string, string];
     expect(confirm[1]).toContain('Your TrainingPeaks link through this group ends too.');
     expect(confirm[1]).toContain('Your Intervals.icu link through this group ends too.');
+  });
+
+  it('lets a member who connects Intervals.icu themselves, with no link, allow calendar writes', async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'member' });
+    mockGetCoachConsents.mockResolvedValue(coachConsents({ calendar_write_supported: true }));
+    mockUpdateCoachConsents.mockResolvedValue(coachConsents({ calendar_write: true, calendar_write_supported: true }));
+    const { findByTestId, getByTestId, queryByTestId } = renderSheet();
+
+    const calendar = await findByTestId('coach-consent-calendar_write');
+    expect(queryByTestId('delegation-linked')).toBeNull();
+    expect(getByTestId('coach-consent-row-calendar_write')).toHaveTextContent(
+      /open intervals\.icu\/athletes, click Casey Coach and pick the Coach role, not Follower\./,
+    );
+    expect(queryByTestId('coach-consent-wellness_read')).toBeNull();
+    await act(async () => {
+      fireEvent(calendar, 'valueChange', true);
+    });
+    expect(mockUpdateCoachConsents).toHaveBeenCalledWith('group-1', { calendar_write: true });
+  });
+
+  it('never asks a member of a coachless group for coach consents', async () => {
+    mockCallerId = 'user-phil';
+    const { findByTestId, queryByTestId } = renderSheet();
+    await findByTestId('leave-group-button');
+    expect(mockGetCoachConsents).not.toHaveBeenCalled();
+    expect(queryByTestId('coach-consents')).toBeNull();
   });
 });

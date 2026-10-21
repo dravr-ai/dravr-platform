@@ -73,7 +73,7 @@ pub async fn record_member_joined(
 mod tests {
     use super::*;
     use chrono::Duration;
-    use pierre_core::models::groups::GroupRole;
+    use pierre_core::models::groups::{CoachConsents, GroupRole};
 
     fn member(id: Uuid) -> GroupMember {
         let now = Utc::now();
@@ -85,6 +85,7 @@ mod tests {
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

@@ -290,6 +290,30 @@ pub struct GroupSetupTimeline {
     pub first_member_id: Option<Uuid>,
 }
 
+/// What a member lets their group's human coach do beyond reading their
+/// training, on the member's coach relationship (their membership row).
+///
+/// Each consent is the member's alone: off until they grant it from Dravr's
+/// own app, revocable at any time, and never changed by the coach. It holds
+/// whether the member reaches the coaching platform through a link to the
+/// coach's account or through a connection of their own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoachConsents {
+    /// The group's coach writes the member's training calendar on a coaching
+    /// platform, through the coach's own account there.
+    pub calendar_write: bool,
+    /// When the member last granted or revoked `calendar_write`; `None` while
+    /// it was never granted.
+    pub calendar_write_at: Option<DateTime<Utc>>,
+    /// The member's wellness (sleep, HRV, resting heart rate, weight, daily
+    /// note) syncs through the coach's account, for a member who reads the
+    /// platform through a link.
+    pub wellness_read: bool,
+    /// When the member last granted or revoked `wellness_read`; `None` while
+    /// it was never granted.
+    pub wellness_read_at: Option<DateTime<Utc>>,
+}
+
 /// A member within a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupMember {
@@ -314,6 +338,11 @@ pub struct GroupMember {
     /// deserializable, and read them as granted, as membership then implied.
     #[serde(default = "coach_sharing_granted")]
     pub coach_sharing_consent: bool,
+    /// What the member lets the group's coach do beyond reading their
+    /// training: write their calendar, sync their wellness through the
+    /// coach's account. Each is off until the member grants it.
+    #[serde(default)]
+    pub coach_consents: CoachConsents,
     /// When consent was given (audit timestamp)
     pub consent_given_at: DateTime<Utc>,
     /// When the member joined

@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the coaching-platform link section — the coach's roster, picker, propose and each refusal's words
-// ABOUTME: The member's consents at confirm and after, decline and unlink; never the server's English refusal text
+// ABOUTME: The member's consents at confirm (later ones live in the coach-consents block), decline and unlink
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,7 +19,6 @@ vi.mock('../../../services/api', () => ({
     getDelegationRoster: vi.fn(),
     proposeDelegatedConnection: vi.fn(),
     confirmDelegatedConnection: vi.fn(),
-    setDelegatedLinkConsents: vi.fn(),
     endDelegatedConnection: vi.fn(),
   },
   providersApi: {
@@ -557,140 +556,36 @@ describe('DelegatedConnectionsSection — member', () => {
     expect(await screen.findByText('Intervals.icu linked')).toBeInTheDocument();
   });
 
-  it('shows what a confirmed link shares, and changes one consent at a time', async () => {
-    let answer: (link: DelegatedConnection) => void = () => undefined;
-    vi.mocked(groupsApi.setDelegatedLinkConsents).mockReturnValue(
-      new Promise((resolve) => {
-        answer = resolve;
-      }),
-    );
-    const user = userEvent.setup();
+  it('carries no consent switch on a confirmed link: the member changes them in the coach-consents block', async () => {
     renderSection({
       mode: 'member',
       connections: [
-        intervalsLink({
-          status: 'confirmed',
-          confirmed_at: '2026-09-24T09:00:00Z',
-          calendar_write: true,
-          wellness_read: true,
-        }),
+        intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', calendar_write: true, wellness_read: true }),
       ],
     });
 
     const linked = await screen.findByTestId('delegation-linked');
-    const calendar = within(linked).getByTestId('delegation-consent-calendar_write');
-    const wellness = within(linked).getByTestId('delegation-consent-wellness_read');
-    expect(calendar).toBeChecked();
-    expect(wellness).toBeChecked();
-
-    await user.click(calendar);
-
-    await waitFor(() =>
-      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { calendar_write: false }),
-    );
-    // The change shows as made while it is on its way, and nothing else moves.
-    expect(calendar).not.toBeChecked();
-    expect(calendar).toBeDisabled();
-    expect(wellness).toBeChecked();
-
-    answer(intervalsLink({ status: 'confirmed', calendar_write: false, wellness_read: true }));
-    expect(await screen.findByText('Sharing updated')).toBeInTheDocument();
+    expect(within(linked).queryByTestId('delegation-consents')).toBeNull();
+    expect(within(linked).queryByRole('checkbox')).toBeNull();
   });
 
-  it('asks before turning wellness off, and changes nothing when the member keeps sharing', async () => {
-    vi.mocked(groupsApi.setDelegatedLinkConsents).mockResolvedValue(
-      intervalsLink({ status: 'confirmed', wellness_read: false }),
-    );
-    const user = userEvent.setup();
-    renderSection({
-      mode: 'member',
-      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', wellness_read: true })],
-    });
-
-    const wellness = await screen.findByTestId('delegation-consent-wellness_read');
-    await user.click(wellness);
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveTextContent('Stop sharing wellness?');
-    expect(dialog).toHaveTextContent(
-      "Dravr stops reading your Intervals.icu wellness through Casey Coach's account and removes what it already read.",
-    );
-    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(groupsApi.setDelegatedLinkConsents).not.toHaveBeenCalled();
-    expect(wellness).toBeChecked();
-
-    await user.click(wellness);
-    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop sharing' }));
-    await waitFor(() =>
-      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { wellness_read: false }),
-    );
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('turns wellness on without asking', async () => {
-    vi.mocked(groupsApi.setDelegatedLinkConsents).mockResolvedValue(
-      intervalsLink({ status: 'confirmed', wellness_read: true }),
-    );
-    const user = userEvent.setup();
-    renderSection({
-      mode: 'member',
-      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
-    });
-
-    await user.click(await screen.findByTestId('delegation-consent-wellness_read'));
-
-    await waitFor(() =>
-      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-1', { wellness_read: true }),
-    );
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-
-  it('notes under the wellness control when a source of the member own already gives Dravr it', async () => {
+  it('notes under the wellness control of a proposal when a source of the member own already gives Dravr it', async () => {
     const note =
       'Your own Garmin or WHOOP connection already gives Dravr this, so the link reads none of it while that connection stays.';
     renderSection({
       mode: 'member',
       connections: [
-        intervalsLink({
-          id: 'dc-linked',
-          status: 'confirmed',
-          confirmed_at: '2026-09-24T09:00:00Z',
-          wellness_read: true,
-          wellness_read_skipped: 'own_wellness_source',
-        }),
         intervalsLink({ id: 'dc-asked', wellness_read_skipped: 'own_wellness_source' }),
-        intervalsLink({ id: 'dc-plain', status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z', wellness_read: true }),
+        intervalsLink({ id: 'dc-plain', provider_athlete_id: 'i202' }),
       ],
     });
 
-    // The control stays, so the member can still revoke what they granted.
-    const linked = await screen.findByTestId('delegation-member-link-dc-linked');
-    expect(within(linked).getByTestId('delegation-consent-wellness_read')).toBeChecked();
-    expect(within(linked).getByTestId('delegation-consent-note-wellness_read')).toHaveTextContent(note);
-    // Before the confirm too, so the member knows what granting it does.
-    const asked = screen.getByTestId('delegation-member-link-dc-asked');
+    // Before the confirm, so the member knows what granting it does.
+    const asked = await screen.findByTestId('delegation-member-link-dc-asked');
     expect(within(asked).getByTestId('delegation-consent-note-wellness_read')).toHaveTextContent(note);
+    expect(within(asked).queryByTestId('delegation-consent-note-calendar_write')).toBeNull();
     const plain = screen.getByTestId('delegation-member-link-dc-plain');
     expect(within(plain).queryByTestId('delegation-consent-note-wellness_read')).toBeNull();
-    expect(within(linked).queryByTestId('delegation-consent-note-calendar_write')).toBeNull();
-  });
-
-  it('words a refused consent change from its reason, not the server message', async () => {
-    vi.mocked(groupsApi.setDelegatedLinkConsents).mockRejectedValue(
-      refusal(403, 'consent_grant_needs_app', 'intervals_icu'),
-    );
-    const user = userEvent.setup();
-    renderSection({
-      mode: 'member',
-      connections: [intervalsLink({ status: 'confirmed', confirmed_at: '2026-09-24T09:00:00Z' })],
-    });
-
-    await user.click(await screen.findByTestId('delegation-consent-calendar_write'));
-
-    expect(await screen.findByText('That did not go through. Try again.')).toBeInTheDocument();
-    expect(screen.queryByText('English for an API caller')).toBeNull();
-    // Refused, the consent reads as it stands on the server again.
-    expect(screen.getByTestId('delegation-consent-calendar_write')).not.toBeChecked();
   });
 
   it('declines a proposed link', async () => {

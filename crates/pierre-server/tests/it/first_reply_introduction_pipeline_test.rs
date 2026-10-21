@@ -47,7 +47,7 @@ use pierre_core::llm::{
 };
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{
@@ -738,6 +738,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
                 role,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

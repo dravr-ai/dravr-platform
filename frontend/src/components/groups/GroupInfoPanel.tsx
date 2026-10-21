@@ -6,8 +6,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, BarChart3, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
+import { Activity, BarChart3, CalendarCheck, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
 import {
+  useCoachConsents,
   useDelegatedConnections,
   useDelegationRoster,
   useGroup,
@@ -41,8 +42,15 @@ import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
+import CoachConsentsSection from './CoachConsentsSection';
 import type { GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
-import { coachPlatformName, oneDecimal, weeklyVolumeFigure } from '@pierre/shared-constants';
+import {
+  COACH_CONSENTS_KEYS,
+  coachPlatformName,
+  offeredConsents,
+  oneDecimal,
+  weeklyVolumeFigure,
+} from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError, openThreadRefusalText, useDistanceUnit } from '@pierre/ui-logic';
@@ -142,6 +150,12 @@ export default function GroupInfoPanel({
   const { connections: delegatedConnections, viewer: delegationViewer } = useDelegatedConnections(
     groupId,
     !!group?.coach_user_id,
+  );
+  // What the member lets the group's coach do lives on their membership, so a
+  // member of a coached group reads it whether or not a link names them.
+  const { consents: coachConsents } = useCoachConsents(
+    groupId,
+    !!group?.coach_user_id && !!currentMember && !isGroupCoach,
   );
   const { weeklyDigest } = useGroupPermissions();
   const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
@@ -420,6 +434,14 @@ export default function GroupInfoPanel({
             />
           </Section>
         ))
+      )}
+
+      {/* One block for the coach relationship, never one per link: an athlete who
+          connects the platform themselves has no link and still grants here. */}
+      {coachConsents && coachName && offeredConsents(coachConsents).length > 0 && (
+        <Section icon={<CalendarCheck className="w-3.5 h-3.5" aria-hidden="true" />} title={t(COACH_CONSENTS_KEYS.title)}>
+          <CoachConsentsSection groupId={groupId} consents={coachConsents} coach={coachName} />
+        </Section>
       )}
 
       {/* Only an owner or admin may list a group's invites; the route refuses anyone else. */}

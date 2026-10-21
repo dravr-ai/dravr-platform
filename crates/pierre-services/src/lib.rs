@@ -433,9 +433,6 @@ pub mod delegated_connections;
 /// Where each athlete on a coach's coaching-platform roster stands with the coach's groups and links.
 pub mod delegated_link_states;
 
-/// What a member lets a confirmed coach link do beyond reading workouts: calendar writes, wellness reads.
-pub mod delegated_link_consents;
-
 /// The coaching-platform link a member who joins a coached group is proposed as they join.
 pub mod delegated_link_on_join;
 
@@ -448,6 +445,9 @@ pub mod delegated_wellness;
 
 /// What a human coach reads of a coached athlete's wellness: only what their link filed under `wellness_read`.
 pub mod linked_wellness;
+
+/// What a member lets their group's human coach do beyond reading their training: calendar writes, wellness reads.
+pub mod coach_consents;
 
 /// The coaching platforms a coach's own account reads group athletes through: `TrainingPeaks`, Intervals.icu.
 pub mod coach_platform;

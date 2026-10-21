@@ -15,7 +15,8 @@
 //! ([`crate::delegated_link_on_join`]); the member confirms ([`confirm`]),
 //! and that confirmation is their consent to having their workouts on that platform
 //! read through the coach's account. Anything beyond that read is a consent
-//! of the member's own, per link ([`crate::delegated_link_consents`]). Either
+//! of the member's own, on their coach relationship
+//! ([`crate::coach_consents`]), never on the link. Either
 //! side can end the link ([`end`]); the group lifecycle and a disconnect end
 //! it through [`DelegationStore`].
 //!
@@ -54,7 +55,7 @@ use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{
-    ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus, LinkConsents,
+    ConnectionType, DelegatedConnection, DelegationEndReason, DelegationStatus,
     ProviderAccountRole, RosterAccess, RosterAthlete, TenantId, User, UserOAuthToken,
 };
 use pierre_database::RepositoryRegistry;
@@ -67,8 +68,8 @@ use serde_json::json;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::coach_consents::{link_offer, require_app_for_grant, set_coach_consents, ConsentChange};
 use crate::coach_platform::{coach_platform, CoachPlatform, RosterRead};
-use crate::delegated_link_consents::granted_at_confirm;
 use crate::delegated_link_states::{assess, Assessed, LinkState};
 use crate::delegated_read::{holds_own_connection, OwnLogins};
 use crate::delegation_refusal::Refusal;
@@ -613,8 +614,9 @@ pub async fn propose(
 
 /// The member confirms `link`, a proposal naming them, in `member_tenant`.
 ///
-/// It grants the `requested` consents its platform offers
-/// ([`crate::delegated_link_consents`]), and none unless requested.
+/// It grants the coach the `requested` consents the member's relationship
+/// offers once the link is confirmed ([`crate::coach_consents`]), and none
+/// unless requested.
 /// Their delegated connection is registered there, their other live
 /// proposals for the provider are superseded, and the coach is told.
 ///
@@ -633,7 +635,7 @@ pub async fn confirm(
     group: &CoachingGroup,
     link: &DelegatedConnection,
     member_tenant: TenantId,
-    requested: LinkConsents,
+    requested: ConsentChange,
 ) -> AppResult<DelegatedConnection> {
     let DelegationServices {
         repos,
@@ -641,7 +643,7 @@ pub async fn confirm(
         notifications,
         ..
     } = services;
-    let consents = granted_at_confirm(registry, link, requested)?;
+    require_app_for_grant(requested.grants_any())?;
     let member = link.member_user_id;
     let platform = coach_platform(registry, &link.provider);
     let platform = platform.as_deref();
@@ -655,16 +657,20 @@ pub async fn confirm(
     }
     let confirmed = repos
         .delegated_connections
-        .confirm(link.id, member, member_tenant, consents, Utc::now())
+        .confirm(link.id, member, member_tenant, Utc::now())
         .await?
         .ok_or_else(|| AppError::not_found("Pending link"))?;
     info!(
         link_id = %confirmed.id,
         group_id = %group.id,
-        calendar_write = confirmed.calendar_write,
-        wellness_read = confirmed.wellness_read,
         "Delegated link confirmed"
     );
+    // A grant the confirmed link's own platform does not take is ignored:
+    // the confirm asks only for what this link offers.
+    let requested = requested.within(link_offer(registry, link));
+    if requested.grants_any() {
+        set_coach_consents(repos, registry, group, member, requested).await?;
+    }
     supersede_other_proposals(repos, &confirmed).await?;
 
     repos

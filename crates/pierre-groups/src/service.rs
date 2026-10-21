@@ -9,10 +9,11 @@ use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{
-    CoachingGroup, CreateGroupRequest, FlagEvidence, FreshMember, GroupAggregateStats,
-    GroupContext, GroupDigestMode, GroupHealthFlag, GroupInvite, GroupInviteKind, GroupMember,
-    GroupRespondMode, GroupRole, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
-    MemberFlag, MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
+    CoachConsents, CoachingGroup, CreateGroupRequest, FlagEvidence, FreshMember,
+    GroupAggregateStats, GroupContext, GroupDigestMode, GroupHealthFlag, GroupInvite,
+    GroupInviteKind, GroupMember, GroupRespondMode, GroupRole, GroupWeeklyReport,
+    HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag, MemberSummaryCard,
+    OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::FormBand;
 use pierre_core::models::{DelegationEndReason, TenantId};
@@ -481,6 +482,7 @@ impl GroupService {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: chrono::Utc::now(),
             joined_at: chrono::Utc::now(),
             left_at: None,
@@ -594,6 +596,7 @@ impl GroupService {
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -764,6 +767,7 @@ impl GroupService {
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: chrono::Utc::now(),
             joined_at: chrono::Utc::now(),
             left_at: None,

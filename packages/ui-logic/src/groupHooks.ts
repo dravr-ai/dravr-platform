@@ -11,11 +11,10 @@ import type {
   CoachPlatformProvider,
   ConfirmDelegatedConnectionRequest,
   CreateInviteRequest,
-  DelegatedConnection,
-  DelegatedConnectionsResponse,
   GroupRole,
   ProposeDelegatedConnectionRequest,
-  UpdateDelegatedConnectionConsentsRequest,
+  CoachConsentsResponse,
+  UpdateCoachConsentsRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
@@ -56,22 +55,6 @@ function invalidateDelegation(queryClient: QueryClient, groupId: string) {
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.providerConnections() }),
   ]);
-}
-
-/**
- * Put the link the server answered a consent change with into the group's
- * link list, so the control the member changed shows the new state at once
- * rather than its old one until the refetch lands.
- */
-function putLink(queryClient: QueryClient, groupId: string, link: DelegatedConnection) {
-  queryClient.setQueryData<DelegatedConnectionsResponse>(
-    QUERY_KEYS.groups.delegatedConnections(groupId),
-    (list) =>
-      list && {
-        ...list,
-        connections: list.connections.map((held) => (held.id === link.id ? link : held)),
-      },
-  );
 }
 
 /**
@@ -567,7 +550,12 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
         connectionId: string;
         consents?: ConfirmDelegatedConnectionRequest;
       }) => groupsApi.confirmDelegatedConnection(groupId, connectionId, consents),
-      onSuccess: () => invalidateDelegation(queryClient, groupId),
+      // What the confirm grants lands on the member's coach relationship.
+      onSuccess: () =>
+        Promise.all([
+          invalidateDelegation(queryClient, groupId),
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.coachConsents(groupId) }),
+        ]),
     });
 
     return {
@@ -578,35 +566,53 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
   }
 
   /**
-   * The member grants or revokes what their confirmed link shares beyond the
-   * read: the coach's calendar writes, the wellness sync. Revoking the
-   * wellness sync deletes what it synced, which the server does before it
-   * answers.
+   * What the caller, a live member, lets the group's coach do beyond reading
+   * their training (calendar writes, the wellness sync), held on their coach
+   * relationship, with what it offers. Read only while `enabled`: for a member
+   * of a group that has a coach.
    */
-  function useSetDelegatedLinkConsents(groupId: string) {
-    const queryClient = useQueryClient();
-
-    const mutation = useMutation({
-      mutationFn: ({
-        connectionId,
-        consents,
-      }: {
-        connectionId: string;
-        consents: UpdateDelegatedConnectionConsentsRequest;
-      }) => groupsApi.setDelegatedLinkConsents(groupId, connectionId, consents),
-      onSuccess: (link) => {
-        putLink(queryClient, groupId, link);
-        return invalidateDelegation(queryClient, groupId);
-      },
-      // A refused change may still have moved the link (a revoke the server
-      // applied before its purge failed, a link ended meanwhile): the list is
-      // read again, so the controls show what the server holds.
-      onError: () => invalidateDelegation(queryClient, groupId),
+  function useCoachConsents(groupId: string, enabled: boolean) {
+    const query = useQuery({
+      queryKey: QUERY_KEYS.groups.coachConsents(groupId),
+      queryFn: () => groupsApi.getCoachConsents(groupId),
+      enabled: !!groupId && enabled,
+      staleTime: LINKS_STALE_MS,
     });
 
     return {
-      setConsents: (connectionId: string, consents: UpdateDelegatedConnectionConsentsRequest) =>
-        mutation.mutateAsync({ connectionId, consents }),
+      consents: query.data,
+      isLoading: query.isLoading,
+      isError: query.isError,
+    };
+  }
+
+  /**
+   * The member grants or revokes what the group's coach may do. Revoking the
+   * wellness sync deletes what it synced, which the server does before it
+   * answers. The answer is shown at once; the links, which mirror these
+   * consents, are read again.
+   */
+  function useSetCoachConsents(groupId: string) {
+    const queryClient = useQueryClient();
+
+    const mutation = useMutation({
+      mutationFn: (consents: UpdateCoachConsentsRequest) => groupsApi.updateCoachConsents(groupId, consents),
+      onSuccess: (answered: CoachConsentsResponse) => {
+        queryClient.setQueryData(QUERY_KEYS.groups.coachConsents(groupId), answered);
+        return invalidateDelegation(queryClient, groupId);
+      },
+      // A refused change may still have moved the consents (a revoke the
+      // server applied before its purge failed): they are read again, so the
+      // controls show what the server holds.
+      onError: () =>
+        Promise.all([
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.coachConsents(groupId) }),
+          invalidateDelegation(queryClient, groupId),
+        ]),
+    });
+
+    return {
+      setConsents: mutation.mutateAsync,
       isPending: mutation.isPending,
     };
   }
@@ -652,7 +658,8 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     useRefreshDelegationRoster,
     useProposeDelegatedConnection,
     useConfirmDelegatedConnection,
-    useSetDelegatedLinkConsents,
+    useCoachConsents,
+    useSetCoachConsents,
     useEndDelegatedConnection,
   };
 }

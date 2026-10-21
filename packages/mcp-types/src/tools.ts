@@ -1034,7 +1034,7 @@ export interface GetPlannedWorkoutsParams {
 
 
 /**
- * Read the roster of the coaching platform you coach on (Intervals.icu, TrainingPeaks) and where each athlete on it stands with your Dravr groups. Dravr members the roster names are listed by their Dravr name with a `state`: `linked`, `proposed` (waiting for them to confirm in the app), `proposable` (link them with `propose_athlete_link`), `member_email_unverified` (they verify their Dravr email first), `member_not_sharing` (they stopped sharing with you), `member_own_connection`, `linked_through_another_coach`, `member_holds_another_link`, `no_access` or `linked_not_reading`. Every other athlete is only counted, by state (`not_in_your_groups`, `roster_email_missing`) and by your access on the platform (`coach`, `follower`, `no_access`, `unknown`); their names are never shown. `next_steps` says what linking them takes. Read it from your own conversation, never a group's room.
+ * Read the roster of the coaching platform you coach on (Intervals.icu, TrainingPeaks) and where each athlete on it stands with your Dravr groups. Dravr members the roster names are listed by their Dravr name with a `state`: `linked`, `proposed` (waiting for them to confirm in the app), `proposable` (link them with `propose_athlete_link`), `member_email_unverified` (they verify their Dravr email first), `member_not_sharing` (they stopped sharing with you), `member_own_connection` (they connect the platform themselves: no link is needed, you reach their calendar through your own account), `linked_through_another_coach`, `member_holds_another_link`, `no_access` or `linked_not_reading`. Every other athlete is only counted, by state (`not_in_your_groups`, `roster_email_missing`) and by your access on the platform (`coach`, `follower`, `no_access`, `unknown`); their names are never shown. `next_steps` says what linking them takes. Read it from your own conversation, never a group's room.
  */
 export interface GetProviderRosterParams {
 
@@ -1435,7 +1435,7 @@ export interface PrescribeWorkoutParams {
   /** The agent prescribing this, read only on a call with no conversation (a direct MCP call); a chat turn's own agent always wins. Its package resolves the template, and the ledger row names it. */
   agent_id?: string;
 
-  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
+  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach who allowed their coach calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
   athlete?: string;
 
   /** Calendar date the workout is scheduled for (YYYY-MM-DD). */
@@ -1527,7 +1527,7 @@ export interface PublishTrainingPlanParams {
  */
 export interface PushTrainingPlanParams {
 
-  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
+  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach who allowed their coach calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
   athlete?: string;
 
   /** First date to push (YYYY-MM-DD). Defaults to today in the athlete's calendar, and is never earlier than that: dates already past are not rewritten. */
@@ -2349,7 +2349,7 @@ export interface VerifyClaimParams {
  */
 export interface WithdrawPrescribedWorkoutParams {
 
-  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach whose coaching-platform link allows calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
+  /** Roster display name of the athlete whose calendar this writes. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach who allowed their coach calendar writes, from Dravr's own app or channels and from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to write your own calendar. */
   athlete?: string;
 
   /** prescription_id of the entry to remove — from the prescribe_workout reply, or from get_training_plan's calendar block. */

@@ -24,7 +24,8 @@ use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandConte
 use pierre_core::chunking::chunk_reply;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    TranscriptSpeaker,
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::TenantId;
@@ -389,6 +390,7 @@ async fn bound_room_group(
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

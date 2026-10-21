@@ -36,7 +36,7 @@ use axum::{Json, Router};
 use chrono::Utc;
 use pierre_core::models::{
     ActivityBuilder, ActivityGearKey, AttributionSource, DelegatedConnection, GearAttribution,
-    GearDeclaration, GearKind, LinkConsents, RosterAthlete, SportType, TenantId, UserOAuthToken,
+    GearDeclaration, GearKind, RosterAthlete, SportType, TenantId, UserOAuthToken,
     DEFAULT_SHOE_WARN_DISTANCE_METERS,
 };
 use pierre_database::repositories::{GearDeletion, PersonalBest, PersonalBestSeed};
@@ -540,13 +540,7 @@ async fn seed_member_linked_through_a_coach(resources: &ServerContext) -> (Uuid,
         .expect("no live link holds this member or athlete yet");
     repos
         .delegated_connections
-        .confirm(
-            link.id,
-            member,
-            member_tenant,
-            LinkConsents::default(),
-            Utc::now(),
-        )
+        .confirm(link.id, member, member_tenant, Utc::now())
         .await
         .unwrap()
         .expect("the member confirms their own proposal");

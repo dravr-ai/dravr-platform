@@ -1,5 +1,5 @@
-// ABOUTME: A member grants and revokes what their confirmed Intervals.icu coach link shares beyond reading their workouts
-// ABOUTME: Pins the grants a confirm names, the member-only change, the API-key refusal, and the wellness purge a revoke owes
+// ABOUTME: A member grants and revokes what their group's coach may do beyond reading their workouts, on the coach relationship
+// ABOUTME: Pins the grants a confirm names, the member-only change, the API-key refusal, the offer, and the wellness purge a revoke owes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,12 +8,15 @@
 #![allow(missing_docs)]
 
 //! Intervals.icu takes a coach's writes to an athlete's calendar and serves
-//! a coach's key the athlete's wellness, so a link there offers both of the
-//! member's own consents: `calendar_write` and `wellness_read`. Each is off
-//! until the member grants it, at confirm or on the confirmed link; only the
-//! member changes it; a grant is taken only from Dravr's own app, a revoke
-//! from anywhere; and revoking `wellness_read` deletes the wellness the link
-//! synced, leaving the link and its workouts.
+//! a coach's key the athlete's wellness, so a member coached there is offered
+//! both of their own consents: `calendar_write` and `wellness_read`. They live
+//! on the member's coach relationship (their membership row), never on a
+//! link: each is off until the member grants it, when they confirm a link or
+//! at any time under `/members/me/coach-consents`; only the member changes
+//! it; a grant is taken only from Dravr's own app, a revoke from anywhere;
+//! `wellness_read` is offered only while a confirmed link reads wellness; and
+//! revoking it deletes the wellness the member's links synced, leaving the
+//! links and their workouts. A link's response mirrors the relationship.
 //!
 //! One test, because the Intervals.icu base URL is read from the environment
 //! when the server's provider registry is built. The API is a loopback
@@ -38,7 +41,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier};
 use pierre_core::constants::oauth::{INTERVALS_ICU, WHOOP};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     ActivityBuilder, AgentCategory, ConnectionType, CreateAgentRequest, DataSource,
@@ -60,7 +63,7 @@ const M1_ATHLETE: &str = "i201";
 const M2_ATHLETE: &str = "i202";
 const M3_ATHLETE: &str = "i203";
 
-const CONSENTS_MEMBER_ONLY: &str = "Only the member a link names can change what it shares";
+const CONSENTS_MEMBER_ONLY: &str = "Only a member decides what their coach may do";
 
 /// Whether a request carries the coach's live key.
 fn coach_key(headers: &HeaderMap) -> bool {
@@ -129,10 +132,14 @@ struct World {
     res: Arc<ServerContext>,
     router: Router,
     group: Uuid,
+    /// The tenant the group lives in, its owner's.
+    group_tenant: TenantId,
     coach: Person,
     m1: Person,
     m2: Person,
     m3: Person,
+    /// A member with no link at all.
+    m4: Person,
 }
 
 async fn person(res: &Arc<ServerContext>, email: &str, name: &str) -> Person {
@@ -176,6 +183,7 @@ async fn world() -> World {
     let m1 = person(&res, "m1@consents.test", "Alex Athlete").await;
     let m2 = person(&res, "m2@consents.test", "Sam Swimmer").await;
     let m3 = person(&res, "m3@consents.test", "Robin Rower").await;
+    let m4 = person(&res, "m4@consents.test", "Kim Kayaker").await;
 
     let agent_id = repos
         .agents
@@ -216,7 +224,7 @@ async fn world() -> World {
         .set_group_coach_user(&group.to_string(), Some(coach.id), owner.tenant)
         .await
         .unwrap());
-    for member in [&m1, &m2, &m3] {
+    for member in [&m1, &m2, &m3, &m4] {
         repos
             .groups
             .add_member(&GroupMember {
@@ -227,6 +235,7 @@ async fn world() -> World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -276,10 +285,12 @@ async fn world() -> World {
         res,
         router,
         group,
+        group_tenant: owner.tenant,
         coach,
         m1,
         m2,
         m3,
+        m4,
     }
 }
 
@@ -354,8 +365,8 @@ impl World {
         format!("/api/groups/{}/delegated-connections", self.group)
     }
 
-    fn consents_path(&self, link: Uuid) -> String {
-        format!("{}/{link}/consents", self.links_path())
+    fn consents_path(&self) -> String {
+        format!("/api/groups/{}/members/me/coach-consents", self.group)
     }
 
     async fn send(
@@ -372,18 +383,34 @@ impl World {
         (resp.status_code(), parse(&resp.text()))
     }
 
-    async fn put_consents(
-        &self,
-        link: Uuid,
-        authorization: &str,
-        body: &Value,
-    ) -> (StatusCode, Value) {
+    async fn put_consents(&self, authorization: &str, body: &Value) -> (StatusCode, Value) {
         self.send(
-            AxumTestRequest::put(&self.consents_path(link)),
+            AxumTestRequest::put(&self.consents_path()),
             authorization,
             body,
         )
         .await
+    }
+
+    async fn get_consents(&self, authorization: &str) -> (StatusCode, Value) {
+        let resp = AxumTestRequest::get(&self.consents_path())
+            .header("authorization", authorization)
+            .send(self.router.clone())
+            .await;
+        (resp.status_code(), parse(&resp.text()))
+    }
+
+    /// `member`'s coach consents as stored on their membership.
+    async fn consents(&self, member: &Person) -> CoachConsents {
+        self.res
+            .common
+            .repos
+            .groups
+            .get_member(&self.group.to_string(), member.id)
+            .await
+            .unwrap()
+            .expect("a live member")
+            .coach_consents
     }
 
     /// The coach proposes `athlete` as `member`, and the member confirms with
@@ -588,15 +615,16 @@ fn morning() -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 9, 21).unwrap()
 }
 
-/// A confirm grants exactly the consents it names, each stamped, and one
-/// with no body grants nothing, though the platform offers both.
+/// A confirm grants exactly the consents it names, each stamped on the
+/// member's relationship, and one with no body grants nothing, though the
+/// platform offers both.
 async fn a_confirm_grants_what_it_names(w: &World) -> (Uuid, Uuid, Uuid) {
     let (m1_link, confirmed) = w
         .link(M1_ATHLETE, &w.m1, Some(&json!({ "calendar_write": true })))
         .await;
     assert_consents(&confirmed, [true, true, false, true]);
-    let stored = w.stored(m1_link).await;
-    assert!(stored.calendar_write_at.is_some());
+    let stored = w.consents(&w.m1).await;
+    assert!(stored.calendar_write && stored.calendar_write_at.is_some());
     assert_eq!(stored.wellness_read_at, None);
 
     let (m2_link, confirmed) = w
@@ -607,25 +635,63 @@ async fn a_confirm_grants_what_it_names(w: &World) -> (Uuid, Uuid, Uuid) {
         )
         .await;
     assert_consents(&confirmed, [true, true, true, true]);
-    assert!(w.stored(m2_link).await.wellness_read_at.is_some());
+    assert!(w.consents(&w.m2).await.wellness_read_at.is_some());
 
     let (m3_link, confirmed) = w.link(M3_ATHLETE, &w.m3, None).await;
     assert_consents(&confirmed, [false, true, false, true]);
-    let stored = w.stored(m3_link).await;
-    assert_eq!(stored.status, DelegationStatus::Confirmed);
+    assert_eq!(w.stored(m3_link).await.status, DelegationStatus::Confirmed);
     assert_eq!(
-        (stored.calendar_write_at, stored.wellness_read_at),
-        (None, None),
+        w.consents(&w.m3).await,
+        CoachConsents::default(),
         "a confirm with no body grants nothing"
     );
     (m1_link, m2_link, m3_link)
 }
 
+/// A member with no link is offered calendar writes (the group has a coach,
+/// and Intervals.icu takes a coach's writes) but no wellness sync, since no
+/// link of theirs reads it: a wellness grant is ignored, a calendar grant
+/// stands. The coach reads no member's consents through this path, and a
+/// coach's or an outsider's change is refused.
+async fn the_relationship_offers_what_applies(w: &World) {
+    let (status, body) = w.get_consents(&w.m4.auth).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, [false, true, false, false]);
+
+    let (status, body) = w
+        .put_consents(
+            &w.m4.auth,
+            &json!({ "calendar_write": true, "wellness_read": true }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, [true, true, false, false]);
+    assert!(body["calendar_write_at"].is_string(), "{body}");
+    let stored = w.consents(&w.m4).await;
+    assert!(stored.calendar_write && !stored.wellness_read);
+    assert_eq!(
+        stored.wellness_read_at, None,
+        "an ignored grant stamps nothing"
+    );
+
+    let (status, body) = w.get_consents(&w.coach.auth).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the coach is no member: {body}"
+    );
+    let (status, body) = w
+        .put_consents(&w.coach.auth, &json!({ "calendar_write": true }))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["message"], CONSENTS_MEMBER_ONLY);
+}
+
 /// A WHOOP connection of the member's own wins over what the link would
-/// sync: the link tells the member so whether or not they granted it, and
-/// the coach only once they did, since which sources a member connects is
-/// theirs until they share their wellness. The consent stays theirs to
-/// change. Another member's link says nothing of it.
+/// sync: the link and the relationship tell the member so whether or not
+/// they granted it, and the coach only once they did, since which sources a
+/// member connects is theirs until they share their wellness. The consent
+/// stays theirs to change. Another member's link says nothing of it.
 async fn an_own_wellness_source_is_named_on_the_link(w: &World, m3_link: Uuid, m1_link: Uuid) {
     w.res
         .common
@@ -646,7 +712,7 @@ async fn an_own_wellness_source_is_named_on_the_link(w: &World, m3_link: Uuid, m
     );
 
     let (status, body) = w
-        .put_consents(m3_link, &w.m3.auth, &json!({ "wellness_read": true }))
+        .put_consents(&w.m3.auth, &json!({ "wellness_read": true }))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["wellness_read"], true, "{body}");
@@ -656,68 +722,79 @@ async fn an_own_wellness_source_is_named_on_the_link(w: &World, m3_link: Uuid, m
     );
 
     let row = listed(w, &w.coach, m3_link).await;
+    assert_eq!(row["wellness_read"], true, "{row}");
     assert_eq!(row["wellness_read_skipped"], "own_wellness_source", "{row}");
     let other = listed(w, &w.coach, m1_link).await;
     assert_eq!(other.get("wellness_read_skipped"), Some(&Value::Null));
 }
 
-/// The member grants and revokes on the confirmed link, one consent at a
-/// time; the coach reads the state and cannot change it, nor can another
-/// member.
-async fn only_the_member_changes_what_the_link_shares(w: &World, link: Uuid) {
+/// The member grants and revokes on their relationship, one consent at a
+/// time; the coach reads the state through the link and cannot change it,
+/// and another member's change is their own, leaving this member's alone.
+async fn only_the_member_changes_what_their_coach_may_do(w: &World, link: Uuid) {
     let (status, body) = w
-        .put_consents(link, &w.m1.auth, &json!({ "wellness_read": true }))
+        .put_consents(&w.m1.auth, &json!({ "wellness_read": true }))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, [true, true, true, true]);
     let (status, body) = w
-        .put_consents(link, &w.m1.auth, &json!({ "calendar_write": false }))
+        .put_consents(&w.m1.auth, &json!({ "calendar_write": false }))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, [false, true, true, true]);
+    let (status, body) = w.get_consents(&w.m1.auth).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, [false, true, true, true]);
 
-    for who in [&w.coach, &w.m2] {
-        let (status, body) = w
-            .put_consents(link, &who.auth, &json!({ "calendar_write": true }))
-            .await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
-        assert_eq!(body["message"], CONSENTS_MEMBER_ONLY);
-    }
-    let stored = w.stored(link).await;
+    let (status, body) = w
+        .put_consents(&w.coach.auth, &json!({ "calendar_write": true }))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["message"], CONSENTS_MEMBER_ONLY);
+    let (status, body) = w
+        .put_consents(&w.m2.auth, &json!({ "calendar_write": true }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "m2 sets their own: {body}");
+    let stored = w.consents(&w.m1).await;
     assert!(!stored.calendar_write && stored.wellness_read);
 
-    // The coach sees what the member granted.
-    let resp = AxumTestRequest::get(&w.links_path())
-        .header("authorization", &w.coach.auth)
-        .send(w.router.clone())
+    // The coach sees what the member granted, on the link.
+    assert_consents(&listed(w, &w.coach, link).await, [false, true, true, true]);
+
+    // The per-link consent route is gone: a link carries no consent.
+    let (status, _) = w
+        .send(
+            AxumTestRequest::put(&format!("{}/{link}/consents", w.links_path())),
+            &w.m1.auth,
+            &json!({ "calendar_write": true }),
+        )
         .await;
-    let listed = parse(&resp.text());
-    let row = listed["connections"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|c| c["id"] == link.to_string())
-        .cloned()
-        .expect("the coach lists the link");
-    assert_consents(&row, [false, true, true, true]);
+    assert!(
+        status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED,
+        "{status}"
+    );
+    assert!(!w.consents(&w.m1).await.calendar_write);
 }
 
 /// Over the member's API key a grant is refused and writes nothing; a revoke
 /// goes through.
-async fn an_api_key_revokes_but_never_grants(w: &World, link: Uuid) {
+async fn an_api_key_revokes_but_never_grants(w: &World) {
     let key = api_key(&w.res, w.m1.id).await;
     let (status, body) = w
-        .put_consents(link, &key, &json!({ "calendar_write": true }))
+        .put_consents(&key, &json!({ "calendar_write": true }))
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert_eq!(
         body["details"]["reason"], "consent_grant_needs_app",
         "{body}"
     );
-    assert!(!w.stored(link).await.calendar_write, "nothing was granted");
+    assert!(
+        !w.consents(&w.m1).await.calendar_write,
+        "nothing was granted"
+    );
 
     let (status, body) = w
-        .put_consents(link, &key, &json!({ "calendar_write": false }))
+        .put_consents(&key, &json!({ "calendar_write": false }))
         .await;
     assert_eq!(
         status,
@@ -726,16 +803,16 @@ async fn an_api_key_revokes_but_never_grants(w: &World, link: Uuid) {
     );
 }
 
-/// Revoking the wellness consent deletes the wellness the link synced and
-/// records it; the link, its workouts, its calendar consent and the other
-/// member's wellness stay. A calendar revoke deletes nothing.
-async fn revoking_wellness_deletes_what_the_link_synced(w: &World, m1_link: Uuid, m2_link: Uuid) {
+/// Revoking the wellness consent deletes the wellness the member's links
+/// synced and records it; the link, its workouts, the calendar consent and
+/// the other member's wellness stay. A calendar revoke deletes nothing.
+async fn revoking_wellness_deletes_what_the_links_synced(w: &World, m1_link: Uuid, m2_link: Uuid) {
     w.seed_synced(&w.m1).await;
     w.seed_synced(&w.m2).await;
     assert_eq!(w.synced(&w.m2).await, [1, 1, 1, 1]);
 
     let (status, body) = w
-        .put_consents(m2_link, &w.m2.auth, &json!({ "calendar_write": false }))
+        .put_consents(&w.m2.auth, &json!({ "calendar_write": false }))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
@@ -746,7 +823,7 @@ async fn revoking_wellness_deletes_what_the_link_synced(w: &World, m1_link: Uuid
 
     let key = api_key(&w.res, w.m2.id).await;
     let (status, body) = w
-        .put_consents(m2_link, &key, &json!({ "wellness_read": false }))
+        .put_consents(&key, &json!({ "wellness_read": false }))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, [false, true, false, true]);
@@ -761,8 +838,15 @@ async fn revoking_wellness_deletes_what_the_link_synced(w: &World, m1_link: Uuid
         [1, 1, 1, 1],
         "another member's wellness is untouched"
     );
-    assert!(w.stored(m1_link).await.wellness_read);
+    assert_eq!(w.stored(m1_link).await.status, DelegationStatus::Confirmed);
+    assert!(w.consents(&w.m1).await.wellness_read);
 
+    the_withdrawal_is_recorded(w, &w.m2).await;
+}
+
+/// One purge is recorded for `member`'s withdrawn wellness consent, in their
+/// tenant, naming every row it removed.
+async fn the_withdrawal_is_recorded(w: &World, member: &Person) {
     let recorded = w
         .res
         .common
@@ -773,25 +857,58 @@ async fn revoking_wellness_deletes_what_the_link_synced(w: &World, m1_link: Uuid
         .unwrap();
     let withdrawn: Vec<_> = recorded
         .iter()
-        .filter(|r| r.user_id.as_deref() == Some(w.m2.id.to_string().as_str()))
+        .filter(|r| r.user_id.as_deref() == Some(member.id.to_string().as_str()))
         .collect();
     assert_eq!(withdrawn.len(), 1, "{recorded:?}");
     assert_eq!(withdrawn[0].reason, "wellness_consent_withdrawn");
-    assert_eq!(withdrawn[0].tenant_id, Some(w.m2.tenant.to_string()));
+    assert_eq!(withdrawn[0].tenant_id, Some(member.tenant.to_string()));
     // The sleep, recovery and health rows, and the data source they named.
     assert_eq!(withdrawn[0].rows_removed, 4);
 }
 
+/// A group with no coach offers no consent: a member's grant is ignored and
+/// stamps nothing, so no consent waits for a coach the member never saw. What
+/// they granted before stays theirs to revoke (`m3` granted `wellness_read`).
+async fn a_group_with_no_coach_offers_nothing(w: &World) {
+    assert!(w
+        .res
+        .common
+        .repos
+        .groups
+        .set_group_coach_user(&w.group.to_string(), None, w.group_tenant)
+        .await
+        .unwrap());
+    let before = w.consents(&w.m3).await;
+    assert!(!before.calendar_write, "{before:?}");
+
+    let (status, body) = w.get_consents(&w.m3.auth).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, [false, false, true, false]);
+
+    let (status, body) = w
+        .put_consents(&w.m3.auth, &json!({ "calendar_write": true }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_consents(&body, [false, false, true, false]);
+    assert_eq!(
+        w.consents(&w.m3).await,
+        before,
+        "an ignored grant stores nothing"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_member_grants_and_revokes_what_their_intervals_link_shares() {
+async fn a_member_grants_and_revokes_what_their_coach_may_do() {
     env::set_var("PIERRE_INTERVALS_ICU_API_BASE_URL", spawn_api().await);
     let w = world().await;
 
     let (m1_link, m2_link, m3_link) = a_confirm_grants_what_it_names(&w).await;
-    only_the_member_changes_what_the_link_shares(&w, m1_link).await;
-    an_api_key_revokes_but_never_grants(&w, m1_link).await;
-    revoking_wellness_deletes_what_the_link_synced(&w, m1_link, m2_link).await;
+    the_relationship_offers_what_applies(&w).await;
+    only_the_member_changes_what_their_coach_may_do(&w, m1_link).await;
+    an_api_key_revokes_but_never_grants(&w).await;
+    revoking_wellness_deletes_what_the_links_synced(&w, m1_link, m2_link).await;
     an_own_wellness_source_is_named_on_the_link(&w, m3_link, m1_link).await;
+    a_group_with_no_coach_offers_nothing(&w).await;
 
     env::remove_var("PIERRE_INTERVALS_ICU_API_BASE_URL");
 }

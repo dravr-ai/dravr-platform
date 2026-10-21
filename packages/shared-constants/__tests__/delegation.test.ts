@@ -7,6 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import en from '../../i18n/src/locales/en/translation.json';
 import {
+  COACH_CALENDAR_PLATFORM,
+  COACH_CONSENTS_KEYS,
   DELEGATION_CONSENT_KEYS,
   DELEGATION_CONSENTS_NONE_KEY,
   DELEGATION_REFUSAL_KEY,
@@ -208,5 +210,33 @@ describe('link consents', () => {
     expect(confirmConsents({ ...TRAININGPEAKS, calendar_write_supported: true }, { wellness_read: true })).toEqual({
       calendar_write: false,
     });
+  });
+});
+
+describe('what a member lets their coach do', () => {
+  it('names keys the catalogue carries, the step naming the coach and the platform', () => {
+    expect(typeof lookup(COACH_CONSENTS_KEYS.title)).toBe('string');
+    expect(lookup(COACH_CONSENTS_KEYS.hint)).toContain('{{coach}}');
+    expect(lookup(COACH_CONSENTS_KEYS.calendarStep)).toContain('{{coach}}');
+    expect(lookup(COACH_CONSENTS_KEYS.calendarStep)).toContain('{{platform}}');
+    // The step is the one the athlete takes on the platform whose coach writes calendars.
+    expect(coachPlatformName(COACH_CALENDAR_PLATFORM)).toBe('Intervals.icu');
+    expect(lookup(COACH_CONSENTS_KEYS.calendarStep)).toContain('intervals.icu/athletes');
+  });
+
+  it('offers the member\'s coach consents as it offers a link\'s', () => {
+    const consents = {
+      calendar_write: true,
+      calendar_write_at: '2026-10-20T12:00:00Z',
+      calendar_write_supported: true,
+      wellness_read: false,
+      wellness_read_at: null,
+      wellness_read_supported: false,
+      wellness_read_skipped: null,
+    };
+    expect(offeredConsents(consents)).toEqual(['calendar_write']);
+    expect(consentNoteKey({ ...consents, wellness_read_supported: true, wellness_read_skipped: 'own_wellness_source' }, 'wellness_read')).toBe(
+      'delegation.wellnessReadOwnSourceNote',
+    );
   });
 });

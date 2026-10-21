@@ -428,6 +428,23 @@ pub trait CoachingGroupRepository: Send + Sync {
         consent: bool,
     ) -> AppResult<bool>;
 
+    /// The live member `user_id` of `group_id` grants or revokes what their
+    /// coach may do beyond reading their training: each `Some` sets that
+    /// consent, each `None` leaves it as it stands, and a consent whose value
+    /// changes is stamped `now`. Scoped to the member's own row, so no coach
+    /// can change it. Returns the membership as it now stands, or `None` when
+    /// `user_id` is not a live member. No tenant filter — members update
+    /// their own consent cross-tenant, exactly as
+    /// [`Self::update_coach_sharing_consent`].
+    async fn set_coach_consents(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        calendar_write: Option<bool>,
+        wellness_read: Option<bool>,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<GroupMember>>;
+
     /// Count active members in a group.
     /// No tenant filter — members join cross-tenant via invite codes.
     async fn count_members(&self, group_id: &str) -> AppResult<i64>;

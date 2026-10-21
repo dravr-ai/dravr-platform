@@ -17,7 +17,7 @@ use chrono::Utc;
 use dravr_contremaitre::training;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{ArtefactKind, PackageArtefact, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -884,6 +884,7 @@ async fn attach_as_coach(
             role: GroupRole::Member,
             peer_sharing_consent: true,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

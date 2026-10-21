@@ -206,9 +206,8 @@ export const ENDPOINTS = {
     /** The linked member confirms a proposed link, with the consents they grant */
     DELEGATED_CONNECTION_CONFIRM: (groupId: string, connectionId: string) =>
       `/api/groups/${groupId}/delegated-connections/${connectionId}/confirm`,
-    /** The linked member grants or revokes what a confirmed link shares (PUT) */
-    DELEGATED_CONNECTION_CONSENTS: (groupId: string, connectionId: string) =>
-      `/api/groups/${groupId}/delegated-connections/${connectionId}/consents`,
+    /** The caller's coach consents in the group: read them (GET), grant or revoke them (PUT) */
+    MY_COACH_CONSENTS: (id: string) => `/api/groups/${id}/members/me/coach-consents`,
     /** The coach's coaching-platform roster, with each athlete's link in the group */
     DELEGATION_ROSTER: (id: string) => `/api/groups/${id}/delegated-connections/roster`,
   },

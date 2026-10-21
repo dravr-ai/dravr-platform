@@ -693,7 +693,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+            CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use uuid::Uuid;
 
@@ -782,6 +782,7 @@ mod command_tests {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -999,7 +1000,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+            CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
 
         let (user_id, member_tenant_id) =
@@ -1101,6 +1102,7 @@ mod command_tests {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -1170,7 +1172,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+            CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use uuid::Uuid;
 
@@ -1240,6 +1242,7 @@ mod command_tests {
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -1325,7 +1328,7 @@ mod command_tests {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+            CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use uuid::Uuid;
 
@@ -1396,6 +1399,7 @@ mod command_tests {
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -1669,7 +1673,7 @@ mod command_tests {
     use pierre_commands::group_consent::GroupConsentHandler;
     use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
 
     /// Create a bare active user (no tenant/provider) for use as an additional
@@ -1757,6 +1761,7 @@ mod command_tests {
                 role,
                 peer_sharing_consent: consent,
                 coach_sharing_consent: consent,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

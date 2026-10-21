@@ -5,9 +5,9 @@
 // ABOUTME: A constants module cannot translate, so it names the keys and the platform each client passes to its own t()
 
 import type {
+  CoachConsentsResponse,
   CoachPlatformProvider,
   ConfirmDelegatedConnectionRequest,
-  DelegatedConnection,
   DelegationRefusalReason,
   WellnessReadSkip,
 } from '@pierre/shared-types';
@@ -110,24 +110,45 @@ export function delegationRefusalKey(reason: unknown): string {
 }
 
 // ============================================================================
-// Consents a confirmed link carries beyond the read
+// What a member lets their coach do beyond the read
 // ============================================================================
 
 /**
- * What a link can share beyond the read of the member's workouts, each the
- * member's alone to grant and revoke: the coach putting workouts on their
+ * What a member lets their group's coach do beyond reading their workouts,
+ * each the member's alone to grant and revoke, held on their coach
+ * relationship rather than on a link: the coach putting workouts on their
  * calendar, their wellness syncing through the coach's account.
  */
 export type DelegationConsent = 'calendar_write' | 'wellness_read';
 
 /**
- * The consent fields of a link: what it carries, what its platform offers,
- * and why its wellness syncs nothing.
+ * The consent fields both the member's coach consents and each link (which
+ * mirrors them) carry: what is granted, what is offered, and why the
+ * wellness syncs nothing.
  */
 type LinkConsentFields = Pick<
-  DelegatedConnection,
+  CoachConsentsResponse,
   'calendar_write' | 'calendar_write_supported' | 'wellness_read' | 'wellness_read_supported' | 'wellness_read_skipped'
 >;
+
+/**
+ * The coaching platform a coach writes an athlete's calendar on through
+ * Dravr, which the member's calendar consent names: Intervals.icu, the one
+ * platform whose coach account writes an athlete's calendar.
+ */
+export const COACH_CALENDAR_PLATFORM: CoachPlatformProvider = 'intervals_icu';
+
+/**
+ * The words the member's "what your human coach can do" block reads as: its title,
+ * the line under it (naming `{{coach}}`), and the step the athlete takes on
+ * the platform itself for the calendar consent to work (naming `{{coach}}`
+ * and `{{platform}}`).
+ */
+export const COACH_CONSENTS_KEYS = {
+  title: 'delegation.coachConsentsTitle',
+  hint: 'delegation.coachConsentsHint',
+  calendarStep: 'humanCoach.calendarWriteStep',
+} as const;
 
 /**
  * The words each consent reads as: the member's control and its hint, both
@@ -178,7 +199,7 @@ export function consentNoteKey(link: LinkConsentFields, consent: DelegationConse
   return WELLNESS_READ_SKIP_KEYS[link.wellness_read_skipped].note;
 }
 
-/** The consents `link`'s platform offers, in the order both surfaces list them. */
+/** The consents `link` (a link, or the member's coach consents) offers, in the order both surfaces list them. */
 export function offeredConsents(link: LinkConsentFields): DelegationConsent[] {
   const offered: DelegationConsent[] = [];
   if (link.calendar_write_supported) offered.push('calendar_write');

@@ -29,7 +29,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_commands::reset::ResetHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{AddMessageParams, Tenant, TenantId};
 use pierre_core::transport::TransportPolicy;
@@ -104,6 +104,7 @@ async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person, s
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: shares,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -761,8 +762,7 @@ async fn the_gates_run_again_on_every_call_in_the_thread() {
 async fn the_calendar_tools_in_a_subject_thread_act_for_the_subject() {
     use pierre_core::constants::oauth::providers::INTERVALS_ICU;
     use pierre_core::models::{
-        ConnectionType, DelegatedConnection, LinkConsents, RosterAthlete, UserOAuthToken,
-        API_KEY_TOKEN_TYPE,
+        ConnectionType, DelegatedConnection, RosterAthlete, UserOAuthToken, API_KEY_TOKEN_TYPE,
     };
     use pierre_core::transport::Transport;
     use pierre_providers::ai_scope::serve_over;
@@ -833,16 +833,7 @@ async fn the_calendar_tools_in_a_subject_thread_act_for_the_subject() {
         .unwrap();
     let link = repos
         .delegated_connections
-        .confirm(
-            proposed.id,
-            fx.subject.id,
-            fx.subject.tenant,
-            LinkConsents {
-                calendar_write: false,
-                wellness_read: false,
-            },
-            now,
-        )
+        .confirm(proposed.id, fx.subject.id, fx.subject.tenant, now)
         .await
         .unwrap()
         .unwrap();

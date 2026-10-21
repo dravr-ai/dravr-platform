@@ -48,7 +48,7 @@ use pierre_core::admin::models::{AdminPermission, AdminPermissions, ValidatedAdm
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     ConnectionType, Pillar, Subscription, SubscriptionStatus, Tenant, TenantId,
@@ -435,6 +435,7 @@ async fn join_group(
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

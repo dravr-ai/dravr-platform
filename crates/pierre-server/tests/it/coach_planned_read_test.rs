@@ -10,10 +10,11 @@
 
 //! A group's human coach names a coached athlete with `athlete=` on
 //! `get_planned_workouts` and reads that athlete's Intervals.icu calendar
-//! through the coach's own API key, at the athlete's path, once the athlete
-//! confirmed the link. The read needs no consent beyond the link and the
-//! athlete's sharing with the coach (carnet#1066): every athlete here keeps
-//! `calendar_write` off.
+//! through the coach's own API key, at the athlete's path: the path a link
+//! the athlete confirmed names, or the athlete's own Intervals.icu id when
+//! they connect it themselves (carnet#1055). The read needs no consent beyond
+//! the athlete's sharing with the coach (carnet#1066): every athlete here
+//! keeps `calendar_write` off.
 //!
 //! The coach is the reader, so the sessions the coach hides from the athlete
 //! come back titled "Hidden from athlete: …", while the athlete's own read of
@@ -42,11 +43,11 @@ use common::{create_test_server_resources, create_test_user_with_plan};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    ConnectionStatus, ConnectionType, DelegatedConnection, LinkConsents, RosterAthlete, TenantId,
-    UserOAuthToken, API_KEY_TOKEN_TYPE,
+    ConnectionStatus, ConnectionType, DelegatedConnection, RosterAthlete, TenantId, UserOAuthToken,
+    API_KEY_TOKEN_TYPE,
 };
 use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
@@ -349,6 +350,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: shares,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -394,16 +396,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(
-                proposed.id,
-                member.id,
-                member.tenant,
-                LinkConsents {
-                    calendar_write: false,
-                    wellness_read: false,
-                },
-                Utc::now(),
-            )
+            .confirm(proposed.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
@@ -612,10 +605,6 @@ async fn a_coach_reads_a_linked_athletes_calendar_hidden_drafts_and_all_with_the
 async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
     let w = World::new().await;
     let alex = w.athlete("Alex Athlete", "i201").await;
-    // An athlete who connects Intervals.icu themselves holds no link.
-    let owen = person(&w.res, "owen@planned-read.test", "Owen Ownkey").await;
-    w.join(&w.group, owen, true).await;
-    connect_intervals(w.repos(), owen, "owen-key", "i230").await;
     // An athlete who stopped sharing with the coach.
     let sara = person(&w.res, "i231@planned-read.test", "Sara Stopped").await;
     w.join(&w.group, sara, false).await;
@@ -632,11 +621,6 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
     w.join(&other_group, bea, true).await;
     w.join(&w.group, bea, true).await;
     w.link(blake, &other_group, bea, "i216").await;
-
-    let (refusal, refused) = w.coach_reads("Owen").await;
-    assert!(refused);
-    assert_eq!(reason(&refusal), "own_connection", "{refusal}");
-    assert!(error_text(&refusal).contains("themselves"), "{refusal}");
 
     let (refusal, refused) = w.coach_reads("Sara").await;
     assert!(refused);
@@ -739,6 +723,108 @@ async fn a_dead_coach_key_flags_the_coach_and_the_next_read_names_the_reconnect(
     // reconnect.
     w.api.clear();
     let (refusal, refused) = w.coach_reads("Alex").await;
+    assert!(refused, "{refusal}");
+    assert_eq!(
+        reason(&refusal),
+        "coach_platform_reconnect_needed",
+        "{refusal}"
+    );
+    assert!(w.api.calendar_calls().is_empty(), "{:?}", w.api.hits());
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// An athlete who connects Intervals.icu themselves (carnet#1055)
+// ════════════════════════════════════════════════════════════════════════
+
+/// A coached member who connects Intervals.icu with a key of their own, as
+/// account `athlete`: no link, and no calendar-write consent.
+async fn own_connection(w: &World, name: &str, athlete: &str, shares: bool) -> Person {
+    let member = person(&w.res, &format!("{athlete}@planned-read.test"), name).await;
+    w.join(&w.group, member, shares).await;
+    connect_intervals(w.repos(), member, &format!("{athlete}-own-key"), athlete).await;
+    member
+}
+
+#[tokio::test]
+async fn a_coach_reads_an_own_connection_athletes_calendar_through_the_coach_key() {
+    let w = World::new().await;
+    let owen = own_connection(&w, "Owen Ownkey", "i230", true).await;
+
+    let (payload, refused) = w.coach_reads("Owen").await;
+    assert!(!refused, "{payload}");
+    assert!(
+        read(&payload).contains(&workout(
+            "2026-10-01",
+            "Hidden from athlete: Coach draft",
+            Some("i102")
+        )),
+        "the coach reads it as their coach, hidden drafts labelled: {payload}"
+    );
+    let calls = w.api.calendar_calls();
+    assert!(!calls.is_empty());
+    assert!(
+        calls
+            .iter()
+            .all(|call| call.key == COACH_KEY && call.path.starts_with("/api/v1/athlete/i230/")),
+        "the coach's key, at the athlete's own id, never the athlete's key: {calls:?}"
+    );
+    assert!(
+        w.repos()
+            .delegated_connections
+            .list_live_for_member(owen.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no link stands behind the read"
+    );
+    let membership = w
+        .repos()
+        .groups
+        .get_member(&w.group.id.to_string(), owen.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !membership.coach_consents.calendar_write,
+        "a read asks for no calendar-write consent"
+    );
+}
+
+#[tokio::test]
+async fn an_own_connection_athlete_who_stopped_sharing_is_not_read() {
+    let w = World::new().await;
+    own_connection(&w, "Sam Stopped", "i232", false).await;
+
+    let (refusal, refused) = w.coach_reads("Sam").await;
+    assert!(refused, "{refusal}");
+    assert!(
+        error_text(&refusal).contains("stopped sharing"),
+        "{refusal}"
+    );
+    assert!(w.api.calendar_calls().is_empty(), "{:?}", w.api.hits());
+}
+
+#[tokio::test]
+async fn a_dead_coach_key_on_an_own_connection_read_flags_the_coach_alone() {
+    let w = World::new().await;
+    let owen = own_connection(&w, "Owen Ownkey", "i230", true).await;
+    w.api.dead.store(true, Ordering::SeqCst);
+
+    let (refusal, refused) = w.coach_reads("Owen").await;
+    assert!(refused, "{refusal}");
+    assert_eq!(
+        w.connection_status(w.coach).await,
+        ConnectionStatus::NeedsReauth,
+        "the coach's own connection is the one to renew"
+    );
+    assert_eq!(
+        w.connection_status(owen).await,
+        ConnectionStatus::Active,
+        "never the athlete's own connection"
+    );
+
+    w.api.clear();
+    let (refusal, refused) = w.coach_reads("Owen").await;
     assert!(refused, "{refusal}");
     assert_eq!(
         reason(&refusal),

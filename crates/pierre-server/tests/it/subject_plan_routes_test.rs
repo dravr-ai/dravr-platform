@@ -25,7 +25,7 @@ use common::{create_test_server_resources, create_test_user_with_plan, generate_
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{Tenant, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -291,6 +291,7 @@ async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

@@ -41,12 +41,12 @@ use pierre_chat_pipeline::{
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     AddMessageParams, ConnectionType, ConversationTurnId, DataSource, DelegatedConnection,
-    DeviceType, LinkConsents, RosterAthlete, StoredHealthMetrics, StoredRecoveryMetrics,
-    StoredSleepSession, Tenant, TenantId,
+    DeviceType, RosterAthlete, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+    Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::InsertAgentNoteParams;
@@ -516,6 +516,7 @@ async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,
@@ -961,7 +962,7 @@ async fn with_no_draft_the_card_is_the_live_season_and_draft_is_null() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// Wellness, only under the link's `wellness_read`
+// Wellness, only under the athlete's `wellness_read` to their coach
 // ════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
@@ -984,16 +985,7 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
         .unwrap();
     let link = repos
         .delegated_connections
-        .confirm(
-            proposed.id,
-            fx.subject.id,
-            fx.subject.tenant,
-            LinkConsents {
-                calendar_write: false,
-                wellness_read: false,
-            },
-            now,
-        )
+        .confirm(proposed.id, fx.subject.id, fx.subject.tenant, now)
         .await
         .unwrap()
         .unwrap();
@@ -1006,11 +998,17 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
     );
 
     repos
-        .delegated_connections
-        .set_link_consents(link.id, fx.subject.id, None, Some(true), now)
+        .groups
+        .set_coach_consents(
+            &link.group_id.to_string(),
+            fx.subject.id,
+            None,
+            Some(true),
+            now,
+        )
         .await
         .unwrap()
-        .expect("the member grants wellness_read");
+        .expect("the member grants their coach wellness_read");
     let (with, _) = fx.thread_turn(PLAIN_ASK).await;
 
     let at = with.find(WELLNESS_HEADING).expect("the wellness section");

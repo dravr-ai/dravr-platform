@@ -69,4 +69,5 @@ export type {
   DelegatedConnection,
   DelegationRosterAthlete,
   ProposeDelegatedConnectionRequest,
+  CoachConsentsResponse,
 } from '@pierre/shared-types';

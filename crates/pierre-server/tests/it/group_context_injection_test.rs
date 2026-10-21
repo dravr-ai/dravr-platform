@@ -21,7 +21,7 @@ mod inject_tests {
     use chrono::Utc;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -173,6 +173,7 @@ mod inject_tests {
                 role,
                 peer_sharing_consent: consent,
                 coach_sharing_consent: consent,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

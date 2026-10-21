@@ -99,7 +99,9 @@ pub enum LinkState {
         member: CoachedMember,
     },
     /// The member the athlete's email binds connects the platform with an
-    /// account of their own, in some tenant: a link would be refused.
+    /// account of their own, in some tenant: no link is needed (one would be
+    /// refused), since the coach reaches their calendar through the coach's
+    /// own account.
     MemberOwnConnection {
         /// The member.
         member: CoachedMember,

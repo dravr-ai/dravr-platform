@@ -109,7 +109,9 @@ pub enum ProviderRosterState {
     /// The roster email is the member's, but they have not verified it on
     /// Dravr, so it binds no one yet.
     MemberEmailUnverified,
-    /// The member connects the platform with an account of their own.
+    /// The member connects the platform with an account of their own: no
+    /// link is needed, the coach reaches their calendar through the coach's
+    /// own account.
     MemberOwnConnection,
     /// The member stopped sharing with the caller in every group the caller
     /// coaches them in (`/group consent coach yes` restores it).
@@ -505,7 +507,9 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
              for them to confirm in the app), `proposable` (link them with \
              `propose_athlete_link`), `member_email_unverified` (they verify their Dravr email \
              first), `member_not_sharing` (they stopped sharing with you), \
-             `member_own_connection`, `linked_through_another_coach`, \
+             `member_own_connection` (they connect the platform themselves: no link is needed, \
+             you reach their calendar through your own account), \
+             `linked_through_another_coach`, \
              `member_holds_another_link`, `no_access` or `linked_not_reading`. Every other \
              athlete is only counted, by state (`not_in_your_groups`, `roster_email_missing`) \
              and by your access on the platform (`coach`, `follower`, `no_access`, `unknown`); \

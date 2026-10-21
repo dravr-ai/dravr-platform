@@ -70,7 +70,7 @@ use pierre_contremaitre::messaging_strings::KEY_WALK_PLAN_THREAD;
 use pierre_core::errors::AppError;
 use pierre_core::models::agents::{ActivityDataRequirements, DataRequirements};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, ConversationTurnId, CreateAgentRequest, GuidedFlow,
@@ -641,6 +641,7 @@ impl Fixture {
                     role,
                     peer_sharing_consent: false,
                     coach_sharing_consent: true,
+                    coach_consents: CoachConsents::default(),
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,
@@ -986,6 +987,7 @@ async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person) {
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

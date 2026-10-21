@@ -56,7 +56,7 @@ use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     AgentCategory, ConnectionStatus, ConnectionType, CreateAgentRequest, DelegatedConnection,
@@ -445,6 +445,7 @@ async fn world(scraper: Scraper) -> World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

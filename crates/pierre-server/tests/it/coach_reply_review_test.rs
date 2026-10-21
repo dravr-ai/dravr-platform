@@ -28,7 +28,7 @@ use chrono::Utc;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     NewGroupTranscriptEntry, TranscriptSpeaker,
 };
 use pierre_core::models::{AddMessageParams, AgentCategory, CreateAgentRequest, TenantId, User};
@@ -207,6 +207,7 @@ async fn join_group(
             role,
             peer_sharing_consent: false,
             coach_sharing_consent: shares_with_coach,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

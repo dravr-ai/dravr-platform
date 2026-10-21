@@ -7,7 +7,7 @@
 use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{AgentCategory, CreateAgentRequest};
 use pierre_database::RepositoryRegistry;
@@ -135,6 +135,7 @@ pub async fn seed_coached_group(
                 role: *role,
                 peer_sharing_consent: false,
                 coach_sharing_consent: true,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

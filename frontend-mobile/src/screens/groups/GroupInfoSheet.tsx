@@ -8,7 +8,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { coachPlatformName, weeklyVolumeFigure } from '@pierre/shared-constants';
+import { COACH_CONSENTS_KEYS, coachPlatformName, offeredConsents, weeklyVolumeFigure } from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
@@ -17,6 +17,7 @@ import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import {
   useCreateInvite,
   useDeactivateInvite,
+  useCoachConsents,
   useDelegatedConnections,
   useDelegationRoster,
   useDeleteGroup,
@@ -38,6 +39,7 @@ import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
+import { CoachConsentsSection } from './CoachConsentsSection';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
@@ -125,6 +127,13 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     () => (delegationViewer === 'member' ? delegatedConnections : []),
     [delegationViewer, delegatedConnections],
   );
+  // What the member lets the group's coach do lives on their membership, so a
+  // member of a coached group reads it whether or not a link names them.
+  const { consents: coachConsents } = useCoachConsents(
+    groupId,
+    !!group?.coach_user_id && !!myMembership && !isGroupCoach,
+  );
+  const coachName = group?.coach_user_id ? group.coach_display_name : null;
   // The coaching platform the coach's links are on, which their title names:
   // the coach's roster names it (the section reads the same cached roster).
   // Each of a member's links names its own.
@@ -471,6 +480,14 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               />
             </CollapsibleSection>
           ))
+        )}
+
+        {/* One block for the coach relationship, never one per link: an athlete
+            who connects the platform themselves has no link and still grants here. */}
+        {coachConsents && coachName && offeredConsents(coachConsents).length > 0 && (
+          <CollapsibleSection title={t(COACH_CONSENTS_KEYS.title)} defaultExpanded testID="group-info-coach-consents">
+            <CoachConsentsSection groupId={groupId} consents={coachConsents} coach={coachName} />
+          </CollapsibleSection>
         )}
 
         {isAdmin && (

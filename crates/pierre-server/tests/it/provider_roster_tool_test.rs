@@ -44,12 +44,12 @@ use pierre_core::constants::oauth_providers::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     Activity, Athlete, CoachAccessStatus, ConnectionType, DelegatedConnection, DelegationStatus,
-    LinkConsents, ProviderAccountRole, RosterAccess, RosterAthlete, Stats, TenantId,
-    UserOAuthToken, API_KEY_TOKEN_TYPE,
+    ProviderAccountRole, RosterAccess, RosterAthlete, Stats, TenantId, UserOAuthToken,
+    API_KEY_TOKEN_TYPE,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -335,6 +335,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: shares,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -473,13 +474,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         repos
             .delegated_connections
-            .confirm(
-                link.id,
-                member.id,
-                member.tenant,
-                LinkConsents::default(),
-                Utc::now(),
-            )
+            .confirm(link.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member")

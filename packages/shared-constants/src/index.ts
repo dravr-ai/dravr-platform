@@ -253,8 +253,8 @@ export {
 } from './groups';
 
 // Coaching-platform link vocabulary: each refusal the group's link routes
-// send and each consent a link carries, as corpus keys resolved with each
-// client's own t(), and the platform name those keys carry
+// send and each consent a member gives their coach, as corpus keys resolved
+// with each client's own t(), and the platform name those keys carry
 export {
   coachPlatformName,
   DELEGATION_REFUSAL_KEY,
@@ -271,6 +271,8 @@ export {
   confirmConsents,
   DELEGATION_REVOKE_CONFIRM_KEYS,
   consentChangeConfirm,
+  COACH_CALENDAR_PLATFORM,
+  COACH_CONSENTS_KEYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
 

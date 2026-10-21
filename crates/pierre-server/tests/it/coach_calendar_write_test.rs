@@ -11,8 +11,11 @@
 //! A group's human coach names a coached athlete with `athlete=` on
 //! `push_training_plan`, `prescribe_workout` or `withdraw_prescribed_workout`
 //! and writes that athlete's Intervals.icu calendar through the coach's own
-//! API key, at the athlete's path, once the athlete allowed calendar writes
-//! on their link and Intervals.icu lists the coach as their coach.
+//! API key, at the athlete's path, once the athlete allowed their coach
+//! calendar writes (on their coach relationship, carnet#1055) and
+//! Intervals.icu lists the coach as their coach. The athlete's path is the
+//! one their confirmed link names, or their own Intervals.icu id when they
+//! connect it themselves: no link stands behind that write.
 //!
 //! Intervals.icu is a loopback stand-in (a test double, per the repo's mock
 //! rule: the real provider's wire shape is pinned by
@@ -39,12 +42,12 @@ use common::{create_test_server_resources, create_test_user_with_plan};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    ConnectionType, DelegatedConnection, LinkConsents, PrescribedWorkout, RosterAthlete, Tenant,
-    TenantId, UserId, UserOAuthToken, API_KEY_TOKEN_TYPE,
+    ConnectionStatus, ConnectionType, DelegatedConnection, PrescribedWorkout, RosterAthlete,
+    Tenant, TenantId, UserId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -311,6 +314,20 @@ async fn connect_intervals(
     key: &str,
     athlete: &str,
 ) {
+    connect_intervals_as(repos, who, tenant, key, API_KEY_TOKEN_TYPE, Some(athlete)).await;
+}
+
+/// `who`'s own Intervals.icu session in `tenant`, of `token_type` (an API
+/// key, or `Bearer` for an OAuth grant), naming account `athlete` when it
+/// does, with the connection it registers.
+async fn connect_intervals_as(
+    repos: &RepositoryRegistry,
+    who: Person,
+    tenant: TenantId,
+    key: &str,
+    token_type: &str,
+    athlete: Option<&str>,
+) {
     let now = Utc::now();
     repos
         .oauth_tokens
@@ -321,10 +338,10 @@ async fn connect_intervals(
             provider: INTERVALS_ICU.to_owned(),
             access_token: key.to_owned(),
             refresh_token: None,
-            token_type: API_KEY_TOKEN_TYPE.to_owned(),
+            token_type: token_type.to_owned(),
             expires_at: None,
             scope: None,
-            provider_user_id: Some(athlete.to_owned()),
+            provider_user_id: athlete.map(str::to_owned),
             oauth_app_client_id: None,
             created_at: now,
             updated_at: now,
@@ -428,6 +445,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: shares,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -437,9 +455,72 @@ impl World {
             .unwrap();
     }
 
+    /// `member` allows the coach of `group` calendar writes, on their coach
+    /// relationship.
+    async fn grant(&self, group: &CoachingGroup, member: Person) {
+        self.repos()
+            .groups
+            .set_coach_consents(
+                &group.id.to_string(),
+                member.id,
+                Some(true),
+                None,
+                Utc::now(),
+            )
+            .await
+            .unwrap()
+            .expect("the member is in the group");
+    }
+
+    /// `athlete` on the coach's roster with the wire `icu_permission` value
+    /// `access` (`None` leaves it out).
+    fn list_on_roster(&self, athlete: &str, email: &str, access: Option<Value>) {
+        let mut entry = json!({ "id": athlete, "name": "Roster Name", "email": email });
+        if let Some(access) = access {
+            entry["icu_permission"] = access;
+        }
+        self.api.roster.lock().unwrap().push(entry);
+    }
+
+    /// A member of the coach's group named `name` who connects Intervals.icu
+    /// themselves, as account `athlete` with a session of `token_type`
+    /// (naming no account when `names_account` is false), on the coach's
+    /// roster with `access`, allowing calendar writes when `calendar_write`.
+    /// No link is made.
+    async fn own_athlete(
+        &self,
+        name: &str,
+        athlete: &str,
+        access: Option<Value>,
+        calendar_write: bool,
+        token_type: &str,
+        names_account: bool,
+    ) -> Person {
+        let email = format!("{athlete}@calendar-write.test");
+        let member = person(&self.res, &email, name).await;
+        self.join(&self.group, member, true).await;
+        connect_intervals_as(
+            self.repos(),
+            member,
+            member.tenant,
+            &format!("{athlete}-own-key"),
+            token_type,
+            names_account.then_some(athlete),
+        )
+        .await;
+        if access.is_some() {
+            self.list_on_roster(athlete, &email, access);
+        }
+        if calendar_write {
+            self.grant(&self.group, member).await;
+        }
+        member
+    }
+
     /// A member of the coach's group named `name`, on the roster as
     /// `athlete` with the wire `icu_permission` value `access` (`None`
-    /// leaves it out), linked and confirmed with `calendar_write`.
+    /// leaves it out), linked and confirmed, allowing calendar writes when
+    /// `calendar_write`.
     async fn athlete(
         &self,
         name: &str,
@@ -450,11 +531,7 @@ impl World {
         let email = format!("{athlete}@calendar-write.test");
         let member = person(&self.res, &email, name).await;
         self.join(&self.group, member, true).await;
-        let mut entry = json!({ "id": athlete, "name": "Roster Name", "email": email });
-        if let Some(access) = access {
-            entry["icu_permission"] = access;
-        }
-        self.api.roster.lock().unwrap().push(entry);
+        self.list_on_roster(athlete, &email, access);
         let link = self
             .link(self.coach, &self.group, member, athlete, calendar_write)
             .await;
@@ -462,7 +539,9 @@ impl World {
     }
 
     /// A confirmed Intervals.icu link of `coach`'s in `group` for roster
-    /// athlete `athlete` as `member`, with the connection it registers.
+    /// athlete `athlete` as `member`, with the connection it registers; the
+    /// member allows the group's coach calendar writes when
+    /// `calendar_write`.
     async fn link(
         &self,
         coach: Person,
@@ -491,16 +570,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(
-                proposed.id,
-                member.id,
-                member.tenant,
-                LinkConsents {
-                    calendar_write,
-                    wellness_read: false,
-                },
-                Utc::now(),
-            )
+            .confirm(proposed.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
@@ -515,6 +585,9 @@ impl World {
             )
             .await
             .unwrap();
+        if calendar_write {
+            self.grant(group, member).await;
+        }
         link
     }
 
@@ -680,6 +753,19 @@ impl World {
                 .unwrap()
                 .get::<i64, _>("n"),
         }
+    }
+
+    /// The status of `who`'s own Intervals.icu connection.
+    async fn connection_status(&self, who: Person) -> ConnectionStatus {
+        self.repos()
+            .provider_connections
+            .get_for_user(who.id, Some(who.tenant))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|c| c.provider == INTERVALS_ICU)
+            .expect("an Intervals.icu connection")
+            .status
     }
 
     /// Whether `member`'s link is still live.
@@ -1042,7 +1128,8 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
     let (uma, _) = w
         .athlete("Uma Unknown", "i214", Some(Value::Null), true)
         .await;
-    // An athlete who connects Intervals.icu themselves holds no link.
+    // An athlete who connects Intervals.icu themselves holds no link, and
+    // has not allowed calendar writes.
     let owen = person(&w.res, "owen@calendar-write.test", "Owen Ownkey").await;
     w.join(&w.group, owen, true).await;
     connect_intervals(w.repos(), owen, owen.tenant, "owen-key", "i230").await;
@@ -1075,6 +1162,10 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
     let (refusal, _) = w.in_app(&PushTrainingPlanTool, push("Fiona")).await;
     assert_eq!(reason(&refusal), "coach_follower", "{refusal}");
     assert!(error_text(&refusal).contains("follow this athlete"));
+    assert!(
+        error_text(&refusal).contains("intervals.icu/athletes"),
+        "the refusal names the step the athlete takes on Intervals.icu: {refusal}"
+    );
     assert_eq!(w.api.roster_reads(), 1);
     let (refusal, _) = w.in_app(&PrescribeWorkoutTool, prescribe("Fiona")).await;
     assert_eq!(reason(&refusal), "coach_follower", "{refusal}");
@@ -1091,7 +1182,8 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
     assert_eq!(w.api.roster_reads(), 2);
 
     let (refusal, _) = w.in_app(&PushTrainingPlanTool, push("Owen")).await;
-    assert_eq!(reason(&refusal), "own_connection", "{refusal}");
+    assert_eq!(reason(&refusal), "no_calendar_write_consent", "{refusal}");
+    assert_eq!(w.api.roster_reads(), 2, "consent is read before the roster");
 
     let (refusal, _) = w.in_app(&PushTrainingPlanTool, push("Sara")).await;
     assert!(
@@ -1434,4 +1526,283 @@ async fn an_athlete_reading_through_the_link_is_told_their_human_coach_pushes_it
     assert!(!refused, "{saved}");
     assert_eq!(saved["calendar"]["stale"], true, "{saved}");
     assert_eq!(saved["calendar"]["pushed_by"], "human_coach", "{saved}");
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// An athlete who connects Intervals.icu themselves (carnet#1055)
+// ════════════════════════════════════════════════════════════════════════
+
+/// No link holds `member`: the coach's write reached them without one.
+async fn assert_unlinked(w: &World, member: Person) {
+    assert!(
+        w.repos()
+            .delegated_connections
+            .list_live_for_member(member.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "no link stands behind the write"
+    );
+}
+
+#[tokio::test]
+async fn a_coach_writes_an_own_key_athletes_calendar_with_the_coach_key_at_their_own_id() {
+    let w = World::new().await;
+    let owen = w
+        .own_athlete(
+            "Owen Ownkey",
+            "i777",
+            Some(json!("WRITE")),
+            true,
+            API_KEY_TOKEN_TYPE,
+            true,
+        )
+        .await;
+    w.plan(owen, TransportPolicy::AnyTransport).await;
+
+    let (report, refused) = w
+        .in_dm(&PushTrainingPlanTool, json!({ "athlete": "Owen" }))
+        .await;
+    assert!(!refused, "{report}");
+    assert_eq!(report["created"], 3, "{report}");
+    // `event_writes` asserts every write carries the coach's key, never the
+    // athlete's own.
+    let writes = w.api.event_writes();
+    assert_eq!(writes.len(), 3, "{writes:?}");
+    assert!(writes
+        .iter()
+        .all(|h| h.method == "POST" && h.path == "/api/v1/athlete/i777/events"));
+    assert_eq!(w.live(owen).await.len(), 3, "the ledger is the athlete's");
+    assert!(w.live(w.coach).await.is_empty());
+
+    // Prescribe and withdraw go the same way.
+    let date = (Utc::now().date_naive() + Duration::days(3))
+        .format("%Y-%m-%d")
+        .to_string();
+    let (prescribed, refused) = w
+        .in_dm(
+            &PrescribeWorkoutTool,
+            json!({ "athlete": "Owen", "date": date, "session": tempo_session() }),
+        )
+        .await;
+    assert!(!refused, "{prescribed}");
+    let id = prescribed["prescription_id"].as_str().unwrap().to_owned();
+    let (withdrawn, refused) = w
+        .in_dm(
+            &WithdrawPrescribedWorkoutTool,
+            json!({ "athlete": "Owen", "prescription_id": id }),
+        )
+        .await;
+    assert!(!refused, "{withdrawn}");
+    let lines: Vec<String> = w
+        .api
+        .event_writes()
+        .iter()
+        .skip(3)
+        .map(|h| format!("{} {}", h.method, h.path))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "POST /api/v1/athlete/i777/events",
+            "PUT /api/v1/athlete/i777/events/bulk-delete",
+        ]
+    );
+    assert_unlinked(&w, owen).await;
+}
+
+#[tokio::test]
+async fn an_oauth_connected_athlete_is_reached_through_the_coach_key_too() {
+    let w = World::new().await;
+    let olga = w
+        .own_athlete(
+            "Olga Oauth",
+            "i778",
+            Some(json!("WRITE")),
+            true,
+            "Bearer",
+            true,
+        )
+        .await;
+
+    let (prescribed, refused) = w
+        .in_dm(
+            &PrescribeWorkoutTool,
+            json!({ "athlete": "Olga", "date": "2030-01-07", "session": tempo_session() }),
+        )
+        .await;
+    assert!(!refused, "{prescribed}");
+    let writes = w.api.event_writes();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(writes[0].path, "/api/v1/athlete/i778/events");
+    assert_eq!(w.live(olga).await.len(), 1);
+    assert_unlinked(&w, olga).await;
+}
+
+#[tokio::test]
+async fn every_own_connection_refusal_is_named_and_reaches_no_calendar() {
+    let w = World::new().await;
+    let prescribe = |athlete: &str| json!({ "athlete": athlete, "date": "2030-01-07", "session": tempo_session() });
+
+    // Consent not given: refused before the roster is read.
+    let nadia = w
+        .own_athlete(
+            "Nadia Noconsent",
+            "i781",
+            Some(json!("WRITE")),
+            false,
+            API_KEY_TOKEN_TYPE,
+            true,
+        )
+        .await;
+    let (refusal, refused) = w.in_app(&PrescribeWorkoutTool, prescribe("Nadia")).await;
+    assert!(refused);
+    assert_eq!(reason(&refusal), "no_calendar_write_consent", "{refusal}");
+    assert!(error_text(&refusal).contains("in the group"), "{refusal}");
+    assert_eq!(w.api.roster_reads(), 0);
+
+    // The coach only follows them on Intervals.icu.
+    let fern = w
+        .own_athlete(
+            "Fern Follower",
+            "i782",
+            Some(json!("READ")),
+            true,
+            API_KEY_TOKEN_TYPE,
+            true,
+        )
+        .await;
+    let (refusal, _) = w.in_app(&PrescribeWorkoutTool, prescribe("Fern")).await;
+    assert_eq!(reason(&refusal), "coach_follower", "{refusal}");
+    assert!(
+        error_text(&refusal).contains("intervals.icu/athletes"),
+        "{refusal}"
+    );
+
+    // Not on the coach's roster at all.
+    let rory = w
+        .own_athlete(
+            "Rory Offroster",
+            "i783",
+            None,
+            true,
+            API_KEY_TOKEN_TYPE,
+            true,
+        )
+        .await;
+    let (refusal, _) = w.in_app(&PrescribeWorkoutTool, prescribe("Rory")).await;
+    assert_eq!(reason(&refusal), "athlete_not_on_roster", "{refusal}");
+    assert!(
+        error_text(&refusal).contains("intervals.icu/athletes"),
+        "{refusal}"
+    );
+    assert_unlinked(&w, rory).await;
+
+    // Their own session names no Intervals.icu account.
+    let ivan = w
+        .own_athlete(
+            "Ivan Idless",
+            "i784",
+            Some(json!("WRITE")),
+            true,
+            API_KEY_TOKEN_TYPE,
+            false,
+        )
+        .await;
+    let (refusal, _) = w.in_app(&PrescribeWorkoutTool, prescribe("Ivan")).await;
+    assert_eq!(reason(&refusal), "athlete_platform_id_unknown", "{refusal}");
+
+    // In another coach's group only: not this coach's athlete to write.
+    let blake = person(&w.res, "blake@calendar-write.test", "Blake Othercoach").await;
+    let other_group = coached_group(&w.res, w.owner, blake, "Other Squad").await;
+    let ola = person(&w.res, "i785@calendar-write.test", "Ola Othergroup").await;
+    w.join(&other_group, ola, true).await;
+    connect_intervals(w.repos(), ola, ola.tenant, "ola-key", "i785").await;
+    w.grant(&other_group, ola).await;
+    w.list_on_roster("i785", "i785@calendar-write.test", Some(json!("WRITE")));
+    let (refusal, refused) = w.in_app(&PrescribeWorkoutTool, prescribe("Ola")).await;
+    assert!(refused, "{refusal}");
+
+    // An own-connection athlete who stopped sharing with the coach.
+    let sid = person(&w.res, "i786@calendar-write.test", "Sid Stopped").await;
+    w.join(&w.group, sid, false).await;
+    connect_intervals(w.repos(), sid, sid.tenant, "sid-key", "i786").await;
+    w.grant(&w.group, sid).await;
+    w.list_on_roster("i786", "i786@calendar-write.test", Some(json!("WRITE")));
+    let (refusal, refused) = w.in_app(&PrescribeWorkoutTool, prescribe("Sid")).await;
+    assert!(refused);
+    assert!(
+        error_text(&refusal).contains("stopped sharing"),
+        "{refusal}"
+    );
+
+    // The coach's own Intervals.icu connection is an OAuth grant, which
+    // reaches no coached athlete.
+    connect_intervals_as(
+        w.repos(),
+        w.coach,
+        w.coach.tenant,
+        "coach-oauth-token",
+        "Bearer",
+        Some(COACH_ATHLETE),
+    )
+    .await;
+    let (refusal, _) = w.in_app(&PrescribeWorkoutTool, prescribe("Fern")).await;
+    assert_eq!(
+        reason(&refusal),
+        "coach_platform_api_key_required",
+        "{refusal}"
+    );
+    assert!(error_text(&refusal).contains("API key"), "{refusal}");
+
+    assert!(
+        w.api.event_calls().is_empty(),
+        "no refusal reached a calendar: {:?}",
+        w.api.event_calls()
+    );
+    for athlete in [nadia, fern, rory, ivan, ola, sid] {
+        assert!(w.live(athlete).await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn a_dead_coach_key_on_an_own_connection_write_flags_the_coach_alone() {
+    let w = World::new().await;
+    let owen = w
+        .own_athlete(
+            "Owen Ownkey",
+            "i777",
+            Some(json!("WRITE")),
+            true,
+            API_KEY_TOKEN_TYPE,
+            true,
+        )
+        .await;
+    let prescribe =
+        || json!({ "athlete": "Owen", "date": "2030-01-07", "session": tempo_session() });
+    let (first, refused) = w.in_app(&PrescribeWorkoutTool, prescribe()).await;
+    assert!(!refused, "{first}");
+
+    w.api.dead.store(true, Ordering::SeqCst);
+    let (refusal, refused) = w.in_app(&PrescribeWorkoutTool, prescribe()).await;
+    assert!(refused, "{refusal}");
+    assert!(
+        w.connection_status(w.coach).await.requires_reauth(),
+        "the coach's own connection is flagged, with no link to find it through"
+    );
+    assert_eq!(
+        w.connection_status(owen).await,
+        ConnectionStatus::Active,
+        "never the athlete's own connection"
+    );
+
+    let calls = w.api.event_calls().len();
+    let (refusal, refused) = w.in_app(&PrescribeWorkoutTool, prescribe()).await;
+    assert!(refused);
+    assert_eq!(
+        reason(&refusal),
+        "coach_platform_reconnect_needed",
+        "{refusal}"
+    );
+    assert_eq!(w.api.event_calls().len(), calls);
 }

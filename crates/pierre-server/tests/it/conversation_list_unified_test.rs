@@ -37,7 +37,7 @@ use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{AddMessageParams, ConversationTurnId, TenantId, COMMAND_FINISH_REASON};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -335,6 +335,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

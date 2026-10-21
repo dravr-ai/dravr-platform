@@ -15,7 +15,7 @@ use common::create_test_server_resources;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -168,6 +168,7 @@ async fn seed_group_membership(
             role,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

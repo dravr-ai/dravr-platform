@@ -349,6 +349,8 @@ fn build_refresh_service(context: &ToolExecutionContext) -> RefreshService {
         #[cfg(feature = "health-sync")]
         context.resources.repos().provider_connections.clone(),
         #[cfg(feature = "health-sync")]
+        context.resources.repos().groups.clone(),
+        #[cfg(feature = "health-sync")]
         context.resources.sync_orchestrator().cloned(),
         #[cfg(feature = "health-sync")]
         notifier,

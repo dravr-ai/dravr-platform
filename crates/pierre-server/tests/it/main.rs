@@ -167,6 +167,7 @@ mod claim_verification_service_test;
 mod cloud_tasks_enqueue_test;
 mod coach_access_request_test;
 mod coach_calendar_write_test;
+mod coach_consents_migration_test;
 mod coach_plan_notice_test;
 mod coach_plan_thread_seed_test;
 mod coach_planned_read_test;

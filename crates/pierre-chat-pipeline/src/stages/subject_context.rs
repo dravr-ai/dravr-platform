@@ -73,6 +73,8 @@ pub async fn inject_subject_context(
             #[cfg(feature = "health-sync")]
             provider_connections: ctx.repos.provider_connections.clone(),
             #[cfg(feature = "health-sync")]
+            groups: ctx.repos.groups.clone(),
+            #[cfg(feature = "health-sync")]
             sync_orchestrator: &ctx.sync_orchestrator,
             #[cfg(feature = "health-sync")]
             sse_manager: &ctx.sse_manager,

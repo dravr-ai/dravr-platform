@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Group info's coaching-platform links — the coach links roster athletes to members, a member confirms or declines
-// ABOUTME: The member alone grants what a link shares beyond the read; refusals are worded from details.reason
+// ABOUTME: A member grants what their coach may do as they confirm; later, in the coach-consents block. Refusals from details.reason
 
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Switch, Text, View, type ViewStyle } from 'react-native';
@@ -13,7 +13,6 @@ import {
   QUERY_KEYS,
   coachPlatformName,
   confirmConsents,
-  consentChangeConfirm,
   consentNoteKey,
   consentStateKeys,
   delegationRefusalKey,
@@ -31,7 +30,6 @@ import {
   useEndDelegatedConnection,
   useProposeDelegatedConnection,
   useRefreshDelegationRoster,
-  useSetDelegatedLinkConsents,
 } from '../../hooks/useGroups';
 import { oauthApi } from '../../services/api';
 import type { DelegatedConnection, DelegationRosterAthlete, GroupMember } from '../../types';
@@ -289,12 +287,9 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   const platform = coachPlatformName(link.provider);
   const showRefusal = useRefusalAlert();
   const { confirmLink, isPending: isConfirming } = useConfirmDelegatedConnection(groupId);
-  const { setConsents, isPending: isSavingConsents } = useSetDelegatedLinkConsents(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
   // What the member grants with their confirm: nothing until they switch it on.
   const [grants, setGrants] = useState<Partial<Record<DelegationConsent, boolean>>>({});
-  // A change on its way to the server, shown as made until the server answers.
-  const [changing, setChanging] = useState<Partial<Record<DelegationConsent, boolean>>>({});
 
   // Whether the coach must sign in again is a fact of the coach's connection,
   // which the provider row carries; the group's link list does not.
@@ -320,34 +315,11 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
     }
   };
 
-  const changeConsent = async (consent: DelegationConsent, granted: boolean) => {
-    setChanging((held) => ({ ...held, [consent]: granted }));
-    try {
-      await setConsents(link.id, { [consent]: granted });
-    } catch (err) {
-      showRefusal(err);
-    } finally {
-      // The link now says where the consent stands: granted, or unchanged after a refusal.
-      setChanging((held) => ({ ...held, [consent]: undefined }));
-    }
-  };
-
-  /** A turn of a confirmed link's consent, behind a confirm when it deletes what the link read. */
-  const askThenChange = (consent: DelegationConsent, granted: boolean) => {
-    const ask = consentChangeConfirm(consent, granted);
-    if (!ask) {
-      void changeConsent(consent, granted);
-      return;
-    }
-    Alert.alert(t(ask.title), t(ask.body, { platform, coach }), [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t(ask.confirm), style: 'destructive', onPress: () => void changeConsent(consent, granted) },
-    ]);
-  };
-
   /**
    * A row with a switch for each consent the link offers, on as `isGranted`
-   * says, its hint followed by why a granted one syncs nothing.
+   * says, its hint followed by why a granted one syncs nothing: what the
+   * member grants with their confirm. Once confirmed, they change it in the
+   * group's coach-consents block, since it lives on their coach relationship.
    */
   const consentRows = (
     isGranted: (consent: DelegationConsent) => boolean,
@@ -447,7 +419,6 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
         )}
         <InkAction label={t('delegation.unlink')} onPress={unlink} testID={`delegation-unlink-${link.id}`} />
       </View>
-      {consentRows((consent) => changing[consent] ?? link[consent], askThenChange, isSavingConsents || isEnding)}
     </View>
   );
 }

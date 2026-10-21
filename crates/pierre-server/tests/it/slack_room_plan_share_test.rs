@@ -52,7 +52,8 @@ mod slack_room {
     };
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, TranscriptSpeaker,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        TranscriptSpeaker,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
     use pierre_core::models::periodization::PhaseKind;
@@ -314,6 +315,7 @@ mod slack_room {
                 // peer's eyes, not only its author's.
                 peer_sharing_consent: true,
                 coach_sharing_consent: true,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

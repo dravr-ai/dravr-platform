@@ -17,7 +17,7 @@ use pierre_commands::{
 };
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -246,6 +246,7 @@ async fn seed_group(
                 role,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

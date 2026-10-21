@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GroupInfoPanel from '../GroupInfoPanel';
 import { ToastProvider } from '../../ui';
-import type { CoachingGroup, DelegatedConnection, GroupMember } from '@pierre/shared-types';
+import type { CoachConsentsResponse, CoachingGroup, DelegatedConnection, GroupMember } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 import { UnitsContext } from '@pierre/ui-logic';
 import type { DistanceUnit } from '@pierre/chat-utils';
@@ -21,6 +21,20 @@ const GROUP_ID = 'group-1';
 const COACH_ID = 'user-coach';
 /** A coach id shaped as the server serialises it, to prove it never reaches the screen. */
 const COACH_UUID = '5b0c1e9e-8a61-4c1f-9d2e-3f4a5b6c7d8e';
+
+/** What the caller lets the group's coach do: nothing granted, nothing offered unless overridden. */
+function coachConsents(overrides: Partial<CoachConsentsResponse> = {}): CoachConsentsResponse {
+  return {
+    calendar_write: false,
+    calendar_write_at: null,
+    calendar_write_supported: false,
+    wellness_read: false,
+    wellness_read_at: null,
+    wellness_read_supported: false,
+    wellness_read_skipped: null,
+    ...overrides,
+  };
+}
 
 function link(overrides: Partial<DelegatedConnection> = {}): DelegatedConnection {
   return {
@@ -69,7 +83,8 @@ vi.mock('../../../services/api', () => ({
     getDelegationRoster: vi.fn(),
     proposeDelegatedConnection: vi.fn(),
     confirmDelegatedConnection: vi.fn(),
-    setDelegatedLinkConsents: vi.fn(),
+    getCoachConsents: vi.fn(),
+    updateCoachConsents: vi.fn(),
     endDelegatedConnection: vi.fn(),
   },
   providersApi: {
@@ -176,6 +191,7 @@ describe('GroupInfoPanel', () => {
     vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(false));
     vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: null });
     vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup());
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents());
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [
         // The other member is listed FIRST on purpose: binding the switch to
@@ -907,8 +923,8 @@ describe('GroupInfoPanel', () => {
     expect(confirm).toHaveTextContent('Your TrainingPeaks link through this group ends too.');
   });
 
-  it("shows every live link of a member with its own platform and controls, a newer proposal hiding none", async () => {
-    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+  it("shows every live link of a member with its own platform, and one coach-consents block for them all", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }));
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [member({ role: 'member' })],
     });
@@ -931,7 +947,9 @@ describe('GroupInfoPanel', () => {
       total: 2,
       viewer: 'member',
     });
-    vi.mocked(groupsApi.setDelegatedLinkConsents).mockResolvedValue({ ...intervals, wellness_read: false });
+    const held = coachConsents({ calendar_write_supported: true, wellness_read: true, wellness_read_supported: true });
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(held);
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue({ ...held, wellness_read: false });
     const user = userEvent.setup();
     renderPanel();
 
@@ -944,14 +962,15 @@ describe('GroupInfoPanel', () => {
     expect(within(confirmed).getByTestId('delegation-linked')).toHaveTextContent(
       "Your Intervals.icu workouts are read through Casey Coach's account.",
     );
-    const wellness = within(confirmed).getByTestId('delegation-consent-wellness_read');
+    // The consents live on the coach relationship: one block, none on the link.
+    expect(within(confirmed).queryByRole('checkbox')).toBeNull();
+    expect(screen.getByText('What your human coach can do')).toBeInTheDocument();
+    const wellness = await screen.findByTestId('coach-consent-wellness_read');
     expect(wellness).toBeChecked();
     await user.click(wellness);
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop sharing' }));
     await waitFor(() =>
-      expect(groupsApi.setDelegatedLinkConsents).toHaveBeenCalledWith(GROUP_ID, 'dc-intervals', {
-        wellness_read: false,
-      }),
+      expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { wellness_read: false }),
     );
 
     // Leaving ends both, and the warning names both.
@@ -959,5 +978,38 @@ describe('GroupInfoPanel', () => {
     const leave = await screen.findByRole('dialog');
     expect(leave).toHaveTextContent('Your TrainingPeaks link through this group ends too.');
     expect(leave).toHaveTextContent('Your Intervals.icu link through this group ends too.');
+  });
+
+  it('lets a member who connects Intervals.icu themselves, with no link, allow calendar writes', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'member' })],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'member' });
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents({ calendar_write_supported: true }));
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
+      coachConsents({ calendar_write: true, calendar_write_supported: true }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+
+    const calendar = await screen.findByTestId('coach-consent-calendar_write');
+    expect(screen.queryByTestId('delegation-linked')).toBeNull();
+    expect(screen.getByTestId('coach-consent-calendar-step')).toHaveTextContent(
+      'open intervals.icu/athletes, click Casey Coach and pick the Coach role, not Follower.',
+    );
+    expect(screen.queryByTestId('coach-consent-wellness_read')).toBeNull();
+    await user.click(calendar);
+    await waitFor(() =>
+      expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { calendar_write: true }),
+    );
+  });
+
+  it('never asks a member of a coachless group for coach consents', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup());
+    renderPanel();
+    await screen.findByText('Marathon Squad');
+    expect(groupsApi.getCoachConsents).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('coach-consents')).toBeNull();
   });
 });

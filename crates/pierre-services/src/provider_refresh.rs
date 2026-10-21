@@ -22,7 +22,7 @@ use pierre_core::models::{
 use pierre_core::models::{DelegatedConnection, DelegationStatus};
 use pierre_database::repositories::ActivityCacheRepository;
 #[cfg(feature = "health-sync")]
-use pierre_database::repositories::ProviderConnectionRepository;
+use pierre_database::repositories::{CoachingGroupRepository, ProviderConnectionRepository};
 use pierre_database::AuthRepos;
 #[cfg(feature = "health-sync")]
 use pierre_providers::backend_resolver::sync_backend;
@@ -33,9 +33,9 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 #[cfg(feature = "health-sync")]
-use crate::coach_platform::coach_platform;
+use crate::coach_consents::{link_consents, wellness_read_skipped, WellnessReadSkip};
 #[cfg(feature = "health-sync")]
-use crate::delegated_link_consents::{wellness_read_skipped, WellnessReadSkip};
+use crate::coach_platform::coach_platform;
 #[cfg(feature = "health-sync")]
 use crate::delegated_read::{holds_own_session, OwnLogins};
 
@@ -81,6 +81,10 @@ pub struct RefreshService {
     /// request reads through.
     #[cfg(feature = "health-sync")]
     provider_connections: Arc<dyn ProviderConnectionRepository>,
+    /// The user's group memberships: whether they granted their human coach
+    /// `wellness_read`, which a refresh served by the coach's link reports.
+    #[cfg(feature = "health-sync")]
+    groups: Arc<dyn CoachingGroupRepository>,
     /// Health data sync orchestrator (enforme).
     #[cfg(feature = "health-sync")]
     sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -99,6 +103,7 @@ impl RefreshService {
         repos: &AuthRepos,
         activity_cache: Arc<dyn ActivityCacheRepository>,
         #[cfg(feature = "health-sync")] provider_connections: Arc<dyn ProviderConnectionRepository>,
+        #[cfg(feature = "health-sync")] groups: Arc<dyn CoachingGroupRepository>,
         #[cfg(feature = "health-sync")] sync_orchestrator: Option<
             Arc<dravr_enforme::SyncOrchestrator>,
         >,
@@ -109,6 +114,8 @@ impl RefreshService {
             activity_cache,
             #[cfg(feature = "health-sync")]
             provider_connections,
+            #[cfg(feature = "health-sync")]
+            groups,
             #[cfg(feature = "health-sync")]
             sync_orchestrator,
             #[cfg(feature = "health-sync")]
@@ -387,7 +394,8 @@ impl RefreshService {
         #[cfg(feature = "health-sync")]
         {
             if let Some(link) = self.coach_link_serving(user_id, provider).await {
-                let skipped = if link.wellness_read {
+                let wellness_read = self.wellness_granted(&link).await;
+                let skipped = if wellness_read {
                     self.wellness_skip(&link).await
                 } else {
                     None
@@ -395,7 +403,7 @@ impl RefreshService {
                 return RefreshResult {
                     provider: provider.to_owned(),
                     success: false,
-                    message: coach_link_refresh_message(provider, link.wellness_read, skipped),
+                    message: coach_link_refresh_message(provider, wellness_read, skipped),
                     records_synced: 0,
                 };
             }
@@ -524,6 +532,22 @@ impl RefreshService {
                 None
             }
         }
+    }
+
+    /// Whether `link`'s member granted their coach `wellness_read`
+    /// ([`link_consents`]); a lookup that fails is logged and reads as not
+    /// granted.
+    #[cfg(feature = "health-sync")]
+    async fn wellness_granted(&self, link: &DelegatedConnection) -> bool {
+        link_consents(self.groups.as_ref(), link)
+            .await
+            .map_or_else(
+                |e| {
+                    warn!(link_id = %link.id, error = %e, "Could not read the member's coach consents before a refresh");
+                    false
+                },
+                |consents| consents.wellness_read,
+            )
     }
 
     /// Why `link` syncs none of its member's wellness although they granted

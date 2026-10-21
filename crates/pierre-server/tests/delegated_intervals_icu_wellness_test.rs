@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! A member whose human coach links them on Intervals.icu, and who grants
-//! the link `wellness_read`, has their sleep, recovery and health rows
+//! their coach `wellness_read` on their membership, has their sleep, recovery and health rows
 //! synced through the coach's own API key, at the member's athlete path, and
 //! filed under the tenant they confirmed in. Only the scheduler's delegated
 //! pass does it, once per link every three hours across instances.
@@ -54,11 +54,11 @@ use pierre_core::constants::oauth::providers::{
 };
 use pierre_core::constants::rate_limits;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     AgentCategory, ConnectionStatus, ConnectionType, CreateAgentRequest, DelegatedConnection,
-    DelegationEndReason, DelegationStatus, LinkConsents, RosterAthlete, TenantId, UserOAuthToken,
+    DelegationEndReason, DelegationStatus, RosterAthlete, TenantId, UserOAuthToken,
     API_KEY_TOKEN_TYPE,
 };
 use pierre_database::RepositoryRegistry;
@@ -68,9 +68,9 @@ use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refr
 use pierre_providers::request_budget::{
     api_key_counter_key, budget_period, BACKGROUND_SHARE_PERCENT, FIFTEEN_MINUTES, PLATFORM_SCOPE,
 };
+use pierre_services::coach_consents::{set_coach_consents, ConsentChange};
 use pierre_services::coach_platform::coach_platform;
 use pierre_services::delegated_connections::{coach_roster, DelegationServices};
-use pierre_services::delegated_link_consents::{set_link_consents, ConsentChange};
 use pierre_services::delegated_wellness::delegated_wellness_credentials;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::provider_refresh::sync_delegated_members;
@@ -474,6 +474,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: true,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -501,19 +502,24 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(
-                proposed.id,
-                member.id,
-                member.tenant,
-                LinkConsents {
-                    calendar_write: false,
-                    wellness_read,
-                },
-                Utc::now(),
-            )
+            .confirm(proposed.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
+        if wellness_read {
+            repos
+                .groups
+                .set_coach_consents(
+                    &self.group.to_string(),
+                    member.id,
+                    None,
+                    Some(true),
+                    Utc::now(),
+                )
+                .await
+                .unwrap()
+                .expect("the member's membership");
+        }
         repos
             .provider_connections
             .register_connection(
@@ -745,7 +751,7 @@ async fn a_link_stores_only_the_wellness_its_consent_names() {
 #[serial]
 async fn a_link_without_the_wellness_consent_spends_nothing() {
     let w = world().await;
-    let (member, link) = w
+    let (member, _) = w
         .member(
             "m1@wellness.test",
             "i201",
@@ -761,11 +767,17 @@ async fn a_link_without_the_wellness_consent_spends_nothing() {
     assert_eq!(w.rows(&member, member.tenant).await, NO_ROWS);
 
     w.repos()
-        .delegated_connections
-        .set_link_consents(link.id, member.id, None, Some(true), Utc::now())
+        .groups
+        .set_coach_consents(
+            &w.group.to_string(),
+            member.id,
+            None,
+            Some(true),
+            Utc::now(),
+        )
         .await
         .unwrap()
-        .expect("the member's confirmed link");
+        .expect("the member's membership");
     w.pass(t0).await;
     assert_eq!(w.api.wellness_reads().len(), 3);
     assert_eq!(w.rows(&member, member.tenant).await, ONE_DAY);
@@ -1150,11 +1162,11 @@ async fn withdrawing_the_consent_or_ending_the_link_purges_and_stops() {
     assert_eq!(w.rows(&withdraws, withdraws.tenant).await, ONE_DAY);
     assert_eq!(w.rows(&ends, ends.tenant).await, ONE_DAY);
 
-    set_link_consents(
+    set_coach_consents(
         w.repos(),
         &w.res.fitness.provider_registry,
         &w.group().await,
-        &withdrawn_link,
+        withdrawn_link.member_user_id,
         ConsentChange {
             calendar_write: None,
             wellness_read: Some(false),
@@ -1244,16 +1256,7 @@ async fn the_refresh_answer_claims_no_schedule_a_link_does_not_have() {
         .expect("no live TrainingPeaks link holds this member yet");
     repos
         .delegated_connections
-        .confirm(
-            proposed.id,
-            member.id,
-            member.tenant,
-            LinkConsents {
-                calendar_write: false,
-                wellness_read: false,
-            },
-            Utc::now(),
-        )
+        .confirm(proposed.id, member.id, member.tenant, Utc::now())
         .await
         .unwrap()
         .expect("the proposal names the member");
@@ -1346,10 +1349,16 @@ async fn the_decision_holds_each_exclusion_when_the_sync_asks() {
     assert_eq!(w.api.wellness_reads(), [] as [String; 0]);
 
     repos
-        .delegated_connections
-        .set_link_consents(open_link.id, open.id, None, Some(false), Utc::now())
+        .groups
+        .set_coach_consents(
+            &open_link.group_id.to_string(),
+            open.id,
+            None,
+            Some(false),
+            Utc::now(),
+        )
         .await
         .unwrap()
-        .expect("the member's confirmed link");
+        .expect("the member's membership");
     assert!(w.credentials(&open).await.is_none());
 }

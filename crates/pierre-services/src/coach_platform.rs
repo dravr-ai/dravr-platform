@@ -126,6 +126,13 @@ pub trait CoachPlatform: Send + Sync {
     fn reads_member_wellness(&self) -> bool {
         false
     }
+
+    /// What the athlete does on the platform to make the coach's account
+    /// their coach, in words a refusal ends with; `None` where the platform
+    /// names no such step.
+    fn coach_access_step(&self) -> Option<String> {
+        None
+    }
 }
 
 /// `TrainingPeaks`, read on the scraper service through the coach's session.
@@ -288,6 +295,16 @@ impl CoachPlatform for IntervalsIcuPlatform {
     // path, as it reads their activities.
     fn reads_member_wellness(&self) -> bool {
         true
+    }
+
+    // Intervals.icu has no API that makes a coach: the athlete picks the
+    // Coach role for the coach on their Athletes page (Follower only reads).
+    fn coach_access_step(&self) -> Option<String> {
+        Some(
+            "On Intervals.icu, the athlete opens intervals.icu/athletes, clicks you and picks \
+             Coach (not Follower)."
+                .to_owned(),
+        )
     }
 }
 

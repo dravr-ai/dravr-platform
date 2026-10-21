@@ -1,4 +1,4 @@
-// ABOUTME: What a human coach reads of a coached athlete's wellness — only what the athlete's link to them filed under its wellness_read consent
+// ABOUTME: What a human coach reads of a coached athlete's wellness — only what the athlete's link to them filed under their wellness_read consent
 // ABOUTME: The newest HRV, resting heart rate, night's sleep and weight that link's platform delivered, under each row's provider terms
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,9 +6,9 @@
 
 //! # A coached athlete's wellness, as their coach reads it
 //!
-//! A member lets a confirmed coach link sync their sleep, HRV, resting heart
-//! rate and weight through the coach's own platform account by granting it
-//! `wellness_read` ([`crate::delegated_link_consents`]). That consent is the
+//! A member lets their coach's confirmed link sync their sleep, HRV, resting
+//! heart rate and weight through the coach's own platform account by granting
+//! the coach `wellness_read` ([`crate::coach_consents`]). That consent is the
 //! only thing that lets the coach read any of it, and what it lets the coach
 //! read is what the link filed: the rows the link's platform delivered, under
 //! the tenant the member confirmed in. A wellness source of the athlete's own
@@ -25,6 +25,7 @@ use pierre_core::models::{DelegationStatus, TenantId};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
+use crate::coach_consents::member_consents;
 use crate::provider_notice::under_ai_consent;
 use crate::stored_health;
 
@@ -69,8 +70,8 @@ impl LinkedWellness {
 }
 
 /// The wellness `coach` reads of `athlete` through the link they hold in
-/// `group_id`, or `None` when no confirmed link there carries the athlete's
-/// `wellness_read` consent.
+/// `group_id`, or `None` when no confirmed link there names the athlete or
+/// the athlete has not granted the coach `wellness_read`.
 ///
 /// The caller has run the coaching gates for this pair
 /// ([`coached_athlete_access`](crate::coached_athlete::coached_athlete_access));
@@ -90,16 +91,18 @@ pub async fn linked_wellness(
     group_id: Uuid,
     now: DateTime<Utc>,
 ) -> AppResult<Option<LinkedWellness>> {
+    if !member_consents(repos.groups.as_ref(), group_id, athlete)
+        .await?
+        .wellness_read
+    {
+        return Ok(None);
+    }
     let link = repos
         .delegated_connections
         .list_live_for_coach_in_group(group_id, coach)
         .await?
         .into_iter()
-        .find(|link| {
-            link.member_user_id == athlete
-                && link.status == DelegationStatus::Confirmed
-                && link.wellness_read
-        });
+        .find(|link| link.member_user_id == athlete && link.status == DelegationStatus::Confirmed);
     let Some((link, tenant)) =
         link.and_then(|link| link.member_tenant_id.map(|tenant| (link, tenant)))
     else {

@@ -48,11 +48,11 @@ use common::{create_test_server_resources, create_test_user_with_plan};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    ConnectionType, DelegatedConnection, DelegationStatus, LinkConsents, MeasurementKind,
-    MetricProvenance, RosterAthlete, SportType, TenantId, UserOAuthToken, UserPhysiologicalProfile,
+    ConnectionType, DelegatedConnection, DelegationStatus, MeasurementKind, MetricProvenance,
+    RosterAthlete, SportType, TenantId, UserOAuthToken, UserPhysiologicalProfile,
     API_KEY_TOKEN_TYPE,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -653,6 +653,7 @@ async fn linked_members(w: &World, members: &[(Person, &str, &str)]) -> Person {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: true,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -675,13 +676,7 @@ async fn linked_members(w: &World, members: &[(Person, &str, &str)]) -> Person {
             .expect("no live link holds this member yet");
         repos
             .delegated_connections
-            .confirm(
-                link.id,
-                member.id,
-                member.tenant,
-                LinkConsents::default(),
-                Utc::now(),
-            )
+            .confirm(link.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member");

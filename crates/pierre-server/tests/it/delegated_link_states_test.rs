@@ -41,11 +41,12 @@ use pierre_commands::group_membership::GroupJoinHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember, GroupRespondMode,
+    GroupRole,
 };
 use pierre_core::models::{
-    Activity, Athlete, ConnectionType, DelegatedConnection, DelegationStatus, LinkConsents,
-    RosterAccess, RosterAthlete, Stats, TenantId, UserOAuthToken,
+    Activity, Athlete, ConnectionType, DelegatedConnection, DelegationStatus, RosterAccess,
+    RosterAthlete, Stats, TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -367,6 +368,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: shares,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -417,13 +419,7 @@ impl World {
             .common
             .repos
             .delegated_connections
-            .confirm(
-                link.id,
-                member.id,
-                member.tenant,
-                LinkConsents::default(),
-                Utc::now(),
-            )
+            .confirm(link.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member")
@@ -1012,9 +1008,19 @@ async fn a_member_who_joins_under_their_roster_email_is_proposed_the_link() {
     assert_eq!(link.coach_user_id, w.coach.id);
     assert_eq!(link.coach_tenant_id, w.owner.tenant);
     assert_eq!(link.member_tenant_id, None, "the member confirms it");
+    let consents = w
+        .res
+        .common
+        .repos
+        .groups
+        .get_member(&squad.id.to_string(), joiner.id)
+        .await
+        .unwrap()
+        .expect("the joiner's membership")
+        .coach_consents;
     assert!(
-        !link.calendar_write && !link.wellness_read,
-        "every consent waits on the member: {link:?}"
+        !consents.calendar_write && !consents.wellness_read,
+        "every coach consent waits on the member: {consents:?}"
     );
 
     // Joined from no thread, so no room was filed for them: the request opens

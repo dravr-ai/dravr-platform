@@ -25,7 +25,7 @@ use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_core::constants::oauth_rate_limiting::PASSWORD_CONFIRM_RPM;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     ConnectionType, CreateUserMcpTokenRequest, SessionRefreshToken, Tenant, TenantId, User,
@@ -359,6 +359,7 @@ async fn join_group(repos: &RepositoryRegistry, group_id: Uuid, user_id: Uuid, t
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

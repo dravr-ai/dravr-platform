@@ -26,7 +26,7 @@ use pierre_core::models::RefreshConfig;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::repositories::ActivityCacheRepository;
 #[cfg(feature = "health-sync")]
-use pierre_database::repositories::ProviderConnectionRepository;
+use pierre_database::repositories::{CoachingGroupRepository, ProviderConnectionRepository};
 use pierre_database::AuthRepos;
 
 use pierre_core::models::TenantId;
@@ -56,6 +56,10 @@ pub struct RefreshDeps<'a> {
     /// wellness source of their own. Cloned into the `RefreshService`.
     #[cfg(feature = "health-sync")]
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
+    /// The user's group memberships, which the refresh reads for the coach
+    /// consents a link's sync goes by. Cloned into the `RefreshService`.
+    #[cfg(feature = "health-sync")]
+    pub groups: Arc<dyn CoachingGroupRepository>,
     /// Optional sync orchestrator used to schedule background refreshes.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: &'a Option<Arc<dravr_enforme::SyncOrchestrator>>,
@@ -86,6 +90,8 @@ pub async fn refresh_and_hint(
         #[cfg(feature = "health-sync")]
         provider_connections,
         #[cfg(feature = "health-sync")]
+        groups,
+        #[cfg(feature = "health-sync")]
         sync_orchestrator,
         #[cfg(feature = "health-sync")]
         sse_manager,
@@ -106,6 +112,8 @@ pub async fn refresh_and_hint(
         activity_cache,
         #[cfg(feature = "health-sync")]
         provider_connections,
+        #[cfg(feature = "health-sync")]
+        groups,
         #[cfg(feature = "health-sync")]
         sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]

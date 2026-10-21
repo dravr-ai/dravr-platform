@@ -27,7 +27,7 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     NewGroupTranscriptEntry, TranscriptSpeaker,
 };
 use pierre_core::models::{
@@ -1491,6 +1491,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
             role: GroupRole::Owner,
             peer_sharing_consent: true,
             coach_sharing_consent: true,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

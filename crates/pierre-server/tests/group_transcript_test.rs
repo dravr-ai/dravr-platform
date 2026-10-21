@@ -27,7 +27,7 @@ mod group_transcript_tests {
     };
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
@@ -355,6 +355,7 @@ mod group_transcript_tests {
                     role,
                     peer_sharing_consent: consent,
                     coach_sharing_consent: consent,
+                    coach_consents: CoachConsents::default(),
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,

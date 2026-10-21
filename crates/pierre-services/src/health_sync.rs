@@ -40,6 +40,7 @@ use pierre_providers::request_budget::RequestBudget;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::coach_consents::link_consents;
 use crate::delegated_wellness::{
     excluded_from_wellness, health_the_link_files, recovery_the_link_files, sleep_the_link_files,
     DelegatedWellness, PrivateWellness,
@@ -442,10 +443,22 @@ impl PierreSyncStorage {
             .list_backed_for_member(member, &sync_backend(provider))
             .await
             .map_err(|e| EnformeError::store(format!("Failed to look up delegated links: {e}")))?;
-        Ok(links
-            .into_iter()
-            .find(|link| link.status == DelegationStatus::Confirmed && link.wellness_read)
-            .and_then(|link| link.member_tenant_id))
+        for link in links
+            .iter()
+            .filter(|link| link.status == DelegationStatus::Confirmed)
+        {
+            let consents = link_consents(self.registry.groups.as_ref(), link)
+                .await
+                .map_err(|e| {
+                    EnformeError::store(format!(
+                        "Failed to look up the member's coach consents: {e}"
+                    ))
+                })?;
+            if consents.wellness_read {
+                return Ok(link.member_tenant_id);
+            }
+        }
+        Ok(None)
     }
 
     /// The credentials `member`'s `provider` wellness syncs with through

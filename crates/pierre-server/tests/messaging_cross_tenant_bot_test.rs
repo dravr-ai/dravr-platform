@@ -28,7 +28,7 @@ mod cross_tenant_bot_tests {
     use crate::helpers::command_e2e::{CommandE2e, RouterLlm};
     use chrono::Utc;
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
     use serial_test::serial;
     use std::env;
@@ -210,6 +210,7 @@ mod cross_tenant_bot_tests {
                 role: GroupRole::Owner,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

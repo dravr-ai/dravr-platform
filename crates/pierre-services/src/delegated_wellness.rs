@@ -8,8 +8,8 @@
 //!
 //! A member whose human coach reads them on a coaching platform through a
 //! confirmed link can let that link sync their wellness too — sleep, HRV,
-//! resting heart rate, weight, the daily note — by granting it
-//! `wellness_read` ([`crate::delegated_link_consents`]). The scheduled sync
+//! resting heart rate, weight, the daily note — by granting their coach
+//! `wellness_read` ([`crate::coach_consents`]). The scheduled sync
 //! then reads it through the coach's own credential, at the member's athlete
 //! path, and files it under the tenant the member confirmed in, where ending
 //! the link or withdrawing the consent deletes it again.
@@ -59,9 +59,9 @@ use pierre_providers::backend_resolver::sync_backend;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::coach_consents::{link_consents, wellness_read_skipped, WellnessReadSkip};
 use crate::coach_platform::{coach_platform, CoachPlatform};
 use crate::delegated_connections::{coach_roster, DelegationServices};
-use crate::delegated_link_consents::{wellness_read_skipped, WellnessReadSkip};
 use crate::delegated_read::{member_read, CoachRead, MemberRead, OwnLogins};
 use crate::health_sync::request_gate;
 
@@ -307,8 +307,8 @@ fn coach_key_credentials(
 /// Dravr's own rows alone, without reading the platform; `None` when nothing
 /// here keeps it from syncing.
 ///
-/// - `no_wellness_consent`: the member has not granted the link
-///   `wellness_read`;
+/// - `no_wellness_consent`: the member has not granted their coach
+///   `wellness_read` ([`link_consents`]);
 /// - `unconfirmed`: the link names no tenant to file under, which only a
 ///   link never confirmed lacks;
 /// - `own_connection` or `own_wellness_source`: a source of the member's own
@@ -323,7 +323,10 @@ pub(crate) async fn excluded_from_wellness(
     repos: &RepositoryRegistry,
     link: &DelegatedConnection,
 ) -> AppResult<Option<&'static str>> {
-    if !link.wellness_read {
+    if !link_consents(repos.groups.as_ref(), link)
+        .await?
+        .wellness_read
+    {
         return Ok(Some("no_wellness_consent"));
     }
     if link.member_tenant_id.is_none() {

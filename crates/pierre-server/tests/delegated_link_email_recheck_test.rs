@@ -42,11 +42,11 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, DelegationStatus,
-    LinkConsents, RosterAthlete, TenantId, UserOAuthToken,
+    RosterAthlete, TenantId, UserOAuthToken,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
@@ -268,6 +268,7 @@ async fn world(scraper: Scraper) -> World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -377,13 +378,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         repos
             .delegated_connections
-            .confirm(
-                proposed.id,
-                member.id,
-                member.tenant,
-                LinkConsents::default(),
-                Utc::now(),
-            )
+            .confirm(proposed.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member");

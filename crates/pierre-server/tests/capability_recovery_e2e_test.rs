@@ -1014,7 +1014,7 @@ mod capability_recovery {
             AgentCategory, AgentVisibility, CreateSystemAgentRequest,
         };
         use pierre_core::models::groups::{
-            CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+            CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use pierre_core::models::{ActivityBuilder, SportType};
         use std::sync::Mutex;
@@ -1230,6 +1230,7 @@ mod capability_recovery {
                     role,
                     peer_sharing_consent: consent,
                     coach_sharing_consent: consent,
+                    coach_consents: CoachConsents::default(),
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,

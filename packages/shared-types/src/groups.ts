@@ -357,13 +357,20 @@ export interface DelegatedConnection {
    * while it reads, and for a proposal.
    */
   read_refused: DelegationReadRefusal | null;
-  /** Whether the member lets the link's coach put workouts on their calendar on the platform. */
+  /**
+   * Whether the member lets their coach put workouts on their calendar. Read
+   * from the member's coach relationship ({@link CoachConsentsResponse}): the
+   * link carries no consent of its own, and is changed only there.
+   */
   calendar_write: boolean;
-  /** Whether the platform takes a coach's calendar writes, so the link can ask the member for them. */
+  /** Whether the link's platform takes a coach's calendar writes, so `calendar_write` applies to it. */
   calendar_write_supported: boolean;
-  /** Whether the member lets their wellness (sleep, HRV, weight…) sync through the coach's account. */
+  /**
+   * Whether the member lets their wellness (sleep, HRV, weight…) sync through
+   * the coach's account, read from their coach relationship.
+   */
   wellness_read: boolean;
-  /** Whether the coach's account reads wellness on the platform, so the link can ask the member for it. */
+  /** Whether the coach's account reads wellness on the link's platform, so `wellness_read` applies to it. */
   wellness_read_supported: boolean;
   /**
    * Why the link syncs none of the member's wellness: a wellness source of
@@ -435,12 +442,35 @@ export interface ConfirmDelegatedConnectionRequest {
 }
 
 /**
- * The member grants (`true`) or revokes (`false`) what a confirmed link
- * shares. A consent left out stays as it stands. Revoking `wellness_read`
- * deletes the wellness the link synced. A grant is taken only from Dravr's
- * own app; a revoke from anywhere.
+ * What a member lets their group's human coach do beyond reading their
+ * training, held on their coach relationship (not on a link), and what the
+ * relationship offers. It applies whether the member reaches the coaching
+ * platform through a link or through a connection of their own.
  */
-export interface UpdateDelegatedConnectionConsentsRequest {
+export interface CoachConsentsResponse {
+  /** The coach puts workouts on the member's coaching-platform calendar. */
+  calendar_write: boolean;
+  /** When the member last granted or revoked `calendar_write` (RFC 3339). */
+  calendar_write_at: string | null;
+  /** The group has a coach and a coaching platform takes a coach's calendar writes. */
+  calendar_write_supported: boolean;
+  /** The member's wellness syncs through the coach's account. */
+  wellness_read: boolean;
+  /** When the member last granted or revoked `wellness_read` (RFC 3339). */
+  wellness_read_at: string | null;
+  /** The member reads a platform through a confirmed link whose coach credential reads wellness. */
+  wellness_read_supported: boolean;
+  /** Why the member's links sync none of their wellness whatever they grant; `null` when nothing does. */
+  wellness_read_skipped: WellnessReadSkip | null;
+}
+
+/**
+ * The member grants (`true`) or revokes (`false`) what their group's coach
+ * may do. A consent left out stays as it stands. Revoking `wellness_read`
+ * deletes the wellness their links synced. A grant is taken only from
+ * Dravr's own app; a revoke from anywhere.
+ */
+export interface UpdateCoachConsentsRequest {
   calendar_write?: boolean;
   wellness_read?: boolean;
 }

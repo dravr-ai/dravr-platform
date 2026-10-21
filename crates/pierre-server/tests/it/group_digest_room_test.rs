@@ -24,7 +24,7 @@ mod group_digest_room_tests {
     use dravr_canot::renderer::ResponseRenderer;
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         MemberFitnessSnapshot, OvertrainingRiskLevel,
     };
     use pierre_core::models::messaging::{ChannelType, MessageContent};
@@ -350,6 +350,7 @@ mod group_digest_room_tests {
                     role: *role,
                     peer_sharing_consent: *consent,
                     coach_sharing_consent: *consent,
+                    coach_consents: CoachConsents::default(),
                     consent_given_at: now,
                     joined_at: now,
                     left_at: None,
@@ -885,6 +886,7 @@ mod group_digest_room_tests {
             role: GroupRole::Member,
             peer_sharing_consent: consent,
             coach_sharing_consent: consent,
+            coach_consents: CoachConsents::default(),
             consent_given_at: Utc::now(),
             joined_at: Utc::now(),
             left_at: None,

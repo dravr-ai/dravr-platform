@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Group info's coaching-platform links — the coach links roster athletes to members, a member confirms or declines
-// ABOUTME: The member alone grants what a link shares beyond the read; refusals are worded from details.reason
+// ABOUTME: A member grants what their coach may do as they confirm; later, in the coach-consents block. Refusals from details.reason
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -18,7 +18,6 @@ import {
   QUERY_KEYS,
   coachPlatformName,
   confirmConsents,
-  consentChangeConfirm,
   consentNoteKey,
   consentStateKeys,
   delegationRefusalKey,
@@ -34,7 +33,6 @@ import {
   useEndDelegatedConnection,
   useProposeDelegatedConnection,
   useRefreshDelegationRoster,
-  useSetDelegatedLinkConsents,
 } from '../../hooks/useGroups';
 import { providersApi } from '../../services/api';
 import { Button, Checkbox, ConfirmDialog, Select, useErrorToast, useSuccessToast } from '../ui';
@@ -371,16 +369,10 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
   const showSuccess = useSuccessToast();
   const showRefusal = useRefusalToast();
   const { confirmLink, isPending: isConfirming } = useConfirmDelegatedConnection(groupId);
-  const { setConsents, isPending: isSavingConsents } = useSetDelegatedLinkConsents(groupId);
   const { endLink, isPending: isEnding } = useEndDelegatedConnection(groupId);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   // What the member grants with their confirm: nothing until they tick it.
   const [grants, setGrants] = useState<Partial<Record<DelegationConsent, boolean>>>({});
-  // A change on its way to the server, shown as made until the server answers.
-  const [changing, setChanging] = useState<Partial<Record<DelegationConsent, boolean>>>({});
-  // A revoke waiting on the member's confirm, which it asks before deleting what the link read.
-  const [revoking, setRevoking] = useState<DelegationConsent | null>(null);
-  const revokeConfirm = revoking ? consentChangeConfirm(revoking, false) : undefined;
 
   // Whether the coach must sign in again is a fact of the coach's connection,
   // which the provider card carries; the group's link list does not.
@@ -407,20 +399,11 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
     }
   };
 
-  const changeConsent = async (consent: DelegationConsent, granted: boolean) => {
-    setChanging((held) => ({ ...held, [consent]: granted }));
-    try {
-      await setConsents(link.id, { [consent]: granted });
-      showSuccess(t('delegation.consentsSavedToast'));
-    } catch (err) {
-      showRefusal(err);
-    } finally {
-      // The link now says where the consent stands: granted, or unchanged after a refusal.
-      setChanging((held) => ({ ...held, [consent]: undefined }));
-    }
-  };
-
-  /** The member's control for each consent the link offers, ticked as `isGranted` says. */
+  /**
+   * What the member grants with their confirm, of what the link offers. Once
+   * confirmed, they change it in the group's coach-consents block: it lives on
+   * their coach relationship, not on the link.
+   */
   const consentControls = (
     isGranted: (consent: DelegationConsent) => boolean,
     onChange: (consent: DelegationConsent, granted: boolean) => void,
@@ -525,24 +508,6 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
           {t('delegation.unlink')}
         </Button>
       </div>
-      {consentControls(
-        (consent) => changing[consent] ?? link[consent],
-        (consent, granted) =>
-          consentChangeConfirm(consent, granted) ? setRevoking(consent) : void changeConsent(consent, granted),
-        isSavingConsents || isEnding,
-      )}
-      <ConfirmDialog
-        isOpen={revokeConfirm !== undefined}
-        onClose={() => setRevoking(null)}
-        onConfirm={() => {
-          if (revoking) void changeConsent(revoking, false);
-          setRevoking(null);
-        }}
-        title={revokeConfirm ? t(revokeConfirm.title) : ''}
-        message={revokeConfirm ? t(revokeConfirm.body, { platform, coach }) : ''}
-        confirmLabel={revokeConfirm ? t(revokeConfirm.confirm) : undefined}
-        variant="danger"
-      />
       <ConfirmDialog
         isOpen={confirmUnlink}
         onClose={() => setConfirmUnlink(false)}

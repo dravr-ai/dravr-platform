@@ -22,7 +22,8 @@ mod peer_fetch_tests {
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupInviteKind, GroupMember,
+        GroupRespondMode, GroupRole,
     };
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
@@ -155,6 +156,7 @@ mod peer_fetch_tests {
                 role,
                 peer_sharing_consent: consent,
                 coach_sharing_consent: consent,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -187,6 +189,7 @@ mod peer_fetch_tests {
                 role: GroupRole::Member,
                 peer_sharing_consent: sharing.peers,
                 coach_sharing_consent: sharing.coach,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

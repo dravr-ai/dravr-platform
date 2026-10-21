@@ -1080,6 +1080,8 @@ pub async fn handle_sync_provider(
         #[cfg(feature = "health-sync")]
         resources.repos.provider_connections.clone(),
         #[cfg(feature = "health-sync")]
+        resources.repos.groups.clone(),
+        #[cfg(feature = "health-sync")]
         resources.sync_orchestrator.clone(),
         #[cfg(feature = "health-sync")]
         resources.sync_notifier.clone(),

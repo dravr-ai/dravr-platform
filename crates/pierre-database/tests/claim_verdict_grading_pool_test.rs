@@ -13,7 +13,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{AgentCategory, CreateAgentRequest, Tenant, TenantId, User};
 use pierre_core::transport::TransportPolicy;
@@ -131,6 +131,7 @@ async fn join_group_sharing(
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: coach_sharing,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

@@ -30,12 +30,13 @@ use common::{create_test_server_resources, create_test_user_with_plan};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    UpdateGroupRequest,
 };
 use pierre_core::models::{
     ActivityBuilder, AgentCategory, ConnectionType, CreateAgentRequest, DataSource,
-    DelegatedConnection, DelegationEndReason, DelegationStatus, DeviceType, LinkConsents,
-    RosterAthlete, SportType, StoredSleepSession, TenantId, UserOAuthToken,
+    DelegatedConnection, DelegationEndReason, DelegationStatus, DeviceType, RosterAthlete,
+    SportType, StoredSleepSession, TenantId, UserOAuthToken,
 };
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -163,6 +164,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -204,13 +206,7 @@ impl World {
         let link = self.proposed(group, member, athlete).await;
         let link = repos
             .delegated_connections
-            .confirm(
-                link.id,
-                member,
-                member_tenant,
-                LinkConsents::default(),
-                Utc::now(),
-            )
+            .confirm(link.id, member, member_tenant, Utc::now())
             .await
             .unwrap()
             .expect("the member confirms their own proposal");

@@ -19,7 +19,8 @@ use chrono::Utc;
 use common::{create_test_database, create_test_user_with_email, create_test_user_with_plan};
 use pierre_chat_pipeline::stages::persona_conformance::coach_roster_scope;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    UpdateGroupRequest,
 };
 use pierre_core::models::{AgentCategory, CreateAgentRequest, TenantId};
 use pierre_database::backends::factory::Database;
@@ -118,6 +119,7 @@ async fn add_member(repos: &RepositoryRegistry, group: Uuid, user: Uuid, tenant:
             role: GroupRole::Member,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

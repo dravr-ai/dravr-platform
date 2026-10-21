@@ -39,7 +39,7 @@ use helpers::axum_test::AxumTestRequest;
 use helpers::recording_llm::RecordingProvider;
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{TenantId, AGENT_WELCOME_FINISH_REASON};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -321,6 +321,7 @@ async fn a_room_created_without_an_agent_stays_unbound() {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

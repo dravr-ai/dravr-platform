@@ -16,7 +16,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
 use pierre_core::models::agents::CreateAgentRequest;
-use pierre_core::models::groups::{GroupMember, GroupRole};
+use pierre_core::models::groups::{CoachConsents, GroupMember, GroupRole};
 use pierre_core::models::CreateGroupRequest;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_groups::strategies::tier::EnterpriseTierStrategy;
@@ -108,6 +108,7 @@ async fn add_member_sharing(
             role,
             peer_sharing_consent: shares,
             coach_sharing_consent: shares,
+            coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,
             left_at: None,

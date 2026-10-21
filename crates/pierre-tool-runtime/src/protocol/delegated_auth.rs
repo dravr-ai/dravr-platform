@@ -60,6 +60,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::protocol::auth::AuthService;
+use crate::protocol::coach_calendar::CoachSeat;
 use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::protocol::types::UniversalResponse;
 
@@ -465,12 +466,32 @@ impl AuthService {
                 return;
             }
         };
+        self.flag_coach(
+            platform,
+            CoachSeat {
+                coach_user_id: link.coach_user_id,
+                coach_tenant: link.coach_tenant_id,
+                link_id: Some(link.id),
+            },
+            attempt_started_at,
+        )
+        .await;
+    }
+
+    /// Flag the connection of the coach `seat` names after the platform
+    /// found the coach's credential dead, and tell the coach once.
+    async fn flag_coach(
+        &self,
+        platform: &dyn CoachPlatform,
+        seat: CoachSeat,
+        attempt_started_at: DateTime<Utc>,
+    ) {
         // The coach is the one who must reconnect, so the flag and its notice
         // are the coach's, under the coach's tenant.
         match flag_needs_reauth(
             self.runtime(),
-            link.coach_user_id,
-            link.coach_tenant_id,
+            seat.coach_user_id,
+            seat.coach_tenant,
             platform.backend(),
             DELEGATED_SESSION_EXPIRED,
             attempt_started_at,
@@ -478,18 +499,56 @@ impl AuthService {
         .await
         {
             Ok((mark, notice)) => info!(
-                link_id = %link.id,
-                coach_user_id = %link.coach_user_id,
+                link_id = ?seat.link_id,
+                coach_user_id = %seat.coach_user_id,
                 provider = platform.backend(),
                 ?mark,
                 notified = notice.claimed,
-                "Coach's coaching-platform credential found dead on a linked read"
+                "Coach's coaching-platform credential found dead on a coach's read or write"
             ),
             Err(e) => warn!(
-                link_id = %link.id,
+                link_id = ?seat.link_id,
                 error = %e,
                 "Could not flag the coach's dead coaching-platform credential"
             ),
+        }
+    }
+
+    /// React to a failed write or read a coach made of `athlete`'s calendar
+    /// in `athlete_tenant`, through `seat`, whose credential was read from
+    /// `attempt_started_at` on.
+    ///
+    /// Through a link, it reacts as every read through a link does
+    /// ([`Self::react_to_delegated_refusal`]). For an athlete who connects
+    /// the platform themselves there is no link to end: only a dead coach
+    /// credential is reacted to, by flagging the coach's own connection.
+    pub(crate) async fn react_to_coach_refusal(
+        &self,
+        athlete: Uuid,
+        athlete_tenant: TenantId,
+        seat: CoachSeat,
+        provider: &dyn CoreFitnessProvider,
+        error: &AppError,
+        attempt_started_at: DateTime<Utc>,
+    ) {
+        if seat.link_id.is_some() {
+            self.react_to_delegated_refusal(
+                athlete,
+                &athlete_tenant.to_string(),
+                provider,
+                error,
+                attempt_started_at,
+            )
+            .await;
+            return;
+        }
+        let Some(platform) = coach_platform(self.runtime().provider_registry(), provider.name())
+        else {
+            return;
+        };
+        if is_coach_credential_expired(error) {
+            self.flag_coach(platform.as_ref(), seat, attempt_started_at)
+                .await;
         }
     }
 

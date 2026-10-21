@@ -104,6 +104,7 @@ use crate::conversions::{
 };
 use crate::implementations::activity_summary::MAX_DESCRIPTION_CHARS;
 use crate::implementations::data_helpers::read_only_annotations;
+use crate::protocol::coach_calendar::CoachSeat;
 use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -405,6 +406,13 @@ async fn coach_read(
     Ok(Ok((reader, backends)))
 }
 
+/// A calendar's provider, with whose account it goes through when a coach
+/// reads it: `None` for the athlete's own read.
+struct Provider {
+    provider: Box<dyn CoreFitnessProvider>,
+    seat: Option<CoachSeat>,
+}
+
 /// Who a planned calendar is read for.
 #[derive(Debug)]
 enum Reader {
@@ -441,12 +449,12 @@ impl CalendarReader {
     ///
     /// Returns a repository error from the coach reader's decision, or the
     /// error of building it.
-    async fn provider(
-        &self,
-        backend: &str,
-    ) -> AppResult<Result<Box<dyn CoreFitnessProvider>, CalendarRead>> {
+    async fn provider(&self, backend: &str) -> AppResult<Result<Provider, CalendarRead>> {
         match self.reader {
-            Reader::Own => Ok(self.own_provider(backend).await),
+            Reader::Own => Ok(self.own_provider(backend).await.map(|provider| Provider {
+                provider,
+                seat: None,
+            })),
             Reader::Coach { coach, .. } => self.coach_provider(coach, backend).await,
         }
     }
@@ -482,8 +490,9 @@ impl CalendarReader {
         Err(CalendarRead::Refused { error, answer })
     }
 
-    /// `coach`'s reader of the athlete's calendar on `backend`, through the
-    /// link; else the refusal, named, that the read of it ends with.
+    /// `coach`'s reader of the athlete's calendar on `backend`, through their
+    /// link or their own connection; else the refusal, named, that the read
+    /// of it ends with.
     ///
     /// # Errors
     ///
@@ -493,12 +502,16 @@ impl CalendarReader {
         &self,
         coach: Uuid,
         backend: &str,
-    ) -> AppResult<Result<Box<dyn CoreFitnessProvider>, CalendarRead>> {
+    ) -> AppResult<Result<Provider, CalendarRead>> {
         Ok(self
             .executor
             .auth_service
             .coach_planned_reader(coach, self.user_id, self.tenant, backend)
             .await?
+            .map(|reader| Provider {
+                provider: reader.provider,
+                seat: Some(reader.seat),
+            })
             .map_err(|refused| CalendarRead::Refused {
                 answer: json!({
                     "reason": refused.reason,
@@ -519,7 +532,7 @@ impl CalendarReader {
     async fn read(&self, backend: &str) -> AppResult<CalendarRead> {
         let name = user_facing_name(backend);
         let attempt_started_at = Utc::now();
-        let provider = match self.provider(backend).await? {
+        let Provider { provider, seat } = match self.provider(backend).await? {
             Ok(provider) => provider,
             Err(ended) => return Ok(ended),
         };
@@ -527,16 +540,30 @@ impl CalendarReader {
             match provider.list_planned_workouts(self.start, self.end).await {
                 Ok(workouts) => CalendarRead::Planned(workouts),
                 Err(e) => {
-                    self.executor
-                        .auth_service
-                        .react_to_delegated_refusal(
-                            self.user_id,
-                            &self.tenant.to_string(),
-                            provider.as_ref(),
-                            &e,
-                            attempt_started_at,
-                        )
-                        .await;
+                    let auth = &self.executor.auth_service;
+                    match seat {
+                        Some(seat) => {
+                            auth.react_to_coach_refusal(
+                                self.user_id,
+                                self.tenant,
+                                seat,
+                                provider.as_ref(),
+                                &e,
+                                attempt_started_at,
+                            )
+                            .await;
+                        }
+                        None => {
+                            auth.react_to_delegated_refusal(
+                                self.user_id,
+                                &self.tenant.to_string(),
+                                provider.as_ref(),
+                                &e,
+                                attempt_started_at,
+                            )
+                            .await;
+                        }
+                    }
                     if e.code == ErrorCode::ProviderAuthRequired {
                         return Ok(CalendarRead::Reconnect(e));
                     }

@@ -18,10 +18,10 @@
 //! is detached or disconnects). A revoked row is terminal: a new proposal is a
 //! new row, and the revoked one stays so its history can be read back.
 //!
-//! Beyond the read, a confirmed link carries the member's own consents
-//! ([`LinkConsents`]): whether the link's coach writes their training
-//! calendar, and whether their wellness syncs through the coach's account.
-//! Each is off until the member grants it, and only the member changes it.
+//! A link only binds the athlete to the member. What the member lets their
+//! coach do beyond the read (write their training calendar, sync their
+//! wellness through the coach's account) lives on their coach relationship
+//! ([`crate::models::groups::CoachConsents`]), not on the link.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -173,33 +173,6 @@ pub struct DelegatedConnection {
     pub revoked_by: Option<Uuid>,
     /// Why it ended.
     pub revoke_reason: Option<DelegationEndReason>,
-    /// Whether the member lets the link's coach write their training calendar
-    /// on the platform. Off until the member grants it, at confirm or on the
-    /// confirmed link; only the member changes it.
-    pub calendar_write: bool,
-    /// When the member last granted or revoked `calendar_write`; `None` while
-    /// it was never granted.
-    pub calendar_write_at: Option<DateTime<Utc>>,
-    /// Whether the member lets their wellness (sleep, HRV, resting heart
-    /// rate, weight, daily note) sync through the coach's account. Off until
-    /// the member grants it; only the member changes it.
-    pub wellness_read: bool,
-    /// When the member last granted or revoked `wellness_read`; `None` while
-    /// it was never granted.
-    pub wellness_read_at: Option<DateTime<Utc>>,
-}
-
-/// What a member lets a confirmed link do beyond reading their workouts.
-///
-/// Each consent is the member's alone and off until they grant it; the
-/// default grants nothing.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct LinkConsents {
-    /// The link's coach writes the member's training calendar on the
-    /// platform.
-    pub calendar_write: bool,
-    /// The member's wellness syncs through the coach's account.
-    pub wellness_read: bool,
 }
 
 /// What the coach's provider account may do with a roster athlete's data, as
@@ -309,10 +282,6 @@ impl DelegatedConnection {
             revoked_at: None,
             revoked_by: None,
             revoke_reason: None,
-            calendar_write: false,
-            calendar_write_at: None,
-            wellness_read: false,
-            wellness_read_at: None,
         }
     }
 }
@@ -320,29 +289,6 @@ impl DelegatedConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_fresh_proposal_holds_no_consent() {
-        let link = DelegatedConnection::propose(
-            "intervals_icu".to_owned(),
-            Uuid::new_v4(),
-            Uuid::new_v4(),
-            TenantId::generate(),
-            Uuid::new_v4(),
-            RosterAthlete::new("i201", None, Some("alex@links.test".to_owned())),
-        );
-        assert!(!link.calendar_write);
-        assert!(!link.wellness_read);
-        assert_eq!(link.calendar_write_at, None);
-        assert_eq!(link.wellness_read_at, None);
-        assert_eq!(
-            LinkConsents::default(),
-            LinkConsents {
-                calendar_write: false,
-                wellness_read: false,
-            }
-        );
-    }
 
     #[test]
     fn a_roster_athlete_stored_without_access_reads_as_unreported() -> serde_json::Result<()> {

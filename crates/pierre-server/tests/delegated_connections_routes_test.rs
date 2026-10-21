@@ -43,7 +43,8 @@ use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, UpdateGroupRequest,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    UpdateGroupRequest,
 };
 use pierre_core::models::{
     AgentCategory, ConnectionType, CreateAgentRequest, DelegatedConnection, DelegationEndReason,
@@ -311,6 +312,7 @@ async fn world(roster_reads: Calls, dropped: Dropped) -> World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -1060,10 +1062,29 @@ fn assert_consents(link: &Value, expected: [bool; 4]) {
     );
 }
 
-const CONSENTS_MEMBER_ONLY: &str = "Only the member a link names can change what it shares";
+const CONSENTS_MEMBER_ONLY: &str = "Only a member decides what their coach may do";
 
 /// No consent of a TrainingPeaks link: nothing granted, nothing offered.
 const NO_CONSENT: [bool; 4] = [false; 4];
+
+impl World {
+    fn coach_consents_path(&self) -> String {
+        format!("/api/groups/{}/members/me/coach-consents", self.group)
+    }
+
+    /// `member`'s coach consents as stored on their membership.
+    async fn coach_consents(&self, member: &Person) -> CoachConsents {
+        self.res
+            .common
+            .repos
+            .groups
+            .get_member(&self.group.to_string(), member.id)
+            .await
+            .unwrap()
+            .expect("a live member")
+            .coach_consents
+    }
+}
 
 /// TrainingPeaks takes no calendar write and its coach session reads no
 /// wellness, so a link there offers neither consent: a confirm with no body,
@@ -1077,13 +1098,15 @@ async fn a_bodyless_confirm_grants_nothing(w: &World) {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "confirmed");
     assert_consents(&body, NO_CONSENT);
+    assert_eq!(w.coach_consents(&w.m2).await, CoachConsents::default());
     let (status, _) = w.end(&link, &w.coach).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
-/// Grants the platform does not offer are ignored, never stored, at confirm
-/// and on the confirmed link, and only the member a confirmed link names may
-/// change it.
+/// Grants the link's platform does not offer are ignored at confirm, never
+/// stored on the member's relationship; the link carries no consent of its
+/// own, so its per-link consent route is gone; and only the member changes
+/// their consents: the coach is refused, an outsider is no member.
 async fn unoffered_grants_are_ignored_and_only_the_member_changes_them(w: &World) {
     let link = proposed_to_m2(w).await;
     let both = json!({ "calendar_write": true, "wellness_read": true });
@@ -1092,51 +1115,60 @@ async fn unoffered_grants_are_ignored_and_only_the_member_changes_them(w: &World
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, NO_CONSENT);
-    let stored = w.stored(&link).await;
-    assert!(!stored.calendar_write && !stored.wellness_read);
-    assert_eq!(stored.calendar_write_at, None);
+    assert_eq!(
+        w.coach_consents(&w.m2).await,
+        CoachConsents::default(),
+        "a TrainingPeaks link offers no consent, so its confirm grants none"
+    );
 
-    let consents_path = format!("{}/{link}/consents", w.links_path());
-    let revoke = json!({ "calendar_write": false });
-    for who in [&w.coach, &w.m1, &w.outsider] {
-        assert_denied(
-            w.send(
-                AxumTestRequest::put(&consents_path),
-                &who.auth,
-                Some(&revoke),
-            )
-            .await,
-            CONSENTS_MEMBER_ONLY,
-        );
-    }
-    let (status, body) = w
+    let (status, _) = w
         .send(
-            AxumTestRequest::put(&consents_path),
+            AxumTestRequest::put(&format!("{}/{link}/consents", w.links_path())),
             &w.m2.auth,
             Some(&both),
         )
         .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_consents(&body, NO_CONSENT);
-    let (status, _) = w.end(&link, &w.coach).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-}
+    assert!(
+        status == StatusCode::NOT_FOUND || status == StatusCode::METHOD_NOT_ALLOWED,
+        "a link carries no consent: {status}"
+    );
 
-/// A proposal takes no change, and a grant is refused over an API key before
-/// anything is written, at confirm and on the confirmed link; a revoke is
-/// not.
-async fn an_api_key_never_grants_and_a_proposal_takes_no_change(w: &World) {
     let revoke = json!({ "calendar_write": false });
-    let link = proposed_to_m2(w).await;
-    let consents_path = format!("{}/{link}/consents", w.links_path());
+    assert_denied(
+        w.send(
+            AxumTestRequest::put(&w.coach_consents_path()),
+            &w.coach.auth,
+            Some(&revoke),
+        )
+        .await,
+        CONSENTS_MEMBER_ONLY,
+    );
     let (status, body) = w
         .send(
-            AxumTestRequest::put(&consents_path),
-            &w.m2.auth,
+            AxumTestRequest::put(&w.coach_consents_path()),
+            &w.outsider.auth,
             Some(&revoke),
         )
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    let (status, body) = w
+        .send(
+            AxumTestRequest::get(&w.coach_consents_path()),
+            &w.m2.auth,
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["wellness_read_supported"], false, "{body}");
+    let (status, _) = w.end(&link, &w.coach).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+/// A grant is refused over an API key before anything is written, at
+/// confirm and on the member's relationship; a revoke is not.
+async fn an_api_key_never_grants(w: &World) {
+    let revoke = json!({ "calendar_write": false });
+    let link = proposed_to_m2(w).await;
     let key = api_key(&w.res, w.m2.id).await;
     let grant = json!({ "wellness_read": true });
     assert_refused(
@@ -1164,13 +1196,22 @@ async fn an_api_key_never_grants_and_a_proposal_takes_no_change(w: &World) {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_consents(&body, NO_CONSENT);
     assert_refused(
-        w.send(AxumTestRequest::put(&consents_path), &key, Some(&grant))
-            .await,
+        w.send(
+            AxumTestRequest::put(&w.coach_consents_path()),
+            &key,
+            Some(&json!({ "calendar_write": true })),
+        )
+        .await,
         StatusCode::FORBIDDEN,
         "consent_grant_needs_app",
     );
+    assert!(!w.coach_consents(&w.m2).await.calendar_write);
     let (status, body) = w
-        .send(AxumTestRequest::put(&consents_path), &key, Some(&revoke))
+        .send(
+            AxumTestRequest::put(&w.coach_consents_path()),
+            &key,
+            Some(&revoke),
+        )
         .await;
     assert_eq!(
         status,
@@ -1353,7 +1394,7 @@ async fn a_coach_links_trainingpeaks_athletes_and_members_answer() {
     the_coach_withdraws_and_revokes(&w).await;
     a_bodyless_confirm_grants_nothing(&w).await;
     unoffered_grants_are_ignored_and_only_the_member_changes_them(&w).await;
-    an_api_key_never_grants_and_a_proposal_takes_no_change(&w).await;
+    an_api_key_never_grants(&w).await;
     a_roster_drop_ends_the_link_and_tells_both_sides(&w).await;
     a_live_roster_read_ends_a_proposal_off_the_roster(&w).await;
     an_inactive_group_admits_nobody(&w).await;

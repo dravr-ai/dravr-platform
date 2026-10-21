@@ -21,7 +21,7 @@ use crate::helpers::sciotte_mock::seed_sciotte_session;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_chat_pipeline::stages::viz_blocks::DEFAULT_VISUALS;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, Pillar, SportType, Tenant, TenantId, User,
@@ -1004,6 +1004,7 @@ pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
                 role,
                 peer_sharing_consent: true,
                 coach_sharing_consent: true,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

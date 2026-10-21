@@ -19,7 +19,7 @@ use crate::common;
 use chrono::Utc;
 use common::{create_test_database, create_test_user_with_plan};
 use pierre_core::models::{
-    DelegatedConnection, DelegationEndReason, LinkConsents, RosterAthlete, TenantId, UserOAuthToken,
+    DelegatedConnection, DelegationEndReason, RosterAthlete, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
@@ -168,13 +168,7 @@ impl Fixture {
     async fn confirm(&self, link: &DelegatedConnection, member_tenant: TenantId) {
         self.repos
             .delegated_connections
-            .confirm(
-                link.id,
-                link.member_user_id,
-                member_tenant,
-                LinkConsents::default(),
-                Utc::now(),
-            )
+            .confirm(link.id, link.member_user_id, member_tenant, Utc::now())
             .await
             .unwrap()
             .expect("the member confirms their own proposal");

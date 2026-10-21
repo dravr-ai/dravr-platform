@@ -22,9 +22,10 @@
 //!    In the coach's thread bound to one athlete, that athlete is the one
 //!    written for with no `athlete` named, and every rule here applies to them
 //!    exactly as to a named one;
-//! 4. writes through the link's own coach writer
-//!    ([`AuthService::coach_calendar_writer`]): the caller's own link, the
-//!    athlete's `calendar_write` consent, and Coach access on the platform.
+//! 4. writes through the coach's writer
+//!    ([`AuthService::coach_calendar_writer`]): the athlete reached through
+//!    the caller's own link or their own connection, their `calendar_write`
+//!    consent to the coach, and Coach access on the platform.
 //!
 //! What a coach writes keeps the athlete's side whole: the calendar target
 //! comes from the athlete's connections, "today" from the athlete's clock,
@@ -54,6 +55,7 @@ use super::plan_scope::{resolve_plan_scope, PlanScopeRequest, PlanWriter};
 use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
+use crate::protocol::coach_calendar::CoachSeat;
 
 /// The `athlete` property the three calendar-write tools share.
 pub(super) fn athlete_property() -> PropertySchema {
@@ -62,7 +64,7 @@ pub(super) fn athlete_property() -> PropertySchema {
         description: Some(
             "Roster display name of the athlete whose calendar this writes. Only the group's \
              human coach (attached via a coach invite) may set it, for a consenting athlete in a \
-             group they coach whose coaching-platform link allows calendar writes, from Dravr's \
+             group they coach who allowed their coach calendar writes, from Dravr's \
              own app or channels and from a direct chat — never in a room. In the coach's thread \
              about one athlete it defaults to that athlete; elsewhere, omit it to write your own \
              calendar."
@@ -92,7 +94,7 @@ fn human_coach_writes(context: &ToolExecutionContext, backend: &str) -> ToolResu
         "human_coach_writes_calendar",
         &format!(
             "Your {brand} calendar is read through your human coach's link, so only that coach \
-             writes it, from Dravr, once you allow calendar writes on the link in the group. \
+             writes it, from Dravr, once you allow calendar writes for your human coach in the group. \
              Ask them to make the change. Connecting {brand} yourself would end that link."
         ),
     )
@@ -157,8 +159,8 @@ pub(super) struct CalendarScope {
     pub(super) writer: PlanWriter,
     /// The athlete's display name on the coach path; `None` in self scope.
     acting_for: Option<String>,
-    /// The link the coach's writer goes through, once it is built.
-    link_id: Option<Uuid>,
+    /// Whose account the coach's writer goes through, once it is built.
+    seat: Option<CoachSeat>,
     /// When the coach's credential was read for the writer.
     credential_read_at: Option<DateTime<Utc>>,
 }
@@ -238,7 +240,7 @@ pub(super) async fn resolve_calendar_scope(
         user_id: scope.user_id,
         writer: scope.writer,
         acting_for: scope.acting_for,
-        link_id: None,
+        seat: None,
         credential_read_at: None,
     }))
 }
@@ -347,7 +349,7 @@ impl CalendarScope {
             .await?
         {
             Ok(writer) => {
-                self.link_id = Some(writer.link_id);
+                self.seat = Some(writer.seat);
                 Ok(Ok(writer.provider))
             }
             Err(refused) => Ok(Err(refusal(refused.reason, &refused.message))),
@@ -355,36 +357,34 @@ impl CalendarScope {
     }
 
     /// `result`, a write or read of the athlete's calendar through
-    /// `provider`, once its failure is reacted to as a read through the link
-    /// reacts: a dead coach credential flags the coach's connection, an
-    /// athlete the platform no longer lets the coach read ends the link. A
-    /// refused write ends nothing. Nothing is reacted to in self scope.
+    /// `provider`, once its failure is reacted to
+    /// ([`AuthService::react_to_coach_refusal`]): a dead coach credential
+    /// flags the coach's connection, an athlete the platform no longer lets
+    /// the coach read ends their link. A refused write ends nothing. Nothing
+    /// is reacted to in self scope.
     pub(super) async fn reacting<T>(
         &self,
         context: &ToolExecutionContext,
         provider: &dyn FitnessProvider,
         result: AppResult<T>,
     ) -> AppResult<T> {
-        if let (Some(started), Err(error)) = (self.credential_read_at, &result) {
+        if let (Some(started), Some(seat), Err(error)) =
+            (self.credential_read_at, self.seat, &result)
+        {
             AuthService::new(context.resources.clone())
-                .react_to_delegated_refusal(
-                    self.user_id,
-                    &self.tenant.to_string(),
-                    provider,
-                    error,
-                    started,
-                )
+                .react_to_coach_refusal(self.user_id, self.tenant, seat, provider, error, started)
                 .await;
         }
         result
     }
 
     /// Log the `rows` ledger rows `tool` wrote on the coach path, by the link
-    /// and the coach who wrote them. Nothing is logged in self scope.
+    /// (none for an athlete who connects the platform themselves) and the
+    /// coach who wrote them. Nothing is logged in self scope.
     pub(super) fn record_coach_write(&self, tool: &str, rows: usize) {
-        if let Some(link_id) = self.link_id {
+        if let Some(seat) = self.seat {
             info!(
-                link_id = %link_id,
+                link_id = ?seat.link_id,
                 coach_user_id = %self.writer.user_id,
                 tool,
                 rows,

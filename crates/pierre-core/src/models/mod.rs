@@ -144,8 +144,7 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 // Athlete domain
 pub use athlete::{Athlete, PeriodTotals, Stats, StatsCoverage};
 pub use delegated_connection::{
-    DelegatedConnection, DelegationEndReason, DelegationStatus, LinkConsents, RosterAccess,
-    RosterAthlete,
+    DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAccess, RosterAthlete,
 };
 pub use units::UnitSystem;
 
@@ -341,10 +340,10 @@ pub mod groups;
 /// Notification screen vocabulary — the app-side destinations a push notification names
 pub mod notifications;
 pub use groups::{
-    CoachingGroup, CreateGroupRequest, FreshMember, GroupAggregateStats, GroupContext,
-    GroupHealthFlag, GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock,
-    GroupTranscriptEntry, GroupTrend, GroupWeeklyReport, HealthFlagSeverity, MemberFitnessSnapshot,
-    MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry, OvertrainingRiskLevel,
-    SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
+    CoachConsents, CoachingGroup, CreateGroupRequest, FreshMember, GroupAggregateStats,
+    GroupContext, GroupHealthFlag, GroupInvite, GroupMember, GroupRole, GroupSummary,
+    GroupSummaryBlock, GroupTranscriptEntry, GroupTrend, GroupWeeklyReport, HealthFlagSeverity,
+    MemberFitnessSnapshot, MemberFlag, MemberSummaryCard, NewGroupTranscriptEntry,
+    OvertrainingRiskLevel, SummaryDetailLevel, TranscriptSpeaker, UpdateGroupRequest,
 };
 pub use notifications::NotificationScreen;

@@ -151,6 +151,7 @@ async fn strava_oauth_with_stamped_last_sync_but_cold_cache_is_stale() {
         &repos.auth_repos(),
         repos.activity_cache.clone(),
         repos.provider_connections.clone(),
+        repos.groups.clone(),
         Some(orchestrator),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );
@@ -224,6 +225,7 @@ async fn strava_oauth_with_fresh_activity_cache_is_fresh() {
         &repos.auth_repos(),
         repos.activity_cache.clone(),
         repos.provider_connections.clone(),
+        repos.groups.clone(),
         Some(orchestrator),
         Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
     );

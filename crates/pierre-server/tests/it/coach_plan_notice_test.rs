@@ -53,11 +53,11 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+    CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    ConnectionType, DelegatedConnection, LinkConsents, RosterAthlete, TenantId, UserOAuthToken,
+    ConnectionType, DelegatedConnection, RosterAthlete, TenantId, UserOAuthToken,
     API_KEY_TOKEN_TYPE,
 };
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -449,6 +449,7 @@ impl World {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: true,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,
@@ -459,8 +460,8 @@ impl World {
     }
 
     /// A confirmed Intervals.icu link of the coach's for roster athlete
-    /// `athlete` as `member`, allowing calendar writes, with the connection
-    /// it registers.
+    /// `athlete` as `member`, with the connection it registers; the member
+    /// allows the coach calendar writes on their coach relationship.
     async fn link(&self, member: &Person, athlete: &str) -> DelegatedConnection {
         let repos = self.repos();
         let proposed = repos
@@ -478,16 +479,7 @@ impl World {
             .expect("no live link holds this member or athlete yet");
         let link = repos
             .delegated_connections
-            .confirm(
-                proposed.id,
-                member.id,
-                member.tenant,
-                LinkConsents {
-                    calendar_write: true,
-                    wellness_read: false,
-                },
-                Utc::now(),
-            )
+            .confirm(proposed.id, member.id, member.tenant, Utc::now())
             .await
             .unwrap()
             .expect("the proposal names the member");
@@ -502,6 +494,18 @@ impl World {
             )
             .await
             .unwrap();
+        repos
+            .groups
+            .set_coach_consents(
+                &self.group.id.to_string(),
+                member.id,
+                Some(true),
+                None,
+                Utc::now(),
+            )
+            .await
+            .unwrap()
+            .expect("the member is in the group");
         link
     }
 

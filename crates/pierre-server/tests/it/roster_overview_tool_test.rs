@@ -21,7 +21,7 @@ mod roster_overview_tests {
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
-        CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
+        CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     };
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
@@ -160,6 +160,7 @@ mod roster_overview_tests {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: coach_consent,
+                coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
                 left_at: None,

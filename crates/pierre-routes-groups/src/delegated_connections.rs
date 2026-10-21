@@ -1,5 +1,5 @@
-// ABOUTME: Delegated-connection routes: a group's coach links coaching-platform roster athletes to members, who confirm
-// ABOUTME: List, roster, propose, confirm, consents and end under /api/groups/{group_id}/delegated-connections
+// ABOUTME: Delegated-connection and coach-consent routes: a group's coach links platform roster athletes to members, who confirm
+// ABOUTME: List, roster, propose, confirm and end a link; a member reads and sets what their coach may do, under /api/groups/{group_id}
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,12 +10,13 @@
 //! platform (`TrainingPeaks`, Intervals.icu) through the coach's own account
 //! there. The coach lists their roster and proposes which athlete is which
 //! member; the member confirms, which is their consent to the read; either
-//! side ends a link. What a confirmed link shares beyond the read (the coach
-//! writing the member's calendar, the member's wellness syncing) the member
-//! alone grants, at confirm or later, and revokes. The rules of
-//! each step live in [`pierre_services::delegated_connections`] and
-//! [`pierre_services::delegated_link_consents`]; this module decides who may
-//! take it.
+//! side ends a link. What the member lets their coach do beyond the read (the
+//! coach writing their calendar, their wellness syncing through the coach's
+//! account) lives on their coach relationship, not on a link: the member alone
+//! grants it, as they confirm a link or at any time on their membership
+//! (`/members/me/coach-consents`), and revokes it. The rules of each step
+//! live in [`pierre_services::delegated_connections`] and
+//! [`pierre_services::coach_consents`]; this module decides who may take it.
 //!
 //! Every handler reads the group without regard to tenant — groups span
 //! tenants — and refuses an archived one. Who may act is a user key: the
@@ -29,28 +30,28 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::Utc;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::groups::CoachingGroup;
-use pierre_core::models::{DelegatedConnection, DelegationStatus, LinkConsents, TenantId, User};
+use pierre_core::models::groups::{CoachConsents, CoachingGroup};
+use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, User};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::coach_consents::{
+    consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
+    wellness_read_skipped, ConsentChange, ConsentOffer, WellnessReadSkip,
+};
 use pierre_services::coach_platform::{check_roster_transport, roster_platform};
 use pierre_services::delegated_connections::{
     confirm, end, person_name, propose, roster_for_group, unbound_link_reason, DelegationServices,
     Proposal, RosterEntry,
-};
-use pierre_services::delegated_link_consents::{
-    consent_offer, set_link_consents, wellness_read_skipped, ConsentChange, ConsentOffer,
-    WellnessReadSkip,
 };
 use pierre_services::delegated_read::OwnLogins;
 use pierre_services::trainingpeaks_accounts::link_binding;
@@ -102,17 +103,17 @@ pub struct DelegatedConnectionResponse {
     /// again: `athlete_email_missing`, `athlete_email_mismatch` or
     /// `member_email_unverified`. `None` while it reads, and for a proposal.
     pub read_refused: Option<String>,
-    /// Whether the member lets the link's coach write their training
-    /// calendar on the platform
+    /// Whether the member lets their coach write their training calendar,
+    /// read from their coach relationship: the link carries no consent
     pub calendar_write: bool,
-    /// Whether the platform takes a coach's calendar writes, so the link can
-    /// ask the member for them
+    /// Whether the link's platform takes a coach's calendar writes, so the
+    /// member's `calendar_write` applies to it
     pub calendar_write_supported: bool,
     /// Whether the member lets their wellness sync through the coach's
-    /// account
+    /// account, read from their coach relationship
     pub wellness_read: bool,
-    /// Whether the coach's account reads wellness on the platform, so the
-    /// link can ask the member for it
+    /// Whether the coach's account reads wellness on the link's platform, so
+    /// the member's `wellness_read` applies to it
     pub wellness_read_supported: bool,
     /// Why the link syncs none of the member's wellness: a source of their
     /// own already gives Dravr it (`own_connection`, `own_wellness_source`).
@@ -199,17 +200,43 @@ pub struct ConfirmDelegatedConnectionRequest {
     pub wellness_read: bool,
 }
 
-/// The member grants or revokes what a confirmed link shares. A consent left
-/// out stays as it stands; one the platform does not offer is ignored
+/// The member grants or revokes what their group's coach may do. A consent
+/// left out stays as it stands; a grant the relationship does not offer is
+/// ignored
 #[derive(Debug, Deserialize, Default)]
-pub struct UpdateDelegatedConnectionConsentsRequest {
+pub struct UpdateCoachConsentsRequest {
     /// Grant (`true`) or revoke (`false`) the coach's calendar writes
     #[serde(default)]
     pub calendar_write: Option<bool>,
     /// Grant (`true`) or revoke (`false`) the wellness sync; a revoke deletes
-    /// the wellness the link synced
+    /// the wellness the member's links synced
     #[serde(default)]
     pub wellness_read: Option<bool>,
+}
+
+/// What a member lets their group's coach do beyond reading their training,
+/// and what the relationship offers
+#[derive(Debug, Serialize)]
+pub struct CoachConsentsResponse {
+    /// The group's coach writes the member's training calendar on a
+    /// coaching platform
+    pub calendar_write: bool,
+    /// When the member last granted or revoked `calendar_write` (RFC 3339)
+    pub calendar_write_at: Option<String>,
+    /// Whether the group has a coach and a coaching platform takes a coach's
+    /// calendar writes, so the member can be asked for them
+    pub calendar_write_supported: bool,
+    /// The member's wellness syncs through the coach's account
+    pub wellness_read: bool,
+    /// When the member last granted or revoked `wellness_read` (RFC 3339)
+    pub wellness_read_at: Option<String>,
+    /// Whether the member reads a platform through a confirmed link whose
+    /// coach credential reads wellness, so they can be asked for it
+    pub wellness_read_supported: bool,
+    /// Why the member's links sync none of their wellness whatever they
+    /// grant: a source of their own already gives Dravr it
+    /// (`own_connection`, `own_wellness_source`); `None` when nothing does
+    pub wellness_read_skipped: Option<String>,
 }
 
 /// Query for the roster read
@@ -249,8 +276,8 @@ impl DelegatedConnectionRoutes {
                 post(Self::handle_confirm::<C>),
             )
             .route(
-                "/api/groups/{group_id}/delegated-connections/{connection_id}/consents",
-                put(Self::handle_set_consents::<C>),
+                "/api/groups/{group_id}/members/me/coach-consents",
+                get(Self::handle_get_coach_consents::<C>).put(Self::handle_set_coach_consents::<C>),
             )
             .route(
                 "/api/groups/{group_id}/delegated-connections/{connection_id}",
@@ -339,9 +366,10 @@ impl DelegatedConnectionRoutes {
 
     /// Each link as `viewer` sees it, naming its coach and its member, why a
     /// confirmed one reads nothing when its athlete is not its member by
-    /// email, the consents it carries and its platform offers, and why its
-    /// wellness syncs nothing when a source of the member's own wins: to the
-    /// coach only on a link whose member shared their wellness.
+    /// email, the member's coach consents and which of them its platform
+    /// takes, and why its wellness syncs nothing when a source of the
+    /// member's own wins: to the coach only once the member shared their
+    /// wellness.
     async fn responses(
         repos: &RepositoryRegistry,
         registry: &ProviderRegistry,
@@ -362,8 +390,9 @@ impl DelegatedConnectionRoutes {
             } else {
                 None
             };
-            let offer = consent_offer(registry, &link.provider);
-            let shown = viewer == DelegationViewer::Member || link.wellness_read;
+            let consents = link_consents(repos.groups.as_ref(), link).await?;
+            let offer = link_offer(registry, link);
+            let shown = viewer == DelegationViewer::Member || consents.wellness_read;
             let skipped = if offer.wellness_read && shown {
                 wellness_read_skipped(OwnLogins::of(repos), link).await?
             } else {
@@ -372,6 +401,7 @@ impl DelegatedConnectionRoutes {
             responses.push(Self::response(
                 link,
                 &users,
+                consents,
                 offer,
                 read_refused,
                 skipped.map(WellnessReadSkip::as_str),
@@ -383,6 +413,7 @@ impl DelegatedConnectionRoutes {
     fn response(
         link: &DelegatedConnection,
         users: &HashMap<Uuid, User>,
+        consents: CoachConsents,
         offer: ConsentOffer,
         read_refused: Option<&str>,
         wellness_read_skipped: Option<&str>,
@@ -410,9 +441,9 @@ impl DelegatedConnectionRoutes {
             proposed_at: link.proposed_at.to_rfc3339(),
             confirmed_at: link.confirmed_at.map(|at| at.to_rfc3339()),
             read_refused: read_refused.map(str::to_owned),
-            calendar_write: link.calendar_write,
+            calendar_write: consents.calendar_write,
             calendar_write_supported: offer.calendar_write,
-            wellness_read: link.wellness_read,
+            wellness_read: consents.wellness_read,
             wellness_read_supported: offer.wellness_read,
             wellness_read_skipped: wellness_read_skipped.map(str::to_owned),
         })
@@ -594,10 +625,7 @@ impl DelegatedConnectionRoutes {
         }
 
         let body = body.map(|Json(body)| body).unwrap_or_default();
-        let requested = LinkConsents {
-            calendar_write: body.calendar_write,
-            wellness_read: body.wellness_read,
-        };
+        let requested = ConsentChange::grants(body.calendar_write, body.wellness_read);
         let confirmed =
             confirm(Self::services(&resources), &group, &link, tenant, requested).await?;
         Self::spawn_warm_up(
@@ -614,47 +642,108 @@ impl DelegatedConnectionRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// PUT `/api/groups/:group_id/delegated-connections/:connection_id/consents`
-    /// — the member a confirmed link names grants or revokes what it shares
-    /// beyond the read. A grant is taken only from Dravr's own app; a revoke
-    /// from anywhere.
-    async fn handle_set_consents<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
+    /// The coach consents of `member` in `group`, as the member reads them.
+    async fn coach_consents_response(
+        repos: &RepositoryRegistry,
+        registry: &ProviderRegistry,
+        group: &CoachingGroup,
+        consents: CoachConsents,
+        member: Uuid,
+    ) -> Result<CoachConsentsResponse, AppError> {
+        let offer = consent_offer(repos, registry, group, member).await?;
+        let mut skipped = None;
+        if offer.wellness_read {
+            let links = repos
+                .delegated_connections
+                .list_live_for_member_in_group(group.id, member)
+                .await?;
+            for link in links.iter().filter(|link| {
+                link.status == DelegationStatus::Confirmed && link_reads_wellness(registry, link)
+            }) {
+                skipped = wellness_read_skipped(OwnLogins::of(repos), link).await?;
+                if skipped.is_none() {
+                    break;
+                }
+            }
+        }
+        Ok(CoachConsentsResponse {
+            calendar_write: consents.calendar_write,
+            calendar_write_at: consents.calendar_write_at.map(|at| at.to_rfc3339()),
+            calendar_write_supported: offer.calendar_write,
+            wellness_read: consents.wellness_read,
+            wellness_read_at: consents.wellness_read_at.map(|at| at.to_rfc3339()),
+            wellness_read_supported: offer.wellness_read,
+            wellness_read_skipped: skipped.map(|skip| skip.as_str().to_owned()),
+        })
+    }
+
+    /// GET `/api/groups/:group_id/members/me/coach-consents` — what the
+    /// caller, a live member, lets the group's coach do beyond reading their
+    /// training, and what the relationship offers.
+    async fn handle_get_coach_consents<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
-        Path((group_id, connection_id)): Path<(String, String)>,
-        Json(body): Json<UpdateDelegatedConnectionConsentsRequest>,
+        Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let (group, _) = Self::open_group(&resources, &auth, &group_id).await?;
-        let connection_id = Self::connection_id(&connection_id)?;
         let repos = MiddlewareCtx::repos(resources.as_ref());
-
-        let Some(link) = Self::own_link(repos, &group, connection_id, auth.user_id).await? else {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Only the member a link names can change what it shares",
-            ));
-        };
-        if link.status != DelegationStatus::Confirmed {
-            return Err(AppError::not_found("Confirmed link"));
-        }
-
+        let member = repos
+            .groups
+            .get_member(&group.id.to_string(), auth.user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group member"))?;
         let registry = ToolRuntime::provider_registry(resources.as_ref());
-        let updated = set_link_consents(
+        let response = Self::coach_consents_response(
             repos,
             registry,
             &group,
-            &link,
+            member.coach_consents,
+            auth.user_id,
+        )
+        .await?;
+        Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// PUT `/api/groups/:group_id/members/me/coach-consents` — the caller, a
+    /// live member, grants or revokes what the group's coach may do beyond
+    /// reading their training. A grant is taken only from Dravr's own app; a
+    /// revoke from anywhere.
+    async fn handle_set_coach_consents<C: ToolRuntime + GroupsCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path(group_id): Path<String>,
+        Json(body): Json<UpdateCoachConsentsRequest>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let (group, _) = Self::open_group(&resources, &auth, &group_id).await?;
+        if group.coach_user_id == Some(auth.user_id) {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Only a member decides what their coach may do",
+            ));
+        }
+        let repos = MiddlewareCtx::repos(resources.as_ref());
+        let registry = ToolRuntime::provider_registry(resources.as_ref());
+        let updated = set_coach_consents(
+            repos,
+            registry,
+            &group,
+            auth.user_id,
             ConsentChange {
                 calendar_write: body.calendar_write,
                 wellness_read: body.wellness_read,
             },
         )
         .await?;
-        let response = Self::responses(repos, registry, &[updated], DelegationViewer::Member)
-            .await?
-            .pop()
-            .ok_or_else(|| AppError::internal("Updated link has no response"))?;
+        let response = Self::coach_consents_response(
+            repos,
+            registry,
+            &group,
+            updated.coach_consents,
+            auth.user_id,
+        )
+        .await?;
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 

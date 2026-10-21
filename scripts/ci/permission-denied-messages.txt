@@ -60,9 +60,9 @@ crates/pierre-routes-auth/src/account_deletion.rs:An account can only be deleted
 crates/pierre-routes-auth/src/account_deletion.rs:An operator account is removed by another operator
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
 crates/pierre-routes-auth/src/signup_guards.rs:We could not confirm you are not a bot. Complete the check again, then retry.
+crates/pierre-routes-groups/src/delegated_connections.rs:Only a member decides what their coach may do
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach can link coaching-platform athletes
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the group's coach or the linked member can end this link
-crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can change what it shares
 crates/pierre-routes-groups/src/delegated_connections.rs:Only the member a link names can confirm it
 crates/pierre-routes-groups/src/group_analytics.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/group_update_access.rs:The group's coach may change only its weekly digest
@@ -82,8 +82,8 @@ crates/pierre-services/src/admin_ops.rs:Admin does not belong to the target tena
 crates/pierre-services/src/admin_ops.rs:Super-admin privileges required to create super-admin tokens
 crates/pierre-services/src/auth.rs:User state error: User already exists
 crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
+crates/pierre-services/src/coach_consents.rs:Grant what your human coach may do in the Dravr app; from here it can only be revoked
 crates/pierre-services/src/coached_athlete.rs:Only the group's coach can act for its athletes
 crates/pierre-services/src/coached_athlete.rs:{athlete} has stopped sharing their data with the coach of '{group}'
-crates/pierre-services/src/delegated_link_consents.rs:Grant what a coach link shares in the Dravr app; from here it can only be revoked
 crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation
