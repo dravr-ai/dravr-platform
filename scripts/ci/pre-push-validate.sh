@@ -847,7 +847,7 @@ echo ""
 #
 #   - preflight-clippy   — per-crate clippy on changed leaf crates (3–5 min)
 #   - clippy             — full-workspace clippy (10–12 min)
-#   - backend-tests      — SQLite shards (cron / workflow_dispatch only)
+#   - backend-tests      — SQLite shards (cron only)
 #
 # CI now also runs PostgreSQL integration tests (ci-postgres.yml) and HTTP/MCP
 # integration tests (integration-tests.yml) on every push, so the previous

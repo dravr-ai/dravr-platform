@@ -67,7 +67,7 @@ on:
         default: false
         type: boolean
       gate_timeout:
-        description: "Minutes the CI gates may RUN, counted from the moment every one of them has started. A backstop against a stuck run, so it sits above the gated jobs' own timeouts: a dispatched ci-backend runs the SQLite shards (90m each, queued inside the run)"
+        description: "Minutes the CI gates may RUN, counted from the moment every one of them has started. A backstop against a stuck run, so it sits above the gated jobs' own timeouts: a dispatched ci-backend's longest job is bounded at 90m"
         required: false
         default: 120
         type: number
@@ -565,11 +565,13 @@ jobs:
           #   QUEUE_DEADLINE — from now; spent only while some gate has not started
           #   RUN_DEADLINE   — starts the first time every gate is running, and is
           #                    GATE_TIMEOUT from then. "Running" is the workflow:
-          #                    its jobs can still queue inside it, and the SQLite
-          #                    shards a dispatch runs take 20-30m each, which is
-          #                    why the default is well above one job's duration.
-          #                    The enforme 0.5.0 lane was cut off at 45m of a run
-          #                    whose shards were all green or still going.
+          #                    its jobs can still queue inside it, and a
+          #                    dispatched ci-backend's longest job is bounded
+          #                    at 90m, which is why the default is well above
+          #                    one job's duration. The enforme 0.5.0 lane was
+          #                    cut off at 45m of a run whose SQLite shards (a
+          #                    dispatch ran them before carnet#1114) were all
+          #                    green or still going.
           QUEUE_DEADLINE=$(( $(date +%s) + GATE_QUEUE * 60 ))
           RUN_DEADLINE=""
           # Runs are matched by the commit the bump job pushed, never by branch. The

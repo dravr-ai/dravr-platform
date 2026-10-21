@@ -77,7 +77,9 @@ jobs:
 
       # Restored on every run, saved only by the nightly scheduled run on main
       # (see .github/actions/rust-setup for why a cache is saved once a day).
-      # integration-tests.yml restores the Linux entry: it runs the same build.
+      # integration-tests.yml and mcp-compliance.yml restore the Linux entry:
+      # they run the same build. No bare `Linux-cargo-` fallback: it matched
+      # any family on any toolchain (carnet#1114).
       - name: Restore Rust build cache
         uses: actions/cache/restore@v6
         with:
@@ -89,7 +91,6 @@ jobs:
           key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-mobile-server-1.99.1-
-            ${{ runner.os }}-cargo-
 
       - name: Build Pierre server (release)
         run: cargo build --release

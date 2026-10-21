@@ -77,6 +77,9 @@ jobs:
       # this restores that lane's cache, which its nightly scheduled run on main
       # writes. A cache of its own, saved on every branch and every Cargo.lock
       # change, held up to 1.6 GB per branch of the repository's 10 GB quota.
+      # No bare `Linux-cargo-` fallback: it matched any family on any toolchain,
+      # downloaded a target/ this build cannot use, and by touching it kept the
+      # dead Rust 1.98.1 entry alive for a day after the toolchain bump.
       - name: Restore Rust build cache
         uses: actions/cache/restore@v6
         with:
@@ -88,12 +91,34 @@ jobs:
           key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-mobile-server-1.99.1-
-            ${{ runner.os }}-cargo-
 
       - name: Build Pierre server (release for performance)
         run: cargo build --release
         env:
           CARGO_INCREMENTAL: 0
+
+      # The branch half of the binary size gate. ci-backend.yml's fat-LTO
+      # Release Binary Validation sizes the binary that ships, but since
+      # carnet#1114 a branch builds it only when the push touches a link input,
+      # and 4 of its 5 failures in 60 days were this gate, not the build. This
+      # job builds on most crates pushes anyway, so it carries the check. The
+      # thin, default-feature binary is not the shipped one, so its ceiling is
+      # the shipped ceiling scaled by the two measured on main on 2026-10-21:
+      # fat 104 MB (ceiling 115), thin 126 MB (132,462,792 bytes, run
+      # 39589624107), so 126 x 115/104 = 139. Move both ceilings together.
+      - name: Check the server binary size (thin release)
+        run: |
+          BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
+          MAX_SIZE_MB=139
+          WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
+          echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
+          if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
+            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 115MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
+            exit 1
+          fi
+          if [ "$BINARY_SIZE_MB" -ge "$WARN_SIZE_MB" ]; then
+            echo "::warning::Thin release binary ${BINARY_SIZE_MB}MB is within 5% of its ${MAX_SIZE_MB}MB ceiling."
+          fi
 
       - name: Install frontend dependencies
         working-directory: frontend

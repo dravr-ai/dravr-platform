@@ -30,8 +30,8 @@ on:
       - 'packages/mcp-types/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'
-  # Nightly on main: the only run that saves this job's Rust cache, which every
-  # push and pull_request run restores.
+  # Nightly on main. It saves no cache: the job restores the one
+  # mobile-e2e-android.yml writes (carnet#1114).
   schedule:
     - cron: '30 4 * * *'
   workflow_dispatch:
@@ -102,19 +102,25 @@ jobs:
         with:
           python-version: '3.11'
 
-      # This job's own dependency cache, so the server build below is incremental,
-      # not a cold from-scratch build. It cannot share ci-backend.yml's release
-      # cache: that build is release-lto linked with mold, this one is the plain
-      # release profile. The prior raw actions/cache of the full debug target/
-      # blew the 10GB limit (save silently failed) and the inline cold debug
-      # build OOM-thrashed the 2-core runner (~90min+).
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+      # Restore only: the Linux mobile-server entry mobile-e2e-android.yml saves
+      # nightly, which integration-tests.yml restores too. The build below is
+      # theirs — `cargo build --release` of the whole workspace, so features
+      # unify the same way — and so it reuses their target/ instead of keeping
+      # a 0.9 GB cache of its own in the 10 GB quota (carnet#1114). It cannot
+      # share ci-backend.yml's release cache: that build is release-lto linked
+      # with mold, this one is the plain release profile. The inline cold debug
+      # build this replaced OOM-thrashed the 2-core runner (~90min+).
+      - name: Restore Rust build cache
+        uses: actions/cache/restore@v6
         with:
-          shared-key: mcp-compliance
-          # Written by the nightly scheduled run on main only; every other run restores
-          # (see .github/actions/rust-setup for why a cache is saved once a day).
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-mobile-server-1.99.1-
 
       - name: Install SDK dependencies
         working-directory: sdk
@@ -141,11 +147,15 @@ jobs:
           fi
           echo "✅ SDK types validated successfully"
 
-      # Build the server here (release, incremental off the restored dependency
-      # cache) so the validation script reuses target/release/pierre-mcp-server
-      # instead of cold-building it inline (which OOM-thrashed the runner ~90min+).
+      # Build the server here (release, off the restored target/) so the
+      # validation script reuses target/release/pierre-mcp-server instead of
+      # cold-building it inline (which OOM-thrashed the runner ~90min+). The
+      # whole workspace, as the cache's writer builds it: `--bin` alone would
+      # unify features differently and recompile what the cache holds.
       - name: Build server (release)
-        run: cargo build --release --bin pierre-mcp-server
+        run: cargo build --release
+        env:
+          CARGO_INCREMENTAL: 0
 
       - name: Check disk space before validation
         run: |

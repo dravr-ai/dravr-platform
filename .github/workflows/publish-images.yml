@@ -372,6 +372,14 @@ jobs:
     # it — the same path a missing GCP secret already takes.
     if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
 
+    # ci-backend.yml's workflow-level cargo env, which a fallback compile
+    # needs before rust-setup: rust-cache hashes the CARGO_* variables into
+    # its key, so this is what lets it restore the release cache CI saves.
+    env:
+      COPILOT_SKIP_CLI_DOWNLOAD: "1"
+      CARGO_TERM_COLOR: always
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+
     outputs:
       image: ${{ steps.digest.outputs.image }}
 
@@ -383,15 +391,103 @@ jobs:
           submodules: recursive
           token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
-      # The binaries are compiled here, on the runner, not inside docker build.
-      # Compiling in Docker needs the cargo-chef dependency layer (~0.9 GB)
-      # restored from the registry buildcache on every build — billed internet
-      # egress out of Artifact Registry, because the runners sit outside GCP.
-      # Here the dependencies come from the GitHub-hosted rust-cache that
-      # ci-backend.yml's release-binary saves with this same action, which costs
-      # nothing to restore. Before buildx: free-disk-space prunes docker images.
+      # The binaries come from ci-backend.yml's release-binary, which built and
+      # uploaded them for this commit on its main push run with the same
+      # action, profile and features this job would compile with. A deploy
+      # used to compile release-lto a second time, 17-26 min after CI had.
+      #
+      # The run is found by the commit, so it does not matter which event
+      # started this deploy, and the artifact name carries the sha, so it
+      # cannot be another commit's. There is none when that push touched no
+      # Rust input (release-binary skips), when its run is older than the
+      # artifact's three days, or for a commit CI never pushed: then the job
+      # compiles, as it always did. Compiling happens on the runner, not inside
+      # docker build: in Docker the cargo-chef layer (~0.9 GB) comes back from
+      # the registry buildcache as billed egress on every build.
+      #
+      # A lookup the API refuses compiles too, but under a warning naming the
+      # error, and each gh call's exit status is read apart from its answer: a
+      # lookup that fails on every deploy (a lost permission, a renamed
+      # workflow) must not read as "no artifact" while every deploy pays for
+      # the compile this step exists to skip.
+      - name: Find the binaries CI built for this commit
+        id: ci-binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.resolve-sha.outputs.sha }}
+        run: |
+          ERR="${RUNNER_TEMP}/ci-binaries-lookup.err"
+          FOUND=false
+          if ! RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci-backend.yml/runs?head_sha=${SHA}&branch=main&event=push&status=success&per_page=1" \
+                           --jq '.workflow_runs[0].id // empty' 2>"$ERR")"; then
+            RUN_ID=""
+            echo "::warning title=CI binaries lookup failed::could not list Backend CI runs for ${SHA}, so this deploy compiles: $(head -c 300 "$ERR")"
+          elif [ -z "$RUN_ID" ]; then
+            echo "::notice title=Compiling the server binaries::no green Backend CI push run on main for ${SHA}; building them here"
+          elif ! COUNT="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/artifacts?name=server-binaries-${SHA}" \
+                            --jq '[.artifacts[] | select(.expired == false)] | length' 2>"$ERR")"; then
+            echo "::warning title=CI binaries lookup failed::could not list Backend CI run ${RUN_ID}'s artifacts, so this deploy compiles: $(head -c 300 "$ERR")"
+          elif [[ "$COUNT" =~ ^[1-9][0-9]*$ ]]; then
+            FOUND=true
+            echo "Using the binaries Backend CI run ${RUN_ID} built for ${SHA}"
+          else
+            echo "::notice title=Compiling the server binaries::Backend CI run ${RUN_ID} holds no unexpired server-binaries-${SHA} (its release-binary skipped, or the artifact expired); building them here"
+          fi
+          echo "found=${FOUND}" >> "$GITHUB_OUTPUT"
+          echo "run-id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "dir=${RUNNER_TEMP}/prebuilt-bin" >> "$GITHUB_OUTPUT"
+
+      - name: Download the CI-built binaries
+        if: steps.ci-binaries.outputs.found == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: server-binaries-${{ needs.resolve-sha.outputs.sha }}
+          run-id: ${{ steps.ci-binaries.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: ${{ steps.ci-binaries.outputs.dir }}
+
+      # An artifact does not keep file modes, so the execute bit is restored,
+      # and a download missing either binary fails here rather than in the
+      # image's COPY. The glibc check ran in CI, before the upload. The smoke
+      # test is release-binary's: bounded, read by exit status, and failed on
+      # an empty version line, which would have verified nothing.
+      - name: Check the CI-built binaries
+        if: steps.ci-binaries.outputs.found == 'true'
+        env:
+          DIR: ${{ steps.ci-binaries.outputs.dir }}
+        run: |
+          set -euo pipefail
+          for b in pierre-mcp-server pierre-cli; do
+            if [ ! -s "${DIR}/${b}" ]; then
+              echo "::error::the server-binaries artifact holds no ${b}"
+              exit 1
+            fi
+            chmod 0755 "${DIR}/${b}"
+          done
+          ls -lh "${DIR}"
+          if ! version_out="$(timeout 5 "${DIR}/pierre-mcp-server" --version 2>&1)"; then
+            echo "::error::the downloaded pierre-mcp-server failed its smoke test:"
+            echo "${version_out}"
+            exit 1
+          fi
+          if [ -z "${version_out}" ]; then
+            echo "::error::the downloaded pierre-mcp-server exited 0 but printed no version; nothing was verified"
+            exit 1
+          fi
+          echo "Downloaded binary smoke test passed: ${version_out}"
+
+      - name: Setup Rust environment
+        if: steps.ci-binaries.outputs.found != 'true'
+        uses: ./.github/actions/rust-setup
+        with:
+          shared-key: release
+          free-disk-space: 'true'
+
+      # Restores the rust-cache ci-backend.yml's release-binary saves under the
+      # same shared key. Before buildx: free-disk-space prunes docker images.
       - name: Build server binaries
         id: binaries
+        if: steps.ci-binaries.outputs.found != 'true'
         uses: ./.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
@@ -405,9 +501,9 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
-      # Installs gcloud rather than using the runner's: server-binaries frees disk
-      # with a large-packages sweep that uninstalls the preinstalled Google Cloud
-      # SDK, so `skip_install` would find no gcloud on PATH.
+      # Installs gcloud rather than using the runner's: a compiling run frees
+      # disk in rust-setup with a large-packages sweep that uninstalls the
+      # preinstalled Google Cloud SDK, so `skip_install` would find no gcloud.
       - name: Configure Docker credential helper
         uses: google-github-actions/setup-gcloud@v3
 
@@ -461,7 +557,7 @@ jobs:
           cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/server-cache:buildcache
           cache-to: type=registry,ref=${{ steps.tags.outputs.registry }}/server-cache:buildcache,mode=min,image-manifest=true,oci-mediatypes=true
           build-contexts: |
-            prebuilt-bin=${{ steps.binaries.outputs.dir }}
+            prebuilt-bin=${{ steps.ci-binaries.outputs.found == 'true' && steps.ci-binaries.outputs.dir || steps.binaries.outputs.dir }}
           build-args: |
             BINARY_SOURCE=prebuilt
             GIT_COMMIT_SHA=${{ needs.resolve-sha.outputs.sha }}

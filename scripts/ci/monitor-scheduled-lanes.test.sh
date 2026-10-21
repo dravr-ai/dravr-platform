@@ -44,9 +44,11 @@ python3 - "$WORKFLOW" "$WORK/monitor_body.py" "$WORK/issues_body.js" <<'PY'
 import re, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
 steps = [s for j in doc["jobs"].values() for s in j["steps"]]
-py = [s for s in steps if "python3" in (s.get("run") or "")]
+# The scan is the one step with embedded python; the cache budget step runs
+# scripts/ci/cache-budget.py, which has its own test.
+py = [s for s in steps if "python3 - <<'PY'" in (s.get("run") or "")]
 if len(py) != 1:
-    sys.exit(f"FAIL: expected exactly one python step in the monitor, found {len(py)}")
+    sys.exit(f"FAIL: expected exactly one embedded-python step in the monitor, found {len(py)}")
 m = re.search(r"python3 - <<'PY'\n(.*?)\n\s*PY\s*$", py[0]["run"], re.S)
 if not m:
     sys.exit("FAIL: could not extract the heredoc python from the monitor step")

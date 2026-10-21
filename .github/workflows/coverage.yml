@@ -118,16 +118,10 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-coverage-1.99.1-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
+      # No Rust cache. Its key was exact on Cargo.lock and migrations/**, with
+      # no restore keys, on a lane that runs weekly while Cargo.lock moves many
+      # times a day: it never hit, and each run still saved a multi-GB entry
+      # that pushed the shared caches out of the 10 GB quota (carnet#1114).
 
       - name: Setup Node
         # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run

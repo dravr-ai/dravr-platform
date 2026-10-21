@@ -560,3 +560,17 @@ jobs:
               });
               core.info(`Closed issue #${issue.number} (${name}): ${stateReason}`);
             }
+
+      # The Actions cache the push lanes restore is filled by these same cron
+      # lanes, and GitHub evicts its least recently used entries above 10 GB.
+      # On 2026-10-21 it held 10.85 GB with postgres-tests and release absent,
+      # and nothing said so (carnet#1114). This writes the per-family table to
+      # the summary and warns on a missing priority family, an over-quota
+      # total, or an entry for a retired toolchain. It never fails on what it
+      # finds; an unreadable listing fails it. Last, and on any outcome, so it
+      # can neither skip nor be skipped by the lane bookkeeping above.
+      - name: Actions cache budget
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/ci/cache-budget.py --repo "${{ github.repository }}"

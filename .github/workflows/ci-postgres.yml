@@ -68,18 +68,21 @@ concurrency:
   # was red to say so. The 13 other test-verdict push lanes use this same key
   # and showed 0 such evictions in 371 main runs over the same window.
   #
-  # `cancel-in-progress` is false. On main it is moot — no two main pushes share
-  # a group — and on branches it keeps runs queue-and-complete rather than
-  # cancelling. A schedule or dispatch run on the tip sha joins the tip's
-  # push-run group and queues as a duplicate instead of killing the push
-  # verdict; flipping this to true would need `github.event_name` in the group
-  # as well, as ci-backend.yml explains.
+  # `cancel-in-progress` is true, and the event name is part of the group, as
+  # in ci-backend.yml. On main it is moot: every commit and event has a group
+  # of its own, so nothing can cancel a main verdict. On a branch a newer push
+  # cancels the run it supersedes, whose verdict nobody reads, instead of
+  # holding four shard runners for it. Until carnet#1114 this was false, and a
+  # branch re-pushed mid-run paid for every superseded run to completion. The
+  # event name keeps a schedule or dispatch run on the tip sha out of the
+  # tip's push-run group, where it would otherwise cancel that verdict (the
+  # 2026-08-31 cron that killed 7eac7b067's push run in ci-backend.yml).
   #
   # The ref test lives in `group` rather than in `cancel-in-progress` because
   # only the former is known to work here — see the same block in ci-backend.yml
   # for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -100,12 +103,11 @@ jobs:
     # A backstop, not a performance budget. Successful runs land in 20-45 min;
     # this only ever fires on a job that has stopped making progress.
     #
-    # It exists because `cancel-in-progress: false` above — correct on its own
-    # terms — means nothing ever displaces a hung job: it holds its runner until
-    # something bounds it. On a branch, whose runs share one group per ref, every
-    # later PG run queues behind it and only the newest waiting run survives; on
-    # main each commit has its own group, so a hang costs that commit its verdict
-    # and a runner, not the commits behind it. On 2026-08-19, under a ref-only
+    # It exists because on main nothing ever displaces a hung job: each commit
+    # has its own concurrency group, so a hang holds its runner until something
+    # bounds it, and costs that commit its verdict and a runner, not the commits
+    # behind it. A branch's hung run is cancelled by the branch's next push, but
+    # only if one comes. On 2026-08-19, under a ref-only
     # group, shard 3/4 hung 212 min in `Setup Rust environment` and three
     # subsequent main pushes never got a PostgreSQL verdict at all.
     #

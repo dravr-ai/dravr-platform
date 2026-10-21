@@ -36,6 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120  # server build ~25 min, then two rollouts with 25 min of waits each
     environment: development
+    # ci-backend.yml's workflow-level cargo env: rust-cache hashes the CARGO_*
+    # variables into its key, so this is what restores the release cache.
+    env:
+      COPILOT_SKIP_CLI_DOWNLOAD: "1"
+      CARGO_TERM_COLOR: always
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
 
     steps:
       - name: Checkout
@@ -47,7 +53,15 @@ jobs:
       # Compiled on the runner against the rust-cache ci-backend.yml saves, as
       # publish-images.yml does — the registry buildcache is mode=min and holds
       # no cargo-chef layer to compile against. Before buildx: free-disk-space
-      # prunes docker images.
+      # prunes docker images. rust-setup is this job's step, not the action's:
+      # nested inside it, rust-cache never saved (carnet#1114).
+      - name: Setup Rust environment
+        if: inputs.component == 'server' || inputs.component == 'both'
+        uses: ./.github/actions/rust-setup
+        with:
+          shared-key: release
+          free-disk-space: 'true'
+
       - name: Build server binaries
         if: inputs.component == 'server' || inputs.component == 'both'
         id: binaries
@@ -80,8 +94,8 @@ jobs:
           service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
       # Installs gcloud for every later step (docker auth, the rollout waits):
-      # server-binaries frees disk with a large-packages sweep that uninstalls
-      # the runner's preinstalled Google Cloud SDK.
+      # rust-setup frees disk with a large-packages sweep that uninstalls the
+      # runner's preinstalled Google Cloud SDK.
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v3
 

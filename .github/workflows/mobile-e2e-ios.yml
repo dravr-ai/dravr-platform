@@ -86,6 +86,8 @@ jobs:
 
       # Restored on every run, saved only by the nightly scheduled run on main
       # (see .github/actions/rust-setup for why a cache is saved once a day).
+      # No bare `macOS-cargo-` fallback: it matched any family on any
+      # toolchain (carnet#1114).
       - name: Restore Rust build cache
         uses: actions/cache/restore@v6
         with:
@@ -97,7 +99,6 @@ jobs:
           key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-mobile-server-1.99.1-
-            ${{ runner.os }}-cargo-
 
       - name: Build Pierre server (release)
         run: cargo build --release

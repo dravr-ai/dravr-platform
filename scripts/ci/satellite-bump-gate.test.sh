@@ -127,12 +127,14 @@ run_gate 180 "${DEFAULT_RUN}" "ci-backend.yml" "0 ci-backend.yml in_progress -" 
 check "a 70m dispatched ci-backend passes the default run budget — the enforme 0.5.0 case" 0 "all gates green"
 
 # The run budget is a backstop against a stuck run, so it must not cut off a
-# job ci-backend itself would still judge. Its longest is a SQLite shard.
-SHARD=$(awk '/name: Backend Tests \(SQLite/ { getline; if ($1 == "timeout-minutes:") print $2 }' .github/workflows/ci-backend.yml | sort -n | tail -1)
-if [ -n "${SHARD}" ] && [ -n "${DEFAULT_RUN}" ] && [ "${DEFAULT_RUN}" -gt "${SHARD}" ]; then
-  pass "default run budget ${DEFAULT_RUN}m sits above ci-backend's longest shard timeout ${SHARD}m"
+# job ci-backend itself would still judge. The bound is the longest job-level
+# timeout in the file: the SQLite shards no longer run on a dispatch, but
+# release-binary does, under the same 90m.
+LONGEST=$(awk '/^    timeout-minutes:/ { print $2 }' .github/workflows/ci-backend.yml | sort -n | tail -1)
+if [ -n "${LONGEST}" ] && [ -n "${DEFAULT_RUN}" ] && [ "${DEFAULT_RUN}" -gt "${LONGEST}" ]; then
+  pass "default run budget ${DEFAULT_RUN}m sits above ci-backend's longest job timeout ${LONGEST}m"
 else
-  fail "default run budget '${DEFAULT_RUN}' must exceed ci-backend's SQLite shard timeout '${SHARD}' (empty means the lookup broke)"
+  fail "default run budget '${DEFAULT_RUN}' must exceed ci-backend's longest job timeout '${LONGEST}' (empty means the lookup broke)"
 fi
 
 echo

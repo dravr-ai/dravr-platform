@@ -98,9 +98,12 @@ env:
   # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
   # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
   COPILOT_SKIP_CLI_DOWNLOAD: "1"
+  # Exactly ci-backend.yml's CARGO_* and no other: rust-cache hashes every
+  # CARGO_*, RUST*, CC*, CXX*, CMAKE* and CFLAGS* variable present when it runs
+  # into the key it restores by, so one more here would miss the test-dev cache
+  # every night. That is why CARGO_NET_RETRY is set on the cargo step instead.
   CARGO_TERM_COLOR: always
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-  CARGO_NET_RETRY: "10"
 
 concurrency:
   group: live-incident-eval
@@ -176,13 +179,16 @@ jobs:
             url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf \
             "https://github.com/"
 
-      - uses: dtolnay/rust-toolchain@1.99.1
-      - uses: Swatinem/rust-cache@v2
+      # Restores the dev-profile test cache ci-backend.yml's daily run saves and
+      # saves none: a cron-only lane is nobody's critical path, and an entry of
+      # its own pushed the caches the push lanes restore out of the 10 GB quota
+      # (carnet#1114). The workflow env above carries exactly ci-backend.yml's
+      # CARGO_*, which rust-cache hashes into the key.
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
         with:
-          shared-key: live-incident-eval
-          # Written by the nightly scheduled run on main only; every other run restores
-          # (see .github/actions/rust-setup for why a cache is saved once a day).
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
+          shared-key: test-dev
+          cache-save: 'false'
 
       # The chain is taken as dev declares it, so the lane follows the
       # coaching model when terraform moves it — and setting PIERRE_LLM_CHAIN
@@ -337,6 +343,8 @@ jobs:
       # summary line puts both counts on the run page whatever the verdict.
       - name: Run the incident corpus
         env:
+          # Step-scoped, not workflow env: see the workflow env block.
+          CARGO_NET_RETRY: "10"
           ANTHROPIC_API_KEY: ${{ steps.tokens.outputs.anthropic }}
           ANTHROPIC_API_KEY_2: ${{ steps.tokens.outputs.anthropic2 }}
           COPILOT_GITHUB_TOKEN: ${{ steps.tokens.outputs.copilot }}

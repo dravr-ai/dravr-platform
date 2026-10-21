@@ -5,6 +5,9 @@ name: Server Binaries
 description: >-
   Builds pierre-mcp-server (and optionally pierre-cli) with the release-lto profile and the
   production feature set, then stages them in one directory for `docker build --build-context`.
+  The calling job runs ./.github/actions/rust-setup with `shared-key: release` first, in a job
+  whose env carries ci-backend.yml's COPILOT_SKIP_CLI_DOWNLOAD, CARGO_TERM_COLOR and
+  CARGO_NET_GIT_FETCH_WITH_CLI.
 
 inputs:
   deps-token:
@@ -22,19 +25,22 @@ outputs:
 runs:
   using: composite
   steps:
-    # ci-backend.yml sets these at workflow level; the image build does not. They
-    # are written to GITHUB_ENV BEFORE rust-setup on purpose: Swatinem/rust-cache
-    # hashes the CARGO_* variables present when it runs into its key, so this is
-    # what lets the image build restore the dependency cache release-binary saves
-    # under `shared-key: release` instead of compiling every dependency cold.
-    - name: Match the CI cargo environment
+    # rust-setup is the caller's step, not one of these. rust-cache saves in a
+    # post step, and two composite actions deep that post step saved nothing:
+    # the release cache had no entry from 3af2dae60 (Oct 4) on, while the
+    # jobs calling rust-setup directly in the same scheduled runs saved
+    # (ci-backend.yml's release-binary names them). So the caller runs it, and this
+    # refuses to build without it — a cold toolchain-less build would still
+    # pass, an hour later, and save nothing. rust-cache hashes the CARGO_*
+    # variables into its key, so the caller's env must match ci-backend.yml's
+    # for the image build to restore what release-binary saved.
+    - name: Require rust-setup
       shell: bash
       run: |
-        {
-          echo "COPILOT_SKIP_CLI_DOWNLOAD=1"
-          echo "CARGO_TERM_COLOR=always"
-          echo "CARGO_NET_GIT_FETCH_WITH_CLI=true"
-        } >> "$GITHUB_ENV"
+        if ! grep -q 'fuse-ld=mold' .cargo/config.toml 2>/dev/null; then
+          echo "::error::server-binaries needs ./.github/actions/rust-setup (shared-key: release) to run first in this job: .cargo/config.toml carries no mold link flag"
+          exit 1
+        fi
 
     - name: Configure git for private deps
       shell: bash
@@ -42,24 +48,22 @@ runs:
         DEPS_TOKEN: ${{ inputs.deps-token }}
       run: git config --global url."https://x-access-token:${DEPS_TOKEN}@github.com/".insteadOf "https://github.com/"
 
-    - name: Setup Rust environment
-      uses: ./.github/actions/rust-setup
-      with:
-        shared-key: release
-        free-disk-space: 'true'
-
     - name: Build release binaries
       # The invocation of docker/images/server/Dockerfile's builder stage —
       # profile and features — so the binary CI validates is the one the image
       # ships. scripts/ci/check-server-features.sh fails when this --features
       # string differs from the Dockerfile's or ci-backend's production clippy
-      # entry. RUSTFLAGS and CARGO_INCREMENTAL are step-scoped, as they were in
-      # release-binary: rust-cache never hashed them, but cargo fingerprints on
-      # them, so every caller must build with the same pair to reuse artifacts.
+      # entry. CARGO_INCREMENTAL is step-scoped: rust-cache never hashed it,
+      # but cargo fingerprints on it, so every caller builds with the same one.
+      #
+      # No RUSTFLAGS. Until carnet#1114 this set `-C opt-level=3`, which the
+      # release profile already implies, and an environment RUSTFLAGS makes
+      # cargo ignore every rustflags entry in .cargo/config.toml — including
+      # rust-setup's `-fuse-ld=mold`, so the slowest link in CI ran on the
+      # default linker. No pierre-mcp-server link line carried the flag.
       shell: bash
       env:
         CARGO_INCREMENTAL: 0
-        RUSTFLAGS: "-C opt-level=3"
         BINS: ${{ inputs.bins }}
       run: |
         set -euo pipefail

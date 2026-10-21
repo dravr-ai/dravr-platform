@@ -51,6 +51,10 @@ env:
   # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
   # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
   COPILOT_SKIP_CLI_DOWNLOAD: "1"
+  # ci-backend.yml's cargo env: rust-cache hashes CARGO_* into its key, so
+  # these are what let this job restore the test-dev cache below.
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
   live-llm:
@@ -65,16 +69,15 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
+      # Restores the dev-profile test cache ci-backend.yml's daily run saves and
+      # saves none: a cron-only lane is nobody's critical path, and its own
+      # ~0.9 GB entry, written at 06:30 UTC, pushed the caches the push lanes
+      # restore out of the 10 GB quota (carnet#1114).
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
         with:
-          shared-key: "llm-live-cron"
-          # Written by the nightly scheduled run on main only; every other run restores
-          # (see .github/actions/rust-setup for why a cache is saved once a day).
-          save-if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'schedule' }}
+          shared-key: test-dev
+          cache-save: 'false'
 
       - name: Build the live test
         run: cargo test --features live-e2e --test llm_local_integration_test --no-run

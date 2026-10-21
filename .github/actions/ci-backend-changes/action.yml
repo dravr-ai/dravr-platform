@@ -1,0 +1,106 @@
+# ABOUTME: Decides which ci-backend.yml jobs a push needs: `rust` gates the compile and test jobs, `release-worthy` the branch fat-LTO build
+# ABOUTME: One definition, read by detect-changes and by clippy, which runs without `needs` so it never queues twice
+
+name: CI Backend Changes
+description: >-
+  The path filters ci-backend.yml gates its jobs on, for push and pull_request
+  events. A schedule or dispatch run counts as everything changed.
+
+outputs:
+  rust:
+    description: "'true' when the push touches anything the Rust build or its tests read"
+    value: ${{ steps.decide.outputs.rust }}
+  release-worthy:
+    description: "'true' when the push touches an input of the fat-LTO link, so a branch builds it too"
+    value: ${{ steps.decide.outputs.release-worthy }}
+
+runs:
+  using: composite
+  steps:
+    # Push and pull_request only: those name the range a filter judges. A
+    # schedule or dispatch run carries none, and on the shallow checkouts the
+    # callers make, a filter there would judge the tip commit at best.
+    - name: Detect file changes
+      id: filter
+      if: github.event_name == 'push' || github.event_name == 'pull_request'
+      uses: dorny/paths-filter@v4
+      with:
+        filters: |
+          # Everything clippy, the doc tests, the leaf-crate and server test
+          # jobs and the release build read. A push touching none of it runs
+          # the fast gate alone: 35 of 146 main pushes on Oct 7-20, about 59
+          # job-hours (carnet#1114). A path missing here is a false green, so
+          # the list covers the non-Rust files Rust code reads as well as the
+          # sources. scripts/ci/check-rust-inputs.py fails when a crate reads
+          # a file outside crates/ that this list does not cover, or when
+          # ci-backend.yml's own `paths` would not start a run for one of them.
+          rust:
+            - 'crates/**'
+            - 'Cargo.toml'
+            - 'Cargo.lock'
+            - 'rust-toolchain*'
+            - '.cargo/**'
+            - 'clippy.toml'
+            - 'deny.toml'
+            - 'migrations/**'
+            - 'migrations_pg/**'
+            - 'docker/images/server/**'
+            # Read by Rust code at compile or test time:
+            - 'packages/i18n/**'                          # messaging_strings.rs include_str!, the locale tests
+            - 'packages/shared-constants/**'              # activity-sports.json (activity_sports.rs)
+            - 'packages/mcp-types/**'                     # mcp_type_generation_multitenant_test.rs
+            - 'frontend/src/utils/invitationLink.ts'      # invitation.rs
+            - 'sdk/**'                                    # pierre-server/build.rs builds it; tests/common.rs runs it
+            - 'infra/environments/dev/*.tf'               # llm_test, oauth_launch_reaper_test, claim_verification_judge_error_test, key_material_alert_test
+            - 'commands/**'                               # the command catalogue the server loads
+            - 'docker/images/frontend/nginx.conf'         # security_headers_edge_test
+            - 'docker/images/frontend/security-headers.conf'
+            - 'scripts/ci/**'                             # what these jobs run, and use_case_catalogue.rs
+            # The jobs' own definitions:
+            - '.github/workflows/ci-backend.yml'
+            - '.github/actions/ci-backend-changes/**'
+            - '.github/actions/rust-setup/**'
+            - '.github/actions/server-binaries/**'
+          # What a branch builds the fat-LTO release binary for. Main always
+          # builds it when `rust` is set: it ships, and publish-images reuses
+          # it. A branch builds it only when the push can change how it links
+          # (23 of 221 branch pushes on Oct 7-20); every other branch push gets
+          # the size check on integration-tests' thin binary instead. Over 60
+          # days fat LTO itself caused no failure; 4 of 5 were the size gate.
+          release-worthy:
+            - 'Cargo.toml'
+            - '**/build.rs'
+            - '.cargo/**'
+            - 'rust-toolchain*'
+            - 'docker/images/server/**'
+            - '.github/actions/server-binaries/**'
+            - '.github/actions/rust-setup/**'
+            # The job's own definition must run before main does.
+            - '.github/workflows/ci-backend.yml'
+
+    - name: Decide
+      id: decide
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        RUST: ${{ steps.filter.outputs.rust }}
+        RELEASE_WORTHY: ${{ steps.filter.outputs.release-worthy }}
+      run: |
+        # A schedule run checks everything. A dispatch is main's only verdict
+        # on a bump lane's GITHUB_TOKEN push (Q12), and on a branch it is
+        # someone asking for the full verdict, so every job runs for both.
+        case "$EVENT_NAME" in
+          push|pull_request) ;;
+          *) RUST=true; RELEASE_WORTHY=true ;;
+        esac
+        # The filter answers 'true' or 'false'. Anything else means it did not
+        # run as expected, and skipping on that would be a green nobody earned.
+        for value in "$RUST" "$RELEASE_WORTHY"; do
+          case "$value" in
+            true|false) ;;
+            *) echo "::error::paths-filter gave '${value}', not true/false — refusing to skip jobs on it"; exit 1 ;;
+          esac
+        done
+        echo "rust=${RUST}" >> "$GITHUB_OUTPUT"
+        echo "release-worthy=${RELEASE_WORTHY}" >> "$GITHUB_OUTPUT"
+        echo "rust=${RUST} release-worthy=${RELEASE_WORTHY} (${EVENT_NAME})"

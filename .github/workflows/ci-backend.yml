@@ -1,4 +1,4 @@
-# ABOUTME: Main backend CI pipeline — fmt + per-crate clippy + full clippy + audit + doc-tests fire in parallel from the start on every push.
+# ABOUTME: Main backend CI pipeline — the fast gate (fmt + architecture) on every push; per-crate clippy, full clippy, audit and doc-tests on every push that touches a Rust input.
 # ABOUTME: SQLite shards (backend-tests) are cron-only; per-push DB coverage is ci-postgres.yml and per-push leaf-crate tests run here (leaf-crate-tests).
 name: "CI: Backend (Rust)"
 
@@ -21,6 +21,16 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
+      # The rest of the `rust` filter in .github/actions/ci-backend-changes,
+      # which a push must reach before the filter can judge it.
+      # check-rust-inputs.py fails when the two lists drift apart.
+      - 'rust-toolchain*'
+      - '.cargo/**'
+      - 'clippy.toml'
+      - 'sdk/**'
+      - 'commands/**'
+      - 'infra/environments/dev/*.tf'
+      - '.github/actions/ci-backend-changes/**'
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
@@ -99,6 +109,14 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deny.toml'
+      # The rest of the `rust` filter (see the push paths above).
+      - 'rust-toolchain*'
+      - '.cargo/**'
+      - 'clippy.toml'
+      - 'sdk/**'
+      - 'commands/**'
+      - 'infra/environments/dev/*.tf'
+      - '.github/actions/ci-backend-changes/**'
       - 'scripts/ci/**'
       # check-gh-cli.sh runs at every session start and is in the shellcheck job below.
       - 'scripts/setup/**'
@@ -201,10 +219,15 @@ jobs:
   #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
   #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
   #   feature-profiles     — the 2-profile server feature matrix: production clippy + no-default-features check (~5 min)
-  #   backend-tests        — SQLite shards, cron / workflow_dispatch only
+  #   backend-tests        — SQLite shards, cron only
   #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir and unit tests, plus pierre-server's unit tests, per push
   #   changed-server-tests — the pierre-server test files THIS push touched
-  # PHASE 1: release-binary (depends on clippy)
+  # PHASE 1: release-binary (depends on clippy; main, or a branch push that
+  #          touches a link input; main pushes upload the binaries the image ships)
+  #
+  # Every compile and test job skips on a push no Rust input touches (`rust` in
+  # .github/actions/ci-backend-changes); fast-gate always runs, since its
+  # surface gates read the clients. preflight-clippy keys on crates/ itself.
   #
   # Every job below carries a `timeout-minutes`, sized to its observed duration
   # with headroom. GitHub's default is 360 minutes, and a step-level bound cannot
@@ -219,40 +242,19 @@ jobs:
     timeout-minutes: 5  # path filtering only; no toolchain, no compile
     runs-on: ubuntu-latest
     outputs:
-      release-worthy: ${{ steps.set-outputs.outputs.release-worthy }}
+      rust: ${{ steps.changes.outputs.rust }}
+      release-worthy: ${{ steps.changes.outputs.release-worthy }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
+      # The filters live in the action, which clippy runs too; a schedule or
+      # dispatch run counts as everything changed.
       - name: Detect file changes
-        uses: dorny/paths-filter@v4
-        id: filter
-        if: github.event_name != 'schedule'
-        with:
-          filters: |
-            release-worthy:
-              - 'crates/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              # The gate's own definition and the image recipe it mirrors:
-              # a change to either must run the job it changes before main.
-              - '.github/workflows/ci-backend.yml'
-              - 'docker/images/server/Dockerfile'
-              - '.github/actions/server-binaries/**'
-
-      - name: Set outputs (schedule runs everything)
-        id: set-outputs
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "release-worthy=true" >> $GITHUB_OUTPUT
-          else
-            echo "release-worthy=${{ steps.filter.outputs.release-worthy }}" >> $GITHUB_OUTPUT
-          fi
+        id: changes
+        uses: ./.github/actions/ci-backend-changes
 
   fast-gate:
     name: Fast Gate (fmt + architecture + secrets + surfaces)
@@ -412,7 +414,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, commit verdict, push base resolution)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -461,6 +463,9 @@ jobs:
           ./scripts/ci/check-server-features.test.sh
           ./scripts/ci/check-server-features.sh
           ./scripts/ci/check-satellite-drift.sh --offline
+          ./scripts/ci/check-rust-inputs.test.sh
+          ./scripts/ci/cache-budget.test.sh
+          ./scripts/ci/ci-time-report.test.sh
 
       # A `cargo test --test <name>` in a workflow whose target a push moved or
       # deleted fails cargo's whole command, and for a cron lane nobody sees it
@@ -469,6 +474,13 @@ jobs:
       # core.hooksPath skips it; this is the backstop on every crates/ push.
       - name: Workflow test targets
         run: ./scripts/ci/check-workflow-test-targets.sh
+
+      # The compile and test jobs below skip a push that touches no Rust input
+      # (.github/actions/ci-backend-changes). A file Rust reads from outside
+      # crates/ that the list misses would make that skip a false green for
+      # the very test reading it, so the list is held to what the code reads.
+      - name: Rust-input filter coverage
+        run: ./scripts/ci/check-rust-inputs.py
 
       # A dependency no target of its crate names, or a normal one only tests
       # use, is the phantom dependency the coding standards forbid. cargo-shear
@@ -640,18 +652,30 @@ jobs:
     name: Clippy Linting (full workspace)
     timeout-minutes: 45  # full-workspace clippy, ~10-12 min
     runs-on: ubuntu-latest
-    # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy /
+    # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy.
     # The release-binary job downstream still gates on this job so the
     # release artifact is only produced after full-workspace clippy passes.
+    #
+    # It reads the same filters as detect-changes from inside the job rather
+    # than through `needs: detect-changes`, which would put it back in the
+    # runner queue after detect-changes: on a saturated pool that second wait
+    # is minutes (p90 22 min on Oct 7-20), on the job that leads the critical
+    # path. A push no Rust input touches checks out, decides, and stops.
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Detect file changes
+        id: changes
+        uses: ./.github/actions/ci-backend-changes
+
       - name: Configure git for private deps
+        if: steps.changes.outputs.rust == 'true'
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
+        if: steps.changes.outputs.rust == 'true'
         uses: ./.github/actions/rust-setup
         with:
           components: clippy
@@ -681,16 +705,23 @@ jobs:
       # throwaway crates, one deliberately broken, asserting that its dependent
       # is named and the crate beside it is not. ~5s.
       - name: Self-test the unevaluated-crate reporter
+        if: steps.changes.outputs.rust == 'true'
         run: ./scripts/ci/clippy-workspace.test.sh
 
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
+        if: steps.changes.outputs.rust == 'true'
         run: python3 scripts/ci/clippy-workspace.py
 
   security-audit:
     name: Security Audit
     timeout-minutes: 20  # cargo-deny / advisory database, minutes
     runs-on: ubuntu-latest
-    needs: fast-gate
+    # The jobs that wait on fast-gate also wait on detect-changes, which
+    # finishes long before fast-gate does, so the gate costs them no time. A
+    # push no Rust input touches skips them (the list is in
+    # .github/actions/ci-backend-changes); the daily cron still runs them all.
+    needs: [fast-gate, detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
       - name: Checkout code
@@ -736,7 +767,8 @@ jobs:
     name: Doc Tests
     timeout-minutes: 40  # compiles every crate's doc tests
     runs-on: ubuntu-latest
-    needs: fast-gate
+    needs: [fast-gate, detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
       - name: Checkout code
@@ -814,7 +846,8 @@ jobs:
     name: Contremaitre Coupling Tests
     timeout-minutes: 20  # four catalogue tests, ~5 min
     runs-on: ubuntu-latest
-    needs: fast-gate
+    needs: [fast-gate, detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
       - name: Checkout code
@@ -857,7 +890,8 @@ jobs:
     name: Feature Profile Check (${{ matrix.name }})
     timeout-minutes: 40  # cargo check per feature profile
     runs-on: ubuntu-latest
-    needs: fast-gate
+    needs: [fast-gate, detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true'
     # Every other job here builds pierre_mcp_server with the default feature set
     # or with --all-features. Neither is what ships: the Dockerfile builds
     # --no-default-features with postgresql and WITHOUT sqlite, a combination
@@ -912,6 +946,12 @@ jobs:
           # — which is what it did on 18c54d9ec.
           components: clippy
           free-disk-space: 'true'
+          # Restores the full-workspace clippy job's cache rather than saving
+          # a feature-profiles entry of its own (two on 2026-10-21, ~1 GB of
+          # the 10 GB quota); most dependencies resolve the same features
+          # either way (carnet#1114).
+          shared-key: clippy
+          cache-save: 'false'
 
       - name: Check ${{ matrix.name }}
         run: |
@@ -929,10 +969,13 @@ jobs:
     timeout-minutes: 90  # one SQLite shard of the full suite (cron only)
     runs-on: ubuntu-latest
     needs: fast-gate
-    # SQLite shards run daily via cron (08:11 UTC) and on manual dispatch only.
-    # Per-push coverage comes from PostgreSQL via ci-postgres.yml; SQLite is a
-    # compatibility check that doesn't need to gate every push.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # SQLite shards run on the daily cron (08:11 UTC) only. Per-push coverage
+    # comes from PostgreSQL via ci-postgres.yml, which is what production runs;
+    # SQLite is a compatibility check that doesn't need to gate a commit. A
+    # dispatch no longer runs them either: the contremaitre, satellite and
+    # tronc bump gates dispatch this workflow for every bump, and their shards
+    # cost 184 job-hours over Oct 7-20 against 31 for the cron (carnet#1114).
+    if: github.event_name == 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -1033,7 +1076,8 @@ jobs:
     name: Leaf-Crate Tests (every crate but pierre-server)
     timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
     runs-on: ubuntu-latest
-    needs: fast-gate
+    needs: [fast-gate, detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
       - name: Checkout code
@@ -1144,7 +1188,8 @@ jobs:
     name: Changed Server Tests (this push's files)
     timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
     runs-on: ubuntu-latest
-    needs: fast-gate
+    needs: [fast-gate, detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
       - name: Checkout code
@@ -1257,7 +1302,8 @@ jobs:
           PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
   # ============================================================================
-  # PHASE 2: Release binary — gates on clippy, uploads artifact for other workflows
+  # PHASE 2: Release binary — gates on clippy; on a main push, uploads the
+  # binaries publish-images.yml ships
   # ============================================================================
 
   release-binary:
@@ -1265,26 +1311,48 @@ jobs:
     timeout-minutes: 90  # a full release build plus the size check
     runs-on: ubuntu-latest
     needs: [clippy, detect-changes]
+    # Main builds it whenever a Rust input changed: it ships. A branch builds
+    # it only when the push can change how it links (release-worthy in
+    # .github/actions/ci-backend-changes); integration-tests sizes the thin
+    # binary on every other branch push. A push no Rust input touches skips it
+    # on main too, and publish-images then builds the binaries itself.
     if: >-
-      github.ref == 'refs/heads/main' ||
-      needs.detect-changes.outputs.release-worthy == 'true'
+      needs.detect-changes.outputs.rust == 'true' &&
+      (github.ref == 'refs/heads/main' ||
+       needs.detect-changes.outputs.release-worthy == 'true')
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      # In this job, not inside server-binaries. rust-cache saves in a post
+      # step, and nested two composite actions deep that post step never
+      # saved: on every scheduled run since 3af2dae60 (Oct 4) it returned in
+      # under a second without a line of output, which is save.ts's early
+      # return when save-if is not 'true', while the jobs that call rust-setup
+      # directly in the same runs saved (job 119258644743 against clippy, the
+      # SQLite shard 1 and leaf-crate-tests in run 39609290067). The release
+      # cache held no entry at all, so every build compiled ~480 crates cold.
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+        with:
+          shared-key: release
+          free-disk-space: 'true'
+
       - name: Build release binary
+        id: binaries
         # The same action publish-images.yml builds the image's binaries with —
         # profile, features, env — so the binary this job sizes is the one the
         # image ships, and the dependency cache it saves under `shared-key:
         # release` is the one the image build restores. Until 2026-09-18 this
         # built the thin-LTO default-feature binary (sqlite, no telemetry): a
         # profile release.yml never tags and a feature set nothing deploys.
-        # carnet#471.
+        # carnet#471. Main builds pierre-cli too, so the upload below carries
+        # both binaries the image needs; the two links run in parallel.
         uses: ./.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
-          bins: pierre-mcp-server
+          bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli' || 'pierre-mcp-server' }}
 
       - name: Verify release binary exists
         run: |
@@ -1332,6 +1400,10 @@ jobs:
           # line again would pass here with only the warning below (111 is
           # inside the band), and scripts/ci/architectural-validation.sh
           # fails on it instead.
+          #
+          # integration-tests.yml checks the thin binary against this ceiling
+          # scaled to that build (139), so a branch push that skips this job
+          # is still sized against it. Move both together.
           MAX_SIZE_MB=115
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
@@ -1369,3 +1441,23 @@ jobs:
             exit 1
           fi
           echo "Release binary smoke test passed: ${version_out}"
+
+      # publish-images.yml deploys a green main push, and builds its image from
+      # these binaries instead of compiling release-lto a second time, after
+      # this run already did. It finds them by the commit: the name carries the
+      # sha, and only main pushes upload. They are the staged directory
+      # server-binaries checked against the runtime's glibc. Three days covers
+      # a deploy queued behind a burst; an older commit's redeploy compiles.
+      - name: Upload the binaries for the image build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-binaries-${{ github.sha }}
+          path: ${{ steps.binaries.outputs.dir }}
+          if-no-files-found: error
+          retention-days: 3
+          # A re-run attempt sees the first attempt's artifact of this name in
+          # the same run, and without this the upload fails on it: re-running
+          # a green main push would turn this job red. The binaries it replaces
+          # are the same commit's.
+          overwrite: true

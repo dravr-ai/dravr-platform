@@ -81,16 +81,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path C:\t | Out-Null
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_DIR=C:\t"
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-cross-platform-v3-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
+      # No Rust cache. Its key was exact on Cargo.lock and migrations/**, with
+      # no restore keys, on a weekly lane while Cargo.lock moves many times a
+      # day: it never hit, and each run still saved an entry per OS into the
+      # 10 GB quota the push lanes depend on (carnet#1114).
 
       - name: Check formatting
         # Skip on Windows: `cargo fmt --all` enumerates all 700+ source files
