@@ -3542,11 +3542,8 @@
     }
   },
   "use_cases": {
-    "about_me": {
-      "label": "Lerne mich kennen"
-    },
     "about_me_more": {
-      "label": "Mehr über mich"
+      "label": "Mein Profil ergänzen"
     },
     "calendar": {
       "label": "In meinen Kalender",

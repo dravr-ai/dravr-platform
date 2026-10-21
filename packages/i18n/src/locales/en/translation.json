@@ -3542,11 +3542,8 @@
     }
   },
   "use_cases": {
-    "about_me": {
-      "label": "Get to know me"
-    },
     "about_me_more": {
-      "label": "Know me better"
+      "label": "Finish my profile"
     },
     "calendar": {
       "label": "Add to my calendar",
