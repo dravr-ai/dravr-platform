@@ -118,6 +118,19 @@
       "billing_subscription": "Sua assinatura ainda está ativa: {{detail}}"
     }
   },
+  "agents": {
+    "team_offer": {
+      "add": "Adicionar {0} à minha equipa",
+      "added": "{0} já faz parte da tua equipa.",
+      "dismissed": "Sem problema. Podes adicionar um agente em Descobrir quando quiseres.",
+      "not_now": "Agora não"
+    },
+    "team_reason": {
+      "fuelling": "Os dias longos ganham-se ou perdem-se pelo que comes e bebes. Planeia isso contigo à volta do teu treino.",
+      "mobility": "Rotinas curtas que acompanham os teus dias de força. Adiciona-o agora ou mais tarde.",
+      "recovery": "{0} envia o teu sono e a tua VFC, por isso tem algo real para ler todas as manhãs."
+    }
+  },
   "apiKeys": {
     "blurb": "As chaves que os teus próprios scripts e ferramentas usam para chamar a API do Dravr em teu nome. Cada uma funciona até a revogares ou expirar.",
     "copied": "Copiada",
@@ -1676,6 +1689,10 @@
     "noPublishedAgents": "Ainda não há agentes publicados",
     "notFavoriteLabel": "Não favorito",
     "openChat": "Abrir a conversa",
+    "pickAddToTeam": "Adicionar à minha equipa",
+    "pickChooseLead": "Escolher",
+    "pickChooseLeadAria": "Escolher {{agent}} para conduzir a tua conversa",
+    "pickOnTeam": "Na tua equipa",
     "postInstallTitle": "“{{agentTitle}}” está nos teus agentes",
     "postInstallUseHint": "Usa-o em qualquer chat:",
     "previewAction": "Pré-visualizar",
@@ -2162,10 +2179,57 @@
       "done": "Feito",
       "planned": "Previsto"
     },
+    "gettingStarted": {
+      "count": "{{done}} de {{total}}",
+      "countAria": "{{done}} de {{total}} primeiros passos feitos",
+      "doneSr": "feito",
+      "folded": "Está tudo pronto. Definições › Primeiros passos volta a mostrá-lo.",
+      "hide": "Ocultar",
+      "hideAria": "Ocultar Primeiros passos",
+      "rows": {
+        "checkIn": {
+          "hintDaily": "Todas as manhãs às {{time}}",
+          "hintOff": "Escolhe a frequência nas Definições",
+          "hintThreePerWeek": "Três manhãs por semana às {{time}}",
+          "hintWeekly": "Uma vez por semana às {{time}}",
+          "needsData": "Começa assim que chegarem os teus primeiros dados",
+          "title": "O teu acompanhamento diário"
+        },
+        "connect": {
+          "doneHint": "{{provider}} ligado",
+          "hint": "O teu relógio ou a tua app de treino",
+          "title": "Ligar os teus dados"
+        },
+        "lastWorkout": {
+          "needsActivity": "Espera pela tua primeira atividade",
+          "title": "Lê o teu último treino"
+        },
+        "meetTeam": {
+          "hint": "Responde a {{lead}} na tua conversa",
+          "title": "Conhece a tua equipa"
+        },
+        "profile": {
+          "hint": "<num>{{covered}}</num> de <num>{{total}}</num> temas",
+          "title": "Completa o teu perfil"
+        }
+      },
+      "title": "Primeiros passos"
+    },
+    "team": {
+      "add": "Adicionar um agente",
+      "empty": "Ainda sem equipa.",
+      "findMore": "Encontrar mais",
+      "leads": "Conduz a tua conversa",
+      "openAgentAria": "Falar com {{agent}}",
+      "pick": "Escolhe a tua equipa",
+      "title": "A tua equipa"
+    },
     "settings": {
       "title": "Início",
       "planSuggestion": "Sugerir criar um plano de treino",
-      "planSuggestionHint": "Aparece no Início enquanto não tiveres um plano."
+      "planSuggestionHint": "Aparece no Início enquanto não tiveres um plano.",
+      "gettingStarted": "Primeiros passos",
+      "gettingStartedHint": "Aparece no topo de Hoje até concluíres os primeiros passos."
     }
   },
   "hosted": {
@@ -2362,9 +2426,15 @@
     },
     "agent_welcome": {
       "can_see": "Vejo o que os teus serviços ligados partilham, como os teus treinos, o teu sono e a tua recuperação, e o que me contas. Não vejo mais nada, e não substituo um médico.",
+      "discover_line": "Há mais agentes em Descobrir: adiciona um à tua equipa quando quiseres.",
       "greeting": "Olá! Aqui {0} do Dravr, ao teu dispor.\n\n{1}",
       "greeting_no_role": "Olá! Aqui {0} do Dravr, ao teu dispor.",
-      "starters_title": "Para começar, podes perguntar-me:"
+      "list_and": "{0} e {1}",
+      "reach_line": "Menciona um com @ em qualquer mensagem, ou carrega em + para falares só com ele.",
+      "starters_title": "Para começar, podes perguntar-me:",
+      "team_many": "{0} também fazem parte da tua equipa.",
+      "team_one": "{0} também faz parte da tua equipa.",
+      "team_solo": "Para já, sou só eu na tua equipa."
     },
     "commitment": {
       "activity_any": "sessões",
@@ -2803,13 +2873,42 @@
     "starting": "A iniciar…",
     "stepAboutTraining": "O teu treino",
     "stepAboutYou": "Sobre ti",
-    "stepAgent": "Agente",
+    "stepAgent": "A tua equipa",
     "stepChatApp": "App de mensagens",
     "stepConnect": "Ligar",
     "stepGroup": "Seu grupo",
     "stepHealthCheck": "Check-up de saúde",
     "stepLink": "Vincular",
     "stepOfLabel": "Passo {{current}} de {{total}}: {{label}}",
+    "team": {
+      "browseAll": "Ver todos os agentes",
+      "browseSheetTitle": "Todos os agentes",
+      "changeLead": "Mudar",
+      "changeLeadAria": "Escolher outro agente para conduzir a tua conversa",
+      "footnote": "A tua equipa pode mudar a qualquer momento, a partir do Início ou de Descobrir.",
+      "goalLine": "Objetivo: {{goal}}",
+      "heading": "{{name}}, aqui está a tua equipa inicial",
+      "headingNoName": "Aqui está a tua equipa inicial",
+      "leadHeading": "Conduz a tua conversa do Início",
+      "leadSheetTitle": "Escolhe quem conduz a tua conversa",
+      "membersLegend": "Também na tua equipa",
+      "noMembers": "Ainda nenhum outro agente se ajusta aos teus dados. Vê todos os agentes para adicionar um.",
+      "saveFailed": "Não conseguimos criar a tua equipa neste momento.",
+      "skip": "Saltar — começar só com {{lead}}",
+      "source": {
+        "discover": "adicionado a partir de Descobrir",
+        "goal": "pelo teu objetivo",
+        "longSessions": "pelas tuas sessões longas",
+        "sleepSource": "pelos teus dados do {{provider}}",
+        "strength": "pelo teu treino de força"
+      },
+      "start": "Começar com a minha equipa · <num>{{count}}</num>",
+      "subline": "Escolhida a partir do teu treino e do que nos contaste.",
+      "summary": "Últimos {{days}} dias · <num>{{count}}</num> atividades, sobretudo {{sport}}.",
+      "summaryNoSport": "Últimos {{days}} dias · <num>{{count}}</num> atividades.",
+      "summaryOne": "Últimos {{days}} dias · <num>1</num> atividade.",
+      "whatWeReadAria": "O que lemos"
+    },
     "tellMeAboutTraining": "Fala-me do teu treino",
     "welcomeNamed": "Bem-vindo, {{name}}",
     "welcomeToDravr": "Boas-vindas ao Dravr",
@@ -2933,9 +3032,9 @@
       "prompt": "Os meus dados do {0} acabaram de sincronizar pela primeira vez. Lê as minhas atividades recentes e escreve-me uma mensagem curta sobre elas: duas ou três observações concretas sobre o meu treino (volume, regularidade, tipos de sessões), citando só números que obtiveste de facto. Descreve a carga face ao meu nível habitual, nunca como um risco. Diz-me numa frase o que vês (o que os meus serviços ligados partilham e o que te conto) e o que não vês. Termina a perguntar-me em que gostaria de trabalhar. Sem títulos, menos de 120 palavras."
     },
     "check_in": {
-      "daily_prompt": "Acompanhamento da manhã. Lê o que os meus serviços ligados registaram desde ontem de manhã (treinos, sono, recuperação) e escreve-me uma nota curta: uma ou duas observações concretas, citando só números que obtiveste de facto, e o que significam para hoje. Descreve a carga face ao meu nível habitual, nunca como um risco. Se não chegou nada de novo, di-lo numa frase e pergunta-me como me sinto. Sem títulos, menos de 90 palavras.",
-      "three_per_week_prompt": "Acompanhamento. Lê o que os meus serviços ligados registaram nos últimos três dias (treinos, sono, recuperação) e escreve-me uma nota curta: duas observações concretas, citando só números que obtiveste de facto, e uma coisa a ter em conta nos próximos dias. Descreve a carga face ao meu nível habitual, nunca como um risco. Se não chegou nada de novo, di-lo numa frase e pergunta-me como está a correr o treino. Sem títulos, menos de 100 palavras.",
-      "weekly_prompt": "Acompanhamento semanal. Lê os meus últimos sete dias nos meus serviços ligados (treinos, sono, recuperação) e escreve-me um balanço curto: como correu a semana face à minha semana habitual (volume, regularidade, tipos de sessões), citando só números que obtiveste de facto, e uma coisa em que me concentrar esta semana. Descreve a carga face ao meu nível habitual, nunca como um risco. Sem títulos, menos de 120 palavras."
+      "daily_prompt": "Acompanhamento da manhã. Lê o que os meus serviços ligados registaram desde ontem de manhã (treinos, sono, recuperação) e escreve-me uma nota curta: uma ou duas observações concretas, citando só números que obtiveste de facto, e o que significam para hoje. Descreve a carga face ao meu nível habitual, nunca como um risco. Se eu tiver um plano de treino ativo, diz em que fica a sessão prevista para hoje à luz disto; se não tiver, aconselha-me sobre que tipo de dia hoje deve ser. Se não chegou nada de novo, di-lo numa frase. Termina a perguntar-me como me sinto hoje. Sem títulos, menos de 110 palavras.",
+      "three_per_week_prompt": "Acompanhamento. Lê o que os meus serviços ligados registaram nos últimos três dias (treinos, sono, recuperação) e escreve-me uma nota curta: duas observações concretas, citando só números que obtiveste de facto, e uma coisa a ter em conta nos próximos dias. Descreve a carga face ao meu nível habitual, nunca como um risco. Se eu tiver um plano de treino ativo, diz se as sessões dos próximos dias devem mudar; se não tiver, aconselha-me sobre como devem ser os próximos dias. Se não chegou nada de novo, di-lo numa frase. Termina a perguntar-me como me sinto e como está a correr o treino. Sem títulos, menos de 120 palavras.",
+      "weekly_prompt": "Acompanhamento semanal. Lê os meus últimos sete dias nos meus serviços ligados (treinos, sono, recuperação) e escreve-me um balanço curto: como correu a semana face à minha semana habitual (volume, regularidade, tipos de sessões), citando só números que obtiveste de facto, e uma coisa em que me concentrar esta semana. Descreve a carga face ao meu nível habitual, nunca como um risco. Se eu tiver um plano de treino ativo, diz se as sessões desta semana devem mudar; se não tiver, aconselha-me sobre a forma que esta semana deve ter. Termina a perguntar-me como me sinto ao começar a semana. Sem títulos, menos de 140 palavras."
     }
   },
   "profile": {
@@ -3456,6 +3555,10 @@
     "can_see": {
       "label": "O que vês de mim?"
     },
+    "check_in": {
+      "label": "O meu check-in",
+      "prompt": "Faz o acompanhamento de hoje comigo: pelos meus dados mais recentes, como estou e o que devo fazer hoje?"
+    },
     "compare_week": {
       "label": "Compara a semana",
       "prompt": "Compara os meus últimos 7 dias de treino com os 7 dias anteriores. O que mudou em volume e intensidade, e o que devo tirar daí?"
@@ -3481,6 +3584,10 @@
     "load": {
       "label": "As minhas 6 semanas",
       "prompt": "Como evoluiu a minha carga de treino nas últimas 6 semanas, comparada com o meu nível habitual?"
+    },
+    "meet_team": {
+      "label": "Conhecer a equipa",
+      "prompt": "Quem está na minha equipa, e como falo com cada um de vocês?"
     },
     "next_time": "Da próxima vez, escreve só {0}.",
     "recovered": {

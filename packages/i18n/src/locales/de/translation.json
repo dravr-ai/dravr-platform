@@ -118,6 +118,19 @@
       "billing_subscription": "Dein Abo ist noch aktiv: {{detail}}"
     }
   },
+  "agents": {
+    "team_offer": {
+      "add": "{0} zu meinem Team hinzufügen",
+      "added": "{0} ist jetzt in deinem Team.",
+      "dismissed": "Kein Problem. Du kannst jederzeit einen Agenten unter Entdecken hinzufügen.",
+      "not_now": "Nicht jetzt"
+    },
+    "team_reason": {
+      "fuelling": "Lange Tage werden mit dem gewonnen oder verloren, was du isst und trinkst. Er plant das passend zu deinem Training.",
+      "mobility": "Kurze Routinen passend zu deinen Krafttagen. Füg ihn jetzt oder später hinzu.",
+      "recovery": "{0} schickt deinen Schlaf und deine HRV, damit er jeden Morgen echte Daten zum Lesen hat."
+    }
+  },
   "apiKeys": {
     "blurb": "Schlüssel, mit denen deine eigenen Skripte und Tools die Dravr-API in deinem Namen aufrufen. Jeder gilt, bis du ihn widerrufst oder er abläuft.",
     "copied": "Kopiert",
@@ -1676,6 +1689,10 @@
     "noPublishedAgents": "Noch keine veröffentlichten Agenten",
     "notFavoriteLabel": "Kein Favorit",
     "openChat": "Chat öffnen",
+    "pickAddToTeam": "Zu meinem Team hinzufügen",
+    "pickChooseLead": "Auswählen",
+    "pickChooseLeadAria": "{{agent}} für deinen Chat auswählen",
+    "pickOnTeam": "In deinem Team",
     "postInstallTitle": "„{{agentTitle}}“ ist in deinen Agenten",
     "postInstallUseHint": "Nutze ihn in jedem Chat:",
     "previewAction": "Vorschau",
@@ -2162,10 +2179,57 @@
       "done": "Erledigt",
       "planned": "Geplant"
     },
+    "gettingStarted": {
+      "count": "{{done}} von {{total}}",
+      "countAria": "{{done}} von {{total}} ersten Schritten erledigt",
+      "doneSr": "erledigt",
+      "folded": "Alles eingerichtet. Unter Einstellungen › Erste Schritte holst du es zurück.",
+      "hide": "Ausblenden",
+      "hideAria": "Erste Schritte ausblenden",
+      "rows": {
+        "checkIn": {
+          "hintDaily": "Jeden Morgen um {{time}}",
+          "hintOff": "Wähle in den Einstellungen, wie oft",
+          "hintThreePerWeek": "Drei Morgen pro Woche um {{time}}",
+          "hintWeekly": "Einmal pro Woche um {{time}}",
+          "needsData": "Beginnt, sobald deine ersten Daten da sind",
+          "title": "Dein täglicher Check-in"
+        },
+        "connect": {
+          "doneHint": "{{provider}} verbunden",
+          "hint": "Deine Uhr oder Trainings-App",
+          "title": "Daten verbinden"
+        },
+        "lastWorkout": {
+          "needsActivity": "Wartet auf deine erste Aktivität",
+          "title": "Lies dein letztes Training"
+        },
+        "meetTeam": {
+          "hint": "Antworte {{lead}} in deinem Chat",
+          "title": "Lerne dein Team kennen"
+        },
+        "profile": {
+          "hint": "<num>{{covered}}</num> von <num>{{total}}</num> Themen",
+          "title": "Vervollständige dein Profil"
+        }
+      },
+      "title": "Erste Schritte"
+    },
+    "team": {
+      "add": "Agent hinzufügen",
+      "empty": "Noch kein Team.",
+      "findMore": "Mehr finden",
+      "leads": "Leitet deinen Chat",
+      "openAgentAria": "Mit {{agent}} sprechen",
+      "pick": "Stell dein Team zusammen",
+      "title": "Dein Team"
+    },
     "settings": {
       "title": "Start",
       "planSuggestion": "Vorschlagen, einen Trainingsplan zu erstellen",
-      "planSuggestionHint": "Wird auf der Startseite angezeigt, solange du keinen Plan hast."
+      "planSuggestionHint": "Wird auf der Startseite angezeigt, solange du keinen Plan hast.",
+      "gettingStarted": "Erste Schritte",
+      "gettingStartedHint": "Wird oben bei Heute angezeigt, bis deine ersten Schritte erledigt sind."
     }
   },
   "hosted": {
@@ -2362,9 +2426,15 @@
     },
     "agent_welcome": {
       "can_see": "Ich sehe, was deine verbundenen Dienste teilen, etwa deine Einheiten, deinen Schlaf und deine Erholung, und was du mir erzählst. Mehr sehe ich nicht, und ich ersetze keinen Arzt.",
+      "discover_line": "Weitere Agenten findest du unter Entdecken: Füg jederzeit einen zu deinem Team hinzu.",
       "greeting": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.\n\n{1}",
       "greeting_no_role": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.",
-      "starters_title": "Zum Einstieg kannst du mich fragen:"
+      "list_and": "{0} und {1}",
+      "reach_line": "Erwähne einen mit @ in einer beliebigen Nachricht, oder tippe auf +, um allein mit ihm zu sprechen.",
+      "starters_title": "Zum Einstieg kannst du mich fragen:",
+      "team_many": "{0} sind auch in deinem Team.",
+      "team_one": "{0} ist auch in deinem Team.",
+      "team_solo": "Im Moment bin ich allein in deinem Team."
     },
     "commitment": {
       "activity_any": "Einheiten",
@@ -2803,13 +2873,42 @@
     "starting": "Wird gestartet…",
     "stepAboutTraining": "Dein Training",
     "stepAboutYou": "Über dich",
-    "stepAgent": "Agent",
+    "stepAgent": "Dein Team",
     "stepChatApp": "Chat-App",
     "stepConnect": "Verbinden",
     "stepGroup": "Deine Gruppe",
     "stepHealthCheck": "Gesundheitscheck",
     "stepLink": "Verknüpfen",
     "stepOfLabel": "Schritt {{current}} von {{total}}: {{label}}",
+    "team": {
+      "browseAll": "Alle Agenten ansehen",
+      "browseSheetTitle": "Alle Agenten",
+      "changeLead": "Ändern",
+      "changeLeadAria": "Einen anderen Agenten für deinen Chat wählen",
+      "footnote": "Dein Team lässt sich jederzeit ändern, über Start oder Entdecken.",
+      "goalLine": "Ziel: {{goal}}",
+      "heading": "{{name}}, hier ist dein Startteam",
+      "headingNoName": "Hier ist dein Startteam",
+      "leadHeading": "Leitet deinen Chat auf der Startseite",
+      "leadSheetTitle": "Wähle, wer deinen Chat leitet",
+      "membersLegend": "Auch in deinem Team",
+      "noMembers": "Noch passt kein weiterer Agent zu deinen Daten. Sieh dir alle Agenten an, um einen hinzuzufügen.",
+      "saveFailed": "Wir konnten dein Team gerade nicht einrichten.",
+      "skip": "Überspringen — nur mit {{lead}} starten",
+      "source": {
+        "discover": "aus Entdecken hinzugefügt",
+        "goal": "wegen deines Ziels",
+        "longSessions": "wegen deiner langen Einheiten",
+        "sleepSource": "wegen deiner {{provider}}-Daten",
+        "strength": "wegen deines Krafttrainings"
+      },
+      "start": "Mit meinem Team starten · <num>{{count}}</num>",
+      "subline": "Ausgewählt nach deinem Training und dem, was du uns erzählt hast.",
+      "summary": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten, vor allem {{sport}}.",
+      "summaryNoSport": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten.",
+      "summaryOne": "Letzte {{days}} Tage · <num>1</num> Aktivität.",
+      "whatWeReadAria": "Was wir gelesen haben"
+    },
     "tellMeAboutTraining": "Erzähl mir von deinem Training",
     "welcomeNamed": "Willkommen, {{name}}",
     "welcomeToDravr": "Willkommen bei Dravr",
@@ -2933,9 +3032,9 @@
       "prompt": "Meine {0}-Daten wurden gerade zum ersten Mal synchronisiert. Lies meine letzten Aktivitäten und schreib mir eine kurze Nachricht dazu: zwei oder drei konkrete Beobachtungen zu meinem Training (Umfang, Regelmäßigkeit, Art der Einheiten), nur mit Zahlen, die du wirklich abgerufen hast. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Sag mir in einem Satz, was du siehst (was meine verbundenen Dienste teilen und was ich dir erzähle) und was nicht. Frag mich zum Schluss, woran ich arbeiten möchte. Keine Überschriften, unter 120 Wörtern."
     },
     "check_in": {
-      "daily_prompt": "Morgen-Check-in. Lies, was meine verbundenen Dienste seit gestern Morgen aufgezeichnet haben (Einheiten, Schlaf, Erholung), und schreib mir eine kurze Notiz: eine oder zwei konkrete Beobachtungen, nur mit Zahlen, die du wirklich abgerufen hast, und was sie für heute bedeuten. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn nichts Neues dazugekommen ist, sag das in einem Satz und frag mich, wie es mir geht. Keine Überschriften, unter 90 Wörtern.",
-      "three_per_week_prompt": "Check-in. Lies, was meine verbundenen Dienste in den letzten drei Tagen aufgezeichnet haben (Einheiten, Schlaf, Erholung), und schreib mir eine kurze Notiz: zwei konkrete Beobachtungen, nur mit Zahlen, die du wirklich abgerufen hast, und eine Sache, die ich in den nächsten Tagen im Blick behalten sollte. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn nichts Neues dazugekommen ist, sag das in einem Satz und frag mich, wie das Training läuft. Keine Überschriften, unter 100 Wörtern.",
-      "weekly_prompt": "Wochen-Check-in. Lies meine letzten sieben Tage aus meinen verbundenen Diensten (Einheiten, Schlaf, Erholung) und schreib mir einen kurzen Rückblick: wie die Woche im Vergleich zu meiner üblichen Woche war (Umfang, Regelmäßigkeit, Art der Einheiten), nur mit Zahlen, die du wirklich abgerufen hast, und eine Sache, auf die ich mich diese Woche konzentrieren sollte. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Keine Überschriften, unter 120 Wörtern."
+      "daily_prompt": "Morgen-Check-in. Lies, was meine verbundenen Dienste seit gestern Morgen aufgezeichnet haben (Einheiten, Schlaf, Erholung), und schreib mir eine kurze Notiz: eine oder zwei konkrete Beobachtungen, nur mit Zahlen, die du wirklich abgerufen hast, und was sie für heute bedeuten. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn ich einen aktiven Trainingsplan habe, sag, was aus der für heute geplanten Einheit angesichts dessen wird; wenn nicht, rate mir, was für ein Tag heute sein sollte. Wenn nichts Neues dazugekommen ist, sag das in einem Satz. Frag mich zum Schluss, wie es mir heute geht. Keine Überschriften, unter 110 Wörtern.",
+      "three_per_week_prompt": "Check-in. Lies, was meine verbundenen Dienste in den letzten drei Tagen aufgezeichnet haben (Einheiten, Schlaf, Erholung), und schreib mir eine kurze Notiz: zwei konkrete Beobachtungen, nur mit Zahlen, die du wirklich abgerufen hast, und eine Sache, die ich in den nächsten Tagen im Blick behalten sollte. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn ich einen aktiven Trainingsplan habe, sag, ob sich die Einheiten der nächsten Tage ändern sollten; wenn nicht, rate mir, wie die nächsten Tage aussehen sollten. Wenn nichts Neues dazugekommen ist, sag das in einem Satz. Frag mich zum Schluss, wie es mir geht und wie das Training läuft. Keine Überschriften, unter 120 Wörtern.",
+      "weekly_prompt": "Wochen-Check-in. Lies meine letzten sieben Tage aus meinen verbundenen Diensten (Einheiten, Schlaf, Erholung) und schreib mir einen kurzen Rückblick: wie die Woche im Vergleich zu meiner üblichen Woche war (Umfang, Regelmäßigkeit, Art der Einheiten), nur mit Zahlen, die du wirklich abgerufen hast, und eine Sache, auf die ich mich diese Woche konzentrieren sollte. Beschreibe die Belastung im Vergleich zu meinem üblichen Niveau, nie als Risiko. Wenn ich einen aktiven Trainingsplan habe, sag, ob sich die Einheiten dieser Woche ändern sollten; wenn nicht, rate mir, welche Form diese Woche haben sollte. Frag mich zum Schluss, wie es mir zum Start in die Woche geht. Keine Überschriften, unter 140 Wörtern."
     }
   },
   "profile": {
@@ -3456,6 +3555,10 @@
     "can_see": {
       "label": "Was siehst du?"
     },
+    "check_in": {
+      "label": "Mein Check-in",
+      "prompt": "Mach heute den Check-in mit mir: Wie geht es mir laut meinen neuesten Daten, und was sollte ich heute tun?"
+    },
     "compare_week": {
       "label": "Woche vergleichen",
       "prompt": "Vergleiche mein Training der letzten 7 Tage mit den 7 Tagen davor. Was hat sich bei Umfang und Intensität verändert, und was nehme ich daraus mit?"
@@ -3481,6 +3584,10 @@
     "load": {
       "label": "Meine 6 Wochen",
       "prompt": "Wie hat sich meine Trainingsbelastung in den letzten 6 Wochen entwickelt, verglichen mit meinem üblichen Niveau?"
+    },
+    "meet_team": {
+      "label": "Team kennenlernen",
+      "prompt": "Wer ist in meinem Team, und wie erreiche ich jeden von euch?"
     },
     "next_time": "Nächstes Mal tippst du einfach {0}.",
     "recovered": {

@@ -118,6 +118,19 @@
       "billing_subscription": "Your subscription is still active: {{detail}}"
     }
   },
+  "agents": {
+    "team_offer": {
+      "add": "Add {0} to my team",
+      "added": "{0} is on your team now.",
+      "dismissed": "No problem. You can add an agent from Discover whenever you like.",
+      "not_now": "Not now"
+    },
+    "team_reason": {
+      "fuelling": "Long days are won or lost on what you eat and drink. It plans that around your training.",
+      "mobility": "Short routines that pair with your strength days. Add it now or later.",
+      "recovery": "{0} sends your sleep and HRV, so it has something real to read every morning."
+    }
+  },
   "apiKeys": {
     "blurb": "Keys your own scripts and tools use to call the Dravr API as you. Each works until you revoke it or it expires.",
     "copied": "Copied",
@@ -1676,6 +1689,10 @@
     "noPublishedAgents": "No published agents available yet",
     "notFavoriteLabel": "Not Favorite",
     "openChat": "Open chat",
+    "pickAddToTeam": "Add to my team",
+    "pickChooseLead": "Choose",
+    "pickChooseLeadAria": "Choose {{agent}} to lead your thread",
+    "pickOnTeam": "On your team",
     "postInstallTitle": "“{{agentTitle}}” is in your agents",
     "postInstallUseHint": "Use it in any chat:",
     "previewAction": "Preview",
@@ -2162,10 +2179,57 @@
       "done": "Done",
       "planned": "Planned"
     },
+    "gettingStarted": {
+      "count": "{{done}} of {{total}}",
+      "countAria": "{{done}} of {{total}} first steps done",
+      "doneSr": "done",
+      "folded": "You're set up. Settings › Getting started brings it back.",
+      "hide": "Hide",
+      "hideAria": "Hide Getting started",
+      "rows": {
+        "checkIn": {
+          "hintDaily": "Every morning at {{time}}",
+          "hintOff": "Choose how often in Settings",
+          "hintThreePerWeek": "Three mornings a week at {{time}}",
+          "hintWeekly": "Once a week at {{time}}",
+          "needsData": "Starts once your first data arrives",
+          "title": "Your daily check-in"
+        },
+        "connect": {
+          "doneHint": "{{provider}} connected",
+          "hint": "Your watch or training app",
+          "title": "Connect your data"
+        },
+        "lastWorkout": {
+          "needsActivity": "Waits for your first activity",
+          "title": "Read your last workout"
+        },
+        "meetTeam": {
+          "hint": "Reply to {{lead}} in your thread",
+          "title": "Meet your team"
+        },
+        "profile": {
+          "hint": "<num>{{covered}}</num> of <num>{{total}}</num> topics",
+          "title": "Finish your profile"
+        }
+      },
+      "title": "Getting started"
+    },
+    "team": {
+      "add": "Add an agent",
+      "empty": "No team yet.",
+      "findMore": "Find more",
+      "leads": "Leads your thread",
+      "openAgentAria": "Talk to {{agent}}",
+      "pick": "Pick your team",
+      "title": "Your team"
+    },
     "settings": {
       "title": "Home",
       "planSuggestion": "Suggest building a training plan",
-      "planSuggestionHint": "Shown on Home while you have no plan."
+      "planSuggestionHint": "Shown on Home while you have no plan.",
+      "gettingStarted": "Getting started",
+      "gettingStartedHint": "Shown at the top of Today until your first steps are done."
     }
   },
   "hosted": {
@@ -2362,9 +2426,15 @@
     },
     "agent_welcome": {
       "can_see": "I see what your connected services share, like your workouts, sleep and recovery, plus what you tell me. I can't see anything else, and I don't replace a doctor.",
+      "discover_line": "More agents live in Discover: add one to your team whenever you like.",
       "greeting": "Hi! Dravr's {0} here.\n\n{1}",
       "greeting_no_role": "Hi! Dravr's {0} here.",
-      "starters_title": "To get started, you can ask me:"
+      "list_and": "{0} and {1}",
+      "reach_line": "Mention one with @ in any message, or press + to talk to one on its own.",
+      "starters_title": "To get started, you can ask me:",
+      "team_many": "{0} are on your team too.",
+      "team_one": "{0} is on your team too.",
+      "team_solo": "For now it's just me on your team."
     },
     "commitment": {
       "activity_any": "sessions",
@@ -2803,13 +2873,42 @@
     "starting": "Starting…",
     "stepAboutTraining": "About your training",
     "stepAboutYou": "About you",
-    "stepAgent": "Agent",
+    "stepAgent": "Your team",
     "stepChatApp": "Chat app",
     "stepConnect": "Connect",
     "stepGroup": "Your group",
     "stepHealthCheck": "Health check",
     "stepLink": "Link",
     "stepOfLabel": "Step {{current}} of {{total}}: {{label}}",
+    "team": {
+      "browseAll": "Browse all agents",
+      "browseSheetTitle": "All agents",
+      "changeLead": "Change",
+      "changeLeadAria": "Choose another agent to lead your thread",
+      "footnote": "Your team can change any time, from Home or Discover.",
+      "goalLine": "Goal: {{goal}}",
+      "heading": "{{name}}, here's your starting team",
+      "headingNoName": "Here's your starting team",
+      "leadHeading": "Leads your Home thread",
+      "leadSheetTitle": "Choose who leads your thread",
+      "membersLegend": "Also on your team",
+      "noMembers": "No other agent fits your data yet. Browse all agents to add one.",
+      "saveFailed": "We couldn't set up your team just now.",
+      "skip": "Skip — start with {{lead}} only",
+      "source": {
+        "discover": "added from Discover",
+        "goal": "from your goal",
+        "longSessions": "from your long sessions",
+        "sleepSource": "from your {{provider}} data",
+        "strength": "from your strength work"
+      },
+      "start": "Start with my team · <num>{{count}}</num>",
+      "subline": "Picked from your training and what you told us.",
+      "summary": "Last {{days}} days · <num>{{count}}</num> activities, mostly {{sport}}.",
+      "summaryNoSport": "Last {{days}} days · <num>{{count}}</num> activities.",
+      "summaryOne": "Last {{days}} days · <num>1</num> activity.",
+      "whatWeReadAria": "What we read"
+    },
     "tellMeAboutTraining": "Tell me about your training",
     "welcomeNamed": "Welcome, {{name}}",
     "welcomeToDravr": "Welcome to Dravr",
@@ -2933,9 +3032,9 @@
       "prompt": "My {0} data has just synced for the first time. Read my recent activities and write me a short message about them: two or three concrete observations on my training (volume, consistency, the kinds of sessions I do), quoting only figures you actually fetched. Describe load against my usual level, never as a risk. Say in one sentence what you can see (what my connected services share and what I tell you) and what you can't. End by asking me what I'd like to work on. No headings, under 120 words."
     },
     "check_in": {
-      "daily_prompt": "Morning check-in. Read what my connected services recorded since yesterday morning (workouts, sleep, recovery) and write me a short note: one or two concrete observations, quoting only figures you actually fetched, and what they mean for today. Describe load against my usual level, never as a risk. If nothing new came in, say so in one sentence and ask how I'm feeling. No headings, under 90 words.",
-      "three_per_week_prompt": "Check-in. Read what my connected services recorded over the last three days (workouts, sleep, recovery) and write me a short note: two concrete observations, quoting only figures you actually fetched, and one thing to keep in mind for the next few days. Describe load against my usual level, never as a risk. If nothing new came in, say so in one sentence and ask how training is going. No headings, under 100 words.",
-      "weekly_prompt": "Weekly check-in. Read my last seven days from my connected services (workouts, sleep, recovery) and write me a short review: how the week compared with my usual week (volume, consistency, the kinds of sessions), quoting only figures you actually fetched, and one thing to focus on this week. Describe load against my usual level, never as a risk. No headings, under 120 words."
+      "daily_prompt": "Morning check-in. Read what my connected services recorded since yesterday morning (workouts, sleep, recovery) and write me a short note: one or two concrete observations, quoting only figures you actually fetched, and what they mean for today. Describe load against my usual level, never as a risk. If I have an active training plan, say what today's planned session becomes in light of this; if I don't, advise what kind of day today should be. If nothing new came in, say so in one sentence. End by asking me how I'm feeling today. No headings, under 110 words.",
+      "three_per_week_prompt": "Check-in. Read what my connected services recorded over the last three days (workouts, sleep, recovery) and write me a short note: two concrete observations, quoting only figures you actually fetched, and one thing to keep in mind for the next few days. Describe load against my usual level, never as a risk. If I have an active training plan, say whether the next few days' sessions should change; if I don't, advise what the next few days should look like. If nothing new came in, say so in one sentence. End by asking me how I'm feeling and how training is going. No headings, under 120 words.",
+      "weekly_prompt": "Weekly check-in. Read my last seven days from my connected services (workouts, sleep, recovery) and write me a short review: how the week compared with my usual week (volume, consistency, the kinds of sessions), quoting only figures you actually fetched, and one thing to focus on this week. Describe load against my usual level, never as a risk. If I have an active training plan, say whether this week's sessions should change; if I don't, advise what shape this week should take. End by asking me how I'm feeling going into the week. No headings, under 140 words."
     }
   },
   "profile": {
@@ -3456,6 +3555,10 @@
     "can_see": {
       "label": "What can you see?"
     },
+    "check_in": {
+      "label": "Check in with me",
+      "prompt": "Check in with me today. From my latest data, how am I doing, and what should I do today?"
+    },
     "compare_week": {
       "label": "This week vs last",
       "prompt": "Compare my last 7 days of training with the 7 days before. What changed in volume and intensity, and what should I take from it?"
@@ -3481,6 +3584,10 @@
     "load": {
       "label": "My last 6 weeks",
       "prompt": "How has my training load moved over the last 6 weeks, compared with my usual level?"
+    },
+    "meet_team": {
+      "label": "Meet my team",
+      "prompt": "Who is on my team, and how do I reach each of you?"
     },
     "next_time": "Next time, just type {0}.",
     "recovered": {

@@ -118,6 +118,19 @@
       "billing_subscription": "Ton abonnement est toujours actif : {{detail}}"
     }
   },
+  "agents": {
+    "team_offer": {
+      "add": "Ajouter {0} à mon équipe",
+      "added": "{0} fait maintenant partie de ton équipe.",
+      "dismissed": "Pas de souci. Tu peux ajouter un agent depuis Découvrir quand tu veux.",
+      "not_now": "Pas maintenant"
+    },
+    "team_reason": {
+      "fuelling": "Les longues journées se gagnent ou se perdent sur ce que tu manges et bois. Il prépare ça avec toi, autour de ton entraînement.",
+      "mobility": "Des routines courtes qui accompagnent tes jours de force. Ajoute-le maintenant ou plus tard.",
+      "recovery": "{0} envoie ton sommeil et ta VFC : il a du concret à lire chaque matin."
+    }
+  },
   "apiKeys": {
     "blurb": "Les clés que tes propres scripts et outils utilisent pour appeler l'API Dravr en ton nom. Chacune fonctionne jusqu'à ce que tu la révoques ou qu'elle expire.",
     "copied": "Copiée",
@@ -1676,6 +1689,10 @@
     "noPublishedAgents": "Aucun agent publié pour l’instant",
     "notFavoriteLabel": "Pas favori",
     "openChat": "Ouvrir la discussion",
+    "pickAddToTeam": "Ajouter à mon équipe",
+    "pickChooseLead": "Choisir",
+    "pickChooseLeadAria": "Choisir {{agent}} pour mener ta conversation",
+    "pickOnTeam": "Dans ton équipe",
     "postInstallTitle": "« {{agentTitle}} » est dans tes agents",
     "postInstallUseHint": "Utilise-le dans n’importe quel chat :",
     "previewAction": "Aperçu",
@@ -2162,10 +2179,57 @@
       "done": "Réalisé",
       "planned": "Prévu"
     },
+    "gettingStarted": {
+      "count": "{{done}} sur {{total}}",
+      "countAria": "{{done}} sur {{total}} premières étapes terminées",
+      "doneSr": "fait",
+      "folded": "Tout est prêt. Réglages › Pour bien démarrer le fait revenir.",
+      "hide": "Masquer",
+      "hideAria": "Masquer Pour bien démarrer",
+      "rows": {
+        "checkIn": {
+          "hintDaily": "Chaque matin à {{time}}",
+          "hintOff": "Choisis la fréquence dans Réglages",
+          "hintThreePerWeek": "Trois matins par semaine à {{time}}",
+          "hintWeekly": "Une fois par semaine à {{time}}",
+          "needsData": "Commence dès que tes premières données arrivent",
+          "title": "Ton point du jour"
+        },
+        "connect": {
+          "doneHint": "{{provider}} connecté",
+          "hint": "Ta montre ou ton app d'entraînement",
+          "title": "Connecter tes données"
+        },
+        "lastWorkout": {
+          "needsActivity": "Attend ta première activité",
+          "title": "Lis ta dernière séance"
+        },
+        "meetTeam": {
+          "hint": "Réponds à {{lead}} dans ta conversation",
+          "title": "Rencontre ton équipe"
+        },
+        "profile": {
+          "hint": "<num>{{covered}}</num> sur <num>{{total}}</num> sujets",
+          "title": "Termine ton profil"
+        }
+      },
+      "title": "Pour bien démarrer"
+    },
+    "team": {
+      "add": "Ajouter un agent",
+      "empty": "Pas encore d'équipe.",
+      "findMore": "En trouver d'autres",
+      "leads": "Mène ta conversation",
+      "openAgentAria": "Parler à {{agent}}",
+      "pick": "Choisis ton équipe",
+      "title": "Ton équipe"
+    },
     "settings": {
       "title": "Accueil",
       "planSuggestion": "Suggérer de construire un plan d’entraînement",
-      "planSuggestionHint": "Affiché sur l’accueil tant que tu n’as pas de plan."
+      "planSuggestionHint": "Affiché sur l’accueil tant que tu n’as pas de plan.",
+      "gettingStarted": "Pour bien démarrer",
+      "gettingStartedHint": "Affiché en haut d'Aujourd'hui jusqu'à ce que tes premières étapes soient faites."
     }
   },
   "hosted": {
@@ -2362,9 +2426,15 @@
     },
     "agent_welcome": {
       "can_see": "Je vois ce que partagent tes services connectés, comme tes séances, ton sommeil et ta récupération, et ce que tu me dis. Je ne vois rien d'autre, et je ne remplace pas un médecin.",
+      "discover_line": "D'autres agents t'attendent dans Découvrir : ajoute-en un à ton équipe quand tu veux.",
       "greeting": "Bonjour ! {0} de Dravr, à ton écoute.\n\n{1}",
       "greeting_no_role": "Bonjour ! {0} de Dravr, à ton écoute.",
-      "starters_title": "Pour commencer, tu peux me demander :"
+      "list_and": "{0} et {1}",
+      "reach_line": "Mentionne-en un avec @ dans n'importe quel message, ou appuie sur + pour lui parler seul à seul.",
+      "starters_title": "Pour commencer, tu peux me demander :",
+      "team_many": "{0} font aussi partie de ton équipe.",
+      "team_one": "{0} fait aussi partie de ton équipe.",
+      "team_solo": "Pour l'instant, je suis seul dans ton équipe."
     },
     "commitment": {
       "activity_any": "séances",
@@ -2803,13 +2873,42 @@
     "starting": "Démarrage…",
     "stepAboutTraining": "Ton entraînement",
     "stepAboutYou": "Toi",
-    "stepAgent": "Agent",
+    "stepAgent": "Ton équipe",
     "stepChatApp": "Appli de messagerie",
     "stepConnect": "Connexion",
     "stepGroup": "Ton groupe",
     "stepHealthCheck": "Bilan de santé",
     "stepLink": "Lier",
     "stepOfLabel": "Étape {{current}} sur {{total}} : {{label}}",
+    "team": {
+      "browseAll": "Parcourir tous les agents",
+      "browseSheetTitle": "Tous les agents",
+      "changeLead": "Changer",
+      "changeLeadAria": "Choisir un autre agent pour mener ta conversation",
+      "footnote": "Ton équipe peut changer à tout moment, depuis l'Accueil ou Découvrir.",
+      "goalLine": "Objectif : {{goal}}",
+      "heading": "{{name}}, voici ton équipe de départ",
+      "headingNoName": "Voici ton équipe de départ",
+      "leadHeading": "Mène ta conversation d'accueil",
+      "leadSheetTitle": "Choisis qui mène ta conversation",
+      "membersLegend": "Aussi dans ton équipe",
+      "noMembers": "Aucun autre agent ne correspond encore à tes données. Parcours tous les agents pour en ajouter un.",
+      "saveFailed": "Impossible de créer ton équipe pour le moment.",
+      "skip": "Passer — commencer seulement avec {{lead}}",
+      "source": {
+        "discover": "ajouté depuis Découvrir",
+        "goal": "d'après ton objectif",
+        "longSessions": "d'après tes longues séances",
+        "sleepSource": "d'après tes données {{provider}}",
+        "strength": "d'après ton travail de force"
+      },
+      "start": "Commencer avec mon équipe · <num>{{count}}</num>",
+      "subline": "Choisie d'après ton entraînement et ce que tu nous as dit.",
+      "summary": "{{days}} derniers jours · <num>{{count}}</num> activités, surtout {{sport}}.",
+      "summaryNoSport": "{{days}} derniers jours · <num>{{count}}</num> activités.",
+      "summaryOne": "{{days}} derniers jours · <num>1</num> activité.",
+      "whatWeReadAria": "Ce que nous avons lu"
+    },
     "tellMeAboutTraining": "Parle-moi de ton entraînement",
     "welcomeNamed": "Bienvenue, {{name}}",
     "welcomeToDravr": "Bienvenue sur Dravr",
@@ -2933,9 +3032,9 @@
       "prompt": "Mes données {0} viennent de se synchroniser pour la première fois. Lis mes activités récentes et écris-moi un court message à leur sujet : deux ou trois observations concrètes sur mon entraînement (volume, régularité, types de séances), avec uniquement des chiffres que tu as vraiment récupérés. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Dis-moi en une phrase ce que tu vois (ce que partagent mes services connectés et ce que je te dis) et ce que tu ne vois pas. Termine en me demandant sur quoi j'aimerais travailler. Pas de titres, moins de 120 mots."
     },
     "check_in": {
-      "daily_prompt": "Point du matin. Lis ce que mes services connectés ont enregistré depuis hier matin (séances, sommeil, récupération) et écris-moi un court mot : une ou deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et ce qu'elles veulent dire pour aujourd'hui. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si rien de nouveau n'est arrivé, dis-le en une phrase et demande-moi comment je me sens. Pas de titres, moins de 90 mots.",
-      "three_per_week_prompt": "Point régulier. Lis ce que mes services connectés ont enregistré ces trois derniers jours (séances, sommeil, récupération) et écris-moi un court mot : deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et une chose à garder en tête pour les prochains jours. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si rien de nouveau n'est arrivé, dis-le en une phrase et demande-moi comment se passe l'entraînement. Pas de titres, moins de 100 mots.",
-      "weekly_prompt": "Point de la semaine. Lis mes sept derniers jours dans mes services connectés (séances, sommeil, récupération) et écris-moi un court bilan : comment la semaine se compare à ma semaine habituelle (volume, régularité, types de séances), avec uniquement des chiffres que tu as vraiment récupérés, et une chose sur laquelle me concentrer cette semaine. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Pas de titres, moins de 120 mots."
+      "daily_prompt": "Point du matin. Lis ce que mes services connectés ont enregistré depuis hier matin (séances, sommeil, récupération) et écris-moi un court mot : une ou deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et ce qu'elles veulent dire pour aujourd'hui. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si j'ai un plan d'entraînement actif, dis ce que devient la séance prévue aujourd'hui au vu de tout ça ; sinon, conseille-moi sur le genre de journée à faire aujourd'hui. Si rien de nouveau n'est arrivé, dis-le en une phrase. Termine en me demandant comment je me sens aujourd'hui. Pas de titres, moins de 110 mots.",
+      "three_per_week_prompt": "Point régulier. Lis ce que mes services connectés ont enregistré ces trois derniers jours (séances, sommeil, récupération) et écris-moi un court mot : deux observations concrètes, avec uniquement des chiffres que tu as vraiment récupérés, et une chose à garder en tête pour les prochains jours. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si j'ai un plan d'entraînement actif, dis si les séances des prochains jours doivent changer ; sinon, conseille-moi sur ce à quoi devraient ressembler les prochains jours. Si rien de nouveau n'est arrivé, dis-le en une phrase. Termine en me demandant comment je me sens et comment se passe l'entraînement. Pas de titres, moins de 120 mots.",
+      "weekly_prompt": "Point de la semaine. Lis mes sept derniers jours dans mes services connectés (séances, sommeil, récupération) et écris-moi un court bilan : comment la semaine se compare à ma semaine habituelle (volume, régularité, types de séances), avec uniquement des chiffres que tu as vraiment récupérés, et une chose sur laquelle me concentrer cette semaine. Décris la charge par rapport à mon niveau habituel, jamais comme un risque. Si j'ai un plan d'entraînement actif, dis si les séances de cette semaine doivent changer ; sinon, conseille-moi sur la forme à donner à cette semaine. Termine en me demandant comment je me sens en abordant la semaine. Pas de titres, moins de 140 mots."
     }
   },
   "profile": {
@@ -3456,6 +3555,10 @@
     "can_see": {
       "label": "Que vois-tu de moi ?"
     },
+    "check_in": {
+      "label": "Faisons le point",
+      "prompt": "Fais le point avec moi : d'après mes dernières données, comment je vais, et qu'est-ce que je fais aujourd'hui ?"
+    },
     "compare_week": {
       "label": "Compare ma semaine",
       "prompt": "Compare mes 7 derniers jours d'entraînement avec les 7 jours d'avant. Qu'est-ce qui a changé en volume et en intensité, et qu'est-ce que j'en retiens ?"
@@ -3481,6 +3584,10 @@
     "load": {
       "label": "Mes 6 semaines",
       "prompt": "Comment ma charge d'entraînement a-t-elle évolué sur les 6 dernières semaines, par rapport à mon niveau habituel ?"
+    },
+    "meet_team": {
+      "label": "Présente mon équipe",
+      "prompt": "Qui fait partie de mon équipe, et comment je parle à chacun de vous ?"
     },
     "next_time": "La prochaine fois, tape simplement {0}.",
     "recovered": {
