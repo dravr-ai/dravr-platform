@@ -182,7 +182,10 @@ impl OAuth2Routes {
             .replace("{{LANG}}", &escape_html_attribute(&labels.lang))
             .replace("{{T_SIGN_IN}}", &escape_html_attribute(&labels.sign_in))
             .replace("{{T_EMAIL}}", &escape_html_attribute(&labels.email))
-            .replace("{{T_PASSWORD}}", &escape_html_attribute(&labels.password))
+            .replace(
+                "{{T_PASSWORD}}",
+                &escape_html_attribute(&labels.password_label),
+            )
             .replace("{{CLIENT_ID}}", &escape_html_attribute(params.client_id))
             .replace(
                 "{{REDIRECT_URI}}",

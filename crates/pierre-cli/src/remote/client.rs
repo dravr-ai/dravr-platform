@@ -11,6 +11,7 @@
 //! device-login flow needs the raw response (to read RFC 8628 `400` bodies), so
 //! [`RemoteClient::post_raw`] is exposed alongside the 2xx-or-error helpers.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -26,7 +27,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct RemoteClient {
     http: reqwest::Client,
     base: String,
-    token: Option<String>,
+    token: Option<SecretString>,
 }
 
 impl RemoteClient {
@@ -34,7 +35,7 @@ impl RemoteClient {
     ///
     /// # Errors
     /// Returns an error if the underlying `reqwest` client cannot be built.
-    pub fn new(base: &str, token: Option<String>) -> AppResult<Self> {
+    pub fn new(base: &str, token: Option<SecretString>) -> AppResult<Self> {
         let http = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .user_agent(concat!("pierre-cli/", env!("CARGO_PKG_VERSION")))
@@ -61,7 +62,7 @@ impl RemoteClient {
 
     fn authed(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.token {
-            Some(t) => req.bearer_auth(t),
+            Some(t) => req.bearer_auth(t.expose_secret()),
             None => req,
         }
     }

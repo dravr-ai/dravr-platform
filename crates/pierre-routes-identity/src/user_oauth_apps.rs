@@ -28,6 +28,7 @@ use axum::{
 use pierre_core::errors::AppError;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{IdentityCtx, MiddlewareCtx};
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
@@ -43,7 +44,8 @@ pub struct RegisterUserOAuthAppRequest {
     /// OAuth client ID from the provider
     pub client_id: String,
     /// OAuth client secret from the provider
-    pub client_secret: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub client_secret: SecretString,
 }
 
 /// Response after registering an OAuth app
@@ -130,7 +132,7 @@ async fn handle_register_app<C: IdentityCtx + MiddlewareCtx>(
     if request.client_id.trim().is_empty() {
         return Err(AppError::invalid_input("client_id cannot be empty"));
     }
-    if request.client_secret.trim().is_empty() {
+    if request.client_secret.expose_secret().trim().is_empty() {
         return Err(AppError::invalid_input("client_secret cannot be empty"));
     }
     // The app is authorized at this server's callback whatever a client
@@ -143,7 +145,7 @@ async fn handle_register_app<C: IdentityCtx + MiddlewareCtx>(
             user_id,
             &provider,
             &request.client_id,
-            &request.client_secret,
+            request.client_secret.expose_secret(),
             &redirect_uri,
         )
         .await?;

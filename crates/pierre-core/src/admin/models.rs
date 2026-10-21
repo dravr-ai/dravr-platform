@@ -8,6 +8,7 @@
 //! Strong Rust types for the admin authentication system
 
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -397,7 +398,8 @@ pub struct GeneratedAdminToken {
     /// Name of the service
     pub service_name: String,
     /// The actual JWT token (shown only once!)
-    pub jwt_token: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub jwt_token: SecretString,
     /// Visible prefix for identification
     pub token_prefix: String,
     /// Permissions granted to this token

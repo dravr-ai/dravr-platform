@@ -7,6 +7,7 @@
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_providers::OAuth2Credentials;
+use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -71,8 +72,15 @@ async fn write_back_refreshed(
     tokens
         .refresh_token(
             &stored,
-            creds.access_token.as_deref().unwrap_or_default(),
-            creds.refresh_token.as_deref(),
+            creds
+                .access_token
+                .as_ref()
+                .map(ExposeSecret::expose_secret)
+                .unwrap_or_default(),
+            creds
+                .refresh_token
+                .as_ref()
+                .map(ExposeSecret::expose_secret),
             creds.expires_at,
         )
         .await

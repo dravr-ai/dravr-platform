@@ -88,11 +88,13 @@ impl TenantChatProviderCache {
 /// Resolve the chat provider a `(tenant, user)` should use, or `None` to fall
 /// back to the global env singleton.
 ///
-/// BYO only applies when the system's active provider type has stored
-/// user-specific or tenant-level credentials; environment/admin-override
-/// sources resolve to `None` (the singleton already reflects them).
+/// BYO only applies when the system's active provider type — the head of
+/// `llm_chain`, the chain the server read at boot — has stored user-specific
+/// or tenant-level credentials; environment/admin-override sources resolve to
+/// `None` (the singleton already reflects them).
 pub async fn resolve_tenant_chat_provider(
     cache: &TenantChatProviderCache,
+    llm_chain: &LlmChain,
     llm_creds: &dyn LlmCredentialRepository,
     security: &dyn SecurityRepository,
     tenant_id: TenantId,
@@ -103,12 +105,13 @@ pub async fn resolve_tenant_chat_provider(
         return cached;
     }
 
-    let resolved = resolve_uncached(llm_creds, security, tenant_id, user_id).await;
+    let resolved = resolve_uncached(llm_chain, llm_creds, security, tenant_id, user_id).await;
     cache.store(key, resolved.clone());
     resolved
 }
 
 async fn resolve_uncached(
+    llm_chain: &LlmChain,
     llm_creds: &dyn LlmCredentialRepository,
     security: &dyn SecurityRepository,
     tenant_id: TenantId,
@@ -120,7 +123,7 @@ async fn resolve_uncached(
     // map, but no provider is built from a tenant's Anthropic key — that head
     // runs on the platform's own pooled organizations — so a stored one is
     // never looked up.
-    let provider = LlmProvider::parse_str(&LlmChain::from_env().head().provider.to_string())
+    let provider = LlmProvider::parse_str(&llm_chain.head().provider.to_string())
         .filter(|provider| builds_from_credentials(*provider))?;
 
     let creds =

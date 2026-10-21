@@ -142,6 +142,8 @@
 )]
 
 use crate::common;
+use common::placeholder_llm_chain;
+use secrecy::{ExposeSecret, SecretString};
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
@@ -151,9 +153,9 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
-    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{TenantId, User, UserOAuthToken, UserStatus, UserTier};
@@ -231,6 +233,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -265,6 +268,8 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -312,7 +317,9 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     // Create test cache with background cleanup disabled
@@ -358,7 +365,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     // Test user registration
     let register_request = RegisterRequest {
         email: "test@multitenant.com".to_owned(),
-        password: "securepassword123".to_owned(),
+        password: SecretString::from("securepassword123"),
         display_name: Some("Multi-Tenant User".to_owned()),
     };
 
@@ -418,7 +425,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     // Test user login
     let login_request = LoginRequest {
         email: "test@multitenant.com".to_owned(),
-        password: "securepassword123".to_owned(),
+        password: SecretString::from("securepassword123"),
         timezone: None,
     };
 
@@ -427,7 +434,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         login_response
             .jwt_token
             .as_ref()
-            .is_some_and(|t| !t.is_empty()),
+            .is_some_and(|t| !t.expose_secret().is_empty()),
         "JWT token should be present and non-empty"
     );
     assert_eq!(login_response.user.email, "test@multitenant.com");
@@ -438,14 +445,17 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         .jwt_token
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("JWT token not found in response"))?;
-    let claims = auth_manager.validate_token(jwt_token, &server_resources.auth.jwks_manager)?;
+    let claims = auth_manager.validate_token(
+        jwt_token.expose_secret(),
+        &server_resources.auth.jwks_manager,
+    )?;
     assert_eq!(claims.email, "test@multitenant.com");
     assert_eq!(claims.sub, register_response.user_id);
 
     // Test duplicate registration fails
     let duplicate_request = RegisterRequest {
         email: "test@multitenant.com".to_owned(),
-        password: "differentpassword".to_owned(),
+        password: SecretString::from("differentpassword"),
         display_name: None,
     };
 
@@ -459,7 +469,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     // Test login with wrong password fails
     let wrong_password_request = LoginRequest {
         email: "test@multitenant.com".to_owned(),
-        password: "wrongpassword".to_owned(),
+        password: SecretString::from("wrongpassword"),
         timezone: None,
     };
 
@@ -512,10 +522,16 @@ async fn test_database_encryption() -> Result<()> {
         )
         .await?
         .unwrap();
-    assert_eq!(decrypted_token.access_token, "secret_access_token_123");
     assert_eq!(
-        decrypted_token.refresh_token,
-        Some("secret_refresh_token_456".to_owned())
+        decrypted_token.access_token.expose_secret(),
+        "secret_access_token_123"
+    );
+    assert_eq!(
+        decrypted_token
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("secret_refresh_token_456")
     );
     assert_eq!(
         decrypted_token.scope,
@@ -621,7 +637,10 @@ async fn test_user_isolation() -> Result<()> {
         )
         .await?
         .unwrap();
-    assert_eq!(user1_token.access_token, "user1_access_token");
+    assert_eq!(
+        user1_token.access_token.expose_secret(),
+        "user1_access_token"
+    );
 
     let user2_token = repos
         .oauth_tokens
@@ -632,11 +651,26 @@ async fn test_user_isolation() -> Result<()> {
         )
         .await?
         .unwrap();
-    assert_eq!(user2_token.access_token, "user2_access_token");
+    assert_eq!(
+        user2_token.access_token.expose_secret(),
+        "user2_access_token"
+    );
 
     // Verify users cannot access each other's data
-    assert_ne!(user1_token.access_token, user2_token.access_token);
-    assert_ne!(user1_token.refresh_token, user2_token.refresh_token);
+    assert_ne!(
+        user1_token.access_token.expose_secret(),
+        user2_token.access_token.expose_secret()
+    );
+    assert_ne!(
+        user1_token
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        user2_token
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+    );
 
     Ok(())
 }
@@ -702,6 +736,7 @@ async fn test_input_validation() -> Result<()> {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -736,6 +771,8 @@ async fn test_input_validation() -> Result<()> {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -783,7 +820,9 @@ async fn test_input_validation() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     // Create test cache with background cleanup disabled
@@ -832,7 +871,7 @@ async fn test_input_validation() -> Result<()> {
     for invalid_email in invalid_emails {
         let request = RegisterRequest {
             email: invalid_email.to_owned(),
-            password: "validpassword123".to_owned(),
+            password: SecretString::from("validpassword123"),
             display_name: None,
         };
 
@@ -854,7 +893,7 @@ async fn test_input_validation() -> Result<()> {
     for short_password in short_passwords {
         let request = RegisterRequest {
             email: "test@valid.com".to_owned(),
-            password: short_password.to_string(),
+            password: SecretString::from(short_password.to_string()),
             display_name: None,
         };
 
@@ -873,7 +912,7 @@ async fn test_input_validation() -> Result<()> {
     // Test valid inputs
     let valid_request = RegisterRequest {
         email: "valid@email.com".to_owned(),
-        password: "validpassword123".to_owned(),
+        password: SecretString::from("validpassword123"),
         display_name: Some("Valid User".to_owned()),
     };
 

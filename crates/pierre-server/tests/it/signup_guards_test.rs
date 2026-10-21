@@ -23,6 +23,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::{ExposeSecret, SecretString};
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -232,7 +233,7 @@ async fn a_closed_switch_closes_the_stranger_doors_but_not_the_operator_door() {
     let service = resources.account_service();
     let request = |email: &str| RegisterRequest {
         email: email.to_owned(),
-        password: PASSWORD.to_owned(),
+        password: SecretString::from(PASSWORD.to_owned()),
         display_name: None,
     };
 
@@ -557,7 +558,7 @@ async fn an_operator_made_account_stays_in_review_while_sign_up_self_activates()
         .account_service()
         .register(RegisterRequest {
             email: "operator-pending@example.com".to_owned(),
-            password: PASSWORD.to_owned(),
+            password: SecretString::from(PASSWORD.to_owned()),
             display_name: None,
         })
         .await
@@ -664,7 +665,7 @@ async fn admin_bearer(resources: &Arc<ServerContext>, permissions: Vec<AdminPerm
         )
         .await
         .unwrap();
-    format!("Bearer {}", token.jwt_token)
+    format!("Bearer {}", token.jwt_token.expose_secret())
 }
 
 #[tokio::test]

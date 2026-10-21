@@ -1,5 +1,5 @@
-// ABOUTME: Provider OAuth settings have one environment reader, shared by ServerConfig and runtime lookups
-// ABOUTME: The PIERRE_ credential aliases, the unset redirect and the default scopes read the same both ways
+// ABOUTME: Provider OAuth settings have one environment reader, OAuthConfig::from_env, run once at startup
+// ABOUTME: The PIERRE_ aliases, the unset redirect, default scopes, the seat cap and endpoint overrides read there
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,23 +7,22 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! `ServerConfig.oauth` (built once by `OAuthConfig::from_env`) and the
-//! runtime lookup `get_oauth_config` used to read the environment separately:
-//! the first ignored the `PIERRE_<P>_CLIENT_ID` aliases the second accepted,
-//! and baked a `BASE_URL` redirect default the second left unset. The tenant
-//! OAuth manager resolved server-level credentials from the first while the
-//! refresh path and the code exchange read the second.
+//! `ServerConfig.oauth` is built once by `OAuthConfig::from_env`, and every
+//! runtime lookup of a provider's server-level app (`OAuthConfig::server_app`),
+//! the Strava seat cap or a provider's endpoint override reads that value.
+//! This binary pins what the one reader reads.
 //!
 //! Every assertion lives in one test: the environment is process-global, and
 //! this binary runs nothing else that reads it.
 
 use std::env;
 
-use pierre_auth::config::oauth::get_oauth_config;
-use pierre_auth::config::OAuthConfig;
+use pierre_auth::config::{OAuthConfig, ProviderEndpointOverride};
+use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
+use secrecy::ExposeSecret;
 
 #[test]
-fn server_config_and_runtime_lookups_read_provider_settings_alike() {
+fn the_startup_reader_resolves_provider_settings() {
     for key in [
         "STRAVA_CLIENT_ID",
         "STRAVA_CLIENT_SECRET",
@@ -38,34 +37,48 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
         "GARMIN_SCOPES",
         "PIERRE_WHOOP_SCOPES",
         "WHOOP_SCOPES",
+        "STRAVA_OAUTH_SEAT_CAP",
+        "PIERRE_WHOOP_TOKEN_URL",
+        "PIERRE_WHOOP_API_BASE_URL",
+        "PIERRE_WHOOP_AUTH_URL",
+        "PIERRE_WHOOP_REVOKE_URL",
+        "PIERRE_STRAVA_TOKEN_URL",
+        "PIERRE_STRAVA_AUTH_URL",
+        "PIERRE_STRAVA_API_BASE_URL",
+        "PIERRE_STRAVA_REVOKE_URL",
     ] {
         env::remove_var(key);
     }
     // A deployment that names the Strava app by its PIERRE_ aliases only.
     env::set_var("PIERRE_STRAVA_CLIENT_ID", "alias-client");
     env::set_var("PIERRE_STRAVA_CLIENT_SECRET", "alias-secret");
-    env::set_var("BASE_URL", "https://app.example.test");
 
     let server = OAuthConfig::from_env();
-    let runtime = get_oauth_config("strava");
 
     assert_eq!(server.strava.client_id.as_deref(), Some("alias-client"));
-    assert_eq!(server.strava.client_secret.as_deref(), Some("alias-secret"));
+    assert_eq!(
+        server
+            .strava
+            .client_secret
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("alias-secret")
+    );
     assert!(server.strava.enabled, "both credentials are set");
-    assert_eq!(server.strava.client_id, runtime.client_id);
-    assert_eq!(server.strava.client_secret, runtime.client_secret);
+    assert_eq!(
+        server.server_app("strava").client_id.as_deref(),
+        Some("alias-client"),
+        "the runtime lookup answers what startup read"
+    );
 
-    // No redirect is configured: neither reader invents one, and the caller
+    // No redirect is configured: the reader invents none, and the caller
     // builds the server's own callback URL.
     assert_eq!(server.strava.redirect_uri, None);
-    assert_eq!(runtime.redirect_uri, None);
 
-    // Default scopes are the provider's, whichever way they are read.
+    // Default scopes are the provider's.
     assert_eq!(server.strava.scopes, vec!["activity:read_all"]);
-    assert_eq!(server.strava.scopes, runtime.scopes);
     // Garmin's scope is fixed server-side: none is requested by default.
     assert_eq!(server.garmin.scopes, [] as [String; 0]);
-    assert_eq!(server.garmin.scopes, get_oauth_config("garmin").scopes);
     assert_eq!(
         server.whoop.scopes,
         vec![
@@ -78,19 +91,56 @@ fn server_config_and_runtime_lookups_read_provider_settings_alike() {
             "read:cycles",
         ]
     );
-    assert_eq!(server.whoop.scopes, get_oauth_config("whoop").scopes);
 
-    // A provider with no credentials is disabled both ways.
+    // A provider with no credentials is disabled, and so is one the server
+    // carries no app for at all.
     assert!(!server.garmin.enabled);
-    assert!(!get_oauth_config("garmin").enabled);
+    assert!(!server.server_app("garmin").enabled);
+    assert!(!server.server_app("no-such-provider").enabled);
+    assert_eq!(server.server_app("no-such-provider").client_id, None);
 
-    // The scope override still reaches a provider that has no default.
+    // No seat cap and no endpoint override is configured.
+    assert_eq!(server.strava_seat_cap, None);
+    assert_eq!(server.strava_seat_cap(), STRAVA_OAUTH_SEAT_CAP_DEFAULT);
+    assert!(
+        !server.endpoints.contains_key("whoop"),
+        "a provider that overrides nothing carries no entry"
+    );
+
+    // The scope override still reaches a provider that has no default; the
+    // seat cap and the endpoint overrides are read at the same time.
     env::set_var("PIERRE_GARMIN_SCOPES", "CONNECT_READ");
-    assert_eq!(get_oauth_config("garmin").scopes, vec!["CONNECT_READ"]);
-    assert_eq!(OAuthConfig::from_env().garmin.scopes, vec!["CONNECT_READ"]);
-    env::remove_var("PIERRE_GARMIN_SCOPES");
+    env::set_var("STRAVA_OAUTH_SEAT_CAP", "7");
+    env::set_var("PIERRE_WHOOP_TOKEN_URL", "http://127.0.0.1:9/oauth/token");
+    env::set_var("PIERRE_WHOOP_SCOPES", "offline read:workout");
+    let overridden = OAuthConfig::from_env();
+    assert_eq!(overridden.garmin.scopes, vec!["CONNECT_READ"]);
+    assert_eq!(overridden.strava_seat_cap(), 7);
+    assert_eq!(
+        overridden.endpoints.get("whoop"),
+        Some(&ProviderEndpointOverride {
+            token_url: Some("http://127.0.0.1:9/oauth/token".to_owned()),
+            scopes: Some(vec!["offline".to_owned(), "read:workout".to_owned()]),
+            ..ProviderEndpointOverride::default()
+        })
+    );
 
-    env::remove_var("PIERRE_STRAVA_CLIENT_ID");
-    env::remove_var("PIERRE_STRAVA_CLIENT_SECRET");
-    env::remove_var("BASE_URL");
+    // A zero cap would wedge every athlete onto the scraper: it reads as the
+    // default.
+    env::set_var("STRAVA_OAUTH_SEAT_CAP", "0");
+    assert_eq!(
+        OAuthConfig::from_env().strava_seat_cap(),
+        STRAVA_OAUTH_SEAT_CAP_DEFAULT
+    );
+
+    for key in [
+        "PIERRE_GARMIN_SCOPES",
+        "STRAVA_OAUTH_SEAT_CAP",
+        "PIERRE_WHOOP_TOKEN_URL",
+        "PIERRE_WHOOP_SCOPES",
+        "PIERRE_STRAVA_CLIENT_ID",
+        "PIERRE_STRAVA_CLIENT_SECRET",
+    ] {
+        env::remove_var(key);
+    }
 }

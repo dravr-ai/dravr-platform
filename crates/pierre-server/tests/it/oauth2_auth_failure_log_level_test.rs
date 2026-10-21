@@ -23,6 +23,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::{ExposeSecret, SecretString};
 
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
@@ -270,7 +271,7 @@ fn client_credentials(client_id: &str, client_secret: &str) -> TokenRequest {
         code: None,
         redirect_uri: None,
         client_id: client_id.to_owned(),
-        client_secret: client_secret.to_owned(),
+        client_secret: SecretString::from(client_secret.to_owned()),
         scope: None,
         refresh_token: None,
         code_verifier: None,
@@ -383,7 +384,10 @@ async fn a_database_failure_during_the_client_lookup_still_pages() {
 
     let refused = fixture
         .server
-        .token(client_credentials(&client.client_id, &client.client_secret))
+        .token(client_credentials(
+            &client.client_id,
+            client.client_secret.expose_secret(),
+        ))
         .await
         .unwrap_err();
 
@@ -420,7 +424,7 @@ async fn a_token_request_carrying_a_control_character_is_refused_before_any_quer
             code: Some("code\u{0}".to_owned()),
             redirect_uri: Some(REDIRECT_URI.to_owned()),
             code_verifier: Some("v".repeat(43)),
-            ..client_credentials(&client.client_id, &client.client_secret)
+            ..client_credentials(&client.client_id, client.client_secret.expose_secret())
         })
         .await
         .unwrap_err();
@@ -632,7 +636,7 @@ async fn the_password_verifier_refuses_a_federated_account_without_paging() {
     let captured = Captured::start();
 
     let matched = verify_password(
-        "any password at all".to_owned(),
+        SecretString::from("any password at all".to_owned()),
         FEDERATED_ONLY_PASSWORD_HASH.to_owned(),
     )
     .await
@@ -642,12 +646,16 @@ async fn the_password_verifier_refuses_a_federated_account_without_paging() {
     captured.assert_nothing_paged();
 
     let hash = bcrypt::hash("correct horse", 4).unwrap();
-    assert!(verify_password("correct horse".to_owned(), hash.clone())
-        .await
-        .unwrap());
-    assert!(!verify_password("wrong horse".to_owned(), hash)
-        .await
-        .unwrap());
+    assert!(
+        verify_password(SecretString::from("correct horse".to_owned()), hash.clone())
+            .await
+            .unwrap()
+    );
+    assert!(
+        !verify_password(SecretString::from("wrong horse".to_owned()), hash)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]
@@ -655,9 +663,12 @@ async fn an_unreadable_stored_hash_pages_without_printing_it() {
     const CORRUPT: &str = "$2b$12$truncated-stored-hash";
     let captured = Captured::start();
 
-    let failure = verify_password("any password".to_owned(), CORRUPT.to_owned())
-        .await
-        .unwrap_err();
+    let failure = verify_password(
+        SecretString::from("any password".to_owned()),
+        CORRUPT.to_owned(),
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(failure.code, ErrorCode::InternalError);
     captured.page("bcrypt could not read a stored password hash");
@@ -794,7 +805,7 @@ async fn the_token_endpoint_answers_an_outage_with_server_error() {
 
     break_client_table(&resources.agent.database).await;
     let captured = Captured::start();
-    let outage = token_request(&client.client_id, &client.client_secret)
+    let outage = token_request(&client.client_id, client.client_secret.expose_secret())
         .send(oauth2_routes(&resources))
         .await;
 
@@ -938,7 +949,7 @@ async fn provider_token_endpoint(status: StatusCode, body: &'static str) -> OAut
     });
     OAuth2Client::new(OAuth2Config {
         client_id: "pierre".to_owned(),
-        client_secret: "secret".to_owned(),
+        client_secret: SecretString::from("secret"),
         auth_url: format!("http://{addr}/oauth/authorize"),
         token_url: format!("http://{addr}/oauth/token"),
         redirect_uri: "http://localhost:8081/api/oauth/callback/strava".to_owned(),

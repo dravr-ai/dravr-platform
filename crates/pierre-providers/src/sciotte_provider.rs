@@ -15,7 +15,7 @@
 use crate::models::StatsCoverage;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
-use dravr_sciotte::client::SciotteClient;
+use dravr_sciotte::client::{ClientError, ConfigError, SciotteClient};
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityComment as SciotteComment, ActivityParams, AthleteId,
     AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap,
@@ -23,6 +23,7 @@ use dravr_sciotte::models::{
 };
 use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_core::untrusted::fence_athlete_text;
+use secrecy::ExposeSecret;
 use std::env;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -693,15 +694,16 @@ impl FitnessProvider for SciotteProvider {
         let session_json = credentials
             .access_token
             .ok_or_else(|| AppError::invalid_input("Missing session data for sciotte provider"))?;
-        if session_json.is_empty() {
+        if session_json.expose_secret().is_empty() {
             return Err(AppError::invalid_input(
                 "Empty session data for sciotte provider",
             ));
         }
 
-        let session: AuthSession = serde_json::from_str(&session_json).map_err(|e| {
-            AppError::internal(format!("Failed to deserialize sciotte session: {e}"))
-        })?;
+        let session: AuthSession =
+            serde_json::from_str(session_json.expose_secret()).map_err(|e| {
+                AppError::internal(format!("Failed to deserialize sciotte session: {e}"))
+            })?;
 
         *self.session.write().await = Some(session);
         Ok(())
@@ -935,16 +937,27 @@ impl FitnessProvider for SciotteProvider {
 
 /// The server's one sciotte client, built once at startup.
 ///
-/// Configured by `DRAVR_SCIOTTE_REMOTE_URL` and `DRAVR_SCIOTTE_AUDIENCE`, and
-/// handed to
+/// Built from the service's `remote_url` and `audience` as the server's
+/// configuration read them at startup (`DRAVR_SCIOTTE_REMOTE_URL`,
+/// `DRAVR_SCIOTTE_AUDIENCE`), and handed to
 /// [`ProviderRegistry::with_sciotte_client`](crate::registry::ProviderRegistry::with_sciotte_client),
 /// which shares it with every sciotte call. `None` when no service is
 /// configured, and — logged once here — when the configured one cannot be
-/// built: every call to the service then reports it unconfigured.
+/// built, including a service off loopback with no audience, which would
+/// refuse every request: every call to the service then reports it
+/// unconfigured.
 #[must_use]
-pub fn startup_client() -> Option<SciotteClient> {
-    match SciotteClient::from_env() {
-        Ok(client) => client,
+pub fn startup_client(remote_url: Option<&str>, audience: Option<&str>) -> Option<SciotteClient> {
+    let base_url = remote_url?;
+    match SciotteClient::new(base_url, audience) {
+        Ok(client) => Some(client),
+        Err(ClientError::Config(ConfigError::AudienceRequired { .. })) => {
+            warn!(
+                "The sciotte service is configured without an audience; disabling the \
+                 sciotte client rather than sending requests the service will refuse"
+            );
+            None
+        }
         Err(e) => {
             error!(
                 error = %e,

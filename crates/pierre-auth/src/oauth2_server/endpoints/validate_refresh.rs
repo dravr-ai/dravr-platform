@@ -7,6 +7,7 @@
 use chrono::Utc;
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -81,8 +82,8 @@ impl OAuth2AuthorizationServer {
         ValidateRefreshResponse {
             status: ValidationStatus::Refreshed,
             expires_in: Some(3600), // 1 hour
-            access_token: Some(new_access_token),
-            refresh_token: Some(refresh_token_value.to_owned()),
+            access_token: Some(SecretString::from(new_access_token)),
+            refresh_token: Some(SecretString::from(refresh_token_value.to_owned())),
             token_type: Some("Bearer".to_owned()),
             reason: None,
             requires_full_reauth: None,
@@ -175,7 +176,7 @@ impl OAuth2AuthorizationServer {
     async fn handle_expired_token(
         &self,
         expired_access_token: &str,
-        refresh_token_value: Option<&String>,
+        refresh_token_value: Option<&str>,
     ) -> AppResult<ValidateRefreshResponse> {
         let Some(refresh_token_value) = refresh_token_value else {
             return Ok(Self::create_invalid_response("token_expired"));
@@ -205,8 +206,14 @@ impl OAuth2AuthorizationServer {
     ) -> AppResult<ValidateRefreshResponse> {
         match validation_error {
             JwtValidationError::TokenExpired { .. } => {
-                self.handle_expired_token(expired_access_token, request.refresh_token.as_ref())
-                    .await
+                self.handle_expired_token(
+                    expired_access_token,
+                    request
+                        .refresh_token
+                        .as_ref()
+                        .map(ExposeSecret::expose_secret),
+                )
+                .await
             }
             JwtValidationError::TokenInvalid { reason } => {
                 debug!("Token invalid: {reason}");

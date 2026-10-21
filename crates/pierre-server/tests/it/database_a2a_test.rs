@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use secrecy::ExposeSecret;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -550,7 +551,10 @@ async fn test_a2a_push_notification_config_crud() {
         .expect("Failed to get push config")
         .expect("Push config not found");
     assert_eq!(fetched.url, config.url);
-    assert_eq!(fetched.token, config.token);
+    assert_eq!(
+        fetched.token.as_ref().map(ExposeSecret::expose_secret),
+        config.token.as_ref().map(ExposeSecret::expose_secret)
+    );
     assert_eq!(fetched.auth_scheme, config.auth_scheme);
 
     // Upsert: same (task_id, config_id) replaces the registration.

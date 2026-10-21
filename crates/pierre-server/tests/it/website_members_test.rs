@@ -14,6 +14,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
@@ -92,7 +93,7 @@ async fn bearer(resources: &Arc<ServerContext>, permissions: Vec<AdminPermission
         )
         .await
         .unwrap();
-    format!("Bearer {}", token.jwt_token)
+    format!("Bearer {}", token.jwt_token.expose_secret())
 }
 
 async fn website_token(resources: &Arc<ServerContext>) -> String {

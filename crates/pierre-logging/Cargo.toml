@@ -58,3 +58,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 
 [lints]
 workspace = true
+
+# reqwest is a feature-unification edge, never imported: see its comment above.
+[package.metadata.cargo-shear]
+ignored = ["reqwest"]

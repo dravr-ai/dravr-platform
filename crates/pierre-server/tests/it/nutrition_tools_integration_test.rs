@@ -27,6 +27,7 @@ use anyhow::Result;
 use pierre_config::environment::ServerConfig;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use secrecy::SecretString;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -51,7 +52,7 @@ async fn create_executor_with_usda_key(
     common::init_test_http_clients();
 
     let config = ServerConfig {
-        usda_api_key,
+        usda_api_key: usda_api_key.map(SecretString::from),
         ..common::test_server_config()
     };
     let resources = common::create_test_server_resources_with_config(config).await?;

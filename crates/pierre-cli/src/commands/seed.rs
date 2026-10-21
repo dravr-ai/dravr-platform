@@ -87,20 +87,20 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
         // The group threads get the model every new conversation gets from
         // the configured LLM provider, unless one is named.
         SeedCommand::TrainingpeaksDelegation(mut args) => {
-            args.model = args.model.or_else(LlmChain::head_model_from_env);
+            args.model = args.model.or_else(|| LlmChain::from_env().head_model());
             let repos = keyed_repositories(database_url, "trainingpeaks-delegation").await?;
             run_trainingpeaks_delegation(args, &repos).await
         }
         // The conversation is created with the model every new conversation
         // gets from the configured LLM provider, unless one is named.
         SeedCommand::VerdictConversation(mut args) => {
-            args.model = args.model.or_else(LlmChain::head_model_from_env);
+            args.model = args.model.or_else(|| LlmChain::from_env().head_model());
             dispatch_with_database(SeedCommand::VerdictConversation(args), database_url).await
         }
         // The coach's group thread and their thread about the athlete get the
         // same model, the way the verdict conversation does.
         SeedCommand::CoachPlanThread(mut args) => {
-            args.model = args.model.or_else(LlmChain::head_model_from_env);
+            args.model = args.model.or_else(|| LlmChain::from_env().head_model());
             dispatch_with_database(SeedCommand::CoachPlanThread(args), database_url).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,

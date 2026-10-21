@@ -54,6 +54,7 @@ use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allow
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use pierre_middleware::tenant_path::TenantPath;
 use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
 use pierre_runtime_context::DataContext;
@@ -90,6 +91,8 @@ pub struct WebAdminContext {
     pub data: DataContext,
     /// Tool-selection service — backs the per-user `/api/admin/tools/user/*` surface.
     pub tool_selection: Arc<ToolSelectionService>,
+    /// The LLM provider chain the server read at boot (`ServerConfig::llm_chain`).
+    pub llm_chain: LlmChain,
 }
 
 #[async_trait::async_trait]
@@ -116,6 +119,10 @@ impl pierre_runtime_context::MiddlewareCtx for WebAdminContext {
 
     fn llm_base_url_allowlist(&self) -> &[String] {
         config_llm_base_url_allowlist()
+    }
+
+    fn llm_chain(&self) -> &LlmChain {
+        &self.llm_chain
     }
 }
 

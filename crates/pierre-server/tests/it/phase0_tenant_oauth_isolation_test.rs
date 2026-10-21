@@ -30,6 +30,7 @@ use pierre_database::{
 };
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_test_support::db::create_test_db_with_key;
+use secrecy::{ExposeSecret, SecretString};
 use serial_test::serial;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -117,14 +118,13 @@ async fn tenant_client(
     provider: &str,
 ) -> Result<IssuingClient> {
     let repos = database.repositories();
-    let server_level = config.provider(provider).cloned().unwrap_or_default();
     Ok(issuing_client(
         IssuingLookup {
             user_id: None,
             tenant_id: Some(tenant_id),
             provider,
             issuing_app: None,
-            server_level: &server_level,
+            server: config,
         },
         &*repos.tenants,
         &*repos.oauth_tokens,
@@ -144,7 +144,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
     let oauth_config = Arc::new(OAuthConfig {
         strava: OAuthProviderConfig {
             client_id: Some("163846".to_owned()),
-            client_secret: Some("env_secret_a".to_owned()),
+            client_secret: Some(SecretString::from("env_secret_a")),
             redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             enabled: true,
@@ -152,6 +152,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
+        ..OAuthConfig::default()
     });
 
     // Create two tenants
@@ -192,7 +193,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
             tenant_id: db_tenant_id,
             provider: oauth_providers::STRAVA.to_owned(),
             client_id: "999888".to_owned(),
-            client_secret: "db_secret_b".to_owned(),
+            client_secret: SecretString::from("db_secret_b"),
             redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider(oauth_providers::STRAVA),
@@ -224,7 +225,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         "Tenant A should use server-level CLIENT_ID"
     );
     assert_eq!(
-        env_creds.client_secret(),
+        env_creds.client_secret().expose_secret(),
         "env_secret_a",
         "Tenant A should use server-level SECRET"
     );
@@ -240,7 +241,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         "Tenant B should use database CLIENT_ID"
     );
     assert_eq!(
-        db_creds.client_secret(),
+        db_creds.client_secret().expose_secret(),
         "db_secret_b",
         "Tenant B should use database SECRET"
     );
@@ -259,8 +260,8 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         "Tenants should have different CLIENT_IDs"
     );
     assert_ne!(
-        env_creds.client_secret(),
-        db_creds.client_secret(),
+        env_creds.client_secret().expose_secret(),
+        db_creds.client_secret().expose_secret(),
         "Tenants should have different CLIENT_SECRETs"
     );
 
@@ -358,11 +359,13 @@ async fn test_cross_tenant_oauth_token_isolation() -> Result<()> {
 
     // Verify correct tokens are returned
     assert_eq!(
-        token1_data.access_token, "access_token_user1_tenant_a",
+        token1_data.access_token.expose_secret(),
+        "access_token_user1_tenant_a",
         "User 1 should get their own token"
     );
     assert_eq!(
-        token2_data.access_token, "access_token_user2_tenant_b",
+        token2_data.access_token.expose_secret(),
+        "access_token_user2_tenant_b",
         "User 2 should get their own token"
     );
 
@@ -478,6 +481,7 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
+        ..OAuthConfig::default()
     });
 
     // Create tenant
@@ -503,7 +507,7 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
             tenant_id,
             provider: oauth_providers::STRAVA.to_owned(),
             client_id: "tenant_specific_client_id".to_owned(),
-            client_secret: "tenant_specific_secret".to_owned(),
+            client_secret: SecretString::from("tenant_specific_secret"),
             redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider(oauth_providers::STRAVA),
@@ -521,7 +525,7 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
         "Token refresh should use tenant-specific CLIENT_ID"
     );
     assert_eq!(
-        refresh_creds.client_secret(),
+        refresh_creds.client_secret().expose_secret(),
         "tenant_specific_secret",
         "Token refresh should use tenant-specific CLIENT_SECRET"
     );
@@ -585,7 +589,7 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
             tenant_id: tenant_enterprise_id,
             provider: oauth_providers::STRAVA.to_owned(),
             client_id: "enterprise_client_id".to_owned(),
-            client_secret: "enterprise_secret".to_owned(),
+            client_secret: SecretString::from("enterprise_secret"),
             redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             rate_limit_per_day: 12_345,
@@ -623,6 +627,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
+        ..OAuthConfig::default()
     });
 
     // Create 5 tenants concurrently
@@ -653,7 +658,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
                     tenant_id,
                     provider: oauth_providers::STRAVA.to_owned(),
                     client_id: format!("client_id_{i}"),
-                    client_secret: format!("secret_{i}"),
+                    client_secret: SecretString::from(format!("secret_{i}")),
                     redirect_uri: "http://localhost:8080/api/oauth/callback/strava".to_owned(),
                     scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                     rate_limit_per_day: default_rate_limit_for_provider(oauth_providers::STRAVA),

@@ -14,6 +14,7 @@
 //! them, cannot be read, revoked or rotated by them, and cannot be minted by
 //! them — and a caller that is not super-admin grants only permissions it holds.
 
+use secrecy::ExposeSecret;
 use std::sync::Arc;
 
 use axum::{
@@ -190,7 +191,7 @@ pub(crate) async fn handle_create_admin_token(
             data: to_value(json!({
                 "token_id": generated_token.token_id,
                 "service_name": generated_token.service_name,
-                "jwt_token": generated_token.jwt_token,
+                "jwt_token": generated_token.jwt_token.expose_secret(),
                 "token_prefix": generated_token.token_prefix,
                 "is_super_admin": generated_token.is_super_admin,
                 "expires_at": generated_token.expires_at.map(|t| t.to_rfc3339()),
@@ -402,7 +403,7 @@ pub(crate) async fn handle_rotate_admin_token(
                 "old_token_id": token_id,
                 "token_id": new_token.token_id,
                 "service_name": new_token.service_name,
-                "jwt_token": new_token.jwt_token,
+                "jwt_token": new_token.jwt_token.expose_secret(),
                 "token_prefix": new_token.token_prefix,
                 "is_super_admin": new_token.is_super_admin,
                 "expires_at": new_token.expires_at.map(|t| t.to_rfc3339()),

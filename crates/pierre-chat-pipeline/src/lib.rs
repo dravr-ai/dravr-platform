@@ -112,7 +112,6 @@ use pierre_core::models::{
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
-use pierre_llm::config::LlmChain;
 use pierre_llm::health::{LlmHealthState, LlmHealthStatus};
 use pierre_llm::{ChatMessage, ChatProvider, LlmProvider};
 use pierre_providers::ai_scope;
@@ -616,7 +615,7 @@ async fn run_turn(
 
     // Stage 3: Resolve the model this turn runs on.
     let active_model = resolve_active_model(
-        LlmChain::head_model_from_env(),
+        ctx.config.llm_chain.head_model(),
         &input.conversation_id,
         &conv.model,
     );

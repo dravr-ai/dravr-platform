@@ -12,6 +12,7 @@ use pierre_core::models::{DecryptedToken, TenantId, User, UserOAuthToken, UserSt
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_test_support::db::create_test_db;
+use secrecy::ExposeSecret;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -69,8 +70,8 @@ async fn test_strava_token_storage() {
         user.id,
         TenantId::from_uuid(Uuid::nil()).to_string(),
         oauth_providers::STRAVA.to_owned(),
-        token.access_token.clone(),
-        Some(token.refresh_token.clone()),
+        token.access_token.expose_secret().to_owned(),
+        Some(token.refresh_token.expose_secret().to_owned()),
         Some(token.expires_at),
         Some(token.scope.clone()),
     );
@@ -100,8 +101,14 @@ async fn test_strava_token_storage() {
         scope: retrieved_oauth.scope.unwrap_or_default(),
     };
 
-    assert_eq!(retrieved.access_token, token.access_token);
-    assert_eq!(retrieved.refresh_token, token.refresh_token);
+    assert_eq!(
+        retrieved.access_token.expose_secret(),
+        token.access_token.expose_secret()
+    );
+    assert_eq!(
+        retrieved.refresh_token.expose_secret(),
+        token.refresh_token.expose_secret()
+    );
     assert_eq!(retrieved.expires_at, token.expires_at);
     assert_eq!(retrieved.scope, token.scope);
 
@@ -186,8 +193,8 @@ async fn test_whoop_token_storage() {
         user_id,
         TenantId::from_uuid(Uuid::nil()).to_string(),
         oauth_providers::WHOOP.to_owned(),
-        token.access_token.clone(),
-        Some(token.refresh_token.clone()),
+        token.access_token.expose_secret().to_owned(),
+        Some(token.refresh_token.expose_secret().to_owned()),
         Some(token.expires_at),
         Some(token.scope.clone()),
     );
@@ -217,8 +224,14 @@ async fn test_whoop_token_storage() {
         scope: retrieved_oauth.scope.unwrap_or_default(),
     };
 
-    assert_eq!(retrieved.access_token, token.access_token);
-    assert_eq!(retrieved.refresh_token, token.refresh_token);
+    assert_eq!(
+        retrieved.access_token.expose_secret(),
+        token.access_token.expose_secret()
+    );
+    assert_eq!(
+        retrieved.refresh_token.expose_secret(),
+        token.refresh_token.expose_secret()
+    );
     assert_eq!(retrieved.expires_at, token.expires_at);
     assert_eq!(retrieved.scope, token.scope);
 }

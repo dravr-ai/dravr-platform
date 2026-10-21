@@ -26,6 +26,7 @@
 //! charge — refuses the delete with 409 naming each, touching nothing, so the
 //! athlete can resolve them and retry.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::collections::BTreeSet;
 
 use axum::{
@@ -78,7 +79,7 @@ pub struct DeleteAccountRequest {
     /// The account password; required unless the account signs in only
     /// through a federated identity.
     #[serde(default)]
-    pub password: Option<String>,
+    pub password: Option<SecretString>,
 }
 
 /// Body of `GET /api/user/account-deletion`: what a delete would ask for and
@@ -211,7 +212,7 @@ pub async fn handle_delete_account(
         ));
     }
     if has_password(&user) {
-        let Some(password) = request.password.filter(|p| !p.is_empty()) else {
+        let Some(password) = request.password.filter(|p| !p.expose_secret().is_empty()) else {
             return Ok(refusal(
                 StatusCode::FORBIDDEN,
                 DeletionRefusal::PasswordRequired,

@@ -25,6 +25,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use secrecy::SecretString;
 
 use pierre_core::models::Tenant;
 use pierre_core::models::{TenantId, TenantOAuthCredentials};
@@ -289,7 +290,7 @@ where
         client_id: row
             .try_get("client_id")
             .map_err(|e| column("client_id", e))?,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         redirect_uri: row
             .try_get("redirect_uri")
             .map_err(|e| column("redirect_uri", e))?,
@@ -444,7 +445,7 @@ macro_rules! impl_tenant_repository {
             ) -> AppResult<()> {
                 let encrypted_secret = HasEncryption::encrypt_data_with_aad(
                     self,
-                    &credentials.client_secret,
+                    credentials.client_secret.expose_secret(),
                     &tenant_oauth_aad(credentials.tenant_id, &credentials.provider),
                 )?;
 

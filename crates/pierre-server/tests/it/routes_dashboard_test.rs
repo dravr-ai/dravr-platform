@@ -149,6 +149,7 @@
 //! error handling, edge cases, and dashboard-specific functionality.
 
 use crate::common;
+use common::placeholder_llm_chain;
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
@@ -162,9 +163,9 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
-    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
@@ -236,6 +237,7 @@ impl DashboardTestSetup {
                     scopes: vec![],
                     enabled: false,
                 },
+                ..OAuthConfig::default()
             },
             security: SecurityConfig {
                 cors_origins: vec!["*".to_owned()],
@@ -271,6 +273,8 @@ impl DashboardTestSetup {
                         .to_owned(),
                     ..Default::default()
                 },
+                sciotte: SciotteServiceConfig::default(),
+                meta_graph_api_base: None,
             },
             app_behavior: AppBehaviorConfig {
                 max_activities_fetch: 100,
@@ -318,7 +322,9 @@ impl DashboardTestSetup {
             frontend_url: None,
             resend_api_key: None,
             resend_from_email: None,
+            llm_chain: placeholder_llm_chain(),
             website_base_url: "https://dravr.ai".to_owned(),
+            ..ServerConfig::default()
         });
 
         // Create test cache

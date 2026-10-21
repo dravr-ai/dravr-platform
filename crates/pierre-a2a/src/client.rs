@@ -27,6 +27,7 @@ use pierre_auth::oauth2_server::{ClientRegistrationManager, OAuth2Error};
 use pierre_auth::rate_limiting::a2a_client_window_start;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
 use pierre_core::models::ApiKey;
+use secrecy::SecretString;
 // Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
@@ -135,8 +136,8 @@ impl A2AClientManager {
 
         Ok(ClientCredentials {
             client_id,
-            client_secret,
-            api_key: generated_api_key,
+            client_secret: SecretString::from(client_secret),
+            api_key: SecretString::from(generated_api_key),
             public_key: keypair.public_key,
             private_key: keypair.private_key,
             key_type: "ed25519".into(),

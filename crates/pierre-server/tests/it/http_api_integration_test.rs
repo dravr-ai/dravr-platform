@@ -8,6 +8,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use common::placeholder_llm_chain;
+use secrecy::{ExposeSecret, SecretString};
 
 use anyhow::Result;
 use axum::body::{to_bytes, Body};
@@ -23,9 +25,9 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
-    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -119,7 +121,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         tenant_id,
         provider: "strava".to_owned(),
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         redirect_uri: "http://localhost:8080/oauth/callback/strava".to_owned(),
         scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
         rate_limit_per_day: 15000,
@@ -154,7 +156,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:8081/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -180,6 +182,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["http://localhost:3000".to_owned()],
@@ -214,6 +217,8 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 200,
@@ -261,7 +266,9 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache_config = MemoryCacheConfig {
@@ -326,7 +333,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
     // Test 1: Register user (should create with pending status)
     let register_request = RegisterRequest {
         email: "sdk_test@example.com".to_owned(),
-        password: "TestPassword123".to_owned(),
+        password: SecretString::from("TestPassword123"),
         display_name: Some("SDK Test User".to_owned()),
     };
 
@@ -349,7 +356,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
     let pending_login_response = auth_routes
         .login(LoginRequest {
             email: "sdk_test@example.com".to_owned(),
-            password: "TestPassword123".to_owned(),
+            password: SecretString::from("TestPassword123"),
             timezone: None,
         })
         .await?;
@@ -357,7 +364,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
         pending_login_response
             .jwt_token
             .as_ref()
-            .is_some_and(|t| !t.is_empty()),
+            .is_some_and(|t| !t.expose_secret().is_empty()),
         "JWT token should be present even for pending user"
     );
     assert_eq!(
@@ -375,7 +382,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
     let active_login_response = auth_routes
         .login(LoginRequest {
             email: "sdk_test@example.com".to_owned(),
-            password: "TestPassword123".to_owned(),
+            password: SecretString::from("TestPassword123"),
             timezone: None,
         })
         .await?;
@@ -383,7 +390,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
         active_login_response
             .jwt_token
             .as_ref()
-            .is_some_and(|t| !t.is_empty()),
+            .is_some_and(|t| !t.expose_secret().is_empty()),
         "JWT token should be present and non-empty"
     );
     assert_eq!(active_login_response.user.email, "sdk_test@example.com");
@@ -468,7 +475,7 @@ async fn test_sdk_error_handling() -> Result<()> {
     // Test 1: Invalid email format
     let invalid_email_request = RegisterRequest {
         email: "invalid-email".to_owned(),
-        password: "TestPassword123".to_owned(),
+        password: SecretString::from("TestPassword123"),
         display_name: Some("Test User".to_owned()),
     };
 
@@ -482,7 +489,7 @@ async fn test_sdk_error_handling() -> Result<()> {
     // Test 2: Password too short
     let short_password_request = RegisterRequest {
         email: "test@example.com".to_owned(),
-        password: "short".to_owned(),
+        password: SecretString::from("short"),
         display_name: Some("Test User".to_owned()),
     };
 
@@ -496,7 +503,7 @@ async fn test_sdk_error_handling() -> Result<()> {
     // Test 3: Duplicate user registration
     let valid_request = RegisterRequest {
         email: "duplicate@example.com".to_owned(),
-        password: "TestPassword123".to_owned(),
+        password: SecretString::from("TestPassword123"),
         display_name: Some("Test User".to_owned()),
     };
 
@@ -508,7 +515,7 @@ async fn test_sdk_error_handling() -> Result<()> {
     // Test 4: Login with non-existent user
     let login_request = LoginRequest {
         email: "nonexistent@example.com".to_owned(),
-        password: "TestPassword123".to_owned(),
+        password: SecretString::from("TestPassword123"),
         timezone: None,
     };
 
@@ -551,7 +558,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
     // Step 1: Register user
     let register_request = RegisterRequest {
         email: "complete_test@example.com".to_owned(),
-        password: "CompleteTest123".to_owned(),
+        password: SecretString::from("CompleteTest123"),
         display_name: Some("Complete Test User".to_owned()),
     };
 
@@ -568,7 +575,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
     // Step 3: User logs in
     let login_request = LoginRequest {
         email: "complete_test@example.com".to_owned(),
-        password: "CompleteTest123".to_owned(),
+        password: SecretString::from("CompleteTest123"),
         timezone: None,
     };
 
@@ -577,7 +584,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
         login_response
             .jwt_token
             .as_ref()
-            .is_some_and(|t| !t.is_empty()),
+            .is_some_and(|t| !t.expose_secret().is_empty()),
         "JWT token should be present and non-empty"
     );
 

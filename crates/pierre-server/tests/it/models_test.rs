@@ -15,6 +15,7 @@ use pierre_core::models::{
     SegmentEffort, SportType, Stats, Tenant, TenantId, User, UserStatus, UserTier,
 };
 use pierre_core::permissions::UserRole;
+use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 /// Test data for creating sample activities
@@ -320,8 +321,8 @@ fn test_user_serialization_roundtrip() {
         password_hash: "hashed_password".to_owned(),
         tier: UserTier::Enterprise,
         strava_token: Some(EncryptedToken {
-            access_token: "encrypted_access_token".to_owned(),
-            refresh_token: "encrypted_refresh_token".to_owned(),
+            access_token: SecretString::from("encrypted_access_token"),
+            refresh_token: SecretString::from("encrypted_refresh_token"),
             expires_at: now + chrono::Duration::hours(1),
             scope: "read".to_owned(),
         }),
@@ -450,14 +451,17 @@ fn test_power_zone_creation() {
 fn test_encrypted_token_creation() {
     let now = Utc::now();
     let token = EncryptedToken {
-        access_token: "encrypted_access_12345".to_owned(),
-        refresh_token: "encrypted_refresh_67890".to_owned(),
+        access_token: SecretString::from("encrypted_access_12345"),
+        refresh_token: SecretString::from("encrypted_refresh_67890"),
         expires_at: now + chrono::Duration::hours(1),
         scope: "read write".to_owned(),
     };
 
-    assert_eq!(token.access_token, "encrypted_access_12345");
-    assert_eq!(token.refresh_token, "encrypted_refresh_67890");
+    assert_eq!(token.access_token.expose_secret(), "encrypted_access_12345");
+    assert_eq!(
+        token.refresh_token.expose_secret(),
+        "encrypted_refresh_67890"
+    );
     assert_eq!(token.scope, "read write");
     assert!(token.expires_at > now);
 }
@@ -472,8 +476,8 @@ fn test_user_with_encrypted_tokens() {
         password_hash: "secure_hash".to_owned(),
         tier: UserTier::Professional,
         strava_token: Some(EncryptedToken {
-            access_token: "strava_encrypted_access".to_owned(),
-            refresh_token: "strava_encrypted_refresh".to_owned(),
+            access_token: SecretString::from("strava_encrypted_access"),
+            refresh_token: SecretString::from("strava_encrypted_refresh"),
             expires_at: now + chrono::Duration::hours(6),
             scope: "read_all,activity:read".to_owned(),
         }),

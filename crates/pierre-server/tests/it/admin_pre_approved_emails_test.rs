@@ -23,6 +23,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -214,7 +215,7 @@ impl Harness {
             .admin
             .create_token(&request, TEST_ADMIN_JWT_SECRET, &self.jwks)
             .await?;
-        Ok(generated.jwt_token)
+        Ok(generated.jwt_token.expose_secret().to_owned())
     }
 
     async fn allow(&self, token: &str, email: &str, note: Option<&str>) -> (u16, Value) {

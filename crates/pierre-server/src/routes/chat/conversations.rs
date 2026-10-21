@@ -190,7 +190,8 @@ pub async fn create_conversation(
     // Created under max_active_conversations — the same locked count-and-
     // insert `/reset` runs — so two requests at the cap's edge cannot both
     // get the last slot.
-    let model = resolve_conversation_model(request.model.as_deref())?;
+    let model =
+        resolve_conversation_model(request.model.as_deref(), &resources.common.config.llm_chain)?;
     let conv = create_conversation_slot(
         &resources.common.repos,
         SlotQuota::Capped(

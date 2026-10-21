@@ -12,6 +12,7 @@
 #![cfg(feature = "provider-wahoo")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use secrecy::{ExposeSecret, SecretString};
 use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
@@ -153,9 +154,9 @@ async fn provider(base_url: &str) -> WahooProvider {
     provider
         .set_credentials(OAuth2Credentials {
             client_id: "client".to_owned(),
-            client_secret: "secret".to_owned(),
-            access_token: Some(TOKEN.to_owned()),
-            refresh_token: Some("refresh".to_owned()),
+            client_secret: SecretString::from("secret"),
+            access_token: Some(SecretString::from(TOKEN.to_owned())),
+            refresh_token: Some(SecretString::from("refresh")),
             expires_at: Some(Utc::now() + Duration::hours(2)),
             scopes: vec![],
             kind: pierre_providers::CredentialKind::OAuthBearer,
@@ -510,9 +511,9 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
     provider
         .set_credentials(OAuth2Credentials {
             client_id: "client".to_owned(),
-            client_secret: "secret".to_owned(),
-            access_token: Some(TOKEN.to_owned()),
-            refresh_token: Some("refresh".to_owned()),
+            client_secret: SecretString::from("secret"),
+            access_token: Some(SecretString::from(TOKEN.to_owned())),
+            refresh_token: Some(SecretString::from("refresh")),
             // Inside the ten minutes before expiry: the call refreshes first.
             expires_at: Some(Utc::now() + Duration::minutes(1)),
             scopes: vec![],
@@ -555,8 +556,20 @@ async fn a_dropped_refresh_still_writes_the_rotated_pair_back() {
         .unwrap()
         .clone()
         .expect("the rotated pair was written back");
-    assert_eq!(written.access_token.as_deref(), Some("rotated-access"));
-    assert_eq!(written.refresh_token.as_deref(), Some("rotated-refresh"));
+    assert_eq!(
+        written
+            .access_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("rotated-access")
+    );
+    assert_eq!(
+        written
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("rotated-refresh")
+    );
     let requests = stub.await.unwrap();
     assert_eq!(requests.len(), 1, "one refresh");
     assert_eq!(

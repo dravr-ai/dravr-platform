@@ -66,6 +66,7 @@
 //!   `API_KEY:<api key>`: Intervals.icu rejects an athlete id in the username
 //!   position with 401 on every endpoint.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -240,7 +241,7 @@ async fn send_traced(
 /// shared with its wellness reader (carnet#997).
 struct CallAuth {
     kind: CredentialKind,
-    secret: String,
+    secret: SecretString,
     /// The athlete id an API key addresses; empty for an OAuth token, which
     /// names its own athlete.
     athlete_id: String,
@@ -257,7 +258,7 @@ impl CallAuth {
 
     /// `req` carrying this call's `Authorization` header.
     fn authorize(&self, req: SharedRequestBuilder) -> AppResult<SharedRequestBuilder> {
-        let header = intervals_auth::authorization(self.kind, &self.secret)
+        let header = intervals_auth::authorization(self.kind, self.secret.expose_secret())
             .map_err(|e| AppError::auth_invalid(format!("intervals.icu credential: {e}")))?;
         Ok(req.header(AUTHORIZATION, header))
     }
@@ -893,7 +894,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         let api_key_set = credentials
             .access_token
             .as_ref()
-            .is_some_and(|s| !s.is_empty());
+            .is_some_and(|s| !s.expose_secret().is_empty());
         if !api_key_set {
             return Err(AppError::invalid_input(
                 "intervals_icu requires a token or API key in OAuth2Credentials.access_token",

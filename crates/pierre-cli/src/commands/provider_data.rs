@@ -15,6 +15,7 @@
 use clap::Subcommand;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::ProviderDataPurgeRecord;
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -42,7 +43,7 @@ pub enum ProviderCommand {
 
         /// Super-admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
     /// List the recorded deletions of a provider's data, newest first, for an attestation (super-admin)
     Purges {
@@ -55,7 +56,7 @@ pub enum ProviderCommand {
 
         /// Super-admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 }
 

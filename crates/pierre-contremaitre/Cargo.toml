@@ -34,7 +34,6 @@ serde-saphyr = "1.3"
 sha2 = "0.10"
 tracing = "0.1"
 urlencoding = "2.1"
-uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [dev-dependencies]
 # The tool-description sync is async; its inline tests drive it directly.

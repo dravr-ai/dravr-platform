@@ -13,6 +13,7 @@ use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_test_support::db::create_test_db_with_key;
+use secrecy::ExposeSecret;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -142,8 +143,14 @@ async fn test_oauth_token_management() {
     assert!(token.is_some(), "Strava token should exist");
 
     let token = token.unwrap();
-    assert_eq!(token.access_token, "test_access_token");
-    assert_eq!(token.refresh_token, Some("test_refresh_token".to_owned()));
+    assert_eq!(token.access_token.expose_secret(), "test_access_token");
+    assert_eq!(
+        token
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("test_refresh_token")
+    );
     assert_eq!(token.scope, Some("read,activity:read_all".to_owned()));
 
     // Test clearing Strava token

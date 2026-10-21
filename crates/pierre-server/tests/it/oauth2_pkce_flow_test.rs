@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::{ExposeSecret, SecretString};
 
 use base64::{engine::general_purpose, Engine as _};
 use pierre_auth::config::OAuth2ServerConfig;
@@ -81,7 +82,10 @@ async fn setup_test_env() -> (
         auth_manager,
         oauth_server,
         registration_response.client_id,
-        registration_response.client_secret,
+        registration_response
+            .client_secret
+            .expose_secret()
+            .to_owned(),
     )
 }
 
@@ -196,7 +200,7 @@ async fn test_pkce_valid_s256_flow() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
@@ -243,7 +247,7 @@ async fn test_pkce_invalid_code_verifier() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: None,
         code_verifier: Some(wrong_verifier),
@@ -292,7 +296,7 @@ async fn test_pkce_code_verifier_with_invalid_characters() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: None,
         code_verifier: Some(malformed_verifier),
@@ -344,7 +348,7 @@ async fn test_pkce_missing_code_verifier() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: None,
         code_verifier: None, // Missing verifier
@@ -393,7 +397,7 @@ async fn test_auth_code_replay_prevention() {
         code: Some(auth_response.code.clone()),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id: client_id.clone(),
-        client_secret: client_secret.clone(),
+        client_secret: SecretString::from(client_secret.clone()),
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier.clone()),
@@ -409,7 +413,7 @@ async fn test_auth_code_replay_prevention() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
@@ -529,7 +533,7 @@ async fn test_redirect_uri_exact_match() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback2".to_owned()), // Different path
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
@@ -581,7 +585,7 @@ async fn test_refresh_token_rotation() {
         code: Some(auth_response.code),
         redirect_uri: Some("https://example.com/callback".to_owned()),
         client_id: client_id.clone(),
-        client_secret: client_secret.clone(),
+        client_secret: SecretString::from(client_secret.clone()),
         scope: None,
         refresh_token: None,
         code_verifier: Some(code_verifier),
@@ -595,7 +599,7 @@ async fn test_refresh_token_rotation() {
     let stored = database
         .repositories()
         .oauth2_server
-        .get_refresh_token_by_value(&old_refresh_token)
+        .get_refresh_token_by_value(old_refresh_token.expose_secret())
         .await
         .unwrap()
         .expect("the issued refresh token is on record");
@@ -608,7 +612,7 @@ async fn test_refresh_token_rotation() {
         code: None,
         redirect_uri: None,
         client_id: client_id.clone(),
-        client_secret: client_secret.clone(),
+        client_secret: SecretString::from(client_secret.clone()),
         scope: None,
         refresh_token: Some(old_refresh_token.clone()),
         code_verifier: None,
@@ -620,7 +624,8 @@ async fn test_refresh_token_rotation() {
         .refresh_token
         .expect("a refresh exchange issues a successor");
     assert_ne!(
-        successor, old_refresh_token,
+        successor.expose_secret(),
+        old_refresh_token.expose_secret(),
         "the exchange rotates the token"
     );
 
@@ -630,7 +635,7 @@ async fn test_refresh_token_rotation() {
         code: None,
         redirect_uri: None,
         client_id: client_id.clone(),
-        client_secret: client_secret.clone(),
+        client_secret: SecretString::from(client_secret.clone()),
         scope: None,
         refresh_token: Some(old_refresh_token),
         code_verifier: None,
@@ -649,7 +654,7 @@ async fn test_refresh_token_rotation() {
         code: None,
         redirect_uri: None,
         client_id,
-        client_secret,
+        client_secret: SecretString::from(client_secret),
         scope: None,
         refresh_token: Some(successor),
         code_verifier: None,

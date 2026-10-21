@@ -21,6 +21,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
@@ -532,7 +533,10 @@ async fn an_admin_token_without_manage_users_is_still_refused() -> Result<()> {
         .await?;
 
     let response = AxumTestRequest::post(&format!("/admin/approve-user/{target}"))
-        .header("Authorization", &format!("Bearer {}", generated.jwt_token))
+        .header(
+            "Authorization",
+            &format!("Bearer {}", generated.jwt_token.expose_secret()),
+        )
         .json(&json!({}))
         .send(token_router(&resources))
         .await;
@@ -613,7 +617,7 @@ async fn the_user_listing_pages_every_status_on_both_mounts() -> Result<()> {
         (
             "token api",
             token_router(&resources),
-            format!("Bearer {}", cli.jwt_token),
+            format!("Bearer {}", cli.jwt_token.expose_secret()),
             "/admin/users?status=all&limit=2",
         ),
     ] {
@@ -707,7 +711,7 @@ async fn auto_approval_reports_the_environment_override_on_both_mounts() -> Resu
         (
             "token api",
             token_api,
-            format!("Bearer {}", cli.jwt_token),
+            format!("Bearer {}", cli.jwt_token.expose_secret()),
             "/admin/settings/auto-approval",
         ),
     ] {
@@ -862,7 +866,7 @@ async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result
 async fn the_cli_mount_grants_the_group_coach_permission_and_reads_it_back() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let cli = super_token(&resources, "cli-roster").await?;
-    let auth = format!("Bearer {}", cli.jwt_token);
+    let auth = format!("Bearer {}", cli.jwt_token.expose_secret());
     let coach = seed_user(&resources, "cli-coach@example.com", UserStatus::Active).await?;
 
     let granted = AxumTestRequest::post(&format!("/admin/users/{coach}/manages-roster"))

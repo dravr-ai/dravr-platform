@@ -21,6 +21,7 @@
 //! row carrying it, and the request bytes the calendar actually received.
 
 use crate::common;
+use secrecy::SecretString;
 
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -593,7 +594,7 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
                 user_id,
                 tenant_id: tenant.to_string(),
                 provider: INTERVALS_ICU.to_owned(),
-                access_token: "test-api-key".to_owned(),
+                access_token: SecretString::from("test-api-key"),
                 refresh_token: None,
                 token_type: "api_key".to_owned(),
                 expires_at: None,

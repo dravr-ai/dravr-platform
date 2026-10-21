@@ -13,6 +13,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use secrecy::SecretString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -247,8 +248,8 @@ fn registry() -> (ProviderRegistry, Arc<AtomicUsize>) {
 fn credentials(kind: CredentialKind, secret: &str) -> OAuth2Credentials {
     OAuth2Credentials {
         client_id: String::new(),
-        client_secret: String::new(),
-        access_token: Some(secret.to_owned()),
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from(secret.to_owned())),
         refresh_token: None,
         expires_at: None,
         scopes: Vec::new(),

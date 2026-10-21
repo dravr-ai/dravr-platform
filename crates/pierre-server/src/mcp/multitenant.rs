@@ -408,6 +408,12 @@ impl ProviderToolRouter {
                 .email_service
                 .clone_from(&resources.common.email_service);
             admin_context
+                .oauth
+                .clone_from(&resources.common.config.oauth);
+            admin_context
+                .base_url
+                .clone_from(&resources.common.config.base_url);
+            admin_context
                 .sign_in_limiter
                 .clone_from(&resources.auth.oauth2_rate_limiter);
             admin_context

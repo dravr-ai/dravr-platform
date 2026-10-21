@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::oauth::OAuthProviderConfig;
+use crate::config::oauth::OAuthConfig;
 use crate::strava_pool::select_strava_app;
 use pierre_core::constants::oauth_providers;
 use pierre_core::constants::rate_limits::{
@@ -14,6 +14,7 @@ use pierre_core::constants::rate_limits::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials, UserOAuthApp};
 use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
+use secrecy::SecretString;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -25,7 +26,7 @@ pub enum IssuingClient {
         /// The pool app's client identifier.
         client_id: String,
         /// The pool app's client secret.
-        client_secret: String,
+        client_secret: SecretString,
     },
     /// The user's own OAuth app for the provider.
     UserApp(UserOAuthApp),
@@ -36,7 +37,7 @@ pub enum IssuingClient {
         /// The server-level client identifier.
         client_id: String,
         /// The server-level client secret.
-        client_secret: String,
+        client_secret: SecretString,
     },
 }
 
@@ -53,7 +54,7 @@ impl IssuingClient {
 
     /// The client secret, whichever source it came from.
     #[must_use]
-    pub fn client_secret(&self) -> &str {
+    pub const fn client_secret(&self) -> &SecretString {
         match self {
             Self::StravaPool { client_secret, .. } | Self::ServerLevel { client_secret, .. } => {
                 client_secret
@@ -77,8 +78,8 @@ pub struct IssuingLookup<'a> {
     /// or the pinned authorization state names it. `None` for the env app
     /// and every other provider.
     pub issuing_app: Option<&'a str>,
-    /// The server-level credentials for `provider`.
-    pub server_level: &'a OAuthProviderConfig,
+    /// The server's own OAuth apps, as its configuration holds them.
+    pub server: &'a OAuthConfig,
 }
 
 /// The client an issued token belongs to: the one a refresh, a code exchange
@@ -143,20 +144,13 @@ pub async fn authorizing_client(
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
-    server_level: &OAuthProviderConfig,
+    server: &OAuthConfig,
     tenants: &dyn TenantRepository,
     oauth_tokens: &dyn OAuthTokenRepository,
 ) -> AppResult<(IssuingClient, Option<String>)> {
-    find_authorizing_client(
-        user_id,
-        tenant_id,
-        provider,
-        server_level,
-        tenants,
-        oauth_tokens,
-    )
-    .await?
-    .ok_or_else(|| no_credentials(provider))
+    find_authorizing_client(user_id, tenant_id, provider, server, tenants, oauth_tokens)
+        .await?
+        .ok_or_else(|| no_credentials(provider))
 }
 
 /// [`authorizing_client`]'s resolution, `None` when no source holds credentials.
@@ -172,7 +166,7 @@ pub async fn find_authorizing_client(
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
-    server_level: &OAuthProviderConfig,
+    server: &OAuthConfig,
     tenants: &dyn TenantRepository,
     oauth_tokens: &dyn OAuthTokenRepository,
 ) -> AppResult<Option<(IssuingClient, Option<String>)>> {
@@ -181,7 +175,7 @@ pub async fn find_authorizing_client(
         tenant_id: Some(tenant_id),
         provider,
         issuing_app: None,
-        server_level,
+        server,
     };
     if let Some(app) = user_app(user_id, provider, oauth_tokens).await {
         return Ok(Some((IssuingClient::UserApp(app), None)));
@@ -190,7 +184,7 @@ pub async fn find_authorizing_client(
         return Ok(Some((IssuingClient::Tenant(credentials), None)));
     }
     if provider.eq_ignore_ascii_case(oauth_providers::STRAVA) {
-        let selected = select_strava_app(oauth_tokens, user_id, tenant_id).await?;
+        let selected = select_strava_app(oauth_tokens, user_id, tenant_id, server).await?;
         let client = if selected.attribution.is_some() {
             IssuingClient::StravaPool {
                 client_id: selected.client_id,
@@ -228,7 +222,7 @@ async fn issuing_pool_app(
     };
     Ok(Some(IssuingClient::StravaPool {
         client_id: app.to_owned(),
-        client_secret,
+        client_secret: SecretString::from(client_secret),
     }))
 }
 
@@ -285,10 +279,10 @@ async fn tenant_credentials(
     Ok(credentials)
 }
 
-/// The server-level app for the lookup's provider, when the environment
-/// configures one.
+/// The server-level app for the lookup's provider, when the server's
+/// configuration holds one.
 fn server_level_app(lookup: &IssuingLookup<'_>) -> Option<IssuingClient> {
-    let server_level = lookup.server_level;
+    let server_level = lookup.server.server_app(lookup.provider);
     Some(IssuingClient::ServerLevel {
         client_id: server_level.client_id.clone()?,
         client_secret: server_level.client_secret.clone()?,

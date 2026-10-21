@@ -20,7 +20,6 @@
 //!
 //! [`create_token`]: pierre_database::repositories::AdminRepository::create_token
 
-use std::env;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
@@ -32,6 +31,7 @@ use axum::{
 };
 use chrono::Utc;
 use rand::RngCore;
+use secrecy::SecretString;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -78,7 +78,8 @@ struct DeviceAuthorizationResponse {
 /// RFC 8628 §3.5 successful token response (an admin bearer token).
 #[derive(Serialize)]
 struct DeviceTokenResponse {
-    access_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    access_token: SecretString,
     token_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     subject: Option<String>,
@@ -173,8 +174,7 @@ pub async fn handle_device_authorization(
         .create_device_authorization(&record)
         .await?;
 
-    let base = env::var("BASE_URL").unwrap_or_default();
-    let verification_uri = format!("{base}/admin/device");
+    let verification_uri = format!("{}/admin/device", context.base_url.trim_end_matches('/'));
     let verification_uri_complete = format!("{verification_uri}?user_code={user_code}");
 
     info!(user_code = %user_code, "Device authorization started");

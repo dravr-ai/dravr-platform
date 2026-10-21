@@ -37,6 +37,7 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
+use secrecy::SecretString;
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
@@ -413,7 +414,10 @@ where
     DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(OAuth2RefreshToken {
-        token: row.try_get("token").map_err(|e| column_error("token", e))?,
+        token: SecretString::from(
+            row.try_get::<String, _>("token")
+                .map_err(|e| column_error("token", e))?,
+        ),
         client_id: row
             .try_get("client_id")
             .map_err(|e| column_error("client_id", e))?,
@@ -718,7 +722,10 @@ macro_rules! impl_oauth2_server_repository {
                 &self,
                 refresh_token: &OAuth2RefreshToken,
             ) -> AppResult<()> {
-                let token_hash = HasEncryption::hash_token_for_storage(self, &refresh_token.token)?;
+                let token_hash = HasEncryption::hash_token_for_storage(
+                    self,
+                    refresh_token.token.expose_secret(),
+                )?;
                 let store_error = |e: sqlx::Error| {
                     AppError::database(format!("Failed to store OAuth2 refresh token: {e}"))
                 };

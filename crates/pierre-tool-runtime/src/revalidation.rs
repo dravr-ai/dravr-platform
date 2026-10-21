@@ -13,8 +13,8 @@
 //! tenant)` here rather than each keeping its own: a refresh the chat path
 //! started is one the Home page does not start again.
 
+use pierre_config::timeouts::ServerTimeouts;
 use std::collections::HashSet;
-use std::env;
 use std::sync::{Arc, LazyLock, Mutex as StdMutex, PoisonError};
 use std::time::Duration;
 
@@ -32,17 +32,15 @@ pub const REVALIDATION_TIMEOUT_SECS: u64 = 240;
 
 /// The bound a background revalidation runs under.
 ///
-/// [`REVALIDATION_TIMEOUT_SECS`], or `PIERRE_REVALIDATION_TIMEOUT_SECS` when
-/// it holds a positive number of seconds — for a deployment whose scraper is
+/// [`REVALIDATION_TIMEOUT_SECS`], or the server's configured
+/// `PIERRE_REVALIDATION_TIMEOUT_SECS` — for a deployment whose scraper is
 /// slower, and for a suite that drives a scrape which never answers to its
 /// bound.
 #[must_use]
-pub fn revalidation_timeout() -> Duration {
+pub fn revalidation_timeout(timeouts: &ServerTimeouts) -> Duration {
     Duration::from_secs(
-        env::var("PIERRE_REVALIDATION_TIMEOUT_SECS")
-            .ok()
-            .and_then(|secs| secs.parse::<u64>().ok())
-            .filter(|secs| *secs > 0)
+        timeouts
+            .revalidation_timeout_secs
             .unwrap_or(REVALIDATION_TIMEOUT_SECS),
     )
 }

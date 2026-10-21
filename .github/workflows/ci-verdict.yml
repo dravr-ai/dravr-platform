@@ -1,0 +1,117 @@
+# ABOUTME: Publishes one commit status, ci/verdict, per pushed sha: scripts/ci/ci-verdict.sh joins every lane that push should run.
+# ABOUTME: Refreshed each time one of those lanes completes; green only when all of them succeeded, red on any failure or missing run.
+name: "CI: Verdict"
+
+# Our lanes are separate, path-scoped workflows, so no `needs:` can join them
+# and a session had to enumerate them to know whether a sha was green — which
+# is how a red "Deploy: Build & Ship" sat unnoticed for twelve hours: it is not
+# a "CI:" lane. Every completion of a lane below re-runs the join for that
+# lane's sha and overwrites the status, so the last lane to finish leaves the
+# final verdict. scripts/ci/ci-verdict.test.sh fails when a workflow a branch
+# push can fire is missing from this list.
+#
+# Recursion: this workflow is not in its own list, and the script never scores
+# a run of this file. Nothing here writes a run or a push, only a status.
+#
+# Trust: a workflow_run job runs with this repository's token, so nothing from
+# the triggering sha is executed. The checkout is the default branch (the
+# script that runs is main's); the sha's workflow files and diff are read as
+# git objects only. Fork pull requests never reach it: only push and
+# workflow_run completions on the branches below are judged.
+on:
+  workflow_run:
+    workflows:
+      - "CI: Backend (Rust)"
+      - "CI: Backend (PostgreSQL)"
+      - "CI: Backend (Redis)"
+      - "CI: Code Coverage"
+      - "CI: Design System"
+      - "CI: Examples Validation"
+      - "CI: Web Frontend"
+      - "CI: Integration (HTTP/MCP)"
+      - "CI: MCP Protocol Compliance"
+      - "CI: Messaging Eval"
+      - "CI: Mobile E2E (Android)"
+      - "CI: Mobile E2E (iOS)"
+      - "CI: Mobile iOS Native Build"
+      - "CI: Mobile Unit"
+      - "CI: TypeScript SDK"
+      - "Chat Eval: Conversation Scenarios"
+      - "Guard: .build pointer"
+      - "Guard: private tooling"
+      - "Security: MCP Tool Scan"
+      - "Infra: Terraform"
+      - "Deploy: Build & Ship (dev)"
+      - "Monitor: Post-Deploy Verification (dev)"
+    types: [completed]
+    branches: [ "main", "feature/**", "features/**", "claude/**" ]
+
+concurrency:
+  # One verdict per sha. A newer completion re-reads every run, so it may
+  # replace an older computation for the same sha without losing anything.
+  group: ci-verdict-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+
+jobs:
+  verdict:
+    name: Commit verdict
+    if: github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the default branch (the script that judges)
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 200
+          persist-credentials: false
+
+      - name: Fetch the judged sha as data
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if ! git fetch --no-tags --depth=200 origin "$SHA"; then
+            echo "::error::cannot fetch $SHA"
+            exit 1
+          fi
+
+      - name: Judge and publish ci/verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # The exit status is the verdict; the text is for the log and the
+          # description. Gated on the status, never on a grep of the text.
+          CODE=0
+          OUT="$(scripts/ci/ci-verdict.sh "$SHA" --branch "$BRANCH" --repo "$REPO" 2>&1)" || CODE=$?
+          printf '%s\n' "$OUT"
+          case "$CODE" in
+            0) STATE=success ;;
+            1) STATE=failure ;;
+            3) STATE=pending ;;
+            *) STATE=error ;;
+          esac
+          LAST="$(printf '%s\n' "$OUT" | tail -n 1)"
+          if [ "$STATE" = error ]; then
+            DESC="ci-verdict.sh could not judge this sha (exit $CODE): ${LAST}"
+          else
+            DESC="${LAST#verdict: }"
+          fi
+          DESC="${DESC:0:139}"
+          if ! gh api --method POST "repos/$REPO/statuses/$SHA" \
+              -f state="$STATE" -f context=ci/verdict -f description="$DESC" -f target_url="$RUN_URL" >/dev/null; then
+            echo "::error::could not publish ci/verdict ($STATE) on $SHA"
+            exit 1
+          fi
+          echo "ci/verdict on $SHA: $STATE — $DESC"
+          if [ "$STATE" = error ]; then
+            exit 1
+          fi

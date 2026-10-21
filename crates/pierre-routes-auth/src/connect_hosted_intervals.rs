@@ -38,6 +38,7 @@
 //! HTML form cannot send the `X-CSRF-Token` header, so the path is listed in
 //! `pierre_middleware::csrf`'s exemptions, as the OAuth consent form is.
 
+use secrecy::ExposeSecret;
 use std::fmt;
 
 use axum::extract::{Query, State};
@@ -163,7 +164,7 @@ pub async fn handle_intervals_icu_form_page(
     Query(query): Query<ConnectPageQuery>,
 ) -> Response {
     let token = query.token.unwrap_or_default();
-    match connect_identity(&resources, &token) {
+    match connect_identity(&resources, token.expose_secret()) {
         Ok(identity) => {
             let locale = identity.locale(&resources).await;
             let offers_authorize = identity.offers_authorize(&resources).await;
@@ -177,7 +178,7 @@ pub async fn handle_intervals_icu_form_page(
             let strings = PageStrings::new(&resources.messaging_strings, locale);
             Html(connect_hosted_templates::render_intervals_icu_form(
                 &strings,
-                &token,
+                token.expose_secret(),
                 &identity.channel,
                 offers_authorize,
                 "",

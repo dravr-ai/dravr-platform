@@ -12,6 +12,7 @@
 #![cfg(feature = "provider-intervals-icu")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD;
@@ -224,8 +225,8 @@ fn registry(base_url: String) -> ProviderRegistry {
 fn coach_credentials(key: &str) -> OAuth2Credentials {
     OAuth2Credentials {
         client_id: COACH_ID.to_owned(),
-        client_secret: String::new(),
-        access_token: Some(key.to_owned()),
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from(key.to_owned())),
         refresh_token: None,
         expires_at: None,
         scopes: Vec::new(),

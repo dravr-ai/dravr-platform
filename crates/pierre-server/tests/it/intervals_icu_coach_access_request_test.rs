@@ -25,6 +25,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::SecretString;
 
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -223,7 +224,7 @@ impl World {
                 user_id: who.id,
                 tenant_id: who.tenant.to_string(),
                 provider: INTERVALS_ICU.to_owned(),
-                access_token: COACH_KEY.to_owned(),
+                access_token: SecretString::from(COACH_KEY.to_owned()),
                 refresh_token: None,
                 token_type: API_KEY_TOKEN_TYPE.to_owned(),
                 expires_at: None,

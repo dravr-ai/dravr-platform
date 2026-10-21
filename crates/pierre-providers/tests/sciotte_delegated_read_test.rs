@@ -29,6 +29,7 @@
 //! share one test because the enrichment switch they read is process-wide;
 //! the pure functions are tested on their own.
 
+use secrecy::SecretString;
 use std::env;
 use std::sync::{Arc, Mutex};
 
@@ -269,8 +270,10 @@ fn credentials(session_id: &str) -> OAuth2Credentials {
     };
     OAuth2Credentials {
         client_id: String::new(),
-        client_secret: String::new(),
-        access_token: Some(serde_json::to_string(&session).expect("AuthSession serializes")), // Safe: plain data struct
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from(
+            serde_json::to_string(&session).expect("AuthSession serializes"),
+        )), // Safe: plain data struct
         refresh_token: None,
         expires_at: None,
         scopes: vec![],

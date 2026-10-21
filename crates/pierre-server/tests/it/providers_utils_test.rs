@@ -12,6 +12,7 @@ use pierre_core::errors::provider::ProviderError;
 use pierre_providers::core::{CredentialKind, OAuth2Credentials};
 use pierre_providers::utils::{conversions, is_authenticated, RetryConfig};
 use reqwest::StatusCode;
+use secrecy::SecretString;
 
 #[test]
 fn test_f64_to_u64_conversion() {
@@ -43,9 +44,9 @@ fn test_is_authenticated() {
     // No access token
     let no_token = Some(OAuth2Credentials {
         client_id: "test".to_owned(),
-        client_secret: "secret".to_owned(),
+        client_secret: SecretString::from("secret"),
         access_token: None,
-        refresh_token: Some("refresh".to_owned()),
+        refresh_token: Some(SecretString::from("refresh")),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
@@ -56,9 +57,9 @@ fn test_is_authenticated() {
     // Expired token
     let expired = Some(OAuth2Credentials {
         client_id: "test".to_owned(),
-        client_secret: "secret".to_owned(),
-        access_token: Some("token".to_owned()),
-        refresh_token: Some("refresh".to_owned()),
+        client_secret: SecretString::from("secret"),
+        access_token: Some(SecretString::from("token")),
+        refresh_token: Some(SecretString::from("refresh")),
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
@@ -69,9 +70,9 @@ fn test_is_authenticated() {
     // Valid token
     let valid = Some(OAuth2Credentials {
         client_id: "test".to_owned(),
-        client_secret: "secret".to_owned(),
-        access_token: Some("token".to_owned()),
-        refresh_token: Some("refresh".to_owned()),
+        client_secret: SecretString::from("secret"),
+        access_token: Some(SecretString::from("token")),
+        refresh_token: Some(SecretString::from("refresh")),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,
@@ -82,9 +83,9 @@ fn test_is_authenticated() {
     // No expiry (assume valid)
     let no_expiry = Some(OAuth2Credentials {
         client_id: "test".to_owned(),
-        client_secret: "secret".to_owned(),
-        access_token: Some("token".to_owned()),
-        refresh_token: Some("refresh".to_owned()),
+        client_secret: SecretString::from("secret"),
+        access_token: Some(SecretString::from("token")),
+        refresh_token: Some(SecretString::from("refresh")),
         expires_at: None,
         scopes: vec![],
         kind: CredentialKind::OAuthBearer,

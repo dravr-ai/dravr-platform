@@ -250,7 +250,7 @@ macro_rules! impl_a2a_repository {
                 config_id: col("config_id")?,
                 task_id: col("task_id")?,
                 url: col("url")?,
-                token: opt("token")?,
+                token: opt("token")?.map(SecretString::from),
                 auth_scheme: opt("auth_scheme")?,
                 auth_credentials: opt("auth_credentials")?,
                 created_at: row
@@ -575,7 +575,7 @@ macro_rules! impl_a2a_repository {
                     .bind(&config.config_id)
                     .bind(&config.task_id)
                     .bind(&config.url)
-                    .bind(&config.token)
+                    .bind(config.token.as_ref().map(ExposeSecret::expose_secret))
                     .bind(&config.auth_scheme)
                     .bind(&config.auth_credentials)
                     .bind(config.created_at)
@@ -631,7 +631,7 @@ macro_rules! impl_a2a_repository {
             async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {
                 sqlx::query(record_usage_sql!($usage_id, $inet))
                     .bind(&usage.client_id)
-                    .bind(&usage.session_token)
+                    .bind(usage.session_token.as_ref().map(ExposeSecret::expose_secret))
                     .bind(usage.timestamp)
                     .bind(&usage.tool_name)
                     .bind(usage.response_time_ms.map(i32_from_u32).transpose()?)

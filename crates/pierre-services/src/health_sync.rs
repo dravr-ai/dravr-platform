@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::ExposeSecret;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
@@ -881,8 +882,11 @@ impl CredentialStore for PierreSyncStorage {
             .map(|s| s.split(' ').map(String::from).collect::<Vec<_>>())
             .unwrap_or_default();
         Ok(Some(ProviderCredentials {
-            access_token: token.access_token,
-            refresh_token: token.refresh_token,
+            access_token: token.access_token.expose_secret().to_owned(),
+            refresh_token: token
+                .refresh_token
+                .as_ref()
+                .map(|s| s.expose_secret().to_owned()),
             expires_at: token.expires_at,
             scopes,
             user_id: token.user_id.to_string(),

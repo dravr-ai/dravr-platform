@@ -7,7 +7,7 @@
 use embacle::pool::credential_env_key;
 use embacle::CliRunnerType;
 use embacle::{AnthropicConfig, CopilotHeadlessConfig, CopilotSdkConfig};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -420,10 +420,16 @@ fn split_account_name(name: &str) -> Option<(&str, Option<usize>)> {
 ///   provider that pools no accounts, or no earlier entry for its provider is
 ///   skipped;
 /// - a value with no valid entry at all is the platform default.
+///
+/// The server reads it once, at boot, into its config; every consumer after
+/// that is handed the chain rather than reading the environment again. It
+/// serializes as the value an operator would write — `None` for the platform
+/// default — so a round trip keeps whether it was configured.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlmChain {
     entries: Vec<ChainEntry>,
     issues: Vec<String>,
+    configured: bool,
 }
 
 impl LlmChain {
@@ -431,16 +437,19 @@ impl LlmChain {
     pub const ENV_VAR: &'static str = "PIERRE_LLM_CHAIN";
 
     /// The chain the environment configures; see the type docs for the grammar.
+    ///
+    /// Read once per process, at boot: the server keeps the result in its
+    /// config and hands it to every consumer.
     #[must_use]
     pub fn from_env() -> Self {
-        non_empty_env(Self::ENV_VAR).map_or_else(Self::platform_default, |raw| Self::parse(&raw))
+        non_empty_env(Self::ENV_VAR).map_or_else(Self::default, |raw| Self::parse(&raw))
     }
 
-    /// Whether `PIERRE_LLM_CHAIN` is set to a non-blank value — the operator
-    /// chose the chain, rather than the platform default applying.
+    /// Whether the operator chose this chain — `PIERRE_LLM_CHAIN` was set to
+    /// a non-blank value — rather than the platform default applying.
     #[must_use]
-    pub fn is_configured() -> bool {
-        non_empty_env(Self::ENV_VAR).is_some()
+    pub const fn is_configured(&self) -> bool {
+        self.configured
     }
 
     /// The variables `PIERRE_LLM_CHAIN` replaced that are still set, by
@@ -457,8 +466,8 @@ impl LlmChain {
     /// The model the chain's head runs, which is the model a turn asks for
     /// and the one a new conversation records.
     #[must_use]
-    pub fn head_model_from_env() -> Option<String> {
-        Self::from_env().head().effective_model()
+    pub fn head_model(&self) -> Option<String> {
+        self.head().effective_model()
     }
 
     /// Parse a chain value; see the type docs for the grammar.
@@ -508,10 +517,15 @@ impl LlmChain {
             ));
             return Self {
                 issues,
-                ..Self::platform_default()
+                configured: true,
+                ..Self::default()
             };
         }
-        Self { entries, issues }
+        Self {
+            entries,
+            issues,
+            configured: true,
+        }
     }
 
     /// Record a `provider#N=model` entry on the entry of the provider it
@@ -553,14 +567,6 @@ impl LlmChain {
         Ok(())
     }
 
-    /// One Gemini entry on its default model: what an unset chain runs.
-    fn platform_default() -> Self {
-        Self {
-            entries: vec![ChainEntry::new(LlmProviderType::default(), None)],
-            issues: Vec::new(),
-        }
-    }
-
     /// The entries in chain order, head first. Never empty.
     #[must_use]
     pub fn entries(&self) -> &[ChainEntry] {
@@ -578,6 +584,34 @@ impl LlmChain {
     #[must_use]
     pub fn issues(&self) -> &[String] {
         &self.issues
+    }
+}
+
+impl Default for LlmChain {
+    /// One Gemini entry on its default model: what an unset chain runs.
+    fn default() -> Self {
+        Self {
+            entries: vec![ChainEntry::new(LlmProviderType::default(), None)],
+            issues: Vec::new(),
+            configured: false,
+        }
+    }
+}
+
+impl Serialize for LlmChain {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.configured
+            .then(|| self.to_string())
+            .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for LlmChain {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = Option::<String>::deserialize(deserializer)?;
+        Ok(raw
+            .filter(|raw| !raw.trim().is_empty())
+            .map_or_else(Self::default, |raw| Self::parse(&raw)))
     }
 }
 

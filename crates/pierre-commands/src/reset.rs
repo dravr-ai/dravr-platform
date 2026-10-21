@@ -117,7 +117,7 @@ impl CommandHandler for ResetHandler {
                 // thread.
                 tenant_id: ctx.conversation_tenant_id,
                 title_fallback: &title_fallback,
-                model: Some(&previous.model),
+                model: &previous.model,
                 // The thread being replaced already names the agent the
                 // athlete was talking to; a reset changes the thread, not who
                 // they train with.

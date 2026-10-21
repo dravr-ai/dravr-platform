@@ -29,6 +29,7 @@
 //! can use — a mirror-only provider's session rows, never a leftover OAuth row.
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::sync::Arc;
 
@@ -88,8 +89,8 @@ async fn seed_token(
         user_id,
         tenant_id: tenant.to_owned(),
         provider: provider.to_owned(),
-        access_token: access_token.to_owned(),
-        refresh_token: Some("refresh".to_owned()),
+        access_token: SecretString::from(access_token.to_owned()),
+        refresh_token: Some(SecretString::from("refresh")),
         token_type: token_type.to_owned(),
         expires_at: Some(now + chrono::Duration::hours(6)),
         scope: Some("activity:read_all".to_owned()),

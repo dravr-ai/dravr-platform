@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::{ExposeSecret, SecretString};
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -579,7 +580,7 @@ async fn a_verified_password_account_is_reached_and_keeps_its_password() {
         .account_service()
         .login(LoginRequest {
             email: "runner@gmail.com".to_owned(),
-            password: "password123".to_owned(),
+            password: SecretString::from("password123"),
             timezone: None,
         })
         .await
@@ -1430,7 +1431,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
     repos
         .oauth2_server
         .store_refresh_token(&OAuth2RefreshToken {
-            token: connector_refresh.clone(),
+            token: SecretString::from(connector_refresh.clone()),
             client_id: f.client_id.clone(),
             user_id: squatted.id,
             tenant_id,
@@ -1488,7 +1489,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
     assert!(accounts
         .login(LoginRequest {
             email: "victim@gmail.com".to_owned(),
-            password: "password123".to_owned(),
+            password: SecretString::from("password123"),
             timezone: None,
         })
         .await
@@ -1510,7 +1511,7 @@ async fn proving_an_unverified_accounts_email_retires_every_credential_it_held()
     );
     assert!(repos
         .user_mcp_tokens
-        .validate_token(&mcp.token_value)
+        .validate_token(mcp.token_value.expose_secret())
         .await
         .is_err());
     let keys = repos.api_keys.get_for_user(owner.id).await.unwrap();
@@ -1608,7 +1609,7 @@ async fn a_firebase_google_athletes_first_hosted_sign_in_keeps_everything() {
     assert!(
         repos
             .user_mcp_tokens
-            .validate_token(&mcp.token_value)
+            .validate_token(mcp.token_value.expose_secret())
             .await
             .is_ok(),
         "the athlete's connectors keep working"

@@ -55,6 +55,7 @@
 //!   "already authorized".
 
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
@@ -352,7 +353,7 @@ pub struct TenantOAuthCredentials {
     /// OAuth client ID (public)
     pub client_id: String,
     /// OAuth client secret (decrypted)
-    pub client_secret: String,
+    pub client_secret: SecretString,
     /// OAuth redirect URI
     pub redirect_uri: String,
     /// OAuth scopes

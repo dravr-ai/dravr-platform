@@ -26,6 +26,7 @@
 //! external caller writes no one's calendar.
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -336,7 +337,7 @@ async fn connect_intervals_as(
             user_id: who.id,
             tenant_id: tenant.to_string(),
             provider: INTERVALS_ICU.to_owned(),
-            access_token: key.to_owned(),
+            access_token: SecretString::from(key.to_owned()),
             refresh_token: None,
             token_type: token_type.to_owned(),
             expires_at: None,

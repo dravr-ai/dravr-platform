@@ -29,6 +29,7 @@ use pierre_config::environment::ServerConfig;
 use pierre_core::models::{Tenant, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
+use secrecy::SecretString;
 use serde_json::json;
 use tokio::time::timeout;
 use uuid::Uuid;
@@ -52,7 +53,7 @@ async fn create_usda_live_executor() -> Result<UniversalToolExecutor> {
     assert!(!api_key.is_empty(), "USDA_API_KEY is set but empty");
 
     let config = ServerConfig {
-        usda_api_key: Some(api_key),
+        usda_api_key: Some(SecretString::from(api_key)),
         ..common::test_server_config()
     };
     let resources = common::create_test_server_resources_with_config(config).await?;

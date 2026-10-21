@@ -25,7 +25,6 @@
 //!   window plus one trailing fetch.
 
 use std::collections::HashMap;
-use std::env;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
@@ -41,35 +40,22 @@ pub const SUBSCRIPTION_ID_VAR: &str = "STRAVA_WEBHOOK_SUBSCRIPTION_ID";
 /// The shortest gap between two webhook-triggered fetches for one owner.
 pub const OWNER_FETCH_WINDOW: Duration = Duration::from_mins(5);
 
-/// The subscription ids this deployment registered with Strava.
-///
-/// `None` when [`SUBSCRIPTION_ID_VAR`] is unset or holds no id — including
-/// the Secret Manager placeholder a fresh deployment starts with — in which
-/// case every event is refused.
-#[must_use]
-pub fn registered_subscription_ids() -> Option<Vec<u64>> {
-    let raw = env::var(SUBSCRIPTION_ID_VAR).ok()?;
-    let ids: Vec<u64> = raw
-        .split(',')
-        .filter_map(|id| id.trim().parse().ok())
-        .collect();
-    (!ids.is_empty()).then_some(ids)
-}
-
 /// Why an event naming `subscription_id` is refused, or `None` to accept it.
 ///
-/// 503 while no subscription id is configured (Strava retries, and the
-/// refusal is this deployment's to fix); 403 for an id this deployment did not
-/// register.
+/// `registered` holds the subscription ids this deployment registered with
+/// Strava ([`SUBSCRIPTION_ID_VAR`], as the server's config read it). 503 while
+/// it holds none — unset, or the Secret Manager placeholder a fresh deployment
+/// starts with (Strava retries, and the refusal is this deployment's to fix);
+/// 403 for an id this deployment did not register.
 #[must_use]
-pub fn subscription_refusal(subscription_id: u64) -> Option<StatusCode> {
-    let Some(registered) = registered_subscription_ids() else {
+pub fn subscription_refusal(subscription_id: u64, registered: &[u64]) -> Option<StatusCode> {
+    if registered.is_empty() {
         warn!(
             "Strava webhook refused: {SUBSCRIPTION_ID_VAR} is unset, so no event can be told \
              from a forgery"
         );
         return Some(StatusCode::SERVICE_UNAVAILABLE);
-    };
+    }
     if registered.contains(&subscription_id) {
         return None;
     }

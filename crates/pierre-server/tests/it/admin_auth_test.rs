@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::ExposeSecret;
 
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
 use pierre_routes_admin::auth::service::AdminAuthService;
@@ -49,7 +50,7 @@ async fn test_admin_authentication_flow() {
     // Test authentication
     let result = auth_service
         .authenticate_and_authorize(
-            &test_token,
+            test_token.expose_secret(),
             AdminPermission::ProvisionKeys,
             Some("127.0.0.1"),
         )

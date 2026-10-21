@@ -157,6 +157,7 @@ async fn personal_thread(
         tenant_id,
         PersonalForge {
             title_fallback: "Windows",
+            llm_chain: &resources.common.config.llm_chain,
             guided_flow: false,
         },
     )

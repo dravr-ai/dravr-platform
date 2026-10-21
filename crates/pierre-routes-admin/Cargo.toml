@@ -11,13 +11,13 @@ repository = "https://github.com/dravr-ai/cdn-platform"
 publish = false
 
 [dependencies]
+secrecy = { workspace = true }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
-pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
@@ -40,7 +40,7 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [features]
 default = []
-tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification"]
+tools-verification = ["pierre-services/tools-verification"]
 
 [lints]
 workspace = true

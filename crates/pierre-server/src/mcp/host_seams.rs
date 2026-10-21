@@ -22,7 +22,6 @@
 //!   `resources/*` and `prompts/*`.
 
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,6 +41,7 @@ use dravr_tronc::mcp::tasks::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::DIALED_HOST_HEADERS;
+use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::{EffectiveTool, TenantId, ToolEnablementSource};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -377,16 +377,16 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
 /// repeat callers never pay a poll round trip for sub-second results.
 const DEFAULT_TASK_FAST_PATH_MS: u64 = 10_000;
 
-/// Fast-path budget, from `PIERRE_MCP_TASK_FAST_PATH_MS` (falls back to
-/// [`DEFAULT_TASK_FAST_PATH_MS`]). `0` converts every declared task-capable
-/// call into a handle, which is how the integration suite exercises the
-/// asynchronous path deterministically.
-fn task_fast_path_budget() -> Duration {
-    let ms = env::var("PIERRE_MCP_TASK_FAST_PATH_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_TASK_FAST_PATH_MS);
-    Duration::from_millis(ms)
+/// Fast-path budget, as the server's config holds it
+/// (`PIERRE_MCP_TASK_FAST_PATH_MS`, else [`DEFAULT_TASK_FAST_PATH_MS`]). `0`
+/// converts every declared task-capable call into a handle, which is how the
+/// integration suite exercises the asynchronous path deterministically.
+fn task_fast_path_budget(timeouts: &ServerTimeouts) -> Duration {
+    Duration::from_millis(
+        timeouts
+            .mcp_task_fast_path_ms
+            .unwrap_or(DEFAULT_TASK_FAST_PATH_MS),
+    )
 }
 
 /// Run the full post-auth pierre tool call.
@@ -797,7 +797,8 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
                 arguments,
             ),
         ));
-        match timeout(task_fast_path_budget(), &mut work).await {
+        let budget = task_fast_path_budget(&self.resources.common.config.timeouts);
+        match timeout(budget, &mut work).await {
             Ok(joined) => CallToolOutcome::Immediate(Box::new(join_to_response(joined))),
             Err(_budget_elapsed) => {
                 let owner = TaskOwner {

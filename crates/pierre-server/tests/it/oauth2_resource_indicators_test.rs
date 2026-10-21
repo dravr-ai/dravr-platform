@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -128,7 +129,10 @@ async fn register(resources: &Arc<ServerContext>) -> (String, String) {
         )
         .await
         .unwrap();
-    (registered.client_id, registered.client_secret)
+    (
+        registered.client_id,
+        registered.client_secret.expose_secret().to_owned(),
+    )
 }
 
 /// `/oauth2/authorize` for `client_id` with PKCE, naming `resource` if given.

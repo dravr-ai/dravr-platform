@@ -1,16 +1,19 @@
-// ABOUTME: Service-layer factory for `ChatProvider` instances built from environment config
-// ABOUTME: Canonical home for create_chat_provider() — services must not depend on the routes layer
+// ABOUTME: Service-layer resolution of the `ChatProvider` singleton, tenant BYO providers and the health probe
+// ABOUTME: Lives in services so the routes layer depends on it, never the other way around
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Chat provider factory.
 //!
-//! Thin wrapper around [`pierre_llm::ChatProvider::from_env`]. Lives in the
-//! service layer so downstream services (chat pipeline, memory extraction)
-//! can call it without importing from `crate::routes`, and so the routes
-//! layer can depend on the services layer — not the other way around.
+//! Resolves the boot-built [`ChatProvider`] singleton for callers, builds a
+//! tenant's own provider from stored credentials, and runs the LLM health
+//! probe. Lives in the service layer so downstream services (chat pipeline,
+//! memory extraction) can use it without importing from `crate::routes`, and
+//! so the routes layer can depend on the services layer — not the other way
+//! around.
 
+use secrecy::ExposeSecret;
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::sync::Arc;
@@ -27,21 +30,6 @@ use pierre_llm::{http_env, ChatMessage, ChatProvider, ChatRequest, LlmProvider};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
-/// Build a [`ChatProvider`] from the current process environment.
-///
-/// All provider backends (Gemini, Groq, Local, CLI runners, Copilot SDK) are
-/// resolved inside `pierre-llm`; this function exists purely to give service
-/// and route callers a single entry point that keeps provider construction
-/// out of individual handlers.
-///
-/// # Errors
-///
-/// Returns [`AppError`] if the configured provider cannot be initialized
-/// (missing API key, invalid endpoint, etc.).
-pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
-    ChatProvider::from_env().await
-}
-
 /// Return the [`ChatProvider`] singleton resolved from the two provider
 /// handles a `ServerContext` carries.
 ///
@@ -53,7 +41,7 @@ pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
 /// of torn down and rebuilt per call.
 ///
 /// Resolution order — **NEVER falls through to per-call
-/// [`ChatProvider::from_env`]**:
+/// [`ChatProvider::from_chain`]**:
 ///
 /// 1. `chat_provider` singleton (production path)
 /// 2. `llm_provider` wrapped in [`ChatProvider::Custom`]
@@ -61,7 +49,7 @@ pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
 ///    `ServerContextOptions::with_llm_provider`)
 /// 3. Otherwise: return [`AppError::internal`] — no silent copilot spawn
 ///
-/// The per-call `from_env()` fallback was a footgun: under load (`cargo
+/// A per-call provider build was a footgun: under load (`cargo
 /// test` running 30+ chat-touching tests with `--test-threads=4`, Cloud
 /// Run's 5-min probe firing N times) each fallback spawned `copilot
 /// --acp` and ran the GitHub→Copilot OAuth token exchange, which burned
@@ -87,7 +75,7 @@ pub fn chat_provider_from_resources_arc(
     Err(AppError::internal(
         "No ChatProvider configured on ServerContext — \
          wire one via ServerContextOptions::with_chat_provider (production) \
-         or ::with_llm_provider (tests). Per-call ChatProvider::from_env() \
+         or ::with_llm_provider (tests). Per-call ChatProvider::from_chain() \
          is intentionally disabled here to prevent copilot --acp spawn storms.",
     ))
 }
@@ -135,10 +123,11 @@ const DEFAULT_LLM_PROBE_INTERVAL_SECS: u64 = 1800;
 /// failure is the request-time fallback chain's responsibility, not this
 /// probe's.
 pub fn spawn_llm_health_probe(
+    llm_chain: &LlmChain,
     health_state: Arc<LlmHealthState>,
     chat_provider: Option<Arc<ChatProvider>>,
 ) {
-    let provider_name = LlmChain::from_env().head().provider.to_string();
+    let provider_name = llm_chain.head().provider.to_string();
     let interval_secs = env::var(LLM_PROBE_INTERVAL_ENV_VAR)
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -407,7 +396,7 @@ async fn run_one_probe(
 ) {
     // Singleton-only: reuse the warm provider so the underlying Copilot
     // Headless subprocess + cached GitHub→Copilot OAuth token stay alive
-    // across probe ticks. No per-tick `create_chat_provider()` fallback —
+    // across probe ticks. No per-tick provider build —
     // see `chat_provider_from_resources_arc` for the full rationale.
     let Some(cp) = chat_provider else {
         let msg = "no chat_provider singleton wired; probe skipped";
@@ -651,15 +640,15 @@ pub fn chat_provider_from_credentials(
 
     match credentials.provider {
         TenantLlmProvider::Gemini => Ok(ChatProvider::Embacle(http_env::gemini_with_key(
-            &credentials.api_key,
+            credentials.api_key.expose_secret(),
             credentials.default_model,
         )?)),
         TenantLlmProvider::Groq => Ok(ChatProvider::Embacle(http_env::groq_with_key(
-            credentials.api_key,
+            credentials.api_key.expose_secret().to_owned(),
             credentials.default_model,
         ))),
         TenantLlmProvider::Cohere => Ok(ChatProvider::Embacle(http_env::cohere_with_key(
-            credentials.api_key,
+            credentials.api_key.expose_secret().to_owned(),
             credentials.default_model,
         ))),
         TenantLlmProvider::Local => {
@@ -669,9 +658,11 @@ pub fn chat_provider_from_credentials(
             let model = credentials
                 .default_model
                 .unwrap_or_else(|| "qwen2.5:14b-instruct".to_owned());
-            let api_key = Some(credentials.api_key).filter(|key| !key.is_empty());
+            let api_key = Some(credentials.api_key).filter(|key| !key.expose_secret().is_empty());
             Ok(ChatProvider::Embacle(http_env::local_from_credentials(
-                base_url, api_key, model,
+                base_url,
+                api_key.as_ref().map(|s| s.expose_secret().to_owned()),
+                model,
             )))
         }
         TenantLlmProvider::OpenAi | TenantLlmProvider::Anthropic => Err(AppError::config(format!(
@@ -687,6 +678,7 @@ mod tests {
         CredentialSource, LlmCredentials, LlmProvider as TenantLlmProvider,
     };
     use pierre_core::models::TenantId;
+    use secrecy::SecretString;
     use uuid::Uuid;
 
     use super::{builds_from_credentials, chat_provider_from_credentials};
@@ -707,7 +699,7 @@ mod tests {
                 tenant_id: TenantId::from_uuid(Uuid::new_v4()),
                 user_id: None,
                 provider,
-                api_key: "test-key".to_owned(),
+                api_key: SecretString::from("test-key"),
                 base_url: None,
                 default_model: Some("test-model".to_owned()),
                 source: CredentialSource::TenantDefault,

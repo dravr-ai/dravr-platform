@@ -10,9 +10,12 @@
 //! delegating to specialized sub-modules for each configuration domain.
 
 use dravr_cageux::config::intelligence::IntelligenceConfig;
+use pierre_auth::config::oauth::provider_callback_uri;
 use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
+use pierre_llm::config::LlmChain;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{info, warn};
@@ -20,7 +23,8 @@ use tracing::{info, warn};
 // Re-export types from sub-modules for convenience
 // API providers
 pub use crate::api_providers::{
-    ExternalServicesConfig, GarminApiConfig, StravaApiConfig, WeatherServiceConfig,
+    ExternalServicesConfig, GarminApiConfig, SciotteServiceConfig, StravaApiConfig,
+    WeatherServiceConfig,
 };
 // Cache and rate limiting
 pub use crate::cache::{CacheConfig, RedisConnectionConfig};
@@ -31,6 +35,12 @@ pub use crate::database::{
 };
 // Goal management
 pub use crate::goal_management::GoalManagementConfig;
+// Guardian tool-dispatch policy overrides
+pub use crate::guardian::GuardianSettings;
+// Request-path time bounds
+pub use crate::timeouts::ServerTimeouts;
+// Inbound webhook secrets
+pub use crate::webhooks::WebhookSecrets;
 // Logging
 pub use crate::logging::LoggingConfig;
 // MCP
@@ -39,8 +49,8 @@ pub use crate::mcp::{AppBehaviorConfig, McpConfig, ProtocolConfig, TokioRuntimeC
 pub use crate::network::{CorsConfig, HttpClientConfig, SseBufferStrategy, SseConfig, TlsConfig};
 // OAuth (canonical types live in pierre-auth)
 pub use pierre_auth::config::oauth::{
-    default_provider, get_oauth_config, load_provider_env_config, FirebaseConfig,
-    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, ProviderEnvConfig,
+    default_provider, FirebaseConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig,
+    ProviderEndpointOverride, ProviderEndpointOverrides,
 };
 // Security
 pub use crate::security::{AuthConfig, MonitoringConfig, SecurityConfig, SecurityHeadersConfig};
@@ -76,8 +86,10 @@ pub struct ServerConfig {
     pub security: SecurityConfig,
     /// External service configuration
     pub external_services: ExternalServicesConfig,
-    /// USDA `FoodData` Central API key (optional, for nutrition features)
-    pub usda_api_key: Option<String>,
+    /// USDA `FoodData` Central API key (optional, for nutrition features);
+    /// Debug prints a redaction and serialization omits it
+    #[serde(skip_serializing)]
+    pub usda_api_key: Option<SecretString>,
     /// Application behavior settings
     pub app_behavior: AppBehaviorConfig,
     /// HTTP client timeout configuration
@@ -118,10 +130,25 @@ pub struct ServerConfig {
     pub sqlx: SqlxConfig,
     /// System monitoring configuration
     pub monitoring: MonitoringConfig,
-    /// Resend API key for transactional emails (optional — emails are skipped if unset)
-    pub resend_api_key: Option<String>,
+    /// Resend API key for transactional emails (optional — emails are skipped
+    /// if unset); Debug prints a redaction and serialization omits it
+    #[serde(skip_serializing)]
+    pub resend_api_key: Option<SecretString>,
     /// Sender email address for Resend (e.g., "Dravr <no-reply@dravr.ai>")
     pub resend_from_email: Option<String>,
+    /// The LLM provider chain (`PIERRE_LLM_CHAIN`), read once here at boot.
+    ///
+    /// Everything that needs the chain — the provider build, the model a turn
+    /// and a new conversation run on, a tenant's own-key provider, the admin
+    /// settings view, the health probe — is handed this value; nothing reads
+    /// the variable again per request.
+    pub llm_chain: LlmChain,
+    /// The operator's `GUARDIAN_*` tool-dispatch policy overrides
+    pub guardian: GuardianSettings,
+    /// Request-path time bounds the operator retuned
+    pub timeouts: ServerTimeouts,
+    /// What inbound provider and messaging webhooks are verified against
+    pub webhooks: WebhookSecrets,
 }
 
 impl ServerConfig {
@@ -133,12 +160,13 @@ impl ServerConfig {
     pub fn from_env() -> AppResult<Self> {
         Self::initialize_environment();
 
+        let http_port = env::var("HTTP_PORT")
+            .or_else(|_| env::var("MCP_PORT"))
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(8081);
         let config = Self {
-            http_port: env::var("HTTP_PORT")
-                .or_else(|_| env::var("MCP_PORT"))
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(8081),
+            http_port,
             frontend_url: env::var("FRONTEND_URL").ok(),
             log_level: LogLevel::from_str_or_default(
                 &env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_owned()),
@@ -151,12 +179,14 @@ impl ServerConfig {
             oauth2_server: OAuth2ServerConfig::from_env(),
             security: SecurityConfig::from_env()?,
             external_services: ExternalServicesConfig::from_env(),
-            usda_api_key: env::var("USDA_API_KEY").ok(),
+            usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
             app_behavior: AppBehaviorConfig::from_env()?,
             http_client: HttpClientConfig::from_env(),
             sse: SseConfig::from_env()?,
             host: env::var("HOST").unwrap_or_else(|_| "localhost".to_owned()),
-            base_url: env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned()),
+            // Unset, the server is reached on its own port on this host.
+            base_url: env::var("BASE_URL")
+                .unwrap_or_else(|_| format!("http://localhost:{http_port}")),
             website_base_url: website_base_url_from(env::var("WEBSITE_BASE_URL").ok().as_deref()),
             mcp: McpConfig::from_env(),
             cors: CorsConfig::from_env(),
@@ -172,8 +202,12 @@ impl ServerConfig {
             tokio_runtime: TokioRuntimeConfig::from_env(),
             sqlx: SqlxConfig::from_env(),
             monitoring: MonitoringConfig::from_env(),
-            resend_api_key: env::var("RESEND_API_KEY").ok(),
+            resend_api_key: env::var("RESEND_API_KEY").ok().map(SecretString::from),
             resend_from_email: env::var("RESEND_FROM_EMAIL").ok(),
+            llm_chain: LlmChain::from_env(),
+            guardian: GuardianSettings::from_env(),
+            timeouts: ServerTimeouts::from_env(),
+            webhooks: WebhookSecrets::from_env(),
         };
 
         config.validate()?;
@@ -312,11 +346,28 @@ impl ServerConfig {
         )
     }
 
+    /// The redirect URI this server receives `provider`'s authorization codes
+    /// at, under its own app for the provider and its public URL
+    /// ([`provider_callback_uri`]).
+    #[must_use]
+    pub fn provider_callback_uri(&self, provider: &str) -> String {
+        provider_callback_uri(
+            provider,
+            self.oauth.server_app(provider),
+            &self.base_url,
+            self.http_port,
+        )
+    }
+
     /// Convenience methods for accessing commonly used values
     /// Get the `OpenWeather` API key if available
     #[must_use]
     pub fn openweather_api_key(&self) -> Option<&str> {
-        self.external_services.weather.api_key.as_deref()
+        self.external_services
+            .weather
+            .api_key
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
     }
 
     /// Get Strava API configuration
@@ -356,7 +407,11 @@ impl ServerConfig {
         if self.is_ci_mode() {
             return None;
         }
-        let api_key = self.resend_api_key.as_deref().filter(|s| !s.is_empty())?;
+        let api_key = self
+            .resend_api_key
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .filter(|s| !s.is_empty())?;
         let from_email = self
             .resend_from_email
             .as_deref()
@@ -436,7 +491,121 @@ pub fn log_effective_base_url(base_url: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{website_base_url_from, DEFAULT_WEBSITE_BASE_URL};
+    use super::{
+        website_base_url_from, DatabaseUrl, OAuthProviderConfig, ServerConfig,
+        DEFAULT_WEBSITE_BASE_URL,
+    };
+    use secrecy::{ExposeSecret, SecretString};
+
+    const PG_PASSWORD: &str = "pg-password-6f1c";
+    const STRAVA_SECRET: &str = "strava-client-secret-9a2e";
+    const FIREBASE_KEY: &str = "firebase-api-key-41d7";
+    const LOGIN_PASSWORD: &str = "default-login-password-c03b";
+    const WEATHER_KEY: &str = "openweather-key-8e55";
+    const REDIS_PASSWORD: &str = "redis-password-2b90";
+    const USDA_KEY: &str = "usda-api-key-77f0";
+    const RESEND_KEY: &str = "re_resend-key-1d3a";
+
+    /// What `secrecy` prints in place of a `SecretString`.
+    const SECRET_MARKER: &str = "SecretBox<str>([REDACTED])";
+
+    const ALL_SECRETS: [&str; 8] = [
+        PG_PASSWORD,
+        STRAVA_SECRET,
+        FIREBASE_KEY,
+        LOGIN_PASSWORD,
+        WEATHER_KEY,
+        REDIS_PASSWORD,
+        USDA_KEY,
+        RESEND_KEY,
+    ];
+
+    /// A configuration with every secret-bearing field set to a known value.
+    fn config_holding_every_secret() -> ServerConfig {
+        let mut config = ServerConfig {
+            usda_api_key: Some(SecretString::from(USDA_KEY)),
+            resend_api_key: Some(SecretString::from(RESEND_KEY)),
+            ..ServerConfig::default()
+        };
+        config.database.url = DatabaseUrl::parse_url(&format!(
+            "postgresql://pierre:{PG_PASSWORD}@db.internal:5432/pierre"
+        ))
+        .unwrap();
+        config.oauth.strava = OAuthProviderConfig {
+            client_id: Some("strava-client-id".to_owned()),
+            client_secret: Some(SecretString::from(STRAVA_SECRET)),
+            enabled: true,
+            ..OAuthProviderConfig::default()
+        };
+        config.firebase.api_key = Some(SecretString::from(FIREBASE_KEY));
+        config.oauth2_server.default_login_password = Some(SecretString::from(LOGIN_PASSWORD));
+        config.external_services.weather.api_key = Some(SecretString::from(WEATHER_KEY));
+        config.cache.redis_url = Some(SecretString::from(format!(
+            "redis://:{REDIS_PASSWORD}@cache.internal:6379"
+        )));
+        config
+    }
+
+    #[test]
+    fn debug_of_the_server_config_prints_no_secret() {
+        let printed = format!("{:?}", config_holding_every_secret());
+        for secret in ALL_SECRETS {
+            assert!(!printed.contains(secret), "{secret} leaked: {printed}");
+        }
+        // Seven fields are SecretString; the database URL goes through redact_url.
+        assert_eq!(printed.matches(SECRET_MARKER).count(), 7, "{printed}");
+        assert!(
+            printed.contains("postgresql://***:***@db.internal:5432/pierre"),
+            "{printed}"
+        );
+        // Non-secret neighbours still print, so the Debug output stays useful.
+        assert!(printed.contains("strava-client-id"), "{printed}");
+    }
+
+    #[test]
+    fn alternate_debug_of_the_server_config_prints_no_secret() {
+        let printed = format!("{:#?}", config_holding_every_secret());
+        for secret in ALL_SECRETS {
+            assert!(!printed.contains(secret), "{secret} leaked: {printed}");
+        }
+        assert_eq!(printed.matches(SECRET_MARKER).count(), 7, "{printed}");
+    }
+
+    #[test]
+    fn serializing_the_server_config_omits_every_secret() {
+        let json = serde_json::to_string(&config_holding_every_secret()).unwrap();
+        for secret in ALL_SECRETS {
+            assert!(!json.contains(secret), "{secret} leaked: {json}");
+        }
+        for field in [
+            "client_secret",
+            "default_login_password",
+            "redis_url",
+            "usda_api_key",
+            "resend_api_key",
+        ] {
+            assert!(!json.contains(field), "{field} serialized: {json}");
+        }
+        assert!(
+            json.contains("postgresql://***:***@db.internal:5432/pierre"),
+            "{json}"
+        );
+    }
+
+    #[test]
+    fn the_secret_accessors_expose_the_configured_values() {
+        let mut config = config_holding_every_secret();
+        assert_eq!(config.openweather_api_key(), Some(WEATHER_KEY));
+        config.resend_from_email = Some("Dravr <no-reply@dravr.ai>".to_owned());
+        assert_eq!(
+            config.outbound_email_credentials(),
+            Some((RESEND_KEY, "Dravr <no-reply@dravr.ai>"))
+        );
+        assert_eq!(
+            config.database.url.connection_string().expose_secret(),
+            format!("postgresql://pierre:{PG_PASSWORD}@db.internal:5432/pierre")
+        );
+    }
 
     #[test]
     fn the_website_origin_drops_trailing_slashes() {

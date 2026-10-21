@@ -21,6 +21,7 @@
 //! the app calls, so the wiring is under test as well as the store.
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -251,7 +252,9 @@ impl World {
                 user_id: self.coach,
                 tenant_id: self.coach_tenant.to_string(),
                 provider: PROVIDER.to_owned(),
-                access_token: r#"{"session_id":"coach-session","cookies":[]}"#.to_owned(),
+                access_token: SecretString::from(
+                    r#"{"session_id":"coach-session","cookies":[]}"#.to_owned(),
+                ),
                 refresh_token: None,
                 token_type: TOKEN_TYPE_SESSION.to_owned(),
                 expires_at: None,

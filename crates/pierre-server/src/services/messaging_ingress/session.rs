@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::env;
-
 use chrono::{Duration, Utc};
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::{OnboardingState, TenantId};
@@ -24,8 +22,8 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
-    agent_title, dated_title, forge_conversation, selected_agent_id, selected_or_system_agent_for,
-    ForgeAgent, ForgeParams, SlotQuota,
+    agent_title, dated_title, forge_conversation, resolve_conversation_model, selected_agent_id,
+    selected_or_system_agent_for, ForgeAgent, ForgeParams, SlotQuota,
 };
 use pierre_services::locale::user_locale;
 use pierre_services::messaging_broadcast::proactive_text;
@@ -131,6 +129,7 @@ async fn route_dm_into_personal_thread(
         stored,
         PersonalForge {
             title_fallback: &title_fallback,
+            llm_chain: &resources.common.config.llm_chain,
             guided_flow: true,
         },
     )
@@ -181,13 +180,14 @@ pub(super) async fn forge_fresh_session_conversation(
         "Session pierre_conversation_id missing or unreachable; self-healing with a fresh conversation"
     );
     let title_fallback = fresh_title_fallback(resources, user_id).await;
+    let model = resolve_conversation_model(None, &resources.common.config.llm_chain)?;
     let new_id = forge_conversation(
         &resources.common.repos,
         ForgeParams {
             user_id,
             tenant_id,
             title_fallback: &title_fallback,
-            model: None,
+            model: &model,
             // A room session's row is forged ungrouped here and retrofitted on
             // the next turn, and must not carry a system agent in the
             // meantime.
@@ -659,13 +659,14 @@ async fn open_new_session(
         route_dm_into_personal_thread(resources, None, &user_id, tenant_id, None).await?
     } else {
         let title_fallback = fresh_title_fallback(resources, &user_id).await;
+        let model = resolve_conversation_model(None, &resources.common.config.llm_chain)?;
         forge_conversation(
             &resources.common.repos,
             ForgeParams {
                 user_id: &user_id,
                 tenant_id,
                 title_fallback: &title_fallback,
-                model: None,
+                model: &model,
                 // A room member's row takes the selection alone, whether or
                 // not the group resolved above.
                 agent: ForgeAgent::SelectedInRoom,
@@ -954,8 +955,10 @@ pub async fn create_link_and_prompt(
         return proactive_text(channel_type, sender_id.to_owned(), body);
     }
 
-    let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned());
-    let link_url = format!("{base_url}/messaging/link/{code}");
+    let link_url = format!(
+        "{}/messaging/link/{code}",
+        resources.common.config.base_url.trim_end_matches('/')
+    );
 
     let template = resources
         .mcp

@@ -23,12 +23,15 @@ use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::key_management::KeyManager;
 use pierre_cache::Cache;
 use pierre_config::environment::{ServerConfig, TokioRuntimeConfig};
+#[cfg(feature = "client-messaging")]
+use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::billing::stripe::StripeProvider;
 use pierre_core::billing::BillingProvider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
 #[cfg(feature = "client-messaging")]
@@ -50,6 +53,7 @@ use pierre_mcp_server::{
 use pierre_services::agent_package_repair::repair_stored_flavours;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 use pierre_services::server_lifecycle;
+use secrecy::ExposeSecret;
 
 type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
@@ -61,7 +65,7 @@ use tracing::{error, info};
 
 #[path = "pierre-mcp-server/env_validation.rs"]
 mod env_validation;
-use env_validation::validate_required_environment;
+use env_validation::{validate_guardian_settings, validate_required_environment};
 /// Command-line arguments for the Dravr MCP server
 #[derive(Parser)]
 #[command(name = "pierre-mcp-server")]
@@ -169,6 +173,7 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     validate_required_environment()?;
 
     let mut config = ServerConfig::from_env()?;
+    validate_guardian_settings(&config.guardian)?;
 
     if let Some(http_port) = args.http_port {
         config.http_port = http_port;
@@ -297,7 +302,7 @@ async fn initialize_database(
     database_encryption_key: [u8; 32],
 ) -> Result<Database> {
     let database = Database::new(
-        &config.database.url.to_connection_string(),
+        config.database.url.connection_string().expose_secret(),
         database_encryption_key.to_vec(),
         #[cfg(feature = "postgresql")]
         &config.database.postgres_pool,
@@ -309,7 +314,7 @@ async fn initialize_database(
     );
     info!(
         "Database URL: {}",
-        redact_url(&config.database.url.to_connection_string())
+        redact_url(config.database.url.connection_string().expose_secret())
     );
     Ok(database)
 }
@@ -404,8 +409,10 @@ fn create_auth_manager(config: &ServerConfig) -> AuthManager {
 /// `/ready` surfaces the failure via the LLM health probe, and the per-call
 /// fallback in `chat_provider_from_resources_arc` preserves the old
 /// build-per-call behaviour for request paths.
-async fn build_chat_provider_singleton() -> Option<Arc<pierre_llm::ChatProvider>> {
-    match pierre_llm::ChatProvider::from_env().await {
+async fn build_chat_provider_singleton(
+    llm_chain: &LlmChain,
+) -> Option<Arc<pierre_llm::ChatProvider>> {
+    match pierre_llm::ChatProvider::from_chain(llm_chain).await {
         Ok(p) => {
             info!("ChatProvider singleton built; reused across all callers");
             Some(Arc::new(p))
@@ -413,7 +420,7 @@ async fn build_chat_provider_singleton() -> Option<Arc<pierre_llm::ChatProvider>
         Err(e) => {
             error!(
                 error = %e,
-                "ChatProvider::from_env failed at startup; chat callers will fall back to per-call build"
+                "ChatProvider::from_chain failed at startup; chat callers will fall back to per-call build"
             );
             None
         }
@@ -484,11 +491,11 @@ async fn create_server(
         );
         None
     } else {
-        build_chat_provider_singleton().await
+        build_chat_provider_singleton(&config.llm_chain).await
     };
     let billing_provider = build_billing_provider();
     #[cfg(feature = "client-messaging")]
-    let turn_runner = Some(select_turn_runner());
+    let turn_runner = Some(select_turn_runner(&config.timeouts));
     #[cfg(not(feature = "client-messaging"))]
     let turn_runner = None;
 
@@ -503,7 +510,7 @@ async fn create_server(
             // Loaded from the store inside ServerContext::new; a failed read
             // of the signing keys stops the boot (carnet#696).
             jwks_manager: None,
-            llm_provider: None, // Use ChatProvider::from_env() for LLM in production
+            llm_provider: None, // The ChatProvider singleton serves LLM calls in production
             chat_provider: chat_provider_singleton,
             extra_tools: Vec::new(),
             billing_provider,
@@ -527,11 +534,11 @@ async fn create_server(
 /// A Cloud Tasks configuration missing a piece is refused here, at boot,
 /// rather than booting into a mode that would enqueue turns nowhere.
 #[cfg(feature = "client-messaging")]
-fn select_turn_runner() -> Arc<TurnRunner> {
+fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
     use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
     use std::process;
 
-    let runner = TurnRunner::from_env(turn_watchdog()).unwrap_or_else(|e| {
+    let runner = TurnRunner::from_env(turn_watchdog(timeouts)).unwrap_or_else(|e| {
         error!(error = %e, "messaging turn runner configuration refused");
         process::exit(1)
     });
@@ -591,6 +598,7 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         info!("In-memory (test) database detected — skipping LLM health probe (headless)");
     } else {
         spawn_llm_health_probe(
+            &resources.common.config.llm_chain,
             Arc::clone(&resources.common.llm_health),
             resources.common.chat_provider.as_ref().map(Arc::clone),
         );

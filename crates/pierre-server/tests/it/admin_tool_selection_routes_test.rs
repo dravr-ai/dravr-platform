@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use std::sync::Arc;
 
@@ -252,7 +253,10 @@ async fn the_token_api_attributes_an_override_to_its_operator() -> Result<()> {
     let tenant = owner.tenant_id;
 
     let response = AxumTestRequest::post(&format!("/admin/tools/tenant/{tenant}/override"))
-        .header("authorization", &format!("Bearer {}", device.jwt_token))
+        .header(
+            "authorization",
+            &format!("Bearer {}", device.jwt_token.expose_secret()),
+        )
         .json(&json!({ "tool_name": TOOL, "is_enabled": false }))
         .send(app(&resources))
         .await;
@@ -268,7 +272,10 @@ async fn the_token_api_attributes_an_override_to_its_operator() -> Result<()> {
     );
 
     let response = AxumTestRequest::post(&format!("/admin/tools/tenant/{tenant}/override"))
-        .header("authorization", &format!("Bearer {}", service.jwt_token))
+        .header(
+            "authorization",
+            &format!("Bearer {}", service.jwt_token.expose_secret()),
+        )
         .json(&json!({ "tool_name": TOOL, "is_enabled": true }))
         .send(app(&resources))
         .await;

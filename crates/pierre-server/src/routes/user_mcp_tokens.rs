@@ -20,6 +20,7 @@ use axum::{
 use pierre_core::errors::AppError;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use pierre_middleware::AuthenticatedUser;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -36,7 +37,8 @@ pub struct CreateTokenResponse {
     /// First 12 characters for identification
     pub token_prefix: String,
     /// The actual token value (only shown once!)
-    pub token_value: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub token_value: SecretString,
     /// Expiration timestamp (if set)
     pub expires_at: Option<String>,
     /// Creation timestamp

@@ -9,6 +9,7 @@
 
 use base64::{engine::general_purpose, Engine};
 use pierre_auth::crypto::keys::A2AKeyManager;
+use secrecy::ExposeSecret;
 
 #[test]
 fn test_keypair_generation() {
@@ -19,7 +20,7 @@ fn test_keypair_generation() {
         .decode(&keypair.public_key)
         .is_ok());
     assert!(general_purpose::STANDARD
-        .decode(&keypair.private_key)
+        .decode(keypair.private_key.expose_secret())
         .is_ok());
 
     // Verify public key info creation
@@ -34,7 +35,8 @@ fn test_sign_and_verify() {
     let test_data = b"Hello, A2A authentication!";
 
     // Sign data
-    let signature = A2AKeyManager::sign_data(&keypair.private_key, test_data).unwrap();
+    let signature =
+        A2AKeyManager::sign_data(keypair.private_key.expose_secret(), test_data).unwrap();
 
     // Verify signature
     let is_valid =

@@ -10,6 +10,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use common::placeholder_llm_chain;
+use secrecy::{ExposeSecret, SecretString};
 
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
@@ -142,7 +144,9 @@ async fn test_email_validation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -185,7 +189,7 @@ async fn test_email_validation() {
     for email in valid_emails {
         let request = RegisterRequest {
             email: email.to_owned(),
-            password: "password123".to_owned(),
+            password: SecretString::from("password123"),
             display_name: None,
         };
 
@@ -214,7 +218,7 @@ async fn test_email_validation() {
     for email in invalid_emails {
         let request = RegisterRequest {
             email: email.to_owned(),
-            password: "password123".to_owned(),
+            password: SecretString::from("password123"),
             display_name: None,
         };
 
@@ -339,7 +343,9 @@ async fn test_password_validation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -374,7 +380,7 @@ async fn test_password_validation() {
     // Test short password
     let request = RegisterRequest {
         email: "test@example.com".to_owned(),
-        password: "short".to_owned(),
+        password: SecretString::from("short"),
         display_name: None,
     };
 
@@ -388,7 +394,7 @@ async fn test_password_validation() {
     // Test valid password
     let request = RegisterRequest {
         email: "test2@example.com".to_owned(),
-        password: "validpassword123".to_owned(),
+        password: SecretString::from("validpassword123"),
         display_name: None,
     };
 
@@ -508,7 +514,9 @@ async fn test_duplicate_user_registration() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -542,7 +550,7 @@ async fn test_duplicate_user_registration() {
 
     let request = RegisterRequest {
         email: "duplicate@example.com".to_owned(),
-        password: "password123".to_owned(),
+        password: SecretString::from("password123"),
         display_name: Some("Test User".to_owned()),
     };
 
@@ -668,7 +676,9 @@ async fn test_login_with_correct_credentials() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -703,7 +713,7 @@ async fn test_login_with_correct_credentials() {
     // Register user
     let register_request = RegisterRequest {
         email: "login_test@example.com".to_owned(),
-        password: "password123".to_owned(),
+        password: SecretString::from("password123"),
         display_name: Some("Login Test".to_owned()),
     };
 
@@ -756,7 +766,7 @@ async fn test_login_with_correct_credentials() {
     // Login with correct credentials
     let login_request = LoginRequest {
         email: "login_test@example.com".to_owned(),
-        password: "password123".to_owned(),
+        password: SecretString::from("password123"),
         timezone: None,
     };
 
@@ -764,7 +774,10 @@ async fn test_login_with_correct_credentials() {
     assert!(result.is_ok());
 
     let response = result.unwrap();
-    assert!(response.jwt_token.as_ref().is_some_and(|t| !t.is_empty()));
+    assert!(response
+        .jwt_token
+        .as_ref()
+        .is_some_and(|t| !t.expose_secret().is_empty()));
     assert_eq!(response.user.email, "login_test@example.com");
     assert_eq!(response.user.display_name, Some("Login Test".to_owned()));
 }
@@ -881,7 +894,9 @@ async fn test_login_with_wrong_password() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -916,7 +931,7 @@ async fn test_login_with_wrong_password() {
     // Register user
     let register_request = RegisterRequest {
         email: "wrong_pass@example.com".to_owned(),
-        password: "correctpassword".to_owned(),
+        password: SecretString::from("correctpassword"),
         display_name: None,
     };
 
@@ -925,7 +940,7 @@ async fn test_login_with_wrong_password() {
     // Login with wrong password
     let login_request = LoginRequest {
         email: "wrong_pass@example.com".to_owned(),
-        password: "wrongpassword".to_owned(),
+        password: SecretString::from("wrongpassword"),
         timezone: None,
     };
 
@@ -1049,7 +1064,9 @@ async fn test_login_with_non_existent_user() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1083,7 +1100,7 @@ async fn test_login_with_non_existent_user() {
 
     let login_request = LoginRequest {
         email: "nonexistent@example.com".to_owned(),
-        password: "password123".to_owned(),
+        password: SecretString::from("password123"),
         timezone: None,
     };
 

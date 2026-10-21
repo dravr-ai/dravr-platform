@@ -111,7 +111,7 @@ fn spawn_read(
     let span = Span::current();
     tokio::spawn(
         async move {
-            let cap = revalidation_timeout();
+            let cap = revalidation_timeout(&runtime.config().timeouts);
             let tenant = read.tenant_id.to_string();
             let live = LiveRead {
                 provider_slug: &read.provider_slug,
@@ -161,7 +161,7 @@ fn answered(runtime: &Arc<dyn ToolRuntime>, joined: Result<ReadOutput, JoinError
                 "activity provider",
                 format!(
                     "the live read did not answer within {}s",
-                    revalidation_timeout().as_secs()
+                    revalidation_timeout(&runtime.config().timeouts).as_secs()
                 ),
             )),
             provider: None,
@@ -211,10 +211,13 @@ pub async fn refresh_head_within_budget(
     let mut task = tokio::spawn(
         async move {
             let refresh = super::refresh_head(&detached, &slug, user_id, tenant_id);
-            timeout(revalidation_timeout(), ai_scope::unfiltered(refresh))
-                .await
-                .ok()
-                .flatten()
+            timeout(
+                revalidation_timeout(&detached.config().timeouts),
+                ai_scope::unfiltered(refresh),
+            )
+            .await
+            .ok()
+            .flatten()
         }
         .instrument(span),
     );

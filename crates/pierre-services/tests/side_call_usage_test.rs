@@ -108,7 +108,7 @@ impl EmbacleLlmProvider for Scripted {
     }
 }
 
-/// The platform's head as `ChatProvider::from_env` leaves a `copilot_sdk`
+/// The platform's head as `ChatProvider::from_chain` leaves a `copilot_sdk`
 /// primary with no stage variable set, answering `answer`; and the log of the
 /// models it was asked for.
 fn copilot_sdk_head(answer: &'static str) -> (ChatProvider, ModelLog) {

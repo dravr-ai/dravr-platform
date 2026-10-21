@@ -14,6 +14,7 @@ use pierre_database::backends::{
     UserRepository,
 };
 use rand::Rng;
+use secrecy::SecretString;
 use sha2::{Digest, Sha256};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -892,7 +893,7 @@ async fn create_chat_originated_user(
     auth_service
         .self_register(RegisterRequest {
             email: email.to_owned(),
-            password: unusable,
+            password: SecretString::from(unusable),
             display_name: None,
         })
         .await

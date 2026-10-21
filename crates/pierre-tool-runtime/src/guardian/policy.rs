@@ -17,8 +17,8 @@
 //! exercise the same code path.
 
 use std::collections::HashSet;
-use std::env;
 
+use pierre_config::guardian::GuardianSettings;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing::error;
@@ -110,7 +110,7 @@ impl ExternalSendAllowlist {
     /// Whether `raw` parses without silently dropping anything: the keywords
     /// `all` / `none`, or a comma-separated list where **every** entry is a
     /// valid UUID. The lenient [`Self::parse`] drops bad entries (fail-closed
-    /// but silent); [`validate_env`] uses this strict form to fail the boot on
+    /// but silent); [`validate_settings`] uses this strict form to fail the boot on
     /// a typo'd tenant id instead.
     #[must_use]
     pub fn parses_strictly(raw: &str) -> bool {
@@ -233,30 +233,14 @@ impl Default for GuardianPolicy {
     }
 }
 
-impl GuardianPolicy {
-    /// Load the policy from `GUARDIAN_*` env vars, falling back to the
-    /// [`Default`] (enforce-by-default) for any unset var. An unrecognized value
-    /// fails the boot (see [`validate_env`]) rather than silently downgrading.
-    ///
-    /// - `GUARDIAN_MODE` = `off` | `observe` | `enforce` (default)
-    /// - `GUARDIAN_MAX_DESTRUCTIVE_PER_TURN` (default `1`)
-    /// - `GUARDIAN_MAX_WRITES_PER_TURN` (default `50`)
-    /// - `GUARDIAN_EXTERNAL_SEND_TENANTS` = `none` (default) | `all` | comma-separated tenant UUIDs
-    /// - `GUARDIAN_TAINTED_DESTRUCTIVE` = `log` (default) | `confirm` | `deny`
-    /// - `GUARDIAN_PLAN_MODE` = `off` (default) | `enforce`
-    #[must_use]
-    pub fn from_env() -> Self {
-        GuardianEnvOverrides::from_env().overlay(Self::default())
-    }
-}
-
-/// Per-field `GUARDIAN_*` env overrides, captured once at registry construction.
+/// Per-field `GUARDIAN_*` overrides, parsed from the values the server's
+/// configuration captured at startup ([`GuardianSettings`]).
 ///
-/// Env is immutable at runtime, so [`super::config::GuardianConfigRegistry`]
-/// reads it a single time. A field is `Some` only when its var is set **and**
-/// parses; a present-but-invalid value logs at `error!` and counts as absent —
-/// the boot gate [`validate_env`] fails the process before traffic in that
-/// case, so the lenient fallback only ever runs in non-server contexts.
+/// [`super::config::GuardianConfigRegistry`] is built over them once. A field
+/// is `Some` only when its variable was set **and** parses; a present-but-invalid
+/// value logs at `error!` and counts as absent — the boot gate
+/// [`validate_settings`] fails the process before traffic in that case, so the
+/// lenient fallback only ever runs in non-server contexts.
 #[derive(Debug, Clone, Default)]
 pub struct GuardianEnvOverrides {
     /// `GUARDIAN_MODE`.
@@ -274,21 +258,37 @@ pub struct GuardianEnvOverrides {
 }
 
 impl GuardianEnvOverrides {
-    /// Capture the currently-set `GUARDIAN_*` vars.
+    /// Parse the `GUARDIAN_*` values `settings` captured.
     #[must_use]
-    pub fn from_env() -> Self {
+    pub fn from_settings(settings: &GuardianSettings) -> Self {
         Self {
-            mode: parse_env_opt("GUARDIAN_MODE", GuardianMode::parse),
-            max_destructive_per_turn: parse_u16_opt("GUARDIAN_MAX_DESTRUCTIVE_PER_TURN"),
-            max_writes_per_turn: parse_u16_opt("GUARDIAN_MAX_WRITES_PER_TURN"),
-            external_send: env::var("GUARDIAN_EXTERNAL_SEND_TENANTS")
-                .ok()
-                .map(|v| ExternalSendAllowlist::parse(&v)),
-            tainted_destructive: parse_env_opt(
+            mode: parse_opt(
+                "GUARDIAN_MODE",
+                settings.mode.as_deref(),
+                GuardianMode::parse,
+            ),
+            max_destructive_per_turn: parse_u16_opt(
+                "GUARDIAN_MAX_DESTRUCTIVE_PER_TURN",
+                settings.max_destructive_per_turn.as_deref(),
+            ),
+            max_writes_per_turn: parse_u16_opt(
+                "GUARDIAN_MAX_WRITES_PER_TURN",
+                settings.max_writes_per_turn.as_deref(),
+            ),
+            external_send: settings
+                .external_send_tenants
+                .as_deref()
+                .map(ExternalSendAllowlist::parse),
+            tainted_destructive: parse_opt(
                 "GUARDIAN_TAINTED_DESTRUCTIVE",
+                settings.tainted_destructive.as_deref(),
                 TaintedDestructive::parse,
             ),
-            plan_mode: parse_env_opt("GUARDIAN_PLAN_MODE", PlanMode::parse),
+            plan_mode: parse_opt(
+                "GUARDIAN_PLAN_MODE",
+                settings.plan_mode.as_deref(),
+                PlanMode::parse,
+            ),
         }
     }
 
@@ -346,8 +346,8 @@ impl PlanMode {
     }
 }
 
-fn parse_u16_opt(name: &str) -> Option<u16> {
-    env::var(name).ok().and_then(|raw| {
+fn parse_u16_opt(name: &str, raw: Option<&str>) -> Option<u16> {
+    raw.and_then(|raw| {
         raw.trim().parse::<u16>().map_or_else(
             |_| {
                 error!(
@@ -361,74 +361,76 @@ fn parse_u16_opt(name: &str) -> Option<u16> {
     })
 }
 
-/// Parse a `GUARDIAN_*` enum var, logging at **`error!`** (not silently
+/// Parse a `GUARDIAN_*` enum value, logging at **`error!`** (not silently
 /// ignoring) when it is present but unrecognized — so a typo like
 /// `GUARDIAN_MODE=enfroce` surfaces at ERROR severity instead of quietly
 /// falling back to the laxer resolved value (S6). Absent → `None`, no log.
 ///
-/// This is the last line of defense; the strict gate is [`validate_env`], which
+/// This is the last line of defense; the strict gate is [`validate_settings`], which
 /// callers run at startup to fail the boot on any unrecognized value rather than
 /// serve traffic under a mis-typed security posture.
-fn parse_env_opt<T>(name: &str, parse: impl Fn(&str) -> Option<T>) -> Option<T> {
-    env::var(name).ok().and_then(|raw| {
+fn parse_opt<T>(name: &str, raw: Option<&str>, parse: impl Fn(&str) -> Option<T>) -> Option<T> {
+    raw.and_then(|raw| {
         let parsed = parse(raw.trim());
         if parsed.is_none() {
             error!(
                 var = name,
                 "unrecognized GUARDIAN config value; ignoring the env override \
-                 (check the spelling — validate_env fails the boot on this)"
+                 (check the spelling — validate_settings fails the boot on this)"
             );
         }
         parsed
     })
 }
 
-/// Validate every present `GUARDIAN_*` variable, returning the list of
-/// unrecognized `(name, value)` pairs.
+/// Validate every `GUARDIAN_*` value `settings` captured, returning the list
+/// of unrecognized `(name, value)` pairs.
 ///
 /// Runs at server startup so a mis-typed security-posture variable
 /// (`GUARDIAN_MODE=enfroce`, `GUARDIAN_TAINTED_DESTRUCTIVE=denny`, …) **fails the
 /// boot loudly** instead of silently serving traffic under the laxer default —
-/// the fail-fast complement to the `error!` in [`parse_env_or_error`]. Empty vec
+/// the fail-fast complement to the `error!` in [`parse_opt`]. Empty vec
 /// means every set variable parsed cleanly. Budget vars are validated as `u16`.
 #[must_use]
-pub fn validate_env() -> Vec<(String, String)> {
+pub fn validate_settings(settings: &GuardianSettings) -> Vec<(String, String)> {
     let mut bad = Vec::new();
-    let mut check = |name: &str, recognized: bool| {
-        if let Ok(raw) = env::var(name) {
-            if !recognized {
-                bad.push((name.to_owned(), raw));
+    let mut check = |name: &str, raw: Option<&String>, recognized: fn(&str) -> bool| {
+        if let Some(raw) = raw {
+            if !recognized(raw) {
+                bad.push((name.to_owned(), raw.clone()));
             }
         }
     };
     // Each enum var validated against its own parser; each budget var as u16.
-    check(
-        "GUARDIAN_MODE",
-        env::var("GUARDIAN_MODE").map_or(true, |v| GuardianMode::parse(v.trim()).is_some()),
-    );
+    check("GUARDIAN_MODE", settings.mode.as_ref(), |v| {
+        GuardianMode::parse(v.trim()).is_some()
+    });
     check(
         "GUARDIAN_TAINTED_DESTRUCTIVE",
-        env::var("GUARDIAN_TAINTED_DESTRUCTIVE")
-            .map_or(true, |v| TaintedDestructive::parse(v.trim()).is_some()),
+        settings.tainted_destructive.as_ref(),
+        |v| TaintedDestructive::parse(v.trim()).is_some(),
     );
-    check(
-        "GUARDIAN_PLAN_MODE",
-        env::var("GUARDIAN_PLAN_MODE").map_or(true, |v| PlanMode::parse(v.trim()).is_some()),
-    );
+    check("GUARDIAN_PLAN_MODE", settings.plan_mode.as_ref(), |v| {
+        PlanMode::parse(v.trim()).is_some()
+    });
     // Strict here even though the lenient parse fail-closes (drops bad UUIDs →
     // `None`): a typo'd tenant id in the allowlist should fail the boot loudly,
     // not silently cut every tenant off from external send.
     check(
         "GUARDIAN_EXTERNAL_SEND_TENANTS",
-        env::var("GUARDIAN_EXTERNAL_SEND_TENANTS")
-            .map_or(true, |v| ExternalSendAllowlist::parses_strictly(&v)),
+        settings.external_send_tenants.as_ref(),
+        ExternalSendAllowlist::parses_strictly,
     );
-    for name in [
+    let budget = |v: &str| v.trim().parse::<u16>().is_ok();
+    check(
         "GUARDIAN_MAX_DESTRUCTIVE_PER_TURN",
+        settings.max_destructive_per_turn.as_ref(),
+        budget,
+    );
+    check(
         "GUARDIAN_MAX_WRITES_PER_TURN",
-    ] {
-        let ok = env::var(name).map_or(true, |v| v.trim().parse::<u16>().is_ok());
-        check(name, ok);
-    }
+        settings.max_writes_per_turn.as_ref(),
+        budget,
+    );
     bad
 }

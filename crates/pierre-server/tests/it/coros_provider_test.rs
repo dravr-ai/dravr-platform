@@ -18,6 +18,7 @@ use pierre_mcp_server::constants::{init_server_config, oauth_providers};
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
+use secrecy::SecretString;
 use std::sync::Once;
 
 /// Ensure HTTP clients and server config are initialized only once across all tests
@@ -93,9 +94,9 @@ async fn test_coros_provider_authentication_lifecycle() {
     // Set valid credentials
     let credentials = OAuth2Credentials {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: Some("test_refresh_token".to_owned()),
+        client_secret: SecretString::from("test_client_secret"),
+        access_token: Some(SecretString::from("test_access_token")),
+        refresh_token: Some(SecretString::from("test_refresh_token")),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:workouts".to_owned(), "read:sleep".to_owned()],
         kind: CredentialKind::OAuthBearer,
@@ -119,9 +120,9 @@ async fn test_coros_provider_expired_token() {
     // Set expired credentials
     let credentials = OAuth2Credentials {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("expired_token".to_owned()),
-        refresh_token: Some("test_refresh_token".to_owned()),
+        client_secret: SecretString::from("test_client_secret"),
+        access_token: Some(SecretString::from("expired_token")),
+        refresh_token: Some(SecretString::from("test_refresh_token")),
         expires_at: Some(Utc::now() - chrono::Duration::hours(1)), // Already expired
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
@@ -145,9 +146,9 @@ async fn test_coros_provider_no_expiry() {
     // Credentials with no expiry time
     let credentials = OAuth2Credentials {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: Some("test_refresh_token".to_owned()),
+        client_secret: SecretString::from("test_client_secret"),
+        access_token: Some(SecretString::from("test_access_token")),
+        refresh_token: Some(SecretString::from("test_refresh_token")),
         expires_at: None, // No expiry
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,
@@ -517,9 +518,9 @@ async fn test_coros_provider_stats_returns_empty() {
     // Set credentials
     let credentials = OAuth2Credentials {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
-        access_token: Some("test_access_token".to_owned()),
-        refresh_token: Some("test_refresh_token".to_owned()),
+        client_secret: SecretString::from("test_client_secret"),
+        access_token: Some(SecretString::from("test_access_token")),
+        refresh_token: Some(SecretString::from("test_refresh_token")),
         expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
         scopes: vec!["read:workouts".to_owned()],
         kind: CredentialKind::OAuthBearer,

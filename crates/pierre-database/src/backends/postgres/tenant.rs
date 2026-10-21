@@ -7,6 +7,7 @@
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials};
+use secrecy::ExposeSecret;
 use sqlx::Row;
 use tracing::info;
 use uuid::Uuid;

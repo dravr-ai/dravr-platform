@@ -12,6 +12,7 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
+use secrecy::SecretString;
 use serde_json::{json, Value};
 
 use pierre_cli::remote::device_flow::run_device_login;
@@ -28,7 +29,7 @@ pub async fn login(server: String, no_browser: bool) -> AppResult<()> {
     let result = run_device_login(&server, !no_browser).await?;
     let creds = CachedCredentials {
         server: server.clone(),
-        access_token: result.access_token,
+        access_token: SecretString::from(result.access_token),
         token_type: result.token_type,
         expires_at: None,
         subject: result.subject.clone(),
@@ -87,7 +88,7 @@ pub fn status() -> AppResult<()> {
 pub async fn resolve(
     user_code: String,
     server: Option<String>,
-    token: Option<String>,
+    token: Option<SecretString>,
     deny: bool,
 ) -> AppResult<()> {
     let client = admin_client(server, token)?;
@@ -111,7 +112,10 @@ pub async fn resolve(
 /// Returns an error when no token is available for the server, when the
 /// cached login belongs to a different server, or when the client cannot be
 /// built.
-pub fn admin_client(server: Option<String>, token: Option<String>) -> AppResult<RemoteClient> {
+pub fn admin_client(
+    server: Option<String>,
+    token: Option<SecretString>,
+) -> AppResult<RemoteClient> {
     if let Some(token) = token {
         let server = server
             .or_else(|| CachedCredentials::load().ok().flatten().map(|c| c.server))

@@ -74,6 +74,7 @@ use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::AppResult;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
+use secrecy::SecretString;
 
 type Result<T> = AppResult<T>;
 use std::env;
@@ -248,7 +249,7 @@ enum AuthCommand {
 
         /// Super-admin token authorizing the approval (defaults to cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 
     /// Deny a pending device login (super-admin)
@@ -262,7 +263,7 @@ enum AuthCommand {
 
         /// Super-admin token authorizing the denial (defaults to cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 }
 
@@ -398,7 +399,7 @@ enum UserCommand {
 
         /// Admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 
     /// Set a field on a user over the admin API
@@ -429,7 +430,7 @@ enum UserCommand {
 
         /// Admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 
     /// Set a user's billing/quota tier (Starter / Professional / Enterprise)
@@ -494,7 +495,7 @@ enum UserCommand {
 
         /// Admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 
     /// Remove a pre-approved email (an existing account's status is not touched)
@@ -509,7 +510,7 @@ enum UserCommand {
 
         /// Admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 
     /// List pre-approved emails and whether each has registered
@@ -524,7 +525,7 @@ enum UserCommand {
 
         /// Admin token (defaults to the cached login)
         #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-        token: Option<String>,
+        token: Option<SecretString>,
     },
 
     /// Disconnect one provider for a user over the admin API, revoking the grant at the provider

@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
-use std::env;
 use std::future::ready;
 use std::sync::Arc;
 
@@ -20,6 +19,7 @@ use chrono::Utc;
 use dravr_enforme::error::EnformeError;
 use dravr_enforme::models::webhook::WebhookEvent;
 use dravr_enforme::SyncOrchestrator;
+use secrecy::ExposeSecret;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -89,9 +89,21 @@ impl WebhookRoutes {
             )
             .route(
                 "/webhooks/strava",
-                get(|query: Query<HashMap<String, String>>| {
-                    ready(Self::strava_verification(&query))
-                })
+                get(
+                    |State(resources): State<Arc<ServerContext>>,
+                     query: Query<HashMap<String, String>>| {
+                        ready(Self::strava_verification(
+                            &query,
+                            resources
+                                .common
+                                .config
+                                .webhooks
+                                .strava_verify_token
+                                .as_ref()
+                                .map(ExposeSecret::expose_secret),
+                        ))
+                    },
+                )
                 .post(
                     |State(resources): State<Arc<ServerContext>>, body: Bytes| {
                         ready(Self::strava_event(&resources, &body))
@@ -187,6 +199,7 @@ impl WebhookRoutes {
     /// same `STRAVA_WEBHOOK_VERIFY_TOKEN` this handler checks.
     fn strava_verification(
         query: &HashMap<String, String>,
+        expected_token: Option<&str>,
     ) -> (StatusCode, Json<serde_json::Value>) {
         let mode = query.get("hub.mode").cloned().unwrap_or_default();
         let challenge = query.get("hub.challenge").cloned().unwrap_or_default();
@@ -196,10 +209,9 @@ impl WebhookRoutes {
         // or blank token refuses every handshake (`matches_configured_secret`):
         // an empty expected value would otherwise let anyone register a
         // subscription against this route.
-        let expected_token = env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_default();
-
-        let token_matches =
-            matches_configured_secret(expected_token.as_bytes(), verify_token.as_bytes());
+        let token_matches = expected_token.is_some_and(|expected| {
+            matches_configured_secret(expected.as_bytes(), verify_token.as_bytes())
+        });
 
         if mode != "subscribe" || !token_matches {
             warn!(
@@ -263,7 +275,10 @@ impl WebhookRoutes {
 
         // Strava does not sign events: the registered subscription id is the
         // one thing a genuine event carries that a forger must guess.
-        if let Some(refusal) = subscription_refusal(event.subscription_id) {
+        if let Some(refusal) = subscription_refusal(
+            event.subscription_id,
+            &resources.common.config.webhooks.strava_subscription_ids,
+        ) {
             return refusal;
         }
 
@@ -803,8 +818,8 @@ struct StravaWebhookEvent {
     aspect_type: String,
     /// Strava athlete ID who owns the object
     owner_id: u64,
-    /// The subscription the event was delivered for; must be one of
-    /// `strava_webhook_gate::registered_subscription_ids`
+    /// The subscription the event was delivered for; must be one of the
+    /// server config's `webhooks.strava_subscription_ids`
     subscription_id: u64,
     /// Unix timestamp of the event
     event_time: u64,

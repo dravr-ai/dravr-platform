@@ -16,6 +16,7 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use pierre_core::models::{EncryptedToken, User, UserTier};
 use pierre_database::database::generate_encryption_key;
+use secrecy::ExposeSecret;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -59,13 +60,13 @@ async fn test_token_encryption_comprehensive() -> Result<()> {
         )?;
 
         // Verify token encryption is working (encrypted data should be different)
-        assert_ne!(encrypted_token.access_token, access_token);
-        assert_ne!(encrypted_token.refresh_token, refresh_token);
+        assert_ne!(encrypted_token.access_token.expose_secret(), access_token);
+        assert_ne!(encrypted_token.refresh_token.expose_secret(), refresh_token);
 
         // Decrypt and verify
         let decrypted_token = encrypted_token.decrypt(&encryption_key)?;
-        assert_eq!(decrypted_token.access_token, access_token);
-        assert_eq!(decrypted_token.refresh_token, refresh_token);
+        assert_eq!(decrypted_token.access_token.expose_secret(), access_token);
+        assert_eq!(decrypted_token.refresh_token.expose_secret(), refresh_token);
         assert_eq!(decrypted_token.expires_at, expires_at);
         assert_eq!(decrypted_token.scope, scope.to_owned());
     }
@@ -103,8 +104,8 @@ async fn test_token_encryption_edge_cases() -> Result<()> {
     )?;
 
     let decrypted_large = large_token.decrypt(&encryption_key)?;
-    assert_eq!(decrypted_large.access_token, max_access);
-    assert_eq!(decrypted_large.refresh_token, max_refresh);
+    assert_eq!(decrypted_large.access_token.expose_secret(), max_access);
+    assert_eq!(decrypted_large.refresh_token.expose_secret(), max_refresh);
     assert_eq!(decrypted_large.scope, max_scope);
 
     Ok(())
@@ -157,15 +158,21 @@ async fn test_encryption_with_different_keys() -> Result<()> {
     let encrypted2 = EncryptedToken::new(access_token, refresh_token, expires_at, scope, &key2)?;
 
     // Encrypted results should be different
-    assert_ne!(encrypted1.access_token, encrypted2.access_token);
-    assert_ne!(encrypted1.refresh_token, encrypted2.refresh_token);
+    assert_ne!(
+        encrypted1.access_token.expose_secret(),
+        encrypted2.access_token.expose_secret()
+    );
+    assert_ne!(
+        encrypted1.refresh_token.expose_secret(),
+        encrypted2.refresh_token.expose_secret()
+    );
 
     // Decryption should work with correct keys
     let decrypted1 = encrypted1.decrypt(&key1)?;
     let decrypted2 = encrypted2.decrypt(&key2)?;
 
-    assert_eq!(decrypted1.access_token, access_token);
-    assert_eq!(decrypted2.access_token, access_token);
+    assert_eq!(decrypted1.access_token.expose_secret(), access_token);
+    assert_eq!(decrypted2.access_token.expose_secret(), access_token);
 
     // Decryption should fail with wrong keys
     let wrong_decrypt1 = encrypted1.decrypt(&key2);
@@ -281,8 +288,8 @@ async fn test_concurrent_token_operations() -> Result<()> {
             let decrypted = encrypted.decrypt(&key_clone)?;
 
             // Verify
-            assert_eq!(decrypted.access_token, access_token);
-            assert_eq!(decrypted.refresh_token, refresh_token);
+            assert_eq!(decrypted.access_token.expose_secret(), access_token);
+            assert_eq!(decrypted.refresh_token.expose_secret(), refresh_token);
             assert_eq!(decrypted.scope, scope);
 
             Ok::<_, anyhow::Error>(i)
@@ -326,8 +333,14 @@ async fn test_token_expiration_scenarios() -> Result<()> {
         assert_eq!(decrypted.expires_at, expires_at);
 
         // Token content should be correct
-        assert_eq!(decrypted.access_token, format!("{token_name}_access"));
-        assert_eq!(decrypted.refresh_token, format!("{token_name}_refresh"));
+        assert_eq!(
+            decrypted.access_token.expose_secret(),
+            format!("{token_name}_access")
+        );
+        assert_eq!(
+            decrypted.refresh_token.expose_secret(),
+            format!("{token_name}_refresh")
+        );
     }
 
     Ok(())
@@ -379,8 +392,8 @@ async fn test_security_integration_scenario() -> Result<()> {
     for (encrypted_token, original_access, original_refresh, original_scope) in encrypted_tokens {
         let decrypted = encrypted_token.decrypt(&encryption_key)?;
 
-        assert_eq!(decrypted.access_token, original_access);
-        assert_eq!(decrypted.refresh_token, original_refresh);
+        assert_eq!(decrypted.access_token.expose_secret(), original_access);
+        assert_eq!(decrypted.refresh_token.expose_secret(), original_refresh);
         assert_eq!(decrypted.scope, original_scope.to_owned());
     }
 
@@ -398,7 +411,7 @@ async fn test_security_integration_scenario() -> Result<()> {
     )?;
 
     let decrypted_old = old_token.decrypt(&encryption_key)?;
-    assert_eq!(decrypted_old.access_token, "old_access");
+    assert_eq!(decrypted_old.access_token.expose_secret(), "old_access");
 
     // New tokens use new key
     let new_token = EncryptedToken::new(
@@ -410,7 +423,7 @@ async fn test_security_integration_scenario() -> Result<()> {
     )?;
 
     let decrypted_new = new_token.decrypt(&new_encryption_key)?;
-    assert_eq!(decrypted_new.access_token, "new_access");
+    assert_eq!(decrypted_new.access_token.expose_secret(), "new_access");
 
     Ok(())
 }

@@ -83,11 +83,11 @@ pub struct ForgeParams<'a> {
     /// named after — the dated stamp in the surface's language. See
     /// [`counterpart_title`] for the rule that runs first.
     pub title_fallback: &'a str,
-    /// Model recorded on the thread. `None` falls back to the model the
-    /// `PIERRE_LLM_CHAIN` head runs.
+    /// Model recorded on the thread — the one asked for, else the model the
+    /// chain's head runs, as [`resolve_conversation_model`] picks it.
     /// A turn runs on the configured model and reads this one only when none
     /// is configured (carnet#824).
-    pub model: Option<&'a str>,
+    pub model: &'a str,
     /// Which agent to bind.
     pub agent: ForgeAgent<'a>,
     /// Group the thread belongs to, when it is a group thread.
@@ -318,19 +318,22 @@ async fn resolved_cap(
 
 /// The model recorded on a new conversation.
 ///
-/// The one asked for, else the model the chain's head runs (its
-/// `PIERRE_LLM_CHAIN` entry's, else that provider's default). Turns run on
-/// the configured model; this record is their fallback when none is
-/// configured (carnet#824).
+/// The one asked for, else the model `llm_chain`'s head runs (its
+/// `PIERRE_LLM_CHAIN` entry's, else that provider's default) — the chain the
+/// server read at boot. Turns run on the configured model; this record is
+/// their fallback when none is configured (carnet#824).
 ///
 /// # Errors
 ///
 /// Returns [`AppError::config`] when no model is given and the chain's head
 /// resolves none.
-pub fn resolve_conversation_model(requested: Option<&str>) -> AppResult<String> {
+pub fn resolve_conversation_model(
+    requested: Option<&str>,
+    llm_chain: &LlmChain,
+) -> AppResult<String> {
     requested.map_or_else(
         || {
-            LlmChain::head_model_from_env().ok_or_else(|| {
+            llm_chain.head_model().ok_or_else(|| {
                 AppError::config(
                     "No model specified and the PIERRE_LLM_CHAIN head names no model \
                      (write it as provider=model)",
@@ -349,8 +352,7 @@ pub fn resolve_conversation_model(requested: Option<&str>) -> AppResult<String> 
 ///
 /// # Errors
 ///
-/// Returns [`AppError::config`] when no model is given and the chain's head
-/// resolves none, the [`create_conversation_slot`] refusal when a
+/// Returns the [`create_conversation_slot`] refusal when a
 /// [`SlotQuota::Capped`] forge finds the athlete at their cap, and the
 /// database error when the row cannot be created.
 pub async fn forge_conversation(
@@ -385,8 +387,6 @@ pub async fn forge_conversation(
     )
     .await;
 
-    let model = resolve_conversation_model(model)?;
-
     let conversation = create_conversation_slot(
         repos,
         quota,
@@ -394,7 +394,7 @@ pub async fn forge_conversation(
             user_id,
             tenant_id,
             title: &title,
-            model: &model,
+            model,
             agent_id: agent_id.as_deref(),
             group_id,
         },

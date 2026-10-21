@@ -12,12 +12,8 @@ publish = false
 
 [dependencies]
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
-pierre-core = { version = "0.3.0", path = "../pierre-core" }
 dravr-tronc = { workspace = true }
-
-chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 
 [lints]
 workspace = true

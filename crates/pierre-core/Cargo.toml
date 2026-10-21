@@ -78,6 +78,8 @@ all-database = ["database-errors", "sqlx-types"]
 thiserror = "2.0"
 # Constant-time comparison behind `constant_time::secrets_equal`.
 subtle = "2.6"
+# SecretString fields: redacting Debug, explicit expose_secret().
+secrecy = { workspace = true }
 # Derives the JSON Schemas the MCP tools declare as their outputSchema.
 # chrono04 + uuid1: these types carry DateTime<Utc> and Uuid.
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
@@ -94,7 +96,6 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 base64 = "0.22"
 tracing = "0.1"
 bitflags = { version = "2.11", features = ["serde"] }
-toml = "0.8"
 
 # Optional: HTTP response support
 axum = { version = "0.8", optional = true, default-features = false, features = ["json"] }

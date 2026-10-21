@@ -10,6 +10,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use common::placeholder_llm_chain;
+use secrecy::SecretString;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
@@ -71,14 +73,14 @@ async fn test_oauth_authorization_url_generation() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some("test_strava_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
                 scopes: vec![],
                 enabled: true,
             },
             garmin: OAuthProviderConfig {
                 client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some("test_garmin_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_garmin_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
                 scopes: vec![],
                 enabled: true,
@@ -97,6 +99,7 @@ async fn test_oauth_authorization_url_generation() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -171,7 +174,9 @@ async fn test_oauth_authorization_url_generation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -264,7 +269,7 @@ async fn test_oauth_authorization_url_generation() {
         tenant_id,
         provider: "strava".to_owned(),
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         redirect_uri: "http://localhost:8080/oauth/callback/strava".to_owned(),
         scopes: vec!["activity:read_all".to_owned()],
         rate_limit_per_day: 15000,
@@ -279,7 +284,7 @@ async fn test_oauth_authorization_url_generation() {
     // Register and login user
     let register_request = RegisterRequest {
         email: "oauth_test@example.com".to_owned(),
-        password: "password123".to_owned(),
+        password: SecretString::from("password123"),
         display_name: Some("OAuth Test User".to_owned()),
     };
 
@@ -379,14 +384,14 @@ async fn test_oauth_state_validation() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some("test_strava_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
                 scopes: vec![],
                 enabled: true,
             },
             garmin: OAuthProviderConfig {
                 client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some("test_garmin_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_garmin_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
                 scopes: vec![],
                 enabled: true,
@@ -405,6 +410,7 @@ async fn test_oauth_state_validation() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -479,7 +485,9 @@ async fn test_oauth_state_validation() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -556,14 +564,14 @@ async fn test_connection_status_no_providers() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some("test_strava_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
                 scopes: vec![],
                 enabled: true,
             },
             garmin: OAuthProviderConfig {
                 client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some("test_garmin_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_garmin_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
                 scopes: vec![],
                 enabled: true,
@@ -582,6 +590,7 @@ async fn test_connection_status_no_providers() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -656,7 +665,9 @@ async fn test_connection_status_no_providers() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let user_id = Uuid::new_v4();
@@ -772,14 +783,14 @@ async fn test_invalid_provider_error() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some("test_strava_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
                 scopes: vec![],
                 enabled: true,
             },
             garmin: OAuthProviderConfig {
                 client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some("test_garmin_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_garmin_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
                 scopes: vec![],
                 enabled: true,
@@ -798,6 +809,7 @@ async fn test_invalid_provider_error() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -872,7 +884,9 @@ async fn test_invalid_provider_error() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -950,14 +964,14 @@ async fn test_disconnect_provider() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some("test_strava_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
                 scopes: vec![],
                 enabled: true,
             },
             garmin: OAuthProviderConfig {
                 client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some("test_garmin_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_garmin_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
                 scopes: vec![],
                 enabled: true,
@@ -976,6 +990,7 @@ async fn test_disconnect_provider() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -1050,7 +1065,9 @@ async fn test_disconnect_provider() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -1226,7 +1243,7 @@ async fn test_oauth_urls_contain_required_parameters() {
         tenant_id,
         provider: "strava".to_owned(),
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         redirect_uri: "http://localhost:8080/oauth/callback/strava".to_owned(),
         scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
         rate_limit_per_day: 15000,
@@ -1263,14 +1280,14 @@ async fn test_oauth_urls_contain_required_parameters() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some("test_strava_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
                 scopes: vec![],
                 enabled: true,
             },
             garmin: OAuthProviderConfig {
                 client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some("test_garmin_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_garmin_client_secret")),
                 redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
                 scopes: vec![],
                 enabled: true,
@@ -1289,6 +1306,7 @@ async fn test_oauth_urls_contain_required_parameters() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -1363,7 +1381,9 @@ async fn test_oauth_urls_contain_required_parameters() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(

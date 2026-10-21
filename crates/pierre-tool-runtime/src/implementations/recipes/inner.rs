@@ -6,6 +6,7 @@
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -589,7 +590,7 @@ pub async fn handle_validate_recipe(
         .clone()
         .unwrap_or_default();
 
-    if api_key.is_empty() {
+    if api_key.expose_secret().is_empty() {
         return Ok(ToolResult::error(json!({
             "error": "USDA API key not configured",
         })));

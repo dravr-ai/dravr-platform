@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::SecretString;
 use std::fmt;
 
 use chrono::{DateTime, Utc};
@@ -35,7 +36,8 @@ pub struct OAuthAppCredentials {
     pub client_id: String,
     /// OAuth client secret
     #[serde(rename = "clientSecret")]
-    pub client_secret: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub client_secret: SecretString,
 }
 
 /// Encrypted `OAuth` token storage
@@ -46,9 +48,11 @@ pub struct OAuthAppCredentials {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedToken {
     /// Encrypted access token with prepended nonce (base64 encoded: \[12-byte nonce\]\[ciphertext\])
-    pub access_token: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// Encrypted refresh token with prepended nonce (base64 encoded: \[12-byte nonce\]\[ciphertext\])
-    pub refresh_token: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub refresh_token: SecretString,
     /// When the access token expires
     pub expires_at: DateTime<Utc>,
     /// Token scope permissions
@@ -111,8 +115,8 @@ impl EncryptedToken {
         let encrypted_refresh = general_purpose::STANDARD.encode(refresh_combined);
 
         Ok(Self {
-            access_token: encrypted_access,
-            refresh_token: encrypted_refresh,
+            access_token: SecretString::from(encrypted_access),
+            refresh_token: SecretString::from(encrypted_refresh),
             expires_at,
             scope,
         })
@@ -128,9 +132,11 @@ impl EncryptedToken {
     pub fn decrypt(&self, encryption_key: &[u8]) -> AppResult<DecryptedToken> {
         use base64::{engine::general_purpose, Engine as _};
         use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+        use secrecy::ExposeSecret;
 
         // Decrypt access token: extract nonce from prepended data
-        let access_combined = general_purpose::STANDARD.decode(&self.access_token)?;
+        let access_combined =
+            general_purpose::STANDARD.decode(self.access_token.expose_secret())?;
         if access_combined.len() < 12 {
             return Err(AppError::invalid_input("Invalid access token: too short"));
         }
@@ -147,7 +153,8 @@ impl EncryptedToken {
             .map_err(|e| AppError::invalid_input(format!("Invalid UTF-8 in access token: {e}")))?;
 
         // Decrypt refresh token: extract nonce from prepended data
-        let refresh_combined = general_purpose::STANDARD.decode(&self.refresh_token)?;
+        let refresh_combined =
+            general_purpose::STANDARD.decode(self.refresh_token.expose_secret())?;
         if refresh_combined.len() < 12 {
             return Err(AppError::invalid_input("Invalid refresh token: too short"));
         }
@@ -165,8 +172,8 @@ impl EncryptedToken {
             .map_err(|e| AppError::invalid_input(format!("Invalid UTF-8 in refresh token: {e}")))?;
 
         Ok(DecryptedToken {
-            access_token,
-            refresh_token,
+            access_token: SecretString::from(access_token),
+            refresh_token: SecretString::from(refresh_token),
             expires_at: self.expires_at,
             scope: self.scope.clone(),
         })
@@ -179,9 +186,9 @@ impl EncryptedToken {
 #[derive(Debug, Clone)]
 pub struct DecryptedToken {
     /// Plain text access token
-    pub access_token: String,
+    pub access_token: SecretString,
     /// Plain text refresh token
-    pub refresh_token: String,
+    pub refresh_token: SecretString,
     /// When the access token expires
     pub expires_at: DateTime<Utc>,
     /// Token scope permissions
@@ -208,9 +215,11 @@ pub struct UserOAuthToken {
     /// Provider name (strava, whoop, etc.)
     pub provider: String,
     /// Encrypted OAuth access token
-    pub access_token: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// Encrypted OAuth refresh token (optional for some providers)
-    pub refresh_token: Option<String>,
+    #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
+    pub refresh_token: Option<SecretString>,
     /// Token type (usually "Bearer")
     pub token_type: String,
     /// When the access token expires
@@ -252,8 +261,8 @@ impl UserOAuthToken {
             user_id,
             tenant_id,
             provider,
-            access_token,
-            refresh_token,
+            access_token: SecretString::from(access_token),
+            refresh_token: refresh_token.map(SecretString::from),
             token_type: "Bearer".to_owned(),
             expires_at,
             scope,
@@ -307,7 +316,8 @@ pub struct UserOAuthApp {
     /// OAuth client ID from the provider
     pub client_id: String,
     /// OAuth client secret from the provider (encrypted)
-    pub client_secret: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub client_secret: SecretString,
     /// OAuth redirect URI configured with the provider
     pub redirect_uri: String,
     /// When this configuration was created
@@ -332,7 +342,7 @@ impl UserOAuthApp {
             user_id,
             provider,
             client_id,
-            client_secret,
+            client_secret: SecretString::from(client_secret),
             redirect_uri,
             created_at: now,
             updated_at: now,
@@ -348,7 +358,8 @@ pub struct UserSession {
     /// User `ID` this session belongs to
     pub user_id: Uuid,
     /// `JWT` token for authentication
-    pub jwt_token: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub jwt_token: SecretString,
     /// When the session expires
     pub expires_at: DateTime<Utc>,
     /// User's email for display
@@ -363,7 +374,8 @@ pub struct UserSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthRequest {
     /// `JWT` token for authentication
-    pub token: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub token: SecretString,
 }
 
 /// Authentication response for `MCP` protocol

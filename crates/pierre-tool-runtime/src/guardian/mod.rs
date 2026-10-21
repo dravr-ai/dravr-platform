@@ -43,7 +43,7 @@ pub use config::{
 };
 pub use planner::{PlanDenial, StepOutput, WorkflowExecutor};
 pub use policy::{
-    validate_env, ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy,
+    validate_settings, ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy,
     PlanMode, TaintedDestructive,
 };
 pub use state::{GuardianTurns, HeadlessBlock, TurnKey, TurnState};
@@ -226,12 +226,6 @@ impl Guardian {
     #[must_use]
     pub const fn new(policy: GuardianPolicy) -> Self {
         Self { policy }
-    }
-
-    /// Build a Guardian from `GUARDIAN_*` env vars (enforce-by-default).
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self::new(GuardianPolicy::from_env())
     }
 
     /// The active mode (controls whether `decide` denials actually block).

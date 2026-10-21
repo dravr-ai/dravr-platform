@@ -41,6 +41,7 @@ use pierre_core::models::supported_ui_locale;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_services::auth::AuthService;
+use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
@@ -705,7 +706,8 @@ impl OAuth2Routes {
         let default_password = context
             .config
             .default_login_password
-            .clone()
+            .as_ref()
+            .map(|password| password.expose_secret().to_owned())
             .unwrap_or_default();
 
         // "Continue with Google", on the issuer's host where Google returns,
@@ -1074,9 +1076,9 @@ impl OAuth2Routes {
             code,
             redirect_uri,
             client_id,
-            client_secret,
+            client_secret: SecretString::from(client_secret),
             scope,
-            refresh_token,
+            refresh_token: refresh_token.map(SecretString::from),
             code_verifier,
             resource,
         })

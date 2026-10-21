@@ -11,21 +11,18 @@ repository = "https://github.com/dravr-ai/scriptcurator-platform"
 publish = false
 
 [dependencies]
-pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
-
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 schemars = "1.2"
+secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 tokio = { version = "1.50", features = ["sync"] }
-tracing = "0.1"
 
 [dev-dependencies]
 # The USDA detail-shape tests stand up a local HTTP fixture and drive the
 # client against it, so the multi-threaded runtime and a minimal router.
 axum = { version = "0.8", features = ["json", "query", "tokio", "http1"], default-features = false }
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "net"] }
+serde_json = "1.0"
 
 [lints]
 workspace = true

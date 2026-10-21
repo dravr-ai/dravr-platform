@@ -10,6 +10,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use common::placeholder_llm_chain;
+use secrecy::ExposeSecret;
 
 use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKeyTier, CreateApiKeyRequest};
@@ -19,9 +21,9 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig, GarminApiConfig,
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
-    RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig, SleepToolParamsConfig,
-    SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig, TrainingZonesConfig,
-    WeatherServiceConfig,
+    RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
+    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -134,6 +136,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                             scopes: vec![],
                             enabled: false,
                         },
+                        ..OAuthConfig::default()
                     },
                     security: SecurityConfig {
                         cors_origins: vec!["*".to_owned()],
@@ -170,6 +173,8 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                                     .to_owned(),
                             ..Default::default()
                         },
+                        sciotte: SciotteServiceConfig::default(),
+                        meta_graph_api_base: None,
                     },
                     app_behavior: AppBehaviorConfig {
                         max_activities_fetch: 100,
@@ -217,7 +222,9 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     frontend_url: None,
                     resend_api_key: None,
                     resend_from_email: None,
+                    llm_chain: placeholder_llm_chain(),
                     website_base_url: "https://dravr.ai".to_owned(),
+                    ..ServerConfig::default()
                 }
             }),
             cache,
@@ -260,8 +267,8 @@ async fn test_create_api_key_success() {
     let response = api_key_routes.create_api_key(&auth, request).await.unwrap();
 
     // Verify response
-    assert!(response.api_key.starts_with("pk_live_"));
-    assert_eq!(response.api_key.len(), 40);
+    assert!(response.api_key.expose_secret().starts_with("pk_live_"));
+    assert_eq!(response.api_key.expose_secret().len(), 40);
     assert_eq!(response.key_info.name, "Test API Key");
     assert_eq!(response.key_info.tier, ApiKeyTier::Starter);
     assert!(response.key_info.expires_at.is_some());

@@ -8,10 +8,10 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::ExposeSecret;
 
 use chrono::Utc;
-use common::create_test_server_resources;
-use pierre_auth::config::oauth::{get_oauth_config, strava_oauth_seat_cap};
+use common::{create_test_server_resources, test_oauth_config, TEST_STRAVA_CLIENT_ID};
 use pierre_auth::strava_pool::{select_strava_app, strava_seat_summary, SelectedStravaApp};
 use pierre_core::models::{ConnectionType, TenantId, User, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -33,7 +33,7 @@ async fn pool_app_seat_cap_adds_to_total_capacity() {
     let resources = create_test_server_resources().await.unwrap();
     let repo = &resources.common.repos.oauth_tokens;
 
-    let before = strava_seat_summary(repo.as_ref())
+    let before = strava_seat_summary(repo.as_ref(), &test_oauth_config())
         .await
         .expect("seat summary");
 
@@ -41,7 +41,7 @@ async fn pool_app_seat_cap_adds_to_total_capacity() {
         .await
         .expect("add pool app");
 
-    let after = strava_seat_summary(repo.as_ref())
+    let after = strava_seat_summary(repo.as_ref(), &test_oauth_config())
         .await
         .expect("seat summary");
 
@@ -68,7 +68,9 @@ async fn pool_app_seat_cap_adds_to_total_capacity() {
     repo.set_strava_pool_app_enabled("777777", false)
         .await
         .unwrap();
-    let disabled = strava_seat_summary(repo.as_ref()).await.unwrap();
+    let disabled = strava_seat_summary(repo.as_ref(), &test_oauth_config())
+        .await
+        .unwrap();
     assert_eq!(
         disabled.total, before.total,
         "a disabled pool app contributes no capacity"
@@ -214,7 +216,7 @@ async fn a_token_whose_connection_needs_reauth_or_is_revoked_holds_no_seat() {
         vec![(None, 2), (Some("201455".to_owned()), 1)],
         "needs_reauth and revoked tokens free their seats; live and unregistered ones keep theirs"
     );
-    let summary = strava_seat_summary(repos.oauth_tokens.as_ref())
+    let summary = strava_seat_summary(repos.oauth_tokens.as_ref(), &test_oauth_config())
         .await
         .unwrap();
     assert_eq!(
@@ -303,18 +305,21 @@ async fn a_needs_reauth_over_our_own_client_credentials_keeps_its_seat() {
     );
 }
 
-/// The env-default app's `client_id`, resolved as the authorize path resolves it.
+/// The env-default app's `client_id`, as the test server is configured with it.
 fn env_client_id() -> String {
-    get_oauth_config("strava")
-        .client_id
-        .expect("the test harness configures the env Strava app")
+    TEST_STRAVA_CLIENT_ID.to_owned()
 }
 
 /// Run the authorize-time selection for `athlete`.
 async fn select(repos: &RepositoryRegistry, athlete: Uuid, tenant: TenantId) -> SelectedStravaApp {
-    select_strava_app(repos.oauth_tokens.as_ref(), athlete, tenant)
-        .await
-        .expect("a seat remains somewhere")
+    select_strava_app(
+        repos.oauth_tokens.as_ref(),
+        athlete,
+        tenant,
+        &test_oauth_config(),
+    )
+    .await
+    .expect("a seat remains somewhere")
 }
 
 /// Connect `count` fresh athletes on `app` and return them.
@@ -342,7 +347,7 @@ async fn a_live_athlete_reconnects_on_the_env_app_while_it_reads_full() {
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
     let tenant = TenantId::generate();
-    let cap = strava_oauth_seat_cap();
+    let cap = test_oauth_config().strava_seat_cap();
     repos
         .oauth_tokens
         .upsert_strava_pool_app("900001", POOL_SECRET, 5, Some("pool-a"))
@@ -369,7 +374,7 @@ async fn a_live_athlete_reconnects_on_the_env_app_while_it_reads_full() {
     let first_connect = select(repos, newcomer, tenant).await;
     assert_eq!(first_connect.attribution.as_deref(), Some("900001"));
     assert_eq!(first_connect.client_id, "900001");
-    assert_eq!(first_connect.client_secret, POOL_SECRET);
+    assert_eq!(first_connect.client_secret.expose_secret(), POOL_SECRET);
 }
 
 /// An athlete whose env-app grant died holds no seat, so their reconnect is
@@ -383,7 +388,7 @@ async fn a_dead_athlete_takes_the_pool_while_the_env_app_is_full_and_returns_whe
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
     let tenant = TenantId::generate();
-    let cap = strava_oauth_seat_cap();
+    let cap = test_oauth_config().strava_seat_cap();
     repos
         .oauth_tokens
         .upsert_strava_pool_app("900002", POOL_SECRET, 5, Some("pool-b"))
@@ -438,7 +443,7 @@ async fn a_new_athlete_fills_the_env_app_then_the_pool() {
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
     let tenant = TenantId::generate();
-    let cap = strava_oauth_seat_cap();
+    let cap = test_oauth_config().strava_seat_cap();
     repos
         .oauth_tokens
         .upsert_strava_pool_app("900003", POOL_SECRET, 1, Some("pool-c"))
@@ -456,12 +461,17 @@ async fn a_new_athlete_fills_the_env_app_then_the_pool() {
     fill(repos, tenant, None, cap).await;
     let env_full = select(repos, newcomer, tenant).await;
     assert_eq!(env_full.attribution.as_deref(), Some("900003"));
-    assert_eq!(env_full.client_secret, POOL_SECRET);
+    assert_eq!(env_full.client_secret.expose_secret(), POOL_SECRET);
 
     fill(repos, tenant, Some("900003"), 1).await;
-    let err = select_strava_app(repos.oauth_tokens.as_ref(), newcomer, tenant)
-        .await
-        .expect_err("every app is at its cap");
+    let err = select_strava_app(
+        repos.oauth_tokens.as_ref(),
+        newcomer,
+        tenant,
+        &test_oauth_config(),
+    )
+    .await
+    .expect_err("every app is at its cap");
     assert_eq!(
         err.message,
         "No Strava OAuth seats available across the env app and pool"
@@ -494,7 +504,7 @@ async fn a_pool_athlete_reconnects_on_its_pool_app_while_it_is_enabled_and_has_r
         Some("900004"),
         "the athlete's own pool app wins over an env app with room"
     );
-    assert_eq!(reconnect.client_secret, POOL_SECRET);
+    assert_eq!(reconnect.client_secret.expose_secret(), POOL_SECRET);
 
     let newcomer = fresh_athlete(repos).await;
     assert_eq!(

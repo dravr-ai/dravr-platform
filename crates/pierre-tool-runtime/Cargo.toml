@@ -21,6 +21,8 @@ transport-sse = []
 # Provider feature flag (auth.rs has a small synthetic-provider code path).
 # Chat tool-loop strategies (API/headless/CLI) used by client-chat in pierre-server.
 client-chat = []
+# TOON output for `format=toon` tool results; forwarded from pierre-server.
+toon = ["pierre-formatters/toon"]
 
 # Tool implementation feature flags (mirror the pierre-server side; the
 # pierre-server features forward to these so `cargo check -p pierre-tool-runtime`
@@ -48,7 +50,6 @@ pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 dravr-cageux = { workspace = true }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
-pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
@@ -73,14 +74,13 @@ dravr-meteo = { workspace = true }
 dravr-riviere = { workspace = true }
 
 async-trait = "0.1"
-base64 = "0.22"
 bitflags = { version = "2.11", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3"
 lru = "0.18.2"
+secrecy = { workspace = true }
 num-traits = "0.2"
 regex = "1.12"
-reqwest = { version = "0.12", features = ["json"] }
 # chrono04: sleep answers carry DateTime<Utc>, which the schema states as
 # a date-time string rather than an opaque one.
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }

@@ -15,6 +15,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
@@ -1348,8 +1349,8 @@ async fn mint_personal_mcp_token(resources: &Arc<ServerContext>, user_id: uuid::
         )
         .await
         .expect("mint the personal MCP token");
-    assert!(created.token_value.starts_with("pmcp_"));
-    created.token_value
+    assert!(created.token_value.expose_secret().starts_with("pmcp_"));
+    created.token_value.expose_secret().to_owned()
 }
 
 /// The token an athlete mints in Settings authenticates `POST /mcp` and the

@@ -8,7 +8,6 @@ use super::ServerContext;
 use crate::config::admin::AdminConfigService;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
-use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::security::csrf::CsrfTokenManager;
 #[cfg(feature = "transport-sse")]
 use pierre_config::environment::SseBufferStrategy;
@@ -17,6 +16,7 @@ use pierre_core::billing::BillingProvider;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use serde_json::Value;
 #[cfg(feature = "protocol-a2a")]
 use std::future::Future;
@@ -44,6 +44,10 @@ impl pierre_runtime_context::MiddlewareCtx for ServerContext {
 
     fn llm_base_url_allowlist(&self) -> &[String] {
         config_llm_base_url_allowlist()
+    }
+
+    fn llm_chain(&self) -> &LlmChain {
+        &self.common.config.llm_chain
     }
 
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult> {
@@ -80,11 +84,7 @@ impl pierre_runtime_context::IdentityCtx for ServerContext {
     }
 
     fn oauth_callback_uri(&self, provider: &str) -> String {
-        provider_callback_uri(
-            provider,
-            &get_oauth_config(provider),
-            self.common.config.http_port,
-        )
+        self.common.config.provider_callback_uri(provider)
     }
 }
 

@@ -77,6 +77,7 @@ pub async fn open_personal_topic(
         PersonalForge {
             title_fallback: &title_fallback,
             guided_flow: false,
+            llm_chain: &resources.common.config.llm_chain,
         },
     )
     .await?

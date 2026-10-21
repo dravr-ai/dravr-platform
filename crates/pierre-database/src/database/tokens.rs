@@ -10,6 +10,7 @@ use pierre_core::models::{
     DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken,
     OAuth2State, OAuthClientGrant,
 };
+use secrecy::ExposeSecret;
 
 use crate::backends::shared::encryption::HasEncryption;
 use crate::database::Database;

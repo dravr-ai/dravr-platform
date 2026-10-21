@@ -134,9 +134,12 @@ pub async fn resolve_activity_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(all(feature = "provider-whoop", feature = "provider-strava"))]
     use chrono::Utc;
+    #[cfg(all(feature = "provider-whoop", feature = "provider-strava"))]
     use pierre_core::models::ConnectionType;
 
+    #[cfg(all(feature = "provider-whoop", feature = "provider-strava"))]
     fn connection(provider: &str) -> ProviderConnection {
         ProviderConnection {
             id: Uuid::new_v4().to_string(),

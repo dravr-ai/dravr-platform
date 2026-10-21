@@ -24,6 +24,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Json;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use tracing::{error, info, warn};
 
@@ -174,7 +175,7 @@ async fn mint_verification_url(
 #[derive(Debug, serde::Deserialize)]
 pub struct VerifyEmailQuery {
     /// The `<selector>.<verifier>` token from the emailed link.
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// Where to send the browser after a verification attempt.
@@ -236,7 +237,12 @@ pub async fn handle_verify_email(
     State(resources): State<AuthRoutesContext>,
     Query(query): Query<VerifyEmailQuery>,
 ) -> Response {
-    let Some(user_id) = claim_token(&resources, query.token.as_deref()).await else {
+    let Some(user_id) = claim_token(
+        &resources,
+        query.token.as_ref().map(ExposeSecret::expose_secret),
+    )
+    .await
+    else {
         return verification_redirect(&resources, "invalid");
     };
 

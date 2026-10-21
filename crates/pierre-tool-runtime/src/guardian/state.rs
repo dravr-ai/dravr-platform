@@ -13,7 +13,7 @@
 //! a sink is checked in iteration 3.
 //!
 //! State lives in a process-wide [`GuardianTurns`] store keyed by
-//! [`TurnKey`] = `(tenant_id, turn_token)` rather than on the executor, because
+//! [`TurnKey`] = `(tenant_id, turn_id)` rather than on the executor, because
 //! the production Copilot-headless loopback builds a fresh executor per `/mcp`
 //! tool call — only a shared store keyed by a stable turn token accumulates
 //! across that path. The key is tenant-scoped so two tenants never share a
@@ -56,23 +56,23 @@ const DENIAL_CAP: usize = 10_000;
 
 /// Identifies one logical turn for taint accumulation.
 ///
-/// `turn_token` is the Pierre conversation id (chat loops), the ACP `turn_id`
+/// `turn_id` is the Pierre conversation id (chat loops), the ACP `turn_id`
 /// claim (Copilot headless loopback), or a per-request nonce (one-shot
 /// MCP-direct / A2A calls — which then accumulate nothing, correctly, since they
 /// are independent calls). `tenant_id` scopes the key for tenant isolation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TurnKey {
     tenant_id: Option<Uuid>,
-    turn_token: String,
+    turn_id: String,
 }
 
 impl TurnKey {
     /// Build a turn key from the resolved tenant and a stable turn token.
     #[must_use]
-    pub fn new(tenant_id: Option<Uuid>, turn_token: impl Into<String>) -> Self {
+    pub fn new(tenant_id: Option<Uuid>, turn_id: impl Into<String>) -> Self {
         Self {
             tenant_id,
-            turn_token: turn_token.into(),
+            turn_id: turn_id.into(),
         }
     }
 }

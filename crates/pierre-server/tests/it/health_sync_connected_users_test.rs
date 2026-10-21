@@ -18,6 +18,7 @@
 //! was ever synced for anyone — silently. This pins that the listing succeeds.
 
 use crate::common;
+use secrecy::SecretString;
 
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
@@ -47,8 +48,8 @@ async fn list_connected_provider_users_handles_varchar_tenant_id() {
         user_id,
         tenant_id: tenant.id.to_string(),
         provider: "whoop".to_owned(),
-        access_token: "seed-access-token".to_owned(),
-        refresh_token: Some("seed-refresh-token".to_owned()),
+        access_token: SecretString::from("seed-access-token"),
+        refresh_token: Some(SecretString::from("seed-refresh-token")),
         token_type: "bearer".to_owned(),
         expires_at: None,
         scope: None,

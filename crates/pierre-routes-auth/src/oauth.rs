@@ -49,7 +49,6 @@ use pierre_services::provider_refresh::token_tenant;
 use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
-use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
 use pierre_auth::strava_pool;
 use pierre_auth::tenant::oauth_manager::find_authorizing_client;
@@ -407,11 +406,7 @@ async fn own_app_fields(
     if !requires_oauth {
         return (false, None);
     }
-    let callback = provider_callback_uri(
-        provider,
-        &get_oauth_config(provider),
-        resources.config.http_port,
-    );
+    let callback = resources.config.provider_callback_uri(provider);
     (
         own_app_required(resources, user_id, tenant_id, provider).await,
         Some(callback),
@@ -464,7 +459,7 @@ pub async fn authorizing_client_resolves(
         user_id,
         TenantId::from_uuid(tenant_id),
         provider,
-        &get_oauth_config(provider),
+        &resources.config.oauth,
         resources.repos.tenants.as_ref(),
         resources.repos.oauth_tokens.as_ref(),
     )
@@ -620,9 +615,12 @@ pub async fn compute_providers_status(
     // back to the Sciotte mirror once every app is full. A summary failure is
     // treated as "no seats left" so we degrade to the always-available mirror
     // rather than pushing the user into an OAuth flow Strava would reject.
-    let strava_seats_left = strava_pool::strava_seat_summary(resources.repos.oauth_tokens.as_ref())
-        .await
-        .map_or(0, |s| s.left());
+    let strava_seats_left = strava_pool::strava_seat_summary(
+        resources.repos.oauth_tokens.as_ref(),
+        &resources.config.oauth,
+    )
+    .await
+    .map_or(0, |s| s.left());
 
     // Build provider status list
     let mut provider_statuses = Vec::new();

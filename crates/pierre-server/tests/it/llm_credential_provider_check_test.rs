@@ -22,6 +22,7 @@ use pierre_core::models::{Tenant, TenantId};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_test_support::db::create_test_db;
 use pierre_test_support::server::create_test_user;
+use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 /// The shipped migration, per backend, so the test runs the exact statements
@@ -118,7 +119,7 @@ async fn store(
         tenant_id,
         StoreLlmCredentialsRequest {
             provider,
-            api_key: api_key.to_owned(),
+            api_key: SecretString::from(api_key.to_owned()),
             base_url: None,
             default_model: Some(format!("{provider}-model")),
         },
@@ -165,7 +166,7 @@ async fn cohere_credentials_store_and_read_back_for_a_user_and_a_tenant() {
     .unwrap();
     assert_eq!(user_creds.source, CredentialSource::UserSpecific);
     assert_eq!(user_creds.provider, LlmProvider::Cohere);
-    assert_eq!(user_creds.api_key, "cohere-user-key");
+    assert_eq!(user_creds.api_key.expose_secret(), "cohere-user-key");
     assert_eq!(user_creds.default_model.as_deref(), Some("cohere-model"));
 
     let tenant_creds = TenantLlmManager::get_credentials(
@@ -178,7 +179,7 @@ async fn cohere_credentials_store_and_read_back_for_a_user_and_a_tenant() {
     .await
     .unwrap();
     assert_eq!(tenant_creds.source, CredentialSource::TenantDefault);
-    assert_eq!(tenant_creds.api_key, "cohere-tenant-key");
+    assert_eq!(tenant_creds.api_key.expose_secret(), "cohere-tenant-key");
 }
 
 #[tokio::test]
@@ -210,7 +211,7 @@ async fn every_llm_provider_stores_and_reads_back() {
         .await
         .unwrap();
         assert_eq!(creds.source, CredentialSource::UserSpecific, "{provider}");
-        assert_eq!(creds.api_key, format!("{provider}-key"));
+        assert_eq!(creds.api_key.expose_secret(), format!("{provider}-key"));
     }
 }
 
@@ -250,7 +251,7 @@ async fn the_migration_keeps_every_stored_credential() {
     .await
     .unwrap();
     assert_eq!(groq.source, CredentialSource::UserSpecific);
-    assert_eq!(groq.api_key, "groq-key");
+    assert_eq!(groq.api_key.expose_secret(), "groq-key");
     assert_eq!(groq.default_model.as_deref(), Some("groq-model"));
 
     let cohere = TenantLlmManager::get_credentials(
@@ -263,5 +264,5 @@ async fn the_migration_keeps_every_stored_credential() {
     .await
     .unwrap();
     assert_eq!(cohere.source, CredentialSource::TenantDefault);
-    assert_eq!(cohere.api_key, "cohere-tenant-key");
+    assert_eq!(cohere.api_key.expose_secret(), "cohere-tenant-key");
 }

@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::jsonrpc::JsonRpcError;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -602,7 +603,8 @@ pub struct PushNotificationConfigInput {
     pub url: String,
     /// Opaque client token echoed back in notifications
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub token: Option<SecretString>,
     /// Webhook authentication material
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authentication: Option<PushNotificationAuthenticationInfo>,
@@ -621,7 +623,8 @@ pub struct TaskPushNotificationConfig {
     pub url: String,
     /// Opaque client token echoed back in notifications
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub token: Option<SecretString>,
     /// Webhook authentication material
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authentication: Option<PushNotificationAuthenticationInfo>,

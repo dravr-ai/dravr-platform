@@ -135,7 +135,7 @@ use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
-use pierre_tool_runtime::guardian::GuardianConfigRegistry;
+use pierre_tool_runtime::guardian::{GuardianConfigRegistry, GuardianEnvOverrides};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 #[cfg(feature = "client-messaging")]
@@ -217,13 +217,19 @@ impl ServerContext {
 
         let auth_manager_arc = Arc::new(auth_manager);
 
-        // Create the provider registry once, admitting every provider call
-        // against the signing app's budget, and holding the server's one
-        // sciotte client every scraper call shares
+        // Create the provider registry once, over the deployment's endpoint
+        // overrides, admitting every provider call against the signing app's
+        // budget, and holding the server's one sciotte client every scraper
+        // call shares
+        let sciotte = &config.external_services.sciotte;
         let provider_registry = Arc::new(
             ProviderRegistry::new()
+                .with_endpoint_overrides(&config.oauth.endpoints)
                 .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos))
-                .with_sciotte_client(startup_client()),
+                .with_sciotte_client(startup_client(
+                    sciotte.remote_url.as_deref(),
+                    sciotte.audience.as_deref(),
+                )),
         );
 
         // Seed the cageux config registry with the layered stack of
@@ -251,12 +257,18 @@ impl ServerContext {
             Arc::new(HarnessConfigRegistry::from_database(&database_arc).await);
 
         // Load the Guardian policy snapshot from `system_settings.guardian_config`
-        // (defaults ← persisted document ← GUARDIAN_* env, env wins per field).
+        // (defaults ← persisted document ← the GUARDIAN_* overrides startup read
+        // into the config, which win per field).
         // Every dispatch point reads the effective Arc<Guardian> through the
         // ServerContext ToolRuntime override, and `PUT /admin/settings/guardian`
         // calls `install` on it after persisting a new document.
-        let guardian_config_registry =
-            Arc::new(GuardianConfigRegistry::from_database(&database_arc).await);
+        let guardian_config_registry = Arc::new(
+            GuardianConfigRegistry::from_database(
+                &database_arc,
+                GuardianEnvOverrides::from_settings(&config.guardian),
+            )
+            .await,
+        );
 
         // Create activity intelligence once for shared use
         let activity_intelligence = Self::create_default_intelligence();

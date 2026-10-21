@@ -75,7 +75,9 @@ impl McpConfig {
 }
 
 /// Split a comma-separated origin list, trimming whitespace and dropping empty
-/// entries so a trailing comma or an unset variable yields an empty list.
+/// entries so a trailing comma or an unset variable yields an empty list: how
+/// startup reads `MCP_ALLOWED_ORIGINS`.
+#[must_use]
 fn parse_origin_list(raw: &str) -> Vec<String> {
     raw.split(',')
         .map(str::trim)
@@ -227,4 +229,22 @@ impl TokioRuntimeConfig {
 /// Get environment variable or default value
 fn env_var_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_origin_list;
+
+    /// `MCP_ALLOWED_ORIGINS` is a comma-separated list, read as startup reads
+    /// it.
+    ///
+    /// Entries are trimmed and blanks dropped, so a trailing comma or a padded
+    /// value does not produce an origin that can never match.
+    #[test]
+    fn the_env_list_is_split_and_trimmed() {
+        let parsed = parse_origin_list(" https://a.example , https://b.example ,");
+
+        assert_eq!(parsed, ["https://a.example", "https://b.example"]);
+        assert!(parse_origin_list("").is_empty(), "unset is no origin");
+    }
 }

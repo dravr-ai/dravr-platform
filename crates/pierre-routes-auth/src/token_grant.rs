@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use secrecy::{ExposeSecret, SecretString};
 use tracing::{debug, field, field::Empty, info, warn, Span};
 
 use crate::token_errors::{grant_error_response, oauth2_error};
@@ -178,7 +179,7 @@ pub async fn handle_oauth2_token(
                     // The web app never does: its session is the cookie, and a
                     // token it would discard is a live credential in a table.
                     let refresh_token = if requests_offline_access(request.scope.as_deref()) {
-                        Some(
+                        Some(SecretString::from(
                             auth_service
                                 .issue_refresh_token(
                                     redeemed.user_id,
@@ -186,7 +187,7 @@ pub async fn handle_oauth2_token(
                                     redeemed.client_id,
                                 )
                                 .await?,
-                        )
+                        ))
                     } else {
                         None
                     };
@@ -202,7 +203,7 @@ pub async fn handle_oauth2_token(
                 ));
             };
             auth_service
-                .refresh_session(&presented)
+                .refresh_session(presented.expose_secret())
                 .await
                 .map(|session| (session.login, Some(session.refresh_token)))
         }
@@ -246,7 +247,7 @@ fn requests_offline_access(scope: Option<&str>) -> bool {
 fn issue_tokens(
     resources: &AuthRoutesContext,
     response: LoginResponse,
-    refresh_token: Option<String>,
+    refresh_token: Option<SecretString>,
     scope: Option<String>,
 ) -> Result<Response, AppError> {
     let jwt_token = response
@@ -270,7 +271,7 @@ fn issue_tokens(
 
     // Build response with secure cookies for web clients
     let mut headers = HeaderMap::new();
-    set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
+    set_auth_cookie(&mut headers, jwt_token.expose_secret(), 24 * 60 * 60);
     set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
 
     let oauth2_response = OAuth2TokenResponse {
@@ -281,7 +282,7 @@ fn issue_tokens(
         scope,
         // Pierre extensions for frontend compatibility
         user: Some(response.user),
-        csrf_token: Some(csrf_token),
+        csrf_token: Some(SecretString::from(csrf_token)),
     };
 
     Span::current().record("success", true);
@@ -329,7 +330,10 @@ async fn check_device_evidence(
         request.app_attest_key_id.as_deref(),
         request.app_attest_attestation.as_deref(),
         request.app_attest_assertion.as_deref(),
-        request.play_integrity_token.as_deref(),
+        request
+            .play_integrity_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
     )
     .inspect_err(|_| {
         if client_id == MOBILE_CLIENT_ID {

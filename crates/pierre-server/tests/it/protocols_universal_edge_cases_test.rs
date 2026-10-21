@@ -26,6 +26,7 @@ use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
 };
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use secrecy::SecretString;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
@@ -62,7 +63,7 @@ fn create_test_config() -> Arc<ServerConfig> {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -71,6 +72,7 @@ fn create_test_config() -> Arc<ServerConfig> {
             garmin: OAuthProviderConfig::default(),
             whoop: OAuthProviderConfig::default(),
             terra: OAuthProviderConfig::default(),
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],

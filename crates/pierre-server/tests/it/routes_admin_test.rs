@@ -149,6 +149,7 @@
 //! error handling, edge cases, and admin-specific functionality.
 
 use crate::common;
+use secrecy::ExposeSecret;
 
 use crate::helpers;
 use anyhow::Result;
@@ -393,7 +394,7 @@ async fn test_admin_auth_valid_token() -> Result<()> {
     let response = AxumTestRequest::get("/admin/token-info")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -494,7 +495,7 @@ async fn test_admin_auth_insufficient_permissions() -> Result<()> {
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -526,7 +527,7 @@ async fn test_provision_api_key_success() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -571,7 +572,7 @@ async fn test_provision_api_key_new_user() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -607,7 +608,7 @@ async fn test_provision_api_key_invalid_tier() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -661,7 +662,7 @@ async fn test_provision_api_key_without_provision_permission() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&list_only_token.jwt_token),
+            &setup.auth_header(list_only_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -695,7 +696,7 @@ async fn test_provision_api_key_invalid_rate_limit_period() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -722,7 +723,7 @@ async fn test_provision_api_key_malformed_json() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .send(routes.clone())
@@ -765,7 +766,7 @@ async fn test_revoke_api_key_success() -> Result<()> {
     let response = AxumTestRequest::post("/admin/revoke")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -799,7 +800,7 @@ async fn test_revoke_api_key_not_found() -> Result<()> {
     let response = AxumTestRequest::post("/admin/revoke")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -836,7 +837,7 @@ async fn test_list_api_keys_success() -> Result<()> {
     let response = AxumTestRequest::get("/admin/list")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -872,7 +873,7 @@ async fn test_list_api_keys_with_filters() -> Result<()> {
     )
     .header(
         "authorization",
-        &setup.auth_header(&setup.admin_token.jwt_token),
+        &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
     )
     .send(routes.clone())
     .await;
@@ -897,7 +898,7 @@ async fn test_list_api_keys_invalid_filters() -> Result<()> {
     let response = AxumTestRequest::get("/admin/list?limit=invalid&offset=negative")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -935,7 +936,7 @@ async fn test_list_admin_tokens() -> Result<()> {
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -953,7 +954,7 @@ async fn test_list_admin_tokens() -> Result<()> {
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.super_admin_token().await?.jwt_token),
+            &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -980,7 +981,7 @@ async fn test_create_admin_token() -> Result<()> {
     let response = AxumTestRequest::post("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1006,7 +1007,7 @@ async fn test_create_admin_token_refuses_the_device_login_prefix() -> Result<()>
     let response = AxumTestRequest::post("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&json!({
@@ -1043,7 +1044,7 @@ async fn test_create_super_admin_token() -> Result<()> {
     let response = AxumTestRequest::post("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.super_admin_token().await?.jwt_token),
+            &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1074,7 +1075,7 @@ async fn test_create_admin_token_invalid_permissions() -> Result<()> {
     let response = AxumTestRequest::post("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1103,7 +1104,7 @@ async fn test_get_admin_token_details() -> Result<()> {
     let response = AxumTestRequest::get(&path)
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -1126,7 +1127,7 @@ async fn test_get_admin_token_details_not_found() -> Result<()> {
     let response = AxumTestRequest::get("/admin/tokens/nonexistent_token_id")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -1175,7 +1176,7 @@ async fn test_revoke_admin_token() -> Result<()> {
     let response = AxumTestRequest::post(&path)
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -1228,7 +1229,7 @@ async fn test_rotate_admin_token() -> Result<()> {
     let response = AxumTestRequest::post(&path)
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1296,7 +1297,10 @@ async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> 
         .await?;
 
     let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", target.token_id))
-        .header("authorization", &setup.auth_header(&caller.jwt_token))
+        .header(
+            "authorization",
+            &setup.auth_header(caller.jwt_token.expose_secret()),
+        )
         .header("content-type", "application/json")
         .json(&json!({ "expires_in_days": 60 }))
         .send(routes.clone())
@@ -1362,7 +1366,10 @@ async fn rotate_allows_super_admin_to_rotate_a_super_admin_token() -> Result<()>
     let caller = setup.super_admin_token().await?;
 
     let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", target.token_id))
-        .header("authorization", &setup.auth_header(&caller.jwt_token))
+        .header(
+            "authorization",
+            &setup.auth_header(caller.jwt_token.expose_secret()),
+        )
         .header("content-type", "application/json")
         .json(&json!({ "expires_in_days": 60 }))
         .send(routes.clone())
@@ -1395,7 +1402,7 @@ async fn test_endpoint_not_found() -> Result<()> {
     let response = AxumTestRequest::get("/admin/nonexistent-endpoint")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -1440,7 +1447,7 @@ async fn test_large_request_body() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1475,7 +1482,7 @@ async fn test_special_characters_in_requests() -> Result<()> {
     let response = AxumTestRequest::post("/admin/provision")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("content-type", "application/json")
         .json(&request_body)
@@ -1526,7 +1533,10 @@ async fn test_concurrent_requests() -> Result<()> {
             });
 
             AxumTestRequest::post("/admin/provision")
-                .header("authorization", &format!("Bearer {token}"))
+                .header(
+                    "authorization",
+                    &format!("Bearer {}", token.expose_secret()),
+                )
                 .header("content-type", "application/json")
                 .json(&request_body)
                 .send(routes_clone)
@@ -1585,7 +1595,7 @@ async fn test_ip_address_extraction() -> Result<()> {
     let response = AxumTestRequest::get("/admin/token-info")
         .header(
             "authorization",
-            &setup.auth_header(&setup.admin_token.jwt_token),
+            &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
         )
         .header("x-forwarded-for", "192.168.1.100, 10.0.0.1")
         .header("x-real-ip", "172.16.0.1")
@@ -1631,7 +1641,7 @@ async fn test_all_api_key_tiers() -> Result<()> {
         let response = AxumTestRequest::post("/admin/provision")
             .header(
                 "authorization",
-                &setup.auth_header(&setup.admin_token.jwt_token),
+                &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
             )
             .header("content-type", "application/json")
             .json(&request_body)
@@ -1673,7 +1683,7 @@ async fn test_rate_limit_periods() -> Result<()> {
         let response = AxumTestRequest::post("/admin/provision")
             .header(
                 "authorization",
-                &setup.auth_header(&setup.admin_token.jwt_token),
+                &setup.auth_header(setup.admin_token.jwt_token.expose_secret()),
             )
             .header("content-type", "application/json")
             .json(&request_body)
@@ -1703,7 +1713,7 @@ async fn test_super_admin_privileges() -> Result<()> {
     let response = AxumTestRequest::get("/admin/tokens")
         .header(
             "authorization",
-            &setup.auth_header(&setup.super_admin_token().await?.jwt_token),
+            &setup.auth_header(setup.super_admin_token().await?.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;
@@ -1725,7 +1735,7 @@ async fn test_super_admin_token_info() -> Result<()> {
     let response = AxumTestRequest::get("/admin/token-info")
         .header(
             "authorization",
-            &setup.auth_header(&super_admin_token.jwt_token),
+            &setup.auth_header(super_admin_token.jwt_token.expose_secret()),
         )
         .send(routes.clone())
         .await;

@@ -34,6 +34,7 @@ use crate::strava_types::{
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt::Write;
 use std::sync::OnceLock;
@@ -153,7 +154,7 @@ impl StravaProvider {
     }
 
     /// Retrieve the current access token from credentials
-    async fn get_access_token(&self) -> AppResult<String> {
+    async fn get_access_token(&self) -> AppResult<SecretString> {
         let token = self
             .credentials
             .read()
@@ -201,7 +202,7 @@ impl StravaProvider {
         self.refresh_token_if_needed().await?;
 
         let access_token = self.get_access_token().await?;
-        Self::validate_access_token(&access_token)?;
+        Self::validate_access_token(access_token.expose_secret())?;
 
         let url = format!(
             "{}/{}",
@@ -219,7 +220,7 @@ impl StravaProvider {
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
-            &access_token,
+            access_token.expose_secret(),
             oauth_providers::STRAVA,
             &retry_config,
             budget.as_ref(),
@@ -655,8 +656,8 @@ impl FitnessProvider for StravaProvider {
                 oauth_providers::STRAVA,
                 &self.config.token_url,
                 &credentials.client_id,
-                &credentials.client_secret,
-                &refresh_token,
+                credentials.client_secret.expose_secret(),
+                refresh_token.expose_secret(),
             ),
         )
         .await?;

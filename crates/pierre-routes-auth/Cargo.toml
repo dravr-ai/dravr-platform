@@ -15,9 +15,10 @@ default = []
 # Health backfill kicks in after a successful OAuth connection (handled inside oauth.rs handler).
 health-sync = ["pierre-services/health-sync", "dep:dravr-enforme"]
 # Sciotte (Strava-mirror) provider routes: credential login + hosted login pages.
-provider-sciotte = ["dep:dravr-sciotte", "dep:pierre-groups", "pierre-providers/provider-sciotte"]
+provider-sciotte = ["dep:dravr-sciotte", "pierre-providers/provider-sciotte"]
 
 [dependencies]
+secrecy = { workspace = true }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }
@@ -25,9 +26,6 @@ pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["billing"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
-# The delegated-connection chokepoint a member's own TrainingPeaks login ends their coach link through.
-pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
-pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }
 pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
@@ -37,11 +35,9 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
-base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
 hmac = "0.12"
-rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

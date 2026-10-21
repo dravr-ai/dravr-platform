@@ -45,6 +45,7 @@ pub fn start_seat_reclaim_worker(resources: &Arc<ServerContext>) {
     let reclaimer = Arc::new(StravaSeatReclaimer::new(
         Arc::clone(&resources.common.repos),
         config,
+        resources.common.config.oauth.clone(),
         disconnector,
         notifications,
     ));

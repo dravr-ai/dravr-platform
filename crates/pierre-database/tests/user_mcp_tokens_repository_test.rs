@@ -19,6 +19,7 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{CreateUserMcpTokenRequest, User, ValidatedUserMcpToken};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
+use secrecy::ExposeSecret;
 use uuid::Uuid;
 
 /// A distinct user per call; the table's foreign key needs the row to exist.
@@ -48,7 +49,7 @@ async fn a_minted_token_reads_back_and_validates_to_its_owner() {
         )
         .await
         .unwrap();
-    assert!(created.token_value.starts_with("pmcp_"));
+    assert!(created.token_value.expose_secret().starts_with("pmcp_"));
     assert_eq!(created.token.user_id, owner);
     assert_eq!(created.token.usage_count, 0);
 
@@ -86,7 +87,7 @@ async fn a_minted_token_reads_back_and_validates_to_its_owner() {
     assert_eq!(
         repos
             .user_mcp_tokens
-            .validate_token(&created.token_value)
+            .validate_token(created.token_value.expose_secret())
             .await
             .unwrap(),
         ValidatedUserMcpToken {
@@ -182,7 +183,7 @@ async fn revoke_is_scoped_to_the_owner_and_stops_validation() {
         .unwrap();
     let denied = repos
         .user_mcp_tokens
-        .validate_token(&created.token_value)
+        .validate_token(created.token_value.expose_secret())
         .await
         .expect_err("a revoked token no longer validates");
     assert_eq!(denied.code, ErrorCode::AuthInvalid);
@@ -223,7 +224,7 @@ async fn an_expired_token_is_refused_while_a_live_one_validates() {
 
     let denied = repos
         .user_mcp_tokens
-        .validate_token(&expired.token_value)
+        .validate_token(expired.token_value.expose_secret())
         .await
         .expect_err("a token past its window no longer validates");
     assert_eq!(denied.code, ErrorCode::AuthInvalid);
@@ -231,7 +232,7 @@ async fn an_expired_token_is_refused_while_a_live_one_validates() {
     assert_eq!(
         repos
             .user_mcp_tokens
-            .validate_token(&live.token_value)
+            .validate_token(live.token_value.expose_secret())
             .await
             .unwrap()
             .user_id,

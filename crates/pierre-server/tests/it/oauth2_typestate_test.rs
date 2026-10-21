@@ -10,6 +10,7 @@
 use pierre_auth::oauth2_server::{
     AuthorizeResponse, Authorized, Initial, OAuthFlow, PkceConfig, PkceMethod, TokenResponse,
 };
+use secrecy::SecretString;
 
 #[test]
 fn test_initial_to_authorized_transition() {
@@ -37,11 +38,11 @@ fn test_authorized_to_authenticated_transition() {
     let authorized = flow.with_authorization_code("test_code", None);
 
     let token_response = TokenResponse {
-        access_token: "access_token_xyz".to_owned(),
+        access_token: SecretString::from("access_token_xyz"),
         token_type: "Bearer".to_owned(),
         expires_in: 3600,
         scope: Some("read write".to_owned()),
-        refresh_token: Some("refresh_token_abc".to_owned()),
+        refresh_token: Some(SecretString::from("refresh_token_abc")),
     };
 
     let authenticated = authorized
@@ -63,11 +64,11 @@ fn test_authenticated_to_refreshable_transition() {
 
     // Use a negative expiration to simulate an already-expired token
     let token_response = TokenResponse {
-        access_token: "access_token_xyz".to_owned(),
+        access_token: SecretString::from("access_token_xyz"),
         token_type: "Bearer".to_owned(),
         expires_in: -1,
         scope: Some("read".to_owned()),
-        refresh_token: Some("refresh_token_abc".to_owned()),
+        refresh_token: Some(SecretString::from("refresh_token_abc")),
     };
 
     let authenticated = authorized
@@ -93,11 +94,11 @@ fn test_refreshable_to_authenticated_transition() {
     let authorized = flow.with_authorization_code("test_code", None);
 
     let token_response = TokenResponse {
-        access_token: "old_access".to_owned(),
+        access_token: SecretString::from("old_access"),
         token_type: "Bearer".to_owned(),
         expires_in: -1,
         scope: Some("read".to_owned()),
-        refresh_token: Some("old_refresh".to_owned()),
+        refresh_token: Some(SecretString::from("old_refresh")),
     };
 
     let authenticated = authorized
@@ -109,11 +110,11 @@ fn test_refreshable_to_authenticated_transition() {
 
     // Refresh with new tokens
     let new_token_response = TokenResponse {
-        access_token: "new_access".to_owned(),
+        access_token: SecretString::from("new_access"),
         token_type: "Bearer".to_owned(),
         expires_in: 3600,
         scope: None, // Falls back to original scope
-        refresh_token: Some("new_refresh".to_owned()),
+        refresh_token: Some(SecretString::from("new_refresh")),
     };
 
     let re_authenticated = refreshable.refresh(new_token_response);
@@ -157,7 +158,7 @@ fn test_no_refresh_token_fails() {
     let authorized = flow.with_authorization_code("test_code", None);
 
     let token_response = TokenResponse {
-        access_token: "access".to_owned(),
+        access_token: SecretString::from("access"),
         token_type: "Bearer".to_owned(),
         expires_in: -1,
         scope: None,
@@ -196,11 +197,11 @@ fn test_force_refresh() {
     let authorized = flow.with_authorization_code("test_code", None);
 
     let token_response = TokenResponse {
-        access_token: "access".to_owned(),
+        access_token: SecretString::from("access"),
         token_type: "Bearer".to_owned(),
         expires_in: 3600, // Not expired
         scope: None,
-        refresh_token: Some("refresh".to_owned()),
+        refresh_token: Some(SecretString::from("refresh")),
     };
 
     let authenticated = authorized
@@ -252,11 +253,11 @@ fn test_client_id_and_redirect_uri_preserved_through_transitions() {
 
     // Transition to Authenticated
     let token_response = TokenResponse {
-        access_token: "access".to_owned(),
+        access_token: SecretString::from("access"),
         token_type: "Bearer".to_owned(),
         expires_in: 3600,
         scope: Some("read".to_owned()),
-        refresh_token: Some("refresh".to_owned()),
+        refresh_token: Some(SecretString::from("refresh")),
     };
 
     let authenticated = authorized

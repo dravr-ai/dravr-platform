@@ -29,6 +29,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -372,7 +373,7 @@ impl OAuth2AuthorizationServer {
         // MCP clients are confidential clients, so authentication is REQUIRED
         let client = self
             .client_manager
-            .validate_client(&request.client_id, &request.client_secret)
+            .validate_client(&request.client_id, request.client_secret.expose_secret())
             .await
             .inspect_err(|e| {
                 // A refused client is the caller's mistake. `validate_client`
@@ -411,7 +412,10 @@ impl OAuth2AuthorizationServer {
             request.code.as_deref(),
             request.redirect_uri.as_deref(),
             request.code_verifier.as_deref(),
-            request.refresh_token.as_deref(),
+            request
+                .refresh_token
+                .as_ref()
+                .map(ExposeSecret::expose_secret),
             request.scope.as_deref(),
         ])?;
 
@@ -482,8 +486,8 @@ impl OAuth2AuthorizationServer {
         let now = Utc::now();
 
         let refresh_token = super::models::OAuth2RefreshToken {
-            token: refresh_token_value.clone(),   // Safe: Clone for storage
-            client_id: request.client_id.clone(), // Safe: Clone for ownership
+            token: SecretString::from(refresh_token_value.clone()), // Safe: Clone for storage
+            client_id: request.client_id.clone(),                   // Safe: Clone for ownership
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
             scope: Self::rendered_scope(&granted),
@@ -508,11 +512,11 @@ impl OAuth2AuthorizationServer {
             })?;
 
         Ok(TokenResponse {
-            access_token,
+            access_token: SecretString::from(access_token),
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
             scope: Self::rendered_scope(&granted),
-            refresh_token: Some(refresh_token_value),
+            refresh_token: Some(SecretString::from(refresh_token_value)),
         })
     }
 
@@ -548,7 +552,7 @@ impl OAuth2AuthorizationServer {
             })?;
 
         Ok(TokenResponse {
-            access_token,
+            access_token: SecretString::from(access_token),
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
             scope: Self::rendered_scope(&granted),
@@ -569,13 +573,16 @@ impl OAuth2AuthorizationServer {
         // server, is refused before the refresh token is rotated away, and a
         // grant whose tenant the user left is revoked.
         self.check_requested_resource(request.resource.as_deref())?;
-        self.check_refresh_grant(&refresh_token_value, request.resource.as_deref())
-            .await?;
+        self.check_refresh_grant(
+            refresh_token_value.expose_secret(),
+            request.resource.as_deref(),
+        )
+        .await?;
 
         // Consume the presented token and issue its successor; a replayed one
         // revokes its whole chain instead
         let (old_refresh_token, new_refresh_token_value) = self
-            .rotate_refresh_token(&refresh_token_value, &request.client_id)
+            .rotate_refresh_token(refresh_token_value.expose_secret(), &request.client_id)
             .await
             .map_err(|e| {
                 // Every cause in here (the consume, the family revocation, the
@@ -627,11 +634,11 @@ impl OAuth2AuthorizationServer {
         );
 
         Ok(TokenResponse {
-            access_token,
+            access_token: SecretString::from(access_token),
             token_type: "Bearer".to_owned(),
             expires_in: 3600, // 1 hour
             scope: Self::rendered_scope(&granted),
-            refresh_token: Some(new_refresh_token_value),
+            refresh_token: Some(SecretString::from(new_refresh_token_value)),
         })
     }
 
@@ -1042,7 +1049,7 @@ impl OAuth2AuthorizationServer {
 
         let successor_value = generate_refresh_token()?;
         let successor = super::models::OAuth2RefreshToken {
-            token: successor_value.clone(), // Safe: Clone for storage
+            token: SecretString::from(successor_value.clone()), // Safe: Clone for storage
             client_id: consumed.client_id.clone(),
             user_id: consumed.user_id,
             tenant_id: consumed.tenant_id.clone(), // Safe: Clone for tenant isolation

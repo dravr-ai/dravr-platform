@@ -15,14 +15,15 @@
 
 use crate::errors::provider::ProviderError;
 use crate::http_client::{shared_client, SharedHttpClient};
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// Terra API configuration
 #[derive(Debug, Clone)]
 pub struct TerraApiConfig {
-    /// Terra API key (from dashboard)
-    pub api_key: String,
+    /// Terra API key (from dashboard); Debug prints a redaction
+    pub api_key: SecretString,
     /// Terra dev ID (from dashboard)
     pub dev_id: String,
     /// Base URL for Terra API
@@ -34,7 +35,7 @@ pub struct TerraApiConfig {
 impl Default for TerraApiConfig {
     fn default() -> Self {
         Self {
-            api_key: String::new(),
+            api_key: SecretString::default(),
             dev_id: String::new(),
             base_url: "https://api.tryterra.co/v2".to_owned(),
             timeout: Duration::from_secs(30),
@@ -93,7 +94,7 @@ impl TerraApiClient {
         let response = self
             .client
             .get(&url)
-            .header("x-api-key", &self.config.api_key)
+            .header("x-api-key", self.config.api_key.expose_secret())
             .header("dev-id", &self.config.dev_id)
             .query(&[("user_id", user_id)])
             .send()

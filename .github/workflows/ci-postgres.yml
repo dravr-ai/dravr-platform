@@ -1,4 +1,4 @@
-# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*/claude/*; *_postgresql_test.rs smoke on fix|debug|copilot prefixes.
+# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*/claude/* and on any push reaching the server's crates; *_postgresql_test.rs smoke otherwise.
 # ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
 name: "CI: Backend (PostgreSQL)"
 
@@ -130,6 +130,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          # The lane step below diffs this push's range on a short-lived ref.
+          fetch-depth: 50
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
@@ -150,6 +153,67 @@ jobs:
           # 60 minutes into the suite.
           reclaim-android: 'false'
           reclaim-large-packages: 'false'
+
+      - name: Choose the lane (full suite or PostgreSQL smoke)
+        id: lane
+        # The full-suite refs get the full suite. On a short-lived prefix the
+        # smoke used to be unconditional, so a fix/* push changing a crate the
+        # server links ran no server suite at all: changed-server-tests runs
+        # only the test FILES a push touched, and a src change touches none.
+        # `server-suites.sh changed-targets` answers with every target when a
+        # changed path reaches pierre_mcp_server's dependency closure (or when
+        # it cannot tell — cargo metadata failing fails toward the full run), so
+        # the lane escalates to the full suite exactly then. A push touching
+        # only test files or crates outside the closure keeps the smoke.
+        run: |
+          REF="${{ github.ref }}"
+          EVENT="${{ github.event_name }}"
+          if [ "$REF" = "refs/heads/main" ] || [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] \
+              || [[ "$REF" == refs/heads/feature/* ]] || [[ "$REF" == refs/heads/features/* ]] || [[ "$REF" == refs/heads/claude/* ]]; then
+            echo "lane=full" >> "$GITHUB_OUTPUT"
+            echo "Full suite: $REF ($EVENT) is a full-suite ref."
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          if [ "$EVENT" = "pull_request" ]; then
+            # The checkout is the PR's merge commit; its first parent is the base tip.
+            BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            BEFORE=""
+            if git fetch --no-tags --depth=200 origin main; then
+              BEFORE="$(git merge-base FETCH_HEAD HEAD 2>/dev/null || echo "")"
+            fi
+          fi
+          # A before-sha outside the 50-commit checkout (a force push, a long
+          # burst) or a fork point past it names no range. HEAD~1 would judge
+          # the tip commit alone and miss a src change earlier in the push, so
+          # an unknown range runs the full suite.
+          if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
+            echo "lane=full" >> "$GITHUB_OUTPUT"
+            echo "::warning::No base to diff this push against — running the full suite rather than guessing."
+            exit 0
+          fi
+          if ! CHANGED="$(git diff --name-only "$BEFORE" HEAD)"; then
+            echo "lane=full" >> "$GITHUB_OUTPUT"
+            echo "::warning::git diff $BEFORE..HEAD failed — running the full suite rather than guessing."
+            exit 0
+          fi
+          if ! IMPACT="$(printf '%s\n' "$CHANGED" | scripts/ci/server-suites.sh changed-targets)"; then
+            echo "::error::server-suites.sh changed-targets failed — refusing to pick a lane."
+            exit 1
+          fi
+          if ! LISTING="$(scripts/ci/server-suites.sh list)" || [ -z "$LISTING" ]; then
+            echo "::error::server-suites.sh list named no suites — refusing to pick a lane."
+            exit 1
+          fi
+          ALL="$(awk -F'\t' '{ if ($2 == "it") print "it"; else print $1 }' <<< "$LISTING" | LC_ALL=C sort -u)"
+          if [ "$IMPACT" = "$ALL" ]; then
+            echo "lane=full" >> "$GITHUB_OUTPUT"
+            echo "Full suite: this push ($BEFORE..HEAD) reaches every server test target."
+          else
+            echo "lane=smoke" >> "$GITHUB_OUTPUT"
+            echo "PostgreSQL smoke: this push ($BEFORE..HEAD) reaches no server code beyond its own test files."
+          fi
 
       - name: Assert disk headroom for the suite
         # 22 G measured peak, 86 G measured available, so 40 G is a floor with
@@ -224,10 +288,12 @@ jobs:
         # file. claude/* is the prefix Claude Code sessions push on, and those
         # branches carry whole slices of work that squash onto main, so they
         # get the same full verdict a feature branch does. The short-lived
-        # prefixes (fix/*, debug/*, copilot/*) run the
-        # `*_postgresql_test.rs` smoke — the files whose failure shape is
-        # PostgreSQL-only. A green run on those refs therefore means the
-        # smoke ran, not the suite: name the branch feature(s)/* or claude/*,
+        # prefixes (fix/*, debug/*, copilot/*) run the full suite when the
+        # push reaches the server's dependency closure (the lane step above),
+        # and otherwise the `*_postgresql_test.rs` smoke — the files whose
+        # failure shape is PostgreSQL-only. A smoke run on those refs therefore
+        # means the push changed no server code beyond its own test files, which
+        # changed-server-tests runs: name the branch feature(s)/* or claude/*,
         # or dispatch this workflow, for a full verdict on any ref (~21-24 min). Files are
         # partitioned round-robin across 4 shards; an empty selection fails
         # the job rather than reporting green over zero tests.
@@ -268,16 +334,19 @@ jobs:
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
-          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [[ "${{ github.ref }}" == refs/heads/feature/* ]] || [[ "${{ github.ref }}" == refs/heads/features/* ]] || [[ "${{ github.ref }}" == refs/heads/claude/* ]]; then
+          if [ "${{ steps.lane.outputs.lane }}" = "full" ]; then
             LANE="full suite"
             mapfile -t ALL_TESTS < <(
               scripts/ci/server-suites.sh list | cut -f1 | grep -v '_sqlite_test$'
             )
-          else
+          elif [ "${{ steps.lane.outputs.lane }}" = "smoke" ]; then
             LANE="PostgreSQL-specific smoke"
             mapfile -t ALL_TESTS < <(
               scripts/ci/server-suites.sh list | cut -f1 | grep '_postgresql_test$'
             )
+          else
+            echo "::error::the lane step chose no lane ('${{ steps.lane.outputs.lane }}') — refusing to guess."
+            exit 1
           fi
           if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
             echo "::error::PostgreSQL lane selected no test files ($LANE) — refusing to report green."

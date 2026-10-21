@@ -52,6 +52,9 @@ rand = "0.9"
 # Hex encoding
 hex = "0.4"
 
+# SecretString token and credential fields: redacting Debug, explicit expose_secret()
+secrecy = { workspace = true }
+
 # Logging
 tracing = "0.1"
 

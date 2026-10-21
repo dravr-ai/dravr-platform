@@ -28,6 +28,7 @@
 
 use crate::common;
 use crate::db_fixtures;
+use secrecy::SecretString;
 
 use std::borrow::Cow;
 use std::sync::{Arc, Once};
@@ -104,7 +105,7 @@ async fn connect(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId, pr
             user_id,
             tenant_id: tenant.to_string(),
             provider: provider.to_owned(),
-            access_token: format!("{provider}-access-do-not-log"),
+            access_token: SecretString::from(format!("{provider}-access-do-not-log")),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
             expires_at: Some(Utc::now() + Duration::hours(1)),
@@ -664,8 +665,8 @@ async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
     provider
         .set_credentials(OAuth2Credentials {
             client_id: "whoop-test-client".to_owned(),
-            client_secret: "whoop-test-secret".to_owned(),
-            access_token: Some("whoop-access-do-not-log".to_owned()),
+            client_secret: SecretString::from("whoop-test-secret"),
+            access_token: Some(SecretString::from("whoop-access-do-not-log")),
             refresh_token: None,
             expires_at: Some(Utc::now() + Duration::hours(1)),
             scopes: Vec::new(),

@@ -152,7 +152,7 @@ pub(super) async fn start_stale_refresh(
     }
     resources.common.turns.spawn(async move {
         let started_at = Utc::now();
-        let bound = revalidation_timeout();
+        let bound = revalidation_timeout(&runtime.config().timeouts);
         let mut checked = Vec::with_capacity(providers.len());
         let refresh = refresh_providers(&runtime, user_id, tenant_id, &providers, &mut checked);
         if timeout(bound, refresh).await.is_err() {

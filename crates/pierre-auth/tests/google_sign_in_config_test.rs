@@ -16,6 +16,7 @@
 use pierre_auth::config::{GoogleSignInConfig, OAuth2ServerConfig};
 use pierre_auth::google_oidc::google_callback_url;
 use pierre_auth::security::cookies::host_cookie_name;
+use secrecy::ExposeSecret;
 
 const CLIENT_ID: &str = "1234-abc.apps.googleusercontent.com";
 const SECRET: &str = "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-secret";
@@ -24,7 +25,7 @@ const SECRET: &str = "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-secret";
 fn a_client_is_configured_only_when_both_values_are_set() {
     let config = GoogleSignInConfig::from_values(Some(CLIENT_ID), Some(SECRET)).unwrap();
     assert_eq!(config.client_id, CLIENT_ID);
-    assert_eq!(config.client_secret, SECRET);
+    assert_eq!(config.client_secret.expose_secret(), SECRET);
     assert_eq!(
         config.authorization_endpoint,
         "https://accounts.google.com/o/oauth2/v2/auth"

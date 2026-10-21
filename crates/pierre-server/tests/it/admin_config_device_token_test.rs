@@ -9,6 +9,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use axum::http::StatusCode;
 use axum::Router;
@@ -117,7 +118,7 @@ async fn admin_token(
         )
         .await
         .unwrap();
-    format!("Bearer {}", minted.jwt_token)
+    format!("Bearer {}", minted.jwt_token.expose_secret())
 }
 
 /// Who the override rows for `KEY` at `user_id` scope are audited as — one

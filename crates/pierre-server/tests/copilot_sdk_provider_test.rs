@@ -1,5 +1,5 @@
 // ABOUTME: The copilot_sdk provider is selectable, reaches the tool loop as a turn provider, and reports tools by name
-// ABOUTME: Pins the platform side of the SDK transport: env selection, the trait-typed seam, records off the runtime's events
+// ABOUTME: Pins the platform side of the SDK transport: chain selection, the trait-typed seam, records off the runtime's events
 //
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,7 +23,7 @@ use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_llm::config::LlmProviderType;
+use pierre_llm::config::{LlmChain, LlmProviderType};
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotSdkConfig, CopilotSdkRunner,
     HeadlessToolResponse, LlmCapabilities, LlmProvider, ObservedToolCall, StreamChunk, Tool,
@@ -94,16 +94,15 @@ fn copilot_sdk_is_a_provider_type_with_its_own_name() {
 
 #[test]
 #[serial]
-fn copilot_sdk_builds_from_env_and_offers_the_turn_provider() {
-    // A runtime of its own: the env must be set before `from_env` reads it
-    // and restored after, and both sides of that sit outside any executor.
-    let env = EnvGuard::set(&[
-        ("PIERRE_LLM_CHAIN", "copilot_sdk=claude-haiku-4.5"),
-        ("COPILOT_SDK_MCP_TOOL_CALLING", "true"),
-    ]);
+fn copilot_sdk_builds_from_its_chain_and_offers_the_turn_provider() {
+    // A runtime of its own: the tool-calling toggle must be set before the
+    // builder reads it and restored after, and both sides of that sit outside
+    // any executor.
+    let env = EnvGuard::set(&[("COPILOT_SDK_MCP_TOOL_CALLING", "true")]);
+    let chain = LlmChain::parse(&format!("copilot_sdk={SERVED_MODEL}"));
     let chat = Runtime::new()
         .expect("a runtime for the async builder")
-        .block_on(ChatProvider::from_env())
+        .block_on(ChatProvider::from_chain(&chain))
         .expect("the SDK provider builds without touching the runtime; the client starts lazily");
     drop(env);
     let provider = chat

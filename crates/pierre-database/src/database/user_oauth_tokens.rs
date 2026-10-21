@@ -9,6 +9,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     StravaPoolApp, StravaSeatHolder, StravaTokenApp, TenantId, UserOAuthApp, UserOAuthToken,
 };
+use secrecy::{ExposeSecret, SecretString};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;

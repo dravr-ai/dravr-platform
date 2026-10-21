@@ -11,6 +11,7 @@ use pierre_core::models::a2a::{
 };
 use pierre_core::models::normalize_email;
 use pierre_core::models::WindowUsage;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;

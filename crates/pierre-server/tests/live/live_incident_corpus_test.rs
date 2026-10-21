@@ -116,11 +116,14 @@ mod helpers;
 #[path = "../helpers/live_incident_corpus.rs"]
 mod live_incident_corpus;
 
-use crate::common::{create_test_server_resources_with_real_chat_provider, PLACEHOLDER_LLM_MODEL};
+use crate::common::{
+    create_test_server_resources_with_real_chat_provider_and_config,
+    test_server_config_with_sciotte, PLACEHOLDER_LLM_MODEL,
+};
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::live_incident_corpus::{
-    athlete_runs, classify_findings, ground_truth, seed_fixture, sunday_ride_start, turn_timeout,
-    Classified, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET,
+    athlete_runs, classify_findings, ground_truth, lane_timeouts, seed_fixture, sunday_ride_start,
+    turn_timeout, Classified, Expect, Finding, Fixture, CORPUS, SEEDED_RUN_NAME, SIGNING_SECRET,
     SUNDAY_RIDE_HOURS, SUNDAY_RIDE_KM, UNIVERSAL,
 };
 use axum::http::StatusCode;
@@ -129,6 +132,7 @@ use axum::{Json, Router};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use pierre_chat_pipeline::stages::introduction::reply_names_agent;
+use pierre_config::environment::ServerConfig;
 use pierre_core::models::{TenantId, WITHHELD_REPLY_FINISH_REASON};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_llm::config::LlmChain;
@@ -728,14 +732,19 @@ async fn live_incident_corpus_holds() {
     // Refuse the harness placeholder, the same way this lane refuses a
     // `Custom` provider below and for the same reason: both leave it
     // grading something other than what it claims to.
-    // The chain head's model is the one every turn asks for — left unset,
-    // `common`'s default chain (`gemini=<placeholder>`) hands the provider a
-    // model id no backend serves. The turn still answers, from
-    // whatever the CLI resolved instead; every call prices at 0.0 because
-    // there is no pricing row for the placeholder, and the lane reports a
-    // verdict about a model it did not choose. A hard stop, not a warning:
-    // a warning in a nightly log is a warning nobody reads.
-    let model = LlmChain::head_model_from_env().unwrap_or_default();
+    // The chain head's model is the one every turn asks for — a test
+    // server's own chain (`gemini=<placeholder>`) hands the provider a model
+    // id no backend serves. The turn still answers, from whatever the CLI
+    // resolved instead; every call prices at 0.0 because there is no pricing
+    // row for the placeholder, and the lane reports a verdict about a model
+    // it did not choose. A hard stop, not a warning: a warning in a nightly
+    // log is a warning nobody reads.
+    //
+    // The lane is an entry point like the server binary: it reads the chain
+    // the environment configures once, builds its provider from it, and hands
+    // it to every server it starts.
+    let chain = LlmChain::from_env();
+    let model = chain.head_model().unwrap_or_default();
     assert!(
         !model.is_empty() && model != PLACEHOLDER_LLM_MODEL,
         "the PIERRE_LLM_CHAIN head runs {model:?} — name the model this lane is meant to \
@@ -752,12 +761,7 @@ async fn live_incident_corpus_holds() {
     // agent said so («je ne vois qu'une seule sortie cette semaine … ça ne
     // colle pas avec ce que je t'ai dit plus tôt sur ta sortie de 200 km»),
     // was right, and every episode downstream inherited the contradiction.
-    //
-    // Both env vars or neither: a URL with no audience disables the remote
-    // client, because unsigned requests are refused rather than served.
     let scraper_url = spawn_eval_scraper().await;
-    env::set_var("DRAVR_SCIOTTE_REMOTE_URL", &scraper_url);
-    env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-eval");
 
     // The production construction path, not a hand-rolled one: whatever
     // `PIERRE_LLM_CHAIN` says here is
@@ -771,7 +775,7 @@ async fn live_incident_corpus_holds() {
     // just against a code path production does not use, which is the exact
     // class of blind spot it exists to close.
     let provider = Arc::new(
-        ChatProvider::from_env()
+        ChatProvider::from_chain(&chain)
             .await
             .expect("live lane needs a real provider; check PIERRE_LLM_CHAIN and its creds"),
     );
@@ -794,9 +798,16 @@ async fn live_incident_corpus_holds() {
     // turn the incident recorded.
     for pass in 1..=attempts {
         println!("\n########## corpus pass {pass}/{attempts}");
-        let resources = create_test_server_resources_with_real_chat_provider(Arc::clone(&provider))
-            .await
-            .unwrap();
+        let resources = create_test_server_resources_with_real_chat_provider_and_config(
+            Arc::clone(&provider),
+            ServerConfig {
+                llm_chain: chain.clone(),
+                timeouts: lane_timeouts(),
+                ..test_server_config_with_sciotte(&scraper_url)
+            },
+        )
+        .await
+        .unwrap();
         let fixture = seed_fixture(&resources).await;
 
         let only = episode_filter();

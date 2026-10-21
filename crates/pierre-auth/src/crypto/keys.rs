@@ -10,6 +10,7 @@ use base64::{engine::general_purpose, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use pierre_core::errors::{AppError, AppResult};
 use rand::{Rng, RngCore};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zeroize::Zeroize;
@@ -20,7 +21,7 @@ pub struct A2AKeypair {
     /// Public key (Base64 encoded)
     pub public_key: String,
     /// Private key (Base64 encoded, stored securely)
-    pub private_key: String,
+    pub private_key: SecretString,
 }
 
 /// Public key information for verification
@@ -60,7 +61,7 @@ impl A2AKeyManager {
 
         Ok(A2AKeypair {
             public_key,
-            private_key,
+            private_key: SecretString::from(private_key),
         })
     }
 

@@ -10,6 +10,7 @@ use crate::http_client::SharedHttpClient;
 use crate::request_budget::{self, RequestBudget};
 use chrono::{TimeZone, Utc};
 use reqwest::StatusCode;
+use secrecy::SecretString;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -414,9 +415,9 @@ impl<'a> RefreshRequest<'a> {
 #[derive(Debug, Deserialize)]
 pub struct TokenRefreshResponse {
     /// New access token from the OAuth provider
-    pub access_token: String,
+    pub access_token: SecretString,
     /// Optional new refresh token (if rotated by provider)
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
     /// Token expiration time in seconds from now
     #[serde(default)]
     pub expires_in: Option<i64>,
@@ -504,7 +505,7 @@ pub async fn refresh_oauth_token(
 
     Ok(OAuth2Credentials {
         client_id: client_id.to_owned(),
-        client_secret: client_secret.to_owned(),
+        client_secret: SecretString::from(client_secret.to_owned()),
         access_token: Some(token_response.access_token),
         refresh_token: token_response.refresh_token,
         expires_at,

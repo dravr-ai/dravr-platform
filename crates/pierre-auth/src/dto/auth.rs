@@ -10,6 +10,7 @@
 //! routes for serialization and deserialization of API requests and responses.
 
 use pierre_core::models::{DelegationStatus, ProviderAccountRole, UserStatus};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 /// User registration request
@@ -18,7 +19,7 @@ pub struct RegisterRequest {
     /// User's email address
     pub email: String,
     /// User's password (will be hashed)
-    pub password: String,
+    pub password: SecretString,
     /// Optional display name for the user
     pub display_name: Option<String>,
 }
@@ -43,7 +44,7 @@ pub struct LoginRequest {
     /// User's email address
     pub email: String,
     /// User's password
-    pub password: String,
+    pub password: SecretString,
     /// Optional IANA timezone (e.g. `"America/Toronto"`). Captured
     /// client-side via `Intl.DateTimeFormat().resolvedOptions().timeZone`
     /// and forwarded on each successful login so the chat prompt can
@@ -57,7 +58,7 @@ pub struct LoginRequest {
 #[derive(Debug, Deserialize)]
 pub struct FirebaseLoginRequest {
     /// Firebase ID token from client-side Firebase SDK
-    pub id_token: String,
+    pub id_token: SecretString,
     /// Optional IANA timezone — see [`LoginRequest::timezone`].
     #[serde(default)]
     pub timezone: Option<String>,
@@ -112,9 +113,11 @@ pub struct UserInfo {
 pub struct LoginResponse {
     /// JWT authentication token (optional, set in httpOnly cookie)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwt_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub jwt_token: Option<SecretString>,
     /// CSRF token for request validation (client must include in X-CSRF-Token header)
-    pub csrf_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub csrf_token: SecretString,
     /// When the token expires (ISO 8601 format)
     pub expires_at: String,
     /// User information
@@ -195,9 +198,9 @@ pub struct UpdateCoachingRoleRequest {
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
     /// Current password for verification
-    pub current_password: String,
+    pub current_password: SecretString,
     /// New password to set
-    pub new_password: String,
+    pub new_password: SecretString,
 }
 
 /// Complete a password reset using a one-time reset token
@@ -207,9 +210,9 @@ pub struct ChangePasswordRequest {
 #[derive(Debug, Deserialize)]
 pub struct CompleteResetRequest {
     /// One-time reset token provided by the admin
-    pub reset_token: String,
+    pub reset_token: SecretString,
     /// New password chosen by the user
-    pub new_password: String,
+    pub new_password: SecretString,
 }
 
 /// Request to accept an invitation: the invitee chooses their own password.
@@ -252,9 +255,11 @@ pub struct SessionResponse {
     /// Authenticated user information
     pub user: UserInfo,
     /// Fresh JWT token for WebSocket authentication (not stored in cookies)
-    pub access_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// Fresh CSRF token for request validation
-    pub csrf_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub csrf_token: SecretString,
 }
 
 /// User stats response for dashboard
@@ -275,7 +280,7 @@ pub struct UserStatsResponse {
 #[derive(Debug, Deserialize)]
 pub struct LogoutRequest {
     /// The refresh token this device holds, to revoke with its whole family.
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
 }
 
 /// `OAuth2` token request for first-party clients — RFC 6749 §4.1.3
@@ -297,7 +302,7 @@ pub struct OAuth2TokenRequest {
     /// The PKCE verifier of the challenge the code was issued for (RFC 7636)
     pub code_verifier: Option<String>,
     /// The refresh token to exchange, for the `refresh_token` grant
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
     /// `OAuth2` client identifier: one of Dravr's own apps for the
     /// authorization-code grant (carnet#787); the refresh grant reads none.
     pub client_id: Option<String>,
@@ -312,7 +317,7 @@ pub struct OAuth2TokenRequest {
     pub app_attest_assertion: Option<String>,
     /// The Android app's Play Integrity token, requested over the SHA-256 of
     /// the code (carnet#810); never beside the App Attest fields
-    pub play_integrity_token: Option<String>,
+    pub play_integrity_token: Option<SecretString>,
 }
 
 /// `OAuth2` token response per RFC 6749 Section 5.1
@@ -320,14 +325,16 @@ pub struct OAuth2TokenRequest {
 #[derive(Debug, Serialize)]
 pub struct OAuth2TokenResponse {
     /// The access token issued by the authorization server
-    pub access_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// The type of the token issued (always "Bearer")
     pub token_type: String,
     /// The lifetime in seconds of the access token
     pub expires_in: i64,
     /// Optional refresh token for obtaining new access tokens
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub refresh_token: Option<SecretString>,
     /// The scope of the access token (space-separated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -337,7 +344,8 @@ pub struct OAuth2TokenResponse {
     pub user: Option<UserInfo>,
     /// CSRF token for web clients (Pierre extension)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub csrf_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub csrf_token: Option<SecretString>,
 }
 
 /// `OAuth2` error response per RFC 6749 Section 5.2

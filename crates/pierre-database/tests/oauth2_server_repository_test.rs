@@ -23,6 +23,7 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
+use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 /// Register a distinct client; the code, token and state tables all reference it.
@@ -211,7 +212,7 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
     let user_id = Uuid::new_v4();
     let raw = format!("rt-{}", Uuid::new_v4());
     let token = OAuth2RefreshToken {
-        token: raw.clone(),
+        token: SecretString::from(raw.clone()),
         client_id: client.client_id.clone(),
         user_id,
         tenant_id: "tenant-b".to_owned(),
@@ -234,7 +235,11 @@ async fn a_refresh_token_rotates_once_for_its_client_and_is_stored_hashed() {
         .await
         .unwrap()
         .expect("the token reads back by its raw value");
-    assert_ne!(stored.token, raw, "only the HMAC of the token is stored");
+    assert_ne!(
+        stored.token.expose_secret(),
+        raw,
+        "only the HMAC of the token is stored"
+    );
     assert_eq!(stored.user_id, user_id);
     assert_eq!(stored.tenant_id, "tenant-b");
     assert_eq!(stored.scope.as_deref(), Some("read write"));

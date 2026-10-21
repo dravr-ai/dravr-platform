@@ -272,7 +272,7 @@ async fn revalidate_within_budget(
         // Hold the slot for the whole refresh; dropping `guard` frees it.
         let _guard = guard;
         info!(user_id = %user_id, "Activity cache: revalidation started");
-        let bound = revalidation_timeout();
+        let bound = revalidation_timeout(&runtime.config().timeouts);
         match timeout(
             bound,
             fetch_and_persist_live(&runtime, &providers, user_id, tenant_id),

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::SecretString;
 use std::io::{self, BufRead};
 use std::sync::Arc;
 
@@ -289,7 +290,7 @@ pub async fn set_oauth_app(
             tenant_id: tenant,
             provider: provider.clone(),
             client_id: settings.client_id.trim().to_owned(),
-            client_secret,
+            client_secret: SecretString::from(client_secret),
             redirect_uri: settings.redirect_uri,
             scopes: settings.scopes,
             rate_limit_per_day,

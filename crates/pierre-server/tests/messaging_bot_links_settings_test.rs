@@ -18,7 +18,10 @@ mod helpers;
 
 #[cfg(feature = "client-messaging")]
 mod bot_links_settings {
-    use crate::common::{create_test_server_resources, create_test_tenant, generate_test_token};
+    use crate::common::{
+        create_test_server_resources, create_test_server_resources_with_config, create_test_tenant,
+        generate_test_token, test_server_config,
+    };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::extract::Path;
     use axum::http::{HeaderMap, StatusCode};
@@ -59,8 +62,13 @@ mod bot_links_settings {
     /// Resources with an email service present, so an unlinked sender is
     /// routed into the in-chat OTP flow rather than handed a link URL. The key
     /// is fake: the tests put the OTP state in place directly and never send.
-    async fn resources_with_email() -> Arc<ServerContext> {
-        let mut resources = create_test_server_resources().await.unwrap();
+    /// A `WhatsApp` link asks its number of the Graph API at `graph_api_base`.
+    async fn resources_with_email(graph_api_base: String) -> Arc<ServerContext> {
+        let mut config = test_server_config();
+        config.external_services.meta_graph_api_base = Some(graph_api_base);
+        let mut resources = create_test_server_resources_with_config(config)
+            .await
+            .unwrap();
         Arc::get_mut(&mut resources)
             .expect("no other handle to the fresh ServerContext yet")
             .common
@@ -235,7 +243,7 @@ mod bot_links_settings {
     /// bot redeems, and unlinks.
     #[tokio::test]
     async fn bot_made_links_are_listed_offered_linkable_and_unlinkable() {
-        let resources = resources_with_email().await;
+        let resources = resources_with_email(graph_api_stand_in().await).await;
         let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
 
         // The deployment's admin, whose tenant stores the env-seeded bot.
@@ -328,12 +336,10 @@ mod bot_links_settings {
         // Connect WhatsApp from Settings: the code is stored under the bot's
         // tenant, so the bot redeems it when the athlete sends it. The number
         // the link dials is asked of a Graph API stand-in.
-        env::set_var("META_GRAPH_API_BASE", graph_api_stand_in().await);
         let resp = AxumTestRequest::post("/api/messaging/link/init/whatsapp")
             .header("authorization", &athlete_token)
             .send(MessagingRoutes::routes(Arc::clone(&resources)))
             .await;
-        env::remove_var("META_GRAPH_API_BASE");
         assert_eq!(resp.status_code(), StatusCode::OK);
         let init: Value = resp.json();
         let code = init["code"].as_str().expect("deep-link code").to_owned();

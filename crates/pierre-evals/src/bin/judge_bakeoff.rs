@@ -31,6 +31,7 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use pierre_evals::judge::{judge_claim, ClaimJudge};
+use pierre_llm::config::LlmChain;
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{http_env, ChatProvider, EmbacleProvider, LlmProvider, OpenAiCompatibleConfig};
 use serde::{Deserialize, Serialize};
@@ -335,7 +336,7 @@ async fn build_provider(kind: &Kind) -> Result<Box<dyn LlmProvider>, String> {
             http_env::cohere_with_key(key, Some((*model).to_owned()))
         }
         Kind::Cli => {
-            return ChatProvider::from_env()
+            return ChatProvider::from_chain(&LlmChain::from_env())
                 .await
                 .map(|p| Box::new(p) as Box<dyn LlmProvider>)
                 .map_err(|e| e.to_string())

@@ -9,8 +9,10 @@ use pierre_core::constants::{oauth2_client_retention, oauth_providers};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::gcp_token::METADATA_TOKEN_URL;
 use pierre_core::redaction::redact_url;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::env;
 use std::iter;
 use tracing::{debug, info, warn};
@@ -20,7 +22,11 @@ use super::google_sign_in::GoogleSignInConfig;
 use super::satellites::resolve_satellite_resources;
 use crate::oauth2_server::first_party::FirstPartyRedirects;
 
-/// OAuth provider configuration for fitness platforms
+/// The server's own OAuth apps and provider endpoints, read once at startup.
+///
+/// Every runtime lookup of a provider's server-level credentials, the Strava
+/// app's seat cap or a provider's endpoint override reads this configuration;
+/// nothing reads the environment for them per request.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OAuthConfig {
     /// Strava OAuth configuration
@@ -31,18 +37,62 @@ pub struct OAuthConfig {
     pub whoop: OAuthProviderConfig,
     /// Terra OAuth configuration
     pub terra: OAuthProviderConfig,
+    /// Intervals.icu OAuth configuration
+    pub intervals_icu: OAuthProviderConfig,
+    /// Wahoo OAuth configuration
+    pub wahoo: OAuthProviderConfig,
+    /// Athlete-seat capacity of the server's own Strava app
+    /// (`STRAVA_OAUTH_SEAT_CAP`); `None` is the Standard Tier default
+    /// ([`Self::strava_seat_cap`]).
+    pub strava_seat_cap: Option<u32>,
+    /// Endpoint overrides per provider (`PIERRE_<P>_AUTH_URL`, `_TOKEN_URL`,
+    /// `_API_BASE_URL`, `_REVOKE_URL`, `_SCOPES`), applied over each
+    /// provider's defaults when the provider registry is built.
+    pub endpoints: ProviderEndpointOverrides,
 }
+
+/// A provider with no server-level app: what [`OAuthConfig::server_app`]
+/// answers for a provider the configuration does not carry.
+static UNCONFIGURED_APP: OAuthProviderConfig = OAuthProviderConfig {
+    client_id: None,
+    client_secret: None,
+    redirect_uri: None,
+    scopes: Vec::new(),
+    enabled: false,
+};
+
+/// The providers whose endpoints the environment can override, as the
+/// provider registry names them.
+const ENDPOINT_PROVIDERS: [&str; 7] = [
+    oauth_providers::STRAVA,
+    oauth_providers::GARMIN,
+    oauth_providers::TERRA,
+    oauth_providers::WHOOP,
+    oauth_providers::COROS,
+    oauth_providers::INTERVALS_ICU,
+    oauth_providers::WAHOO,
+];
 
 impl OAuthConfig {
     /// Load OAuth configuration from environment, each provider through
-    /// [`get_oauth_config`], the one reader of provider OAuth settings.
+    /// [`provider_app_from_env`], the one reader of provider OAuth settings.
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            strava: get_oauth_config(oauth_providers::STRAVA),
-            garmin: get_oauth_config(oauth_providers::GARMIN),
-            whoop: get_oauth_config(oauth_providers::WHOOP),
-            terra: get_oauth_config(oauth_providers::TERRA),
+            strava: provider_app_from_env(oauth_providers::STRAVA),
+            garmin: provider_app_from_env(oauth_providers::GARMIN),
+            whoop: provider_app_from_env(oauth_providers::WHOOP),
+            terra: provider_app_from_env(oauth_providers::TERRA),
+            intervals_icu: provider_app_from_env(oauth_providers::INTERVALS_ICU),
+            wahoo: provider_app_from_env(oauth_providers::WAHOO),
+            strava_seat_cap: strava_seat_cap_from_env(),
+            endpoints: ENDPOINT_PROVIDERS
+                .iter()
+                .filter_map(|provider| {
+                    ProviderEndpointOverride::from_env(provider)
+                        .map(|endpoints| ((*provider).to_owned(), endpoints))
+                })
+                .collect(),
         }
     }
 
@@ -55,8 +105,83 @@ impl OAuthConfig {
             p if p == oauth_providers::GARMIN => Some(&self.garmin),
             p if p == oauth_providers::WHOOP => Some(&self.whoop),
             p if p == oauth_providers::TERRA => Some(&self.terra),
+            p if p == oauth_providers::INTERVALS_ICU => Some(&self.intervals_icu),
+            p if p == oauth_providers::WAHOO => Some(&self.wahoo),
             _ => None,
         }
+    }
+
+    /// The server's own app for `provider`: its credentials, redirect and
+    /// scopes, disabled and empty for a provider the server has no app for.
+    #[must_use]
+    pub fn server_app(&self, provider: &str) -> &OAuthProviderConfig {
+        self.provider(provider).unwrap_or(&UNCONFIGURED_APP)
+    }
+
+    /// Athlete-seat capacity of the server's own Strava app.
+    ///
+    /// Strava enforces a per-application athlete limit ("Number of athletes
+    /// allowed to connect" in the API settings dashboard) and does **not**
+    /// expose it via any API response header, so the platform cannot read it
+    /// at runtime. This is the operator-configured cap, else
+    /// [`STRAVA_OAUTH_SEAT_CAP_DEFAULT`] (the Standard Tier entry-level cap).
+    /// A zero cap reads as the default: it would wedge every athlete onto the
+    /// scraper fallback, which is never the intent.
+    #[must_use]
+    pub fn strava_seat_cap(&self) -> u32 {
+        self.strava_seat_cap
+            .filter(|&cap| cap > 0)
+            .unwrap_or(STRAVA_OAUTH_SEAT_CAP_DEFAULT)
+    }
+}
+
+/// Endpoint overrides keyed by provider name.
+pub type ProviderEndpointOverrides = HashMap<String, ProviderEndpointOverride>;
+
+/// The endpoints a deployment overrides for one provider; a `None` field keeps
+/// the provider's default.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ProviderEndpointOverride {
+    /// OAuth authorization URL (`PIERRE_<P>_AUTH_URL`)
+    pub auth_url: Option<String>,
+    /// OAuth token URL (`PIERRE_<P>_TOKEN_URL`)
+    pub token_url: Option<String>,
+    /// Provider API base URL (`PIERRE_<P>_API_BASE_URL`)
+    pub api_base_url: Option<String>,
+    /// Token revocation URL (`PIERRE_<P>_REVOKE_URL`)
+    pub revoke_url: Option<String>,
+    /// Scopes (`PIERRE_<P>_SCOPES`, separated by commas or whitespace)
+    pub scopes: Option<Vec<String>>,
+}
+
+impl ProviderEndpointOverride {
+    /// Read `provider`'s overrides from the environment; `None` when it
+    /// overrides nothing.
+    ///
+    /// # Examples
+    ///
+    /// ```bash
+    /// # Strava configuration
+    /// export PIERRE_STRAVA_SCOPES="activity:read_all,profile:read_all"
+    ///
+    /// # Garmin configuration (optional URLs override defaults)
+    /// export PIERRE_GARMIN_API_BASE_URL=https://custom-garmin-api.example.com
+    /// ```
+    #[must_use]
+    pub fn from_env(provider: &str) -> Option<Self> {
+        let upper = provider.to_uppercase();
+        let read = |suffix: &str| env::var(format!("PIERRE_{upper}_{suffix}")).ok();
+        let endpoints = Self {
+            auth_url: read("AUTH_URL"),
+            token_url: read("TOKEN_URL"),
+            api_base_url: read("API_BASE_URL"),
+            revoke_url: read("REVOKE_URL"),
+            // Read the way `provider_app_from_env` reads the same variable:
+            // commas or whitespace, so a space-separated override (WHOOP's and
+            // Wahoo's own form) never collapses into one scope.
+            scopes: read("SCOPES").map(|scopes| parse_scopes(&scopes)),
+        };
+        (endpoints != Self::default()).then_some(endpoints)
     }
 }
 
@@ -65,8 +190,9 @@ impl OAuthConfig {
 pub struct OAuthProviderConfig {
     /// OAuth client ID
     pub client_id: Option<String>,
-    /// OAuth client secret
-    pub client_secret: Option<String>,
+    /// OAuth client secret; Debug prints a redaction and serialization omits it
+    #[serde(skip_serializing)]
+    pub client_secret: Option<SecretString>,
     /// OAuth redirect URI
     pub redirect_uri: Option<String>,
     /// OAuth scopes
@@ -88,7 +214,9 @@ impl OAuthProviderConfig {
     /// This allows comparing secrets without logging actual values
     #[must_use]
     pub fn secret_fingerprint(&self) -> Option<String> {
-        self.client_secret.as_deref().map(secret_fingerprint)
+        self.client_secret
+            .as_ref()
+            .map(|secret| secret_fingerprint(secret.expose_secret()))
     }
 
     /// Validate OAuth credentials and log diagnostics
@@ -125,7 +253,7 @@ impl OAuthProviderConfig {
     /// Validate client secret is present and non-empty
     fn validate_client_secret(&self, provider_name: &str) -> Option<&str> {
         match &self.client_secret {
-            Some(secret) if !secret.is_empty() => Some(secret.as_str()),
+            Some(secret) if !secret.expose_secret().is_empty() => Some(secret.expose_secret()),
             _ => {
                 warn!("OAuth provider {provider_name}: client_secret is missing or empty");
                 None
@@ -205,8 +333,10 @@ pub struct OAuth2ServerConfig {
     pub satellite_resources: Vec<String>,
     /// Default email for OAuth login page (dev/test only - do not use in production)
     pub default_login_email: Option<String>,
-    /// Default password for OAuth login page (dev/test only - NEVER use in production!)
-    pub default_login_password: Option<String>,
+    /// Default password for OAuth login page (dev/test only - NEVER use in production!);
+    /// Debug prints a redaction and serialization omits it
+    #[serde(skip_serializing)]
+    pub default_login_password: Option<SecretString>,
     /// How long RFC 7591 dynamic client registrations are kept, and how many
     /// no user has authorized may exist at once
     pub client_retention: ClientRetentionConfig,
@@ -481,7 +611,9 @@ impl OAuth2ServerConfig {
                 env::var("OAUTH2_SATELLITE_RESOURCES").ok().as_deref(),
             ),
             default_login_email: env::var("OAUTH_DEFAULT_EMAIL").ok(),
-            default_login_password: env::var("OAUTH_DEFAULT_PASSWORD").ok(),
+            default_login_password: env::var("OAUTH_DEFAULT_PASSWORD")
+                .ok()
+                .map(SecretString::from),
             client_retention: ClientRetentionConfig::from_env(),
             google_sign_in: GoogleSignInConfig::from_env().map(Box::new),
             first_party_redirects,
@@ -593,8 +725,10 @@ const IDENTITY_TOOLKIT_URL: &str = "https://identitytoolkit.googleapis.com";
 pub struct FirebaseConfig {
     /// Firebase project ID (required for token validation)
     pub project_id: Option<String>,
-    /// Firebase API key (optional, for client-side SDK)
-    pub api_key: Option<String>,
+    /// Firebase API key (optional, for client-side SDK); Debug prints a
+    /// redaction and serialization omits it
+    #[serde(skip_serializing)]
+    pub api_key: Option<SecretString>,
     /// Whether Firebase authentication is enabled
     pub enabled: bool,
     /// Base URL of the Identity Toolkit API the account delete removes the
@@ -639,7 +773,7 @@ impl FirebaseConfig {
     #[must_use]
     pub fn from_env() -> Self {
         let project_id = env::var("FIREBASE_PROJECT_ID").ok();
-        let api_key = env::var("FIREBASE_API_KEY").ok();
+        let api_key = env::var("FIREBASE_API_KEY").ok().map(SecretString::from);
 
         // Firebase is enabled if project_id is set and FIREBASE_ENABLED is not explicitly false
         let enabled = project_id.is_some()
@@ -696,38 +830,27 @@ pub fn default_provider() -> Option<String> {
     Some(provider)
 }
 
-/// Athlete-seat capacity for the shared Dravr Strava OAuth app.
-///
-/// Strava enforces a per-application athlete limit ("Number of athletes allowed
-/// to connect" in the API settings dashboard) and does **not** expose it via any
-/// API response header, so the platform cannot read it at runtime. This returns
-/// the operator-configured cap from the `STRAVA_OAUTH_SEAT_CAP` environment
-/// variable, falling back to [`STRAVA_OAUTH_SEAT_CAP_DEFAULT`] (the Standard Tier
-/// entry-level cap). Bump the env var after self-upgrading the app's tier on
-/// Strava.
-///
-/// A non-numeric or zero value falls back to the default — a zero cap would
-/// wedge every athlete onto the scraper fallback, which is never the intent.
+/// The operator-configured athlete-seat cap of the server's own Strava app
+/// (`STRAVA_OAUTH_SEAT_CAP`), `None` when unset or not a number;
+/// [`OAuthConfig::strava_seat_cap`] resolves it. Bump the variable after
+/// self-upgrading the app's tier on Strava.
 ///
 /// # Examples
 ///
 /// ```bash
 /// export STRAVA_OAUTH_SEAT_CAP=10
 /// ```
-#[must_use]
-pub fn strava_oauth_seat_cap() -> u32 {
+fn strava_seat_cap_from_env() -> Option<u32> {
     env::var("STRAVA_OAUTH_SEAT_CAP")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
-        .filter(|&cap| cap > 0)
-        .unwrap_or(STRAVA_OAUTH_SEAT_CAP_DEFAULT)
 }
 
-/// Get OAuth provider configuration by provider name.
+/// A provider's server-level OAuth app, read from the environment.
 ///
 /// This is the one reader of a provider's OAuth settings in the environment:
-/// [`OAuthConfig::from_env`] builds `ServerConfig.oauth` from it, and runtime
-/// lookups call it.
+/// [`OAuthConfig::from_env`] builds `ServerConfig.oauth` from it at startup,
+/// and every runtime lookup reads that configuration.
 ///
 /// - `client_id` / `client_secret`: `<P>_CLIENT_ID` / `<P>_CLIENT_SECRET`,
 ///   else `PIERRE_<P>_CLIENT_ID` / `PIERRE_<P>_CLIENT_SECRET` (Terra names its
@@ -740,12 +863,35 @@ pub fn strava_oauth_seat_cap() -> u32 {
 /// - `enabled`: both credentials are set
 ///
 /// An unknown provider gets the empty, disabled default.
-///
-/// # Arguments
-/// * `provider_name` - The provider name (e.g., "strava", "garmin", "whoop")
-#[must_use]
-pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
-    let (id_key, secret_key, default_scopes) = match provider_name {
+fn provider_app_from_env(provider_name: &str) -> OAuthProviderConfig {
+    let Some((id_key, secret_key, _)) = provider_app_source(provider_name) else {
+        debug!(
+            "Unknown provider '{}', returning default config",
+            provider_name
+        );
+        return OAuthProviderConfig::default();
+    };
+    let upper = provider_name.to_uppercase();
+    let client_id =
+        credential_env(id_key).or_else(|| credential_env(&format!("PIERRE_{upper}_CLIENT_ID")));
+    let client_secret = credential_env(secret_key)
+        .or_else(|| credential_env(&format!("PIERRE_{upper}_CLIENT_SECRET")));
+
+    let mut app = OAuthProviderConfig::for_provider(provider_name, client_id, client_secret);
+    if let Ok(scopes) =
+        env::var(format!("PIERRE_{upper}_SCOPES")).or_else(|_| env::var(format!("{upper}_SCOPES")))
+    {
+        app.scopes = parse_scopes(&scopes);
+    }
+    app.redirect_uri = env::var(format!("{upper}_REDIRECT_URI")).ok();
+    app
+}
+
+/// The environment variables `provider`'s server-level credentials are read
+/// from, and the scopes it asks for unless configured otherwise; `None` for a
+/// provider the server holds no app for.
+fn provider_app_source(provider: &str) -> Option<(&'static str, &'static str, Vec<String>)> {
+    let source = match provider {
         p if p == oauth_providers::STRAVA => (
             "STRAVA_CLIENT_ID",
             "STRAVA_CLIENT_SECRET",
@@ -783,94 +929,29 @@ pub fn get_oauth_config(provider_name: &str) -> OAuthProviderConfig {
                 .map(|scope| (*scope).to_owned())
                 .collect(),
         ),
-        _ => {
-            debug!(
-                "Unknown provider '{}', returning default config",
-                provider_name
-            );
-            return OAuthProviderConfig::default();
-        }
+        _ => return None,
     };
-    let upper = provider_name.to_uppercase();
-    let client_id =
-        credential_env(id_key).or_else(|| credential_env(&format!("PIERRE_{upper}_CLIENT_ID")));
-    let client_secret = credential_env(secret_key)
-        .or_else(|| credential_env(&format!("PIERRE_{upper}_CLIENT_SECRET")));
-    let scopes = env::var(format!("PIERRE_{upper}_SCOPES"))
-        .or_else(|_| env::var(format!("{upper}_SCOPES")))
-        .map_or(default_scopes, |s| parse_scopes(&s));
-
-    OAuthProviderConfig {
-        enabled: client_id.is_some() && client_secret.is_some(),
-        client_id,
-        client_secret,
-        redirect_uri: env::var(format!("{upper}_REDIRECT_URI")).ok(),
-        scopes,
-    }
+    Some(source)
 }
 
-/// Provider endpoint configuration tuple from environment variables
-///
-/// Returns: (`auth_url`, `token_url`, `api_base_url`, `revoke_url`, `scopes`)
-pub type ProviderEnvConfig = (String, String, String, Option<String>, Vec<String>);
-
-/// Load provider-specific endpoint configuration from environment variables
-///
-/// Reads provider endpoints from `PIERRE_<PROVIDER>_*` environment variables.
-/// Falls back to provided defaults if environment variables are not set. The
-/// client credentials are read by [`get_oauth_config`] alone.
-///
-/// # Environment Variables
-///
-/// For each provider (e.g., STRAVA, GARMIN):
-/// - `PIERRE_<PROVIDER>_AUTH_URL` - OAuth authorization URL (optional)
-/// - `PIERRE_<PROVIDER>_TOKEN_URL` - OAuth token URL (optional)
-/// - `PIERRE_<PROVIDER>_API_BASE_URL` - Provider API base URL (optional)
-/// - `PIERRE_<PROVIDER>_REVOKE_URL` - Token revocation URL (optional)
-/// - `PIERRE_<PROVIDER>_SCOPES` - Scopes separated by commas or spaces (optional)
-///
-/// # Examples
-///
-/// ```bash
-/// # Strava configuration
-/// export PIERRE_STRAVA_SCOPES="activity:read_all,profile:read_all"
-///
-/// # Garmin configuration (optional URLs override defaults)
-/// export PIERRE_GARMIN_API_BASE_URL=https://custom-garmin-api.example.com
-/// ```
-#[must_use]
-pub fn load_provider_env_config(
-    provider: &str,
-    default_auth_url: &str,
-    default_token_url: &str,
-    default_api_base_url: &str,
-    default_revoke_url: Option<&str>,
-    default_scopes: &[String],
-) -> ProviderEnvConfig {
-    let provider_upper = provider.to_uppercase();
-
-    // Load URLs with defaults
-    let auth_url = env::var(format!("PIERRE_{provider_upper}_AUTH_URL"))
-        .unwrap_or_else(|_| default_auth_url.to_owned());
-
-    let token_url = env::var(format!("PIERRE_{provider_upper}_TOKEN_URL"))
-        .unwrap_or_else(|_| default_token_url.to_owned());
-
-    let api_base_url = env::var(format!("PIERRE_{provider_upper}_API_BASE_URL"))
-        .unwrap_or_else(|_| default_api_base_url.to_owned());
-
-    let revoke_url = env::var(format!("PIERRE_{provider_upper}_REVOKE_URL"))
-        .ok()
-        .or_else(|| default_revoke_url.map(ToOwned::to_owned));
-
-    // Load scopes with default, read the way `get_oauth_config` reads the
-    // same variable: commas or whitespace, so a space-separated override
-    // (WHOOP's and Wahoo's own form) never collapses into one scope.
-    let scopes = env::var(format!("PIERRE_{provider_upper}_SCOPES"))
-        .ok()
-        .map_or_else(|| default_scopes.to_vec(), |s| parse_scopes(&s));
-
-    (auth_url, token_url, api_base_url, revoke_url, scopes)
+impl OAuthProviderConfig {
+    /// `provider`'s server-level app with these credentials, asking for the
+    /// provider's default scopes and completing at the server's own callback;
+    /// enabled when both credentials are present.
+    #[must_use]
+    pub fn for_provider(
+        provider: &str,
+        client_id: Option<String>,
+        client_secret: Option<String>,
+    ) -> Self {
+        Self {
+            enabled: client_id.is_some() && client_secret.is_some(),
+            client_id,
+            client_secret: client_secret.map(SecretString::from),
+            redirect_uri: None,
+            scopes: provider_app_source(provider).map_or_else(Vec::new, |(_, _, scopes)| scopes),
+        }
+    }
 }
 
 /// Parse a scope list separated by commas or whitespace (Strava joins its
@@ -887,8 +968,9 @@ pub fn parse_scopes(scopes_str: &str) -> Vec<String> {
 /// The redirect URI this server receives `provider`'s authorization codes at.
 ///
 /// `<P>_REDIRECT_URI` when set (`server_level.redirect_uri`), else
-/// `{BASE_URL}/api/oauth/callback/{provider}`, `BASE_URL` defaulting to
-/// `http://localhost:{http_port}`.
+/// `{base_url}/api/oauth/callback/{provider}`: `base_url` is the server's
+/// configured public URL (`BASE_URL`), `http://localhost:{http_port}` when it
+/// is empty.
 ///
 /// An authorization completes only through this URL, so every client this
 /// server runs an authorization under presents it — the server's own app and
@@ -897,10 +979,15 @@ pub fn parse_scopes(scopes_str: &str) -> Vec<String> {
 pub fn provider_callback_uri(
     provider: &str,
     server_level: &OAuthProviderConfig,
+    base_url: &str,
     http_port: u16,
 ) -> String {
     server_level.redirect_uri.clone().unwrap_or_else(|| {
-        callback_uri_under(env::var("BASE_URL").ok().as_deref(), provider, http_port)
+        callback_uri_under(
+            Some(base_url).filter(|url| !url.is_empty()),
+            provider,
+            http_port,
+        )
     })
 }
 
@@ -930,8 +1017,9 @@ pub fn credential_env(key: &str) -> Option<String> {
 }
 
 /// The credential `raw` carries once trimmed, unless it is blank or the
-/// placeholder.
-fn configured_credential(raw: Option<String>) -> Option<String> {
+/// placeholder: how startup reads every provider credential it is handed.
+#[must_use]
+pub fn configured_credential(raw: Option<String>) -> Option<String> {
     let value = raw?.trim().to_owned();
     (!value.is_empty() && value != UNSET_SECRET_PLACEHOLDER).then_some(value)
 }
@@ -980,7 +1068,7 @@ mod tests {
             ..OAuthProviderConfig::default()
         };
         assert_eq!(
-            provider_callback_uri("whoop", &server_level, 8081),
+            provider_callback_uri("whoop", &server_level, "https://app.dravr.ai", 8081),
             "https://tunnel.example/api/oauth/callback/whoop"
         );
     }
@@ -1019,6 +1107,85 @@ mod tests {
         assert_eq!(
             first_party_web_origins(Some("dravr://auth/callback"), "https://api.dravr.ai"),
             vec!["https://api.dravr.ai"]
+        );
+    }
+
+    /// What `secrecy` prints in place of a `SecretString`.
+    const SECRET_MARKER: &str = "SecretBox<str>([REDACTED])";
+
+    #[test]
+    fn a_provider_client_secret_never_prints_or_serializes() {
+        let secret = "whoop-client-secret-5c8a1f";
+        let config = OAuthProviderConfig {
+            client_id: Some("whoop-client".to_owned()),
+            client_secret: Some(SecretString::from(secret)),
+            enabled: true,
+            ..OAuthProviderConfig::default()
+        };
+        let oauth = OAuthConfig {
+            whoop: config.clone(),
+            ..OAuthConfig::default()
+        };
+        for printed in [format!("{config:?}"), format!("{oauth:#?}")] {
+            assert!(!printed.contains(secret), "{printed}");
+            assert_eq!(printed.matches(SECRET_MARKER).count(), 1, "{printed}");
+            assert!(printed.contains("whoop-client"), "{printed}");
+        }
+        let json = serde_json::to_string(&oauth).unwrap();
+        assert!(!json.contains(secret), "{json}");
+        assert!(!json.contains("client_secret"), "{json}");
+
+        // The fingerprint and the credential check still read the real value.
+        assert_eq!(
+            config.secret_fingerprint(),
+            Some(secret_fingerprint(secret))
+        );
+        assert!(config.validate_and_log("whoop"));
+    }
+
+    #[test]
+    fn the_default_login_password_never_prints_or_serializes() {
+        let marker = "dev-login-password-e7d2";
+        let config = OAuth2ServerConfig {
+            default_login_email: Some("dev@dravr.ai".to_owned()),
+            default_login_password: Some(SecretString::from(marker)),
+            ..OAuth2ServerConfig::default()
+        };
+        let printed = format!("{config:?}");
+        assert!(!printed.contains(marker), "{printed}");
+        assert_eq!(printed.matches(SECRET_MARKER).count(), 1, "{printed}");
+        assert!(printed.contains("dev@dravr.ai"), "{printed}");
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains(marker), "{json}");
+        assert!(!json.contains("default_login_password"), "{json}");
+    }
+
+    #[test]
+    fn the_firebase_api_key_never_prints_or_serializes() {
+        let api_key = "AIzaSy-firebase-key-0b4e";
+        let config = FirebaseConfig {
+            project_id: Some("dravr-prod".to_owned()),
+            api_key: Some(SecretString::from(api_key)),
+            enabled: true,
+            ..FirebaseConfig::default()
+        };
+        let printed = format!("{config:#?}");
+        assert!(!printed.contains(api_key), "{printed}");
+        assert_eq!(printed.matches(SECRET_MARKER).count(), 1, "{printed}");
+        assert!(printed.contains("dravr-prod"), "{printed}");
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains(api_key), "{json}");
+
+        // A configuration read from JSON still takes its key.
+        let read: FirebaseConfig = serde_json::from_str(&format!(
+            "{{\"project_id\":\"dravr-prod\",\"api_key\":\"{api_key}\",\"enabled\":true,\
+             \"identity_toolkit_url\":\"{IDENTITY_TOOLKIT_URL}\",\
+             \"access_token_url\":\"{METADATA_TOKEN_URL}\"}}"
+        ))
+        .unwrap();
+        assert_eq!(
+            read.api_key.as_ref().map(ExposeSecret::expose_secret),
+            Some(api_key)
         );
     }
 }

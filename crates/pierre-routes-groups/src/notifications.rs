@@ -11,6 +11,7 @@
 //! JWT authentication and enforce tenant-scoped data access.
 
 use pierre_providers::ai_scope;
+use secrecy::SecretString;
 use std::env;
 use std::sync::Arc;
 
@@ -110,7 +111,8 @@ struct DeviceTokenResponse {
     id: Uuid,
     user_id: Uuid,
     tenant_id: TenantId,
-    expo_push_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    expo_push_token: SecretString,
     platform: String,
     device_name: Option<String>,
     active: bool,
@@ -283,7 +285,7 @@ impl NotificationRoutes {
             id: token.id,
             user_id: token.user_id,
             tenant_id: token.tenant_id,
-            expo_push_token: token.expo_push_token,
+            expo_push_token: SecretString::from(token.expo_push_token),
             platform: token.platform.to_string(),
             device_name: token.device_name,
             active: token.active,
@@ -319,7 +321,7 @@ impl NotificationRoutes {
                 id: t.id,
                 user_id: t.user_id,
                 tenant_id: t.tenant_id,
-                expo_push_token: t.expo_push_token,
+                expo_push_token: SecretString::from(t.expo_push_token),
                 platform: t.platform.to_string(),
                 device_name: t.device_name,
                 active: t.active,

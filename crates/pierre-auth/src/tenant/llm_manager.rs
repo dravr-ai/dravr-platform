@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantId};
+use secrecy::{ExposeSecret, SecretString};
 use std::env;
 use std::fmt;
 
@@ -103,7 +104,7 @@ pub struct LlmCredentials {
     /// LLM provider
     pub provider: LlmProvider,
     /// API key (decrypted)
-    pub api_key: String,
+    pub api_key: SecretString,
     /// Base URL (for local providers)
     pub base_url: Option<String>,
     /// Default model override
@@ -142,7 +143,7 @@ pub struct StoreLlmCredentialsRequest {
     /// LLM provider
     pub provider: LlmProvider,
     /// API key (plain text, will be encrypted)
-    pub api_key: String,
+    pub api_key: SecretString,
     /// Base URL (for local providers)
     pub base_url: Option<String>,
     /// Default model
@@ -239,7 +240,8 @@ impl TenantLlmManager {
         let aad_context = Self::create_aad_context(tenant_id, user_id, request.provider);
 
         // Encrypt the API key
-        let api_key_encrypted = security.encrypt_data_with_aad(&request.api_key, &aad_context)?;
+        let api_key_encrypted =
+            security.encrypt_data_with_aad(request.api_key.expose_secret(), &aad_context)?;
 
         let record = LlmCredentialRecord {
             id,
@@ -362,7 +364,7 @@ impl TenantLlmManager {
                 tenant_id,
                 user_id,
                 provider,
-                api_key,
+                api_key: SecretString::from(api_key),
                 base_url: record.base_url.clone(),
                 default_model: record.default_model.clone(),
                 source,
@@ -499,7 +501,7 @@ impl TenantLlmManager {
                     tenant_id,
                     user_id: None,
                     provider,
-                    api_key: value,
+                    api_key: SecretString::from(value),
                     base_url,
                     default_model,
                     source: CredentialSource::SystemOverride,
@@ -540,7 +542,7 @@ impl TenantLlmManager {
             tenant_id,
             user_id: None,
             provider,
-            api_key,
+            api_key: SecretString::from(api_key),
             base_url,
             default_model,
             source: CredentialSource::EnvironmentVariable,

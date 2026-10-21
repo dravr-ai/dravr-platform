@@ -63,7 +63,7 @@ pub async fn open_subject_thread(
         .await?
         .map_err(CoachedAthleteRefusal::into_error)?;
 
-    let model = resolve_conversation_model(None)?;
+    let model = resolve_conversation_model(None, &resources.common.config.llm_chain)?;
     let coach = auth.user_id.to_string();
     let opened = repos
         .chat

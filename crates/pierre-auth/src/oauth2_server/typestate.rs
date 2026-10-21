@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::{ExposeSecret, SecretString};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
 
@@ -40,7 +41,7 @@ pub struct Authorized {
 #[derive(Debug)]
 pub struct Authenticated {
     /// JWT access token
-    pub access_token: String,
+    pub access_token: SecretString,
     /// Token type (always "Bearer")
     pub token_type: String,
     /// When the access token expires
@@ -48,7 +49,7 @@ pub struct Authenticated {
     /// Granted scopes
     pub scope: Option<String>,
     /// Refresh token for obtaining new access tokens
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
 }
 
 /// Refreshable state: Access token expired but refresh token is valid
@@ -56,7 +57,7 @@ pub struct Authenticated {
 #[derive(Debug)]
 pub struct Refreshable {
     /// The refresh token for obtaining new tokens
-    pub refresh_token: String,
+    pub refresh_token: SecretString,
     /// Original granted scopes
     pub scope: Option<String>,
 }
@@ -119,6 +120,7 @@ impl Display for PkceMethod {
 /// use pierre_auth::oauth2_server::{
 ///     AuthorizeResponse, Initial, OAuthFlow, TokenResponse,
 /// };
+/// use secrecy::SecretString;
 ///
 /// fn example() -> Result<(), pierre_auth::oauth2_server::OAuth2Error> {
 ///     // Start a new OAuth flow
@@ -132,11 +134,11 @@ impl Display for PkceMethod {
 ///
 ///     // Exchange code for tokens (only callable in Authorized state)
 ///     let token_response = TokenResponse {
-///         access_token: "access_xyz".to_owned(),
+///         access_token: SecretString::from("access_xyz"),
 ///         token_type: "Bearer".to_owned(),
 ///         expires_in: 3600,
 ///         scope: Some("read".to_owned()),
-///         refresh_token: Some("refresh_xyz".to_owned()),
+///         refresh_token: Some(SecretString::from("refresh_xyz")),
 ///     };
 ///     let authenticated = authorized.exchange(token_response)?;
 ///
@@ -372,7 +374,7 @@ impl OAuthFlow<Authenticated> {
     /// Get the access token for API requests
     #[must_use]
     pub fn access_token(&self) -> &str {
-        &self.state.access_token
+        self.state.access_token.expose_secret()
     }
 
     /// Get the token type (always "Bearer")
@@ -390,7 +392,10 @@ impl OAuthFlow<Authenticated> {
     /// Get the refresh token (if available)
     #[must_use]
     pub fn refresh_token(&self) -> Option<&str> {
-        self.state.refresh_token.as_deref()
+        self.state
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
     }
 
     /// Check if the access token has expired
@@ -483,7 +488,7 @@ impl OAuthFlow<Refreshable> {
     /// Get the refresh token for obtaining new tokens
     #[must_use]
     pub fn refresh_token(&self) -> &str {
-        &self.state.refresh_token
+        self.state.refresh_token.expose_secret()
     }
 
     /// Get the original granted scopes

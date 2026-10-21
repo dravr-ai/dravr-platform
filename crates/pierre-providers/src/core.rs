@@ -131,6 +131,7 @@ use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -159,11 +160,14 @@ pub struct OAuth2Credentials {
     /// OAuth client ID from provider
     pub client_id: String,
     /// OAuth client secret from provider
-    pub client_secret: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub client_secret: SecretString,
     /// Current access token
-    pub access_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub access_token: Option<SecretString>,
     /// Refresh token for obtaining new access tokens
-    pub refresh_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub refresh_token: Option<SecretString>,
     /// When the access token expires
     pub expires_at: Option<DateTime<Utc>>,
     /// Granted OAuth scopes
@@ -198,8 +202,10 @@ pub fn credential_kind(token_type: &str) -> CredentialKind {
 /// Provider configuration containing all necessary endpoints and settings (Shared Request Type)
 ///
 /// This struct defines the standardized configuration format for all fitness providers.
-/// Configurations can be loaded from environment variables (via `load_provider_env_config`)
-/// or provided directly when creating provider instances.
+/// Configurations are each provider's defaults with the deployment's endpoint
+/// overrides applied (`ProviderRegistry::with_endpoint_overrides`, over the
+/// `PIERRE_<PROVIDER>_*` values read at startup), or are provided directly when
+/// creating provider instances.
 ///
 /// # Configuration Sources
 ///

@@ -15,6 +15,7 @@
 //! - the Turnstile bot check, on the register form only, when its keys are
 //!   configured.
 
+use secrecy::SecretString;
 use std::net::IpAddr;
 
 use axum::extract::State;
@@ -54,7 +55,7 @@ pub struct PublicRegisterRequest {
     pub account: RegisterRequest,
     /// The Turnstile token, required when the bot check is configured
     #[serde(default)]
-    pub turnstile_token: Option<String>,
+    pub turnstile_token: Option<SecretString>,
 }
 
 /// `GET /api/auth/signup-config`: what the register form needs before it is

@@ -22,6 +22,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::models::{TenantId, User, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
+use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 /// A distinct user per call; both token tables reference `users` on Postgres.
@@ -51,8 +52,8 @@ fn token(
         user_id,
         tenant_id: tenant_id.to_string(),
         provider: provider.to_owned(),
-        access_token: format!("access-{provider}-{user_id}"),
-        refresh_token: Some(format!("refresh-{provider}-{user_id}")),
+        access_token: SecretString::from(format!("access-{provider}-{user_id}")),
+        refresh_token: Some(SecretString::from(format!("refresh-{provider}-{user_id}"))),
         token_type: "Bearer".to_owned(),
         expires_at: Some(seconds_ago(-6 * 3600)),
         scope: Some("read,activity:read_all".to_owned()),
@@ -88,10 +89,20 @@ async fn a_backdated_token_keeps_the_timestamps_it_was_handed() {
         "updated_at is the caller's"
     );
     assert_eq!(
-        stored.access_token, minted.access_token,
+        stored.access_token.expose_secret(),
+        minted.access_token.expose_secret(),
         "decrypts to what was stored"
     );
-    assert_eq!(stored.refresh_token, minted.refresh_token);
+    assert_eq!(
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        minted
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+    );
     assert_eq!(stored.expires_at, minted.expires_at);
     assert_eq!(stored.scope.as_deref(), Some("read,activity:read_all"));
     assert_eq!(stored.provider_user_id, minted.provider_user_id);
@@ -167,9 +178,12 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
         .await
         .unwrap()
         .expect("the refreshed token must still be there");
-    assert_eq!(stored.access_token, "access-after-refresh");
+    assert_eq!(stored.access_token.expose_secret(), "access-after-refresh");
     assert_eq!(
-        stored.refresh_token.as_deref(),
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
         Some("refresh-after-refresh")
     );
     assert_eq!(stored.expires_at, Some(renewed_until));
@@ -200,8 +214,14 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored.access_token, "access-third");
-    assert_eq!(stored.refresh_token, None);
+    assert_eq!(stored.access_token.expose_secret(), "access-third");
+    assert_eq!(
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        None
+    );
     assert_eq!(stored.expires_at, None);
 
     // The refresh is scoped: another tenant's row for the same user and
@@ -220,7 +240,10 @@ async fn a_refreshed_token_round_trips_its_new_pair() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(untouched.access_token, other.access_token);
+    assert_eq!(
+        untouched.access_token.expose_secret(),
+        other.access_token.expose_secret()
+    );
 }
 
 /// Two refreshes read the same row, and the vendor rotated the refresh token
@@ -278,9 +301,12 @@ async fn a_refresh_that_lost_the_swap_leaves_the_winners_pair() {
         .unwrap()
         .expect("the row is still there");
     assert_eq!(stored.id, read_by_both.id, "a refresh keeps the row's id");
-    assert_eq!(stored.access_token, "access-of-the-winner");
+    assert_eq!(stored.access_token.expose_secret(), "access-of-the-winner");
     assert_eq!(
-        stored.refresh_token.as_deref(),
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
         Some("refresh-of-the-winner")
     );
 
@@ -363,9 +389,12 @@ async fn recording_an_owner_id_leaves_a_newer_token_pair_alone() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.provider_user_id.as_deref(), Some("12345"));
-    assert_eq!(stored.access_token, "access-of-the-second");
+    assert_eq!(stored.access_token.expose_secret(), "access-of-the-second");
     assert_eq!(
-        stored.refresh_token.as_deref(),
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
         Some("refresh-of-the-second"),
         "the spent refresh token is not put back"
     );
@@ -472,8 +501,8 @@ async fn a_refresh_of_a_replaced_row_writes_nothing() {
         .unwrap();
 
     let mut reconnected = token(user_id, &tenant_id, "strava", seconds_ago(5));
-    reconnected.access_token = "access-of-the-reconnect".to_owned();
-    reconnected.refresh_token = Some("refresh-of-the-reconnect".to_owned());
+    reconnected.access_token = SecretString::from("access-of-the-reconnect");
+    reconnected.refresh_token = Some(SecretString::from("refresh-of-the-reconnect"));
     reconnected.oauth_app_client_id = Some("201456".to_owned());
     assert!(repos
         .oauth_tokens
@@ -500,9 +529,15 @@ async fn a_refresh_of_a_replaced_row_writes_nothing() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.id, reconnected.id);
-    assert_eq!(stored.access_token, "access-of-the-reconnect");
     assert_eq!(
-        stored.refresh_token.as_deref(),
+        stored.access_token.expose_secret(),
+        "access-of-the-reconnect"
+    );
+    assert_eq!(
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
         Some("refresh-of-the-reconnect")
     );
     assert_eq!(stored.oauth_app_client_id.as_deref(), Some("201456"));
@@ -572,7 +607,7 @@ async fn a_byo_app_frees_the_shared_app_seat_it_occupied() {
         .expect("the BYO app just registered must read back");
     assert_eq!(app.user_id, byo);
     assert_eq!(app.client_id, "byo-client-id");
-    assert_eq!(app.client_secret, "byo-client-secret");
+    assert_eq!(app.client_secret.expose_secret(), "byo-client-secret");
     assert_eq!(app.redirect_uri, "https://byo.example/callback");
     assert_eq!(
         app.created_at, app.updated_at,

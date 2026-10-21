@@ -62,6 +62,10 @@ dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "
 # Billing capability, gated behind the billing-stripe feature.
 dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.8.0" }
 
+# Secret-holding config fields: Debug prints a redaction and reading the value
+# takes an explicit expose_secret(), so no format of a config struct leaks one.
+secrecy = { version = "0.10.3", features = ["serde"] }
+
 # ============================================================================
 # Build Profiles
 # ============================================================================

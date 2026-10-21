@@ -25,7 +25,7 @@ pub const MOCK_SCRAPER_RIDE_ID: &str = "15551234567";
 /// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
 /// import always succeeds and the activity list serves one canned ride whose
 /// capture reached the list head.
-/// Returns the base URL for `DRAVR_SCIOTTE_REMOTE_URL`.
+/// Returns the base URL the server's sciotte client is built to reach it at.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
 pub async fn spawn_mock_scraper() -> String {

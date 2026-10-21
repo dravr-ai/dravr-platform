@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -189,8 +190,8 @@ async fn fetch_prefetch_window(
         .ok()?;
     let credentials = OAuth2Credentials {
         client_id: String::new(),
-        client_secret: String::new(),
-        access_token: Some(session_json),
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from(session_json)),
         refresh_token: None,
         expires_at: None,
         scopes: vec![],

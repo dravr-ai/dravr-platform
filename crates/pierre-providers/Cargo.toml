@@ -33,22 +33,19 @@ all-providers = [
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
-pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 tracing = "0.1"
-thiserror = "2.0"
 async-trait = "0.1"
 dashmap = "5.5"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
-async-stream = "0.3"
 bitflags = { version = "2.11", features = ["serde"] }
-futures-util = "0.3"
 num-traits = "0.2"
 ring = "0.17"
 hex = "0.4"
@@ -64,7 +61,6 @@ fitparser = "0.11"
 # one rule (carnet#997).
 dravr-enforme = { workspace = true, features = ["provider-intervals-icu"] }
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive"], default-features = false, optional = true }
 
 [dev-dependencies]
 # `net` + `io-util` back the loopback HTTP stub in intervals_icu_provider_test.rs,

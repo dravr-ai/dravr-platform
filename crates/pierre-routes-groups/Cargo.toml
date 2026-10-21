@@ -17,6 +17,7 @@ client-notifications = [
 ]
 
 [dependencies]
+secrecy = { workspace = true }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }

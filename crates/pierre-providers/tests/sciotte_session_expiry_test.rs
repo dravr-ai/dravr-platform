@@ -24,6 +24,7 @@ use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
+use secrecy::SecretString;
 
 /// Build a bare sciotte provider (no scraper, no client — the client is only
 /// touched on an actual fetch, never on construction or `is_authenticated`).
@@ -56,8 +57,8 @@ fn session_json(expires_at: Option<DateTime<Utc>>) -> String {
 async fn set_session(provider: &dyn FitnessProvider, expires_at: Option<DateTime<Utc>>) {
     let creds = OAuth2Credentials {
         client_id: String::new(),
-        client_secret: String::new(),
-        access_token: Some(session_json(expires_at)),
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from(session_json(expires_at))),
         refresh_token: None,
         expires_at: None,
         scopes: vec![],

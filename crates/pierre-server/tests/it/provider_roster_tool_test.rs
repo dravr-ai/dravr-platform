@@ -28,6 +28,7 @@
 //! read at all.
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -356,7 +357,7 @@ impl World {
                 user_id: coach.id,
                 tenant_id: coach.tenant.to_string(),
                 provider: INTERVALS_ICU.to_owned(),
-                access_token: "coach-key".to_owned(),
+                access_token: SecretString::from("coach-key"),
                 refresh_token: None,
                 token_type: API_KEY_TOKEN_TYPE.to_owned(),
                 expires_at: None,
@@ -394,7 +395,9 @@ impl World {
                 user_id: coach.id,
                 tenant_id: coach.tenant.to_string(),
                 provider: SCIOTTE_TRAININGPEAKS.to_owned(),
-                access_token: json!({ "session_id": "coach-session", "cookies": [] }).to_string(),
+                access_token: SecretString::from(
+                    json!({ "session_id": "coach-session", "cookies": [] }).to_string(),
+                ),
                 refresh_token: None,
                 token_type: TOKEN_TYPE_SESSION.to_owned(),
                 expires_at: Some(now + Duration::hours(6)),

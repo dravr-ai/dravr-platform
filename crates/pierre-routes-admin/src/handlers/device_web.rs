@@ -18,6 +18,7 @@
 //! /admin/device/approve-web` is CSRF-exempt (see `CSRF_EXEMPT_PATHS`) and needs
 //! no session cookie, CSRF header, or JavaScript.
 
+use secrecy::SecretString;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
@@ -82,7 +83,7 @@ async fn authenticate(
     };
     // A fault inside the verifier is logged there; it answers false here.
     let verified = match user {
-        Some(user) => verify_password(password.to_owned(), user.password_hash.clone())
+        Some(user) => verify_password(SecretString::from(password), user.password_hash.clone())
             .await
             .unwrap_or(false)
             .then_some(user),

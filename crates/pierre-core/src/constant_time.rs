@@ -41,9 +41,24 @@ pub fn is_unset_secret(secret: &[u8]) -> bool {
 /// real secret is part of the key the other side signs with.
 #[must_use]
 pub fn configured_secret(var: &str) -> Option<String> {
-    env::var(var)
-        .ok()
-        .filter(|secret| !is_unset_secret(secret.as_bytes()))
+    configured_value(env::var(var).ok())
+}
+
+/// The secret `raw` configures, or `None` when it is absent or blank
+/// ([`is_unset_secret`]): [`configured_secret`]'s rule over a value already
+/// read.
+///
+/// # Examples
+///
+/// ```
+/// use pierre_core::constant_time::configured_value;
+///
+/// assert_eq!(configured_value(Some(" \n".to_owned())), None);
+/// assert_eq!(configured_value(Some("whsec_abc".to_owned())).as_deref(), Some("whsec_abc"));
+/// ```
+#[must_use]
+pub fn configured_value(raw: Option<String>) -> Option<String> {
+    raw.filter(|secret| !is_unset_secret(secret.as_bytes()))
 }
 
 /// Whether two secrets are byte-for-byte equal, compared in constant time

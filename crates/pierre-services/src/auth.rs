@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -66,7 +67,7 @@ pub struct RefreshedSession {
     /// Fresh JWT, expiry and user, exactly as a login answers.
     pub login: LoginResponse,
     /// The successor refresh token. The one that was presented is dead.
-    pub refresh_token: String,
+    pub refresh_token: SecretString,
 }
 
 /// Authentication service encapsulating business logic for user lifecycle
@@ -205,7 +206,7 @@ impl AuthService {
         }
 
         // Validate password strength
-        if !Self::is_valid_password(&request.password) {
+        if !Self::is_valid_password(request.password.expose_secret()) {
             return Err(validation_error(error_messages::PASSWORD_TOO_WEAK));
         }
 
@@ -295,7 +296,13 @@ impl AuthService {
         let approved_by = self.existing_operator(invitation.invited_by).await;
         let approval = (UserStatus::Active, Some(Utc::now()), approved_by);
         let (user_id, user) = self
-            .create_account(&invitation.email, password, display_name, approval, false)
+            .create_account(
+                &invitation.email,
+                SecretString::from(password),
+                display_name,
+                approval,
+                false,
+            )
             .await?;
 
         // Best-effort: the account exists and is active either way, and an
@@ -327,7 +334,7 @@ impl AuthService {
     async fn create_account(
         &self,
         email: &str,
-        password: String,
+        password: SecretString,
         display_name: Option<String>,
         (status, approved_at, approved_by): (
             UserStatus,
@@ -468,8 +475,8 @@ impl AuthService {
 
         let user_info = self.user_info(&user, tenant_id_for_response).await;
         Ok(LoginResponse {
-            jwt_token: Some(jwt_token),
-            csrf_token: String::new(), // Will be set by HTTP handler
+            jwt_token: Some(SecretString::from(jwt_token)),
+            csrf_token: SecretString::default(), // Will be set by HTTP handler
             expires_at: expires_at.to_rfc3339(),
             user: user_info,
         })
@@ -527,8 +534,8 @@ impl AuthService {
 
         let user_info = self.user_info(&user, tenant_id).await;
         Ok(LoginResponse {
-            jwt_token: Some(jwt_token),
-            csrf_token: String::new(), // Will be set by HTTP handler
+            jwt_token: Some(SecretString::from(jwt_token)),
+            csrf_token: SecretString::default(), // Will be set by HTTP handler
             expires_at: expires_at.to_rfc3339(),
             user: user_info,
         })
@@ -551,7 +558,9 @@ impl AuthService {
         tracing::info!("Firebase login attempt");
 
         // Validate the Firebase ID token
-        let claims = firebase_auth.validate_token(&request.id_token).await?;
+        let claims = firebase_auth
+            .validate_token(request.id_token.expose_secret())
+            .await?;
 
         // Get the email from the claims (required), in its stored form: the
         // account it names is found, or created, whatever casing the provider
@@ -1020,12 +1029,12 @@ impl AuthService {
         let user_info = self.user_info(&user, tenant_id).await;
         Ok(RefreshedSession {
             login: LoginResponse {
-                jwt_token: Some(jwt_token),
-                csrf_token: String::new(), // Will be set by HTTP handler
+                jwt_token: Some(SecretString::from(jwt_token)),
+                csrf_token: SecretString::default(), // Will be set by HTTP handler
                 expires_at: expires_at.to_rfc3339(),
                 user: user_info,
             },
-            refresh_token,
+            refresh_token: SecretString::from(refresh_token),
         })
     }
 
@@ -1129,8 +1138,8 @@ impl AuthService {
     ///
     /// # Errors
     /// Returns error if the hashing operation fails
-    pub async fn hash_password(password: String) -> AppResult<String> {
-        task::spawn_blocking(move || bcrypt::hash(&password, bcrypt::DEFAULT_COST))
+    pub async fn hash_password(password: SecretString) -> AppResult<String> {
+        task::spawn_blocking(move || bcrypt::hash(password.expose_secret(), bcrypt::DEFAULT_COST))
             .await
             .map_err(|e| AppError::internal(format!("Password hashing task failed: {e}")))?
             .map_err(|e| AppError::internal(format!("Password hashing failed: {e}")))

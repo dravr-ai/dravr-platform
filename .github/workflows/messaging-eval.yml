@@ -110,15 +110,11 @@ jobs:
 
       - name: Run messaging-eval tests
         run: |
-          # Two suites write the environment and stay binaries of their own;
-          # the rest are modules of the `it` binary. A module filter would
-          # deselect every test of a separate binary, so they run apart.
-          cargo test \
-            --test messaging_eval_phase_1_integration_test \
-            --test messaging_eval_pipeline_tool_loop_test \
-            -- --nocapture
+          # Every suite is a module of the `it` binary.
           cargo test --test it -- --nocapture \
             messaging_eval_phase_0_test:: \
+            messaging_eval_phase_1_integration_test:: \
+            messaging_eval_pipeline_tool_loop_test:: \
             messaging_eval_tool_called_happy_path_test:: \
             messaging_eval_hallucination_probes_test:: \
             messaging_rendering_test:: \

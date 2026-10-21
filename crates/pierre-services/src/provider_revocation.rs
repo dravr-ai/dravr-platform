@@ -36,6 +36,7 @@ use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::is_mirror_backend;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -341,10 +342,13 @@ pub async fn revoke_upstream_grant(
                     "the stored token row carries no token material".to_owned(),
                 );
             };
-            let form = [("token", revoke_token.as_str()), ("token_type_hint", hint)];
+            let form = [
+                ("token", revoke_token.expose_secret()),
+                ("token_type_hint", hint),
+            ];
             api_client()
                 .post(revoke_url)
-                .basic_auth(&creds.client_id, Some(&creds.client_secret))
+                .basic_auth(&creds.client_id, Some(creds.client_secret.expose_secret()))
                 .form(&form)
                 .send()
                 .await
@@ -362,12 +366,12 @@ pub async fn revoke_upstream_grant(
             };
             api_client()
                 .delete(revoke_url)
-                .bearer_auth(access_token)
+                .bearer_auth(access_token.expose_secret())
                 .send()
                 .await
         }
         RevocationShape::DeveloperKeyDeregistration { revoke_url } => {
-            if token.access_token.is_empty() {
+            if token.access_token.expose_secret().is_empty() {
                 warn!(
                     user_id = %user_id,
                     backend = %backend,
@@ -380,8 +384,8 @@ pub async fn revoke_upstream_grant(
             api_client()
                 .delete(revoke_url)
                 .header("dev-id", &creds.client_id)
-                .header("x-api-key", &creds.client_secret)
-                .query(&[("user_id", token.access_token.as_str())])
+                .header("x-api-key", creds.client_secret.expose_secret())
+                .query(&[("user_id", token.access_token.expose_secret())])
                 .send()
                 .await
         }
@@ -483,7 +487,8 @@ async fn stored_session_id(
             return None;
         }
     };
-    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
+    let Ok(session) = serde_json::from_str::<AuthSession>(token.access_token.expose_secret())
+    else {
         warn!(
             user_id = %user_id,
             backend = %backend,
@@ -577,12 +582,15 @@ fn revocation_material(
     token: UserOAuthToken,
     user_id: Uuid,
     backend: &str,
-) -> Option<(String, &'static str)> {
-    let (revoke_token, hint) = match token.refresh_token.filter(|t| !t.is_empty()) {
+) -> Option<(SecretString, &'static str)> {
+    let (revoke_token, hint) = match token
+        .refresh_token
+        .filter(|t| !t.expose_secret().is_empty())
+    {
         Some(refresh) => (refresh, "refresh_token"),
         None => (token.access_token, "access_token"),
     };
-    if revoke_token.is_empty() {
+    if revoke_token.expose_secret().is_empty() {
         warn!(
             user_id = %user_id,
             backend = %backend,
@@ -604,14 +612,17 @@ async fn live_access_token(
     creds: &OAuth2Config,
     user_id: Uuid,
     backend: &str,
-) -> Option<String> {
+) -> Option<SecretString> {
     let expired = token
         .expires_at
         .is_some_and(|at| at <= Utc::now() + Duration::minutes(1));
-    if !expired && !token.access_token.is_empty() {
+    if !expired && !token.access_token.expose_secret().is_empty() {
         return Some(token.access_token);
     }
-    let Some(refresh) = token.refresh_token.filter(|t| !t.is_empty()) else {
+    let Some(refresh) = token
+        .refresh_token
+        .filter(|t| !t.expose_secret().is_empty())
+    else {
         warn!(
             user_id = %user_id,
             backend = %backend,
@@ -624,8 +635,8 @@ async fn live_access_token(
         &RefreshRequest {
             token_url,
             client_id: &creds.client_id,
-            client_secret: &creds.client_secret,
-            refresh_token: &refresh,
+            client_secret: creds.client_secret.expose_secret(),
+            refresh_token: refresh.expose_secret(),
             provider_name: backend,
             extra_form: &[],
         },
@@ -633,7 +644,7 @@ async fn live_access_token(
     .await
     {
         Ok(fresh) => {
-            let fresh = fresh.access_token.filter(|t| !t.is_empty());
+            let fresh = fresh.access_token.filter(|t| !t.expose_secret().is_empty());
             if fresh.is_none() {
                 warn!(
                     user_id = %user_id,

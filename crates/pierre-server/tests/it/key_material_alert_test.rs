@@ -23,6 +23,7 @@
 //! binary is its own process: each kind is failed by exactly one test here,
 //! so the tests stay independent when they run in parallel.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
@@ -372,7 +373,7 @@ async fn tenant_oauth_client_secret_decrypt_failure_pages() {
             tenant_id,
             provider: "strava".to_owned(),
             client_id: "703703".to_owned(),
-            client_secret: CLIENT_SECRET.to_owned(),
+            client_secret: SecretString::from(CLIENT_SECRET.to_owned()),
             redirect_uri: "http://localhost:8081/api/oauth/callback/strava".to_owned(),
             scopes: vec!["read".to_owned()],
             rate_limit_per_day: 1000,
@@ -436,7 +437,7 @@ async fn llm_api_key_decrypt_failure_pages() {
         tenant_id,
         StoreLlmCredentialsRequest {
             provider: LlmProvider::Groq,
-            api_key: LLM_API_KEY.to_owned(),
+            api_key: SecretString::from(LLM_API_KEY.to_owned()),
             base_url: None,
             default_model: None,
         },
@@ -458,7 +459,7 @@ async fn llm_api_key_decrypt_failure_pages() {
     )
     .await;
     assert!(
-        resolved.map_or(true, |c| c.api_key != LLM_API_KEY),
+        resolved.map_or(true, |c| c.api_key.expose_secret() != LLM_API_KEY),
         "the stored key must not resolve through the wrong DEK"
     );
 
@@ -580,6 +581,8 @@ async fn read_access_token(database: &Database, user_id: Uuid, tenant_id: Tenant
         .unwrap()
         .expect("the stored token is still there")
         .access_token
+        .expose_secret()
+        .to_owned()
 }
 
 #[tokio::test]

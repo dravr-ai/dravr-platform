@@ -35,6 +35,7 @@ use pierre_providers::terra::{
     TerraProvider, TerraWebhookHandler,
 };
 use ring::hmac;
+use secrecy::SecretString;
 use std::sync::Arc;
 
 // ============================================================================
@@ -829,10 +830,18 @@ fn test_api_client_creation() {
     use std::mem::size_of_val;
 
     let config = TerraApiConfig {
-        api_key: "test_key".to_owned(),
+        api_key: SecretString::from("test_key"),
         dev_id: "test_dev".to_owned(),
         ..Default::default()
     };
+    // Debug names the dev id and prints a redaction in place of the API key.
+    let printed = format!("{config:?}");
+    assert!(!printed.contains("test_key"), "{printed}");
+    assert!(
+        printed.contains("api_key: SecretBox<str>([REDACTED])"),
+        "{printed}"
+    );
+    assert!(printed.contains("test_dev"), "{printed}");
     // Verify client creation succeeds
     let client = TerraApiClient::new(config);
     // Assert client has non-zero size (struct was instantiated)

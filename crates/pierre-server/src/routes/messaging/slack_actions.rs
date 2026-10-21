@@ -18,10 +18,10 @@ use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use dravr_tronc::notify::NotifyActions;
 use pierre_chat_pipeline::suggestions::is_postback;
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
-use pierre_core::constant_time::configured_secret;
 use pierre_core::models::TenantId;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -175,7 +175,7 @@ pub(crate) async fn handle_slack_action(
         "text": { "type": "mrkdwn", "text": format!("{status_emoji} {update_text}") }
     }]);
 
-    let slack_client = build_slack_client(&bot_token);
+    let slack_client = build_slack_client(&bot_token, resources);
     slack_client.update_message(&action.channel_id, &action.message_ts, &blocks);
 
     // Return 200 immediately (Slack expects a response within 3 seconds)
@@ -226,7 +226,7 @@ async fn handle_command_postback(
     .await?;
 
     // Send response to Slack channel
-    let slack_client = build_slack_client(&bot_token);
+    let slack_client = build_slack_client(&bot_token, resources);
     let blocks = json!([{
         "type": "section",
         "text": { "type": "mrkdwn", "text": response_text }
@@ -398,19 +398,25 @@ async fn authorize_postback(
 
 /// The Slack signing secret this deployment is configured with
 ///
-/// `None` when `SLACK_SIGNING_SECRET` is unset or blank ([`configured_secret`]):
-/// a variable that is present but empty or whitespace only configures no
+/// `None` when `SLACK_SIGNING_SECRET` was unset or blank at startup: a
+/// variable that is present but empty or whitespace only configures no
 /// secret, and the two read the same to every caller.
-pub(crate) fn configured_signing_secret() -> Option<String> {
-    configured_secret("SLACK_SIGNING_SECRET")
+pub(crate) fn configured_signing_secret(resources: &ServerContext) -> Option<&SecretString> {
+    resources
+        .common
+        .config
+        .webhooks
+        .slack_signing_secret
+        .as_ref()
 }
 
 /// Build a `SlackClient` from a bot token for message updates
-fn build_slack_client(bot_token: &str) -> SlackClient {
+fn build_slack_client(bot_token: &str, resources: &ServerContext) -> SlackClient {
     let config = SlackConfig {
         bot_token: bot_token.to_owned(),
         error_channel: String::new(),
-        signing_secret: configured_signing_secret(),
+        signing_secret: configured_signing_secret(resources)
+            .map(|secret| secret.expose_secret().to_owned()),
     };
 
     SlackClient::new(&config)

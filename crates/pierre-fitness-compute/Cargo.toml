@@ -28,12 +28,9 @@ serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 async-trait = "0.1"
-rayon = "1.11"
-regex = "1.12"
 sha2 = "0.10"
 hex = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-urlencoding = "2.1"
 # Paces the one retry an Overpass instance gets after a gateway error.
 tokio = { version = "1.48", features = ["time"] }
 

@@ -1064,7 +1064,7 @@ pub async fn spawn_extract_for_turn(
 ) -> JoinHandle<()> {
     let job_id = record_extraction_job(jobs.as_ref(), &req).await;
     tokio::spawn(async move {
-        // Singleton-only — no per-call ChatProvider::from_env() fallback.
+        // Singleton-only — no per-call ChatProvider::from_chain() fallback.
         // Background memory extraction is best-effort: if the singleton
         // wasn't wired (test fixture without it, or production startup
         // failed to build it), skip cleanly instead of spawning a fresh

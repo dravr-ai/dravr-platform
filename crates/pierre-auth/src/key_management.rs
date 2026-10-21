@@ -282,10 +282,17 @@ impl KeyManager {
     ///
     /// Returns an error if KEK loading fails
     pub fn bootstrap() -> AppResult<(Self, [u8; 32])> {
-        info!("Bootstrapping two-tier key management system");
-
         // Select the KEK provider (GCP Cloud KMS when configured, else local).
-        let kek = Self::configured_kek_provider()?;
+        Ok(Self::bootstrap_with(Self::configured_kek_provider()?))
+    }
+
+    /// Bootstrap initialization over an explicit KEK provider: the half of
+    /// [`Self::bootstrap`] that runs after the provider is chosen, for a caller
+    /// that already holds its key material rather than reading it from the
+    /// environment.
+    #[must_use]
+    pub fn bootstrap_with(kek: Box<dyn KekProvider>) -> (Self, [u8; 32]) {
+        info!("Bootstrapping two-tier key management system");
 
         // Generate temporary DEK for database initialization
         let temp_dek = DatabaseEncryptionKey::generate();
@@ -295,7 +302,7 @@ impl KeyManager {
 
         info!("Bootstrap key management system initialized");
 
-        Ok((manager, database_key))
+        (manager, database_key)
     }
 
     /// Construct a manager from an explicit KEK provider and DEK.

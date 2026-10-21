@@ -25,6 +25,7 @@ use pierre_core::models::User;
 use pierre_providers::owner_id::owner_id_for_access_token;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::OAuthEndpoints;
+use secrecy::ExposeSecret;
 use tracing::{error, info, warn};
 
 use crate::oauth_flow::OAuthService;
@@ -114,7 +115,7 @@ impl OAuthService {
         match owner_id_for_access_token(
             self.data.provider_registry(),
             provider,
-            &token.access_token,
+            token.access_token.expose_secret(),
             budget,
         )
         .await

@@ -50,6 +50,7 @@ use pierre_providers::sciotte_provider::SciotteTarget;
 #[cfg(doc)]
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::{credential_kind, CredentialKind, OAuth2Credentials};
+use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 use crate::coach_access_evidence::file_request_after_live_read;
@@ -164,7 +165,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
     /// unchanged role re-grants nothing, and a coach account that is not the
     /// coach's own loses the grant either way.
     async fn read_roster(&self, read: RosterRead<'_>) -> AppResult<Vec<RosterAthlete>> {
-        let session = serde_json::from_str::<AuthSession>(&read.token.access_token)
+        let session = serde_json::from_str::<AuthSession>(read.token.access_token.expose_secret())
             .map_err(|_| Refusal::ReconnectNeeded.error(Some(self)))?;
         let profile = match trainingpeaks_profile(read.registry, &session).await {
             Ok(profile) => profile,
@@ -207,7 +208,7 @@ impl CoachPlatform for TrainingPeaksPlatform {
     fn coach_credentials(&self, token: &UserOAuthToken) -> Option<OAuth2Credentials> {
         Some(OAuth2Credentials {
             client_id: String::new(),
-            client_secret: String::new(),
+            client_secret: SecretString::default(),
             access_token: Some(token.access_token.clone()),
             refresh_token: None,
             expires_at: token.expires_at,
@@ -277,7 +278,7 @@ impl CoachPlatform for IntervalsIcuPlatform {
             .filter(|id| !id.is_empty())?;
         (credential_kind(&token.token_type) == CredentialKind::ApiKey).then(|| OAuth2Credentials {
             client_id: athlete_id.to_owned(),
-            client_secret: String::new(),
+            client_secret: SecretString::default(),
             access_token: Some(token.access_token.clone()),
             refresh_token: None,
             expires_at: None,
@@ -381,7 +382,7 @@ pub fn with_key_budget(
 fn stored_credentials(token: &UserOAuthToken) -> OAuth2Credentials {
     OAuth2Credentials {
         client_id: String::new(),
-        client_secret: String::new(),
+        client_secret: SecretString::default(),
         access_token: Some(token.access_token.clone()),
         refresh_token: None,
         expires_at: token.expires_at,
@@ -791,14 +792,20 @@ mod tests {
             .coach_credentials(&token(API_KEY_TOKEN_TYPE, None))
             .expect("a stored key reads athletes");
         assert_eq!(key.kind, CredentialKind::ApiKey);
-        assert_eq!(key.access_token.as_deref(), Some("the-key"));
+        assert_eq!(
+            key.access_token.as_ref().map(ExposeSecret::expose_secret),
+            Some("the-key")
+        );
         assert!(key.refresh_token.is_none());
 
         let grant = platform
             .coach_credentials(&token("Bearer", Some("c1")))
             .expect("a stored OAuth grant reads athletes");
         assert_eq!(grant.kind, CredentialKind::OAuthBearer);
-        assert_eq!(grant.access_token.as_deref(), Some("the-key"));
+        assert_eq!(
+            grant.access_token.as_ref().map(ExposeSecret::expose_secret),
+            Some("the-key")
+        );
     }
 
     #[test]
@@ -808,7 +815,10 @@ mod tests {
             .expect("an API key with its athlete id reads athletes");
         assert_eq!(key.kind, CredentialKind::ApiKey);
         assert_eq!(key.client_id, "i100");
-        assert_eq!(key.access_token.as_deref(), Some("the-key"));
+        assert_eq!(
+            key.access_token.as_ref().map(ExposeSecret::expose_secret),
+            Some("the-key")
+        );
 
         assert!(IntervalsIcuPlatform
             .coach_credentials(&token("Bearer", Some("i100")))

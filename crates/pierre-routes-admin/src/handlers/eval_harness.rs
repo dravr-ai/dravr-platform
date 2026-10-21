@@ -9,8 +9,8 @@
 //! Wraps [`pierre_services::eval_harness::browse_fixtures`] and the
 //! calibration aggregation in axum handlers gated behind
 //! [`AdminPermission::ViewConfiguration`]. Only compiled when the
-//! `tools-verification` feature is enabled because `pierre-evals` is an
-//! optional dependency.
+//! `tools-verification` feature is enabled, because that feature is what
+//! builds `pierre_services::eval_harness` over the optional `pierre-evals`.
 
 use std::sync::Arc;
 

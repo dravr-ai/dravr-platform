@@ -9,6 +9,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::SecretString;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -133,9 +134,11 @@ async fn provider_serving(
     provider
         .set_credentials(OAuth2Credentials {
             client_id: "test_client".to_owned(),
-            client_secret: "test_secret".to_owned(),
-            access_token: Some("test_access_token_0123456789abcdef0123456789".to_owned()),
-            refresh_token: Some("test_refresh_token".to_owned()),
+            client_secret: SecretString::from("test_secret"),
+            access_token: Some(SecretString::from(
+                "test_access_token_0123456789abcdef0123456789",
+            )),
+            refresh_token: Some(SecretString::from("test_refresh_token")),
             expires_at: Some(Utc::now() + chrono::Duration::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,

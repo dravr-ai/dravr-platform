@@ -6,6 +6,7 @@
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::FEDERATED_ONLY_PASSWORD_HASH;
+use secrecy::{ExposeSecret, SecretString};
 use tokio::task::spawn_blocking;
 use tracing::error;
 
@@ -20,11 +21,11 @@ use tracing::error;
 /// Returns an internal error, already logged at ERROR, when the blocking task
 /// fails or bcrypt cannot read the stored hash: a corrupt row, not a wrong
 /// password. bcrypt's own message quotes the hash, so it is never logged.
-pub async fn verify_password(password: String, hash: String) -> AppResult<bool> {
+pub async fn verify_password(password: SecretString, hash: String) -> AppResult<bool> {
     if hash == FEDERATED_ONLY_PASSWORD_HASH {
         return Ok(false);
     }
-    spawn_blocking(move || bcrypt::verify(&password, &hash))
+    spawn_blocking(move || bcrypt::verify(password.expose_secret(), &hash))
         .await
         .map_err(|e| {
             error!("Password verification task failed: {e}");

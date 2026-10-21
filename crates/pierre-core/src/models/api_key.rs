@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::SecretString;
 use std::fmt::{self, Display, Formatter};
 use std::result::Result;
 use std::str::FromStr;
@@ -200,7 +201,8 @@ pub struct ApiKeyResponse {
     pub expires_at: Option<DateTime<Utc>>,
     /// The actual API key (only included on creation, never shown again)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
+    #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
+    pub api_key: Option<SecretString>,
 }
 
 /// Usage record for tracking

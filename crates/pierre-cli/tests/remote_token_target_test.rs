@@ -17,6 +17,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use secrecy::SecretString;
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -113,7 +114,7 @@ fn home_with(cached: Option<(&str, &str)>) -> PathBuf {
     if let Some((server, token)) = cached {
         let creds = CachedCredentials {
             server: server.to_owned(),
-            access_token: token.to_owned(),
+            access_token: SecretString::from(token.to_owned()),
             token_type: "Bearer".to_owned(),
             expires_at: None,
             subject: Some("admin@example.com".to_owned()),

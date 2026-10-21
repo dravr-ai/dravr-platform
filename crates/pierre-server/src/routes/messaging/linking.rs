@@ -16,6 +16,7 @@ use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
 };
 use rand::Rng;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::str::FromStr;
@@ -189,6 +190,12 @@ pub async fn init_channel_link(
         &code,
         &config,
         &resources.common.config.base_url,
+        resources
+            .common
+            .config
+            .external_services
+            .meta_graph_api_base
+            .as_deref(),
     )
     .await?;
 
@@ -448,7 +455,7 @@ pub struct ChannelLinkAuthForm {
     /// Email address
     pub email: String,
     /// Password
-    pub password: String,
+    pub password: SecretString,
     /// "login" or "register"
     pub action: String,
     /// Display name (only for registration)

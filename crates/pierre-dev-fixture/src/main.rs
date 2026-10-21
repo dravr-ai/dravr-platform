@@ -516,6 +516,7 @@ fn stable_id(uuid: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secrecy::SecretString;
 
     use chrono::{Duration, Utc};
     use pierre_config::environment::HttpClientConfig;
@@ -595,9 +596,9 @@ mod tests {
         provider
             .set_credentials(OAuth2Credentials {
                 client_id: "dev".to_owned(),
-                client_secret: "dev".to_owned(),
-                access_token: Some(format!("{BEARER_PREFIX}{user}")),
-                refresh_token: Some("dev".to_owned()),
+                client_secret: SecretString::from("dev"),
+                access_token: Some(SecretString::from(format!("{BEARER_PREFIX}{user}"))),
+                refresh_token: Some(SecretString::from("dev")),
                 expires_at: Some(Utc::now() + Duration::days(1)),
                 scopes: vec!["read".to_owned()],
                 kind: CredentialKind::OAuthBearer,
@@ -626,9 +627,9 @@ mod tests {
         provider
             .set_credentials(OAuth2Credentials {
                 client_id: "dev".to_owned(),
-                client_secret: "dev".to_owned(),
-                access_token: Some(format!("{BEARER_PREFIX}{user}")),
-                refresh_token: Some("dev".to_owned()),
+                client_secret: SecretString::from("dev"),
+                access_token: Some(SecretString::from(format!("{BEARER_PREFIX}{user}"))),
+                refresh_token: Some(SecretString::from("dev")),
                 expires_at: Some(Utc::now() + Duration::days(1)),
                 scopes: Vec::new(),
                 kind: CredentialKind::OAuthBearer,

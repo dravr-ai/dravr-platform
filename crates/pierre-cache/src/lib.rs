@@ -48,6 +48,7 @@ use constants::cache::{
 use errors::AppResult;
 use models::TenantId;
 use redis_config::RedisConnectionConfig;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -211,8 +212,9 @@ pub struct WindowCount {
 pub struct CacheConfig {
     /// Maximum number of entries (for in-memory cache)
     pub max_entries: usize,
-    /// Redis connection URL (for Redis cache)
-    pub redis_url: Option<String>,
+    /// Redis connection URL (for Redis cache); it may carry a password, so
+    /// Debug prints a redaction
+    pub redis_url: Option<SecretString>,
     /// Cleanup interval for expired entries
     pub cleanup_interval: Duration,
     /// Enable background cleanup task (should be false in tests to avoid runtime conflicts)
@@ -434,6 +436,23 @@ mod tests {
             format!(
                 "tenant:{tenant_id}:user:{user_id}:provider:osm:discovered_route:rt_0123456789abcdef"
             )
+        );
+    }
+
+    #[test]
+    fn a_redis_url_never_prints_its_password() {
+        let config = CacheConfig {
+            redis_url: Some(SecretString::from(
+                "redis://cache:redis-pass-91f3@cache.internal:6379",
+            )),
+            ..CacheConfig::default()
+        };
+        let printed = format!("{config:?}");
+        assert!(!printed.contains("redis-pass-91f3"), "{printed}");
+        assert!(!printed.contains("cache.internal"), "{printed}");
+        assert!(
+            printed.contains("redis_url: Some(SecretBox<str>([REDACTED]))"),
+            "{printed}"
         );
     }
 }

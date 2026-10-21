@@ -9,6 +9,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
+use secrecy::{ExposeSecret, SecretString};
 
 // =============================================================================
 // PkceParams Tests
@@ -75,10 +76,10 @@ fn test_pkce_code_challenge_is_base64url() {
 #[test]
 fn test_oauth2_token_is_expired_when_past() {
     let token = OAuth2Token {
-        access_token: "test_access_token".to_owned(),
+        access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
         expires_at: Some(Utc::now() - Duration::hours(1)),
-        refresh_token: Some("test_refresh_token".to_owned()),
+        refresh_token: Some(SecretString::from("test_refresh_token")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
     };
@@ -89,10 +90,10 @@ fn test_oauth2_token_is_expired_when_past() {
 #[test]
 fn test_oauth2_token_not_expired_when_future() {
     let token = OAuth2Token {
-        access_token: "test_access_token".to_owned(),
+        access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
         expires_at: Some(Utc::now() + Duration::hours(1)),
-        refresh_token: Some("test_refresh_token".to_owned()),
+        refresh_token: Some(SecretString::from("test_refresh_token")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
     };
@@ -103,7 +104,7 @@ fn test_oauth2_token_not_expired_when_future() {
 #[test]
 fn test_oauth2_token_not_expired_when_no_expiry() {
     let token = OAuth2Token {
-        access_token: "test_access_token".to_owned(),
+        access_token: SecretString::from("test_access_token"),
         token_type: "Bearer".to_owned(),
         expires_at: None,
         refresh_token: None,
@@ -123,7 +124,7 @@ fn test_oauth2_token_not_expired_when_no_expiry() {
 fn test_oauth2_config_creation() {
     let config = OAuth2Config {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         auth_url: "https://provider.com/oauth/authorize".to_owned(),
         token_url: "https://provider.com/oauth/token".to_owned(),
         redirect_uri: "https://myapp.com/callback".to_owned(),
@@ -132,16 +133,25 @@ fn test_oauth2_config_creation() {
     };
 
     assert_eq!(config.client_id, "test_client_id");
-    assert_eq!(config.client_secret, "test_client_secret");
+    assert_eq!(config.client_secret.expose_secret(), "test_client_secret");
     assert!(config.use_pkce);
     assert_eq!(config.scopes.len(), 2);
+
+    // Debug names the client and prints a redaction in place of its secret.
+    let printed = format!("{config:?}");
+    assert!(!printed.contains("test_client_secret"), "{printed}");
+    assert!(
+        printed.contains("client_secret: SecretBox<str>([REDACTED])"),
+        "{printed}"
+    );
+    assert!(printed.contains("test_client_id"), "{printed}");
 }
 
 #[test]
 fn test_oauth2_config_serialization() {
     let config = OAuth2Config {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         auth_url: "https://provider.com/oauth/authorize".to_owned(),
         token_url: "https://provider.com/oauth/token".to_owned(),
         redirect_uri: "https://myapp.com/callback".to_owned(),
@@ -152,10 +162,20 @@ fn test_oauth2_config_serialization() {
     let json = serde_json::to_string(&config).unwrap();
     assert!(json.contains("test_client_id"));
     assert!(json.contains("use_pkce"));
+    // The client secret never leaves the process in a serialized config.
+    assert!(!json.contains("test_client_secret"), "{json}");
+    assert!(!json.contains("client_secret"), "{json}");
 
-    let deserialized: OAuth2Config = serde_json::from_str(&json).unwrap();
+    // A configuration read from JSON still takes its secret.
+    let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    value["client_secret"] = serde_json::Value::from("read_back_secret");
+    let deserialized: OAuth2Config = serde_json::from_value(value).unwrap();
     assert_eq!(deserialized.client_id, config.client_id);
     assert_eq!(deserialized.use_pkce, config.use_pkce);
+    assert_eq!(
+        deserialized.client_secret.expose_secret(),
+        "read_back_secret"
+    );
 }
 
 // =============================================================================
@@ -166,7 +186,7 @@ fn test_oauth2_config_serialization() {
 fn test_oauth2_client_creation() {
     let config = OAuth2Config {
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         auth_url: "https://provider.com/oauth/authorize".to_owned(),
         token_url: "https://provider.com/oauth/token".to_owned(),
         redirect_uri: "https://myapp.com/callback".to_owned(),
@@ -184,7 +204,7 @@ fn test_oauth2_client_creation() {
 fn test_oauth2_client_get_authorization_url() {
     let config = OAuth2Config {
         client_id: "my_client_id".to_owned(),
-        client_secret: "my_client_secret".to_owned(),
+        client_secret: SecretString::from("my_client_secret"),
         auth_url: "https://provider.com/oauth/authorize".to_owned(),
         token_url: "https://provider.com/oauth/token".to_owned(),
         redirect_uri: "https://myapp.com/callback".to_owned(),
@@ -209,7 +229,7 @@ fn test_oauth2_client_get_authorization_url() {
 fn test_oauth2_client_get_authorization_url_with_pkce() {
     let config = OAuth2Config {
         client_id: "pkce_client_id".to_owned(),
-        client_secret: "pkce_client_secret".to_owned(),
+        client_secret: SecretString::from("pkce_client_secret"),
         auth_url: "https://provider.com/oauth/authorize".to_owned(),
         token_url: "https://provider.com/oauth/token".to_owned(),
         redirect_uri: "https://myapp.com/callback".to_owned(),
@@ -236,7 +256,7 @@ fn test_oauth2_client_get_authorization_url_with_pkce() {
 fn test_oauth2_client_authorization_url_invalid_base_url() {
     let config = OAuth2Config {
         client_id: "test_client".to_owned(),
-        client_secret: "test_secret".to_owned(),
+        client_secret: SecretString::from("test_secret"),
         auth_url: "not-a-valid-url".to_owned(),
         token_url: "https://provider.com/oauth/token".to_owned(),
         redirect_uri: "https://myapp.com/callback".to_owned(),
@@ -254,7 +274,7 @@ fn test_oauth2_client_authorization_url_invalid_base_url() {
 fn test_oauth2_client_http_client_accessible() {
     let config = OAuth2Config {
         client_id: "test".to_owned(),
-        client_secret: "test".to_owned(),
+        client_secret: SecretString::from("test"),
         auth_url: "https://provider.com/auth".to_owned(),
         token_url: "https://provider.com/token".to_owned(),
         redirect_uri: "https://myapp.com/cb".to_owned(),
@@ -276,10 +296,10 @@ fn test_oauth2_client_http_client_accessible() {
 #[test]
 fn test_oauth2_token_serialization() {
     let token = OAuth2Token {
-        access_token: "access123".to_owned(),
+        access_token: SecretString::from("access123"),
         token_type: "Bearer".to_owned(),
         expires_at: Some(Utc::now() + Duration::hours(1)),
-        refresh_token: Some("refresh456".to_owned()),
+        refresh_token: Some(SecretString::from("refresh456")),
         scope: Some("read write".to_owned()),
         provider_user_id: None,
     };
@@ -290,15 +310,27 @@ fn test_oauth2_token_serialization() {
     assert!(json.contains("refresh456"));
 
     let deserialized: OAuth2Token = serde_json::from_str(&json).unwrap();
-    assert_eq!(deserialized.access_token, token.access_token);
+    assert_eq!(
+        deserialized.access_token.expose_secret(),
+        token.access_token.expose_secret()
+    );
     assert_eq!(deserialized.token_type, token.token_type);
-    assert_eq!(deserialized.refresh_token, token.refresh_token);
+    assert_eq!(
+        deserialized
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        token
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+    );
 }
 
 #[test]
 fn test_oauth2_token_serialization_with_nulls() {
     let token = OAuth2Token {
-        access_token: "access_only".to_owned(),
+        access_token: SecretString::from("access_only"),
         token_type: "Bearer".to_owned(),
         expires_at: None,
         refresh_token: None,
@@ -309,7 +341,7 @@ fn test_oauth2_token_serialization_with_nulls() {
     let json = serde_json::to_string(&token).unwrap();
     let deserialized: OAuth2Token = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(deserialized.access_token, "access_only");
+    assert_eq!(deserialized.access_token.expose_secret(), "access_only");
     assert!(deserialized.expires_at.is_none());
     assert!(deserialized.refresh_token.is_none());
     assert!(deserialized.scope.is_none());
@@ -323,7 +355,7 @@ fn test_oauth2_token_serialization_with_nulls() {
 fn test_oauth2_token_boundary_expiration() {
     // Token expiring exactly now
     let token = OAuth2Token {
-        access_token: "test".to_owned(),
+        access_token: SecretString::from("test"),
         token_type: "Bearer".to_owned(),
         expires_at: Some(Utc::now()),
         refresh_token: None,
@@ -339,7 +371,7 @@ fn test_oauth2_token_boundary_expiration() {
 fn test_oauth2_config_empty_scopes() {
     let config = OAuth2Config {
         client_id: "test".to_owned(),
-        client_secret: "test".to_owned(),
+        client_secret: SecretString::from("test"),
         auth_url: "https://provider.com/auth".to_owned(),
         token_url: "https://provider.com/token".to_owned(),
         redirect_uri: "https://myapp.com/cb".to_owned(),
@@ -360,7 +392,7 @@ fn test_oauth2_config_empty_scopes() {
 fn test_oauth2_config_special_characters_in_redirect_uri() {
     let config = OAuth2Config {
         client_id: "test".to_owned(),
-        client_secret: "test".to_owned(),
+        client_secret: SecretString::from("test"),
         auth_url: "https://provider.com/auth".to_owned(),
         token_url: "https://provider.com/token".to_owned(),
         redirect_uri: "https://myapp.com/callback?extra=param&another=value".to_owned(),

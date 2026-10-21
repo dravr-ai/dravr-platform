@@ -29,7 +29,7 @@ pub struct ServerContextOptions {
     /// social / memory-extraction / health-probe caller.
     ///
     /// The production binary builds this once at startup via
-    /// [`ChatProvider::from_env`] and passes it here so the same provider
+    /// [`ChatProvider::from_chain`] and passes it here so the same provider
     /// instance — and, for the Copilot Headless runner, the same long-lived
     /// `copilot --acp` subprocess + cached GitHub→Copilot OAuth token — is
     /// reused across every call. Without this, every chat request and every

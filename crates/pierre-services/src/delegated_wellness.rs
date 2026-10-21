@@ -56,6 +56,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{DelegatedConnection, RosterAthlete};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver::sync_backend;
+use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -291,7 +292,7 @@ fn coach_key_credentials(
         return None;
     };
     Some(ProviderCredentials {
-        access_token,
+        access_token: access_token.expose_secret().to_owned(),
         refresh_token: None,
         expires_at: None,
         scopes: Vec::new(),

@@ -30,6 +30,7 @@ use crate::request_budget;
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt::Write;
 use std::sync::OnceLock;
@@ -152,7 +153,7 @@ impl WhoopProvider {
     }
 
     /// Retrieve the current access token from credentials
-    async fn get_access_token(&self) -> AppResult<String> {
+    async fn get_access_token(&self) -> AppResult<SecretString> {
         let token = self
             .credentials
             .read()
@@ -201,7 +202,7 @@ impl WhoopProvider {
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
-            &access_token,
+            access_token.expose_secret(),
             oauth_providers::WHOOP,
             &retry_config,
             budget.as_ref(),
@@ -415,8 +416,8 @@ impl FitnessProvider for WhoopProvider {
             &utils::RefreshRequest::whoop(
                 &self.config.token_url,
                 &credentials.client_id,
-                &credentials.client_secret,
-                &refresh_token,
+                credentials.client_secret.expose_secret(),
+                refresh_token.expose_secret(),
             ),
         )
         .await?;

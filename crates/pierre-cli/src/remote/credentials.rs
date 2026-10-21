@@ -10,6 +10,7 @@
 //! remote admin subcommands (`strava-pool`, …) read it. The file holds a
 //! bearer token, so it is created with `0600` permissions and never logged.
 
+use secrecy::SecretString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -29,7 +30,8 @@ pub struct CachedCredentials {
     /// Base URL of the pierre-server this token authenticates against.
     pub server: String,
     /// Bearer access token minted by the device-grant approval.
-    pub access_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// Token type; always `Bearer` for admin tokens.
     #[serde(default = "default_token_type")]
     pub token_type: String,

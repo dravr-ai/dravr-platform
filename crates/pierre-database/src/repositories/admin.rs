@@ -418,7 +418,7 @@ macro_rules! impl_admin_repository {
                 Ok(GeneratedAdminToken {
                     token_id,
                     service_name: request.service_name.clone(),
-                    jwt_token,
+                    jwt_token: SecretString::from(jwt_token),
                     token_prefix,
                     permissions,
                     is_super_admin: request.is_super_admin,

@@ -18,8 +18,9 @@ pub mod rate_limit;
 
 pub use google_sign_in::GoogleSignInConfig;
 pub use oauth::{
-    credential_env, provider_callback_uri, resolve_issuer_url, resolve_mcp_resource_aliases,
-    resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig, OAuth2ServerConfig,
-    OAuthConfig, OAuthProviderConfig, ProviderEnvConfig, DIALED_HOST_HEADERS,
+    configured_credential, credential_env, provider_callback_uri, resolve_issuer_url,
+    resolve_mcp_resource_aliases, resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig,
+    OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride,
+    ProviderEndpointOverrides, DIALED_HOST_HEADERS,
 };
 pub use rate_limit::RateLimitConfig;

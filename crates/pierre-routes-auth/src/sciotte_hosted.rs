@@ -25,6 +25,7 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_ERROR_GENERIC, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LINK_ALREADY_OPENED,
     KEY_HOSTED_ERROR_MISSING_TOKEN,
 };
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -49,7 +50,7 @@ const LOGIN_TOKEN_PROVIDER: &str = "sciotte";
 pub struct HostedLoginQuery {
     /// The signed link-token that authorizes this page to call
     /// `/api/providers/sciotte/*` on behalf of a user
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// Query parameters for the hosted error page
@@ -70,7 +71,7 @@ pub struct HostedSuccessQuery {
     /// The link-token the login page was opened with, which names the athlete
     /// whose locale the page is written in. Absent or expired, the page
     /// follows the browser's `Accept-Language`.
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// The locale of the athlete `claims` names, or the browser's when the
@@ -131,7 +132,7 @@ pub async fn handle_sciotte_hosted_login_page(
     headers: HeaderMap,
     Query(query): Query<HostedLoginQuery>,
 ) -> Response {
-    let Some(token) = query.token.as_deref() else {
+    let Some(token) = query.token.as_ref().map(ExposeSecret::expose_secret) else {
         return render_error_response(
             &resources,
             preferred_locale(&headers),
@@ -191,7 +192,7 @@ pub async fn handle_sciotte_hosted_success_page(
     let target = query.target.as_deref().unwrap_or(DEFAULT_TARGET);
     let locale = locale_for_token(
         &resources,
-        query.token.as_deref(),
+        query.token.as_ref().map(ExposeSecret::expose_secret),
         LOGIN_TOKEN_PROVIDER,
         &headers,
     )

@@ -37,6 +37,7 @@
 
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
+use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -1407,7 +1408,7 @@ async fn a_whoop_reconnect_owing_the_owner_authorization_offers_the_hosted_picke
             tenant_id: tenant,
             provider: "whoop".to_owned(),
             client_id: "whoop-reconnect-test-client".to_owned(),
-            client_secret: "whoop-reconnect-test-secret".to_owned(),
+            client_secret: SecretString::from("whoop-reconnect-test-secret"),
             redirect_uri: "http://localhost/api/oauth/callback/whoop".to_owned(),
             scopes: vec!["read:recovery".to_owned()],
             rate_limit_per_day: 1000,

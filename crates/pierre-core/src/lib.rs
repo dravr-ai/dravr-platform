@@ -51,6 +51,9 @@ pub mod redaction;
 /// Constant-time equality for secrets, tokens and signatures
 pub mod constant_time;
 
+/// serde helpers for secret fields whose wire format carries the secret on purpose
+pub mod secret;
+
 /// Phase C input sanitization — prompt injection detection for inbound user messages
 pub mod safety;
 

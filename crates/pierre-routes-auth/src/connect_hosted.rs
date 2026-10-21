@@ -33,6 +33,7 @@
 //! transcript. Identity (`user_id` + `tenant_id`) comes from the signed token,
 //! so the resulting connection is stored under the user's own tenant.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::fmt::Display;
 
 use crate::sciotte_hosted_templates::{exposure_notice, ExposureNotice};
@@ -74,14 +75,14 @@ const HIDDEN_FROM_PICKER: &[&str] = &["synthetic", "synthetic_sleep"];
 #[derive(Debug, Deserialize)]
 pub struct ConnectPageQuery {
     /// The signed connect link-token authorizing this page.
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// Query parameters for the hosted OAuth-init endpoint.
 #[derive(Debug, Deserialize)]
 pub struct ConnectOAuthInitQuery {
     /// The signed connect link-token authorizing the OAuth start.
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
     /// The athlete ticked the provider's notice on the picker (WHOOP's owner
     /// authorization) before this start.
     #[serde(default)]
@@ -98,7 +99,7 @@ pub struct ConnectSuccessQuery {
     /// The connect link-token the picker was opened with, which names the
     /// athlete whose locale the page is written in. Absent or expired, the
     /// page follows the browser's `Accept-Language`.
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// One selectable card on the hosted picker. Serialized into the page so its JS
@@ -282,7 +283,7 @@ pub async fn handle_connect_hosted_page(
     // Until the token names a user there is nobody's stored locale to read:
     // the pages that refuse the link follow the browser's language.
     let browser_locale = preferred_locale(&headers);
-    let Some(token) = query.token.as_deref() else {
+    let Some(token) = query.token.as_ref().map(ExposeSecret::expose_secret) else {
         return error_page(&resources, browser_locale, KEY_HOSTED_ERROR_MISSING_TOKEN);
     };
 
@@ -351,7 +352,7 @@ pub async fn handle_connect_oauth_init(
     Path(provider): Path<String>,
     Query(query): Query<ConnectOAuthInitQuery>,
 ) -> Response {
-    let Some(token) = query.token.as_deref() else {
+    let Some(token) = query.token.as_ref().map(ExposeSecret::expose_secret) else {
         return AppError::auth_invalid("Missing connect token").into_response();
     };
     let claims = match validate_connect_token(&resources, token) {
@@ -448,7 +449,7 @@ pub async fn handle_connect_hosted_success_page(
     let target = query.target.as_deref().unwrap_or("");
     let locale = locale_for_token(
         &resources,
-        query.token.as_deref(),
+        query.token.as_ref().map(ExposeSecret::expose_secret),
         CONNECT_PROVIDER,
         &headers,
     )

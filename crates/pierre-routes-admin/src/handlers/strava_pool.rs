@@ -92,7 +92,7 @@ pub async fn handle_upsert_strava_pool_app(
     // The env app is the pool's implicit member already; listed again, its
     // athletes would read as two apps and a reconnect between the two
     // entries would revoke the grant it had just made.
-    if strava_pool::strava_client_id(None).as_deref() == Some(client_id) {
+    if strava_pool::strava_client_id(None, &context.oauth).as_deref() == Some(client_id) {
         return Err(AppError::invalid_input(
             "client_id is the env Strava app (STRAVA_CLIENT_ID), which the pool already includes",
         ));
@@ -142,7 +142,9 @@ pub async fn handle_list_strava_pool_apps(
         .oauth_tokens
         .list_strava_pool_apps(false)
         .await?;
-    let summary = strava_pool::strava_seat_summary(context.repos.oauth_tokens.as_ref()).await?;
+    let summary =
+        strava_pool::strava_seat_summary(context.repos.oauth_tokens.as_ref(), &context.oauth)
+            .await?;
 
     let apps_json: Vec<Value> = apps
         .iter()
@@ -207,7 +209,9 @@ pub async fn handle_list_strava_seats(
         .oauth_tokens
         .list_strava_seat_holders()
         .await?;
-    let summary = strava_pool::strava_seat_summary(context.repos.oauth_tokens.as_ref()).await?;
+    let summary =
+        strava_pool::strava_seat_summary(context.repos.oauth_tokens.as_ref(), &context.oauth)
+            .await?;
     let seats_held = holders
         .iter()
         .filter(|h| h.counts_as_seat)

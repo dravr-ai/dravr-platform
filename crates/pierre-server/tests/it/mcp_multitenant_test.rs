@@ -158,6 +158,7 @@ use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{constants::oauth_providers, mcp::multitenant::ProviderToolRouter};
 use pierre_middleware::McpAuthMiddleware;
+use secrecy::ExposeSecret;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -362,7 +363,10 @@ async fn test_tenant_data_isolation() -> Result<()> {
             )
             .await?
             .unwrap();
-        assert_eq!(strava_token.access_token, format!("strava_access_{i}"));
+        assert_eq!(
+            strava_token.access_token.expose_secret(),
+            format!("strava_access_{i}")
+        );
 
         let whoop_token = repos
             .oauth_tokens
@@ -373,7 +377,10 @@ async fn test_tenant_data_isolation() -> Result<()> {
             )
             .await?
             .unwrap();
-        assert_eq!(whoop_token.access_token, format!("whoop_access_{i}"));
+        assert_eq!(
+            whoop_token.access_token.expose_secret(),
+            format!("whoop_access_{i}")
+        );
     }
 
     // Verify users cannot access each other's data
@@ -396,8 +403,20 @@ async fn test_tenant_data_isolation() -> Result<()> {
         .await?
         .unwrap();
 
-    assert_ne!(user0_strava.access_token, user1_strava.access_token);
-    assert_ne!(user0_strava.refresh_token, user1_strava.refresh_token);
+    assert_ne!(
+        user0_strava.access_token.expose_secret(),
+        user1_strava.access_token.expose_secret()
+    );
+    assert_ne!(
+        user0_strava
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        user1_strava
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+    );
 
     Ok(())
 }
@@ -456,7 +475,10 @@ async fn test_concurrent_user_operations() -> Result<()> {
                 )
                 .await?
                 .unwrap();
-            assert_eq!(token_data.access_token, format!("access_token_{i}"));
+            assert_eq!(
+                token_data.access_token.expose_secret(),
+                format!("access_token_{i}")
+            );
 
             Ok::<_, anyhow::Error>(user_id)
         });
@@ -666,14 +688,29 @@ async fn test_database_encryption_isolation() -> Result<()> {
         .await?
         .unwrap();
 
-    assert_eq!(user1_token_data.access_token, "secret_access_token_user1");
-    assert_eq!(user2_token_data.access_token, "secret_access_token_user2");
+    assert_eq!(
+        user1_token_data.access_token.expose_secret(),
+        "secret_access_token_user1"
+    );
+    assert_eq!(
+        user2_token_data.access_token.expose_secret(),
+        "secret_access_token_user2"
+    );
 
     // Verify users cannot access each other's data
-    assert_ne!(user1_token_data.access_token, user2_token_data.access_token);
     assert_ne!(
-        user1_token_data.refresh_token,
-        user2_token_data.refresh_token
+        user1_token_data.access_token.expose_secret(),
+        user2_token_data.access_token.expose_secret()
+    );
+    assert_ne!(
+        user1_token_data
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        user2_token_data
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
     );
 
     Ok(())
@@ -826,7 +863,10 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
                 )
                 .await?
                 .unwrap();
-            assert_eq!(token_data.access_token, format!("access_{i}"));
+            assert_eq!(
+                token_data.access_token.expose_secret(),
+                format!("access_{i}")
+            );
 
             Ok::<_, anyhow::Error>(i)
         });
@@ -982,7 +1022,10 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
                 )
                 .await?
                 .unwrap();
-            assert_eq!(token_data.access_token, format!("access_{user_id}"));
+            assert_eq!(
+                token_data.access_token.expose_secret(),
+                format!("access_{user_id}")
+            );
 
             // Update last active
             repos.users.update_last_active(user_id).await?;

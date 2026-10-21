@@ -18,6 +18,7 @@
 //! account coaches active athletes files its owner's coach-access request
 //! for a super-admin to decide, and never grants coach access itself.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -50,7 +51,7 @@ pub struct IntervalsIcuLinkRequest {
     /// string `API_KEY` there.
     pub athlete_id: String,
     /// Personal API key from the athlete's Intervals.icu settings — the password.
-    pub api_key: String,
+    pub api_key: SecretString,
 }
 
 /// Why an Intervals.icu link attempt did not go through.
@@ -145,7 +146,7 @@ pub async fn handle_intervals_icu_link(
         user_id,
         tenant_id,
         &request.athlete_id,
-        &request.api_key,
+        request.api_key.expose_secret(),
     )
     .await?;
 
@@ -199,8 +200,8 @@ pub async fn link_intervals_icu_account(
     provider
         .set_credentials(OAuth2Credentials {
             client_id: athlete_id.clone(),
-            client_secret: String::new(),
-            access_token: Some(api_key.clone()),
+            client_secret: SecretString::default(),
+            access_token: Some(SecretString::from(api_key.clone())),
             refresh_token: None,
             expires_at: None,
             scopes: vec![],
@@ -221,7 +222,7 @@ pub async fn link_intervals_icu_account(
         provider: INTERVALS_ICU.to_owned(),
         // The API key is the HTTP Basic password — encrypted at rest.
         // (The Basic username is the constant `API_KEY`, not this athlete id.)
-        access_token: api_key,
+        access_token: SecretString::from(api_key),
         refresh_token: None,
         token_type: API_KEY_TOKEN_TYPE.to_owned(),
         expires_at: None,

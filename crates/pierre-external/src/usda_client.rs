@@ -22,10 +22,11 @@
 //! # Example
 //! ```rust,no_run
 //! use pierre_external::usda_client::{UsdaClient, UsdaClientConfig};
+//! use secrecy::SecretString;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let config = UsdaClientConfig {
-//!     api_key: "your_api_key".to_owned(),
+//!     api_key: SecretString::from("your_api_key"),
 //!     base_url: "https://api.nal.usda.gov/fdc/v1".to_owned(),
 //!     cache_ttl_secs: 86400, // 24 hours
 //!     rate_limit_per_minute: 30,
@@ -41,6 +42,7 @@
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client as shared_client;
 use pierre_core::http_client::SharedHttpClient;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -50,8 +52,9 @@ use tokio::{sync::RwLock, time::sleep};
 /// USDA API client configuration
 #[derive(Debug, Clone)]
 pub struct UsdaClientConfig {
-    /// USDA API key (free from <https://fdc.nal.usda.gov/api-key-signup.html>)
-    pub api_key: String,
+    /// USDA API key (free from <https://fdc.nal.usda.gov/api-key-signup.html>);
+    /// Debug prints a redaction
+    pub api_key: SecretString,
     /// Base URL for USDA API (default: <https://api.nal.usda.gov/fdc/v1>)
     pub base_url: String,
     /// Cache TTL in seconds (default: 86400 = 24 hours)
@@ -65,7 +68,7 @@ pub struct UsdaClientConfig {
 impl Default for UsdaClientConfig {
     fn default() -> Self {
         Self {
-            api_key: String::new(),
+            api_key: SecretString::default(),
             base_url: "https://api.nal.usda.gov/fdc/v1".to_owned(),
             cache_ttl_secs: 86400, // 24 hours
             rate_limit_per_minute: 30,
@@ -378,7 +381,7 @@ impl UsdaClient {
                 ("query", query),
                 ("pageSize", &page_size.to_string()),
                 ("pageNumber", &page_num.to_string()),
-                ("api_key", &self.config.api_key),
+                ("api_key", self.config.api_key.expose_secret()),
             ])
             // Per-request override: the shared client carries its own default
             // ceiling, so without this the configured value was dead and the
@@ -389,7 +392,7 @@ impl UsdaClient {
             .map_err(|e| {
                 AppError::external_service(
                     "USDA API",
-                    redact_api_key(&e.to_string(), &self.config.api_key),
+                    redact_api_key(&e.to_string(), self.config.api_key.expose_secret()),
                 )
             })?;
 
@@ -464,7 +467,7 @@ impl UsdaClient {
             .http_client
             .get(&url)
             .query(&[
-                ("api_key", self.config.api_key.as_str()),
+                ("api_key", self.config.api_key.expose_secret()),
                 ("format", "full"),
             ])
             .timeout(Duration::from_secs(self.config.request_timeout_secs))
@@ -473,7 +476,7 @@ impl UsdaClient {
             .map_err(|e| {
                 AppError::external_service(
                     "USDA API",
-                    redact_api_key(&e.to_string(), &self.config.api_key),
+                    redact_api_key(&e.to_string(), self.config.api_key.expose_secret()),
                 )
             })?;
 
@@ -541,4 +544,28 @@ fn redact_api_key(message: &str, api_key: &str) -> String {
         return message.to_owned();
     }
     message.replace(api_key, "[REDACTED]")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UsdaClientConfig;
+    use secrecy::SecretString;
+
+    #[test]
+    fn the_api_key_never_prints() {
+        let config = UsdaClientConfig {
+            api_key: SecretString::from("usda-key-3e9b07"),
+            ..UsdaClientConfig::default()
+        };
+        let printed = format!("{config:#?}");
+        assert!(!printed.contains("usda-key-3e9b07"), "{printed}");
+        assert!(
+            printed.contains("api_key: SecretBox<str>([REDACTED])"),
+            "{printed}"
+        );
+        assert!(
+            printed.contains("https://api.nal.usda.gov/fdc/v1"),
+            "{printed}"
+        );
+    }
 }

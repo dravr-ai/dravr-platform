@@ -14,6 +14,7 @@
 use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
+use pierre_auth::config::oauth::OAuthConfig;
 use pierre_auth::config::rate_limit::RateLimitConfig;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
@@ -125,6 +126,14 @@ pub struct AdminApiContext {
     /// sign-up settings report it (copied in by the composition root; `false`
     /// until then).
     pub human_check_configured: bool,
+    /// The server's own OAuth apps (`ServerConfig::oauth`): the Strava pool
+    /// routes count the env app's seats and keep it out of the pool by it
+    /// (copied in by the composition root; no app until then).
+    pub oauth: OAuthConfig,
+    /// The server's public URL (`ServerConfig::base_url`), under which a
+    /// device authorization's verification page is linked (copied in by the
+    /// composition root; empty, so the link is relative, until then).
+    pub base_url: String,
 }
 
 /// Initial wiring required to construct an [`AdminApiContext`].
@@ -207,6 +216,8 @@ impl AdminApiContext {
             contremaitre_config: init.contremaitre_config,
             app_behavior: init.app_behavior,
             human_check_configured: false,
+            oauth: OAuthConfig::default(),
+            base_url: String::new(),
         }
     }
 }

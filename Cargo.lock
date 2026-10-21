@@ -395,28 +395,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-extra"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be44683b41ccb9ab2d23a5230015c9c3c55be97a25e4428366de8873103f7970"
-dependencies = [
- "axum",
- "axum-core",
- "bytes",
- "futures-core",
- "futures-util",
- "headers",
- "http",
- "http-body",
- "http-body-util",
- "mime",
- "pin-project-lite",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
 name = "axum-macros"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1852,17 +1830,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eventsource-stream"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab"
-dependencies = [
- "futures-core",
- "nom 7.1.3",
- "pin-project-lite",
-]
-
-[[package]]
 name = "fancy-regex"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1944,7 +1911,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56a834aed7c01a500afb06ebcfde59a4dcfd1de7ce15ae501462934d59655376"
 dependencies = [
  "chrono",
- "nom 8.0.0",
+ "nom",
  "serde",
 ]
 
@@ -2373,30 +2340,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
-]
-
-[[package]]
-name = "headers"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3314d5adb5d94bcdf56771f2e50dbbc80bb4bdf88967526706205ac9eff24eb"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "headers-core",
- "http",
- "httpdate",
- "mime",
- "sha1",
-]
-
-[[package]]
-name = "headers-core"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
-dependencies = [
- "http",
 ]
 
 [[package]]
@@ -3207,12 +3150,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3295,16 +3232,6 @@ name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
-
-[[package]]
-name = "nom"
-version = "7.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
-dependencies = [
- "memchr",
- "minimal-lexical",
-]
 
 [[package]]
 name = "nom"
@@ -3729,18 +3656,17 @@ version = "0.3.0"
 dependencies = [
  "bcrypt",
  "chrono",
- "dravr-tronc",
  "pierre-auth",
  "pierre-config",
  "pierre-core",
  "pierre-database",
- "pierre-mcp-schema",
  "pierre-mcp-transport",
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-tool-runtime",
  "rand 0.9.4",
  "reqwest 0.12.28",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3782,26 +3708,23 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
- "bitflags 2.11.1",
  "chrono",
  "ciborium",
  "der",
  "dravr-tronc",
  "ed25519-dalek",
- "hex",
  "http",
  "jsonwebtoken",
- "num-traits",
  "pierre-cache",
  "pierre-core",
  "pierre-database",
- "pierre-llm",
  "rand 0.9.4",
  "reqwest 0.12.28",
  "ring",
  "rsa",
  "rustls-pki-types",
  "rustls-webpki",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -3823,6 +3746,7 @@ dependencies = [
  "lru",
  "pierre-core",
  "redis",
+ "secrecy",
  "serde",
  "serde_json",
  "tokio",
@@ -3864,7 +3788,6 @@ dependencies = [
  "pierre-services",
  "pierre-sse",
  "pierre-tool-runtime",
- "serde",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -3897,6 +3820,7 @@ dependencies = [
  "pierre-services",
  "pierre-tool-runtime",
  "reqwest 0.12.28",
+ "secrecy",
  "serde",
  "serde_json",
  "tokio",
@@ -3944,6 +3868,7 @@ dependencies = [
  "pierre-middleware",
  "reqwest 0.12.28",
  "schemars 1.2.1",
+ "secrecy",
  "serde",
  "serde_json",
  "tracing",
@@ -3974,7 +3899,6 @@ dependencies = [
  "tokio",
  "tracing",
  "urlencoding",
- "uuid",
 ]
 
 [[package]]
@@ -4003,6 +3927,7 @@ dependencies = [
  "reqwest-middleware",
  "ring",
  "schemars 1.2.1",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -4011,7 +3936,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
- "toml",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -4032,6 +3956,7 @@ dependencies = [
  "pierre-test-support",
  "rand 0.9.4",
  "ring",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -4050,7 +3975,7 @@ dependencies = [
  "pierre-config",
  "pierre-fitness-compute",
  "pierre-providers",
- "serde",
+ "secrecy",
  "serde_json",
  "sqlx",
  "tokio",
@@ -4090,14 +4015,12 @@ name = "pierre-external"
 version = "0.3.0"
 dependencies = [
  "axum",
- "pierre-cache",
  "pierre-core",
- "reqwest 0.12.28",
  "schemars 1.2.1",
+ "secrecy",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -4111,8 +4034,6 @@ dependencies = [
  "hex",
  "pierre-core",
  "pierre-database",
- "rayon",
- "regex",
  "reqwest 0.12.28",
  "schemars 1.2.1",
  "serde",
@@ -4120,7 +4041,6 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
- "urlencoding",
 ]
 
 [[package]]
@@ -4143,9 +4063,7 @@ dependencies = [
  "pierre-database",
  "pierre-providers",
  "rand 0.9.4",
- "serde",
  "serde_json",
- "thiserror 2.0.21",
  "tracing",
  "uuid",
 ]
@@ -4193,28 +4111,21 @@ dependencies = [
 name = "pierre-mcp-schema"
 version = "0.3.0"
 dependencies = [
- "chrono",
  "dravr-tronc",
  "pierre-config",
- "pierre-core",
  "serde",
- "serde_json",
 ]
 
 [[package]]
 name = "pierre-mcp-transport"
 version = "0.3.0"
 dependencies = [
- "chrono",
  "html-escape",
  "pierre-auth",
  "pierre-core",
  "pierre-database",
- "pierre-mcp-schema",
  "pierre-runtime-context",
  "serde",
- "serde_json",
- "tokio",
  "tracing",
  "uuid",
 ]
@@ -4235,7 +4146,6 @@ dependencies = [
 name = "pierre-middleware"
 version = "0.3.0"
 dependencies = [
- "async-trait",
  "axum",
  "bitflags 2.11.1",
  "chrono",
@@ -4250,7 +4160,6 @@ dependencies = [
  "pierre-runtime-context",
  "regex",
  "serde",
- "serde_json",
  "tokio",
  "tower-http",
  "tracing",
@@ -4279,7 +4188,6 @@ dependencies = [
 name = "pierre-providers"
 version = "0.3.0"
 dependencies = [
- "async-stream",
  "async-trait",
  "base64 0.22.1",
  "bitflags 2.11.1",
@@ -4290,20 +4198,17 @@ dependencies = [
  "dravr-sciotte",
  "dravr-tronc",
  "fitparser",
- "futures-util",
  "hex",
  "num-traits",
  "pierre-auth",
- "pierre-cache",
  "pierre-core",
  "pierre-database",
  "pierre-test-support",
  "reqwest 0.12.28",
  "ring",
+ "secrecy",
  "serde",
  "serde_json",
- "sqlx",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
  "uuid",
@@ -4317,10 +4222,10 @@ dependencies = [
  "pierre-a2a",
  "pierre-auth",
  "pierre-core",
- "pierre-mcp-transport",
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-tool-runtime",
+ "secrecy",
  "serde",
  "serde_json",
  "tokio",
@@ -4341,7 +4246,6 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
- "pierre-evals",
  "pierre-llm",
  "pierre-memory",
  "pierre-middleware",
@@ -4349,6 +4253,7 @@ dependencies = [
  "pierre-services",
  "pierre-tool-runtime",
  "rand 0.9.4",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -4389,7 +4294,6 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum",
- "base64 0.22.1",
  "chrono",
  "dravr-enforme",
  "dravr-sciotte",
@@ -4402,16 +4306,14 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
- "pierre-groups",
- "pierre-mcp-schema",
  "pierre-mcp-transport",
  "pierre-middleware",
  "pierre-providers",
  "pierre-routes-admin",
  "pierre-runtime-context",
  "pierre-services",
- "rand 0.9.4",
  "reqwest 0.12.28",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -4444,13 +4346,10 @@ dependencies = [
  "chrono",
  "pierre-auth",
  "pierre-core",
- "pierre-database",
  "pierre-middleware",
  "pierre-runtime-context",
  "serde",
- "serde_json",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4471,6 +4370,7 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-services",
  "pierre-tool-runtime",
+ "secrecy",
  "serde",
  "serde_json",
  "tokio",
@@ -4492,6 +4392,7 @@ dependencies = [
  "pierre-middleware",
  "pierre-runtime-context",
  "pierre-services",
+ "secrecy",
  "serde",
  "serde_json",
  "sha2",
@@ -4520,7 +4421,6 @@ dependencies = [
  "pierre-tool-runtime",
  "serde",
  "serde_json",
- "tokio",
  "tracing",
  "uuid",
 ]
@@ -4559,6 +4459,7 @@ dependencies = [
  "pierre-middleware",
  "pierre-services",
  "rand 0.9.4",
+ "secrecy",
  "serde_json",
  "tracing",
  "uuid",
@@ -4581,7 +4482,6 @@ dependencies = [
  "dravr-meteo",
  "dravr-riviere",
  "dravr-sciotte",
- "dravr-tronc",
  "embacle",
  "futures-util",
  "hex",
@@ -4599,7 +4499,6 @@ dependencies = [
  "pierre-fitness-compute",
  "pierre-groups",
  "pierre-llm",
- "pierre-mcp-schema",
  "pierre-mcp-transport",
  "pierre-memory",
  "pierre-middleware",
@@ -4610,11 +4509,11 @@ dependencies = [
  "rand 0.9.4",
  "reqwest 0.12.28",
  "schemars 1.2.1",
+ "secrecy",
  "serde",
  "serde-saphyr",
  "serde_json",
  "sha2",
- "sqlx",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4633,11 +4532,8 @@ dependencies = [
  "chrono",
  "dashmap 5.5.3",
  "futures-util",
- "pierre-auth",
  "pierre-config",
  "pierre-core",
- "pierre-database",
- "pierre-middleware",
  "pierre-runtime-context",
  "pierre-services",
  "serde_json",
@@ -4663,7 +4559,6 @@ name = "pierre-tool-runtime"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
  "bitflags 2.11.1",
  "chrono",
  "dravr-cageux",
@@ -4690,7 +4585,6 @@ dependencies = [
  "pierre-groups",
  "pierre-llm",
  "pierre-mcp-schema",
- "pierre-mcp-transport",
  "pierre-memory",
  "pierre-notifications",
  "pierre-providers",
@@ -4698,8 +4592,8 @@ dependencies = [
  "pierre-services",
  "pierre-tools-core",
  "regex",
- "reqwest 0.12.28",
  "schemars 1.2.1",
+ "secrecy",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4723,25 +4617,19 @@ dependencies = [
 name = "pierre_mcp_server"
 version = "0.3.0"
 dependencies = [
- "aes-gcm",
  "anyhow",
  "argon2",
  "async-stream",
  "async-trait",
  "axum",
- "axum-extra",
  "base64 0.22.1",
- "base64ct",
  "bcrypt",
- "bitflags 2.11.1",
  "bytes",
  "chrono",
  "chrono-tz",
  "clap",
  "criterion",
- "cron",
  "dashmap 5.5.3",
- "dirs 5.0.1",
  "dravr-cageux",
  "dravr-canot",
  "dravr-contremaitre",
@@ -4755,16 +4643,12 @@ dependencies = [
  "ed25519-dalek",
  "embacle",
  "embacle-tool-host",
- "eventsource-stream",
  "futures-util",
- "glob",
  "hex",
  "hmac",
- "html-escape",
  "http",
  "jsonschema",
  "jsonwebtoken",
- "num-traits",
  "photograveur",
  "pierre-a2a",
  "pierre-agent-parser",
@@ -4811,13 +4695,11 @@ dependencies = [
  "qrcode",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
- "rayon",
- "redis",
  "regex",
  "reqwest 0.12.28",
  "ring",
- "rsa",
  "schemars 1.2.1",
+ "secrecy",
  "serde",
  "serde-saphyr",
  "serde_json",
@@ -4826,13 +4708,11 @@ dependencies = [
  "sha2",
  "sqlx",
  "tempfile",
- "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite 0.29.0",
  "tokio-util",
  "toml",
- "toon-format",
  "tower",
  "tower-http",
  "tracing",
@@ -4841,7 +4721,6 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
- "zeroize",
 ]
 
 [[package]]
@@ -5720,6 +5599,16 @@ dependencies = [
  "generic-array",
  "pkcs8",
  "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "secrecy"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e891af845473308773346dc847b2c23ee78fe442e0472ac50e22a18a93d3ae5a"
+dependencies = [
+ "serde",
  "zeroize",
 ]
 

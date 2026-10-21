@@ -81,7 +81,7 @@ pub struct EmbacleProvider {
     /// the Copilot GitHub token; a runner of no kind spends none it measures.
     kind: Option<LlmProviderType>,
     /// The model each background stage runs on when this is the platform's
-    /// head provider ([`ChatProvider::from_env`]); empty for any other
+    /// head provider ([`ChatProvider::from_chain`]); empty for any other
     /// provider, a tenant's own key included.
     stage_models: StageModels,
     /// The quota cooldown book every [`FallbackProvider`] of this chain —
@@ -155,7 +155,7 @@ impl EmbacleProvider {
     ///
     /// The models are the head's: a chain built over this provider clears a
     /// request's model on every hop, so a stage call that falls back runs on
-    /// the next tier's own model. [`ChatProvider::from_env`] is the one
+    /// the next tier's own model. [`ChatProvider::from_chain`] is the one
     /// production caller; nothing routes a tenant's own provider.
     #[must_use]
     pub fn with_stage_models(mut self, stage_models: StageModels) -> Self {

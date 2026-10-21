@@ -9,6 +9,7 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the admin
 //! routes for serialization and deserialization of API requests and responses.
 
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -44,7 +45,7 @@ pub struct AdminSetupRequest {
     /// Admin email address
     pub email: String,
     /// Admin password
-    pub password: String,
+    pub password: SecretString,
     /// Optional display name for the admin
     pub display_name: Option<String>,
 }
@@ -208,7 +209,8 @@ pub struct ProvisionApiKeyResponse {
     /// Unique identifier for the API key
     pub api_key_id: String,
     /// The actual API key (shown only once)
-    pub api_key: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub api_key: SecretString,
     /// ID of the user who owns this key
     pub user_id: String,
     /// Tier level of the key
@@ -245,7 +247,8 @@ pub struct AdminSetupResponse {
     /// ID of the created admin user
     pub user_id: String,
     /// JWT token for admin authentication
-    pub admin_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub admin_token: SecretString,
     /// Success message
     pub message: String,
 }

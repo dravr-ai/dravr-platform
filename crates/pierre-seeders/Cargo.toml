@@ -11,6 +11,7 @@ repository = "https://github.com/dravr-ai/scriptcurator-platform"
 publish = false
 
 [dependencies]
+secrecy = { workspace = true }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 # The string catalogue the coach plan thread's card names a flavour from.
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }

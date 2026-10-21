@@ -23,6 +23,7 @@
 //!     suppressed.
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::sync::Arc;
 
@@ -63,7 +64,7 @@ async fn seed_sciotte_token(
         user_id,
         tenant_id: tenant.to_owned(),
         provider: "sciotte".to_owned(),
-        access_token: "{\"session\":\"seed\"}".to_owned(),
+        access_token: SecretString::from("{\"session\":\"seed\"}"),
         refresh_token: None,
         token_type: "session".to_owned(),
         expires_at: None,

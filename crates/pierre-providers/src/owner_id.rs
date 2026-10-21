@@ -20,6 +20,7 @@ use crate::errors::AppResult;
 use crate::registry::ProviderRegistry;
 use crate::request_budget::RequestBudget;
 use crate::spi::ProviderDescriptor;
+use secrecy::SecretString;
 
 /// Read the owner id behind `access_token` when `provider`'s token response
 /// carries none.
@@ -52,8 +53,8 @@ pub async fn owner_id_for_access_token(
     client
         .set_credentials(OAuth2Credentials {
             client_id: String::new(),
-            client_secret: String::new(),
-            access_token: Some(access_token.to_owned()),
+            client_secret: SecretString::default(),
+            access_token: Some(SecretString::from(access_token.to_owned())),
             refresh_token: None,
             expires_at: None,
             scopes: Vec::new(),

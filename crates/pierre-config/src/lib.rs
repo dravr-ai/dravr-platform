@@ -39,6 +39,8 @@ pub mod database;
 pub mod environment;
 /// Goal management configuration
 pub mod goal_management;
+/// `GUARDIAN_*` tool-dispatch policy overrides captured at startup
+pub mod guardian;
 /// Logging and PII redaction configuration
 pub mod logging;
 /// MCP protocol and runtime configuration
@@ -55,6 +57,8 @@ pub mod security;
 pub mod sleep_tool_params;
 /// The three-zone cuts as admin parameters (`tid_cuts.*`) and their `TidCuts` builder
 pub mod tid_cuts;
+/// Operator-tunable request-path time bounds captured at startup
+pub mod timeouts;
 /// Tool selection configuration for global tool disabling via environment variables
 pub mod tool_selection;
 /// Core configuration type definitions (`LogLevel`, `Environment`, `LlmProviderType`)
@@ -63,3 +67,5 @@ pub mod types;
 pub mod utils;
 /// Configuration validation and safety checks
 pub mod validation;
+/// Inbound webhook verification secrets captured at startup
+pub mod webhooks;

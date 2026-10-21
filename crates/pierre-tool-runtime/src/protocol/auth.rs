@@ -9,7 +9,6 @@ use crate::protocol::types::{UniversalResponse, META_AUTH_REQUIRED_PROVIDER};
 use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use pierre_auth::tenant::oauth_manager::{issuing_client, IssuingClient, IssuingLookup};
-use pierre_config::environment::get_oauth_config;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::AppError;
 use pierre_core::models::{refresh_due, TenantId, UserOAuthToken};
@@ -18,6 +17,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::upload_provider::UploadProvider;
 use pierre_providers::{credential_kind, CoreFitnessProvider, CredentialKind, OAuth2Credentials};
+use secrecy::SecretString;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ pub(crate) struct SigningClient {
     /// The client's id: the app a provider counts the token's calls against.
     pub(crate) client_id: String,
     /// The client's secret, which a refresh presents.
-    pub(crate) client_secret: String,
+    pub(crate) client_secret: SecretString,
     /// The daily request budget the app's operator registered (a tenant's own
     /// app); `None` takes the provider's.
     pub(crate) daily_limit: Option<u32>,
@@ -44,9 +44,9 @@ pub(crate) struct SigningClient {
 #[derive(Debug, Clone)]
 pub struct TokenData {
     /// OAuth access token
-    pub access_token: String,
+    pub access_token: SecretString,
     /// OAuth refresh token
-    pub refresh_token: String,
+    pub refresh_token: SecretString,
     /// When the access token expires; `None` for a token issued without an
     /// expiry (an Intervals.icu OAuth token never expires)
     pub expires_at: Option<DateTime<Utc>>,
@@ -464,7 +464,7 @@ impl AuthService {
         token_data: &TokenData,
         user_id: Uuid,
         tenant_id: Option<&str>,
-    ) -> Result<(String, String, Option<RequestBudget>), String> {
+    ) -> Result<(String, SecretString, Option<RequestBudget>), String> {
         let registry = self.resources.provider_registry();
         let needs_client = token_data.kind == CredentialKind::OAuthBearer
             && registry.requires_oauth(provider_name);
@@ -475,7 +475,7 @@ impl AuthService {
             } else {
                 None
             };
-            return Ok((account, String::new(), budget));
+            return Ok((account, SecretString::default(), budget));
         }
         // The provider refreshes on its own when a call is refused, so it
         // gets the client that issued the token, as the expiry refresh does.
@@ -556,7 +556,7 @@ impl AuthService {
                 // Prepare credentials in the correct format
                 let credentials = OAuth2Credentials {
                     client_id,
-                    client_secret,
+                    client_secret: SecretString::from(client_secret),
                     access_token: Some(token_data.access_token),
                     refresh_token: Some(token_data.refresh_token),
                     expires_at: token_data.expires_at,
@@ -627,14 +627,13 @@ impl AuthService {
             .map(|t| TenantId::parse_str(t).map_err(|_| format!("Invalid tenant_id: {t}")))
             .transpose()?;
         let repos = self.resources.repos();
-        let server_level = get_oauth_config(provider);
         let client = issuing_client(
             IssuingLookup {
                 user_id: Some(user_id),
                 tenant_id,
                 provider,
                 issuing_app,
-                server_level: &server_level,
+                server: &self.resources.config().oauth,
             },
             repos.tenants.as_ref(),
             repos.oauth_tokens.as_ref(),
@@ -648,7 +647,7 @@ impl AuthService {
         };
         Ok(SigningClient {
             client_id: client.client_id().to_owned(),
-            client_secret: client.client_secret().to_owned(),
+            client_secret: client.client_secret().clone(),
             daily_limit,
         })
     }

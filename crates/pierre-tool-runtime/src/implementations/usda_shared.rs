@@ -19,6 +19,7 @@ use std::sync::{Arc, OnceLock};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_external::usda_client::{UsdaClient, UsdaClientConfig};
+use secrecy::SecretString;
 use serde_json::Value;
 
 /// Upper bound on caller-supplied ingredient arrays for the USDA fan-outs.
@@ -54,7 +55,7 @@ static SHARED_USDA_CLIENT: OnceLock<Arc<UsdaClient>> = OnceLock::new();
 /// The key comes from process environment configuration, so the first
 /// caller's key is every caller's key; the `OnceLock` just makes the caches
 /// and rate limiter live for the process instead of one call.
-pub(crate) fn shared_usda_client(api_key: String) -> Arc<UsdaClient> {
+pub(crate) fn shared_usda_client(api_key: SecretString) -> Arc<UsdaClient> {
     SHARED_USDA_CLIENT
         .get_or_init(|| {
             Arc::new(UsdaClient::new(UsdaClientConfig {

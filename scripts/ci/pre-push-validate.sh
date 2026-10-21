@@ -442,6 +442,12 @@ require_build_warnings() {
 # `--test it` once; a top-level suite (one that writes the environment) lints
 # its own binary.
 #
+# `changed-targets --edited-only` is the lint scope on purpose. The default
+# answer is the run scope — every target once a change reaches the server's
+# dependency closure — and linting all of them here would compile the server's
+# whole test graph on every Rust push, the cost this tier exists to avoid. CI's
+# full-workspace clippy lints every target, and ci-postgres.yml runs them.
+#
 # The filter takes R as well as A and M. git pairs a renamed file with its
 # source and reports it as R, so AM alone skipped every test file a rename
 # touched — 31 of them on the coach→agent branch, including the one whose
@@ -449,7 +455,7 @@ require_build_warnings() {
 # changed test: its body moved with it.
 if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null)" ]]; then
     CHANGED_SERVER_TESTS="$(git diff --name-only --diff-filter=AMR "$BASE_REF"...HEAD -- 'crates/pierre-server/tests' 2>/dev/null \
-        | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets)"
+        | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets --edited-only)"
     if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
         echo "Tier 1e: Changed server-test clippy"
         echo "------------------------------------"
@@ -768,6 +774,38 @@ if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
         echo ""
         echo "FAIL: the server feature parity gate no longer catches what its self-test plants!"
         exit 1
+    fi
+    echo ""
+fi
+
+# ----------------------------------------------------------------------------
+# Tier 1p: unused dependencies (compile-free, ~2s)
+# ----------------------------------------------------------------------------
+#
+# A dependency no target of its crate names, or a normal one only its tests
+# use, is the phantom dependency the coding standards forbid; the first scan
+# found 87 across 24 crates. cargo-shear parses every target's source without
+# compiling, so this runs when a manifest changes and also when Rust source
+# does: deleting the last `use` of a crate leaves its manifest line unused.
+# A change to the gate or its self-test also runs the self-test. CI's fast
+# gate runs both on every push; this catches it before the push.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-unused-deps.sh" ]] \
+    && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+       | grep -qE '(^|/)Cargo\.(toml|lock)$|^crates/.*\.rs$|^scripts/ci/check-unused-deps(\.test)?\.sh$'; then
+    echo "Tier 1p: Unused dependencies"
+    echo "----------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-unused-deps.sh"; then
+        echo ""
+        echo "FAIL: a crate declares a dependency its code never names, or a normal one only its tests use!"
+        exit 1
+    fi
+    if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+        | grep -qE '^scripts/ci/check-unused-deps(\.test)?\.sh$'; then
+        if ! "$PROJECT_ROOT/scripts/ci/check-unused-deps.test.sh"; then
+            echo ""
+            echo "FAIL: the unused-dependency gate no longer catches what its self-test plants!"
+            exit 1
+        fi
     fi
     echo ""
 fi
@@ -1106,7 +1144,9 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
         | sort -u \
         | grep -v '^pierre-server$' \
         || true)
-    ADVISORY_TARGETS=$(echo "$CHANGED_FILES" | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets)
+    # --edited-only, as in Tier 1e: the lint scope. Without it a src change
+    # would print a clippy line for every server test binary.
+    ADVISORY_TARGETS=$(echo "$CHANGED_FILES" | "$PROJECT_ROOT/scripts/ci/server-suites.sh" changed-targets --edited-only)
 
     if [[ -n "$ADVISORY_CRATES" ]] || [[ -n "$ADVISORY_TARGETS" ]]; then
         echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; these catch it sooner:"

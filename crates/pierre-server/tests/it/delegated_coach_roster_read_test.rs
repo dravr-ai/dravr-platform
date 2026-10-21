@@ -26,6 +26,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -161,7 +162,10 @@ impl CoachHub {
         };
         self.seen.reads.lock().unwrap().push(Read {
             athlete: self.athlete.clone(),
-            token: credentials.access_token,
+            token: credentials
+                .access_token
+                .as_ref()
+                .map(|s| s.expose_secret().to_owned()),
             kind: Some(credentials.kind),
         });
         Ok(())

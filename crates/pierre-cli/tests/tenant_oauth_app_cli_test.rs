@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use secrecy::ExposeSecret;
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -135,7 +136,7 @@ async fn set_oauth_app_stores_a_secret_the_read_path_decrypts() {
         .await
         .unwrap()
         .expect("the connect flow's read path finds the app");
-    assert_eq!(stored.client_secret, SECRET);
+    assert_eq!(stored.client_secret.expose_secret(), SECRET);
     assert_eq!(stored.client_id, "whoop-app-42");
     assert_eq!(
         stored.redirect_uri,

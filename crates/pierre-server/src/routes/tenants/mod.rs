@@ -28,6 +28,7 @@ use chrono::Utc;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -43,7 +44,8 @@ pub struct SwitchTenantRequest {
 #[derive(Debug, Serialize)]
 pub struct SwitchTenantResponse {
     /// New JWT token with the `active_tenant_id` claim set
-    pub token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub token: SecretString,
     /// Tenant ID that is now active
     pub active_tenant_id: String,
     /// Tenant name for display
@@ -215,7 +217,7 @@ impl TenantRoutes {
         Ok((
             StatusCode::OK,
             Json(SwitchTenantResponse {
-                token,
+                token: SecretString::from(token),
                 active_tenant_id: tenant_id.to_string(),
                 tenant_name: tenant.name,
                 role: role_str,

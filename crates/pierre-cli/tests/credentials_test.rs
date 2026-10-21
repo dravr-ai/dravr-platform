@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use secrecy::{ExposeSecret, SecretString};
 use std::env;
 use std::fs;
 
@@ -22,7 +23,7 @@ fn deserialize_defaults_token_type_and_skips_none_optionals() {
     let json = r#"{"server":"https://api.dev.dravr.ai","access_token":"abc"}"#;
     let creds: CachedCredentials = serde_json::from_str(json).unwrap();
     assert_eq!(creds.server, "https://api.dev.dravr.ai");
-    assert_eq!(creds.access_token, "abc");
+    assert_eq!(creds.access_token.expose_secret(), "abc");
     assert_eq!(creds.token_type, "Bearer", "token_type defaults to Bearer");
     assert!(creds.expires_at.is_none());
     assert!(creds.subject.is_none());
@@ -52,7 +53,7 @@ fn save_load_expiry_clear_roundtrip() {
 
     let creds = CachedCredentials {
         server: "https://api.dev.dravr.ai".to_owned(),
-        access_token: "tok-123".to_owned(),
+        access_token: SecretString::from("tok-123"),
         token_type: "Bearer".to_owned(),
         expires_at: None,
         subject: Some("admin@example.com".to_owned()),
@@ -76,7 +77,7 @@ fn save_load_expiry_clear_roundtrip() {
     let loaded = CachedCredentials::load()
         .unwrap()
         .expect("credentials present");
-    assert_eq!(loaded.access_token, "tok-123");
+    assert_eq!(loaded.access_token.expose_secret(), "tok-123");
     assert_eq!(loaded.subject.as_deref(), Some("admin@example.com"));
 
     // A non-expiring login always satisfies require().
@@ -85,7 +86,7 @@ fn save_load_expiry_clear_roundtrip() {
     // An expiring login is accepted before, rejected after, its expiry.
     CachedCredentials {
         server: "https://api.dev.dravr.ai".to_owned(),
-        access_token: "tok-exp".to_owned(),
+        access_token: SecretString::from("tok-exp"),
         token_type: "Bearer".to_owned(),
         expires_at: Some(1_000),
         subject: None,

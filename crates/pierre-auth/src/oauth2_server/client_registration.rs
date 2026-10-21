@@ -20,6 +20,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
+use secrecy::SecretString;
 use std::env;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -127,7 +128,7 @@ impl ClientRegistrationManager {
 
         Ok(ClientRegistrationResponse {
             client_id,
-            client_secret,
+            client_secret: SecretString::from(client_secret),
             client_id_issued_at: Some(created_at.timestamp()),
             client_secret_expires_at: expires_at.map(|dt| dt.timestamp()),
             redirect_uris: request.redirect_uris,

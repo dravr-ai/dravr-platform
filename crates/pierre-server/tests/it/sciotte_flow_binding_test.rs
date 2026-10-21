@@ -30,6 +30,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::SecretString;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -333,7 +334,7 @@ async fn seed_fresh_session(resources: &Arc<ServerContext>, user_id: Uuid, tenan
             user_id,
             tenant_id: tenant_id.as_uuid().to_string(),
             provider: "sciotte".to_owned(),
-            access_token: session,
+            access_token: SecretString::from(session),
             refresh_token: None,
             token_type: "session".to_owned(),
             expires_at: None,

@@ -6,6 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use http::StatusCode;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -38,7 +39,8 @@ pub struct ClientRegistrationResponse {
     /// Unique client identifier
     pub client_id: String,
     /// Client secret for authentication
-    pub client_secret: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub client_secret: SecretString,
     /// When the client registration expires (optional)
     pub client_id_issued_at: Option<i64>,
     /// When the client secret expires (optional)
@@ -100,11 +102,11 @@ pub struct TokenRequest {
     /// Client ID
     pub client_id: String,
     /// Client secret
-    pub client_secret: String,
+    pub client_secret: SecretString,
     /// Requested scopes (for `client_credentials` grant)
     pub scope: Option<String>,
     /// Refresh token (for `refresh_token` grant)
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
     /// PKCE code verifier (RFC 7636, for `authorization_code` grant)
     pub code_verifier: Option<String>,
     /// RFC 8707 resource indicator: the resource server the access token is
@@ -116,7 +118,8 @@ pub struct TokenRequest {
 #[derive(Debug, Serialize)]
 pub struct TokenResponse {
     /// Access token (JWT)
-    pub access_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// Token type (always "Bearer")
     pub token_type: String,
     /// Expires in seconds
@@ -124,7 +127,8 @@ pub struct TokenResponse {
     /// Scopes granted
     pub scope: Option<String>,
     /// Refresh token (optional)
-    pub refresh_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub refresh_token: Option<SecretString>,
 }
 
 /// OAuth 2.0 Error Response
@@ -333,7 +337,7 @@ pub use pierre_core::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, 
 #[derive(Debug, Clone)]
 pub struct OAuth2AccessToken {
     /// The access token value
-    pub token: String,
+    pub token: SecretString,
     /// Client ID that owns this token
     pub client_id: String,
     /// User ID if user-authorized (None for `client_credentials` grant)
@@ -350,7 +354,7 @@ pub struct OAuth2AccessToken {
 #[derive(Debug, Deserialize)]
 pub struct ValidateRefreshRequest {
     /// Optional refresh token to use if access token is expired but refreshable
-    pub refresh_token: Option<String>,
+    pub refresh_token: Option<SecretString>,
 }
 
 /// Validation status for token
@@ -377,11 +381,13 @@ pub struct ValidateRefreshResponse {
 
     /// New access token (only for Refreshed status)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub access_token: Option<SecretString>,
 
     /// New refresh token (only for Refreshed status)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub refresh_token: Option<SecretString>,
 
     /// Token type (only for Refreshed status)
     #[serde(skip_serializing_if = "Option::is_none")]

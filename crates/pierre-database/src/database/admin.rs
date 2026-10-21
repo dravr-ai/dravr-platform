@@ -12,6 +12,7 @@ use pierre_core::admin::models::{
 use pierre_core::admin::{AdminJwtManager, TokenScope};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::normalize_email;
+use secrecy::SecretString;
 use tracing::debug;
 
 use super::Database;

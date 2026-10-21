@@ -10,6 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use std::str::FromStr;
 use tracing::{error, field, field::Empty, info, warn, Span};
@@ -213,7 +214,9 @@ pub async fn handle_public_register(
     meter_sign_up(&resources.rate_limiter, client).await?;
     pass_human_check(
         resources.human_check.as_deref(),
-        body.turnstile_token.as_deref(),
+        body.turnstile_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
         client,
     )
     .await?;
@@ -316,13 +319,13 @@ pub async fn handle_firebase_login(
                 .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
 
             // Set response CSRF token
-            response.csrf_token.clone_from(&csrf_token);
+            response.csrf_token = SecretString::from(csrf_token.clone());
 
             // Build response with secure cookies
             let mut headers = HeaderMap::new();
 
             // Set httpOnly auth cookie (24 hour expiry to match JWT)
-            set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
+            set_auth_cookie(&mut headers, jwt_token.expose_secret(), 24 * 60 * 60);
 
             // Set CSRF cookie (24 hour expiry to match CSRF token TTL)
             set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
@@ -356,7 +359,7 @@ pub async fn handle_logout(
         resources
             .repos
             .session_refresh_tokens
-            .revoke_token_family(&presented, chrono::Utc::now())
+            .revoke_token_family(presented.expose_secret(), chrono::Utc::now())
             .await?;
     }
 
@@ -478,8 +481,8 @@ pub async fn handle_session(
             coaching_persona: user.coaching_persona.as_str().to_owned(),
             manages_roster: user.manages_roster,
         },
-        access_token: jwt_token,
-        csrf_token,
+        access_token: SecretString::from(jwt_token),
+        csrf_token: SecretString::from(csrf_token),
     };
 
     Ok((StatusCode::OK, response_headers, Json(session_response)).into_response())
@@ -600,7 +603,7 @@ pub async fn handle_change_password(
     }
 
     // Validate new password strength
-    if !AuthService::is_valid_password(&request.new_password) {
+    if !AuthService::is_valid_password(request.new_password.expose_secret()) {
         return Err(AppError::invalid_input(error_messages::PASSWORD_TOO_WEAK));
     }
 
@@ -646,12 +649,13 @@ pub async fn handle_complete_reset(
     Json(request): Json<CompleteResetRequest>,
 ) -> Result<Response, AppError> {
     // Validate new password strength
-    if !AuthService::is_valid_password(&request.new_password) {
+    if !AuthService::is_valid_password(request.new_password.expose_secret()) {
         return Err(AppError::invalid_input(error_messages::PASSWORD_TOO_WEAK));
     }
 
     // Split "<selector>.<verifier>"; a malformed token is treated as invalid.
-    let Some((selector, verifier_hash)) = split_link_token(&request.reset_token) else {
+    let Some((selector, verifier_hash)) = split_link_token(request.reset_token.expose_secret())
+    else {
         return Err(AppError::not_found(
             "Password reset token is invalid, expired, or already used",
         ));

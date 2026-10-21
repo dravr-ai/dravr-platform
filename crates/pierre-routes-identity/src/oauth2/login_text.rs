@@ -42,7 +42,7 @@ pub struct LoginPageLabels {
     /// The email field's label
     pub email: String,
     /// The password field's label
-    pub password: String,
+    pub password_label: String,
     /// The divider above "Continue with Google"
     pub or: String,
     /// "Continue with Google"
@@ -58,7 +58,7 @@ impl LoginPageLabels {
             lang: locale.to_owned(),
             sign_in: strings.get(KEY_SIGN_IN, locale),
             email: strings.get(KEY_EMAIL, locale),
-            password: strings.get(KEY_PASSWORD, locale),
+            password_label: strings.get(KEY_PASSWORD, locale),
             or: strings.get(KEY_OR, locale),
             google: strings.get(KEY_GOOGLE, locale),
         }

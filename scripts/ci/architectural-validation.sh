@@ -1063,17 +1063,21 @@ if [ "$SECRET_VAR_LEAKS" -eq 0 ]; then
     pass_validation "No direct secret-variable interpolation in log macros"
 fi
 
-# Check 3: Debug formatting of sensitive config structs via inline capture.
-# {config:?}, {config:#?}, {oauth_config:?}, etc. would dump every nested secret.
-# Positional-arg forms ("{:?}", config) are not caught here — the type-level
-# follow-up (secrecy crate) is the complete fix for that class of leak.
-CONFIG_DEBUG_LEAKS=$(rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*\{(server_config|database_config|oauth_config|firebase_config|weather_config|oauth2_server_config|config):#?\?\}' crates/*/src/ 2>/dev/null | wc -l | tr -d ' ')
-if [ "$CONFIG_DEBUG_LEAKS" -gt 0 ]; then
-    echo -e "${RED}❌ Found $CONFIG_DEBUG_LEAKS log line(s) debug-formatting a config struct that contains secrets:${NC}"
-    rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*\{(server_config|database_config|oauth_config|firebase_config|weather_config|oauth2_server_config|config):#?\?\}' crates/*/src/ -n | head -10
-    fail_validation "ServerConfig/DatabaseConfig/OAuthProviderConfig derive Debug but contain secrets — log only the specific fields you need"
+# Check 3: a secret in a Debug-printing type is a secrecy::SecretString, never a String.
+# The type is the guard: SecretString's Debug prints a redaction, it has no
+# Display, and reading it takes expose_secret(), so `{:?}` of a config struct,
+# a request DTO or a token row in any form (inline capture, positional
+# argument, a field in a tracing span) prints no secret. What can regress is a
+# field typed back to String, so the script reads every Debug-deriving struct
+# and enum under crates/*/src and fails on a secret-named String field. Exit 2
+# means it verified nothing and fails like a finding.
+# Self-test: scripts/ci/check-secret-fields.test.sh.
+if SECRET_FIELDS_OUTPUT=$(python3 "$SCRIPT_DIR/check-secret-fields.py" "$SCRIPT_DIR/../.." 2>&1); then
+    pass_validation "$(printf '%s\n' "$SECRET_FIELDS_OUTPUT" | tail -1)"
 else
-    pass_validation "No config-struct debug formatting in log macros"
+    echo -e "${RED}❌ Secret held as a plain String in a Debug-deriving type (Debug would print it):${NC}"
+    printf '%s\n' "$SECRET_FIELDS_OUTPUT" | head -20
+    fail_validation "Type the field secrecy::SecretString and read it with expose_secret() at the point of use"
 fi
 
 # Check 4: an email address logged at INFO or above without mask_email.

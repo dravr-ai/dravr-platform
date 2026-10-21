@@ -263,7 +263,10 @@ macro_rules! impl_user_mcp_token_repository {
                     created_at: now,
                 };
 
-                Ok(UserMcpTokenCreated { token, token_value })
+                Ok(UserMcpTokenCreated {
+                    token,
+                    token_value: SecretString::from(token_value),
+                })
             }
 
             async fn validate_token(&self, token_value: &str) -> AppResult<ValidatedUserMcpToken> {

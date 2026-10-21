@@ -13,6 +13,7 @@
 //! retried — clients are required by the spec to acknowledge with a 2xx and
 //! deduplicate.
 
+use secrecy::ExposeSecret;
 use std::net::IpAddr;
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -174,7 +175,12 @@ fn authorization_header(config: &A2APushNotificationConfig) -> Option<String> {
             let credentials = config.auth_credentials.as_deref().unwrap_or_default();
             format!("{scheme} {credentials}")
         })
-        .or_else(|| config.token.as_ref().map(|token| format!("Bearer {token}")))
+        .or_else(|| {
+            config
+                .token
+                .as_ref()
+                .map(|token| format!("Bearer {}", token.expose_secret()))
+        })
 }
 
 /// Log the outcome of one webhook delivery attempt.

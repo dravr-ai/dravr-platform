@@ -36,6 +36,7 @@ use pierre_middleware::mask_email;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use secrecy::SecretString;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
@@ -697,8 +698,8 @@ async fn register_provider_connection(
         // The dev fixture maps this bearer back to the user; the real provider
         // sends it verbatim. Far-future expiry so token refresh never fires
         // (refresh would hit the real provider's hardcoded token URL).
-        access_token: format!("devfixture:{user_id}"),
-        refresh_token: Some(format!("devfixture-refresh:{user_id}")),
+        access_token: SecretString::from(format!("devfixture:{user_id}")),
+        refresh_token: Some(SecretString::from(format!("devfixture-refresh:{user_id}"))),
         token_type: "bearer".to_owned(),
         expires_at: Some(now + Duration::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),

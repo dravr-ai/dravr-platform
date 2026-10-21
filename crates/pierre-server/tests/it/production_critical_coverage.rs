@@ -18,6 +18,7 @@ use pierre_core::models::{CoachingPersona, JwtMonthlyUsage, MonthlyLimitOverride
 use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
+use secrecy::SecretString;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -99,8 +100,8 @@ async fn test_model_serialization_coverage() -> Result<()> {
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
         strava_token: Some(EncryptedToken {
-            access_token: "encrypted_access_token".to_owned(),
-            refresh_token: "encrypted_refresh_token".to_owned(),
+            access_token: SecretString::from("encrypted_access_token"),
+            refresh_token: SecretString::from("encrypted_refresh_token"),
             expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
             scope: "read,activity:read_all".to_owned(),
         }),

@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::{ExposeSecret, SecretString};
 
 use chrono::{Duration, Utc};
 use pierre_auth::{
@@ -64,7 +65,7 @@ fn test_create_session() {
     let session = auth_manager.create_session(&user, &jwks_manager).unwrap();
     assert_eq!(session.user_id, user.id);
     assert_eq!(session.email, "test@example.com");
-    assert_ne!(session.jwt_token, "");
+    assert_ne!(session.jwt_token.expose_secret(), "");
     assert!(session.expires_at > Utc::now());
 }
 
@@ -75,7 +76,9 @@ fn test_authenticate_request() {
 
     let jwks_manager = common::get_shared_test_jwks();
     let token = auth_manager.generate_token(&user, &jwks_manager).unwrap();
-    let auth_request = AuthRequest { token };
+    let auth_request = AuthRequest {
+        token: SecretString::from(token),
+    };
 
     let response = auth_manager.authenticate(&auth_request, &jwks_manager);
     assert!(response.authenticated);
@@ -268,7 +271,7 @@ fn test_enhanced_authenticate_response() {
         .unwrap();
 
     let auth_request = AuthRequest {
-        token: expired_token,
+        token: SecretString::from(expired_token),
     };
     let response = expired_auth_manager.authenticate(&auth_request, &jwks_manager);
 

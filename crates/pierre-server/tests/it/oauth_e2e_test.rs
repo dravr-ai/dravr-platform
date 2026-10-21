@@ -145,6 +145,8 @@
 //! End-to-end tests for OAuth flow with MCP integration
 
 use crate::common;
+use common::placeholder_llm_chain;
+use secrecy::SecretString;
 
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::{
@@ -152,9 +154,9 @@ use pierre_config::environment::{
     DatabaseConfig, DatabaseUrl, Environment, ExternalServicesConfig, FirebaseConfig,
     GarminApiConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig,
     MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
-    ProtocolConfig, RateLimitConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
-    TrainingZonesConfig, WeatherServiceConfig,
+    ProtocolConfig, RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig,
+    ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
+    TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -208,7 +210,7 @@ async fn test_oauth_flow_through_mcp() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -234,6 +236,7 @@ async fn test_oauth_flow_through_mcp() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -308,7 +311,9 @@ async fn test_oauth_flow_through_mcp() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     // Create server instance
@@ -516,7 +521,7 @@ async fn test_oauth_callback_error_handling() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:8081/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -542,6 +547,7 @@ async fn test_oauth_callback_error_handling() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -576,6 +582,8 @@ async fn test_oauth_callback_error_handling() {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -623,7 +631,9 @@ async fn test_oauth_callback_error_handling() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -789,7 +799,7 @@ async fn test_oauth_state_csrf_protection() {
         tenant_id,
         provider: "strava".to_owned(),
         client_id: "test_client_id".to_owned(),
-        client_secret: "test_client_secret".to_owned(),
+        client_secret: SecretString::from("test_client_secret"),
         redirect_uri: "http://localhost:8080/oauth/callback/strava".to_owned(),
         scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
         rate_limit_per_day: 15000,
@@ -826,7 +836,7 @@ async fn test_oauth_state_csrf_protection() {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:8080/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -852,6 +862,7 @@ async fn test_oauth_state_csrf_protection() {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -886,6 +897,8 @@ async fn test_oauth_state_csrf_protection() {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -933,7 +946,9 @@ async fn test_oauth_state_csrf_protection() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1102,7 +1117,9 @@ async fn test_connection_status_tracking() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1135,7 +1152,7 @@ async fn test_connection_status_tracking() {
     );
     let register_request = RegisterRequest {
         email: "status_test@example.com".to_owned(),
-        password: "password123".to_owned(),
+        password: SecretString::from("password123"),
         display_name: None,
     };
 

@@ -17,6 +17,7 @@ use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
 use pierre_external::{UsdaClient, UsdaClientConfig};
+use secrecy::SecretString;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -56,7 +57,7 @@ async fn serve(body: Value) -> (UsdaClient, Fixture) {
         axum::serve(listener, router).await.unwrap();
     });
     let client = UsdaClient::new(UsdaClientConfig {
-        api_key: "test-key".to_owned(),
+        api_key: SecretString::from("test-key"),
         base_url: format!("http://{addr}"),
         ..UsdaClientConfig::default()
     });

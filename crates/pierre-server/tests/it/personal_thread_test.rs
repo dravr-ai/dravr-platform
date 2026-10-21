@@ -359,6 +359,7 @@ async fn first_requests_racing_each_other_settle_on_one_thread() {
     let forge = PersonalForge {
         title_fallback: "Fallback",
         guided_flow: false,
+        llm_chain: &resources.common.config.llm_chain,
     };
     let (a, b, c) = tokio::join!(
         resolve_personal_thread(repos, &user, tenant_id, forge),

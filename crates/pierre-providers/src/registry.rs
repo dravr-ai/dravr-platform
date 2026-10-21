@@ -7,15 +7,7 @@
 use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
 use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
-#[cfg(any(
-    feature = "provider-strava",
-    feature = "provider-garmin",
-    feature = "provider-terra",
-    feature = "provider-wahoo",
-    feature = "provider-whoop",
-    feature = "provider-coros"
-))]
-use pierre_auth::config::oauth::load_provider_env_config;
+use pierre_auth::config::oauth::ProviderEndpointOverrides;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 #[cfg(any(
     feature = "provider-strava",
@@ -128,8 +120,8 @@ pub struct ProviderRegistry {
 impl ProviderRegistry {
     /// Create a new provider registry with default providers
     ///
-    /// Providers are configured from environment variables with fallback to hardcoded defaults.
-    /// See `load_provider_env_config()` for environment variable format.
+    /// Every provider is registered with its own default endpoints; a
+    /// deployment's overrides are applied by [`Self::with_endpoint_overrides`].
     #[must_use]
     pub fn new() -> Self {
         let mut registry = Self {
@@ -166,28 +158,20 @@ impl ProviderRegistry {
         registry
     }
 
-    /// Register Strava provider with environment-based configuration
+    /// Register the Strava provider with its default endpoints
     #[cfg(feature = "provider-strava")]
     fn register_strava(registry: &mut Self) {
         registry.register_factory(oauth_providers::STRAVA, Box::new(StravaProviderFactory));
         registry.register_descriptor(oauth_providers::STRAVA, Box::new(StravaDescriptor));
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::STRAVA,
-            "https://www.strava.com/oauth/authorize",
-            "https://www.strava.com/oauth/token",
-            "https://www.strava.com/api/v3",
-            Some("https://www.strava.com/oauth/revoke"),
-            &[oauth_providers::STRAVA_DEFAULT_SCOPES.to_owned()],
-        );
         registry.set_default_config(
             oauth_providers::STRAVA,
             ProviderConfig {
                 name: oauth_providers::STRAVA.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
+                auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
+                token_url: "https://www.strava.com/oauth/token".to_owned(),
+                api_base_url: "https://www.strava.com/api/v3".to_owned(),
+                revoke_url: Some("https://www.strava.com/oauth/revoke".to_owned()),
+                default_scopes: vec![oauth_providers::STRAVA_DEFAULT_SCOPES.to_owned()],
             },
         );
     }
@@ -195,29 +179,21 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-strava"))]
     fn register_strava(_registry: &mut Self) {}
 
-    /// Register Garmin provider with environment-based configuration
+    /// Register the Garmin provider with its default endpoints
     #[cfg(feature = "provider-garmin")]
     fn register_garmin(registry: &mut Self) {
         registry.register_factory(oauth_providers::GARMIN, Box::new(GarminProviderFactory));
         registry.register_descriptor(oauth_providers::GARMIN, Box::new(GarminDescriptor));
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::GARMIN,
-            oauth_providers::GARMIN_AUTH_URL,
-            oauth_providers::GARMIN_TOKEN_URL,
-            oauth_providers::GARMIN_API_BASE_URL,
-            Some(oauth_providers::GARMIN_DEREGISTRATION_URL),
-            // Garmin's scope is fixed server-side; its authorization takes none.
-            &[],
-        );
         registry.set_default_config(
             oauth_providers::GARMIN,
             ProviderConfig {
                 name: oauth_providers::GARMIN.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
+                auth_url: oauth_providers::GARMIN_AUTH_URL.to_owned(),
+                token_url: oauth_providers::GARMIN_TOKEN_URL.to_owned(),
+                api_base_url: oauth_providers::GARMIN_API_BASE_URL.to_owned(),
+                revoke_url: Some(oauth_providers::GARMIN_DEREGISTRATION_URL.to_owned()),
+                // Garmin's scope is fixed server-side; its authorization takes none.
+                default_scopes: Vec::new(),
             },
         );
     }
@@ -225,7 +201,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-garmin"))]
     fn register_garmin(_registry: &mut Self) {}
 
-    /// Register Terra provider with environment-based configuration
+    /// Register the Terra provider with its default endpoints
     #[cfg(feature = "provider-terra")]
     fn register_terra(registry: &mut Self) {
         let terra_cache = global_terra_cache();
@@ -234,26 +210,18 @@ impl ProviderRegistry {
             Box::new(TerraProviderFactory::new(terra_cache)),
         );
         registry.register_descriptor(oauth_providers::TERRA, Box::new(TerraDescriptor));
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::TERRA,
-            TERRA_WIDGET_SESSION_URL,
-            TERRA_TOKEN_URL,
-            TERRA_API_BASE_URL,
-            Some(TERRA_DEAUTH_URL),
-            &oauth_providers::TERRA_DEFAULT_SCOPES
-                .split(',')
-                .map(str::to_owned)
-                .collect::<Vec<_>>(),
-        );
         registry.set_default_config(
             oauth_providers::TERRA,
             ProviderConfig {
                 name: oauth_providers::TERRA.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
+                auth_url: TERRA_WIDGET_SESSION_URL.to_owned(),
+                token_url: TERRA_TOKEN_URL.to_owned(),
+                api_base_url: TERRA_API_BASE_URL.to_owned(),
+                revoke_url: Some(TERRA_DEAUTH_URL.to_owned()),
+                default_scopes: oauth_providers::TERRA_DEFAULT_SCOPES
+                    .split(',')
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
             },
         );
     }
@@ -261,31 +229,23 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-terra"))]
     fn register_terra(_registry: &mut Self) {}
 
-    /// Register WHOOP provider with environment-based configuration
+    /// Register the WHOOP provider with its default endpoints
     #[cfg(feature = "provider-whoop")]
     fn register_whoop(registry: &mut Self) {
         registry.register_factory(oauth_providers::WHOOP, Box::new(WhoopProviderFactory));
         registry.register_descriptor(oauth_providers::WHOOP, Box::new(WhoopDescriptor));
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::WHOOP,
-            "https://api.prod.whoop.com/oauth/oauth2/auth",
-            "https://api.prod.whoop.com/oauth/oauth2/token",
-            "https://api.prod.whoop.com/developer/v2",
-            Some("https://api.prod.whoop.com/developer/v2/user/access"),
-            &oauth_providers::WHOOP_DEFAULT_SCOPES
-                .split(' ')
-                .map(str::to_owned)
-                .collect::<Vec<_>>(),
-        );
         registry.set_default_config(
             oauth_providers::WHOOP,
             ProviderConfig {
                 name: oauth_providers::WHOOP.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
+                auth_url: "https://api.prod.whoop.com/oauth/oauth2/auth".to_owned(),
+                token_url: "https://api.prod.whoop.com/oauth/oauth2/token".to_owned(),
+                api_base_url: "https://api.prod.whoop.com/developer/v2".to_owned(),
+                revoke_url: Some("https://api.prod.whoop.com/developer/v2/user/access".to_owned()),
+                default_scopes: oauth_providers::WHOOP_DEFAULT_SCOPES
+                    .split(' ')
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
             },
         );
     }
@@ -293,7 +253,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-whoop"))]
     fn register_whoop(_registry: &mut Self) {}
 
-    /// Register COROS provider with environment-based configuration
+    /// Register the COROS provider with its default endpoints
     ///
     /// Note: COROS API documentation is private. OAuth endpoints are placeholders
     /// until official documentation is received.
@@ -301,27 +261,19 @@ impl ProviderRegistry {
     fn register_coros(registry: &mut Self) {
         registry.register_factory(oauth_providers::COROS, Box::new(CorosProviderFactory));
         registry.register_descriptor(oauth_providers::COROS, Box::new(CorosDescriptor));
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::COROS,
-            // Placeholder URLs - update when COROS provides official API documentation
-            "https://open.coros.com/oauth2/authorize",
-            "https://open.coros.com/oauth2/token",
-            "https://open.coros.com/api/v1",
-            Some("https://open.coros.com/oauth2/revoke"),
-            &oauth_providers::COROS_DEFAULT_SCOPES
-                .split(' ')
-                .map(str::to_owned)
-                .collect::<Vec<_>>(),
-        );
         registry.set_default_config(
             oauth_providers::COROS,
             ProviderConfig {
                 name: oauth_providers::COROS.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
+                // Placeholder URLs - update when COROS provides official API documentation
+                auth_url: "https://open.coros.com/oauth2/authorize".to_owned(),
+                token_url: "https://open.coros.com/oauth2/token".to_owned(),
+                api_base_url: "https://open.coros.com/api/v1".to_owned(),
+                revoke_url: Some("https://open.coros.com/oauth2/revoke".to_owned()),
+                default_scopes: oauth_providers::COROS_DEFAULT_SCOPES
+                    .split(' ')
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>(),
             },
         );
     }
@@ -450,11 +402,11 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_factories(_registry: &mut Self) {}
 
-    /// Register the Intervals.icu provider with environment-based configuration.
+    /// Register the Intervals.icu provider with its default endpoints.
     ///
     /// Athletes link through the OAuth app or by pasting their athlete id + API
-    /// key; both call the same API base. The OAuth endpoints honour the
-    /// `PIERRE_INTERVALS_ICU_*` overrides every OAuth provider reads.
+    /// key; both call the same API base, which a deployment's endpoint
+    /// overrides move like every other provider's.
     #[cfg(feature = "provider-intervals-icu")]
     fn register_intervals_icu(registry: &mut Self) {
         registry.register_factory(
@@ -465,33 +417,16 @@ impl ProviderRegistry {
             oauth_providers::INTERVALS_ICU,
             Box::new(IntervalsIcuDescriptor),
         );
-        let defaults = intervals_icu_default_config();
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::INTERVALS_ICU,
-            &defaults.auth_url,
-            &defaults.token_url,
-            &defaults.api_base_url,
-            defaults.revoke_url.as_deref(),
-            &defaults.default_scopes,
-        );
         registry.set_default_config(
             oauth_providers::INTERVALS_ICU,
-            ProviderConfig {
-                name: defaults.name,
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
-                default_scopes: scopes,
-            },
+            intervals_icu_default_config(),
         );
     }
 
     #[cfg(not(feature = "provider-intervals-icu"))]
     fn register_intervals_icu(_registry: &mut Self) {}
 
-    /// Register the Wahoo provider with environment-based configuration
-    /// (`PIERRE_WAHOO_*` overrides, as every OAuth provider reads them).
+    /// Register the Wahoo provider with its default endpoints
     #[cfg(feature = "provider-wahoo")]
     fn register_wahoo(registry: &mut Self) {
         registry.register_factory(oauth_providers::WAHOO, Box::new(WahooProviderFactory));
@@ -500,22 +435,14 @@ impl ProviderRegistry {
             .iter()
             .map(|scope| (*scope).to_owned())
             .collect();
-        let (auth_url, token_url, api_base_url, revoke_url, scopes) = load_provider_env_config(
-            oauth_providers::WAHOO,
-            oauth_providers::WAHOO_AUTH_URL,
-            oauth_providers::WAHOO_TOKEN_URL,
-            oauth_providers::WAHOO_API_BASE_URL,
-            Some(oauth_providers::WAHOO_DEAUTHORIZE_URL),
-            &scopes,
-        );
         registry.set_default_config(
             oauth_providers::WAHOO,
             ProviderConfig {
                 name: oauth_providers::WAHOO.to_owned(),
-                auth_url,
-                token_url,
-                api_base_url,
-                revoke_url,
+                auth_url: oauth_providers::WAHOO_AUTH_URL.to_owned(),
+                token_url: oauth_providers::WAHOO_TOKEN_URL.to_owned(),
+                api_base_url: oauth_providers::WAHOO_API_BASE_URL.to_owned(),
+                revoke_url: Some(oauth_providers::WAHOO_DEAUTHORIZE_URL.to_owned()),
                 default_scopes: scopes,
             },
         );
@@ -539,8 +466,9 @@ impl ProviderRegistry {
     }
 
     /// The default configuration a provider was registered with — its
-    /// endpoints after the `PIERRE_<PROVIDER>_*_URL` environment overrides
-    /// were applied — without instantiating the provider.
+    /// endpoints after the deployment's overrides
+    /// ([`Self::with_endpoint_overrides`]) were applied — without
+    /// instantiating the provider.
     #[must_use]
     pub fn default_config(&self, provider_name: &str) -> Option<&ProviderConfig> {
         self.default_configs.get(provider_name)
@@ -771,6 +699,35 @@ impl ProviderRegistry {
     #[must_use]
     pub fn with_request_limiter(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
         self.request_limiter = Some(limiter);
+        self
+    }
+
+    /// This registry with a deployment's endpoint overrides applied over each
+    /// registered provider's defaults: a field an override sets replaces the
+    /// default, one it leaves `None` keeps it. An override naming a provider
+    /// this registry does not carry changes nothing.
+    #[must_use]
+    pub fn with_endpoint_overrides(mut self, overrides: &ProviderEndpointOverrides) -> Self {
+        for (provider, config) in &mut self.default_configs {
+            let Some(endpoints) = overrides.get(*provider) else {
+                continue;
+            };
+            if let Some(auth_url) = &endpoints.auth_url {
+                config.auth_url.clone_from(auth_url);
+            }
+            if let Some(token_url) = &endpoints.token_url {
+                config.token_url.clone_from(token_url);
+            }
+            if let Some(api_base_url) = &endpoints.api_base_url {
+                config.api_base_url.clone_from(api_base_url);
+            }
+            if let Some(revoke_url) = &endpoints.revoke_url {
+                config.revoke_url = Some(revoke_url.clone());
+            }
+            if let Some(scopes) = &endpoints.scopes {
+                config.default_scopes.clone_from(scopes);
+            }
+        }
         self
     }
 

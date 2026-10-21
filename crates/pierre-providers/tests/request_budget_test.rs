@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -431,7 +432,7 @@ async fn link_athletes(repos: &RepositoryRegistry, athletes: u32, token_type: &s
                 user_id,
                 tenant_id: tenant.to_string(),
                 provider: INTERVALS.to_owned(),
-                access_token: format!("icu-credential-{athlete}"),
+                access_token: SecretString::from(format!("icu-credential-{athlete}")),
                 refresh_token: None,
                 token_type: token_type.to_owned(),
                 expires_at: None,

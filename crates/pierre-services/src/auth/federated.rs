@@ -20,6 +20,7 @@
 //! nothing about it, so their password and sessions end here.
 
 use chrono::Utc;
+use secrecy::SecretString;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -488,8 +489,8 @@ impl AuthService {
 
         let user_info = self.user_info(user, tenant_id_for_response).await;
         Ok(LoginResponse {
-            jwt_token: Some(jwt_token),
-            csrf_token: String::new(),
+            jwt_token: Some(SecretString::from(jwt_token)),
+            csrf_token: SecretString::default(),
             expires_at: expires_at.to_rfc3339(),
             user: user_info,
         })

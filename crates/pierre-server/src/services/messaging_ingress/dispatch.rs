@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dravr_canot::turn::ConversationTurnId as CanotTurnId;
+use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::messaging::{ChannelConfig, MessageContent, OutgoingMessage};
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::transport::Transport;
@@ -266,23 +266,22 @@ pub(super) fn reply_message(
 /// while too high only delays a placeholder that was already going to close.
 const DEFAULT_TURN_WATCHDOG_SECS: u64 = 960;
 
-/// Resolve the per-turn watchdog from `MESSAGING_TURN_WATCHDOG_SECS`, falling
-/// back to [`DEFAULT_TURN_WATCHDOG_SECS`].
+/// The per-turn watchdog, as the server's config holds it
+/// (`MESSAGING_TURN_WATCHDOG_SECS`, else [`DEFAULT_TURN_WATCHDOG_SECS`]).
 ///
-/// Env-driven for the same reason its siblings under it are
+/// Operator-set for the same reason its siblings under it are
 /// (`EMBACLE_ACP_PROMPT_TIMEOUT_SECS`, `EMBACLE_ACP_MESSAGE_TIMEOUT_SECS`):
 /// the number that is right depends on the deployed provider chain, and
-/// re-tuning it should not need a binary. Zero or unparseable falls back
+/// re-tuning it should not need a binary. Zero or unparseable is read as unset
 /// rather than disarming the watchdog — an unbounded turn is the defect this
 /// exists to end.
 #[must_use]
-pub fn turn_watchdog() -> Duration {
-    let secs = env::var("MESSAGING_TURN_WATCHDOG_SECS")
-        .ok()
-        .and_then(|s| s.parse::<u64>().ok())
-        .filter(|&n| n > 0)
-        .unwrap_or(DEFAULT_TURN_WATCHDOG_SECS);
-    Duration::from_secs(secs)
+pub fn turn_watchdog(timeouts: &ServerTimeouts) -> Duration {
+    Duration::from_secs(
+        timeouts
+            .turn_watchdog_secs
+            .unwrap_or(DEFAULT_TURN_WATCHDOG_SECS),
+    )
 }
 
 /// Log the pipeline failure, track analytics, and send a localized
@@ -864,7 +863,7 @@ async fn serve_turn(
     let drain = dispatch.resources.common.turns.drain_token();
     let dispatch_result = match run_bounded(
         run_guarded(pierre_chat_pipeline::execute(&ctx, request, profile)),
-        turn_watchdog(),
+        turn_watchdog(&dispatch.resources.common.config.timeouts),
         &drain,
     )
     .await

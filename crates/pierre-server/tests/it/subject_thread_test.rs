@@ -18,6 +18,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::SecretString;
 
 use std::sync::Arc;
 
@@ -795,7 +796,7 @@ async fn the_calendar_tools_in_a_subject_thread_act_for_the_subject() {
             user_id: fx.coach.id,
             tenant_id: fx.coach.tenant.to_string(),
             provider: INTERVALS_ICU.to_owned(),
-            access_token: "coach-key".to_owned(),
+            access_token: SecretString::from("coach-key"),
             refresh_token: None,
             token_type: API_KEY_TOKEN_TYPE.to_owned(),
             expires_at: None,

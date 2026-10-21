@@ -61,6 +61,9 @@ on:
       - 'infra/artifacts/variables.tf'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
+      # ci-verdict.test.sh fails when this workflow's trigger list misses a
+      # workflow a branch push can fire.
+      - '.github/workflows/ci-verdict.yml'
       # standing-issue.test.sh checks every monitor that files a standing issue
       # looks it up through scripts/ci/standing-issue.cjs and checks it out.
       - '.github/workflows/billing-drivers-monitor.yml'
@@ -397,7 +400,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, push base resolution)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, commit verdict, push base resolution)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -417,6 +420,8 @@ jobs:
           ./scripts/ci/dev-process-scope.test.sh
           ./scripts/ci/tunnel-env-lib.test.sh
           ./scripts/ci/pre-push-validate.test.sh
+          ./scripts/ci/server-suites.test.sh
+          ./scripts/ci/ci-verdict.test.sh
           ./scripts/ci/sync-contremaitre-fallback.test.sh
           ./scripts/ci/check-deploy-ancestry.test.sh
           ./scripts/ci/pick-newest-green.test.sh
@@ -436,6 +441,7 @@ jobs:
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/lto-compare.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
+          ./scripts/ci/check-secret-fields.test.sh
           ./scripts/ci/check-merge-risk.test.sh
           ./scripts/ci/sweep-landed-branches.test.sh
           ./scripts/ci/strip-carnet-footer.test.sh
@@ -453,6 +459,22 @@ jobs:
       - name: Workflow test targets
         run: ./scripts/ci/check-workflow-test-targets.sh
 
+      # A dependency no target of its crate names, or a normal one only tests
+      # use, is the phantom dependency the coding standards forbid. cargo-shear
+      # parses source without compiling, so it stays in this job; it reads
+      # `cargo metadata`, which fetches the git dependencies through the
+      # private-deps config above. The version is the one check-unused-deps.sh
+      # pins, and its self-test fails when the two differ.
+      - name: Install cargo-shear
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-shear@1.14.0
+
+      - name: Unused dependencies (cargo-shear)
+        run: |
+          ./scripts/ci/check-unused-deps.test.sh
+          ./scripts/ci/check-unused-deps.sh
+
       # The dev scripts decide which processes a stop may kill and which files a
       # tunnel may rewrite, so a quoting or word-splitting slip there reaches a
       # peer checkout's running stack or a gitignored secrets file. shellcheck
@@ -464,7 +486,10 @@ jobs:
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
-    timeout-minutes: 25  # per-crate clippy on changed leaf crates, ~3-5 min
+    # ~3-5 min for a typical push. A branch that touches most of the workspace
+    # lints ~40 crates one at a time (~1.5 min each); 25 min cut one off after
+    # 27 and hid a compile error full-workspace clippy cannot see.
+    timeout-minutes: 75
     runs-on: ubuntu-latest
     # No `needs` — fires immediately in parallel with fast-gate / clippy.
     # Per-crate clippy on the leaf crates this push changed (pre-push-validate.sh
@@ -518,8 +543,12 @@ jobs:
           # changed test binary is cheap to lint on its own, so name the targets.
           # A suite under tests/it/ is a module of the `it` binary, and so is
           # every shared helper, which a per-file binary never linted on its own.
+          # --edited-only: this is the LINT scope, the targets whose test source
+          # the diff edited. A src change reaches every target's outcome (the run
+          # scope, which ci-postgres.yml acts on), but its lints are the crate's
+          # own, and the full-workspace clippy job lints every test target anyway.
           TEST_TARGETS=$(git diff --name-only "$BASE" HEAD 2>/dev/null \
-              | scripts/ci/server-suites.sh changed-targets)
+              | scripts/ci/server-suites.sh changed-targets --edited-only)
           if [ -n "$TEST_TARGETS" ]; then
               echo "Changed pierre-server test targets:"
               echo "$TEST_TARGETS"
@@ -1120,7 +1149,14 @@ jobs:
       # every test file the branch changed since it forked from main, and a
       # failed fork-point lookup fails the step. A pull request's synchronize
       # diffs from the event's before-sha; no usable base runs the tip
-      # commit's files.
+      # commit's files, as suites, on SQLite.
+      #
+      # A push that changes server code instead (a crate in pierre_mcp_server's
+      # dependency closure, a migration, the lockfile) touches no test file, so
+      # this job runs nothing for it; ci-postgres.yml's lane step reads
+      # `server-suites.sh changed-targets` and runs the full suite for such a
+      # push on every ref. The whole suite does not fit one runner's 45-minute
+      # step bound — the PostgreSQL lane packs it into four ~703s shards.
       - name: Detect changed test files
         id: changed
         env:

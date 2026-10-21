@@ -30,6 +30,7 @@ use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::sciotte_provider::SciotteProviderFactory;
+use secrecy::SecretString;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -129,8 +130,10 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     provider
         .set_credentials(OAuth2Credentials {
             client_id: String::new(),
-            client_secret: String::new(),
-            access_token: Some(serde_json::to_string(&session).expect("AuthSession serializes")), // Safe: plain data struct, no map keys
+            client_secret: SecretString::default(),
+            access_token: Some(SecretString::from(
+                serde_json::to_string(&session).expect("AuthSession serializes"),
+            )), // Safe: plain data struct, no map keys
             refresh_token: None,
             expires_at: None,
             scopes: vec![],

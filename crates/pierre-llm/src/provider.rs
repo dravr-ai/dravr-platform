@@ -82,7 +82,7 @@ pub enum ChatProvider {
     Embacle(EmbacleProvider),
     /// Custom provider supplied by the caller (used by tests to inject a
     /// deterministic mock). Never constructed in production code paths —
-    /// production providers are resolved via [`ChatProvider::from_env`] or
+    /// production providers are resolved via [`ChatProvider::from_chain`] or
     /// the per-tenant credential factory.
     Custom(Arc<dyn LlmProvider>),
 }
@@ -105,7 +105,8 @@ pub struct ChainTier {
 }
 
 impl ChatProvider {
-    /// Create the provider `PIERRE_LLM_CHAIN` configures.
+    /// Create the provider `chain` configures — the chain the server read
+    /// from `PIERRE_LLM_CHAIN` once at boot.
     ///
     /// Every entry is built in order, with the model it names and its pooled
     /// accounts right behind it, and the tiers that built are chained
@@ -120,18 +121,14 @@ impl ChatProvider {
     ///
     /// Returns an error when no tier initialized: the one tier's own error
     /// for a single-entry chain, a config error naming every tier otherwise.
-    pub async fn from_env() -> Result<Self, AppError> {
-        let chain = LlmChain::from_env();
+    pub async fn from_chain(chain: &LlmChain) -> Result<Self, AppError> {
         for issue in chain.issues() {
             warn!(
                 variable = LlmChain::ENV_VAR,
                 "LLM chain configuration: {issue}"
             );
         }
-        report_retired_variables(
-            LlmChain::is_configured(),
-            &LlmChain::retired_variables_set(),
-        );
+        report_retired_variables(chain.is_configured(), &LlmChain::retired_variables_set());
         info!(
             chain = %chain,
             "Initializing LLM provider chain (set {} to change)",

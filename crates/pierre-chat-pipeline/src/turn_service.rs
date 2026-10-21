@@ -1090,6 +1090,7 @@ async fn resolve_byo_chat_provider(
 ) -> Option<Arc<ChatProvider>> {
     resolve_tenant_chat_provider(
         &ctx.tenant_chat_providers,
+        &ctx.config.llm_chain,
         ctx.repos.llm_credentials.as_ref(),
         ctx.repos.security.as_ref(),
         tenant_id,

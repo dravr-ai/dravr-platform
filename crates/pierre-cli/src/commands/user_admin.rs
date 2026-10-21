@@ -19,6 +19,7 @@
 //! `disconnect`, `delete` and `reset-onboarding` hand the server's disconnect chokepoint the work,
 //! so every grant they drop is revoked at the provider too.
 
+use secrecy::SecretString;
 use std::fmt::Write as _;
 use std::io::{self, Write as _};
 
@@ -257,7 +258,7 @@ pub struct DisconnectArgs {
 
     /// Admin token (defaults to the cached login)
     #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// `user delete` — remove a user completely.
@@ -282,7 +283,7 @@ pub struct DeleteArgs {
 
     /// Admin token (defaults to the cached login)
     #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// `user reset-onboarding` — send a user back through onboarding.
@@ -312,7 +313,7 @@ pub struct ResetOnboardingArgs {
 
     /// Admin token (defaults to the cached login)
     #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
-    pub token: Option<String>,
+    pub token: Option<SecretString>,
 }
 
 /// One `{tenant_id, provider}` entry as a readable line.

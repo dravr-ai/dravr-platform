@@ -7,6 +7,7 @@
 use pierre_core::constants::api_provider_limits::{garmin, strava};
 use pierre_core::constants::oauth;
 use pierre_core::constants::rate_limits::{STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -19,6 +20,12 @@ pub struct ExternalServicesConfig {
     pub strava_api: StravaApiConfig,
     /// Garmin API configuration
     pub garmin_api: GarminApiConfig,
+    /// The dravr-sciotte scraper service every sciotte call goes through
+    pub sciotte: SciotteServiceConfig,
+    /// Meta's Graph API base (`META_GRAPH_API_BASE`), where a `WhatsApp`
+    /// link asks the number it dials; `None` is the version dravr-canot's
+    /// `WhatsApp` transport sends through.
+    pub meta_graph_api_base: Option<String>,
 }
 
 impl ExternalServicesConfig {
@@ -29,6 +36,40 @@ impl ExternalServicesConfig {
             weather: WeatherServiceConfig::from_env(),
             strava_api: StravaApiConfig::from_env(),
             garmin_api: GarminApiConfig::from_env(),
+            sciotte: SciotteServiceConfig::from_env(),
+            meta_graph_api_base: env::var("META_GRAPH_API_BASE")
+                .ok()
+                .filter(|base| !base.is_empty()),
+        }
+    }
+}
+
+/// Where the dravr-sciotte scraper service is, read once at startup.
+///
+/// The server builds its one sciotte client from this; a `None` URL means no
+/// scraper service is configured.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SciotteServiceConfig {
+    /// The service's base URL (`DRAVR_SCIOTTE_REMOTE_URL`); `None` when the
+    /// variable is unset, empty or only slashes.
+    pub remote_url: Option<String>,
+    /// The audience identity tokens to the service are addressed to
+    /// (`DRAVR_SCIOTTE_AUDIENCE`); `None` when unset or empty. A loopback
+    /// service needs none.
+    pub audience: Option<String>,
+}
+
+impl SciotteServiceConfig {
+    /// Load the scraper service's address from the environment
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            remote_url: env::var("DRAVR_SCIOTTE_REMOTE_URL")
+                .ok()
+                .filter(|url| !url.trim_end_matches('/').is_empty()),
+            audience: env::var("DRAVR_SCIOTTE_AUDIENCE")
+                .ok()
+                .filter(|audience| !audience.is_empty()),
         }
     }
 }
@@ -36,8 +77,9 @@ impl ExternalServicesConfig {
 /// Weather API service configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WeatherServiceConfig {
-    /// `OpenWeather` API key
-    pub api_key: Option<String>,
+    /// `OpenWeather` API key; Debug prints a redaction and serialization omits it
+    #[serde(skip_serializing)]
+    pub api_key: Option<SecretString>,
     /// Weather service base URL
     pub base_url: String,
     /// Enable weather service
@@ -49,7 +91,7 @@ impl WeatherServiceConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            api_key: env::var("OPENWEATHER_API_KEY").ok(),
+            api_key: env::var("OPENWEATHER_API_KEY").ok().map(SecretString::from),
             base_url: env_var_or(
                 "OPENWEATHER_BASE_URL",
                 "https://api.openweathermap.org/data/2.5",

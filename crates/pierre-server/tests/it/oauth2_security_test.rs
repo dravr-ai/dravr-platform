@@ -14,6 +14,7 @@ use pierre_auth::oauth2_server::{
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_test_support::db::create_test_db_with_key;
+use secrecy::ExposeSecret;
 use std::sync::Arc;
 
 /// Test redirect URI validation - HTTPS enforcement
@@ -284,7 +285,13 @@ async fn test_argon2id_client_secret_hashing() {
     // Verify the secret can be validated
     let argon2 = Argon2::default();
     assert!(argon2
-        .verify_password(registration_response.client_secret.as_bytes(), &parsed_hash)
+        .verify_password(
+            registration_response
+                .client_secret
+                .expose_secret()
+                .as_bytes(),
+            &parsed_hash
+        )
         .is_ok());
 
     // Verify wrong secret fails validation
@@ -322,7 +329,7 @@ async fn test_client_secret_validation() {
     let result = registration_manager
         .validate_client(
             &registration_response.client_id,
-            &registration_response.client_secret,
+            registration_response.client_secret.expose_secret(),
         )
         .await;
     assert!(result.is_ok());

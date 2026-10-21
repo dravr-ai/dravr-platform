@@ -22,6 +22,7 @@
 //! send route answers before it looks the address up, so its response time
 //! does not tell either.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use axum::{extract::State, Extension, Json};
@@ -61,7 +62,7 @@ pub struct SignInLinkRequest {
 #[derive(Debug, Deserialize)]
 pub struct ConsumeSignInLinkRequest {
     /// The `<selector>.<verifier>` token from the mailed link
-    pub token: String,
+    pub token: SecretString,
 }
 
 /// The account a redeemed link signs in.
@@ -270,7 +271,8 @@ pub async fn handle_consume_sign_in_link(
     Json(request): Json<ConsumeSignInLinkRequest>,
 ) -> AppResult<Json<SignedInAccount>> {
     admin_token.require_permission(&AdminPermission::ManageWebsite)?;
-    let Some((selector, verifier_hash)) = split_link_token(request.token.trim()) else {
+    let Some((selector, verifier_hash)) = split_link_token(request.token.expose_secret().trim())
+    else {
         return Err(invalid_sign_in_token());
     };
 

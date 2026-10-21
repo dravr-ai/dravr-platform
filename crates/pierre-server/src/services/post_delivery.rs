@@ -240,6 +240,7 @@ async fn personal_thread(resources: &ServerContext, athlete: PostAthlete) -> Opt
             // has answered nothing yet is walked through who they are on
             // their first reply, like a thread `/reset` opens in the app.
             guided_flow: true,
+            llm_chain: &resources.common.config.llm_chain,
         },
     )
     .await

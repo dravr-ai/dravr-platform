@@ -10,6 +10,7 @@ use pierre_core::models::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
     ValidatedUserMcpToken,
 };
+use secrecy::SecretString;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use uuid::Uuid;

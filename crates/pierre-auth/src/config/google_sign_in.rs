@@ -8,6 +8,7 @@ use std::env;
 use std::fmt;
 
 use dravr_tronc::iam::GOOGLE_OIDC_JWKS_URL;
+use secrecy::{ExposeSecret, SecretString};
 
 use super::oauth::secret_fingerprint;
 
@@ -27,7 +28,7 @@ pub struct GoogleSignInConfig {
     /// OAuth client id of the Google web client (also the ID token audience)
     pub client_id: String,
     /// Its client secret, sent only to the token endpoint
-    pub client_secret: String,
+    pub client_secret: SecretString,
     /// Where the athlete is sent to choose a Google account
     pub authorization_endpoint: String,
     /// Where the authorization code is exchanged
@@ -42,7 +43,7 @@ impl GoogleSignInConfig {
     pub fn new(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
         Self {
             client_id: client_id.into(),
-            client_secret: client_secret.into(),
+            client_secret: SecretString::from(client_secret.into()),
             authorization_endpoint: GOOGLE_AUTHORIZATION_ENDPOINT.to_owned(),
             token_endpoint: GOOGLE_TOKEN_ENDPOINT.to_owned(),
             jwks_url: GOOGLE_OIDC_JWKS_URL.to_owned(),
@@ -69,11 +70,17 @@ impl GoogleSignInConfig {
         Some(Self::new(client_id, client_secret))
     }
 
+    /// The length of the secret, for spotting a truncated one in a log line.
+    #[must_use]
+    pub fn secret_length(&self) -> usize {
+        self.client_secret.expose_secret().len()
+    }
+
     /// The first 8 hex characters of the secret's SHA-256, for telling
     /// deployed secrets apart in a log line.
     #[must_use]
     pub fn secret_fingerprint(&self) -> String {
-        secret_fingerprint(&self.client_secret)
+        secret_fingerprint(self.client_secret.expose_secret())
     }
 }
 
@@ -81,7 +88,7 @@ impl fmt::Debug for GoogleSignInConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GoogleSignInConfig")
             .field("client_id", &self.client_id)
-            .field("secret_length", &self.client_secret.len())
+            .field("secret_length", &self.client_secret.expose_secret().len())
             .field("secret_fingerprint", &self.secret_fingerprint())
             .field("authorization_endpoint", &self.authorization_endpoint)
             .field("token_endpoint", &self.token_endpoint)

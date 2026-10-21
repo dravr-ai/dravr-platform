@@ -8,6 +8,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use pierre_auth::rate_limiting::{a2a_client_window_resets_at, calculate_a2a_client_rate_limit};
 use pierre_core::models::a2a::A2AClient;
 use pierre_core::models::WindowUsage;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 
 /// A2A Client registration request
@@ -33,13 +34,16 @@ pub struct ClientCredentials {
     /// Client secret the card's `oauth2ClientCredentials` `tokenUrl`
     /// (`/oauth2/token`, `client_credentials` grant) authenticates; shown
     /// once, stored only as an Argon2 hash
-    pub client_secret: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub client_secret: SecretString,
     /// API key for direct API access
-    pub api_key: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub api_key: SecretString,
     /// Ed25519 public key for signature verification
     pub public_key: String,
     /// Ed25519 private key for signing (client-side only, never stored)
-    pub private_key: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub private_key: SecretString,
     /// Key type identifier ("ed25519")
     pub key_type: String,
 }

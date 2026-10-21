@@ -12,6 +12,7 @@ use pierre_config::environment::{
     DatabaseUrl, Environment, LogLevel, OAuthConfig, OAuthProviderConfig, SecurityConfig,
     ServerConfig, SqlxConfig, TokioRuntimeConfig,
 };
+use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Debug as FmtDebug;
@@ -74,7 +75,10 @@ fn test_database_url_parsing() {
     let sqlite_url = DatabaseUrl::parse_url("sqlite:./test.db").unwrap();
     assert!(sqlite_url.is_sqlite());
     assert!(!sqlite_url.is_postgresql());
-    assert_eq!(sqlite_url.to_connection_string(), "sqlite:./test.db");
+    assert_eq!(
+        sqlite_url.connection_string().expose_secret(),
+        "sqlite:./test.db"
+    );
 
     // Memory database
     let memory_url = DatabaseUrl::parse_url("sqlite::memory:").unwrap();
@@ -108,7 +112,7 @@ fn create_test_server_config() -> ServerConfig {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_id".into()),
-                client_secret: Some("test_secret".into()),
+                client_secret: Some(SecretString::from("test_secret")),
                 redirect_uri: Some("http://localhost/callback".into()),
                 scopes: vec!["read".into()],
                 enabled: true,
@@ -328,7 +332,7 @@ fn config_with_resend(
     ci_mode: bool,
 ) -> ServerConfig {
     let mut config = ServerConfig {
-        resend_api_key: api_key.map(str::to_owned),
+        resend_api_key: api_key.map(SecretString::from),
         resend_from_email: from_email.map(str::to_owned),
         website_base_url: "https://dravr.ai".to_owned(),
         ..Default::default()

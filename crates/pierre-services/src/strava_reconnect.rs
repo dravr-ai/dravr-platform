@@ -42,8 +42,10 @@
 //! withdraws it. A dead grant here most often died at Strava too, so its
 //! refused revocation is a WARN.
 
+use secrecy::ExposeSecret;
 use std::collections::{BTreeMap, BTreeSet};
 
+use pierre_auth::config::oauth::OAuthConfig;
 use pierre_auth::oauth2_client::OAuth2Token;
 use pierre_auth::strava_pool::{same_strava_app, strava_client_id};
 use pierre_core::constants::oauth_providers;
@@ -166,7 +168,7 @@ impl ReplacedGrants {
 
         let (precondition, replaced) = read_replaced(tokens, user_id, tenant_id, live_here).await;
         let (dead_elsewhere, live_elsewhere) =
-            read_elsewhere(tokens, user_id, &landing, &apps).await;
+            read_elsewhere(tokens, user_id, &landing, &apps, &service.config().oauth).await;
         Self {
             precondition: Some(precondition),
             superseded: replaced.into_iter().chain(dead_elsewhere).collect(),
@@ -195,9 +197,10 @@ impl ReplacedGrants {
         user_id: Uuid,
         tenant_id: TenantId,
         attribution: Option<&str>,
+        server: &OAuthConfig,
     ) -> bool {
         let app = attribution.unwrap_or("env");
-        match self.live_grant_elsewhere(strava_client_id(attribution).as_deref()) {
+        match self.live_grant_elsewhere(strava_client_id(attribution, server).as_deref()) {
             LiveElsewhere::Absent => false,
             LiveElsewhere::Unlisted => {
                 error!(
@@ -237,8 +240,12 @@ impl ReplacedGrants {
     pub async fn revoke_superseded(&self, service: &OAuthService, new_attribution: Option<&str>) {
         let mut revoked: BTreeSet<Option<String>> = BTreeSet::new();
         for Superseded { token, live } in &self.superseded {
-            let Some(tenant_id) = self.revocation_target(token, new_attribution, &mut revoked)
-            else {
+            let Some(tenant_id) = self.revocation_target(
+                token,
+                new_attribution,
+                &mut revoked,
+                &service.config().oauth,
+            ) else {
                 continue;
             };
             let app = token.oauth_app_client_id.as_deref();
@@ -269,10 +276,11 @@ impl ReplacedGrants {
         token: &UserOAuthToken,
         new_attribution: Option<&str>,
         revoked: &mut BTreeSet<Option<String>>,
+        server: &OAuthConfig,
     ) -> Option<TenantId> {
         let app = token.oauth_app_client_id.as_deref();
-        let client_id = strava_client_id(app);
-        if same_strava_app(app, new_attribution) || !revoked.insert(client_id.clone()) {
+        let client_id = strava_client_id(app, server);
+        if same_strava_app(app, new_attribution, server) || !revoked.insert(client_id.clone()) {
             return None;
         }
         let live_in = match self.live_grant_elsewhere(client_id.as_deref()) {
@@ -326,7 +334,11 @@ impl ReplacedGrants {
             .await
         {
             Ok(Some(stored))
-                if same_strava_app(stored.oauth_app_client_id.as_deref(), attribution) =>
+                if same_strava_app(
+                    stored.oauth_app_client_id.as_deref(),
+                    attribution,
+                    &service.config().oauth,
+                ) =>
             {
                 self.revoke_superseded(service, attribution).await;
                 return;
@@ -342,15 +354,18 @@ impl ReplacedGrants {
                 return;
             }
         }
-        if self.keeps_fresh_grant(user_id, tenant_id, attribution) {
+        if self.keeps_fresh_grant(user_id, tenant_id, attribution, &service.config().oauth) {
             return;
         }
         let row = UserOAuthToken::new(
             user_id,
             tenant_id.to_string(),
             oauth_providers::STRAVA.to_owned(),
-            token.access_token.clone(),
-            token.refresh_token.clone(),
+            token.access_token.expose_secret().to_owned(),
+            token
+                .refresh_token
+                .as_ref()
+                .map(|s| s.expose_secret().to_owned()),
             token.expires_at,
             token.scope.clone(),
         )
@@ -404,12 +419,13 @@ async fn read_elsewhere(
     user_id: Uuid,
     landing: &str,
     apps: &[StravaTokenApp],
+    server: &OAuthConfig,
 ) -> (Vec<Superseded>, BTreeMap<Option<String>, String>) {
     let mut dead = Vec::new();
     let mut live = BTreeMap::new();
     for app in apps.iter().filter(|app| app.tenant_id != landing) {
         if app.grant_live {
-            live.entry(strava_client_id(app.attribution.as_deref()))
+            live.entry(strava_client_id(app.attribution.as_deref(), server))
                 .or_insert_with(|| app.tenant_id.clone());
             continue;
         }

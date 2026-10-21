@@ -28,7 +28,7 @@ use pierre_auth::{
         IssuingLookup,
     },
 };
-use pierre_config::environment::{OAuthProviderConfig, ServerConfig};
+use pierre_config::environment::{OAuthConfig, ServerConfig};
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials, User, UserStatus, UserTier};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -38,6 +38,7 @@ use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -160,7 +161,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             tenant_id: acme_tenant_id,
             provider: "strava".to_owned(),
             client_id: "acme_strava_client_123".to_owned(),
-            client_secret: "acme_secret_key".to_owned(),
+            client_secret: SecretString::from("acme_secret_key"),
             redirect_uri: "https://acme-fitness.com/oauth/strava/callback".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),
@@ -176,7 +177,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             tenant_id: beta_tenant_id,
             provider: "strava".to_owned(),
             client_id: "beta_strava_client_456".to_owned(),
-            client_secret: "beta_secret_key".to_owned(),
+            client_secret: SecretString::from("beta_secret_key"),
             redirect_uri: "https://beta-health.com/oauth/strava/callback".to_owned(),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),
@@ -273,18 +274,21 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     assert!(matches!(beta_client, IssuingClient::Tenant(_)));
     assert_eq!(acme_client.client_id(), "acme_strava_client_123");
     assert_eq!(beta_client.client_id(), "beta_strava_client_456");
-    assert_ne!(acme_client.client_secret(), beta_client.client_secret());
+    assert_ne!(
+        acme_client.client_secret().expose_secret(),
+        beta_client.client_secret().expose_secret()
+    );
 
     println!("Tenant OAuth credential isolation verified");
 
     // Step 10: A new authorization in each tenant runs under that tenant's app,
     // which no Strava pool app owns
-    let server_level = OAuthProviderConfig::default();
+    let server = OAuthConfig::default();
     let (acme_authorizing, acme_pool_app) = authorizing_client(
         acme_admin_id,
         acme_tenant_id,
         "strava",
-        &server_level,
+        &server,
         &*repos.tenants,
         &*repos.oauth_tokens,
     )
@@ -293,7 +297,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         beta_admin_id,
         beta_tenant_id,
         "strava",
-        &server_level,
+        &server,
         &*repos.tenants,
         &*repos.oauth_tokens,
     )
@@ -433,7 +437,7 @@ async fn test_tenant_context_switching() -> Result<()> {
             tenant_id: tenant1_id,
             provider: "strava".to_owned(),
             client_id: "tenant1_client".to_owned(),
-            client_secret: "tenant1_secret".to_owned(),
+            client_secret: SecretString::from("tenant1_secret"),
             redirect_uri: "https://tenant1.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),
@@ -446,7 +450,7 @@ async fn test_tenant_context_switching() -> Result<()> {
             tenant_id: tenant2_id,
             provider: "strava".to_owned(),
             client_id: "tenant2_client".to_owned(),
-            client_secret: "tenant2_secret".to_owned(),
+            client_secret: SecretString::from("tenant2_secret"),
             redirect_uri: "https://tenant2.com/callback".to_owned(),
             scopes: vec!["read".to_owned(), "write".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),
@@ -459,7 +463,10 @@ async fn test_tenant_context_switching() -> Result<()> {
 
     assert_eq!(oauth1.client_id(), "tenant1_client");
     assert_eq!(oauth2.client_id(), "tenant2_client");
-    assert_ne!(oauth1.client_secret(), oauth2.client_secret());
+    assert_ne!(
+        oauth1.client_secret().expose_secret(),
+        oauth2.client_secret().expose_secret()
+    );
 
     println!("Tenant context switching validated");
 
@@ -494,7 +501,7 @@ fn create_test_server_config() -> ServerConfig {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_strava_client".to_owned()),
-                client_secret: Some("test_strava_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_strava_secret")),
                 redirect_uri: Some("http://localhost:3000/oauth/strava/callback".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -562,7 +569,7 @@ async fn tenant_credentials_are_read_from_the_store() -> Result<()> {
             tenant_id,
             provider: "whoop".to_owned(),
             client_id: "tenant-whoop-app".to_owned(),
-            client_secret: "tenant-whoop-secret".to_owned(),
+            client_secret: SecretString::from("tenant-whoop-secret"),
             redirect_uri: "https://tenant.example.com/api/oauth/callback/whoop".to_owned(),
             scopes: vec!["read:recovery".to_owned()],
             rate_limit_per_day: 4_321,
@@ -575,7 +582,7 @@ async fn tenant_credentials_are_read_from_the_store() -> Result<()> {
             tenant_id: Some(tenant_id),
             provider: "whoop",
             issuing_app: None,
-            server_level: &OAuthProviderConfig::default(),
+            server: &OAuthConfig::default(),
         },
         &*repos.tenants,
         &*repos.oauth_tokens,
@@ -585,7 +592,7 @@ async fn tenant_credentials_are_read_from_the_store() -> Result<()> {
         panic!("the tenant's app is read back, got {resolved:?}");
     };
     assert_eq!(stored.client_id, "tenant-whoop-app");
-    assert_eq!(stored.client_secret, "tenant-whoop-secret");
+    assert_eq!(stored.client_secret.expose_secret(), "tenant-whoop-secret");
     assert_eq!(
         stored.rate_limit_per_day, 4_321,
         "the stored daily limit persists"
@@ -606,7 +613,7 @@ async fn tenant_client(
             tenant_id: Some(tenant_id),
             provider: "strava",
             issuing_app: None,
-            server_level: &OAuthProviderConfig::default(),
+            server: &OAuthConfig::default(),
         },
         &*repos.tenants,
         &*repos.oauth_tokens,

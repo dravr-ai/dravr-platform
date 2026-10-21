@@ -17,6 +17,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::SecretString;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Once};
 
@@ -84,9 +85,9 @@ async fn provider_with_token(api_base_url: String, access_token: &str) -> Strava
     provider
         .set_credentials(OAuth2Credentials {
             client_id: "test_client".to_owned(),
-            client_secret: "test_secret".to_owned(),
-            access_token: Some(access_token.to_owned()),
-            refresh_token: Some("test_refresh_token".to_owned()),
+            client_secret: SecretString::from("test_secret"),
+            access_token: Some(SecretString::from(access_token.to_owned())),
+            refresh_token: Some(SecretString::from("test_refresh_token")),
             expires_at: Some(Utc::now() + chrono::Duration::days(30)),
             scopes: vec!["read".to_owned()],
             kind: CredentialKind::OAuthBearer,

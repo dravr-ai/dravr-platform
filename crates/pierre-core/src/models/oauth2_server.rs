@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use uuid::Uuid;
 
 /// Stored OAuth 2.0 Client
@@ -106,7 +107,7 @@ pub struct OAuth2AuthCode {
 #[derive(Debug, Clone)]
 pub struct OAuth2RefreshToken {
     /// The refresh token value
-    pub token: String,
+    pub token: SecretString,
     /// Client application identifier
     pub client_id: String,
     /// User identifier who owns this token

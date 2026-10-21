@@ -55,3 +55,48 @@ fn leaves_postgres_url_without_credentials_unchanged() {
     let input = "postgres://localhost:5432/dravr";
     assert_eq!(redact_url(input), input);
 }
+
+#[test]
+fn redacts_credential_query_parameters_case_insensitively() {
+    let out = redact_url(
+        "https://api.example.com/v1/foods?query=apple&API_KEY=k-1&Access_Token=a-2\
+         &refresh_token=r-3&client_secret=s-4&password=p-5&token=t-6&key=k-7&secret=s-8&pageSize=10",
+    );
+    assert_eq!(
+        out,
+        "https://api.example.com/v1/foods?query=apple&API_KEY=***&Access_Token=***\
+         &refresh_token=***&client_secret=***&password=***&token=***&key=***&secret=***&pageSize=10"
+    );
+}
+
+#[test]
+fn redacts_query_credentials_beside_userinfo_and_keeps_the_fragment() {
+    assert_eq!(
+        redact_url("postgres://u:pw@db:5432/app?sslmode=require&X-Api-Key=x9#frag"),
+        "postgres://***:***@db:5432/app?sslmode=require&X-Api-Key=***#frag"
+    );
+    assert_eq!(
+        redact_url("postgres://db/app?password=hunter2#frag"),
+        "postgres://db/app?password=***#frag"
+    );
+}
+
+#[test]
+fn keeps_parameters_that_only_contain_a_sensitive_word() {
+    let input = "https://example.com/search?keyword=run&tokenizer=bpe&flag&monkey=1";
+    assert_eq!(redact_url(input), input);
+}
+
+#[test]
+fn an_address_in_the_query_or_path_is_not_userinfo() {
+    let input = "https://example.com/users/a@b.example?email=c@d.example";
+    assert_eq!(redact_url(input), input);
+}
+
+#[test]
+fn a_password_holding_a_question_mark_or_hash_is_still_redacted() {
+    let out = redact_url("postgres://dravr:pa?ss#wd@db:5432/app?sslmode=require");
+    assert_eq!(out, "postgres://***:***@db:5432/app?sslmode=require");
+    let out = redact_url("postgres://dravr:p#w@db/app#frag");
+    assert_eq!(out, "postgres://***:***@db/app#frag");
+}

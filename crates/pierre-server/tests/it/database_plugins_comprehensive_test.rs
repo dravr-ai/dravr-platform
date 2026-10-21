@@ -19,6 +19,7 @@ use pierre_core::models::{TenantId, User, UserOAuthToken, UserTier};
 use pierre_database::{backends::DatabaseProvider, database::generate_encryption_key};
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_test_support::db::create_test_db_with_key;
+use secrecy::ExposeSecret;
 use serial_test::serial;
 use uuid::Uuid;
 
@@ -194,8 +195,11 @@ async fn test_strava_token_operations() -> Result<()> {
         .await?;
     assert!(token.is_some());
     let token = token.unwrap();
-    assert_eq!(token.access_token, "test_access_token");
-    assert_eq!(token.refresh_token.as_ref().unwrap(), "test_refresh_token");
+    assert_eq!(token.access_token.expose_secret(), "test_access_token");
+    assert_eq!(
+        token.refresh_token.as_ref().unwrap().expose_secret(),
+        "test_refresh_token"
+    );
     let scopes = token.scope.as_ref().unwrap();
     assert!(scopes.contains(&"read".to_owned()));
     assert!(scopes.contains(&"activity:read_all".to_owned()));
@@ -276,8 +280,11 @@ async fn test_whoop_token_operations() -> Result<()> {
         .await?;
     assert!(token.is_some());
     let token = token.unwrap();
-    assert_eq!(token.access_token, "whoop_access_token");
-    assert_eq!(token.refresh_token.as_ref().unwrap(), "whoop_refresh_token");
+    assert_eq!(token.access_token.expose_secret(), "whoop_access_token");
+    assert_eq!(
+        token.refresh_token.as_ref().unwrap().expose_secret(),
+        "whoop_refresh_token"
+    );
     let scopes = token.scope.as_ref().unwrap();
     assert!(scopes.contains(&"read:workout".to_owned()));
     assert!(scopes.contains(&"read:profile".to_owned()));
@@ -586,8 +593,11 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
             .await?;
         assert!(retrieved.is_some());
         let token = retrieved.unwrap();
-        assert_eq!(token.access_token, access_token);
-        assert_eq!(token.refresh_token.as_ref().unwrap(), refresh_token);
+        assert_eq!(token.access_token.expose_secret(), access_token);
+        assert_eq!(
+            token.refresh_token.as_ref().unwrap().expose_secret(),
+            refresh_token
+        );
 
         // Store WHOOP token
         let whoop_oauth_token = UserOAuthToken::new(
@@ -616,8 +626,11 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
             .await?;
         assert!(whoop_token.is_some());
         let token = whoop_token.unwrap();
-        assert_eq!(token.access_token, access_token);
-        assert_eq!(token.refresh_token.as_ref().unwrap(), refresh_token);
+        assert_eq!(token.access_token.expose_secret(), access_token);
+        assert_eq!(
+            token.refresh_token.as_ref().unwrap().expose_secret(),
+            refresh_token
+        );
     }
 
     Ok(())
@@ -832,7 +845,10 @@ async fn test_database_connection_reuse() -> Result<()> {
             )
             .await?;
         assert!(retrieved_token.is_some());
-        assert_eq!(retrieved_token.unwrap().access_token, format!("token_{i}"));
+        assert_eq!(
+            retrieved_token.unwrap().access_token.expose_secret(),
+            format!("token_{i}")
+        );
     }
 
     Ok(())
@@ -1063,9 +1079,12 @@ mod postgres_tests {
             .await?;
         assert!(strava_token.is_some());
         let token = strava_token.unwrap();
-        assert_eq!(token.access_token, "strava_access_token_postgres");
         assert_eq!(
-            token.refresh_token.as_ref().unwrap(),
+            token.access_token.expose_secret(),
+            "strava_access_token_postgres"
+        );
+        assert_eq!(
+            token.refresh_token.as_ref().unwrap().expose_secret(),
             "strava_refresh_token_postgres"
         );
 
@@ -1095,9 +1114,12 @@ mod postgres_tests {
             .await?;
         assert!(whoop_token.is_some());
         let token = whoop_token.unwrap();
-        assert_eq!(token.access_token, "whoop_access_token_postgres");
         assert_eq!(
-            token.refresh_token.as_ref().unwrap(),
+            token.access_token.expose_secret(),
+            "whoop_access_token_postgres"
+        );
+        assert_eq!(
+            token.refresh_token.as_ref().unwrap().expose_secret(),
             "whoop_refresh_token_postgres"
         );
 
@@ -1129,8 +1151,11 @@ mod postgres_tests {
             )
             .await?
             .unwrap();
-        assert_eq!(retrieved.access_token, special_access);
-        assert_eq!(retrieved.refresh_token.as_ref().unwrap(), special_refresh);
+        assert_eq!(retrieved.access_token.expose_secret(), special_access);
+        assert_eq!(
+            retrieved.refresh_token.as_ref().unwrap().expose_secret(),
+            special_refresh
+        );
 
         // Clean up
         // Clean up would happen on test drop or next run

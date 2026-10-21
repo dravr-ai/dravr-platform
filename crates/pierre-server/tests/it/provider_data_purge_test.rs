@@ -27,6 +27,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::transport::TransportPolicy;
+use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -995,7 +996,7 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
             user_id: teammate,
             tenant_id: tenant.to_string(),
             provider: "whoop".to_owned(),
-            access_token: "whoop-access-do-not-log".to_owned(),
+            access_token: SecretString::from("whoop-access-do-not-log"),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
             expires_at: Some(Utc::now() + Duration::hours(1)),

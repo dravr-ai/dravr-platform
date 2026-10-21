@@ -53,6 +53,7 @@ use crate::wahoo_streams::{is_wahoo_file_url, time_series_from_fit, MAX_FIT_BYTE
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use reqwest::{Method, StatusCode};
+use secrecy::{ExposeSecret, SecretString};
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
 use std::sync::OnceLock;
@@ -147,8 +148,10 @@ pub(crate) struct WahooWorkout {
     name: Option<String>,
     #[serde(default)]
     plan_id: Option<i64>,
-    #[serde(default)]
-    workout_token: Option<String>,
+    /// Wahoo's `workout_token`: the caller-chosen external id of the workout,
+    /// an identifier and not a credential
+    #[serde(default, rename = "workout_token")]
+    external_id: Option<String>,
     #[serde(default)]
     workout_type_id: Option<u16>,
     #[serde(default)]
@@ -270,10 +273,7 @@ impl WahooWorkout {
     /// The calendar view of a workout Dravr scheduled, or `None` for one it
     /// did not write.
     fn calendar_event(&self) -> Option<CalendarEventRef> {
-        let token = self
-            .workout_token
-            .as_deref()
-            .filter(|t| is_dravr_token(t))?;
+        let token = self.external_id.as_deref().filter(|t| is_dravr_token(t))?;
         let date = self.started().ok()?.date_naive();
         Some(CalendarEventRef {
             provider_event_id: self.id.to_string(),
@@ -324,7 +324,7 @@ impl WahooProvider {
     }
 
     /// The current access token.
-    async fn access_token(&self) -> AppResult<String> {
+    async fn access_token(&self) -> AppResult<SecretString> {
         self.credentials
             .read()
             .await
@@ -343,7 +343,7 @@ impl WahooProvider {
 
     /// Refuse while the circuit is open, then refresh a token about to
     /// expire: right before the call that will use it, as Wahoo asks.
-    async fn prepare_call(&self) -> AppResult<String> {
+    async fn prepare_call(&self) -> AppResult<SecretString> {
         if !self.circuit_breaker.is_allowed() {
             let err = ProviderError::CircuitBreakerOpen {
                 provider: oauth_providers::WAHOO.to_owned(),
@@ -381,7 +381,7 @@ impl WahooProvider {
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
-            &access_token,
+            access_token.expose_secret(),
             oauth_providers::WAHOO,
             &retry_config,
             budget.as_ref(),
@@ -412,7 +412,10 @@ impl WahooProvider {
         let mut request = self
             .client
             .request(method.clone(), &url)
-            .header("Authorization", format!("Bearer {access_token}"))
+            .header(
+                "Authorization",
+                format!("Bearer {}", access_token.expose_secret()),
+            )
             .header("Accept", "application/json");
         if !form.is_empty() {
             request = request.form(form);
@@ -679,8 +682,8 @@ impl FitnessProvider for WahooProvider {
                     oauth_providers::WAHOO,
                     &token_url,
                     &credentials.client_id,
-                    &credentials.client_secret,
-                    &refresh_token,
+                    credentials.client_secret.expose_secret(),
+                    refresh_token.expose_secret(),
                 ),
             )
             .await?;

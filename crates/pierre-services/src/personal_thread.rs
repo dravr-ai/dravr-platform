@@ -39,12 +39,14 @@ use pierre_core::models::{
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use tracing::{info, warn};
 
 use crate::agent_selection::AgentSelectionSource;
 use crate::agents::require_bindable_agent;
 use crate::conversation_forge::{
-    forge_conversation, record_agent_usage, start_guided_flow, ForgeAgent, ForgeParams, SlotQuota,
+    forge_conversation, record_agent_usage, resolve_conversation_model, start_guided_flow,
+    ForgeAgent, ForgeParams, SlotQuota,
 };
 
 /// The athlete's personal thread in `tenant_id`, when they have one.
@@ -122,6 +124,9 @@ pub struct PersonalForge<'a> {
     /// nothing yet — what a thread the platform opens on its own carries. A
     /// thread the athlete opened with "+" never did.
     pub guided_flow: bool,
+    /// The chain the server read at boot; its head's model is the one a
+    /// forged thread records.
+    pub llm_chain: &'a LlmChain,
 }
 
 /// The athlete's personal thread, as [`resolve_personal_thread`] found it.
@@ -281,13 +286,14 @@ async fn forge_personal(
     forge: PersonalForge<'_>,
 ) -> AppResult<PersonalThread> {
     let chat = repos.chat.as_ref();
+    let model = resolve_conversation_model(None, forge.llm_chain)?;
     let forged_id = forge_conversation(
         repos,
         ForgeParams {
             user_id,
             tenant_id,
             title_fallback: forge.title_fallback,
-            model: None,
+            model: &model,
             agent: ForgeAgent::Selected,
             group_id: None,
             channel_type: CHANNEL_TYPE_WEB,

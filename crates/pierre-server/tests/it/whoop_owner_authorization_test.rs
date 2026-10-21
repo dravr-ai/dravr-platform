@@ -29,6 +29,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::SecretString;
 
 use std::sync::Arc;
 
@@ -92,7 +93,7 @@ async fn primary_tenant(resources: &Arc<ServerContext>, user_id: Uuid) -> Tenant
             tenant_id,
             provider: WHOOP.to_owned(),
             client_id: "whoop-owner-auth-test-client".to_owned(),
-            client_secret: "whoop-owner-auth-test-secret".to_owned(),
+            client_secret: SecretString::from("whoop-owner-auth-test-secret"),
             redirect_uri: "http://localhost/api/oauth/callback/whoop".to_owned(),
             scopes: vec!["read:recovery".to_owned()],
             rate_limit_per_day: 1000,
@@ -443,7 +444,7 @@ async fn connect_whoop(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id:
             user_id,
             tenant_id: tenant_id.to_string(),
             provider: WHOOP.to_owned(),
-            access_token: "whoop-access-do-not-log".to_owned(),
+            access_token: SecretString::from("whoop-access-do-not-log"),
             refresh_token: None,
             token_type: "Bearer".to_owned(),
             expires_at: Some(Utc::now() + Duration::hours(1)),

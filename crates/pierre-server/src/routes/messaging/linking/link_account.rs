@@ -15,6 +15,7 @@ use pierre_core::models::UserStatus;
 use pierre_database::backends::UserRepository;
 use pierre_routes_auth::meter_sign_up;
 use pierre_services::signup_policy::SIGNUP_PAUSED;
+use secrecy::SecretString;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -71,7 +72,7 @@ pub(super) async fn resolve_user_from_form(
 async fn authenticate_user(
     resources: &ServerContext,
     email: &str,
-    password: &str,
+    password: &SecretString,
     client: Option<IpAddr>,
 ) -> Result<(Uuid, UserStatus), String> {
     let limiter = &resources.auth.oauth2_rate_limiter;
@@ -105,7 +106,7 @@ async fn admitted_sign_in(
 async fn verify_credentials(
     resources: &ServerContext,
     email: &str,
-    password: &str,
+    password: &SecretString,
 ) -> Result<(Uuid, UserStatus), CredentialRefusal> {
     let user_repo: &dyn UserRepository = resources.common.repos.users.as_ref();
 
@@ -118,7 +119,7 @@ async fn verify_credentials(
         })?
         .ok_or(CredentialRefusal::Invalid)?;
 
-    let is_valid = verify_password(password.to_owned(), user.password_hash.clone())
+    let is_valid = verify_password(password.clone(), user.password_hash.clone())
         .await
         .map_err(|_| CredentialRefusal::Fault)?;
 

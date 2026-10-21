@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
 use redis::{AsyncCommands, Script};
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec};
 use tokio::time::sleep;
@@ -79,6 +80,7 @@ impl RedisCache {
         let redis_url = config
             .redis_url
             .as_ref()
+            .map(ExposeSecret::expose_secret)
             .ok_or_else(|| AppError::config("Redis URL is required for Redis cache backend"))?;
 
         let conn_config = &config.redis_connection;
@@ -92,7 +94,7 @@ impl RedisCache {
         );
 
         // Create Redis client
-        let client = redis::Client::open(redis_url.as_str())
+        let client = redis::Client::open(redis_url)
             .map_err(|e| AppError::internal(format!("Failed to create Redis client: {e}")))?;
 
         // Connect with retry logic

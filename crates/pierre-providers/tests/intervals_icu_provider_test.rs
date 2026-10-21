@@ -14,6 +14,7 @@
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use secrecy::SecretString;
 use std::time::Duration as StdDuration;
 
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
@@ -77,7 +78,7 @@ fn sample_template() -> WorkoutTemplate {
 fn empty_credentials() -> OAuth2Credentials {
     OAuth2Credentials {
         client_id: String::new(),
-        client_secret: String::new(),
+        client_secret: SecretString::default(),
         access_token: None,
         refresh_token: None,
         expires_at: None,
@@ -90,8 +91,8 @@ fn empty_credentials() -> OAuth2Credentials {
 fn good_credentials() -> OAuth2Credentials {
     OAuth2Credentials {
         client_id: "i123456".to_owned(),
-        client_secret: String::new(),
-        access_token: Some("test-api-key".to_owned()),
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from("test-api-key")),
         refresh_token: None,
         expires_at: None,
         scopes: Vec::new(),
@@ -154,7 +155,7 @@ async fn set_credentials_rejects_missing_api_key() {
 async fn set_credentials_rejects_empty_api_key() {
     let provider = IntervalsIcuProvider::new();
     let mut creds = good_credentials();
-    creds.access_token = Some(String::new());
+    creds.access_token = Some(SecretString::default());
     let err = provider
         .set_credentials(creds)
         .await
@@ -363,8 +364,8 @@ fn bearer_credentials() -> OAuth2Credentials {
     OAuth2Credentials {
         // The OAuth app's client id, which names no athlete.
         client_id: "dravr-app".to_owned(),
-        client_secret: "app-secret".to_owned(),
-        access_token: Some("oauth-token".to_owned()),
+        client_secret: SecretString::from("app-secret"),
+        access_token: Some(SecretString::from("oauth-token")),
         refresh_token: None,
         expires_at: None,
         scopes: vec!["ACTIVITY:READ".to_owned()],

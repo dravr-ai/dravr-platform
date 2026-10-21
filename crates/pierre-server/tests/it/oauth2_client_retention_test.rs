@@ -15,6 +15,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -113,7 +114,7 @@ async fn register_ok(database: &Database, name: &str) -> String {
 async fn authorize(database: &Database, client_id: &str) -> DateTime<Utc> {
     let issued_at = Utc::now();
     let token = OAuth2RefreshToken {
-        token: format!("refresh-{}", Uuid::new_v4()),
+        token: SecretString::from(format!("refresh-{}", Uuid::new_v4())),
         client_id: client_id.to_owned(),
         user_id: Uuid::new_v4(),
         tenant_id: Uuid::new_v4().to_string(),

@@ -28,6 +28,7 @@ use crate::request_budget;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
+use secrecy::ExposeSecret;
 use serde::Deserialize;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
@@ -364,7 +365,7 @@ impl GarminProvider {
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
-            &access_token,
+            access_token.expose_secret(),
             oauth_providers::GARMIN,
             &retry_config,
             budget.as_ref(),
@@ -712,8 +713,8 @@ impl FitnessProvider for GarminProvider {
                 oauth_providers::GARMIN,
                 &self.config.token_url,
                 &credentials.client_id,
-                &credentials.client_secret,
-                &refresh_token,
+                credentials.client_secret.expose_secret(),
+                refresh_token.expose_secret(),
             ),
         )
         .await?;

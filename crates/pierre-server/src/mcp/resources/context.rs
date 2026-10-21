@@ -271,7 +271,7 @@ impl ServerContext {
         };
         info!(
             client_id = %google.client_id,
-            secret_length = google.client_secret.len(),
+            secret_length = google.secret_length(),
             secret_fingerprint = %google.secret_fingerprint(),
             redirect_uri = %google_callback_url(&oauth2_server.issuer_url),
             "Google sign-in on the OAuth login page: enabled"
@@ -414,6 +414,7 @@ impl ServerContext {
             repos: self.common.repos.clone(),
             data: self.data(),
             tool_selection: self.mcp.tool_selection.clone(),
+            llm_chain: self.common.config.llm_chain.clone(),
         }
     }
 }

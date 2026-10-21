@@ -34,6 +34,7 @@
 
 mod common;
 
+use secrecy::SecretString;
 use std::collections::HashMap;
 use std::env;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -410,8 +411,8 @@ async fn seed_linked_user(
         user_id,
         tenant_id: tenant_id.to_string(),
         provider: "whoop".to_owned(),
-        access_token: "whoop_access_token".to_owned(),
-        refresh_token: Some("whoop_refresh".to_owned()),
+        access_token: SecretString::from("whoop_access_token"),
+        refresh_token: Some(SecretString::from("whoop_refresh")),
         token_type: "Bearer".to_owned(),
         expires_at: Some(now + chrono::Duration::hours(1)),
         scope: Some("read:sleep read:recovery".to_owned()),

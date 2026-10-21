@@ -21,6 +21,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
@@ -142,7 +143,7 @@ async fn mint(
 }
 
 fn bearer(token: &GeneratedAdminToken) -> String {
-    format!("Bearer {}", token.jwt_token)
+    format!("Bearer {}", token.jwt_token.expose_secret())
 }
 
 async fn is_active(resources: &Arc<ServerContext>, token_id: &str) -> Result<bool> {
@@ -345,7 +346,7 @@ async fn a_plain_admin_rotates_a_service_token_and_the_old_one_retires() -> Resu
     let new_id = body["data"]["token_id"].as_str().expect("new token id");
     assert_ne!(new_id, seeded.token_id, "rotation mints a new token");
     let new_jwt = body["data"]["jwt_token"].as_str().expect("new jwt");
-    assert_ne!(new_jwt, seeded.jwt_token);
+    assert_ne!(new_jwt, seeded.jwt_token.expose_secret());
     assert!(
         !is_active(&resources, &seeded.token_id).await?,
         "the old credential is retired"

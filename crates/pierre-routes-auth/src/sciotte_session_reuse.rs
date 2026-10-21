@@ -11,6 +11,7 @@ use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -203,7 +204,8 @@ pub async fn stored_session_use(
     // Guard on deserializability so a corrupt blob falls through to a fresh
     // login rather than short-circuiting into an unusable "connected" state,
     // or being sent to seed a login browser.
-    let Ok(session) = serde_json::from_str::<AuthSession>(&token.access_token) else {
+    let Ok(session) = serde_json::from_str::<AuthSession>(token.access_token.expose_secret())
+    else {
         warn!(
             %user_id,
             provider = %provider_name,

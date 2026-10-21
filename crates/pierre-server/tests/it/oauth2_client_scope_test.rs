@@ -17,6 +17,7 @@
 //! old code each one reads a wider grant than it pins.
 
 use crate::common;
+use secrecy::{ExposeSecret, SecretString};
 
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
@@ -328,7 +329,7 @@ async fn an_authorization_without_a_scope_carries_the_default_grant_into_the_tok
 
     assert_eq!(token.scope.as_deref(), Some("fitness:read profile:read"));
     assert_eq!(
-        token_grant(&env, &token.access_token),
+        token_grant(&env, token.access_token.expose_secret()),
         vec![OAuthScope::FitnessRead, OAuthScope::ProfileRead],
         "the token carries the grant the consent screen showed, not an empty one"
     );
@@ -352,7 +353,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
         .repositories()
         .oauth2_server
         .store_refresh_token(&OAuth2RefreshToken {
-            token: "legacy-refresh-token-with-admin".to_owned(),
+            token: SecretString::from("legacy-refresh-token-with-admin"),
             client_id: client.client_id.clone(),
             user_id: user.id,
             tenant_id: tenant[0].id.to_string(),
@@ -375,7 +376,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
             client_id: client.client_id,
             client_secret: client.client_secret,
             scope: None,
-            refresh_token: Some("legacy-refresh-token-with-admin".to_owned()),
+            refresh_token: Some(SecretString::from("legacy-refresh-token-with-admin")),
             code_verifier: None,
             resource: None,
         })
@@ -383,7 +384,7 @@ async fn a_refresh_token_holding_admin_mints_a_token_without_it() {
         .unwrap();
 
     assert_eq!(token.scope.as_deref(), Some("fitness:read"));
-    let grant = token_grant(&env, &token.access_token);
+    let grant = token_grant(&env, token.access_token.expose_secret());
     assert_eq!(grant, vec![OAuthScope::FitnessRead]);
     assert!(
         !OAuthScope::is_self_grant(&grant),
@@ -486,7 +487,7 @@ async fn client_credentials_mints_exactly_the_registered_scope_it_asked_for() {
 
     assert_eq!(token.scope.as_deref(), Some("fitness:read fitness:write"));
     assert_eq!(
-        token_grant(&env, &token.access_token),
+        token_grant(&env, token.access_token.expose_secret()),
         vec![OAuthScope::FitnessRead, OAuthScope::FitnessWrite]
     );
 }

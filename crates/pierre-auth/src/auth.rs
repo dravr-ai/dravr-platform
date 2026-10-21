@@ -14,6 +14,7 @@
 //! This module provides JWT-based authentication and session management
 //! for the multi-tenant Pierre MCP Server.
 
+use secrecy::{ExposeSecret, SecretString};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::iter;
@@ -856,7 +857,7 @@ impl AuthManager {
 
         Ok(UserSession {
             user_id: user.id,
-            jwt_token,
+            jwt_token: SecretString::from(jwt_token),
             expires_at,
             email: user.email.clone(),
             available_providers: user.available_providers(),
@@ -866,7 +867,7 @@ impl AuthManager {
     /// Validate authentication request using RS256 and return response
     #[must_use]
     pub fn authenticate(&self, request: &AuthRequest, jwks_manager: &JwksManager) -> AuthResponse {
-        match self.validate_token_detailed(&request.token, jwks_manager) {
+        match self.validate_token_detailed(request.token.expose_secret(), jwks_manager) {
             Ok(claims) => match parse_uuid(&claims.sub) {
                 Ok(user_id) => AuthResponse {
                     authenticated: true,

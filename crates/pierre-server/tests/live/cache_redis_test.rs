@@ -10,6 +10,7 @@
 use anyhow::Result;
 use pierre_cache::{Cache, CacheConfig, CacheKey, CacheResource};
 use pierre_core::models::TenantId;
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::{env, time::Duration};
 use tokio::time;
@@ -45,7 +46,7 @@ async fn create_redis_cache() -> Result<Cache> {
 
     let config = CacheConfig {
         max_entries: 1000, // Not used for Redis, but required by config
-        redis_url: Some(redis_url),
+        redis_url: Some(SecretString::from(redis_url)),
         cleanup_interval: Duration::from_mins(5),
         enable_background_cleanup: false, // Disable in tests
         ..Default::default()

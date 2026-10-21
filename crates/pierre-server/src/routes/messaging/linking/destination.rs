@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
-use std::env;
 use std::sync::{LazyLock, RwLock};
 
 use dravr_canot::http_client::describe_request_error;
@@ -130,13 +129,6 @@ fn username_in_get_me(body: &serde_json::Value) -> Result<String, AppError> {
 /// through. `META_GRAPH_API_BASE` overrides it, the way `STRAVA_API_BASE`
 /// overrides Strava's: a server setting, never something a request supplies.
 const DEFAULT_GRAPH_API_BASE: &str = "https://graph.facebook.com/v22.0";
-
-fn graph_api_base() -> String {
-    env::var("META_GRAPH_API_BASE")
-        .ok()
-        .filter(|base| !base.is_empty())
-        .unwrap_or_else(|| DEFAULT_GRAPH_API_BASE.to_owned())
-}
 
 /// Cache of `WhatsApp` phone-number id -> the digits `wa.me` dials. A business
 /// number changes only when an operator moves the `WhatsApp` account, so the
@@ -340,11 +332,14 @@ async fn telegram_linking_url(
 /// Reads the keys [`required_credential_keys`] names for this channel and errors
 /// when one is absent, rather than guessing a target. A Telegram bot's username
 /// is asked of the real Bot API, [`TELEGRAM_API`]; see [`telegram_linking_url`].
+/// A `WhatsApp` number is asked of `graph_api_base`, the server's configured
+/// Graph API, else [`DEFAULT_GRAPH_API_BASE`].
 pub(super) async fn build_linking_url(
     channel_type: ChannelType,
     code: &str,
     config: &serde_json::Value,
     base_url: &str,
+    graph_api_base: Option<&str>,
 ) -> Result<String, AppError> {
     match channel_type {
         ChannelType::Telegram => telegram_linking_url(code, config, TELEGRAM_API).await,
@@ -353,7 +348,14 @@ pub(super) async fn build_linking_url(
         // opens the contact picker with the athlete's one-time binding code
         // already typed, and whoever they pick receives it. The number is
         // asked of the Graph API; see `whatsapp_display_number`.
-        ChannelType::WhatsApp => whatsapp_linking_url(code, config, &graph_api_base()).await,
+        ChannelType::WhatsApp => {
+            whatsapp_linking_url(
+                code,
+                config,
+                graph_api_base.unwrap_or(DEFAULT_GRAPH_API_BASE),
+            )
+            .await
+        }
         ChannelType::Messenger => {
             // Same rule as Telegram and WhatsApp above: no guessed target. The
             // page id identifies which Messenger page the link opens, and an
@@ -699,6 +701,7 @@ mod tests {
             CODE,
             &json!({ "bot_token": "111:resolved-token" }),
             BASE_URL,
+            None,
         )
         .await
         .unwrap();
@@ -756,7 +759,7 @@ mod tests {
                     "bot_token": "", "phone_number": "", "account_id": "", "api_key": ""
                 }),
             ] {
-                let result = build_linking_url(channel, CODE, &config, BASE_URL).await;
+                let result = build_linking_url(channel, CODE, &config, BASE_URL, None).await;
                 assert!(
                     result.is_err(),
                     "{channel} built a URL from a config naming no destination: {result:?}"
@@ -792,7 +795,7 @@ mod tests {
                     .to_owned(),
             ),
         ] {
-            let url = build_linking_url(channel, CODE, &config, BASE_URL)
+            let url = build_linking_url(channel, CODE, &config, BASE_URL, None)
                 .await
                 .unwrap();
             assert_eq!(url, expected, "{channel}");

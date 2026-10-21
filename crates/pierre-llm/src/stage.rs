@@ -43,7 +43,7 @@
 //!   guard passes over — runs on that tier's own model. The ids are the head's
 //!   namespace; `claude-haiku-5.5` means nothing to Gemini.
 //! - **A tenant's own provider.** A BYO key builds its provider from the
-//!   tenant's credential, never through [`ChatProvider::from_env`], so it
+//!   tenant's credential, never through [`ChatProvider::from_chain`], so it
 //!   carries no stage models and every call it serves runs on its own model.
 //! - **The athlete-facing reply.** The draft, the re-asks that rewrite it and
 //!   the visual-block repair run on the turn's active model; they are not
@@ -55,7 +55,7 @@
 //! [`ANTHROPIC_TOOL_ITERATION_MODEL`] on `anthropic`, while the reply stays on
 //! the turn's model.
 //!
-//! [`ChatProvider::from_env`]: crate::ChatProvider::from_env
+//! [`ChatProvider::from_chain`]: crate::ChatProvider::from_chain
 
 use std::env;
 
@@ -199,7 +199,7 @@ impl LlmStage {
 /// The model each [`LlmStage`] runs on, for one head provider.
 ///
 /// `None` for a stage is the head's own model. Empty for every provider not
-/// built by [`ChatProvider::from_env`](crate::ChatProvider::from_env) — a
+/// built by [`ChatProvider::from_chain`](crate::ChatProvider::from_chain) — a
 /// tenant's own key, a test double — so the routing can only ever reach the
 /// head it was resolved for.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

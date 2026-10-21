@@ -211,11 +211,18 @@ pub struct GuardianConfigRegistry {
 }
 
 impl GuardianConfigRegistry {
-    /// Build a registry with no persisted document (defaults + env only).
+    /// Build a registry with no persisted document and no operator
+    /// overrides: the compiled-in defaults.
     #[must_use]
     pub fn bootstrap() -> Self {
+        Self::defaults_with(GuardianEnvOverrides::default())
+    }
+
+    /// A registry with no persisted document: the compiled-in defaults under
+    /// the operator's `env` overrides.
+    fn defaults_with(env: GuardianEnvOverrides) -> Self {
         Self::with_env_overrides(
-            GuardianEnvOverrides::from_env(),
+            env,
             GuardianConfigDocument::default(),
             GuardianConfigSource::Defaults,
         )
@@ -238,48 +245,46 @@ impl GuardianConfigRegistry {
         }
     }
 
-    /// Load the document from `system_settings.guardian_config` at startup.
+    /// Load the document from `system_settings.guardian_config` at startup,
+    /// under the operator's `env` overrides (the server's
+    /// `ServerConfig.guardian`, parsed).
     ///
     /// On any read or parse failure, falls back to the empty default document
     /// (defaults + env still apply) so the server boots under the compiled-in
     /// posture. Each fallback path emits a `warn!` with the underlying error
     /// so operators can spot a corrupted row.
-    pub async fn from_database(db: &Database) -> Self {
+    pub async fn from_database(db: &Database, env: GuardianEnvOverrides) -> Self {
         match db.get_system_setting(GUARDIAN_CONFIG_SETTING_KEY).await {
-            Ok(Some(row)) => Self::from_persisted_value(&row.value),
+            Ok(Some(row)) => Self::from_persisted_value(&row.value, env),
             Ok(None) => {
                 info!("guardian_config row absent in system_settings; using compiled-in defaults");
-                Self::bootstrap()
+                Self::defaults_with(env)
             }
             Err(e) => {
                 warn!(
                     error = %e,
                     "guardian_config DB load failed; falling back to compiled-in defaults"
                 );
-                Self::bootstrap()
+                Self::defaults_with(env)
             }
         }
     }
 
-    fn from_persisted_value(json: &str) -> Self {
+    fn from_persisted_value(json: &str, env: GuardianEnvOverrides) -> Self {
         match from_str::<GuardianConfigDocument>(json) {
             Ok(doc) => {
                 info!(
                     schema_version = doc.schema_version,
                     "guardian_config loaded from system_settings"
                 );
-                Self::with_env_overrides(
-                    GuardianEnvOverrides::from_env(),
-                    doc,
-                    GuardianConfigSource::Database,
-                )
+                Self::with_env_overrides(env, doc, GuardianConfigSource::Database)
             }
             Err(e) => {
                 warn!(
                     error = %e,
                     "guardian_config row failed to deserialize; falling back to compiled-in defaults"
                 );
-                Self::bootstrap()
+                Self::defaults_with(env)
             }
         }
     }

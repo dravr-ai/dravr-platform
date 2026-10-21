@@ -26,8 +26,12 @@ use anyhow::Result;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
+use pierre_auth::key_management::{KeyManager, LocalKekProvider, MasterEncryptionKey};
 use pierre_cache::{Cache, CacheConfig};
-use pierre_config::environment::{HttpClientConfig, ServerConfig};
+use pierre_config::environment::{
+    GuardianSettings, HttpClientConfig, OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride,
+    SciotteServiceConfig, ServerConfig,
+};
 use pierre_core::billing::BillingProvider;
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::ConnectionType;
@@ -35,6 +39,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_llm::config::LlmChain;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::services::turn_runner::TurnRunner;
 use pierre_mcp_server::{
@@ -47,6 +52,7 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
+use secrecy::SecretString;
 use std::future::Future;
 use std::pin::Pin;
 use std::{
@@ -64,8 +70,8 @@ static INIT_LOGGER: Once = Once::new();
 static INIT_HTTP_CLIENTS: Once = Once::new();
 static INIT_SERVER_CONFIG: Once = Once::new();
 
-/// The model [`init_server_config`] gives the `PIERRE_LLM_CHAIN` head
-/// (`gemini=mock-model`) when the environment configures no chain.
+/// The model [`test_server_config`] gives the LLM chain's head
+/// (`gemini=mock-model`, see [`placeholder_llm_chain`]).
 ///
 /// Exported so a suite that DOES reach a provider can refuse to run on it
 /// rather than discovering the placeholder in a pricing warning: no backend
@@ -111,28 +117,10 @@ pub fn init_server_config() {
         }
 
         // Set OAuth environment variables for testing
-        env::set_var("PIERRE_STRAVA_CLIENT_ID", "test_strava_client_id");
+        env::set_var("PIERRE_STRAVA_CLIENT_ID", TEST_STRAVA_CLIENT_ID);
         env::set_var("PIERRE_STRAVA_CLIENT_SECRET", "test_strava_client_secret");
         env::set_var("PIERRE_GARMIN_CLIENT_ID", "test_garmin_client_id");
         env::set_var("PIERRE_GARMIN_CLIENT_SECRET", "test_garmin_client_secret");
-
-        // The messaging session resolver records the PIERRE_LLM_CHAIN head's
-        // model when creating chat_conversations rows. Local dev sources the
-        // chain from .envrc; CI workflows set it per-job; the Code Coverage
-        // workflow does neither, and an unset chain's Gemini head runs
-        // PIERRE_LLM_DEFAULT_MODEL, which nothing sets there either — so
-        // without this default the resolver fails hard and tests like
-        // messaging_commands_test::test_non_command_passes_through panic. The
-        // placeholder is safe ONLY for a suite that calls no model: a turn
-        // asks the head for this model id, which no backend serves. A lane
-        // driving real providers must set the chain itself and refuse the
-        // placeholder — `live_incident_corpus_test` does.
-        if env::var("PIERRE_LLM_CHAIN").is_err() {
-            env::set_var(
-                "PIERRE_LLM_CHAIN",
-                format!("gemini={PLACEHOLDER_LLM_MODEL}"),
-            );
-        }
 
         let _ = constants::init_server_config();
     });
@@ -492,7 +480,7 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
 /// Create test `ServerContext` with all components properly initialized
 /// This replaces individual resource creation for proper architectural patterns
 pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(None, Vec::new(), None).await
+    Box::pin(create_test_server_resources_inner(None, Vec::new(), None)).await
 }
 
 /// Same as [`create_test_server_resources`] but injects a caller-supplied
@@ -504,7 +492,12 @@ pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
 pub async fn create_test_server_resources_with_llm(
     provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(Some(provider), Vec::new(), None).await
+    Box::pin(create_test_server_resources_inner(
+        Some(provider),
+        Vec::new(),
+        None,
+    ))
+    .await
 }
 
 /// Same as [`create_test_server_resources_with_llm`] plus caller-supplied
@@ -520,7 +513,12 @@ pub async fn create_test_server_resources_with_llm_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner(Some(provider), extra_tools, None).await
+    Box::pin(create_test_server_resources_inner(
+        Some(provider),
+        extra_tools,
+        None,
+    ))
+    .await
 }
 
 /// Same as [`create_test_server_resources`] but with a caller-supplied config.
@@ -543,11 +541,38 @@ pub fn create_test_server_resources_with_config(config: ServerConfig) -> BoxedSe
 /// The future a config-taking helper returns, boxed so callers stay small.
 pub type BoxedServerContext = Pin<Box<dyn Future<Output = Result<Arc<ServerContext>>> + Send>>;
 
+/// A key manager over a local KEK holding `mek`, so a test supplies its key
+/// material directly instead of through the process environment.
+#[must_use]
+pub fn bootstrap_keys(mek: [u8; 32]) -> (KeyManager, [u8; 32]) {
+    KeyManager::bootstrap_with(Box::new(LocalKekProvider::from_mek(
+        MasterEncryptionKey::from_bytes(mek),
+    )))
+}
+
+/// The LLM chain every test server runs with: one Gemini entry on
+/// [`PLACEHOLDER_LLM_MODEL`].
+///
+/// The messaging session resolver and the turn pipeline read the chain's head
+/// model from the server config, so a test server needs one whatever the
+/// developer's `.envrc` or the CI job sets — an unset chain's Gemini head runs
+/// `PIERRE_LLM_DEFAULT_MODEL`, which nothing sets on the coverage lane. The
+/// placeholder is safe ONLY for a suite that calls no model: a turn asks the
+/// head for this model id, which no backend serves. A lane driving real
+/// providers builds its config from the environment's chain and refuses the
+/// placeholder — `live_incident_corpus_test` does.
+#[must_use]
+pub fn placeholder_llm_chain() -> LlmChain {
+    LlmChain::parse(&format!("gemini={PLACEHOLDER_LLM_MODEL}"))
+}
+
 /// The config every test server runs with unless the test supplies its own.
 #[must_use]
 pub fn test_server_config() -> ServerConfig {
     ServerConfig {
-        usda_api_key: env::var("USDA_API_KEY").ok(),
+        llm_chain: placeholder_llm_chain(),
+        oauth: test_oauth_config(),
+        usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
         // ServerConfig::default() leaves this at 0 (the derived usize default);
         // from_env() uses DEFAULT_ACTIVITIES_LIMIT in production. A 0 limit makes
         // every activity-fetch path (group snapshots, AllProvidersMerge) read
@@ -555,6 +580,144 @@ pub fn test_server_config() -> ServerConfig {
         activity_fetch_limit: 100,
         ..ServerConfig::default()
     }
+}
+
+/// The server-level OAuth apps every test server holds unless the test
+/// configures its own: a Strava app and a Garmin app, with each provider's
+/// default scopes.
+#[must_use]
+pub fn test_oauth_config() -> OAuthConfig {
+    OAuthConfig {
+        strava: OAuthProviderConfig::for_provider(
+            "strava",
+            Some(TEST_STRAVA_CLIENT_ID.to_owned()),
+            Some("test_strava_client_secret".to_owned()),
+        ),
+        garmin: OAuthProviderConfig::for_provider(
+            "garmin",
+            Some("test_garmin_client_id".to_owned()),
+            Some("test_garmin_client_secret".to_owned()),
+        ),
+        ..OAuthConfig::default()
+    }
+}
+
+/// The `client_id` of the Strava app [`test_oauth_config`] gives every test
+/// server.
+pub const TEST_STRAVA_CLIENT_ID: &str = "test_strava_client_id";
+
+/// [`test_server_config`] with `provider`'s server-level app holding these
+/// credentials and the provider's default scopes, every other setting as the
+/// default test server has it.
+#[must_use]
+pub fn test_server_config_with_app(
+    provider: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> ServerConfig {
+    let mut config = test_server_config();
+    set_server_app(&mut config, provider, client_id, client_secret);
+    config
+}
+
+/// Give `config` a server-level app for `provider` with these credentials.
+///
+/// # Panics
+///
+/// Panics for a provider the server holds no app for.
+pub fn set_server_app(
+    config: &mut ServerConfig,
+    provider: &str,
+    client_id: &str,
+    client_secret: &str,
+) {
+    let app = OAuthProviderConfig::for_provider(
+        provider,
+        Some(client_id.to_owned()),
+        Some(client_secret.to_owned()),
+    );
+    let oauth = &mut config.oauth;
+    let slot = match provider {
+        "strava" => &mut oauth.strava,
+        "garmin" => &mut oauth.garmin,
+        "whoop" => &mut oauth.whoop,
+        "terra" => &mut oauth.terra,
+        "intervals_icu" => &mut oauth.intervals_icu,
+        "wahoo" => &mut oauth.wahoo,
+        other => panic!("no server-level app slot for provider {other}"),
+    };
+    *slot = app;
+}
+
+/// Point `provider`'s endpoints in `config` at a stand-in: each `Some` replaces
+/// the provider's default when the server builds its provider registry.
+pub fn set_provider_endpoints(
+    config: &mut ServerConfig,
+    provider: &str,
+    endpoints: ProviderEndpointOverride,
+) {
+    config
+        .oauth
+        .endpoints
+        .insert(provider.to_owned(), endpoints);
+}
+
+/// [`test_server_config`] under the operator's `GUARDIAN_*` overrides
+/// `guardian`, as startup would have read them.
+#[must_use]
+pub fn test_server_config_with_guardian(guardian: GuardianSettings) -> ServerConfig {
+    ServerConfig {
+        guardian,
+        ..test_server_config()
+    }
+}
+
+/// [`test_server_config`] with `provider`'s API reached at `api_base`.
+#[must_use]
+pub fn test_server_config_with_api_base(provider: &str, api_base: &str) -> ServerConfig {
+    let mut config = test_server_config();
+    set_provider_endpoints(
+        &mut config,
+        provider,
+        ProviderEndpointOverride {
+            api_base_url: Some(api_base.to_owned()),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    config
+}
+
+/// [`test_server_config`] with the sciotte scraper service at `url`, for a
+/// test that stands the service in on loopback (where no audience is needed).
+#[must_use]
+pub fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
+    let mut config = test_server_config();
+    config.external_services.sciotte = SciotteServiceConfig {
+        remote_url: Some(url.to_owned()),
+        audience: None,
+    };
+    config
+}
+
+/// [`create_test_server_resources_with_config`] with the sciotte scraper
+/// service at `url`.
+pub fn create_test_server_resources_with_sciotte(url: &str) -> BoxedServerContext {
+    create_test_server_resources_with_config(test_server_config_with_sciotte(url))
+}
+
+/// [`create_test_server_resources_with_llm`] over a caller-supplied config.
+///
+/// Returns a boxed future for the same reason as
+/// [`create_test_server_resources_with_config`].
+pub fn create_test_server_resources_with_llm_and_config(
+    provider: Arc<dyn LlmProvider + 'static>,
+    config: ServerConfig,
+) -> BoxedServerContext {
+    Box::pin(create_test_server_resources_inner(
+        Some(provider),
+        Vec::new(),
+        Some(config),
+    ))
 }
 
 /// [`create_test_server_resources_with_chat_provider`] over a caller-supplied
@@ -588,7 +751,13 @@ pub fn create_test_server_resources_with_chat_provider_and_config(
 pub async fn create_test_server_resources_with_chat_provider(
     provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner_full(None, Vec::new(), None, Some(provider)).await
+    Box::pin(create_test_server_resources_inner_full(
+        None,
+        Vec::new(),
+        None,
+        Some(provider),
+    ))
+    .await
 }
 
 /// [`create_test_server_resources_with_chat_provider`] plus extra runtime
@@ -597,7 +766,13 @@ pub async fn create_test_server_resources_with_chat_provider_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner_full(None, extra_tools, None, Some(provider)).await
+    Box::pin(create_test_server_resources_inner_full(
+        None,
+        extra_tools,
+        None,
+        Some(provider),
+    ))
+    .await
 }
 
 async fn create_test_server_resources_inner(
@@ -621,7 +796,31 @@ async fn create_test_server_resources_inner(
 pub async fn create_test_server_resources_with_real_chat_provider(
     provider: Arc<ChatProvider>,
 ) -> Result<Arc<ServerContext>> {
-    create_test_server_resources_inner_typed(None, Vec::new(), None, Some(provider)).await
+    Box::pin(create_test_server_resources_inner_typed(
+        None,
+        Vec::new(),
+        None,
+        Some(provider),
+    ))
+    .await
+}
+
+/// [`create_test_server_resources_with_real_chat_provider`] over a
+/// caller-supplied config, for a lane whose turns must ask the provider for
+/// the model its own chain names rather than [`placeholder_llm_chain`]'s.
+///
+/// Returns a boxed future for the same reason as
+/// [`create_test_server_resources_with_config`].
+pub fn create_test_server_resources_with_real_chat_provider_and_config(
+    provider: Arc<ChatProvider>,
+    config: ServerConfig,
+) -> BoxedServerContext {
+    Box::pin(create_test_server_resources_inner_typed(
+        None,
+        Vec::new(),
+        Some(config),
+        Some(provider),
+    ))
 }
 
 async fn create_test_server_resources_inner_full(
@@ -646,7 +845,7 @@ async fn create_test_server_resources_inner_typed(
     chat_provider: Option<Arc<ChatProvider>>,
 ) -> Result<Arc<ServerContext>> {
     let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
-    create_test_server_resources_over(
+    Box::pin(create_test_server_resources_over(
         database,
         llm_provider,
         extra_tools,
@@ -654,7 +853,7 @@ async fn create_test_server_resources_inner_typed(
         chat_provider,
         None,
         None,
-    )
+    ))
     .await
 }
 
@@ -696,7 +895,7 @@ pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
     turn_runner: Option<Arc<TurnRunner>>,
 ) -> Result<Arc<ServerContext>> {
     let database = (*sibling_of.agent.database).clone();
-    create_test_server_resources_over(
+    Box::pin(create_test_server_resources_over(
         database,
         None,
         Vec::new(),
@@ -704,7 +903,7 @@ pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
         Some(Arc::new(ChatProvider::Custom(chat_provider))),
         turn_runner,
         None,
-    )
+    ))
     .await
 }
 
@@ -721,7 +920,7 @@ pub async fn create_test_server_resources_with_chat_provider_and_runner(
     turn_runner: Arc<TurnRunner>,
 ) -> Result<Arc<ServerContext>> {
     let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
-    create_test_server_resources_over(
+    Box::pin(create_test_server_resources_over(
         database,
         None,
         Vec::new(),
@@ -729,7 +928,7 @@ pub async fn create_test_server_resources_with_chat_provider_and_runner(
         Some(Arc::new(ChatProvider::Custom(provider))),
         Some(turn_runner),
         None,
-    )
+    ))
     .await
 }
 
@@ -740,7 +939,7 @@ pub async fn create_test_server_resources_with_billing_provider(
     billing_provider: Arc<dyn BillingProvider>,
 ) -> Result<Arc<ServerContext>> {
     let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
-    create_test_server_resources_over(
+    Box::pin(create_test_server_resources_over(
         database,
         None,
         Vec::new(),
@@ -748,7 +947,7 @@ pub async fn create_test_server_resources_with_billing_provider(
         None,
         None,
         Some(billing_provider),
-    )
+    ))
     .await
 }
 

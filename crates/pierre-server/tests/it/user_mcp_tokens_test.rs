@@ -15,6 +15,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::environment::{
@@ -370,7 +371,7 @@ async fn test_database_create_user_mcp_token() {
 
     let created = result.unwrap();
     assert_eq!(created.token.name, "Database Test Token");
-    assert!(created.token_value.starts_with("pmcp_"));
+    assert!(created.token_value.expose_secret().starts_with("pmcp_"));
     assert!(!created.token.is_revoked);
     assert_eq!(created.token.usage_count, 0);
 }
@@ -402,7 +403,7 @@ async fn test_database_validate_user_mcp_token() {
     // Validate token
     let validated_user_id = repos
         .user_mcp_tokens
-        .validate_token(&created.token_value)
+        .validate_token(created.token_value.expose_secret())
         .await;
     assert!(validated_user_id.is_ok());
     assert_eq!(validated_user_id.unwrap().user_id, user_id);
@@ -442,7 +443,7 @@ async fn test_database_validate_revoked_token_fails() {
     // Validation should fail
     let result = repos
         .user_mcp_tokens
-        .validate_token(&created.token_value)
+        .validate_token(created.token_value.expose_secret())
         .await;
     assert!(result.is_err());
 }
@@ -506,7 +507,7 @@ async fn test_database_usage_count_increment() {
     for _ in 0..3 {
         repos
             .user_mcp_tokens
-            .validate_token(&created.token_value)
+            .validate_token(created.token_value.expose_secret())
             .await
             .unwrap();
     }

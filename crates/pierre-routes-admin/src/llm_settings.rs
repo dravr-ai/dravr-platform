@@ -12,6 +12,7 @@ use axum::{
     Json, Router,
 };
 use pierre_core::models::TenantId;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -24,7 +25,7 @@ use pierre_auth::tenant::llm_manager::{
 use pierre_core::errors::AppError;
 use pierre_core::models::LlmCredentialSummary;
 use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
-use pierre_llm::config::{LlmChain, LlmProviderType};
+use pierre_llm::config::LlmProviderType;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{tenant::require, MiddlewareCtx, TenantMode};
 use pierre_services::chat_provider_factory::chat_provider_from_credentials;
@@ -35,7 +36,7 @@ pub struct SaveLlmCredentialsRequest {
     /// Provider name (gemini, groq, cohere, local)
     pub provider: String,
     /// API key
-    pub api_key: String,
+    pub api_key: SecretString,
     /// Base URL (for local providers only)
     #[serde(default)]
     pub base_url: Option<String>,
@@ -57,7 +58,7 @@ pub struct ValidateLlmCredentialsRequest {
     /// Provider name (gemini, groq, cohere, local)
     pub provider: String,
     /// API key to validate
-    pub api_key: String,
+    pub api_key: SecretString,
     /// Base URL (for local providers only)
     #[serde(default)]
     pub base_url: Option<String>,
@@ -282,8 +283,9 @@ async fn get_llm_settings<C: MiddlewareCtx>(
     // Include the system-level LLM provider from env config: the head of
     // PIERRE_LLM_CHAIN, the provider every turn is asked of first, and the
     // model it runs.
-    let system_provider = LlmChain::is_configured().then(|| {
-        let head = LlmChain::from_env().head().clone();
+    let llm_chain = resources.llm_chain();
+    let system_provider = llm_chain.is_configured().then(|| {
+        let head = llm_chain.head().clone();
         let display_name = match head.provider {
             LlmProviderType::Anthropic => "Anthropic API".to_owned(),
             LlmProviderType::CopilotHeadless => "Copilot Headless (Embacle)".to_owned(),
@@ -377,7 +379,7 @@ async fn save_llm_credentials<C: MiddlewareCtx>(
     })?;
 
     // Validate API key is not empty
-    if request.api_key.trim().is_empty() {
+    if request.api_key.expose_secret().trim().is_empty() {
         return Err(AppError::invalid_input("API key cannot be empty"));
     }
 

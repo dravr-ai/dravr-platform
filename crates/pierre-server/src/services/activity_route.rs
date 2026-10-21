@@ -90,12 +90,12 @@
 //! sync reaches them, and the activity's view reads them there.
 
 use std::cmp::Reverse;
-use std::env;
 use std::sync::{Arc, LazyLock, Mutex as StdMutex, MutexGuard, PoisonError};
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
+use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::StoredRouteTrack;
@@ -159,31 +159,23 @@ pub const ROUTE_PROVIDER_READ_TIMEOUT_SECS: u64 = 330;
 /// pays it.
 pub const ROUTE_TURN_GATHER_MS: u64 = 200;
 
-/// [`ROUTE_READ_TIMEOUT_SECS`], or `PIERRE_HOME_ROUTE_ANSWER_SECS` when it
-/// holds a positive number of seconds.
-fn route_answer_budget() -> StdDuration {
-    seconds_from_env("PIERRE_HOME_ROUTE_ANSWER_SECS", ROUTE_READ_TIMEOUT_SECS)
-}
-
-/// [`ROUTE_PROVIDER_READ_TIMEOUT_SECS`], or
-/// `PIERRE_HOME_ROUTE_PROVIDER_READ_SECS` when it holds a positive number of
-/// seconds.
-fn route_provider_read_bound() -> StdDuration {
-    seconds_from_env(
-        "PIERRE_HOME_ROUTE_PROVIDER_READ_SECS",
-        ROUTE_PROVIDER_READ_TIMEOUT_SECS,
+/// [`ROUTE_READ_TIMEOUT_SECS`], or the server's configured
+/// `PIERRE_HOME_ROUTE_ANSWER_SECS`.
+fn route_answer_budget(timeouts: &ServerTimeouts) -> StdDuration {
+    StdDuration::from_secs(
+        timeouts
+            .home_route_answer_secs
+            .unwrap_or(ROUTE_READ_TIMEOUT_SECS),
     )
 }
 
-/// A bound in seconds from `key`, or `default` when it is unset, not a
-/// number or not positive.
-fn seconds_from_env(key: &str, default: u64) -> StdDuration {
+/// [`ROUTE_PROVIDER_READ_TIMEOUT_SECS`], or the server's configured
+/// `PIERRE_HOME_ROUTE_PROVIDER_READ_SECS`.
+fn route_provider_read_bound(timeouts: &ServerTimeouts) -> StdDuration {
     StdDuration::from_secs(
-        env::var(key)
-            .ok()
-            .and_then(|secs| secs.parse::<u64>().ok())
-            .filter(|secs| *secs > 0)
-            .unwrap_or(default),
+        timeouts
+            .home_route_provider_read_secs
+            .unwrap_or(ROUTE_PROVIDER_READ_TIMEOUT_SECS),
     )
 }
 
@@ -536,12 +528,10 @@ fn reads_ahead(key: TurnKey, started: DateTime<Utc>) -> u64 {
 
 /// A [`RouteMiss::Pending`] for a read with `ahead` reads ahead of it in the
 /// athlete's turn: each of them, and the read itself, may take up to
-/// [`route_provider_read_bound`].
-fn pending(ahead: u64) -> RouteMiss {
+/// `read_bound` ([`route_provider_read_bound`]).
+fn pending(ahead: u64, read_bound: StdDuration) -> RouteMiss {
     RouteMiss::Pending {
-        settles_within_secs: ahead
-            .saturating_add(1)
-            .saturating_mul(route_provider_read_bound().as_secs()),
+        settles_within_secs: ahead.saturating_add(1).saturating_mul(read_bound.as_secs()),
     }
 }
 
@@ -594,7 +584,9 @@ pub async fn activity_route(
         let source = RouteGeometrySource::SummaryPolyline;
         return settle(repos, tenant_id, user_id, cached, source, Ok(track)).await;
     }
-    let deadline = Instant::now() + route_answer_budget();
+    let timeouts = &runtime.config().timeouts;
+    let read_bound = route_provider_read_bound(timeouts);
+    let deadline = Instant::now() + route_answer_budget(timeouts);
     let started = cached.activity.start_date();
     let claim = take_turn(user_id, tenant_id, started, ask.entry());
     let Ok(turn) = timeout_at(deadline, claim).await else {
@@ -606,7 +598,7 @@ pub async fn activity_route(
             activity_id = cached.activity.id(),
             ahead, "route read still queued for the athlete's provider turn; answered pending"
         );
-        return Ok(Err(pending(ahead)));
+        return Ok(Err(pending(ahead, read_bound)));
     };
     if let Some(outcome) = stored_route(repos, tenant_id, user_id, cached, asked).await? {
         return Ok(outcome);
@@ -642,7 +634,7 @@ pub async fn activity_route(
         "route read still running past the request's bound; answered pending, \
          the read stores what the provider says"
     );
-    Ok(Err(pending(0)))
+    Ok(Err(pending(0, read_bound)))
 }
 
 /// Which stored answer a request takes: every unexpired one, except that an
@@ -719,7 +711,7 @@ async fn read_streams_by(
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
 ) -> AppResult<ActivityRouteOutcome> {
-    let bound = route_provider_read_bound();
+    let bound = route_provider_read_bound(&runtime.config().timeouts);
     match timeout(bound, read_streams(runtime, tenant_id, user_id, cached)).await {
         Ok(Ok(outcome)) => Ok(outcome),
         Ok(Err(e)) if e.provider_auth_required_provider().is_some() => Err(e),

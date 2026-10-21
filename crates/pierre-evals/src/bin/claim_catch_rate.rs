@@ -32,6 +32,7 @@ use std::fs;
 use pierre_evals::evidence_retriever::EvidenceCorpus;
 use pierre_evals::judge::ClaimJudge;
 use pierre_evals::seeded_fabrications::{run, FabricationCorpus};
+use pierre_llm::config::LlmChain;
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{ChatProvider, LlmProvider};
 
@@ -58,7 +59,11 @@ async fn main() -> Result<(), String> {
     let evidence = EvidenceCorpus::compiled_in().map_err(|e| e.to_string())?;
 
     let provider = if args.iter().any(|a| a == "--judge") {
-        Some(ChatProvider::from_env().await.map_err(|e| e.to_string())?)
+        Some(
+            ChatProvider::from_chain(&LlmChain::from_env())
+                .await
+                .map_err(|e| e.to_string())?,
+        )
     } else {
         None
     };

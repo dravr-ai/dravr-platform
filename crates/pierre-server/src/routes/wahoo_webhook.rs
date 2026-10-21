@@ -26,11 +26,12 @@ use std::sync::{Arc, LazyLock};
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, Utc};
+use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::{info, warn};
 
-use pierre_core::constant_time::{configured_secret, matches_configured_secret};
+use pierre_core::constant_time::matches_configured_secret;
 use pierre_core::constants::oauth::WAHOO;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::webhook_owner::WebhookOwner;
@@ -40,9 +41,6 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use super::strava_webhook_gate::{OwnerFetchGate, OWNER_FETCH_WINDOW};
 use super::webhooks::{notify_owner, report_sync, resolve_owner, stamp_last_sync};
 use crate::mcp::resources::ServerContext;
-
-/// The variable holding the portal's `webhook_token`.
-pub const WAHOO_WEBHOOK_TOKEN_ENV: &str = "WAHOO_WEBHOOK_TOKEN";
 
 /// The only event Wahoo sends.
 const WORKOUT_SUMMARY: &str = "workout_summary";
@@ -148,9 +146,10 @@ impl WahooWebhookEvent {
 /// Whether a request presents the configured token, or the status that
 /// refuses it: 503 while `WAHOO_WEBHOOK_TOKEN` is unset or blank (a blank
 /// expected value would let anyone in, and Wahoo retries once it is set),
-/// 401 for a token that does not match.
-fn token_refusal(event: &WahooWebhookEvent) -> Option<StatusCode> {
-    let Some(expected) = configured_secret(WAHOO_WEBHOOK_TOKEN_ENV) else {
+/// 401 for a token that does not match. `expected` is the token the server's
+/// config holds.
+fn token_refusal(event: &WahooWebhookEvent, expected: Option<&str>) -> Option<StatusCode> {
+    let Some(expected) = expected else {
         warn!("Wahoo webhook refused: WAHOO_WEBHOOK_TOKEN is unset or blank; nothing synced");
         return Some(StatusCode::SERVICE_UNAVAILABLE);
     };
@@ -165,12 +164,15 @@ fn token_refusal(event: &WahooWebhookEvent) -> Option<StatusCode> {
 /// request is answered with instead: 400 for a body that is not a Wahoo
 /// event, the token refusal, and 200 for an event other than
 /// `workout_summary` or one naming no user — nothing a retry would fix.
-fn accepted_event(body: &[u8]) -> Result<(WahooWebhookEvent, String), StatusCode> {
+fn accepted_event(
+    body: &[u8],
+    expected_token: Option<&str>,
+) -> Result<(WahooWebhookEvent, String), StatusCode> {
     let event: WahooWebhookEvent = serde_json::from_slice(body).map_err(|e| {
         warn!(error = %e, "Failed to parse Wahoo webhook payload");
         StatusCode::BAD_REQUEST
     })?;
-    if let Some(refusal) = token_refusal(&event) {
+    if let Some(refusal) = token_refusal(&event, expected_token) {
         return Err(refusal);
     }
     if event.event_type != WORKOUT_SUMMARY {
@@ -190,7 +192,14 @@ fn accepted_event(body: &[u8]) -> Result<(WahooWebhookEvent, String), StatusCode
 /// owner's recent workouts on the drain-tracked spawner, so a SIGTERM waits
 /// for it.
 pub(crate) fn wahoo_event(resources: &Arc<ServerContext>, body: &[u8]) -> StatusCode {
-    let (event, owner_id) = match accepted_event(body) {
+    let expected_token = resources
+        .common
+        .config
+        .webhooks
+        .wahoo_token
+        .as_ref()
+        .map(ExposeSecret::expose_secret);
+    let (event, owner_id) = match accepted_event(body, expected_token) {
         Ok(accepted) => accepted,
         Err(status) => return status,
     };

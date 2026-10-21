@@ -29,6 +29,7 @@
 //! them. A placeholder reused in one statement (`$1` twice, `$5` twice)
 //! binds once on both: sqlx maps `$NNN` to the same argument on `SQLite`.
 
+use secrecy::SecretString;
 use std::fmt::Display;
 
 use chrono::{DateTime, Duration, Utc};
@@ -460,8 +461,8 @@ where
         user_id,
         tenant_id,
         provider,
-        access_token,
-        refresh_token,
+        access_token: SecretString::from(access_token),
+        refresh_token: refresh_token.map(SecretString::from),
         token_type: row
             .try_get("token_type")
             .map_err(|e| column_error("token_type", e))?,
@@ -585,9 +586,10 @@ where
         client_id: row
             .try_get("client_id")
             .map_err(|e| column_error("client_id", e))?,
-        client_secret: row
-            .try_get("client_secret")
-            .map_err(|e| column_error("client_secret", e))?,
+        client_secret: SecretString::from(
+            row.try_get::<String, _>("client_secret")
+                .map_err(|e| column_error("client_secret", e))?,
+        ),
         redirect_uri: row
             .try_get("redirect_uri")
             .map_err(|e| column_error("redirect_uri", e))?,
@@ -1017,8 +1019,8 @@ macro_rules! impl_oauth_token_repository {
                 expires_at: Option<DateTime<Utc>>,
             ) -> AppResult<bool> {
                 let refreshed = UserOAuthToken {
-                    access_token: access_token.to_owned(),
-                    refresh_token: refresh_token.map(str::to_owned),
+                    access_token: SecretString::from(access_token),
+                    refresh_token: refresh_token.map(SecretString::from),
                     ..stored.clone()
                 };
                 let (encrypted_access_token, encrypted_refresh_token) =
@@ -1166,18 +1168,18 @@ macro_rules! impl_oauth_token_repository {
             ) -> AppResult<(String, Option<String>)> {
                 let access = encrypt_oauth_token(
                     self,
-                    &token.access_token,
+                    token.access_token.expose_secret(),
                     &token.tenant_id,
                     token.user_id,
                     &token.provider,
                 )?;
                 let refresh = token
                     .refresh_token
-                    .as_deref()
+                    .as_ref()
                     .map(|rt| {
                         encrypt_oauth_token(
                             self,
-                            rt,
+                            rt.expose_secret(),
                             &token.tenant_id,
                             token.user_id,
                             &token.provider,

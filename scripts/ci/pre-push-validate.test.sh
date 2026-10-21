@@ -50,7 +50,7 @@ require_fixture() {
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
 pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh \
-check-merge-risk.sh"
+check-merge-risk.sh check-unused-deps.sh"
 
 make_repo() {
   local dir
@@ -294,6 +294,27 @@ expect_contains "Tier 1o receives origin/main, not the fallback" "merge-risk-bas
 expect_absent "Tier 1o never receives the HEAD~1 fallback" \
   "merge-risk-base=$(git -C "$dir" rev-parse HEAD~1)"
 expect_exit "the base-as-given case passes" 0
+
+# 14. A manifest diff runs the unused-dependency tier; a client diff does not.
+echo "  case 14: Cargo.toml only"
+dir="$(make_repo)"
+run_change "$dir" Cargo.toml "$(printf '[package]\nname = "probe"\nversion = "0.0.1"\nedition = "2021"')"
+expect_contains "manifest diff runs the unused-dependency tier" "Tier 1p: Unused dependencies"
+expect_exit "manifest diff passes" 0
+dir="$(make_repo)"
+run_change "$dir" crates/probe/src/lib.rs "pub fn probe() {}"
+expect_contains "crate source diff runs the unused-dependency tier" "Tier 1p: Unused dependencies"
+dir="$(make_repo)"
+run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
+expect_absent "frontend diff pays no unused-dependency tier" "Tier 1p: Unused dependencies"
+
+# 15. The tier's verdict reaches the push.
+echo "  case 15: Cargo.toml diff, the gate reports an unused dependency"
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "unused dependency probe"\nexit 1\n' >"$dir/scripts/ci/check-unused-deps.sh"
+run_change "$dir" Cargo.toml "$(printf '[package]\nname = "probe"\nversion = "0.0.2"\nedition = "2021"')"
+expect_contains "an unused dependency names the failure" "FAIL: a crate declares a dependency its code never names"
+expect_exit "an unused dependency fails the push" 1
 
 echo ""
 if [ "$failures" -ne 0 ]; then

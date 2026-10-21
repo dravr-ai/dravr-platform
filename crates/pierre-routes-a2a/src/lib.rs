@@ -54,6 +54,7 @@ use pierre_core::models::OAuthAppCredentials;
 use pierre_middleware::{extract_auth_from_headers, McpAuthMiddleware};
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
@@ -185,13 +186,16 @@ struct CreateA2AClientResponse {
     /// Unique client identifier
     client_id: String,
     /// Client secret for authentication
-    client_secret: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    client_secret: SecretString,
     /// API key for direct API access
-    api_key: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    api_key: SecretString,
     /// Ed25519 public key for signature verification
     public_key: String,
     /// Ed25519 private key for signing
-    private_key: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    private_key: SecretString,
     /// Key type identifier
     key_type: String,
 }
@@ -336,7 +340,7 @@ impl A2ARoutes {
                     user_id,
                     &provider,
                     &creds.client_id,
-                    &creds.client_secret,
+                    creds.client_secret.expose_secret(),
                     &redirect_uri,
                 )
                 .await?;

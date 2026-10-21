@@ -44,6 +44,7 @@ use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_providers::CredentialKind;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -242,7 +243,12 @@ impl AuthService {
         let Some((grant, token_url)) = self.declared_refresh(slug) else {
             return Ok(None);
         };
-        let Some(refresh_token) = current.refresh_token.as_deref().filter(|t| !t.is_empty()) else {
+        let Some(refresh_token) = current
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .filter(|t| !t.is_empty())
+        else {
             return Ok(None);
         };
         let plan = RefreshPlan {
@@ -367,7 +373,7 @@ impl AuthService {
         match owner_id_for_access_token(
             self.resources.provider_registry(),
             &stored.provider,
-            &refreshed.access_token,
+            refreshed.access_token.expose_secret(),
             budget,
         )
         .await
@@ -748,7 +754,7 @@ impl AuthService {
                 provider,
                 plan.token_url,
                 &client_id,
-                &client_secret,
+                client_secret.expose_secret(),
                 plan.refresh_token,
                 plan.grant,
             ),
@@ -765,7 +771,7 @@ impl AuthService {
         // standing: RFC 6749 section 6 makes issuing a new one optional.
         let new_refresh_token = refreshed
             .refresh_token
-            .unwrap_or_else(|| plan.refresh_token.to_owned());
+            .unwrap_or_else(|| SecretString::from(plan.refresh_token.to_owned()));
         let new_expires_at = refreshed.expires_at;
 
         // Swap the pair in over the row this refresh read
@@ -775,8 +781,8 @@ impl AuthService {
             .oauth_tokens
             .refresh_token(
                 stored,
-                &new_access_token,
-                Some(&new_refresh_token),
+                new_access_token.expose_secret(),
+                Some(new_refresh_token.expose_secret()),
                 new_expires_at,
             )
             .await

@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -48,7 +49,8 @@ pub struct UserMcpTokenCreated {
     /// Token metadata
     pub token: UserMcpToken,
     /// The actual token value (only returned once at creation)
-    pub token_value: String,
+    #[serde(serialize_with = "crate::secret::serialize_exposed")]
+    pub token_value: SecretString,
 }
 
 /// Request to create a new MCP token

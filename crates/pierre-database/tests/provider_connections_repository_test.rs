@@ -19,6 +19,7 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
+use secrecy::SecretString;
 use uuid::Uuid;
 
 /// A distinct user per call; the token table references `users` on Postgres.
@@ -50,7 +51,7 @@ async fn link(
             user_id,
             tenant_id: tenant_id.to_string(),
             provider: provider.to_owned(),
-            access_token: format!("access-{provider}-{user_id}"),
+            access_token: SecretString::from(format!("access-{provider}-{user_id}")),
             refresh_token: None,
             token_type: token_type.to_owned(),
             expires_at: None,
@@ -171,7 +172,7 @@ async fn grants_an_own_app_signs_are_not_the_server_level_apps() {
             tenant_id: own_app_tenant.id,
             provider: provider.to_owned(),
             client_id: "tenant-whoop-client".to_owned(),
-            client_secret: "tenant-whoop-secret".to_owned(),
+            client_secret: SecretString::from("tenant-whoop-secret"),
             redirect_uri: "https://tenant.example/callback".to_owned(),
             scopes: vec!["read:recovery".to_owned()],
             rate_limit_per_day: 1_000,

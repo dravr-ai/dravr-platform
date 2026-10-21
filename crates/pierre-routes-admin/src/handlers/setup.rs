@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
@@ -91,7 +92,7 @@ async fn create_admin_user_record(
 ) -> Result<Uuid, (StatusCode, Json<AdminResponse>)> {
     let user_id = Uuid::new_v4();
 
-    let password_hash = match bcrypt::hash(&request.password, bcrypt::DEFAULT_COST) {
+    let password_hash = match bcrypt::hash(request.password.expose_secret(), bcrypt::DEFAULT_COST) {
         Ok(hash) => hash,
         Err(e) => {
             error!("Failed to hash password: {}", e);
@@ -130,7 +131,7 @@ async fn generate_initial_admin_token(
     repos: &RepositoryRegistry,
     admin_jwt_secret: &str,
     jwks_manager: &Arc<JwksManager>,
-) -> Result<String, (StatusCode, Json<AdminResponse>)> {
+) -> Result<SecretString, (StatusCode, Json<AdminResponse>)> {
     let token_request = CreateAdminTokenRequest {
         service_name: "initial_admin_setup".to_owned(),
         service_description: Some("Initial admin setup token".to_owned()),
@@ -206,7 +207,7 @@ pub(crate) async fn handle_admin_setup(
             ),
             data: Some(json!({
                 "user_id": user_id.to_string(),
-                "admin_token": admin_token,
+                "admin_token": admin_token.expose_secret(),
             })),
         }),
     ))

@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::{ExposeSecret, SecretString};
 
 use chrono::Utc;
 use common::{create_test_server_resources, create_test_user};
@@ -40,8 +41,8 @@ async fn seeded_oauth_token_roundtrips_through_get_tokens() {
         user_id,
         tenant_id: tenant.id.to_string(),
         provider: "strava".to_owned(),
-        access_token: "seed-access-token".to_owned(),
-        refresh_token: Some("seed-refresh-token".to_owned()),
+        access_token: SecretString::from("seed-access-token"),
+        refresh_token: Some(SecretString::from("seed-refresh-token")),
         token_type: "bearer".to_owned(),
         expires_at: Some(now + chrono::Duration::days(3650)),
         scope: Some("read,activity:read_all".to_owned()),
@@ -75,7 +76,8 @@ async fn seeded_oauth_token_roundtrips_through_get_tokens() {
 
     let strava = tokens.iter().find(|t| t.provider == "strava").unwrap();
     assert_eq!(
-        strava.access_token, "seed-access-token",
+        strava.access_token.expose_secret(),
+        "seed-access-token",
         "decrypted access_token must match the seeded value"
     );
 }
@@ -106,7 +108,7 @@ async fn intervals_icu_token_roundtrips_provider_user_id() {
         user_id,
         tenant_id: tenant.id.to_string(),
         provider: "intervals_icu".to_owned(),
-        access_token: "test-api-key".to_owned(),
+        access_token: SecretString::from("test-api-key"),
         refresh_token: None,
         token_type: "api_key".to_owned(),
         expires_at: None,
@@ -140,7 +142,8 @@ async fn intervals_icu_token_roundtrips_provider_user_id() {
         "athlete id must round-trip through the provider_user_id column"
     );
     assert_eq!(
-        fetched.access_token, "test-api-key",
+        fetched.access_token.expose_secret(),
+        "test-api-key",
         "decrypted API key must match the stored value"
     );
 }

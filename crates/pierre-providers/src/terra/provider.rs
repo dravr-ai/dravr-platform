@@ -14,6 +14,7 @@
 //! effectively bridging Terra's push model to Pierre's pull model.
 
 use async_trait::async_trait;
+use secrecy::ExposeSecret;
 use std::cmp::Reverse;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -120,7 +121,7 @@ impl FitnessProvider for TerraProvider {
         // For Terra, credentials contain the API key and dev ID
         // The access_token field stores the Terra user ID
         if let Some(ref token) = credentials.access_token {
-            self.set_terra_user_id(token).await;
+            self.set_terra_user_id(token.expose_secret()).await;
         }
         *self.credentials.write().await = Some(credentials);
         Ok(())

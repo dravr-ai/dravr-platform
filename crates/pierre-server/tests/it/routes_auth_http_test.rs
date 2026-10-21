@@ -15,6 +15,7 @@
 
 use crate::common;
 use crate::helpers;
+use secrecy::ExposeSecret;
 
 use chrono::{DateTime, Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
@@ -127,7 +128,7 @@ impl AuthTestSetup {
             )
             .await?;
 
-        Ok(generated_token.jwt_token)
+        Ok(generated_token.jwt_token.expose_secret().to_owned())
     }
 }
 

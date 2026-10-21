@@ -23,6 +23,7 @@
 //! The provider reaches the stub through a client built for it, never through
 //! the environment.
 
+use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
@@ -186,8 +187,10 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     provider
         .set_credentials(OAuth2Credentials {
             client_id: String::new(),
-            client_secret: String::new(),
-            access_token: Some(serde_json::to_string(&session).expect("AuthSession serializes")), // Safe: plain data struct
+            client_secret: SecretString::default(),
+            access_token: Some(SecretString::from(
+                serde_json::to_string(&session).expect("AuthSession serializes"),
+            )), // Safe: plain data struct
             refresh_token: None,
             expires_at: None,
             scopes: vec![],

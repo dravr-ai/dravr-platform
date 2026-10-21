@@ -20,6 +20,7 @@
 use crate::helpers::sciotte_mock::seed_sciotte_session;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_chat_pipeline::stages::viz_blocks::DEFAULT_VISUALS;
+use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
@@ -74,7 +75,19 @@ const TURN_WAIT_MARGIN: Duration = Duration::from_secs(120);
 /// one healthy turn can run past every per-tier cap. The watchdog is the one
 /// bound every tier and every transport runs under.
 pub fn turn_timeout() -> Duration {
-    turn_watchdog().saturating_add(TURN_WAIT_MARGIN)
+    turn_timeout_under(&lane_timeouts())
+}
+
+/// [`turn_timeout`] for a server under `timeouts`.
+pub fn turn_timeout_under(timeouts: &ServerTimeouts) -> Duration {
+    turn_watchdog(timeouts).saturating_add(TURN_WAIT_MARGIN)
+}
+
+/// The time bounds the lane's servers run under: the operator's, read from
+/// the environment as a deployed server reads them at startup, so the lane
+/// waits out the same watchdog its servers apply.
+pub fn lane_timeouts() -> ServerTimeouts {
+    ServerTimeouts::from_env()
 }
 
 /// The seeded Sunday ride, in km. One constant so the fixture and the

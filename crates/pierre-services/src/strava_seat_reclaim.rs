@@ -65,6 +65,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_auth::config::oauth::OAuthConfig;
 use pierre_auth::strava_pool::{strava_seat_apps, summarize_seats, StravaAppSeats};
 use pierre_config::constants::strava_seat_reclaim as keys;
 use pierre_core::constants::oauth_providers;
@@ -413,6 +414,8 @@ pub struct StravaSeatReclaimer {
     repos: Arc<RepositoryRegistry>,
     /// Where the policy lives; the admin config service, shared with its routes.
     config: Arc<dyn AdminConfigLookup>,
+    /// The server's own Strava app and its seat cap, as startup read them.
+    oauth: OAuthConfig,
     /// The disconnect chokepoint, shared with the admin routes.
     disconnector: Arc<dyn ProviderDisconnector>,
     /// The athlete notification path; `None` in a build without notifications,
@@ -426,12 +429,14 @@ impl StravaSeatReclaimer {
     pub fn new(
         repos: Arc<RepositoryRegistry>,
         config: Arc<dyn AdminConfigLookup>,
+        oauth: OAuthConfig,
         disconnector: Arc<dyn ProviderDisconnector>,
         notifications: Option<Arc<NotificationService>>,
     ) -> Self {
         Self {
             repos,
             config,
+            oauth,
             disconnector,
             notifications,
         }
@@ -452,7 +457,7 @@ impl StravaSeatReclaimer {
             return Ok(report);
         }
 
-        let apps = strava_seat_apps(self.repos.oauth_tokens.as_ref()).await?;
+        let apps = strava_seat_apps(self.repos.oauth_tokens.as_ref(), &self.oauth).await?;
         report.free_seats = summarize_seats(&apps).left();
         report.deficit = policy.min_free_seats.saturating_sub(report.free_seats);
 

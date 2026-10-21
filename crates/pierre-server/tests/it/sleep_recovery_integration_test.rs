@@ -12,6 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use common::placeholder_llm_chain;
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig as MemoryCacheConfig};
 use pierre_config::environment::*;
@@ -19,6 +20,7 @@ use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use secrecy::SecretString;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use uuid::Uuid;
@@ -30,7 +32,7 @@ fn create_test_oauth_config() -> OAuthConfig {
     OAuthConfig {
         strava: OAuthProviderConfig {
             client_id: Some("test_client_id".to_owned()),
-            client_secret: Some("test_client_secret".to_owned()),
+            client_secret: Some(SecretString::from("test_client_secret")),
             redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             enabled: true,
@@ -56,6 +58,7 @@ fn create_test_oauth_config() -> OAuthConfig {
             scopes: vec![],
             enabled: false,
         },
+        ..OAuthConfig::default()
     }
 }
 
@@ -81,6 +84,8 @@ fn create_test_external_services_config() -> ExternalServicesConfig {
             revoke_url: "https://apis.garmin.com/wellness-api/rest/user/registration".to_owned(),
             ..Default::default()
         },
+        sciotte: SciotteServiceConfig::default(),
+        meta_graph_api_base: None,
     }
 }
 
@@ -171,7 +176,9 @@ fn create_test_config() -> Arc<ServerConfig> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     })
 }
 

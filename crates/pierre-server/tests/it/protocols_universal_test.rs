@@ -12,6 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use common::placeholder_llm_chain;
 use dravr_cageux::insights::{Insight, InsightType};
 use dravr_cageux::types::ContextualWeeklyLoad;
 use dravr_cageux::types::{
@@ -27,6 +28,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use secrecy::SecretString;
 use serde_json::json;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use uuid::Uuid;
@@ -97,7 +99,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -123,6 +125,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -157,6 +160,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -204,7 +209,9 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     // Create ServerContext for the test
@@ -525,7 +532,7 @@ async fn test_set_goal_tool() -> Result<()> {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -551,6 +558,7 @@ async fn test_set_goal_tool() -> Result<()> {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -585,6 +593,8 @@ async fn test_set_goal_tool() -> Result<()> {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -632,7 +642,9 @@ async fn test_set_goal_tool() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     // Create ServerContext for the test
@@ -1458,7 +1470,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         oauth: OAuthConfig {
             strava: OAuthProviderConfig {
                 client_id: Some("test_client_id".to_owned()),
-                client_secret: Some("test_client_secret".to_owned()),
+                client_secret: Some(SecretString::from("test_client_secret")),
                 redirect_uri: Some("http://localhost:3000/oauth/callback/strava".to_owned()),
                 scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
                 enabled: true,
@@ -1484,6 +1496,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 scopes: vec![],
                 enabled: false,
             },
+            ..OAuthConfig::default()
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
@@ -1518,6 +1531,8 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                     .to_owned(),
                 ..Default::default()
             },
+            sciotte: SciotteServiceConfig::default(),
+            meta_graph_api_base: None,
         },
         app_behavior: AppBehaviorConfig {
             max_activities_fetch: 100,
@@ -1565,7 +1580,9 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
 
     // Create ServerContext for the test

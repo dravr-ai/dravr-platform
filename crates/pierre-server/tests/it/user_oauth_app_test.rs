@@ -15,6 +15,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::{ExposeSecret, SecretString};
 
 use anyhow::Result;
 use chrono::Utc;
@@ -122,7 +123,7 @@ fn create_test_oauth_config() -> OAuthConfig {
     OAuthConfig {
         strava: OAuthProviderConfig {
             client_id: Some("server_strava_id".to_owned()),
-            client_secret: Some("server_strava_secret".to_owned()),
+            client_secret: Some(SecretString::from("server_strava_secret")),
             redirect_uri: Some("http://localhost:8080/callback/strava".to_owned()),
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             enabled: true,
@@ -130,6 +131,7 @@ fn create_test_oauth_config() -> OAuthConfig {
         garmin: OAuthProviderConfig::default(),
         whoop: OAuthProviderConfig::default(),
         terra: OAuthProviderConfig::default(),
+        ..OAuthConfig::default()
     }
 }
 
@@ -152,14 +154,13 @@ async fn resolve(
             .and_then(|token| token.oauth_app_client_id),
         _ => None,
     };
-    let server_level = config.provider(provider).cloned().unwrap_or_default();
     issuing_client(
         IssuingLookup {
             user_id,
             tenant_id: Some(tenant_id),
             provider,
             issuing_app: issuing_app.as_deref(),
-            server_level: &server_level,
+            server: config,
         },
         &*repos.tenants,
         &*repos.oauth_tokens,
@@ -203,7 +204,7 @@ async fn test_store_and_get_user_oauth_app() -> Result<()> {
     assert_eq!(app.user_id, user_id);
     assert_eq!(app.provider, "strava");
     assert_eq!(app.client_id, "user_client_id_123");
-    assert_eq!(app.client_secret, "user_client_secret_456");
+    assert_eq!(app.client_secret.expose_secret(), "user_client_secret_456");
     assert_eq!(app.redirect_uri, "http://myapp.com/callback/strava");
 
     Ok(())
@@ -577,7 +578,7 @@ async fn test_tenant_credentials_priority() -> Result<()> {
             tenant_id,
             provider: "strava".to_owned(),
             client_id: "tenant_strava_id".to_owned(),
-            client_secret: "tenant_strava_secret".to_owned(),
+            client_secret: SecretString::from("tenant_strava_secret"),
             redirect_uri: "http://tenant.example.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),
@@ -637,7 +638,7 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
             tenant_id,
             provider: "strava".to_owned(),
             client_id: "tenant_strava_id".to_owned(),
-            client_secret: "tenant_strava_secret".to_owned(),
+            client_secret: SecretString::from("tenant_strava_secret"),
             redirect_uri: "http://tenant.example.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),
@@ -676,7 +677,10 @@ async fn test_pool_attribution_priority_over_user_and_tenant_credentials() -> Re
         "pool_strava_id",
         "the pool app that issued the token wins over the user's and the tenant's apps"
     );
-    assert_eq!(credentials.client_secret(), "pool_strava_secret");
+    assert_eq!(
+        credentials.client_secret().expose_secret(),
+        "pool_strava_secret"
+    );
     assert!(matches!(credentials, IssuingClient::StravaPool { .. }));
 
     Ok(())
@@ -778,7 +782,7 @@ async fn test_upsert_user_oauth_app() -> Result<()> {
         .await?
         .unwrap();
     assert_eq!(app.client_id, "updated_client_id");
-    assert_eq!(app.client_secret, "updated_secret");
+    assert_eq!(app.client_secret.expose_secret(), "updated_secret");
     assert_eq!(app.redirect_uri, "http://updated.com/callback");
 
     // Should still only have one app for this provider
@@ -1166,7 +1170,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
             tenant_id,
             provider: "strava".to_owned(),
             client_id: "tenant_strava_id".to_owned(),
-            client_secret: "tenant_secret".to_owned(),
+            client_secret: SecretString::from("tenant_secret"),
             redirect_uri: "http://tenant.com/callback".to_owned(),
             scopes: vec!["read".to_owned()],
             rate_limit_per_day: default_rate_limit_for_provider("strava"),

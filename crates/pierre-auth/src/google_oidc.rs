@@ -19,6 +19,7 @@
 //! client secret and a code Google issued for this sign-in, and because it
 //! carries this sign-in's nonce.
 
+use secrecy::ExposeSecret;
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -186,7 +187,7 @@ impl GoogleOidcClient {
             ("grant_type", "authorization_code"),
             ("code", code),
             ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret.as_str()),
+            ("client_secret", self.config.client_secret.expose_secret()),
             ("redirect_uri", redirect_uri),
             ("code_verifier", code_verifier),
         ];

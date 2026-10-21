@@ -12,6 +12,7 @@ use pierre_core::constants::time::DEFAULT_TOKEN_EXPIRY_SECONDS;
 use pierre_core::errors::{AppError, AppResult};
 use rand::Rng;
 use reqwest::StatusCode;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -23,8 +24,10 @@ use url::{Url, UrlQuery};
 pub struct OAuth2Config {
     /// OAuth client ID from provider
     pub client_id: String,
-    /// OAuth client secret from provider
-    pub client_secret: String,
+    /// OAuth client secret from provider; Debug prints a redaction and
+    /// serialization omits it
+    #[serde(skip_serializing)]
+    pub client_secret: SecretString,
     /// Authorization endpoint URL
     pub auth_url: String,
     /// Token endpoint URL
@@ -77,13 +80,15 @@ impl PkceParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuth2Token {
     /// The access token string
-    pub access_token: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub access_token: SecretString,
     /// Token type (usually "Bearer")
     pub token_type: String,
     /// Expiration timestamp (UTC)
     pub expires_at: Option<DateTime<Utc>>,
     /// Optional refresh token for getting new access tokens
-    pub refresh_token: Option<String>,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed_option")]
+    pub refresh_token: Option<SecretString>,
     /// Granted OAuth scopes
     pub scope: Option<String>,
     /// Provider-side user identifier captured from the token-exchange response
@@ -202,7 +207,7 @@ impl OAuth2Client {
     pub async fn exchange_code(&self, code: &str) -> AppResult<OAuth2Token> {
         let params = [
             ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret.as_str()),
+            ("client_secret", self.config.client_secret.expose_secret()),
             ("code", code),
             ("grant_type", "authorization_code"),
             ("redirect_uri", self.config.redirect_uri.as_str()),
@@ -249,7 +254,7 @@ impl OAuth2Client {
     ) -> AppResult<OAuth2Token> {
         let mut params = vec![
             ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret.as_str()),
+            ("client_secret", self.config.client_secret.expose_secret()),
             ("code", code),
             ("grant_type", "authorization_code"),
             ("redirect_uri", self.config.redirect_uri.as_str()),
@@ -296,7 +301,7 @@ impl OAuth2Client {
     pub async fn refresh_token(&self, refresh_token: &str) -> AppResult<OAuth2Token> {
         let params = [
             ("client_id", self.config.client_id.as_str()),
-            ("client_secret", self.config.client_secret.as_str()),
+            ("client_secret", self.config.client_secret.expose_secret()),
             ("refresh_token", refresh_token),
             ("grant_type", "refresh_token"),
         ];
@@ -360,13 +365,13 @@ impl OAuth2Client {
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     /// The access token issued by the authorization server
-    access_token: String,
+    access_token: SecretString,
     /// The type of token (usually "Bearer")
     token_type: String,
     /// Token lifetime in seconds
     expires_in: Option<u64>,
     /// Refresh token for obtaining new access tokens
-    refresh_token: Option<String>,
+    refresh_token: Option<SecretString>,
     /// Space-separated list of granted scopes
     scope: Option<String>,
     /// Strava and Intervals.icu return the authenticated athlete inline in the

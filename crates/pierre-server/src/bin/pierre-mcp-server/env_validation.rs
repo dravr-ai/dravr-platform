@@ -10,6 +10,7 @@ use std::env;
 
 use pierre_auth::config::credential_env;
 use pierre_config::environment::LlmProviderType;
+use pierre_config::guardian::GuardianSettings;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_llm::config::LlmChain;
 use pierre_tool_runtime::guardian;
@@ -109,8 +110,8 @@ pub fn validate_required_environment() -> Result<()> {
     // assembly instead. Only enforce as required when PIERRE_LLM_CHAIN is
     // explicitly set — CI environments don't set it and don't need LLM to
     // start the server.
-    let explicitly_configured = LlmChain::is_configured();
     let chain = LlmChain::from_env();
+    let explicitly_configured = chain.is_configured();
     let llm_provider = chain.head().provider;
     validations.extend(llm_provider_validations(
         llm_provider,
@@ -167,12 +168,18 @@ pub fn validate_required_environment() -> Result<()> {
         )));
     }
 
-    // Fail the boot on a mis-typed GUARDIAN_* security-posture variable rather
-    // than silently serve traffic under the laxer default (e.g. an operator
-    // arming `GUARDIAN_MODE=enforce` who typed `enfroce` would otherwise run
-    // `observe`). The Guardian is a security control; an unrecognized value is a
-    // configuration error, not something to paper over with a default.
-    let bad_guardian = guardian::validate_env();
+    Ok(())
+}
+
+/// Fail the boot on a mis-typed `GUARDIAN_*` security-posture variable
+///
+/// Checks the values [`ServerConfig`](pierre_config::environment::ServerConfig)
+/// captured at startup, rather than serve traffic under the laxer default (an
+/// operator arming `GUARDIAN_MODE=enforce` who typed `enfroce` would otherwise
+/// run `observe`). The Guardian is a security control; an unrecognized value
+/// is a configuration error, not something to paper over with a default.
+pub fn validate_guardian_settings(settings: &GuardianSettings) -> Result<()> {
+    let bad_guardian = guardian::validate_settings(settings);
     if !bad_guardian.is_empty() {
         let detail = bad_guardian
             .iter()
@@ -184,7 +191,6 @@ pub fn validate_required_environment() -> Result<()> {
              security-posture typo must not silently revert to the laxer default."
         )));
     }
-
     Ok(())
 }
 

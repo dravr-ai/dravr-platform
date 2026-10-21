@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::{ExposeSecret, SecretString};
 use std::fmt::Display;
 use std::time::Duration;
 
@@ -261,7 +262,7 @@ pub async fn forget_remote_flow(cache: &Cache, tenant_id: Uuid, user_id: Uuid) {
 #[derive(Debug, Deserialize)]
 pub struct SciotteLoginRequest {
     pub email: String,
-    pub password: String,
+    pub password: SecretString,
     /// How to sign in: the provider's own form (`email`, the default when the
     /// body names none), `google` or `apple`. Any other value is refused when
     /// the body is read, before a browser is ever started.
@@ -331,7 +332,7 @@ async fn store_sciotte_session(
         user_id,
         tenant_id: tenant_id.to_string(),
         provider: provider_name.to_owned(),
-        access_token: session_json.clone(),
+        access_token: SecretString::from(session_json.clone()),
         refresh_token: None,
         token_type: TOKEN_TYPE_SESSION.to_owned(),
         expires_at: session.expires_at,
@@ -877,7 +878,7 @@ pub async fn handle_sciotte_login(
         }
     }
 
-    if request.email.is_empty() || request.password.is_empty() {
+    if request.email.is_empty() || request.password.expose_secret().is_empty() {
         return Err(AppError::invalid_input("Email and password are required"));
     }
 
@@ -932,7 +933,7 @@ pub async fn handle_sciotte_login(
     let outcome = match remote
         .login_with_credentials(
             &request.email,
-            &request.password,
+            request.password.expose_secret(),
             request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
             prior_session.as_ref(),

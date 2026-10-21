@@ -6,6 +6,7 @@
 
 use pierre_core::admin::models::GeneratedAdminToken;
 use pierre_core::constants::ports::DEFAULT_HTTP_PORT;
+use secrecy::ExposeSecret;
 
 /// Display a generated token with important security warnings
 pub fn display_generated_token(token: &GeneratedAdminToken) {
@@ -33,13 +34,16 @@ pub fn display_generated_token(token: &GeneratedAdminToken) {
     println!("WARNING: This token grants admin API access. Do not paste it into shared");
     println!("         terminals, chat threads, or CI logs. It will not be shown again.");
     println!("{}", "=".repeat(80));
-    println!("{}", token.jwt_token);
+    println!("{}", token.jwt_token.expose_secret());
     println!("{}", "=".repeat(80));
 
     println!("\nWARNING CRITICAL SECURITY NOTES:");
     println!("• This token is shown ONLY ONCE - save it now!");
     println!("• Store it securely in your admin service environment:");
-    println!("  export PIERRE_MCP_ADMIN_TOKEN=\"{}\"", token.jwt_token);
+    println!(
+        "  export PIERRE_MCP_ADMIN_TOKEN=\"{}\"",
+        token.jwt_token.expose_secret()
+    );
     println!("• Never share this token or commit it to version control");
     println!("• Use this token in Authorization header: Bearer <token>");
     println!(
@@ -61,7 +65,10 @@ pub fn display_generated_token(token: &GeneratedAdminToken) {
     }
 
     println!("\nUSAGE EXAMPLE:");
-    println!("curl -H \"Authorization: Bearer {}\" \\", token.jwt_token);
+    println!(
+        "curl -H \"Authorization: Bearer {}\" \\",
+        token.jwt_token.expose_secret()
+    );
     println!("     -X POST http://localhost:{DEFAULT_HTTP_PORT}/admin/provision \\");
     println!("     -d '{{\"user_email\":\"user@example.com\",\"tier\":\"starter\"}}'");
 

@@ -16,6 +16,7 @@ use pierre_services::health_sync::{request_gate, SyncCredentialRefresher};
 use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
 use pierre_tool_runtime::protocol::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use secrecy::ExposeSecret;
 use tracing::info;
 use uuid::Uuid;
 
@@ -56,14 +57,14 @@ fn token_to_credentials(
     } else {
         token.scopes.split(' ').map(String::from).collect()
     };
-    let refresh_token = if token.refresh_token.is_empty() {
+    let refresh_token = if token.refresh_token.expose_secret().is_empty() {
         None
     } else {
         Some(token.refresh_token)
     };
     ProviderCredentials {
-        access_token: token.access_token,
-        refresh_token,
+        access_token: token.access_token.expose_secret().to_owned(),
+        refresh_token: refresh_token.map(|s| s.expose_secret().to_owned()),
         expires_at: token.expires_at,
         scopes,
         user_id: user_id.to_string(),

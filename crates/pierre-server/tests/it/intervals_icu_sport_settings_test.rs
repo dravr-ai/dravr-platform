@@ -33,6 +33,7 @@
 //! own; the real provider's mapping is pinned by its inline tests.
 
 use crate::common;
+use secrecy::SecretString;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -220,7 +221,7 @@ impl World {
                 user_id: who.id,
                 tenant_id: who.tenant.to_string(),
                 provider: INTERVALS_ICU.to_owned(),
-                access_token: key.to_owned(),
+                access_token: SecretString::from(key.to_owned()),
                 refresh_token: None,
                 token_type: API_KEY_TOKEN_TYPE.to_owned(),
                 expires_at: None,

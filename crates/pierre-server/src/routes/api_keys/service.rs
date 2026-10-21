@@ -7,6 +7,7 @@
 //! HTTP routes for API key management
 
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -51,7 +52,8 @@ pub struct ApiKeyInfo {
 #[derive(Debug, Serialize)]
 pub struct ApiKeyCreateResponse {
     /// The full API key (only shown once)
-    pub api_key: String,
+    #[serde(serialize_with = "pierre_core::secret::serialize_exposed")]
+    pub api_key: SecretString,
     /// Metadata about the created key
     pub key_info: ApiKeyInfo,
     /// Security warning to store the key safely
@@ -144,7 +146,7 @@ impl ApiKeyRoutes {
         };
 
         Ok(ApiKeyCreateResponse {
-            api_key: full_key,
+            api_key: SecretString::from(full_key),
             key_info,
             warning: "Store this API key securely. It will not be shown again.".into(),
         })
@@ -189,7 +191,7 @@ impl ApiKeyRoutes {
         };
 
         Ok(ApiKeyCreateResponse {
-            api_key: full_key,
+            api_key: SecretString::from(full_key),
             key_info,
             warning: "Store this API key securely. It will not be shown again.".into(),
         })
@@ -346,7 +348,7 @@ impl ApiKeyRoutes {
             .await?;
 
         Ok(ApiKeyCreateResponse {
-            api_key: full_key,
+            api_key: SecretString::from(full_key),
             key_info: ApiKeyInfo {
                 id: api_key.id.clone(), // Safe: String ownership for API key info struct
                 name: api_key.name,

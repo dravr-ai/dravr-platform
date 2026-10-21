@@ -13,6 +13,7 @@ use pierre_auth::oauth2_server::models::{
     OAuth2AccessToken, OAuth2AuthCode, OAuth2Client, OAuth2Error, OAuth2RefreshToken, OAuth2State,
     TokenRequest, TokenResponse, ValidateRefreshRequest, ValidateRefreshResponse, ValidationStatus,
 };
+use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
 
 // =============================================================================
@@ -186,7 +187,7 @@ fn test_token_request_authorization_code() {
     assert_eq!(request.grant_type, "authorization_code");
     assert_eq!(request.code, Some("auth_code_xyz".to_owned()));
     assert_eq!(request.client_id, "client_123");
-    assert_eq!(request.client_secret, "secret_456");
+    assert_eq!(request.client_secret.expose_secret(), "secret_456");
     assert!(request.code_verifier.is_some());
 }
 
@@ -219,8 +220,11 @@ fn test_token_request_refresh_token() {
 
     assert_eq!(request.grant_type, "refresh_token");
     assert_eq!(
-        request.refresh_token,
-        Some("refresh_token_abc123".to_owned())
+        request
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("refresh_token_abc123")
     );
 }
 
@@ -231,11 +235,11 @@ fn test_token_request_refresh_token() {
 #[test]
 fn test_token_response_serialization() {
     let response = TokenResponse {
-        access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...".to_owned(),
+        access_token: SecretString::from("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."),
         token_type: "Bearer".to_owned(),
         expires_in: 3600,
         scope: Some("read write".to_owned()),
-        refresh_token: Some("refresh_token_xyz".to_owned()),
+        refresh_token: Some(SecretString::from("refresh_token_xyz")),
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -247,7 +251,7 @@ fn test_token_response_serialization() {
 #[test]
 fn test_token_response_without_refresh() {
     let response = TokenResponse {
-        access_token: "access_token".to_owned(),
+        access_token: SecretString::from("access_token"),
         token_type: "Bearer".to_owned(),
         expires_in: 1800,
         scope: None,
@@ -307,7 +311,7 @@ fn test_client_registration_request_minimal() {
 fn test_client_registration_response() {
     let response = ClientRegistrationResponse {
         client_id: "new_client_id".to_owned(),
-        client_secret: "generated_secret".to_owned(),
+        client_secret: SecretString::from("generated_secret"),
         client_id_issued_at: Some(1_700_000_000),
         client_secret_expires_at: None,
         redirect_uris: vec!["https://example.com/cb".to_owned()],
@@ -427,7 +431,7 @@ fn test_oauth2_auth_code_clone() {
 fn test_oauth2_access_token_creation() {
     let user_id = Uuid::new_v4();
     let token = OAuth2AccessToken {
-        token: "access_token_xyz".to_owned(),
+        token: SecretString::from("access_token_xyz"),
         client_id: "client_123".to_owned(),
         user_id: Some(user_id),
         scope: Some("read".to_owned()),
@@ -435,7 +439,7 @@ fn test_oauth2_access_token_creation() {
         created_at: Utc::now(),
     };
 
-    assert_eq!(token.token, "access_token_xyz");
+    assert_eq!(token.token.expose_secret(), "access_token_xyz");
     assert_eq!(token.user_id, Some(user_id));
 }
 
@@ -443,7 +447,7 @@ fn test_oauth2_access_token_creation() {
 fn test_oauth2_access_token_client_credentials() {
     // Client credentials grant has no user_id
     let token = OAuth2AccessToken {
-        token: "service_token".to_owned(),
+        token: SecretString::from("service_token"),
         client_id: "service_client".to_owned(),
         user_id: None,
         scope: Some("admin".to_owned()),
@@ -462,7 +466,7 @@ fn test_oauth2_access_token_client_credentials() {
 fn test_oauth2_refresh_token_creation() {
     let user_id = Uuid::new_v4();
     let refresh_token = OAuth2RefreshToken {
-        token: "refresh_token_abc".to_owned(),
+        token: SecretString::from("refresh_token_abc"),
         client_id: "client".to_owned(),
         user_id,
         tenant_id: "tenant".to_owned(),
@@ -474,14 +478,14 @@ fn test_oauth2_refresh_token_creation() {
         resource: None,
     };
 
-    assert_eq!(refresh_token.token, "refresh_token_abc");
+    assert_eq!(refresh_token.token.expose_secret(), "refresh_token_abc");
     assert!(!refresh_token.revoked);
 }
 
 #[test]
 fn test_oauth2_refresh_token_revoked() {
     let refresh_token = OAuth2RefreshToken {
-        token: "revoked_token".to_owned(),
+        token: SecretString::from("revoked_token"),
         client_id: "client".to_owned(),
         user_id: Uuid::new_v4(),
         tenant_id: "tenant".to_owned(),
@@ -573,7 +577,13 @@ fn test_validate_refresh_request_with_token() {
     let json = r#"{"refresh_token": "token_123"}"#;
     let request: ValidateRefreshRequest = serde_json::from_str(json).unwrap();
 
-    assert_eq!(request.refresh_token, Some("token_123".to_owned()));
+    assert_eq!(
+        request
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
+        Some("token_123")
+    );
 }
 
 #[test]
@@ -612,8 +622,8 @@ fn test_validate_refresh_response_refreshed() {
     let response = ValidateRefreshResponse {
         status: ValidationStatus::Refreshed,
         expires_in: None,
-        access_token: Some("new_access_token".to_owned()),
-        refresh_token: Some("new_refresh_token".to_owned()),
+        access_token: Some(SecretString::from("new_access_token")),
+        refresh_token: Some(SecretString::from("new_refresh_token")),
         token_type: Some("Bearer".to_owned()),
         reason: None,
         requires_full_reauth: None,
@@ -662,7 +672,7 @@ fn test_oauth2_error_with_empty_description() {
 #[test]
 fn test_token_response_long_expiry() {
     let response = TokenResponse {
-        access_token: "token".to_owned(),
+        access_token: SecretString::from("token"),
         token_type: "Bearer".to_owned(),
         expires_in: 31_536_000, // 1 year in seconds
         scope: None,

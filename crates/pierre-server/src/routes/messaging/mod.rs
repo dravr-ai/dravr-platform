@@ -39,6 +39,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use secrecy::ExposeSecret;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -146,10 +147,12 @@ async fn handle_slack_ops_action(
     body: Bytes,
 ) -> Result<impl IntoResponse, AppError> {
     // Verify signature using the same signing secret as the messaging webhook
-    let signing_secret = slack_actions::configured_signing_secret()
+    let signing_secret = slack_actions::configured_signing_secret(&resources)
         .ok_or_else(|| AppError::internal("SLACK_SIGNING_SECRET not configured"))?;
 
-    if let Err(e) = slack_actions::verify_slack_signature(&signing_secret, &headers, &body) {
+    if let Err(e) =
+        slack_actions::verify_slack_signature(signing_secret.expose_secret(), &headers, &body)
+    {
         tracing::warn!(error = %e, "Slack ops action signature verification failed");
         // Return 200 to prevent Slack from retrying with invalid signature
         return Ok((

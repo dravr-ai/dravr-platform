@@ -11,6 +11,7 @@ use std::{
 };
 
 use chrono::Utc;
+use secrecy::SecretString;
 use tracing::{debug, error, field, info, warn, Span};
 use urlencoding::encode;
 
@@ -20,7 +21,6 @@ use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link
 use crate::provider_revocation;
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::OAuthProviderConfig;
-use pierre_auth::config::oauth::{get_oauth_config, provider_callback_uri};
 use pierre_auth::dto::auth::{ConnectionStatus, OAuthAuthorizationResponse};
 use pierre_auth::oauth2_client::{
     OAuth2Client, OAuth2Config, OAuth2Token, OAuthClientState, PkceParams,
@@ -58,7 +58,7 @@ pub struct AuthUrlOptions<'a> {
 /// ([`OAuthService::client_settings`]).
 struct ClientSettings {
     client_id: String,
-    client_secret: String,
+    client_secret: SecretString,
     redirect_uri: String,
     /// The scopes it asks for, joined by the provider's separator; empty when
     /// the provider takes none.
@@ -371,7 +371,8 @@ impl OAuthService {
             AppError::config(format!("Provider {provider} OAuth params not configured"))
         })?;
 
-        let server_level = get_oauth_config(provider);
+        let server = &self.config.oauth;
+        let server_level = server.server_app(provider);
         let repos = self.data.repos();
         let client = issuing_client(
             IssuingLookup {
@@ -379,7 +380,7 @@ impl OAuthService {
                 tenant_id: tenant_id.map(TenantId::from_uuid),
                 provider,
                 issuing_app: oauth_app_client_id,
-                server_level: &server_level,
+                server,
             },
             repos.tenants.as_ref(),
             repos.oauth_tokens.as_ref(),
@@ -397,12 +398,12 @@ impl OAuthService {
             client,
             descriptor,
             params.scope_separator,
-            &server_level,
+            server_level,
         );
 
         let config = OAuth2Config {
             client_id,
-            client_secret,
+            client_secret: SecretString::from(client_secret),
             auth_url: endpoints.auth_url.to_owned(),
             token_url: self.token_url_for(provider, &endpoints),
             redirect_uri,
@@ -431,7 +432,7 @@ impl OAuthService {
         scope_separator: &str,
         server_level: &OAuthProviderConfig,
     ) -> ClientSettings {
-        let callback_uri = || provider_callback_uri(provider, server_level, self.config.http_port);
+        let callback_uri = || self.config.provider_callback_uri(provider);
         match client {
             IssuingClient::UserApp(app) => ClientSettings {
                 client_id: app.client_id,
@@ -701,13 +702,14 @@ impl OAuthService {
 
         // The client this authorization runs under, resolved in the order the
         // code exchange resolves it, so the two name the same client.
-        let server_level = get_oauth_config(provider);
+        let server = &self.config.oauth;
+        let server_level = server.server_app(provider);
         let repos = self.data.repos();
         let (client, oauth_app_attribution) = authorizing_client(
             user_id,
             tenant_id,
             provider,
-            &server_level,
+            server,
             repos.tenants.as_ref(),
             repos.oauth_tokens.as_ref(),
         )
@@ -722,7 +724,7 @@ impl OAuthService {
             client,
             descriptor,
             params.scope_separator,
-            &server_level,
+            server_level,
         );
 
         // Embed the optional return URL as the third state segment (base64), so

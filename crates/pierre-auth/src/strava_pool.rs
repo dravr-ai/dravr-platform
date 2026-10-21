@@ -27,6 +27,7 @@
 //! a token of theirs, the callback revokes the old grant once the new token is
 //! stored, so no athlete is counted on two apps.
 
+use secrecy::SecretString;
 use std::collections::HashMap;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -34,7 +35,7 @@ use pierre_core::models::{StravaPoolApp, TenantId};
 use pierre_database::backends::OAuthTokenRepository;
 use uuid::Uuid;
 
-use crate::config::oauth::{get_oauth_config, strava_oauth_seat_cap};
+use crate::config::oauth::OAuthConfig;
 
 /// The Strava OAuth app chosen for an authorization.
 #[derive(Debug, Clone)]
@@ -45,7 +46,7 @@ pub struct SelectedStravaApp {
     /// `client_id` to embed in the authorize URL (env or pool).
     pub client_id: String,
     /// Matching `client_secret`, used immediately at the code exchange.
-    pub client_secret: String,
+    pub client_secret: SecretString,
 }
 
 /// Aggregate Strava OAuth seat capacity across the env app and the pool.
@@ -68,11 +69,10 @@ impl StravaSeatSummary {
     }
 }
 
-/// Env-default app credentials from the environment.
-fn env_app() -> AppResult<(String, String)> {
-    let cfg = get_oauth_config("strava");
-    match (cfg.client_id, cfg.client_secret) {
-        (Some(id), Some(secret)) => Ok((id, secret)),
+/// The env-default app's credentials, as the server's configuration holds them.
+fn env_app(server: &OAuthConfig) -> AppResult<(String, SecretString)> {
+    match (&server.strava.client_id, &server.strava.client_secret) {
+        (Some(id), Some(secret)) => Ok((id.clone(), secret.clone())),
         _ => Err(AppError::invalid_input(
             "Strava env OAuth app not configured (STRAVA_CLIENT_ID/STRAVA_CLIENT_SECRET)",
         )),
@@ -122,7 +122,7 @@ async fn pool_selection(
     Ok(SelectedStravaApp {
         attribution: Some(app.client_id.clone()),
         client_id: app.client_id.clone(),
-        client_secret: secret,
+        client_secret: SecretString::from(secret),
     })
 }
 
@@ -158,6 +158,7 @@ pub async fn select_strava_app(
     oauth_tokens: &dyn OAuthTokenRepository,
     user_id: Uuid,
     tenant_id: TenantId,
+    server: &OAuthConfig,
 ) -> AppResult<SelectedStravaApp> {
     let (env_used, per_app) = usage(oauth_tokens, Some(user_id)).await?;
     let pool_apps = oauth_tokens.list_strava_pool_apps(true).await?;
@@ -169,7 +170,7 @@ pub async fn select_strava_app(
         .next()
     {
         match current.attribution.as_deref() {
-            None if current.holds_seat => return env_selection(),
+            None if current.holds_seat => return env_selection(server),
             None => {}
             Some(client_id) => {
                 if let Some(app) = pool_apps.iter().find(|app| {
@@ -182,8 +183,8 @@ pub async fn select_strava_app(
         }
     }
 
-    if env_used < strava_oauth_seat_cap() {
-        return env_selection();
+    if env_used < server.strava_seat_cap() {
+        return env_selection(server);
     }
     if let Some(app) = pool_apps
         .iter()
@@ -197,8 +198,8 @@ pub async fn select_strava_app(
 }
 
 /// The env-default app as a selection.
-fn env_selection() -> AppResult<SelectedStravaApp> {
-    let (client_id, client_secret) = env_app()?;
+fn env_selection(server: &OAuthConfig) -> AppResult<SelectedStravaApp> {
+    let (client_id, client_secret) = env_app(server)?;
     Ok(SelectedStravaApp {
         attribution: None,
         client_id,
@@ -207,13 +208,11 @@ fn env_selection() -> AppResult<SelectedStravaApp> {
 }
 
 /// The Strava `client_id` an attribution names: the pool app's own id, or
-/// the env app's for `None`. `None` when the env app is unconfigured.
+/// the env app's for `None`, as `server` configures it. `None` when the env
+/// app is unconfigured.
 #[must_use]
-pub fn strava_client_id(attribution: Option<&str>) -> Option<String> {
-    attribution.map_or_else(
-        || get_oauth_config("strava").client_id,
-        |id| Some(id.to_owned()),
-    )
+pub fn strava_client_id(attribution: Option<&str>, server: &OAuthConfig) -> Option<String> {
+    attribution.map_or_else(|| server.strava.client_id.clone(), |id| Some(id.to_owned()))
 }
 
 /// Whether two attributions name the same Strava application.
@@ -223,8 +222,8 @@ pub fn strava_client_id(attribution: Option<&str>) -> Option<String> {
 /// the env app it is: Strava holds one grant per athlete and application, and
 /// telling the two apart would revoke the grant a reconnect just made.
 #[must_use]
-pub fn same_strava_app(a: Option<&str>, b: Option<&str>) -> bool {
-    a == b || strava_client_id(a) == strava_client_id(b)
+pub fn same_strava_app(a: Option<&str>, b: Option<&str>, server: &OAuthConfig) -> bool {
+    a == b || strava_client_id(a, server) == strava_client_id(b, server)
 }
 
 /// One Strava application whose seats [`strava_seat_summary`] counts.
@@ -268,11 +267,12 @@ impl StravaAppSeats {
 /// Returns an error only on a repository failure.
 pub async fn strava_seat_apps(
     oauth_tokens: &dyn OAuthTokenRepository,
+    server: &OAuthConfig,
 ) -> AppResult<Vec<StravaAppSeats>> {
     let (env_used, per_app) = usage(oauth_tokens, None).await?;
     let mut apps = vec![StravaAppSeats {
         attribution: None,
-        cap: strava_oauth_seat_cap(),
+        cap: server.strava_seat_cap(),
         holders: env_used,
     }];
     for app in oauth_tokens.list_strava_pool_apps(true).await? {
@@ -295,8 +295,11 @@ pub async fn strava_seat_apps(
 /// Returns an error only on a repository failure.
 pub async fn strava_seat_summary(
     oauth_tokens: &dyn OAuthTokenRepository,
+    server: &OAuthConfig,
 ) -> AppResult<StravaSeatSummary> {
-    Ok(summarize_seats(&strava_seat_apps(oauth_tokens).await?))
+    Ok(summarize_seats(
+        &strava_seat_apps(oauth_tokens, server).await?,
+    ))
 }
 
 /// The summary of a [`strava_seat_apps`] listing.

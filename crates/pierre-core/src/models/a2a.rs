@@ -13,6 +13,7 @@
 use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
 use crate::constants::time::HOUR_SECONDS;
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display, Formatter};
 
@@ -211,7 +212,8 @@ pub struct A2APushNotificationConfig {
     pub url: String,
     /// Opaque client token echoed back in notifications
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
+    #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
+    pub token: Option<SecretString>,
     /// Authentication scheme for the webhook request (e.g. "Bearer")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_scheme: Option<String>,
@@ -232,7 +234,8 @@ pub struct A2AUsage {
     /// A2A client identifier
     pub client_id: String,
     /// Optional session token for this request
-    pub session_token: Option<String>,
+    #[serde(serialize_with = "crate::secret::serialize_exposed_option")]
+    pub session_token: Option<SecretString>,
     /// When the request was made
     pub timestamp: DateTime<Utc>,
     /// Name of the tool/endpoint called

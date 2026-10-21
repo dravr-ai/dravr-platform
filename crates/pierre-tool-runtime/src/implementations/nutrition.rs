@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
+use secrecy::ExposeSecret;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -194,7 +195,7 @@ fn build_usda_client(context: &ToolExecutionContext) -> Result<Arc<UsdaClient>, 
         .clone()
         .unwrap_or_default();
 
-    if api_key.is_empty() {
+    if api_key.expose_secret().is_empty() {
         return Err(ToolResult::error(json!({
             "error": "USDA API key not configured. Set USDA_API_KEY environment variable."
         })));

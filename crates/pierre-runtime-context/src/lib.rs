@@ -55,6 +55,7 @@ use pierre_core::billing::BillingProvider;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
+use pierre_llm::config::LlmChain;
 use pierre_llm::{ChatProvider, LlmProvider};
 
 /// Slice of runtime state the identity route layer needs.
@@ -136,6 +137,10 @@ pub trait MiddlewareCtx: Send + Sync + 'static {
     /// `SecurityConfig::llm_base_url_allowlist`; returned as a primitive slice so this
     /// crate stays free of a `pierre-config` dependency.
     fn llm_base_url_allowlist(&self) -> &[String];
+
+    /// The LLM provider chain the server read from `PIERRE_LLM_CHAIN` once at
+    /// boot — its head is the provider every turn is asked of first.
+    fn llm_chain(&self) -> &LlmChain;
 }
 
 /// Slice of runtime state the MCP transport dispatch layer needs.

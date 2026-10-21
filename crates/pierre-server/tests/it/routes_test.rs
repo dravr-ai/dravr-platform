@@ -11,6 +11,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use common::placeholder_llm_chain;
 
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
@@ -165,7 +166,9 @@ async fn test_register_user() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -321,7 +324,9 @@ async fn test_register_duplicate_user() {
         frontend_url: None,
         resend_api_key: None,
         resend_from_email: None,
+        llm_chain: placeholder_llm_chain(),
         website_base_url: "https://dravr.ai".to_owned(),
+        ..ServerConfig::default()
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(

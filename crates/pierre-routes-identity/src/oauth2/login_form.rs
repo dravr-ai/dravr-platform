@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::SecretString;
 use std::collections::HashMap;
 
 use axum::{
@@ -149,7 +150,7 @@ impl OAuth2Routes {
             .accounts
             .login(LoginRequest {
                 email: email.to_owned(),
-                password: password.to_owned(),
+                password: SecretString::from(password),
                 timezone: None,
             })
             .await?;

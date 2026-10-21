@@ -7,13 +7,19 @@
 pub use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::constants::{defaults, limits};
 use pierre_core::errors::{AppError, AppResult};
-use serde::{Deserialize, Serialize};
+use pierre_core::redaction::redact_url;
+use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize, Serializer};
 use std::env;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::path::PathBuf;
 
 /// Type-safe database configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// A `PostgreSQL` connection string carries the database password, so Debug,
+/// Display and serialization all print it through [`redact_url`]; the raw
+/// string is read only through [`DatabaseUrl::connection_string`].
+#[derive(Clone, Serialize, Deserialize)]
 pub enum DatabaseUrl {
     /// `SQLite` database with file path
     SQLite {
@@ -23,7 +29,8 @@ pub enum DatabaseUrl {
     /// `PostgreSQL` connection
     PostgreSQL {
         /// `PostgreSQL` connection string
-        connection_string: String,
+        #[serde(serialize_with = "serialize_redacted_url")]
+        connection_string: SecretString,
     },
     /// In-memory `SQLite` (for testing)
     Memory,
@@ -47,7 +54,7 @@ impl DatabaseUrl {
             }
         } else if s.starts_with("postgresql://") || s.starts_with("postgres://") {
             Ok(Self::PostgreSQL {
-                connection_string: s.to_owned(),
+                connection_string: SecretString::from(s),
             })
         } else {
             // Fallback: treat as SQLite file path
@@ -57,13 +64,14 @@ impl DatabaseUrl {
         }
     }
 
-    /// Convert to connection string
+    /// The connection string a pool connects with, credentials included;
+    /// read it with `expose_secret()` at the point of connecting
     #[must_use]
-    pub fn to_connection_string(&self) -> String {
+    pub fn connection_string(&self) -> SecretString {
         match self {
-            Self::SQLite { path } => format!("sqlite:{}", path.display()),
+            Self::SQLite { path } => SecretString::from(format!("sqlite:{}", path.display())),
             Self::PostgreSQL { connection_string } => connection_string.clone(),
-            Self::Memory => "sqlite::memory:".into(),
+            Self::Memory => SecretString::from("sqlite::memory:"),
         }
     }
 
@@ -96,8 +104,33 @@ impl Default for DatabaseUrl {
 
 impl Display for DatabaseUrl {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{}", self.to_connection_string())
+        f.write_str(&redact_url(self.connection_string().expose_secret()))
     }
+}
+
+impl Debug for DatabaseUrl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            Self::SQLite { path } => f.debug_struct("SQLite").field("path", path).finish(),
+            Self::PostgreSQL { connection_string } => f
+                .debug_struct("PostgreSQL")
+                .field(
+                    "connection_string",
+                    &redact_url(connection_string.expose_secret()),
+                )
+                .finish(),
+            Self::Memory => f.write_str("Memory"),
+        }
+    }
+}
+
+/// Serialize a connection string through [`redact_url`], so a serialized
+/// configuration names the database host and never its password.
+fn serialize_redacted_url<S: Serializer>(
+    connection_string: &SecretString,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&redact_url(connection_string.expose_secret()))
 }
 
 /// Database connection and management configuration
@@ -234,4 +267,71 @@ impl SqlxConfig {
 /// Get environment variable or default value
 fn env_var_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DatabaseConfig, DatabaseUrl};
+    use secrecy::ExposeSecret;
+
+    const PG_URL: &str = "postgresql://pierre:hunter2-pg@db.internal:5432/pierre";
+    const REDACTED_PG_URL: &str = "postgresql://***:***@db.internal:5432/pierre";
+
+    #[test]
+    fn a_postgres_url_prints_through_redact_url() {
+        let url = DatabaseUrl::parse_url(PG_URL).unwrap();
+        assert_eq!(
+            format!("{url:?}"),
+            format!("PostgreSQL {{ connection_string: \"{REDACTED_PG_URL}\" }}")
+        );
+        assert_eq!(url.to_string(), REDACTED_PG_URL);
+
+        let config = DatabaseConfig {
+            url,
+            ..DatabaseConfig::default()
+        };
+        let debug = format!("{config:#?}");
+        assert!(!debug.contains("hunter2-pg"), "{debug}");
+        assert!(debug.contains(REDACTED_PG_URL), "{debug}");
+    }
+
+    #[test]
+    fn a_postgres_url_serializes_redacted_and_reads_back_whole() {
+        let url = DatabaseUrl::parse_url(PG_URL).unwrap();
+        assert_eq!(
+            serde_json::to_string(&url).unwrap(),
+            format!("{{\"PostgreSQL\":{{\"connection_string\":\"{REDACTED_PG_URL}\"}}}}")
+        );
+
+        let read: DatabaseUrl = serde_json::from_str(&format!(
+            "{{\"PostgreSQL\":{{\"connection_string\":\"{PG_URL}\"}}}}"
+        ))
+        .unwrap();
+        assert_eq!(read.connection_string().expose_secret(), PG_URL);
+    }
+
+    #[test]
+    fn the_connection_string_keeps_the_credentials() {
+        let url = DatabaseUrl::parse_url(PG_URL).unwrap();
+        assert_eq!(url.connection_string().expose_secret(), PG_URL);
+        assert_eq!(
+            DatabaseUrl::parse_url("sqlite:./data/users.db")
+                .unwrap()
+                .connection_string()
+                .expose_secret(),
+            "sqlite:./data/users.db"
+        );
+        assert_eq!(
+            DatabaseUrl::Memory.connection_string().expose_secret(),
+            "sqlite::memory:"
+        );
+    }
+
+    #[test]
+    fn a_sqlite_url_prints_its_path() {
+        let url = DatabaseUrl::parse_url("sqlite:./data/users.db").unwrap();
+        assert_eq!(format!("{url:?}"), "SQLite { path: \"./data/users.db\" }");
+        assert_eq!(url.to_string(), "sqlite:./data/users.db");
+        assert_eq!(format!("{:?}", DatabaseUrl::Memory), "Memory");
+    }
 }

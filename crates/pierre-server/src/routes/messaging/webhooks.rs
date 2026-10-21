@@ -16,6 +16,7 @@ use pierre_core::models::messaging::{ChannelType, InboundReaction, IncomingMessa
 use pierre_core::models::TenantId;
 use pierre_database::backends::MessagingRepository;
 use pierre_middleware::redaction::mask_recipient;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -60,7 +61,7 @@ pub struct MetaVerifyQuery {
     pub challenge: String,
     /// Token configured in the Meta App Dashboard — must match our stored verify token
     #[serde(rename = "hub.verify_token")]
-    pub verify_token: String,
+    pub verify_token: SecretString,
 }
 
 /// Handle Meta webhook verification (GET request)
@@ -106,7 +107,10 @@ pub async fn verify_webhook(
         stored_verify_token
             .or(stored_webhook_secret)
             .is_some_and(|expected| {
-                matches_configured_secret(expected.as_bytes(), query.verify_token.as_bytes())
+                matches_configured_secret(
+                    expected.as_bytes(),
+                    query.verify_token.expose_secret().as_bytes(),
+                )
             })
     });
 

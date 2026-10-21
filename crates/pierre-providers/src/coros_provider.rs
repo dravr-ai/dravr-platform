@@ -61,6 +61,7 @@ use crate::request_budget;
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt::Write;
 use std::sync::OnceLock;
@@ -209,7 +210,7 @@ impl CorosProvider {
     }
 
     /// Retrieve the current access token from credentials
-    async fn get_access_token(&self) -> AppResult<String> {
+    async fn get_access_token(&self) -> AppResult<SecretString> {
         let token = self
             .credentials
             .read()
@@ -258,7 +259,7 @@ impl CorosProvider {
         let result = utils::api_request_with_retry(
             &self.client,
             &url,
-            &access_token,
+            access_token.expose_secret(),
             oauth_providers::COROS,
             &retry_config,
             budget.as_ref(),
@@ -442,8 +443,8 @@ impl FitnessProvider for CorosProvider {
             &utils::RefreshRequest {
                 token_url: &self.config.token_url,
                 client_id: &credentials.client_id,
-                client_secret: &credentials.client_secret,
-                refresh_token: &refresh_token,
+                client_secret: credentials.client_secret.expose_secret(),
+                refresh_token: refresh_token.expose_secret(),
                 provider_name: oauth_providers::COROS,
                 extra_form: &[],
             },

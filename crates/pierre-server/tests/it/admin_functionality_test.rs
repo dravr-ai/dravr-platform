@@ -16,6 +16,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use chrono::Utc;
@@ -155,7 +156,7 @@ async fn test_admin_token_database_operations() -> Result<()> {
     assert_eq!(generated_token.service_name, "test_service");
     assert!(!generated_token.is_super_admin);
     assert!(generated_token.expires_at.is_some());
-    assert_ne!(generated_token.jwt_token, "");
+    assert_ne!(generated_token.jwt_token.expose_secret(), "");
 
     // Retrieve admin token by ID
     let retrieved_token = repos
@@ -485,7 +486,7 @@ async fn test_admin_token_minted_by_repository_validates_through_service() -> Re
         )
         .await?;
     let validated = auth_service
-        .authenticate(&scoped.jwt_token, Some("127.0.0.1"))
+        .authenticate(scoped.jwt_token.expose_secret(), Some("127.0.0.1"))
         .await?;
     assert_eq!(validated.token_id, scoped.token_id);
     assert_eq!(validated.service_name, "round_trip_service");
@@ -518,7 +519,7 @@ async fn test_admin_token_minted_by_repository_validates_through_service() -> Re
         )
         .await?;
     let validated = auth_service
-        .authenticate(&super_admin.jwt_token, Some("127.0.0.1"))
+        .authenticate(super_admin.jwt_token.expose_secret(), Some("127.0.0.1"))
         .await?;
     assert_eq!(validated.token_id, super_admin.token_id);
     assert!(validated.is_super_admin);

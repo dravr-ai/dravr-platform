@@ -186,17 +186,13 @@ pub trait ToolRuntime: Send + Sync + 'static {
     fn tool_selection(&self) -> &Arc<ToolSelectionService>;
 
     /// The effective [`Guardian`] (taint/budget/egress policy) for this
-    /// dispatch. Default-backed by a process-wide env-resolved singleton so
-    /// non-server `ToolRuntime` impls need no change; `ServerContext`
-    /// overrides this to serve the hot-reloadable
-    /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot. Because
-    /// the snapshot can be swapped by an admin update between calls, a caller
-    /// needing a consistent policy across several reads binds ONE returned
-    /// `Arc` locally rather than re-fetching mid-flow.
-    fn guardian(&self) -> Arc<Guardian> {
-        static GUARDIAN: LazyLock<Arc<Guardian>> = LazyLock::new(|| Arc::new(Guardian::from_env()));
-        Arc::clone(&GUARDIAN)
-    }
+    /// dispatch: the hot-reloadable
+    /// [`crate::guardian::config::GuardianConfigRegistry`] snapshot, built
+    /// over the `GUARDIAN_*` settings the server's configuration captured at
+    /// startup. Because the snapshot can be swapped by an admin update between
+    /// calls, a caller needing a consistent policy across several reads binds
+    /// ONE returned `Arc` locally rather than re-fetching mid-flow.
+    fn guardian(&self) -> Arc<Guardian>;
 
     /// The process-wide, tenant-scoped per-turn taint/budget store. Shared
     /// across every dispatch path — including the per-`/mcp`-request executors

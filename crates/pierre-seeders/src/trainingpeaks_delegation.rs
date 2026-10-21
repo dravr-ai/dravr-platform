@@ -42,6 +42,7 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
+use secrecy::SecretString;
 use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
@@ -198,7 +199,7 @@ async fn seed_coach_account(repos: &RepositoryRegistry, coach: &Account) -> AppR
             user_id: coach.id,
             tenant_id: coach.tenant.to_string(),
             provider: SCIOTTE_TRAININGPEAKS.to_owned(),
-            access_token: session.to_string(),
+            access_token: SecretString::from(session.to_string()),
             refresh_token: None,
             token_type: TOKEN_TYPE_SESSION.to_owned(),
             expires_at: None,

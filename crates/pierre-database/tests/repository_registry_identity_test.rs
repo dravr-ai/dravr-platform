@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use secrecy::ExposeSecret;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -124,9 +125,12 @@ async fn installing_dek_versions_rebuilds_the_registry_over_the_new_keys() {
         .await
         .expect("the rebuilt registry decrypts what it encrypted")
         .expect("the token row exists");
-    assert_eq!(stored.access_token, "access-token-under-v2");
+    assert_eq!(stored.access_token.expose_secret(), "access-token-under-v2");
     assert_eq!(
-        stored.refresh_token.as_deref(),
+        stored
+            .refresh_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret),
         Some("refresh-token-under-v2")
     );
 

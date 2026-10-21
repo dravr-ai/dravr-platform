@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use secrecy::SecretString;
 use std::sync::Arc;
 
 use axum::{
@@ -144,7 +145,7 @@ fn create_provision_response(
     ProvisionApiKeyResponse {
         success: true,
         api_key_id: api_key.id.clone(),
-        api_key: api_key_string,
+        api_key: SecretString::from(api_key_string),
         user_id: user.id.to_string(),
         tier: format!("{tier:?}").to_lowercase(),
         expires_at: api_key.expires_at.map(|dt| dt.to_rfc3339()),

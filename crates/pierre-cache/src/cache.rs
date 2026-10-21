@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -40,7 +41,10 @@ impl Cache {
     /// Returns an error if cache initialization fails
     pub async fn new(config: CacheConfig) -> AppResult<Self> {
         let inner = if let Some(ref redis_url) = config.redis_url {
-            info!("Initializing Redis cache (url: {})", redact_url(redis_url));
+            info!(
+                "Initializing Redis cache (url: {})",
+                redact_url(redis_url.expose_secret())
+            );
             Self::build_redis_backend(config).await?
         } else {
             info!(

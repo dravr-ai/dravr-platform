@@ -395,7 +395,7 @@ async fn a_turn_on_the_iteration_model_asks_once_per_iteration() {
 }
 
 /// (f) A provider with no iteration model — one set to `inherit`, or one not
-/// built by `ChatProvider::from_env` — runs every call on the turn's model.
+/// built by `ChatProvider::from_chain` — runs every call on the turn's model.
 #[tokio::test]
 async fn a_provider_with_no_iteration_model_routes_nothing() {
     let inherit = StageModels::resolve(Some(LlmProviderType::Anthropic), |key| {
