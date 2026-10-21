@@ -16,6 +16,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::UserStatus;
 
 use super::AuthService;
+use crate::import_tombstones::email_held;
 use crate::signup_policy::{admit_self_signup, resolve_signup_policy};
 
 impl AuthService {
@@ -48,6 +49,13 @@ impl AuthService {
         resolve_signup_policy(self.data.database())
             .await
             .activate_on_verified_email
+    }
+
+    /// Whether proving `email` activates its new account: sign-up is open to
+    /// verified addresses and no tombstone holds the address. A deleted
+    /// account's email waits for an operator or an explicit clear.
+    pub(super) async fn activates_on_verified(&self, email: &str) -> bool {
+        self.activates_on_verified_email().await && !email_held(self.data.repos(), email).await
     }
 
     /// Whether `user_id` has proven their address while sign-up is open to

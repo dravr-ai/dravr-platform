@@ -32,7 +32,7 @@ use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
-use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner};
+use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner, WebhookTarget};
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
@@ -365,14 +365,16 @@ fn distinct_owners(events: &[WebhookEvent]) -> Vec<String> {
 /// link has no token of their own here, and the event is skipped and logged
 /// rather than synced with a token that does not exist. An unknown owner is
 /// skipped and logged too — a push event is never broadcast to every
-/// connected user.
+/// connected user. A provider account that belonged to a deleted account is
+/// refused by its tombstone, which the resolver logs without the
+/// provider-side id.
 pub(super) async fn resolve_owner(
     resources: &ServerContext,
     provider: &str,
     provider_user_id: &str,
 ) -> Option<WebhookOwner> {
     match resolve_webhook_owner(&resources.common.repos, provider, provider_user_id).await {
-        Ok(Some(owner)) => {
+        Ok(WebhookTarget::Owner(owner)) => {
             if let Some(coach) = owner.read_through {
                 info!(
                     provider = %provider,
@@ -386,7 +388,8 @@ pub(super) async fn resolve_owner(
             }
             Some(owner)
         }
-        Ok(None) => {
+        Ok(WebhookTarget::Tombstoned { .. }) => None,
+        Ok(WebhookTarget::Nobody) => {
             warn!(
                 provider = %provider,
                 provider_user_id = %provider_user_id,

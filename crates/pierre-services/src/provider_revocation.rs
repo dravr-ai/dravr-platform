@@ -33,7 +33,7 @@ use pierre_core::models::{
 use pierre_database::repositories::PurgeReason;
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
-use pierre_providers::backend_resolver::is_mirror_backend;
+use pierre_providers::backend_resolver::{backend_pair_for, is_mirror_backend};
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use secrecy::{ExposeSecret, SecretString};
@@ -756,6 +756,37 @@ pub async fn surviving_rows(
     }
 
     survivors
+}
+
+/// Withdraw every grant `provider` holds for `user_id` at the provider.
+///
+/// Nothing is deleted here: this is the revocation of each backend of the
+/// coalesced pair in `tenant_id`, and the drop of its scrape session, both
+/// best-effort.
+///
+/// The account deletion calls this before its one transaction, which deletes
+/// the rows (network calls never run inside a transaction). A backend the
+/// user holds no row for withdraws nothing. Returns what the provider said,
+/// combined across the pair.
+pub async fn withdraw_upstream(
+    service: &OAuthService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> RevocationOutcome {
+    let mut outcomes = Vec::new();
+    for backend in backend_pair_for(provider) {
+        outcomes.push(revoke_for_disconnect(service, user_id, tenant_id, &backend).await);
+        drop_scrape_session(
+            service.data.repos(),
+            service.data.provider_registry().sciotte_client(),
+            user_id,
+            tenant_id,
+            &backend,
+        )
+        .await;
+    }
+    RevocationOutcome::combine(outcomes)
 }
 
 /// Withdraw one backend completely: revoke upstream, then delete its rows.

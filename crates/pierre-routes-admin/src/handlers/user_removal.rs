@@ -38,9 +38,9 @@ use uuid::Uuid;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
+use pierre_database::repositories::DeletionActor;
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
-use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
 };
@@ -295,12 +295,13 @@ pub async fn handle_disconnect_user_provider(
 /// created an invite, holds operator or audit attribution, is the only owner
 /// of a tenant others belong to, authored an agent others rely on, or holds a
 /// subscription the billing provider may still charge; nothing is touched
-/// then. Otherwise every provider is disconnected through the
-/// chokepoint (revoked at the provider) before the account is deleted in one
-/// transaction with its memberships and every row no foreign key cascades
-/// to. A reference that appears between that check and the delete is a 409
-/// too, not a 500, and like any failure after a provider was disconnected it
-/// names what was already done.
+/// then. Otherwise every provider's grant is withdrawn upstream before one
+/// transaction deletes every provider's data and the account with its
+/// memberships and every row no foreign key cascades to, tombstones its
+/// provider accounts and email, and appends a chained deletion receipt (the
+/// answer's `ledger`). A reference that appears between that check and the
+/// delete is a 409 too, not a 500, and like any failure after a grant was
+/// withdrawn it names what was already done.
 ///
 /// # Errors
 ///
@@ -333,8 +334,9 @@ pub async fn handle_delete_user(
         &ctx.repos,
         ctx.provider_disconnector.as_deref(),
         ctx.firebase_identity.as_deref(),
+        ctx.cache.as_deref(),
         user_uuid,
-        DisconnectReason::Operator,
+        DeletionActor::Operator,
     )
     .await?;
 
@@ -379,6 +381,7 @@ pub async fn handle_delete_user(
                 "memberships_removed": report.memberships_removed,
                 "rows_removed": report.rows_removed,
                 "firebase_identity": report.firebase_identity,
+                "ledger": report.ledger,
                 "reason": reason,
             }))
             .ok(),

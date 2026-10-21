@@ -93,6 +93,16 @@ pub struct UserInfo {
     /// review"; admin listings and other surfaces leave it absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_verified: Option<bool>,
+    /// Why a Pending account waits, when it is because its email belonged to
+    /// a deleted account: the live email tombstone the account clears to
+    /// continue.
+    ///
+    /// Resolved on the sign-in and refresh paths for a Pending account only,
+    /// the responses the pending screen reads (a Pending account restores no
+    /// session); absent everywhere else, and absent when no live tombstone
+    /// names the address.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email_tombstone: Option<EmailTombstoneInfo>,
     /// Account creation timestamp (ISO 8601)
     pub created_at: String,
     /// BCP-47 locale preference (fr/en/es/de/pt). Consumed by the web and
@@ -106,6 +116,15 @@ pub struct UserInfo {
     /// granted the Agent persona tier. Surfaces in the Settings UI to
     /// show/hide roster-management screens.
     pub manages_roster: bool,
+}
+
+/// The live tombstone a deleted account left on this account's email.
+#[derive(Debug, Clone, Serialize)]
+pub struct EmailTombstoneInfo {
+    /// The tombstone `POST /api/user/import-tombstones/clear` clears.
+    pub tombstone_id: String,
+    /// When the deleted account's data was deleted (RFC 3339).
+    pub deleted_at: String,
 }
 
 /// User login response

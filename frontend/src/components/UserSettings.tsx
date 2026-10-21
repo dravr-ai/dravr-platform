@@ -496,6 +496,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             if (result.success) {
               setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: providerId }) });
               refetchProviders();
+            } else if (result.tombstoned) {
+              // The account belonged to a deleted Dravr account: the OAuth
+              // tab words it and offers to start fresh. Another way in to the
+              // same account would only be refused the same way.
             } else if (providerId === 'strava') {
               // Strava OAuth failed (shared-app athlete cap actually exceeded
               // in a seat-count race, or the provider rejected the grant).

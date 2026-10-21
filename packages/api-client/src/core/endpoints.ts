@@ -234,6 +234,12 @@ export const ENDPOINTS = {
      */
     ACCOUNT_DELETION: '/api/user/account-deletion',
     /**
+     * Clear what a deleted account left on an identity the signed-in account
+     * now holds: its own proven email, or a provider account it was refused
+     * for. A pending account reaches it.
+     */
+    IMPORT_TOMBSTONES_CLEAR: '/api/user/import-tombstones/clear',
+    /**
      * Reply language (`users.locale`) — the language the coach answers in.
      * Clients PUT this whenever the viewer changes the app language, so the
      * chrome and the coach never speak two different languages.

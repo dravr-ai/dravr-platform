@@ -437,6 +437,7 @@ impl ProviderToolRouter {
             admin_context.firebase_identity =
                 FirebaseIdentityDeleter::from_config(&resources.common.config.firebase)
                     .map(Arc::new);
+            admin_context.cache = Some(resources.data().cache().clone());
 
             // Tool-selection and diagnostic sub-routes use pierre-server-internal
             // types (`ToolSelectionService`, `ToolRegistry`) and so are

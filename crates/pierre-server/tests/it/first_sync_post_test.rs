@@ -395,13 +395,14 @@ async fn a_dm_whose_window_closed_gets_nothing() {
 async fn seed_first_sync_claim(fx: &Fixture, age: Duration, posted: bool) {
     let claims = &fx.resources.common.repos.platform_post_claims;
     let at = Utc::now() - age;
-    assert!(claims
+    let token = claims
         .claim_platform_post_once(fx.tenant_id, fx.user_id, "first_sync", at, at)
         .await
-        .unwrap());
+        .unwrap()
+        .expect("the seeded claim is taken");
     if posted {
         assert!(claims
-            .mark_platform_post_posted(fx.tenant_id, fx.user_id, "first_sync", at)
+            .mark_platform_post_posted(fx.tenant_id, fx.user_id, "first_sync", &token, at)
             .await
             .unwrap());
     }

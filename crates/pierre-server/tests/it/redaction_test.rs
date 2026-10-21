@@ -8,8 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_middleware::redaction::{
-    mask_email, redact_headers, redact_json_fields, redact_token_patterns, BoundedTenantLabel,
-    BoundedUserLabel, RedactionConfig,
+    mask_email, redact_headers, BoundedTenantLabel, BoundedUserLabel, RedactionConfig,
 };
 
 #[test]
@@ -43,18 +42,6 @@ fn test_redact_cookie_header() {
 }
 
 #[test]
-fn test_redact_json_fields() {
-    let config = RedactionConfig::default();
-    let json = r#"{"username":"testuser","client_secret":"secret123","password":"pass456"}"#;
-
-    let redacted = redact_json_fields(json, &config);
-
-    assert!(redacted.contains(r#""client_secret": "[REDACTED]""#));
-    assert!(!redacted.contains("secret123"));
-    assert!(!redacted.contains("pass456"));
-}
-
-#[test]
 fn test_mask_email_basic() {
     let email = "testuser@domain.com";
     let masked = mask_email(email);
@@ -74,29 +61,6 @@ fn test_mask_email_in_text() {
     let masked = mask_email(text);
     assert!(masked.contains("t***@d***.com"));
     assert!(masked.contains("a***@s***.org"));
-}
-
-#[test]
-fn test_redact_bearer_token() {
-    let config = RedactionConfig::default();
-    let text = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.payload.signature";
-
-    let redacted = redact_token_patterns(text, &config);
-
-    assert!(!redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
-    assert!(redacted.contains("Bearer [REDACTED]"));
-}
-
-#[test]
-fn test_redact_jwt_pattern() {
-    let config = RedactionConfig::default();
-    let text =
-        "JWT token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature";
-
-    let redacted = redact_token_patterns(text, &config);
-
-    assert!(!redacted.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
-    assert!(redacted.contains("[REDACTED]"));
 }
 
 #[test]

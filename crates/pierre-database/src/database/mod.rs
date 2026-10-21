@@ -8,6 +8,8 @@
 pub mod a2a;
 /// The A2A reaper's bulk fail of tasks a dead instance left non-terminal
 pub mod a2a_task_reaper;
+/// Account deletion with its receipt (`SQLite`) backing `AccountDeletionRepository`.
+pub mod account_deletion;
 /// Historical activity backfills still owed, one per (user, provider), leased to one re-runner
 pub mod activity_backfill_jobs;
 /// Provider-agnostic activity cache (stale-while-revalidate) persistence
@@ -66,6 +68,8 @@ pub mod guardian_actions;
 pub mod health_persistence;
 /// Impersonation session management for super admin user impersonation
 pub mod impersonation;
+/// Import tombstones (`SQLite`) backing `ImportTombstoneRepository`.
+pub mod import_tombstones;
 /// LLM credential management and admin config overrides
 pub mod llm_credentials;
 /// LLM usage tracking for cost analysis and quota enforcement

@@ -49,7 +49,13 @@ const RECENT_ACTIVITIES_LOOKBACK_DAYS: i64 = 7;
 const RECENT_ACTIVITIES_LIMIT: usize = 12;
 
 /// Number of days of activity history to fetch for training load calculation.
-/// CTL uses a 42-day exponential moving average, so 60 days gives adequate data.
+///
+/// CTL is a 42-day exponential average that cageux seeds at the history's
+/// mean daily TSS over its first 42 days, so 60 days read a steady member's
+/// load exactly; from a zero start they would hold only `1 - (41/42)^60`,
+/// 76%, of it and band a daily rider as deep fatigue. A member whose load
+/// changed within the fetched window is still read through the 1/N daily
+/// update from that seed.
 const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
 
 // ══════════════════════════════════════════════════════════════

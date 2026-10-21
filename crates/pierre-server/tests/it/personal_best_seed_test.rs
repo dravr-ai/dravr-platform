@@ -946,10 +946,11 @@ async fn an_expired_lease_is_taken_over() {
     let ledger = &resources.common.repos.worker_runs;
     let lease = athlete_lease_name(athlete.user_id, athlete.tenant_id);
     let now_ms = Utc::now().timestamp_millis();
-    assert!(ledger
+    let lease_token = ledger
         .claim_worker_run(&lease, 0, now_ms, 15 * 60 * 1_000)
         .await
-        .unwrap());
+        .unwrap()
+        .expect("the test takes the athlete's lease first");
 
     open_window(&resources).await;
     let held = run_personal_best_seed_pass(&resources).await.unwrap();
@@ -958,7 +959,10 @@ async fn an_expired_lease_is_taken_over() {
     assert_eq!(mock.total_requests(), 0, "a held athlete costs no request");
 
     // The holder died: its lease ran out a moment ago.
-    ledger.defer_worker_run(&lease, now_ms - 1).await.unwrap();
+    ledger
+        .defer_worker_run(&lease, now_ms - 1, Some(&lease_token))
+        .await
+        .unwrap();
     let taken = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(taken.completed, 1);
     assert_eq!(taken.held, 0);

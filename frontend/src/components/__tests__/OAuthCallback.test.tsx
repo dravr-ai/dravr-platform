@@ -2,10 +2,32 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { render as renderRaw, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { i18n } from '@pierre/i18n'
+
+vi.mock('../../services/api', () => ({
+  oauthApi: { authorizeUrl: vi.fn((provider: string) => `/api/oauth/${provider}/start`) },
+  providersApi: {
+    getProvidersStatus: vi.fn().mockResolvedValue({
+      providers: [{ provider: 'strava', display_name: 'Strava', connected: false }],
+    }),
+  },
+  userApi: { clearImportTombstone: vi.fn() },
+}))
+
 import OAuthCallback from '../OAuthCallback'
+import { userApi } from '../../services/api'
+
+/** The page renders inside the app's query client, as App mounts it. */
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return renderRaw(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+}
+
+const TOMBSTONE = { tombstoneId: 'tomb-1', deletedAt: '2026-10-20T08:00:00+00:00' }
 
 describe('OAuthCallback', () => {
   beforeEach(() => {
@@ -97,6 +119,48 @@ describe('OAuthCallback', () => {
     expect(stored.provider).toBe('garmin')
     expect(stored.success).toBe(false)
     expect(stored.hasError).toBe(true)
+  })
+
+  it('words a tombstoned account with its deletion date and offers to start fresh', async () => {
+    render(<OAuthCallback provider="strava" success={false} error="import_tombstoned" tombstone={TOMBSTONE} />)
+
+    expect(
+      await screen.findByText(
+        /This Strava account belonged to a Dravr account deleted on Oct 20, 2026\./,
+      ),
+    ).toBeInTheDocument()
+    // The raw code is never the sentence.
+    expect(screen.queryByText('import_tombstoned')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start fresh and connect' })).toBeInTheDocument()
+  })
+
+  it('clears the tombstone the return named, then runs the connect again in this tab', async () => {
+    vi.mocked(userApi.clearImportTombstone).mockResolvedValue({ cleared: [], user_status: 'active' })
+    const assign = vi.fn()
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...original, set href(url: string) { assign(url) } },
+    })
+    try {
+      const user = userEvent.setup()
+      render(<OAuthCallback provider="strava" success={false} error="import_tombstoned" tombstone={TOMBSTONE} />)
+
+      await user.click(screen.getByRole('button', { name: 'Start fresh and connect' }))
+
+      expect(userApi.clearImportTombstone).toHaveBeenCalledWith('tomb-1')
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/strava/start'))
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original })
+    }
+  })
+
+  it('marks a tombstoned result so the opener does not fall back to another way in', () => {
+    render(<OAuthCallback provider="strava" success={false} error="import_tombstoned" tombstone={TOMBSTONE} />)
+
+    const stored = JSON.parse(localStorage.getItem('pierre_oauth_result') || '{}')
+    expect(stored.success).toBe(false)
+    expect(stored.tombstoned).toBe(true)
   })
 
   it('should show Dravr branding', () => {

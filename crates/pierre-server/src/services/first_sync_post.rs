@@ -131,9 +131,9 @@ impl FirstSyncPoster {
         let Some(resources) = self.ctx.upgrade() else {
             return;
         };
-        if !claim_first_post(&resources, user_id, tenant_id, provider).await {
+        let Some(lease) = claim_first_post(&resources, user_id, tenant_id, provider).await else {
             return;
-        }
+        };
         let display = backend_resolver::brand_name(&global_registry(), provider)
             .unwrap_or(provider)
             .to_owned();
@@ -186,9 +186,9 @@ impl FirstSyncPoster {
         }
 
         if posted_in_app == Some(true) || posted_to_dm == Some(true) {
-            mark_first_post_posted(&resources, user_id, tenant_id).await;
+            mark_first_post_posted(&resources, user_id, tenant_id, &lease).await;
         } else {
-            release_first_post(&resources, user_id, tenant_id).await;
+            release_first_post(&resources, user_id, tenant_id, &lease).await;
         }
     }
 
@@ -269,7 +269,7 @@ async fn claim_first_post(
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
-) -> bool {
+) -> Option<String> {
     let now = Utc::now();
     match resources
         .common
@@ -285,14 +285,14 @@ async fn claim_first_post(
         .await
     {
         Ok(claimed) => {
-            if !claimed {
+            if claimed.is_none() {
                 info!(provider, "First post already made or under way; skipping");
             }
             claimed
         }
         Err(e) => {
             warn!(error = %e, "First post: the once-claim failed");
-            false
+            None
         }
     }
 }
@@ -300,7 +300,12 @@ async fn claim_first_post(
 /// Mark the first post made, so its claim is never retaken. A mark that fails
 /// (logged) leaves the claim to be retaken once its lease passes, and the
 /// athlete may then be posted to a second time.
-async fn mark_first_post_posted(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
+async fn mark_first_post_posted(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    lease: &str,
+) {
     if let Err(e) = resources
         .common
         .repos
@@ -309,6 +314,7 @@ async fn mark_first_post_posted(resources: &ServerContext, user_id: Uuid, tenant
             tenant_id,
             user_id,
             PostPurpose::FirstSync.as_str(),
+            lease,
             Utc::now(),
         )
         .await
@@ -319,12 +325,17 @@ async fn mark_first_post_posted(resources: &ServerContext, user_id: Uuid, tenant
 
 /// Release the claim of a first post that ended up posting nothing, so the
 /// next landing tries again.
-async fn release_first_post(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
+async fn release_first_post(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    lease: &str,
+) {
     if let Err(e) = resources
         .common
         .repos
         .platform_post_claims
-        .release_platform_post(tenant_id, user_id, PostPurpose::FirstSync.as_str())
+        .release_platform_post(tenant_id, user_id, PostPurpose::FirstSync.as_str(), lease)
         .await
     {
         warn!(error = %e, "First post: releasing the claim of an unmade post failed");

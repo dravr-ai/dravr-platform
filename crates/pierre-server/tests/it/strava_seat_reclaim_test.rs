@@ -1755,7 +1755,7 @@ mod strava_seat_reclaim_tests {
         let period_ms = i64::try_from(TICK_INTERVAL.as_millis()).unwrap();
         let seeded_last_run = Utc::now().timestamp_millis() - period_ms + 2_000;
         ledger
-            .finish_worker_run(WORKER_NAME, seeded_last_run)
+            .finish_worker_run(WORKER_NAME, seeded_last_run, None)
             .await
             .unwrap();
 

@@ -388,36 +388,53 @@ impl Fixture {
     }
 
     /// The due entries the worker would pick up next, as the repository
-    /// returns them.
+    /// returns them. Reading them is a claim, so each is settled back with
+    /// its own status, attempts and retry time, which releases the claim and
+    /// leaves the entry due for the worker's next pass.
     async fn pending(&self) -> Vec<Value> {
-        self.runtime
-            .repos()
-            .messaging
-            .get_all_pending_outbound(100)
-            .await
-            .unwrap()
+        let messaging = &self.runtime.repos().messaging;
+        let entries = messaging.claim_due_outbound(100, 60_000).await.unwrap();
+        for entry in &entries {
+            assert!(
+                messaging
+                    .update_outbound_status(
+                        entry["id"].as_str().unwrap(),
+                        entry["lease_token"].as_str().unwrap(),
+                        entry["status"].as_str().unwrap(),
+                        i32::try_from(entry["attempt_count"].as_i64().unwrap()).unwrap(),
+                        entry["next_retry_at"].as_str(),
+                    )
+                    .await
+                    .unwrap(),
+                "the peek's own claim settles the entry it read"
+            );
+        }
+        entries
     }
 
     /// Make a retrying entry due now, keeping its status and attempt count,
-    /// in place of waiting out the backoff.
+    /// in place of waiting out the backoff. The entry is not due, so no claim
+    /// can take it: its retry time is moved straight on the pool.
     async fn make_due(&self, entry_id: &str) {
-        let row = self
-            .queue()
-            .await
-            .into_iter()
-            .find(|row| row["id"] == entry_id)
-            .unwrap();
-        self.runtime
-            .repos()
-            .messaging
-            .update_outbound_status(
-                entry_id,
-                row["status"].as_str().unwrap(),
-                i32::try_from(row["attempt_count"].as_i64().unwrap()).unwrap(),
-                Some(&Utc::now().to_rfc3339()),
-            )
-            .await
-            .unwrap();
+        let sql = "UPDATE messaging_outbound_queue SET next_retry_at = $1 WHERE id = $2";
+        let changed = match self.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => sqlx::query(sql)
+                .bind(Utc::now())
+                .bind(entry_id)
+                .execute(sqlite.pool())
+                .await
+                .unwrap()
+                .rows_affected(),
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => sqlx::query(sql)
+                .bind(Utc::now())
+                .bind(entry_id)
+                .execute(pg.pool())
+                .await
+                .unwrap()
+                .rows_affected(),
+        };
+        assert_eq!(changed, 1, "the entry {entry_id} is on the queue");
     }
 
     async fn app_notice_count(&self) -> usize {

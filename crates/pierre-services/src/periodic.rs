@@ -116,12 +116,12 @@ where
             sleep(wait_until_due(name, period, period_ms, ledger.as_ref()).await).await;
 
             let now = now_ms();
-            match ledger
+            let lease = match ledger
                 .claim_worker_run(name, period_ms, now, lease_ms)
                 .await
             {
-                Ok(true) => {}
-                Ok(false) => {
+                Ok(Some(token)) => Some(token),
+                Ok(None) => {
                     debug!(
                         worker = name,
                         "tick not due or held elsewhere; re-reading the ledger"
@@ -133,12 +133,16 @@ where
                     // sweep alive (as before the ledger existed) at the cost
                     // of a possible duplicate pass on another instance.
                     warn!(worker = name, error = %e, "worker ledger claim failed; ticking unclaimed");
+                    None
                 }
-            }
+            };
 
             match AssertUnwindSafe(tick()).catch_unwind().await {
                 Ok(Ok(())) => {
-                    if let Err(e) = ledger.finish_worker_run(name, now_ms()).await {
+                    if let Err(e) = ledger
+                        .finish_worker_run(name, now_ms(), lease.as_deref())
+                        .await
+                    {
                         warn!(worker = name, error = %e, "worker ledger finish failed; the tick will repeat after its lease");
                     }
                     continue;
@@ -154,7 +158,11 @@ where
                 ),
             }
             if let Err(e) = ledger
-                .defer_worker_run(name, now_ms().saturating_add(retry_hold_ms))
+                .defer_worker_run(
+                    name,
+                    now_ms().saturating_add(retry_hold_ms),
+                    lease.as_deref(),
+                )
                 .await
             {
                 warn!(worker = name, error = %e, "worker ledger defer failed; the retry waits out the lease");

@@ -18,6 +18,7 @@ use pierre_auth::config::oauth::OAuthConfig;
 use pierre_auth::config::rate_limit::RateLimitConfig;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_cache::Cache;
 use pierre_config::environment::DEFAULT_WEBSITE_BASE_URL;
 use pierre_config::mcp::AppBehaviorConfig;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -90,6 +91,10 @@ pub struct AdminApiContext {
     /// composition root when Firebase is configured; `None` leaves it there
     /// and the delete reports so).
     pub firebase_identity: Option<Arc<FirebaseIdentityDeleter>>,
+    /// The server's response cache, which a user delete evicts the deleted
+    /// user's entries from (injected by the composition root; `None` leaves
+    /// them to expire with their TTL, and the delete reports so).
+    pub cache: Option<Arc<Cache>>,
     /// Shared coaching harness config registry, mutated by the
     /// `PUT /admin/settings/harness` handler so subsequent chat turns
     /// pick up the new compaction / Tier 6 guardrail values without a
@@ -204,6 +209,7 @@ impl AdminApiContext {
                 &RateLimitConfig::default(),
             )),
             firebase_identity: None,
+            cache: None,
             harness_config_registry: init.harness_config_registry,
             guardian_config_registry: init.guardian_config_registry,
             prompt_registry: init.prompt_registry,

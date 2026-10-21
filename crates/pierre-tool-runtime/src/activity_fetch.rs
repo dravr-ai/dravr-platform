@@ -422,10 +422,10 @@ const STALE_HEAD_REFRESH_DAYS: i64 = 30;
 /// Best-effort. A failed refresh leaves the cached window exactly as it was —
 /// slightly old data beats no data, which is the same posture
 /// [`fetch_provider_activities`] already takes on a provider blip. The read
-/// gets the refresh budget ([`refresh_head_within_budget`]). Returns whether
-/// the head served is behind — stale and not refreshed this turn — so the
-/// caller can say the newest sessions may be missing instead of serving the
-/// window as current.
+/// gets the refresh budget ([`refresh_head_within_budget`]). Returns why the
+/// head served is behind — stale and not refreshed this turn — so the caller
+/// can say the newest sessions may be missing, and why, instead of serving the
+/// window as current; `None` when it is current.
 pub async fn refresh_stale_head(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -433,9 +433,9 @@ pub async fn refresh_stale_head(
     tenant_id: TenantId,
     before: Option<i64>,
     served: &mut Vec<Activity>,
-) -> bool {
+) -> Option<StaleReason> {
     if before_bounds_a_closed_window(before, Utc::now().timestamp()) {
-        return false;
+        return None;
     }
 
     let last_sync = runtime
@@ -447,7 +447,7 @@ pub async fn refresh_stale_head(
 
     let freshness = DataFreshness::from_last_sync(last_sync);
     if matches!(freshness, DataFreshness::Fresh | DataFreshness::Recent) {
-        return false;
+        return None;
     }
     let failure = runtime
         .repos()
@@ -462,7 +462,7 @@ pub async fn refresh_stale_head(
             %retry_at,
             "activity head is stale, but its last refreshes failed; backing off before reading it again"
         );
-        return true;
+        return Some(StaleReason::Backoff);
     }
 
     info!(
@@ -476,11 +476,35 @@ pub async fn refresh_stale_head(
     let Some(live) =
         refresh_head_within_budget(runtime, provider_slug, user_id, tenant_id, budget).await
     else {
-        return true;
+        return Some(StaleReason::Timeout);
     };
 
     merge_live_head(served, live);
-    false
+    None
+}
+
+/// Why a provider's window was served from its cache instead of a live read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaleReason {
+    /// The live read outlived the turn's refresh budget; it finishes in the
+    /// background and writes through for the next turn.
+    Timeout,
+    /// Its recent reads failed, so it is not read again until the backoff ends.
+    Backoff,
+    /// The live read failed.
+    Error,
+}
+
+impl StaleReason {
+    /// The machine-readable `reason` a caveat carries.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Timeout => "timeout",
+            Self::Backoff => "backoff",
+            Self::Error => "error",
+        }
+    }
 }
 
 /// Re-read a provider's recent head — the last [`STALE_HEAD_REFRESH_DAYS`] —
@@ -617,7 +641,7 @@ pub async fn serve_historical_window(
     // The covered gate proves the window is deep enough; it says nothing about
     // whether it is current. Top up the head when the provider may be holding
     // something we have never seen.
-    let head_behind = refresh_stale_head(
+    let behind = refresh_stale_head(
         runtime,
         provider_slug,
         user_id,
@@ -628,7 +652,7 @@ pub async fn serve_historical_window(
     .await;
     HistoricalServe {
         activities: served,
-        head_behind,
+        behind,
     }
 }
 
@@ -636,9 +660,9 @@ pub async fn serve_historical_window(
 pub struct HistoricalServe {
     /// The window, head slice and top-up included.
     pub activities: Vec<Activity>,
-    /// The head is stale and was not refreshed this turn: the newest sessions
-    /// may be missing.
-    pub head_behind: bool,
+    /// Why the head is stale and was not refreshed this turn, so the newest
+    /// sessions may be missing; `None` when it is current.
+    pub behind: Option<StaleReason>,
 }
 
 /// Fetch activities for a single provider connection, authenticating (and

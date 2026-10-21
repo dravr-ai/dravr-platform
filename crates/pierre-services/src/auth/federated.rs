@@ -460,7 +460,7 @@ impl AuthService {
             source = identity.signup_source.as_str(),
             "account created"
         );
-        let self_activates = self.activates_on_verified_email().await;
+        let self_activates = self.activates_on_verified(email).await;
         Self::announce_if_pending(&new_user, tenant_id, self_activates);
 
         Ok(new_user)

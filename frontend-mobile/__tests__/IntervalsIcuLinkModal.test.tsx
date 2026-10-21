@@ -4,11 +4,14 @@
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
 import { IntervalsIcuLinkModal } from '../src/components/IntervalsIcuLinkModal';
-import { oauthApi } from '../src/services/api';
+import { oauthApi, userApi } from '../src/services/api';
 
 jest.mock('../src/services/api', () => ({
   oauthApi: {
     linkIntervalsIcu: jest.fn(),
+  },
+  userApi: {
+    clearImportTombstone: jest.fn(),
   },
 }));
 
@@ -135,5 +138,51 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
     expect(getByTestId('intervals-athlete-id')).toBeTruthy();
     expect(queryByTestId('intervals-back-to-authorize')).toBeNull();
     expect(queryByTestId('intervals-authorize')).toBeNull();
+  });
+
+  it('words a tombstoned account, and starting fresh clears it and links the same pair again', async () => {
+    (oauthApi.linkIntervalsIcu as jest.Mock)
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            code: 'RESOURCE_LOCKED',
+            message: 'The data of this provider account was deleted',
+            details: {
+              error: 'import_tombstoned',
+              tombstone_id: 'tomb-9',
+              kind: 'provider_account',
+              provider: 'intervals_icu',
+              deleted_at: '2026-10-20T08:00:00+00:00',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 'connected',
+        provider: 'intervals_icu',
+        athlete: { id: 'i123456', name: 'Test Athlete' },
+      });
+    (userApi.clearImportTombstone as jest.Mock).mockResolvedValue({ cleared: [], user_status: 'active' });
+    const { getByTestId, getByText, findByText } = render(
+      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} />
+    );
+
+    fireEvent.changeText(getByTestId('intervals-athlete-id'), 'i123456');
+    fireEvent.changeText(getByTestId('intervals-api-key'), 'secret-key');
+    fireEvent.press(getByTestId('intervals-submit'));
+
+    expect(
+      await findByText(
+        'This Intervals.icu account belonged to a Dravr account deleted on Oct 20, 2026. Its data stays deleted until you choose to start fresh with it.'
+      )
+    ).toBeTruthy();
+
+    fireEvent.press(getByTestId('intervals-tombstone-clear'));
+
+    await waitFor(() => expect(getByText('Connected!')).toBeTruthy());
+    expect(userApi.clearImportTombstone).toHaveBeenCalledWith('tomb-9');
+    expect(oauthApi.linkIntervalsIcu).toHaveBeenCalledTimes(2);
+    expect(oauthApi.linkIntervalsIcu).toHaveBeenLastCalledWith({ athlete_id: 'i123456', api_key: 'secret-key' });
   });
 });

@@ -22,6 +22,7 @@ pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 

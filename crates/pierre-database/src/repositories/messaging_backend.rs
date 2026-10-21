@@ -527,38 +527,63 @@ macro_rules! impl_messaging_repository {
                 Ok(())
             }
 
-            async fn get_all_pending_outbound(&self, limit: i64) -> AppResult<Vec<Value>> {
-                let rows = sqlx::query(ALL_PENDING_OUTBOUND_SQL)
-                    .bind(Utc::now())
+            async fn claim_due_outbound(&self, limit: i64, lease_ms: i64) -> AppResult<Vec<Value>> {
+                let now = Utc::now();
+                let token = uuid::Uuid::new_v4().to_string();
+                let rows = sqlx::query(CLAIM_DUE_OUTBOUND_SQL)
+                    .bind(now)
                     .bind(limit)
+                    .bind(&token)
+                    .bind(now.timestamp_millis().saturating_add(lease_ms))
+                    .bind(now.timestamp_millis())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to get all pending outbound: {e}"))
+                        AppError::database(format!("Failed to claim due outbound entries: {e}"))
                     })?;
-                rows.iter().map(outbound_json).collect()
+                let mut entries = rows
+                    .iter()
+                    .map(|row| {
+                        let mut entry = outbound_json(row)?;
+                        entry["lease_token"] = Value::String(token.clone());
+                        Ok(entry)
+                    })
+                    .collect::<AppResult<Vec<Value>>>()?;
+                // RETURNING keeps no order: due first, oldest first, as claimed.
+                entries.sort_by(|a, b| {
+                    let key = |e: &Value| {
+                        (
+                            e["next_retry_at"].as_str().map(str::to_owned),
+                            e["created_at"].as_str().map(str::to_owned),
+                        )
+                    };
+                    key(a).cmp(&key(b))
+                });
+                Ok(entries)
             }
 
             async fn update_outbound_status(
                 &self,
                 id: &str,
+                lease_token: &str,
                 status: &str,
                 attempt_count: i32,
                 next_retry_at: Option<&str>,
-            ) -> AppResult<()> {
+            ) -> AppResult<bool> {
                 let next_retry = next_retry_at.map(instant_from_rfc3339).transpose()?;
-                sqlx::query(UPDATE_OUTBOUND_STATUS_SQL)
+                let done = sqlx::query(UPDATE_OUTBOUND_STATUS_SQL)
                     .bind(status)
                     .bind(attempt_count)
                     .bind(next_retry)
                     .bind(Utc::now())
                     .bind(id)
+                    .bind(lease_token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to update outbound status: {e}"))
                     })?;
-                Ok(())
+                Ok(done.rows_affected() == 1)
             }
 
             // ── Channel Linking ──

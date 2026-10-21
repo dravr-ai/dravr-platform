@@ -118,6 +118,9 @@ mod activity_detail_promotion;
 pub mod data;
 /// Shared vocabulary for the data tools, split out of `data` for the size gate.
 pub mod data_helpers;
+/// A provider read bounded by the refresh budget, with its last-known fallback
+#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+mod last_known;
 
 /// Stored health-data tools: `get_sleep_sessions`, `get_recovery_metrics`,
 /// `get_health_snapshots`, `list_data_sources` (`tools-data` feature).

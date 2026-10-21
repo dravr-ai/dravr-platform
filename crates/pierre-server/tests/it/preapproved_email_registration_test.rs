@@ -22,6 +22,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_test_support::account::delete_account;
 
 use helpers::axum_test::AxumTestRequest;
 use helpers::first_party_sign_in::SignIn;
@@ -179,9 +180,7 @@ async fn an_allow_outliving_its_operator_still_registers_active_unattributed() {
         .await
         .expect("recording the allow must succeed");
 
-    repos
-        .users
-        .delete(operator, None)
+    delete_account(repos, operator, None)
         .await
         .expect("an operator whose only trace is an allow can be deleted");
 

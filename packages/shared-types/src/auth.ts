@@ -50,6 +50,12 @@ export interface User {
    * is where the clients decide between "confirm your email" and "awaiting review".
    */
   email_verified?: boolean;
+  /**
+   * Why a pending account waits, when it is because its email belonged to a
+   * deleted account: the live tombstone it clears to continue. Sent by sign-in
+   * and session refresh for a pending account only; absent otherwise.
+   */
+  email_tombstone?: EmailTombstone;
   /** Subscription tier (always present in user listings) */
   tier: UserTier;
   /** Active tenant identifier for multi-tenant operations */
@@ -152,6 +158,42 @@ export type AccountDeletionRefusal =
   | 'password_incorrect'
   | 'too_many_attempts'
   | 'blocked';
+
+// ========== IMPORT TOMBSTONES ==========
+
+/**
+ * The `details.error` of a refusal naming an identity a deleted account left
+ * behind (a 409 from a provider link), and the OAuth return URL's `error`.
+ */
+export const IMPORT_TOMBSTONED_ERROR = 'import_tombstoned';
+
+/** What an import tombstone names: a provider-side account, or an email. */
+export type ImportTombstoneKind = 'provider_account' | 'email';
+
+/** The live tombstone a deleted account left on the signed-in account's email. */
+export interface EmailTombstone {
+  /** The tombstone `POST /api/user/import-tombstones/clear` clears. */
+  tombstone_id: string;
+  /** When the deleted account's data was deleted (RFC 3339). */
+  deleted_at: string;
+}
+
+/** One tombstone as `POST /api/user/import-tombstones/clear` left it. */
+export interface ClearedImportTombstone {
+  tombstone_id: string;
+  kind: ImportTombstoneKind;
+  provider: string | null;
+  deleted_at: string;
+  cleared_at: string | null;
+}
+
+/** Body of `POST /api/user/import-tombstones/clear`. */
+export interface ClearImportTombstoneResponse {
+  /** Every tombstone cleared; empty when the account's email names none. */
+  cleared: ClearedImportTombstone[];
+  /** The account's status after the admission re-run an email clear triggers. */
+  user_status: UserStatus;
+}
 
 // ========== AUTH RESPONSE TYPES ==========
 

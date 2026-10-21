@@ -38,6 +38,7 @@ use crate::conversions::{
 };
 use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
 use crate::implementations::handler_bridge;
+use crate::implementations::last_known::{self, Fallback};
 use crate::protocol::format::formatted_response;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::types::UniversalResponse;
@@ -206,18 +207,49 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                 }
             };
 
-            handler_bridge::map_universal_response(
-                "get_athlete",
-                fetch_and_cache_athlete(
-                    provider.as_ref(),
-                    cache,
-                    &cache_key,
-                    context.user_id,
-                    tenant_id_str,
-                    output_format,
-                )
-                .await,
+            // Read live within the refresh budget; past it, or on a failure,
+            // the last-known profile stands in with a caveat.
+            let last_known_key = CacheKey::new(
+                tenant_id,
+                context.user_id,
+                provider_name.clone(),
+                CacheResource::LastKnownAthleteProfile,
+            );
+            let read = {
+                let (cache, cache_key, last_known_key) =
+                    (Arc::clone(cache), cache_key.clone(), last_known_key.clone());
+                let (user_id, tenant) = (context.user_id, tenant_id_str.clone());
+                async move {
+                    let keys = [&cache_key, &last_known_key];
+                    fetch_and_cache_athlete(
+                        provider.as_ref(),
+                        &cache,
+                        keys,
+                        user_id,
+                        tenant,
+                        output_format,
+                    )
+                    .await
+                    .unwrap_or_else(|e| last_known::failed_read(&e))
+                }
+            };
+            let fallback = Fallback {
+                key: &last_known_key,
+                backend: &provider_name,
+                what: "profile",
+            };
+            let response = last_known::live_or_last_known(
+                cache,
+                &context.resources.config().timeouts,
+                fallback,
+                read,
+                |athlete| {
+                    let metadata = cached_metadata(context.user_id, tenant_id_str.as_ref());
+                    formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
+                },
             )
+            .await?;
+            handler_bridge::map_universal_response("get_athlete", Ok(response))
         }
         .await;
         tool_result_to_response(result)
@@ -364,19 +396,52 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
                 }
             };
 
-            handler_bridge::map_universal_response(
-                "get_stats",
-                fetch_and_cache_stats(
-                    provider.as_ref(),
-                    cache,
-                    &athlete_cache_key,
-                    tenant_id,
-                    context.user_id,
-                    &provider_name,
-                    output_format,
-                )
-                .await,
+            // Read live within the refresh budget; past it, or on a failure,
+            // the last-known statistics stand in with a caveat.
+            let last_known_key = CacheKey::new(
+                tenant_id,
+                context.user_id,
+                provider_name.clone(),
+                CacheResource::LastKnownStats,
+            );
+            let read = {
+                let (cache, athlete_cache_key, last_known_key) = (
+                    Arc::clone(cache),
+                    athlete_cache_key.clone(),
+                    last_known_key.clone(),
+                );
+                let (user_id, provider_name) = (context.user_id, provider_name.clone());
+                async move {
+                    fetch_and_cache_stats(
+                        provider.as_ref(),
+                        &cache,
+                        [&athlete_cache_key, &last_known_key],
+                        tenant_id,
+                        user_id,
+                        &provider_name,
+                        output_format,
+                    )
+                    .await
+                    .unwrap_or_else(|e| last_known::failed_read(&e))
+                }
+            };
+            let fallback = Fallback {
+                key: &last_known_key,
+                backend: &provider_name,
+                what: "statistics",
+            };
+            let response = last_known::live_or_last_known(
+                cache,
+                &context.resources.config().timeouts,
+                fallback,
+                read,
+                |stats| {
+                    let metadata = create_stats_metadata(context.user_id, tenant_id, true);
+                    formatted_response(&GetStatsResult { stats }, output_format, metadata)
+                },
             )
+            .await?;
+            handler_bridge::map_universal_response("get_stats", Ok(response))
         }
         .await;
         tool_result_to_response(result)
@@ -403,13 +468,7 @@ async fn try_get_cached_athlete(
 ) -> Result<Option<UniversalResponse>, ProtocolError> {
     if let Ok(Some(cached_athlete)) = cache.get::<Athlete>(cache_key).await {
         info!("Cache hit for athlete profile");
-        let mut metadata = HashMap::new();
-        metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
-        metadata.insert(
-            "tenant_id".to_owned(),
-            tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
-        );
-        metadata.insert("cached".to_owned(), Value::Bool(true));
+        let metadata = cached_metadata(user_uuid, tenant_id);
 
         let payload = GetAthleteResult {
             athlete: cached_athlete,
@@ -418,6 +477,18 @@ async fn try_get_cached_athlete(
     }
     info!("Cache miss for athlete profile");
     Ok(None)
+}
+
+/// Response metadata for a profile served from a cache.
+fn cached_metadata(user_uuid: Uuid, tenant_id: Option<&String>) -> HashMap<String, Value> {
+    let mut metadata = HashMap::new();
+    metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
+    metadata.insert(
+        "tenant_id".to_owned(),
+        tenant_id.map_or(Value::Null, |id| Value::String(id.clone())),
+    );
+    metadata.insert("cached".to_owned(), Value::Bool(true));
+    metadata
 }
 
 /// Cache athlete profile after fetching from API
@@ -431,10 +502,12 @@ async fn cache_athlete_result(cache: &Arc<Cache>, cache_key: &CacheKey, athlete:
 }
 
 /// Fetch athlete from API and cache result
+///
+/// `keys` are the 24 h entry and the last-known copy, both written on success.
 async fn fetch_and_cache_athlete(
     provider: &dyn FitnessProvider,
     cache: &Arc<Cache>,
-    cache_key: &CacheKey,
+    [cache_key, last_known_key]: [&CacheKey; 2],
     user_uuid: Uuid,
     tenant_id: Option<String>,
     output_format: OutputFormat,
@@ -442,6 +515,7 @@ async fn fetch_and_cache_athlete(
     match provider.get_athlete().await {
         Ok(athlete) => {
             cache_athlete_result(cache, cache_key, &athlete).await;
+            last_known::remember(cache, last_known_key, &athlete).await;
 
             let mut metadata = HashMap::new();
             metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
@@ -453,12 +527,10 @@ async fn fetch_and_cache_athlete(
 
             formatted_response(&GetAthleteResult { athlete }, output_format, metadata)
         }
-        Err(e) => Ok(UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Failed to fetch athlete profile: {e}")),
-            metadata: None,
-        }),
+        Err(e) => Ok(last_known::provider_failure(
+            "Failed to fetch athlete profile",
+            &e,
+        )),
     }
 }
 
@@ -572,10 +644,12 @@ async fn cache_athlete_and_stats(
 }
 
 /// Fetch stats from API and cache both athlete and stats
+///
+/// `keys` are the athlete's 24 h entry and the stats' last-known copy.
 async fn fetch_and_cache_stats(
     provider: &dyn FitnessProvider,
     cache: &Arc<Cache>,
-    athlete_cache_key: &CacheKey,
+    [athlete_cache_key, last_known_key]: [&CacheKey; 2],
     tenant_id: TenantId,
     user_uuid: Uuid,
     provider_name: &str,
@@ -583,15 +657,10 @@ async fn fetch_and_cache_stats(
 ) -> Result<UniversalResponse, ProtocolError> {
     let stats = match provider.get_stats().await {
         Ok(stats) => stats,
-        Err(e) => {
-            return Ok(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Failed to fetch stats: {e}")),
-                metadata: None,
-            });
-        }
+        Err(e) => return Ok(last_known::provider_failure("Failed to fetch stats", &e)),
     };
+
+    last_known::remember(cache, last_known_key, &stats).await;
 
     // Get athlete to extract athlete_id for caching
     if let Ok(athlete) = provider.get_athlete().await {

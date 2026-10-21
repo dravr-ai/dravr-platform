@@ -7,7 +7,7 @@
 //! Firebase identities still to delete (carnet#798).
 //!
 //! The account delete writes the account's Firebase uid here in its own
-//! transaction (see `delete_user_completely`), so the identity is never lost
+//! transaction (see `clear_user_in_transaction`), so the identity is never lost
 //! between the commit and the call to Google. The post-commit attempt and the
 //! sweep remove the row once Firebase confirms, and record each failure with
 //! the time of the next attempt.

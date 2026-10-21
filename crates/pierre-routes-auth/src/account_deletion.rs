@@ -9,12 +9,13 @@
 //! The athlete deletes their own account from the privacy pane on web and
 //! mobile (App Store guideline 5.1.1(v) requires the in-app path). This is
 //! the same removal an operator runs ([`user_removal::remove_user`]), so a
-//! self-serve delete disconnects every provider through the disconnect
-//! chokepoint — the grant is revoked at the provider and every row the
-//! provider contributed is purged — then deletes the account in one
-//! transaction that clears every row the user owns and refuses to commit
-//! while one survives. Session refresh tokens, device tokens, messaging
-//! sessions and channel links, and coaching-group memberships go with it.
+//! self-serve delete withdraws every provider's grant upstream first, then
+//! deletes in one transaction every row each provider contributed and every
+//! row the user owns, refusing to commit while one survives. Session refresh
+//! tokens, device tokens, messaging sessions and channel links, and
+//! coaching-group memberships go with it. The same transaction tombstones
+//! the account's provider accounts and email and appends a hash-chained
+//! deletion receipt, whose id and hash the answer carries.
 //!
 //! The request must come from a signed-in session (never an API key or a
 //! messaging channel link), name the account's email as a deliberate
@@ -47,8 +48,8 @@ use pierre_auth::security::cookies::clear_auth_cookie;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{normalize_email, User, UserReference, FEDERATED_ONLY_PASSWORD_HASH};
 use pierre_core::permissions::UserRole;
+use pierre_database::repositories::DeletionActor;
 use pierre_services::oauth_flow::OAuthService;
-use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::{self, UserRemoval};
 
 use crate::password_attempts::meter_password_attempt;
@@ -246,8 +247,9 @@ pub async fn handle_delete_account(
         &resources.repos,
         Some(&oauth_service),
         firebase.as_ref(),
+        Some(resources.cache.as_ref()),
         user_id,
-        DisconnectReason::Athlete,
+        DeletionActor::Athlete,
     )
     .await?;
 
@@ -299,6 +301,11 @@ pub async fn handle_delete_account(
         Json(json!({
             "message": "Your account and its data were deleted",
             "disconnected_providers": disconnected,
+            "receipt": {
+                "id": report.ledger.receipt_id,
+                "seq": report.ledger.receipt_seq,
+                "hash": report.ledger.receipt_hash,
+            },
         })),
     )
         .into_response())

@@ -214,12 +214,19 @@ fn card_says_why_rather_than_shipping_a_bare_tsb_without_a_chronic_base() {
 // The elite fixture — the Raph case, in the shape the plan specified
 // ============================================================================
 
+/// Days in the elite block. cageux seeds CTL and ATL at the history's mean
+/// daily TSS over its opening window, so a constant daily load L reads
+/// CTL = ATL = L from the first day and form 0% of CTL (balanced). From a
+/// zero seed the same 60 days read CTL L(1 − (41/42)^60), 76% of ATL, form
+/// −31%: the deep fatigue this athlete was told they had.
+const ELITE_BLOCK_DAYS: i64 = 60;
+
 /// 60 days at ~95 TSS/day with an empty physiological profile: no FTP, no
 /// LTHR, no max/resting HR, no weight. This is the athlete whose absolute TSB
 /// used to read as an emergency.
 fn elite_block_activities() -> Vec<Activity> {
-    let start = Utc::now() - Duration::days(60);
-    (0..60)
+    let start = Utc::now() - Duration::days(ELITE_BLOCK_DAYS);
+    (0..ELITE_BLOCK_DAYS)
         .map(|day| {
             ActivityBuilder::new(
                 format!("elite_{day}"),
@@ -296,6 +303,11 @@ fn deep_fatigue_is_the_only_band_that_prescribes_rest() {
 // Form is yesterday's balance (Coggan / TrainingPeaks, carnet#601)
 // ============================================================================
 
+/// Days of riding before today. cageux seeds CTL and ATL at the history's
+/// mean daily TSS over its opening window, so a constant load reads itself at
+/// any length; 100 days is the worked example's.
+const DAILY_RIDER_DAYS: i64 = 100;
+
 /// A daily rider: exactly 100 TSS at 06:00 UTC on each of the 100 days before
 /// today, plus today's ride when it has landed.
 fn daily_rider(todays_ride_landed: bool) -> Vec<Activity> {
@@ -305,7 +317,7 @@ fn daily_rider(todays_ride_landed: bool) -> Vec<Activity> {
         .unwrap()
         .and_utc();
     let first = i64::from(!todays_ride_landed);
-    (first..=100)
+    (first..=DAILY_RIDER_DAYS)
         .map(|days_ago| {
             ActivityBuilder::new(
                 format!("daily_{days_ago}"),
@@ -335,10 +347,34 @@ fn load_payload(activities: &[Activity]) -> serde_json::Value {
     .expect("the load payload serializes")
 }
 
+/// The worked example, Coggan's 1/N gain seeded at the history's mean daily
+/// TSS over its opening window: 100 TSS a day for 100 days, `(CTL, ATL)` at
+/// the end of yesterday and at noon today (one more day decayed through a
+/// rest day that has not happened), and at the end of today once the ride
+/// lands. Both seeds are 100 and `100 + (100 - 100) / N` leaves them there.
+fn daily_rider_worked_example() -> [Loads; 3] {
+    let steady = Loads {
+        ctl: 100.0,
+        atl: 100.0,
+    };
+    let noon = Loads {
+        ctl: steady.ctl * 41.0 / 42.0,
+        atl: steady.atl * 6.0 / 7.0,
+    };
+    [steady, noon, steady]
+}
+
+/// One day's chronic and acute load.
+#[derive(Clone, Copy)]
+struct Loads {
+    ctl: f64,
+    atl: f64,
+}
+
 /// Asked at noon, before today's ride, the agent hears last night's form. The
-/// worked example: yesterday ended at CTL 99.15 / ATL 100.00, so form is
-/// -0.85, -0.86% of CTL, balanced. Today's own CTL and ATL, decayed through a
-/// rest day that has not happened, read +19.5 (+20.7%): detraining.
+/// worked example: yesterday ended at CTL 100 / ATL 100, so form is 0, 0% of
+/// CTL, balanced. Today's own CTL and ATL, decayed through a rest day that has
+/// not happened, read 97.62 / 85.71: +11.90 (+12.20%), fresh.
 #[test]
 fn a_daily_rider_asked_at_noon_hears_last_nights_form() {
     let activities = daily_rider(false);
@@ -357,13 +393,28 @@ fn a_daily_rider_asked_at_noon_hears_last_nights_form() {
     );
     assert_eq!(metrics["form_ctl"].as_f64(), Some(evening.ctl.round()));
 
-    // The worked example, rounded as the payload rounds it.
-    assert_eq!(metrics["ctl"].as_f64(), Some(95.0), "{payload}");
-    assert_eq!(metrics["atl"].as_f64(), Some(75.0), "{payload}");
-    assert_eq!(metrics["form_ctl"].as_f64(), Some(99.0), "{payload}");
-    assert_eq!(metrics["tsb"].as_f64(), Some(-1.0), "{payload}");
-    assert_eq!(metrics["tsb_pct_of_ctl"].as_f64(), Some(-1.0), "{payload}");
+    // The worked example, rounded as the payload rounds it: CTL 98 / ATL 86
+    // at noon, form 0 on CTL 100 (0%).
+    let [yesterday, noon, _] = daily_rider_worked_example();
+    let form_ctl = yesterday.ctl;
+    let tsb = yesterday.ctl - yesterday.atl;
+    assert_eq!(metrics["ctl"].as_f64(), Some(noon.ctl.round()), "{payload}");
+    assert_eq!(metrics["atl"].as_f64(), Some(noon.atl.round()), "{payload}");
+    assert_eq!(
+        metrics["form_ctl"].as_f64(),
+        Some(form_ctl.round()),
+        "{payload}"
+    );
+    assert_eq!(metrics["tsb"].as_f64(), Some(tsb.round()), "{payload}");
+    assert_eq!(
+        metrics["tsb_pct_of_ctl"].as_f64(),
+        Some((tsb / form_ctl * 100.0).round()),
+        "{payload}"
+    );
     assert_eq!(payload["form_band"], "balanced", "{payload}");
+    // The same-day reading this replaced would have banded the rider fresh.
+    let same_day_pct = (noon.ctl - noon.atl) / noon.ctl * 100.0;
+    assert!((5.0..=20.0).contains(&same_day_pct), "{same_day_pct}");
 }
 
 /// The ride landing moves the day's fitness and fatigue, never its form: the
@@ -374,10 +425,20 @@ fn todays_ride_moves_fitness_and_fatigue_but_not_the_agents_form_reading() {
     let evening = load_payload(&daily_rider(true));
     let (noon_m, evening_m) = (&noon["load_metrics"], &evening["load_metrics"]);
 
-    assert_eq!(noon_m["ctl"].as_f64(), Some(95.0), "{noon}");
-    assert_eq!(evening_m["ctl"].as_f64(), Some(99.0), "{evening}");
-    assert_eq!(noon_m["atl"].as_f64(), Some(75.0), "{noon}");
-    assert_eq!(evening_m["atl"].as_f64(), Some(100.0), "{evening}");
+    // Noon CTL 97.62 / ATL 85.71; evening CTL 100 / ATL 100.
+    let [_, at_noon, at_evening] = daily_rider_worked_example();
+    assert_eq!(noon_m["ctl"].as_f64(), Some(at_noon.ctl.round()), "{noon}");
+    assert_eq!(
+        evening_m["ctl"].as_f64(),
+        Some(at_evening.ctl.round()),
+        "{evening}"
+    );
+    assert_eq!(noon_m["atl"].as_f64(), Some(at_noon.atl.round()), "{noon}");
+    assert_eq!(
+        evening_m["atl"].as_f64(),
+        Some(at_evening.atl.round()),
+        "{evening}"
+    );
 
     for key in ["tsb", "form_ctl", "tsb_pct_of_ctl"] {
         assert_eq!(noon_m[key], evening_m[key], "{key} moved with today's ride");

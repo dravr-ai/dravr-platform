@@ -146,6 +146,8 @@ pub const KEY_HOSTED_INTERVALS_REJECTED: &str = "hosted.intervals.rejected";
 pub const KEY_HOSTED_INTERVALS_UNAVAILABLE: &str = "hosted.intervals.unavailable";
 /// Key: "We could not save your Intervals.icu connection. Please try again in a moment." No format placeholders.
 pub const KEY_HOSTED_INTERVALS_SAVE_FAILED: &str = "hosted.intervals.saveFailed";
+/// Key: "This Intervals.icu account belonged to a deleted Dravr account. Start fresh with it from the Dravr app before connecting it here." No format placeholders.
+pub const KEY_HOSTED_INTERVALS_TOMBSTONED: &str = "hosted.intervals.tombstoned";
 /// Key: "You sign in on Intervals.icu and approve Dravr there — Dravr never sees your password." No format placeholders.
 pub const KEY_HOSTED_INTERVALS_AUTHORIZE_NOTE: &str = "hosted.intervals.authorizeNote";
 /// Key: "Human coaches link with their API key, so Dravr can read the athletes they train." No format placeholders.
@@ -220,7 +222,7 @@ pub const KEY_SCIOTTE_CODE_REJECTED: &str = "shell.sciotteCodeRejected";
 
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 67] = [
+pub const TEMPLATE_KEYS: [&str; 68] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -266,6 +268,7 @@ pub const TEMPLATE_KEYS: [&str; 67] = [
     KEY_HOSTED_INTERVALS_REJECTED,
     KEY_HOSTED_INTERVALS_UNAVAILABLE,
     KEY_HOSTED_INTERVALS_SAVE_FAILED,
+    KEY_HOSTED_INTERVALS_TOMBSTONED,
     KEY_HOSTED_INTERVALS_AUTHORIZE_NOTE,
     KEY_HOSTED_INTERVALS_COACH_NOTE,
     KEY_HOSTED_SUCCESS_PAGE_TITLE,

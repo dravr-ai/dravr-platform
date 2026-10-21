@@ -212,6 +212,12 @@ enum Command {
         #[command(subcommand)]
         action: commands::provider_data::ProviderCommand,
     },
+
+    /// The account-deletion ledger on a remote server: verify the receipt chain, clear tombstones
+    Deletion {
+        #[command(subcommand)]
+        action: commands::deletion::DeletionCommand,
+    },
 }
 
 #[non_exhaustive]
@@ -831,6 +837,10 @@ async fn main() -> Result<()> {
     if let Command::Provider { action } = cli.command {
         return commands::provider_data::dispatch(action).await;
     }
+    // `deletion` reads and clears the deletion ledger over the admin API.
+    if let Command::Deletion { action } = cli.command {
+        return commands::deletion::dispatch(action).await;
+    }
 
     // `harness grading-score` reads a key and graded sheets from disk: it
     // needs neither a database nor the encryption key, and is usually run
@@ -933,6 +943,9 @@ async fn main() -> Result<()> {
         }
         Command::Provider { .. } => {
             unreachable!("Provider is handled in the early return above")
+        }
+        Command::Deletion { .. } => {
+            unreachable!("Deletion is handled in the early return above")
         }
         Command::User { action } => match action {
             UserCommand::Create {

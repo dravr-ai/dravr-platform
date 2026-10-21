@@ -7,6 +7,7 @@
 import type { AxiosInstance } from 'axios';
 import type {
   AccountDeletionPreview,
+  ClearImportTombstoneResponse,
   CoachAccessRequestResponse,
   CoachingPersona,
   DeleteAccountRequest,
@@ -209,6 +210,23 @@ export function createUserApi(axios: AxiosInstance) {
       const response = await axios.post<DeleteAccountResponse>(
         ENDPOINTS.USER.ACCOUNT_DELETION,
         request
+      );
+      return response.data;
+    },
+
+    // ==================== IMPORT TOMBSTONES ====================
+
+    /**
+     * Start fresh with an identity a deleted account left behind: clear the
+     * tombstone a refusal named (`tombstoneId`), or, without one, the one
+     * naming the signed-in account's own email. Clearing an email tombstone
+     * re-runs admission, so `user_status` may come back `active`. An email
+     * tombstone is refused (400) until the address is confirmed.
+     */
+    async clearImportTombstone(tombstoneId?: string): Promise<ClearImportTombstoneResponse> {
+      const response = await axios.post<ClearImportTombstoneResponse>(
+        ENDPOINTS.USER.IMPORT_TOMBSTONES_CLEAR,
+        tombstoneId ? { tombstone_id: tombstoneId } : {}
       );
       return response.data;
     },

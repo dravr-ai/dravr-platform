@@ -98,6 +98,8 @@ pub mod reauth_retry;
 /// The served-without-a-provider signal and its per-turn store.
 pub mod reconnect;
 pub mod registry;
+/// Fits a tool reply under the token budget MCP clients enforce
+mod reply_budget;
 /// The note on a result whose caller writes the reply Dravr does not check.
 mod reply_check;
 /// Single-flight slots for background activity-cache revalidations.

@@ -37,8 +37,8 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::errors::AppError;
 use pierre_core::models::{normalize_email, UserReference, UserReferenceKind};
 use pierre_core::permissions::UserRole;
+use pierre_database::repositories::DeletionActor;
 use pierre_services::oauth_flow::OAuthService;
-use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::{self, UserRemoval};
 use std::collections::BTreeSet;
 use tracing::{info, warn};
@@ -155,8 +155,9 @@ impl CommandHandler for DeleteAccountHandler {
             repos,
             Some(&disconnector),
             firebase.as_ref(),
+            Some(runtime.data().cache().as_ref()),
             user.id,
-            DisconnectReason::Athlete,
+            DeletionActor::Messaging,
         )
         .await?;
         let text = match outcome {

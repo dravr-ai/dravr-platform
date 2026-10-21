@@ -36,7 +36,7 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConversationTurnId, Pillar, TenantId};
 use pierre_database::repositories::{
-    HarnessMemoryRepository, MemoryExtractionJobRepository, MemoryExtractionJobRow,
+    HarnessMemoryRepository, JobLease, MemoryExtractionJobRepository, MemoryExtractionJobRow,
     MergeUserFactParams, UpsertUserFactParams,
 };
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
@@ -945,7 +945,7 @@ pub async fn run_extraction_job(
 async fn record_extraction_job(
     jobs: &dyn MemoryExtractionJobRepository,
     req: &SpawnedExtractionRequest,
-) -> Option<String> {
+) -> Option<JobLease> {
     let payload = match serde_json::to_string(&req.payload) {
         Ok(json) => json,
         Err(e) => {
@@ -963,9 +963,13 @@ async fn record_extraction_job(
         created_at_ms: now,
         leased_until_ms: now.saturating_add(lease_ms),
         attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     match jobs.record_extraction_job(&row).await {
-        Ok(()) => Some(row.id),
+        Ok(()) => Some(JobLease {
+            token: row.lease_token.unwrap_or_default(),
+            id: row.id,
+        }),
         Err(e) => {
             warn!(error = %e, "extraction job could not be recorded; running it unrecorded");
             None
@@ -991,40 +995,47 @@ impl Drop for LeaseRenewal {
     }
 }
 
-/// Renew `job_id`'s lease every [`EXTRACTION_LEASE_RENEWAL`] until the guard
-/// drops. A refused renewal means the row is gone or another runner leased it
-/// past this one: the renewals stop and the run finishes.
+/// Renew `lease` every [`EXTRACTION_LEASE_RENEWAL`] until the guard drops. A
+/// refused renewal means the row is gone or another claim took it: the
+/// renewals stop and the run finishes.
 pub(crate) fn keep_extraction_lease(
     jobs: Arc<dyn MemoryExtractionJobRepository>,
-    job_id: Option<String>,
+    lease: Option<JobLease>,
 ) -> Option<LeaseRenewal> {
-    let job_id = job_id?;
+    let lease = lease?;
     Some(LeaseRenewal(tokio::spawn(async move {
         let lease_ms = i64::try_from(EXTRACTION_JOB_LEASE.as_millis()).unwrap_or(i64::MAX);
         loop {
             sleep(EXTRACTION_LEASE_RENEWAL).await;
             let until = Utc::now().timestamp_millis().saturating_add(lease_ms);
-            match jobs.renew_extraction_job_lease(&job_id, until).await {
+            match jobs.renew_extraction_job_lease(&lease, until).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    warn!(job_id = %job_id, "extraction job is no longer this runner's; letting the run finish");
+                    warn!(job_id = %lease.id, "extraction job is no longer this runner's; letting the run finish");
                     return;
                 }
                 Err(e) => {
-                    warn!(job_id = %job_id, error = %e, "extraction job lease could not be renewed");
+                    warn!(job_id = %lease.id, error = %e, "extraction job lease could not be renewed");
                 }
             }
         }
     })))
 }
 
-/// Delete the job row once nothing is owed on it any more.
-async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, job_id: Option<&str>) {
-    let Some(id) = job_id else {
+/// Delete the job row once nothing is owed on it any more, if this run's
+/// lease still holds it; a claim that took it over finishes it instead.
+async fn finish_extraction_job(jobs: &dyn MemoryExtractionJobRepository, lease: Option<&JobLease>) {
+    let Some(lease) = lease else {
         return;
     };
-    if let Err(e) = jobs.finish_extraction_job(id).await {
-        warn!(error = %e, job_id = id, "extraction job could not be finished; the sweep will re-run it after its lease");
+    match jobs.finish_extraction_job(lease).await {
+        Ok(true) => {}
+        Ok(false) => {
+            info!(job_id = %lease.id, "extraction job was claimed by another run; leaving it to that run");
+        }
+        Err(e) => {
+            warn!(error = %e, job_id = %lease.id, "extraction job could not be finished; the sweep will re-run it after its lease");
+        }
     }
 }
 
@@ -1071,7 +1082,7 @@ pub async fn spawn_extract_for_turn(
         // `copilot --acp` subprocess per extraction.
         let Some(provider) = &chat_provider else {
             debug!("memory extraction skipped: no chat_provider singleton wired");
-            finish_extraction_job(jobs.as_ref(), job_id.as_deref()).await;
+            finish_extraction_job(jobs.as_ref(), job_id.as_ref()).await;
             return;
         };
         // The row stays leased exactly as long as the run is alive.
@@ -1087,10 +1098,10 @@ pub async fn spawn_extract_for_turn(
         .await;
         drop(renewal);
         match run {
-            Ok(()) => finish_extraction_job(jobs.as_ref(), job_id.as_deref()).await,
+            Ok(()) => finish_extraction_job(jobs.as_ref(), job_id.as_ref()).await,
             Err(e) => error!(
                 error = %e,
-                job_id = job_id.as_deref().unwrap_or("unrecorded"),
+                job_id = job_id.as_ref().map_or("unrecorded", |lease| lease.id.as_str()),
                 "background memory extraction failed; its job row waits for the resume sweep"
             ),
         }

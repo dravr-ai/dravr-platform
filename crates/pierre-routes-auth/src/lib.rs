@@ -79,6 +79,7 @@ mod email_verification;
 mod first_sync;
 #[cfg(feature = "provider-sciotte")]
 mod hosted_page;
+mod import_tombstones;
 mod intervals_icu;
 mod invitation;
 mod login;
@@ -304,6 +305,12 @@ impl AuthRoutes {
                 "/api/user/account-deletion",
                 get(account_deletion::handle_account_deletion_preview)
                     .post(account_deletion::handle_delete_account),
+            )
+            // The explicit clear of what a deleted account left on an
+            // identity this account now holds; a Pending account reaches it.
+            .route(
+                "/api/user/import-tombstones/clear",
+                post(import_tombstones::handle_clear_import_tombstone),
             )
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))

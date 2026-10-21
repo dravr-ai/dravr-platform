@@ -1407,8 +1407,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.31.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.31.0#18372b0482f30517eeb83760be4b971eb920bdcd"
+version = "0.33.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.33.0#9781be9b5d768350413255d25e1e0f2bd327c456"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1477,8 +1477,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=560b004765f
 
 [[package]]
 name = "dravr-enforme"
-version = "0.11.5"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.11.5#864c72e4b404f82b436833fb56c84064c12b7cfc"
+version = "0.12.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.12.0#d26aacb3575a81af805400d0e9c2783a812d40eb"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1542,8 +1542,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.26.4"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.26.4#c2e317126903856acc658a7a135083a3d4823ccc"
+version = "0.27.1"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.27.1#70e7521770f9616b2566e28d17abcd550d9b87ae"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1567,8 +1567,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-stripe"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.8.0#6661d11a52c76ac4ff1ff5291b0ad114edd0b896"
+version = "0.10.0"
+source = "git+https://github.com/dravr-ai/dravr-stripe.git?tag=v0.10.0#88380345742e03fdfff629467438ac53061c2a2d"
 dependencies = [
  "chrono",
  "dravr-tronc",
@@ -1585,9 +1585,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "5.2.0"
+version = "6.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbcd33e9d842830ffd73dd83fd2d9146c9ef51518625bde3c8f8d623616fbe41"
+checksum = "96a78db419ca6940eab5809d1616df9e30a6fd9175db3069ccdaee154442cdc6"
 dependencies = [
  "async-trait",
  "axum",
@@ -1704,9 +1704,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ea2749f4a6b70831835cc4016238fb83e93294e173468ac951e186433536adc"
+checksum = "8eb3b67b25ff64ca5f974eaaaf858d9f50b488bedca0c5db0a6ee53d9fe6d16e"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1727,9 +1727,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.38.0"
+version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba5a1bdfe4c67744931aafde2b1e8214990c6e24406a838bdd3e5574042e3fa9"
+checksum = "01e6eb2bcb4d4e97ec6d33ad5c28235233e7b0a87720190ab2f398f8d564d181"
 dependencies = [
  "async-trait",
  "axum",
@@ -2518,7 +2518,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4241,6 +4241,7 @@ dependencies = [
  "bcrypt",
  "chrono",
  "pierre-auth",
+ "pierre-cache",
  "pierre-config",
  "pierre-contremaitre",
  "pierre-core",
@@ -4934,7 +4935,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4972,7 +4973,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -7287,7 +7288,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

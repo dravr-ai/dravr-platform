@@ -29,7 +29,9 @@ use pierre_formatters::{format_output, OutputFormat};
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
+use tracing::warn;
 
+use crate::reply_budget;
 use crate::schema_canonical::to_canonical_value;
 
 /// Assemble a tronc [`Tool`] definition from the platform's typed pieces.
@@ -363,16 +365,27 @@ pub const RAISED_ERROR_CODE_KEY: &str = "__error_code";
 #[must_use]
 pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
     match result {
-        Ok(tool_result) => ToolResponse {
-            content: vec![Content::text(tool_result.content.to_string())],
-            is_error: tool_result.is_error,
-            structured_content: Some(tool_result.content),
-        },
+        Ok(tool_result) => {
+            let content = reply_budget::fit_reply(tool_result.content);
+            ToolResponse {
+                content: vec![Content::text(content.to_string())],
+                is_error: tool_result.is_error,
+                structured_content: Some(content),
+            }
+        }
         Err(error) => {
+            // What a client reads is the tool message: a database or internal
+            // failure's own text (SQL, constraint names, paths) stays in the
+            // server log. Validation, rate-limit, refusal and not-found
+            // messages pass through.
+            if error.is_server_fault() {
+                warn!(error = %error.internal_details(), "tool failed");
+            }
+            let message = error.tool_message();
             let mut structured = serde_json::Map::new();
             structured.insert(
                 "error".to_owned(),
-                serde_json::Value::String(error.to_string()),
+                serde_json::Value::String(message.clone()),
             );
             structured.insert(
                 RAISED_ERROR_CODE_KEY.to_owned(),
@@ -389,7 +402,7 @@ pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
                 structured.insert("provider".to_owned(), serde_json::Value::String(provider));
             }
             ToolResponse {
-                content: vec![Content::text(error.to_string())],
+                content: vec![Content::text(message)],
                 is_error: true,
                 structured_content: Some(serde_json::Value::Object(structured)),
             }

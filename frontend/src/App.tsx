@@ -29,13 +29,19 @@ import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
 import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
+import { importTombstoneFromReturn, type ImportTombstoneRefusal } from '@pierre/ui-logic';
 import { queryClient } from './services/queryClient';
 import './App.css';
 
 /**
  * Check if the current URL has OAuth callback parameters
  */
-function getOAuthCallbackParams(): { provider: string; success: boolean; error?: string } | null {
+function getOAuthCallbackParams(): {
+  provider: string;
+  success: boolean;
+  error?: string;
+  tombstone?: ImportTombstoneRefusal;
+} | null {
   const urlParams = new URLSearchParams(window.location.search);
   const provider = urlParams.get('provider');
   const success = urlParams.get('success');
@@ -45,6 +51,7 @@ function getOAuthCallbackParams(): { provider: string; success: boolean; error?:
       provider,
       success: success === 'true',
       error: urlParams.get('error') || undefined,
+      tombstone: importTombstoneFromReturn((name) => urlParams.get(name)),
     };
   }
   return null;
@@ -89,7 +96,7 @@ function AppContent() {
   const [authView, setAuthView] = useState<AuthView>(() => (isRegisterPath() ? 'register' : 'login'));
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
   const [resetEmail, setResetEmail] = useState<string>('');
-  const [oauthCallback, setOauthCallback] = useState<{ provider: string; success: boolean; error?: string } | null>(null);
+  const [oauthCallback, setOauthCallback] = useState<ReturnType<typeof getOAuthCallbackParams>>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const [verifyEmailStatus, setVerifyEmailStatus] = useState<VerifyEmailStatus | null>(() =>
     isVerifyEmailPath() ? parseVerifyStatus(window.location.search) : null,
@@ -245,6 +252,7 @@ function AppContent() {
         provider={oauthCallback.provider}
         success={oauthCallback.success}
         error={oauthCallback.error}
+        tombstone={oauthCallback.tombstone}
         onClose={() => {
           // Dispatch event for ChatTab to detect OAuth completion
           window.postMessage({

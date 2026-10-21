@@ -32,6 +32,7 @@ use dravr_tronc::notifications::{
     SlackConfig,
 };
 use dravr_tronc::notify::{AnalyticsProvider, NotifyActions, NotifyEnricher, NotifyLayer};
+use dravr_tronc::secrets::{self, RedactingMakeWriter};
 use dravr_tronc::server::log_ceiling::{LevelCeilings, TargetCeiling};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
@@ -456,6 +457,9 @@ impl LoggingConfig {
     ///
     /// Returns an error if the tracing subscriber fails to initialize
     pub fn init(&self) -> AppResult<()> {
+        // Every sink below masks these values: the formatter through its
+        // writer, the Slack, email and PostHog layers inside tronc.
+        secrets::register_env();
         // Create environment filter that always applies our noise reduction rules
         let env_filter = env::var("RUST_LOG")
             .map_or_else(
@@ -557,7 +561,7 @@ impl LoggingConfig {
                     .with_thread_ids(self.output.thread)
                     .with_thread_names(self.output.thread)
                     .with_target(true)
-                    .with_writer(io::stdout)
+                    .with_writer(RedactingMakeWriter::new(io::stdout))
                     .with_span_events(if self.output.spans {
                         FmtSpan::NEW | FmtSpan::CLOSE
                     } else {
@@ -583,7 +587,7 @@ impl LoggingConfig {
                     .with_thread_ids(self.output.thread)
                     .with_thread_names(self.output.thread)
                     .with_target(true)
-                    .with_writer(io::stdout)
+                    .with_writer(RedactingMakeWriter::new(io::stdout))
                     .with_span_events(if self.output.spans {
                         FmtSpan::NEW | FmtSpan::CLOSE
                     } else {
@@ -609,7 +613,7 @@ impl LoggingConfig {
                     .with_thread_ids(false)
                     .with_thread_names(false)
                     .with_target(false)
-                    .with_writer(io::stdout)
+                    .with_writer(RedactingMakeWriter::new(io::stdout))
                     .with_span_events(FmtSpan::NONE)
                     .with_filter(chromiumoxide_teardown_filter());
 
@@ -625,7 +629,7 @@ impl LoggingConfig {
             }
             LogFormat::Gcp => {
                 let gcp_layer = fmt::layer()
-                    .with_writer(io::stdout)
+                    .with_writer(RedactingMakeWriter::new(io::stdout))
                     .event_format(GcpFormatter::new(
                         &self.service_name,
                         &self.service_version,

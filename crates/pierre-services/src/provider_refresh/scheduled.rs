@@ -234,9 +234,9 @@ async fn sync_delegated_member(
 ) {
     let ledger = storage.worker_runs();
     let name = format!("delegated wellness {}", link.id);
-    if !claim_delegated_sync(ledger, link, &name, now_ms).await {
+    let Some(lease) = claim_delegated_sync(ledger, link, &name, now_ms).await else {
         return;
-    }
+    };
     let member = link.member_user_id;
     let member_id = member.to_string();
     let sync = delegated_sync_scope(
@@ -256,10 +256,14 @@ async fn sync_delegated_member(
         |synced| delegated_sync_landed(link, &synced),
     );
     let recorded = if landed {
-        ledger.finish_worker_run(&name, now_ms).await
+        ledger.finish_worker_run(&name, now_ms, Some(&lease)).await
     } else {
         ledger
-            .defer_worker_run(&name, now_ms + millis(DELEGATED_WELLNESS_PERIOD))
+            .defer_worker_run(
+                &name,
+                now_ms + millis(DELEGATED_WELLNESS_PERIOD),
+                Some(&lease),
+            )
             .await
     };
     if let Err(e) = recorded {
@@ -306,13 +310,14 @@ fn delegated_sync_landed(link: &DelegatedConnection, synced: &EnformeResult<Sync
 }
 
 /// Take `link`'s sync, ledgered as `name`, when it is due at `now_ms` and no
-/// instance holds it; a ledger that cannot be read takes nothing (logged).
+/// instance holds it, returning the claim's token; a ledger that cannot be
+/// read takes nothing (logged).
 async fn claim_delegated_sync(
     ledger: &dyn WorkerRunRepository,
     link: &DelegatedConnection,
     name: &str,
     now_ms: i64,
-) -> bool {
+) -> Option<String> {
     ledger
         .claim_worker_run(
             name,
@@ -323,7 +328,7 @@ async fn claim_delegated_sync(
         .await
         .unwrap_or_else(|e| {
             warn!(link_id = %link.id, error = %e, "Could not claim a delegated wellness sync");
-            false
+            None
         })
 }
 

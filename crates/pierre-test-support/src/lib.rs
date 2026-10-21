@@ -39,6 +39,8 @@
 //! factory honours a `PostgreSQL` `DATABASE_URL` exactly when the test binary
 //! was built able to open one.
 
+/// Deleting an account the way production does.
+pub mod account;
 /// The test-database factory: `SQLite` image clones, `PostgreSQL` template clones.
 pub mod db;
 /// Coaching-group rows a coach's delegated link rests on.

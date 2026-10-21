@@ -1,18 +1,19 @@
 // ABOUTME: Hook for managing OAuth provider connection status
 // ABOUTME: Handles provider loading, connection checks, and OAuth flow initiation
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Alert, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
+import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import { oauthApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import type { ExtendedProviderStatus } from '../../types';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, importTombstoneFromReturn } from '@pierre/ui-logic';
 
 export interface ProviderStatusState {
   connectedProviders: ExtendedProviderStatus[];
@@ -53,7 +54,7 @@ export interface ProviderStatusActions {
 }
 
 export function useProviderStatus(): ProviderStatusState & ProviderStatusActions {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const queryClient = useQueryClient();
   const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
   const [providersLoaded, setProvidersLoaded] = useState(false);
@@ -145,6 +146,22 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         }
 
         const parsedUrl = Linking.parse(result.url);
+
+        // A provider account a deleted Dravr account held: offered to start
+        // fresh, and the connect runs again once the athlete chose to.
+        const tombstone = importTombstoneFromReturn((name) => parsedUrl.queryParams?.[name]);
+        if (tombstone) {
+          promptImportTombstoneClear({
+            refusal: tombstone,
+            providerName:
+              connectedProviders.find((p) => p.provider === provider)?.display_name ?? provider,
+            language,
+            t,
+            onCleared: () => void connectRef.current(provider, onSuccess, tosConsent),
+          });
+          return;
+        }
+
         const success = parsedUrl.queryParams?.success === 'true';
         const errorParam = parsedUrl.queryParams?.error as string | undefined;
 
@@ -178,7 +195,13 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
       console.error('Failed to start OAuth:', err);
       Alert.alert(t('common.error'), t('providers.failedConnectRetry'));
     }
-  }, [connectedProviders, refreshAfterLink, t]);
+  }, [connectedProviders, language, refreshAfterLink, t]);
+  // The start-fresh action runs the connect again from inside the callback
+  // that defined it, so it reads the current one through a ref.
+  const connectRef = useRef(handleConnectProvider);
+  useEffect(() => {
+    connectRef.current = handleConnectProvider;
+  }, [handleConnectProvider]);
 
   return {
     connectedProviders,

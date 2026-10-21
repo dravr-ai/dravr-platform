@@ -21,6 +21,7 @@
 //!   the connection is still `needs_reauth`. Once the athlete reconnects (or
 //!   the connection is revoked or removed) the entry is cancelled.
 
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -102,7 +103,10 @@ pub fn start_outbound_worker(
 ///
 /// Returns the repository error when the due entries cannot be read.
 pub async fn process_pending_batch(ctx: OutboundRetryContext<'_>) -> Result<(), AppError> {
-    let entries = ctx.messaging.get_all_pending_outbound(BATCH_SIZE).await?;
+    let entries = ctx
+        .messaging
+        .claim_due_outbound(BATCH_SIZE, OUTBOUND_LEASE_MS)
+        .await?;
 
     if entries.is_empty() {
         return Ok(());
@@ -117,9 +121,28 @@ pub async fn process_pending_batch(ctx: OutboundRetryContext<'_>) -> Result<(), 
     Ok(())
 }
 
+/// An entry as this pass claimed it: its id and the token of the claim that
+/// holds it. Every status write names both, so a pass whose lease lapsed while
+/// another claimed the entry writes nothing.
+#[derive(Clone, Copy)]
+struct Claimed<'a> {
+    id: &'a str,
+    lease_token: &'a str,
+}
+
+impl fmt::Display for Claimed<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.id)
+    }
+}
+
+/// How long a pass holds the entries it claimed. Longer than any send it
+/// makes, so an entry is not re-claimed while its first send is in flight.
+const OUTBOUND_LEASE_MS: i64 = 5 * 60 * 1000;
+
 /// Parsed fields from an outbound queue entry
 struct EntryFields<'a> {
-    entry_id: &'a str,
+    entry_id: Claimed<'a>,
     channel_type_str: &'a str,
     tenant_id_str: &'a str,
     payload_str: &'a str,
@@ -174,7 +197,10 @@ fn parse_entry_fields(entry: &Value) -> EntryFields<'_> {
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
         .unwrap_or_else(uuid::Uuid::nil);
     EntryFields {
-        entry_id: entry["id"].as_str().unwrap_or_default(),
+        entry_id: Claimed {
+            id: entry["id"].as_str().unwrap_or_default(),
+            lease_token: entry["lease_token"].as_str().unwrap_or_default(),
+        },
         channel_type_str: entry["channel_type"].as_str().unwrap_or_default(),
         tenant_id_str: entry["tenant_id"].as_str().unwrap_or_default(),
         payload_str: entry["payload"].as_str().unwrap_or("{}"),
@@ -275,14 +301,14 @@ async fn still_sendable(ctx: OutboundRetryContext<'_>, fields: &EntryFields<'_>)
                 channel = %fields.channel_type_str,
                 "Outbound retry: the connection a reconnect notice was about is no longer flagged; cancelled"
             );
-            let _ = db
-                .update_outbound_status(
-                    fields.entry_id,
-                    STATUS_CANCELLED,
-                    i32::try_from(fields.attempt_count).unwrap_or(i32::MAX),
-                    None,
-                )
-                .await;
+            settle_outbound(
+                db,
+                fields.entry_id,
+                STATUS_CANCELLED,
+                i32::try_from(fields.attempt_count).unwrap_or(i32::MAX),
+                None,
+            )
+            .await;
             false
         }
     }
@@ -367,7 +393,7 @@ async fn prepare_delivery(
 /// Load the channel config for an outbound entry, dead-lettering if not found
 async fn load_entry_config(
     db: &dyn MessagingRepository,
-    entry_id: &str,
+    entry_id: Claimed<'_>,
     tenant_id: TenantId,
     channel_type_str: &str,
     attempt_count: i64,
@@ -447,14 +473,14 @@ async fn record_successful_delivery(
         is_retry = fields.attempt_count > 0,
         "outbound message delivered"
     );
-    let _ = db
-        .update_outbound_status(
-            fields.entry_id,
-            "sent",
-            i32::try_from(fields.attempt_count + 1).unwrap_or(i32::MAX),
-            None,
-        )
-        .await;
+    settle_outbound(
+        db,
+        fields.entry_id,
+        "sent",
+        i32::try_from(fields.attempt_count + 1).unwrap_or(i32::MAX),
+        None,
+    )
+    .await;
 }
 
 /// Apply retry backoff or dead-letter based on attempt count.
@@ -464,7 +490,7 @@ async fn record_successful_delivery(
 /// analytics sink hashes into the tenant-scoped `distinct_id`.
 async fn handle_retry_decision(
     db: &dyn MessagingRepository,
-    entry_id: &str,
+    entry_id: Claimed<'_>,
     attempt_count: i64,
     tenant_id: &str,
     channel_type: &str,
@@ -476,9 +502,7 @@ async fn handle_retry_decision(
             ref status,
         } => {
             let retry_at = next_retry_at.to_rfc3339();
-            let _ = db
-                .update_outbound_status(entry_id, status, update.attempt_count, Some(&retry_at))
-                .await;
+            settle_outbound(db, entry_id, status, update.attempt_count, Some(&retry_at)).await;
         }
         RetryDecision::DeadLetter => {
             // `channel` is the triage label on the dravr-outbound-dead-lettered
@@ -496,21 +520,55 @@ async fn handle_retry_decision(
                 error_type = "dead_lettered",
                 "outbound message dead-lettered"
             );
-            let _ = db
-                .update_outbound_status(entry_id, STATUS_DEAD_LETTER, update.attempt_count, None)
-                .await;
+            settle_outbound(db, entry_id, STATUS_DEAD_LETTER, update.attempt_count, None).await;
         }
     }
 }
 
-/// Move an entry to the dead-letter queue
-async fn dead_letter(db: &dyn MessagingRepository, entry_id: &str, attempt_count: i64) {
-    let _ = db
+/// Record a claimed entry's settled status, releasing its lease. A write the
+/// fence refused means this pass's lease lapsed and another pass holds the
+/// entry now; one that failed leaves the entry to be claimed again once its
+/// lease ends. Both are logged, neither stops the pass.
+async fn settle_outbound(
+    db: &dyn MessagingRepository,
+    entry: Claimed<'_>,
+    status: &str,
+    attempt_count: i32,
+    next_retry_at: Option<&str>,
+) {
+    match db
         .update_outbound_status(
-            entry_id,
-            STATUS_DEAD_LETTER,
-            i32::try_from(attempt_count + 1).unwrap_or(i32::MAX),
-            None,
+            entry.id,
+            entry.lease_token,
+            status,
+            attempt_count,
+            next_retry_at,
         )
-        .await;
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => warn!(
+            entry_id = %entry,
+            status,
+            "outbound entry's lease lapsed before its status was recorded; another pass holds it"
+        ),
+        Err(e) => warn!(
+            entry_id = %entry,
+            status,
+            error = %e,
+            "outbound entry's status could not be recorded; it is claimed again once its lease ends"
+        ),
+    }
+}
+
+/// Move an entry to the dead-letter queue
+async fn dead_letter(db: &dyn MessagingRepository, entry_id: Claimed<'_>, attempt_count: i64) {
+    settle_outbound(
+        db,
+        entry_id,
+        STATUS_DEAD_LETTER,
+        i32::try_from(attempt_count + 1).unwrap_or(i32::MAX),
+        None,
+    )
+    .await;
 }

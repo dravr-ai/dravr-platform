@@ -55,6 +55,7 @@ use pierre_database::repositories::PendingFirebaseDeletion;
 use pierre_services::firebase_identity_outbox::{
     sweep_firebase_identity_deletions, ALERT_AFTER_ATTEMPTS,
 };
+use pierre_test_support::account::delete_account;
 use tracing::Level;
 
 const PASSWORD: &str = "CorrectHorse-482";
@@ -759,9 +760,7 @@ async fn a_queued_identity_a_new_account_signed_in_with_is_left_until_that_accou
     );
 
     // That account goes too: the waiting row is due again and settles.
-    repos
-        .users
-        .delete(returning.id, Some(FIREBASE_PROJECT))
+    delete_account(repos, returning.id, Some(FIREBASE_PROJECT))
         .await
         .unwrap();
     let queued = setup.queued().await;

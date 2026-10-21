@@ -25,7 +25,8 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{
-    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, WorkerRunRepository,
+    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, JobLease,
+    WorkerRunRepository,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
@@ -78,9 +79,18 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
 
     let mut resumed = 0;
     for row in rows {
-        let (row_id, attempts) = (row.id.clone(), row.attempts);
+        // The claim wrote a token on every row it returned; a row without one
+        // was not leased to this sweep and is not this sweep's to run.
+        let Some(token) = row.lease_token.clone() else {
+            continue;
+        };
+        let lease = JobLease {
+            id: row.id.clone(),
+            token,
+        };
+        let attempts = row.attempts;
         let job = job_from_row(&resources, row).await;
-        if resume_recorded_backfill(job, row_id, attempts) {
+        if resume_recorded_backfill(job, lease, attempts) {
             resumed += 1;
         }
     }

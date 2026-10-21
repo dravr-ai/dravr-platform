@@ -1002,7 +1002,7 @@ mod messaging_routes_tests {
 
         // Verify the message appears in the pending outbound queue
         let pending = db
-            .get_all_pending_outbound(100)
+            .claim_due_outbound(100, 60_000)
             .await
             .unwrap()
             .into_iter()

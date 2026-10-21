@@ -23,6 +23,8 @@ pub mod api_keys;
 pub mod claim_verdicts;
 pub mod coach_access;
 pub mod contremaitre_admin;
+/// Super-admin deletion ledger: the hash-chained receipts and the import tombstones.
+pub mod deletion_ledger;
 /// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
 pub mod device_auth;
 /// Browser approval page for the device flow (gcloud-style super-admin login).

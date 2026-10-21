@@ -32,7 +32,7 @@ use pierre_providers::core::{
 use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
-use pierre_tool_runtime::activity_fetch::refresh_stale_head;
+use pierre_tool_runtime::activity_fetch::{refresh_stale_head, StaleReason};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
@@ -296,9 +296,10 @@ async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
     let mut served = vec![activity("cached", 3)];
     let behind =
         refresh_stale_head(&runtime, PROVIDER, user_id, tenant_id, None, &mut served).await;
-    assert!(
+    assert_eq!(
         behind,
-        "a stale head that was not refreshed must read as behind"
+        Some(StaleReason::Backoff),
+        "a stale head held back by its failures reads as behind, and says why"
     );
     assert_eq!(ids(&served), ["cached"]);
 
@@ -306,5 +307,5 @@ async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
     let closed = Some((Utc::now() - Duration::days(10)).timestamp());
     let behind =
         refresh_stale_head(&runtime, PROVIDER, user_id, tenant_id, closed, &mut served).await;
-    assert!(!behind, "a closed window is never behind");
+    assert_eq!(behind, None, "a closed window is never behind");
 }

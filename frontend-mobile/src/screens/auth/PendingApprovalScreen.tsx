@@ -17,7 +17,8 @@ import { Button } from '../../components/ui';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
-import { authApi } from '../../services/api';
+import { authApi, userApi } from '../../services/api';
+import { describeApiError, describeEmailTombstone } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 
 // Logo style (pixel-specific dimensions)
@@ -57,15 +58,40 @@ const stepBadgeStyle: ViewStyle = {
  * form passes the server's own sentence as `message` — awaiting review, or
  * confirm the address to activate — and the screen shows it instead of
  * assuming a review.
+ *
+ * A third reason rides on either: the address belonged to a Dravr account that
+ * was deleted (`email_tombstone`). Nobody reviews that one — the athlete
+ * chooses to start fresh with it, once the address is confirmed as theirs.
  */
 export function PendingApprovalScreen() {
   const colors = useThemeColors();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { message: registerMessage } = useLocalSearchParams<{ message?: string }>();
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
   const needsEmailConfirmation = user?.email_verified === false;
+  const tombstone = user?.email_tombstone;
+  // A tombstoned address the athlete has proven: theirs to start fresh with.
+  const offersClear = tombstone !== undefined && !needsEmailConfirmation;
+
+  const handleClear = async () => {
+    if (!tombstone || clearing) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      const { user_status } = await userApi.clearImportTombstone(tombstone.tombstone_id);
+      // An approval rule may admit the account at once; otherwise it now waits
+      // for an ordinary review.
+      await updateUser({ user_status, email_tombstone: undefined });
+    } catch (err) {
+      setClearError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const handleResend = async () => {
     if (!user?.email || resendState === 'sending') return;
@@ -98,8 +124,22 @@ export function PendingApprovalScreen() {
             {needsEmailConfirmation ? t('app.confirmYourEmail') : t('app.pendingApprovalTitle')}
           </Text>
           {needsEmailConfirmation ? (
-            <Text className="text-sm text-text-secondary text-center leading-5 mb-4">
-              {t('app.sentConfirmationLink')}
+            <>
+              <Text className="text-sm text-text-secondary text-center leading-5 mb-4">
+                {t('app.sentConfirmationLink')}
+              </Text>
+              {tombstone && (
+                <Text
+                  className="text-sm text-text-secondary text-center leading-5 mb-4"
+                  testID="pending-email-tombstoned-verify-first"
+                >
+                  {t('auth.pendingEmailTombstonedVerifyFirst')}
+                </Text>
+              )}
+            </>
+          ) : tombstone ? (
+            <Text className="text-sm text-text-secondary text-center leading-5 mb-4" testID="pending-email-tombstoned">
+              {describeEmailTombstone(tombstone, { language, t })}
             </Text>
           ) : registerMessage ? (
             <Text className="text-sm text-text-secondary text-center leading-5 mb-4" testID="pending-register-message">
@@ -138,7 +178,24 @@ export function PendingApprovalScreen() {
             </View>
           )}
 
-          {/* Info Box with glassmorphism */}
+          {offersClear && (
+            <View className="mb-6">
+              <Button
+                title={t('auth.pendingEmailTombstonedClear')}
+                onPress={() => void handleClear()}
+                loading={clearing}
+                fullWidth
+                testID="pending-email-tombstoned-clear"
+              />
+              {clearError && (
+                <Text className="text-xs text-error text-center mt-2">{clearError}</Text>
+              )}
+            </View>
+          )}
+
+          {/* Info Box with glassmorphism — nobody reviews a tombstoned address,
+              so the review steps would promise a wait that is not coming. */}
+          {!offersClear && (
           <View className="bg-background-tertiary rounded-xl p-4 mb-6 border border-border-faint">
             <Text className="text-base font-semibold text-text-primary mb-3">
               {t('app.whatHappensNext')}
@@ -172,6 +229,7 @@ export function PendingApprovalScreen() {
               </Text>
             </View>
           </View>
+          )}
 
           {/* Back to Login — a quiet link, matching the other auth screens rather
               than a full button: this is the escape hatch, not the primary action

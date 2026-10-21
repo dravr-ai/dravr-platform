@@ -565,7 +565,6 @@ export MONITORING_DISK_WARNING_THRESHOLD="85.0"     # Warn at 85% disk usage
 # PII Redaction (all default to true/enabled)
 # export PIERRE_LOG_REDACT="true"            # Enable PII redaction
 # export PIERRE_LOG_REDACT_HEADERS="true"    # Redact headers
-# export PIERRE_LOG_REDACT_BODY="true"       # Redact body fields
 # export PIERRE_LOG_MASK_EMAILS="true"       # Mask email addresses
 # export PIERRE_REDACTION_PLACEHOLDER="[REDACTED]"
 

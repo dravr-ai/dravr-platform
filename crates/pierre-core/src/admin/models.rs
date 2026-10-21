@@ -462,6 +462,9 @@ pub enum AdminAction {
     ManageUser,
     /// Delete every row one provider contributed, across every tenant
     PurgeProviderData,
+    /// Clear a deleted account's import tombstone, so its identity is
+    /// accepted again
+    ClearImportTombstone,
 }
 
 impl Display for AdminAction {
@@ -476,6 +479,7 @@ impl Display for AdminAction {
             Self::ViewAuditLogs => write!(f, "view_audit_logs"),
             Self::ManageUser => write!(f, "manage_user"),
             Self::PurgeProviderData => write!(f, "purge_provider_data"),
+            Self::ClearImportTombstone => write!(f, "clear_import_tombstone"),
         }
     }
 }
@@ -494,6 +498,7 @@ impl FromStr for AdminAction {
             "view_audit_logs" => Ok(Self::ViewAuditLogs),
             "manage_user" => Ok(Self::ManageUser),
             "purge_provider_data" => Ok(Self::PurgeProviderData),
+            "clear_import_tombstone" => Ok(Self::ClearImportTombstone),
             _ => Err(format!("Unknown admin action: {s}")),
         }
     }

@@ -219,19 +219,19 @@ impl CheckInPoster {
         // earlier day's.
         let since_midnight = now.with_timezone(&zone).time().num_seconds_from_midnight();
         let since = now - Duration::seconds(i64::from(since_midnight));
-        if !claim_check_in(resources, user_id, tenant_id, since, now).await {
+        let Some(lease) = claim_check_in(resources, user_id, tenant_id, since, now).await else {
             return;
-        }
+        };
         let athlete = PostAthlete { user_id, tenant_id };
         match self.post_check_in(resources, athlete, cadence, now).await {
             Some((surface, posted)) => {
                 report_check_in(user_id, tenant_id, cadence, surface, posted);
                 if posted {
                     outcome.posted += 1;
-                    mark_check_in_posted(resources, user_id, tenant_id, now).await;
+                    mark_check_in_posted(resources, user_id, tenant_id, &lease, now).await;
                 }
             }
-            None => release_check_in(resources, user_id, tenant_id).await,
+            None => release_check_in(resources, user_id, tenant_id, &lease).await,
         }
     }
 
@@ -331,22 +331,32 @@ async fn has_data(
     }
 }
 
-/// Mark today's check-in posted, so a reply the athlete sends later that day
-/// is read as answering it. Logged on failure: the check-in itself landed.
+/// Mark today's check-in posted under the claim `lease` names, so a reply the
+/// athlete sends later that day is read as answering it. Logged when it fails
+/// or the claim no longer holds the row: the check-in itself landed.
 async fn mark_check_in_posted(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: TenantId,
+    lease: &str,
     now: DateTime<Utc>,
 ) {
-    if let Err(e) = resources
+    match resources
         .common
         .repos
         .platform_post_claims
-        .mark_platform_post_posted(tenant_id, user_id, PostPurpose::CheckIn.as_str(), now)
+        .mark_platform_post_posted(
+            tenant_id,
+            user_id,
+            PostPurpose::CheckIn.as_str(),
+            lease,
+            now,
+        )
         .await
     {
-        warn!(error = %e, "Check-in: marking the check-in posted failed");
+        Ok(true) => {}
+        Ok(false) => warn!("Check-in: the claim lapsed before the check-in was marked posted"),
+        Err(e) => warn!(error = %e, "Check-in: marking the check-in posted failed"),
     }
 }
 
@@ -378,7 +388,7 @@ async fn claim_check_in(
     tenant_id: TenantId,
     since: DateTime<Utc>,
     now: DateTime<Utc>,
-) -> bool {
+) -> Option<String> {
     match resources
         .common
         .repos
@@ -395,19 +405,24 @@ async fn claim_check_in(
         Ok(claimed) => claimed,
         Err(e) => {
             warn!(error = %e, "Check-in: the day's claim failed");
-            false
+            None
         }
     }
 }
 
 /// Release today's claim of a check-in nothing could be attempted for, so the
 /// next tick of the same morning tries again.
-async fn release_check_in(resources: &ServerContext, user_id: Uuid, tenant_id: TenantId) {
+async fn release_check_in(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    lease: &str,
+) {
     if let Err(e) = resources
         .common
         .repos
         .platform_post_claims
-        .release_platform_post(tenant_id, user_id, PostPurpose::CheckIn.as_str())
+        .release_platform_post(tenant_id, user_id, PostPurpose::CheckIn.as_str(), lease)
         .await
     {
         warn!(error = %e, "Check-in: releasing the claim of an unmade check-in failed");

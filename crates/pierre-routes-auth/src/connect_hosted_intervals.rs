@@ -49,7 +49,7 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MALFORMED_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
     KEY_HOSTED_INTERVALS_API_KEY_REQUIRED, KEY_HOSTED_INTERVALS_ATHLETE_ID_REQUIRED,
     KEY_HOSTED_INTERVALS_REJECTED, KEY_HOSTED_INTERVALS_SAVE_FAILED,
-    KEY_HOSTED_INTERVALS_UNAVAILABLE,
+    KEY_HOSTED_INTERVALS_TOMBSTONED, KEY_HOSTED_INTERVALS_UNAVAILABLE,
 };
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
@@ -245,6 +245,10 @@ fn refusal(e: IntervalsLinkError) -> (&'static str, AppError) {
         IntervalsLinkError::MissingAthleteId => KEY_HOSTED_INTERVALS_ATHLETE_ID_REQUIRED,
         IntervalsLinkError::MissingApiKey => KEY_HOSTED_INTERVALS_API_KEY_REQUIRED,
         IntervalsLinkError::Unavailable(_) => KEY_HOSTED_INTERVALS_UNAVAILABLE,
+        // The account belonged to a deleted Dravr account: clearing that is
+        // a signed-in choice the app offers, not one this link-token page can
+        // make, so the page sends the athlete there.
+        IntervalsLinkError::Tombstoned(_) => KEY_HOSTED_INTERVALS_TOMBSTONED,
         // A store that failed is the server's own fault; credentials the
         // provider would not take are the athlete's to fix, as a rejection is.
         IntervalsLinkError::Storage(error) if error.is_server_fault() => {
@@ -288,4 +292,26 @@ async fn refused_form(
         )),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::errors::ErrorCode;
+
+    #[test]
+    fn a_tombstoned_account_is_worded_as_one_to_start_fresh_with_in_the_app() {
+        let (key, error) = refusal(IntervalsLinkError::Tombstoned(AppError::new(
+            ErrorCode::ResourceLocked,
+            "tombstoned",
+        )));
+        assert_eq!(key, KEY_HOSTED_INTERVALS_TOMBSTONED);
+        assert_eq!(error.http_status(), 409);
+    }
+
+    #[test]
+    fn an_unavailable_provider_keeps_the_unavailable_wording() {
+        let (key, _) = refusal(IntervalsLinkError::Unavailable("no client".to_owned()));
+        assert_eq!(key, KEY_HOSTED_INTERVALS_UNAVAILABLE);
+    }
 }

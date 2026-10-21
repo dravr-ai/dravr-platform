@@ -414,7 +414,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -451,6 +451,7 @@ jobs:
           ./scripts/ci/standing-issue.test.sh
           ./scripts/ci/sciotte-local.test.sh
           ./scripts/ci/resolve-push-base.test.sh
+          ./scripts/setup/config-edit.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
@@ -505,7 +506,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/config-edit.sh scripts/setup/config-edit.test.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
@@ -832,7 +833,7 @@ jobs:
       # HTTP clients, OTLP pipeline activation contract) only execute here.
       - name: Telemetry feature tests
         run: |
-          cargo test -p pierre-core --features telemetry --test trace_propagation_test
+          cargo test -p pierre-core --features telemetry --test it trace_propagation_test::
           cargo test -p pierre-logging --features telemetry --test otel_pipeline_test
 
   # The tests policing platform<->contremaitre coupling (tool list, notify
@@ -1064,7 +1065,7 @@ jobs:
   # Every test target OUTSIDE crates/pierre-server/tests, on every push. The
   # per-push suites enumerate only pierre-server's tests directory (ci-postgres
   # full-on-main, the cron SQLite shards), so a test in a leaf crate — e.g.
-  # pierre-chat-pipeline/tests/turn_directive_test.rs — ran per-push only in
+  # pierre-chat-pipeline/tests/it/turn_directive_test.rs — ran per-push only in
   # the coverage lane. On 2026-08-30 that let b76ebb0fa land on main with a
   # broken pipeline test while every ci-backend job stayed green; coverage
   # reported it 100+ minutes later. This job closes that hole: one runner, one
@@ -1123,16 +1124,19 @@ jobs:
           printf '%s\n' "${PKG_FLAGS[@]}" | paste -d' ' - - | sed 's/^-p /  /'
           # --all-features, not defaults: a leaf crate built standalone loses
           # the features pierre-server forwards to it (workspace unification).
-          # pierre-tool-runtime/tests/sport_type_filter_test.rs is the standing
-          # example — its fitness_support import sits behind
+          # pierre-tool-runtime/tests/it/sport_type_filter_test.rs is the
+          # standing example — its fitness_support import sits behind
           # tools-data/tools-analytics, so a defaults build cannot compile it.
           #
-          # Such a test names its gate as `required-features` on its [[test]]
-          # target, which means cargo SKIPS it when the gate is off rather than
-          # failing: no compile error, no `running 0 tests`, no row in the
-          # output. That is right for a build that legitimately has the feature
-          # off and a silent loss of coverage otherwise, so the coverage check
-          # runs first. It compares the test targets the manifests declare
+          # A leaf crate's suites are modules of one `it` binary and state such
+          # a gate as `#[cfg(feature = ...)]` on their `mod` line, where a
+          # misspelled feature is an unexpected_cfgs warning the clippy job
+          # denies. A [[test]] target that names its gate as
+          # `required-features` instead is SKIPPED by cargo when the gate is
+          # off rather than failing: no compile error, no `running 0 tests`, no
+          # row in the output. That is right for a build that legitimately has
+          # the feature off and a silent loss of coverage otherwise, so the
+          # coverage check runs first. It compares the test targets the manifests declare
           # against the binaries this same --all-features build produces and
           # fails when any declared target went unbuilt — a renamed or
           # misspelled feature would otherwise retire a test with nothing going

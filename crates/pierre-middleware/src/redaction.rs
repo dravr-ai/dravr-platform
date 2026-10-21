@@ -8,9 +8,7 @@
 //!
 //! This module provides:
 //! - HTTP header redaction (Authorization, Cookie, X-API-Key, etc.)
-//! - JSON body field redaction (`client_secret`, tokens, passwords)
 //! - Email address masking for PII protection
-//! - Token pattern detection and redaction
 //! - Bounded metric labels to prevent Prometheus cardinality explosions
 //!
 //! ## Usage
@@ -48,12 +46,10 @@ bitflags! {
     pub struct RedactionFeatures: u8 {
         /// Redact HTTP headers (Authorization, Cookie, etc.)
         const HEADERS = 0b0001;
-        /// Redact JSON body fields (client_secret, tokens, etc.)
-        const BODY_FIELDS = 0b0010;
         /// Mask email addresses
         const EMAILS = 0b0100;
         /// Enable all redaction features
-        const ALL = Self::HEADERS.bits() | Self::BODY_FIELDS.bits() | Self::EMAILS.bits();
+        const ALL = Self::HEADERS.bits() | Self::EMAILS.bits();
     }
 }
 
@@ -123,27 +119,6 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "www-authenticate",
 ];
 
-/// Sensitive JSON fields that should be redacted
-const SENSITIVE_FIELDS: &[&str] = &[
-    "password",
-    "client_secret",
-    "client-secret",
-    "access_token",
-    "accessToken",
-    "refresh_token",
-    "refreshToken",
-    "api_key",
-    "apiKey",
-    "api-key",
-    "secret",
-    "private_key",
-    "privateKey",
-    "encryption_key",
-    "encryptionKey",
-    "jwt_secret",
-    "jwtSecret",
-];
-
 /// Query-string parameters whose value is a secret or a direct identifier.
 ///
 /// The URL query is the one part of a request line that routinely carries live
@@ -205,51 +180,6 @@ where
             (name.to_owned(), redacted_value)
         })
         .collect()
-}
-
-/// Redact sensitive fields in JSON-like text
-///
-/// # Arguments
-///
-/// * `text` - JSON or log text that may contain sensitive fields
-/// * `config` - Redaction configuration
-///
-/// # Returns
-///
-/// Text with sensitive field values redacted
-#[must_use]
-pub fn redact_json_fields(text: &str, config: &RedactionConfig) -> String {
-    if !config.enabled || !config.features.contains(RedactionFeatures::BODY_FIELDS) {
-        return text.to_owned();
-    }
-
-    let mut result = text.to_owned();
-
-    for field in SENSITIVE_FIELDS {
-        // Match patterns like:
-        // "field": "value"
-        // "field":"value"
-        // field: "value"
-        // field = "value"
-        let patterns = [
-            format!(r#""{field}"\s*:\s*"[^"]*""#),
-            format!(r#"{field}\s*:\s*"[^"]*""#),
-            format!(r#"{field}\s*=\s*"[^"]*""#),
-        ];
-
-        for pattern in &patterns {
-            if let Ok(re) = Regex::new(pattern) {
-                result = re
-                    .replace_all(
-                        &result,
-                        format!(r#""{field}": "{}""#, config.redaction_placeholder),
-                    )
-                    .to_string();
-            }
-        }
-    }
-
-    result
 }
 
 /// Mask email addresses for PII protection
@@ -363,46 +293,6 @@ pub fn mask_recipient(id: &str) -> String {
     }
     let last_four: String = id.chars().skip(char_count - 4).collect();
     format!("{}{last_four}", "*".repeat(char_count - 4))
-}
-
-/// Redact token-like patterns from text
-///
-/// Matches patterns like:
-/// - Bearer `<token>`
-/// - JWT `<token>`
-/// - API key formats
-///
-/// # Arguments
-///
-/// * `text` - Text that may contain token patterns
-/// * `config` - Redaction configuration
-///
-/// # Returns
-///
-/// Text with tokens redacted
-#[must_use]
-pub fn redact_token_patterns(text: &str, config: &RedactionConfig) -> String {
-    if config.is_disabled() {
-        return text.to_owned();
-    }
-
-    let mut result = text.to_owned();
-
-    // Redact Bearer tokens
-    if let Ok(re) = Regex::new(r"Bearer\s+[A-Za-z0-9\-._~+/]+=*") {
-        result = re
-            .replace_all(&result, format!("Bearer {}", config.redaction_placeholder))
-            .to_string();
-    }
-
-    // Redact JWT-like tokens (three base64 segments separated by dots)
-    if let Ok(re) = Regex::new(r"[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+") {
-        result = re
-            .replace_all(&result, &config.redaction_placeholder)
-            .to_string();
-    }
-
-    result
 }
 
 /// Bounded metric label for tenant IDs to prevent cardinality explosions

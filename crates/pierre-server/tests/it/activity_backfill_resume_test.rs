@@ -28,7 +28,7 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_database::repositories::ActivityBackfillJobRow;
+use pierre_database::repositories::{ActivityBackfillJobRow, JobLease};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
     provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob, BACKFILL_JOB_LEASE,
@@ -212,6 +212,7 @@ fn seeded_row(
         created_at_ms: now - age_ms,
         leased_until_ms: if lease.is_zero() { 0 } else { now + lease_ms },
         attempts,
+        lease_token: Some(Uuid::new_v4().to_string()),
     }
 }
 
@@ -470,7 +471,13 @@ async fn a_row_at_the_attempt_cap_is_not_claimed_and_is_reaped_once_its_runner_d
         row.attempts, MAX_BACKFILL_ATTEMPTS,
         "no attempt was counted"
     );
-    ledger.finish_backfill_job(&running.id).await.unwrap();
+    assert!(ledger
+        .finish_backfill_job(&JobLease {
+            id: running.id.clone(),
+            token: running.lease_token.clone().expect("seeded with a token"),
+        })
+        .await
+        .unwrap());
 
     // Its last runner died: the lease lapsed at the cap, so it is reaped.
     let exhausted = seeded_row(

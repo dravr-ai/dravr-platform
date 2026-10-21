@@ -353,15 +353,16 @@ fn test_vo2max_rockport_walk_valid() {
     assert!(result.is_ok(), "Rockport walk estimation should succeed");
     let vo2max = result.unwrap();
 
-    // Kline et al. (1987), worked term by term for these inputs:
-    //   132.853 - 0.0769(80) - 0.3877(40) + 6.315(1)
-    //           - 3.2649(14) - 0.1565(130) = 51.45
+    // Kline et al. (1987), worked term by term for these inputs. Kline
+    // regressed on body weight in pounds: 80 kg / 0.45359237 = 176.37 lb.
+    //   132.853 - 0.0769(176.37) - 0.3877(40) + 6.315(1)
+    //           - 3.2649(14) - 0.1565(130) = 44.04
     // A `>= 20.0` floor is what let a sign flip on the time and heart-rate
     // terms ship: it returned 182.6 for a similar athlete and passed. The
     // value is pinned so the next inversion fails here.
     assert!(
-        (vo2max - 51.45).abs() < 0.1,
-        "VO2max should be 51.45 per Kline (1987), got {vo2max}"
+        (vo2max - 44.04).abs() < 0.1,
+        "VO2max should be 44.04 per Kline (1987), got {vo2max}"
     );
 }
 

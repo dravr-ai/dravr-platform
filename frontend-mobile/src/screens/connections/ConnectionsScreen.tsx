@@ -16,6 +16,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
+import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { EmptyState, PaneScrollView, Section, Sheet, StatusDot } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
@@ -41,11 +42,11 @@ import type { SciotteTarget } from '@pierre/shared-types';
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, importTombstoneFromReturn } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
 export function ConnectionsScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -146,6 +147,21 @@ export function ConnectionsScreen() {
 
         // Parse the return URL to check for success/error
         const parsedUrl = Linking.parse(result.url);
+
+        // A provider account a deleted Dravr account held: offered to start
+        // fresh, never sent to another way in that would be refused the same.
+        const tombstone = importTombstoneFromReturn((name) => parsedUrl.queryParams?.[name]);
+        if (tombstone) {
+          promptImportTombstoneClear({
+            refusal: tombstone,
+            providerName,
+            language,
+            t,
+            onCleared: () => void handleConnect(providerId, providerName, tosConsent),
+          });
+          return;
+        }
+
         const success = parsedUrl.queryParams?.success === 'true';
         const error = parsedUrl.queryParams?.error as string | undefined;
 

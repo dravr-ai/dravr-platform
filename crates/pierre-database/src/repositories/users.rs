@@ -29,7 +29,7 @@ use crate::backends::shared::enums::str_to_user_status;
 use pierre_core::models::default_locale;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    CoachingPersona, OperatorRosterGrant, User, UserDeletion, UserReference, UserStatus, UserTier,
+    CoachingPersona, OperatorRosterGrant, User, UserReference, UserStatus, UserTier,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use serde_json::Value;
@@ -108,30 +108,9 @@ pub trait UserRepository: Send + Sync {
     async fn update_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()>;
     /// Update user's display name
     async fn update_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User>;
-    /// Delete a user and all associated data, in one transaction.
-    ///
-    /// The user's rows in every table no foreign key cascades to on the
-    /// engine (its `UserPurge`, group memberships among them:
-    /// `SQLITE_USER_PURGE`, or `POSTGRES_USER_PURGE`, which adds the tables
-    /// only `PostgreSQL` carries)
-    /// are deleted explicitly, then the account row, whose foreign keys take
-    /// the rest; the listed tables are read again and the delete refuses to
-    /// commit while any row survives. A row that still references the user
-    /// without cascading (see [`Self::deletion_blockers`]) fails the delete
-    /// with `ErrorCode::ResourceLocked`, not a database error, and rolls every
-    /// statement back.
-    ///
-    /// When `firebase_project` is given and the account has a Firebase uid,
-    /// the same transaction queues that identity in
-    /// `firebase_identity_deletions`, so its deletion at Google survives a
-    /// failure after the commit.
-    async fn delete(
-        &self,
-        user_id: Uuid,
-        firebase_project: Option<&str>,
-    ) -> AppResult<UserDeletion>;
     /// The rows that reference this user without cascading, each of which would
-    /// fail a [`Self::delete`]: groups they own or coach, invites they created,
+    /// fail the account deletion (`AccountDeletionRepository::delete_account`):
+    /// groups they own or coach, invites they created,
     /// and operator or audit attribution. Empty when the account can go.
     async fn deletion_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>>;
     /// Get the first admin user by creation date
@@ -613,15 +592,13 @@ where
 /// [`uuid_columns`](super::uuid_columns) codec, and
 /// `$duplicate` is its `fn(&sqlx::Error) -> Option<AppError>`, which reads a
 /// violated unique index off the driver's error and names the column it was
-/// on, and `$purge` is the
-/// [`UserPurge`](super::user_references::UserPurge) its schema's user delete
-/// clears. The body is written once here; each backend's shell invokes it with
+/// on. The body is written once here; each backend's shell invokes it with
 /// its own type, and sqlx resolves the driver from `self.pool()` per
 /// expansion. The single-column preference writes come from
 /// `preferences`, the backend's expansion of the shared
 /// [`user_preferences`](super::user_preferences) body.
 macro_rules! impl_user_repository {
-    ($ty:ty, $row:ty, $ids:ident, $duplicate:path, $purge:ident) => {
+    ($ty:ty, $row:ty, $ids:ident, $duplicate:path) => {
         impl $ty {
             /// Decode a row through the backend's codec for its two uuid columns.
             fn user_row(row: &$row) -> AppResult<User> {
@@ -1025,14 +1002,6 @@ macro_rules! impl_user_repository {
                 self.get_global(user_id)
                     .await?
                     .ok_or_else(|| AppError::not_found("User after display name update"))
-            }
-
-            async fn delete(
-                &self,
-                user_id: Uuid,
-                firebase_project: Option<&str>,
-            ) -> AppResult<UserDeletion> {
-                delete_user_completely!(self, $ids, user_id, $purge, firebase_project)
             }
 
             async fn deletion_blockers(&self, user_id: Uuid) -> AppResult<Vec<UserReference>> {

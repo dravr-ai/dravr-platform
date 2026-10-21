@@ -358,20 +358,27 @@ pub trait MessagingRepository: Send + Sync {
     /// Enqueue an outbound message for delivery
     async fn enqueue_outbound(&self, params: &EnqueueOutboundParams<'_>) -> AppResult<()>;
 
-    /// Get pending/retryable outbound entries across all tenants for background processing.
+    /// Claim the due outbound entries across all tenants for one retry pass.
     ///
-    /// Cross-tenant query justified for the background retry worker: it must process
-    /// outbound messages for all tenants without knowing tenant IDs in advance.
-    async fn get_all_pending_outbound(&self, limit: i64) -> AppResult<Vec<Value>>;
+    /// Each returned entry is leased to this claim for `lease_ms` and carries
+    /// its `lease_token`; another instance's claim skips it until the lease
+    /// ends, so one message is not sent twice. Cross-tenant query justified for
+    /// the background retry worker: it must process outbound messages for all
+    /// tenants without knowing tenant IDs in advance.
+    async fn claim_due_outbound(&self, limit: i64, lease_ms: i64) -> AppResult<Vec<Value>>;
 
-    /// Update outbound queue entry after a send attempt
+    /// Record a claimed entry's send attempt and release its lease.
+    ///
+    /// Applies only while `lease_token` still holds the entry; returns `false`
+    /// when the lease lapsed and another claim took it, and writes nothing.
     async fn update_outbound_status(
         &self,
         id: &str,
+        lease_token: &str,
         status: &str,
         attempt_count: i32,
         next_retry_at: Option<&str>,
-    ) -> AppResult<()>;
+    ) -> AppResult<bool>;
 
     // ── Channel Linking ──
 
@@ -810,21 +817,36 @@ macro_rules! outbound_columns {
     };
 }
 
-/// Every tenant's due entries, for the background retry worker.
-pub(crate) const ALL_PENDING_OUTBOUND_SQL: &str = concat!(
-    "SELECT ",
+/// Claim every tenant's due entries for the background retry worker.
+///
+/// The due-and-unleased condition is stated on the outer `UPDATE` as well as in
+/// the subquery: on `PostgreSQL` a claim that waited for a concurrent one
+/// re-checks the outer condition on each row it then reaches, so a row the
+/// other claim just leased is skipped, not taken twice. `SQLite` serializes
+/// writers.
+pub(crate) const CLAIM_DUE_OUTBOUND_SQL: &str = concat!(
+    "UPDATE messaging_outbound_queue \
+     SET lease_token = $3, leased_until_ms = $4 \
+     WHERE leased_until_ms <= $5 \
+       AND (status = 'pending' OR (status LIKE 'retrying:%' AND next_retry_at <= $1)) \
+       AND id IN ( \
+         SELECT id FROM messaging_outbound_queue \
+         WHERE leased_until_ms <= $5 \
+           AND (status = 'pending' OR (status LIKE 'retrying:%' AND next_retry_at <= $1)) \
+         ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC \
+         LIMIT $2) \
+     RETURNING ",
     outbound_columns!(),
-    " FROM messaging_outbound_queue \
-     WHERE status = 'pending' OR (status LIKE 'retrying:%' AND next_retry_at <= $1) \
-     ORDER BY next_retry_at ASC NULLS FIRST, created_at ASC \
-     LIMIT $2"
+    ", lease_token"
 );
 
-/// Record the outcome of a send attempt.
+/// Record the outcome of a send attempt by the claim that holds the entry,
+/// and release its lease.
 pub(crate) const UPDATE_OUTBOUND_STATUS_SQL: &str = r"
             UPDATE messaging_outbound_queue
-            SET status = $1, attempt_count = $2, next_retry_at = $3, updated_at = $4
-            WHERE id = $5
+            SET status = $1, attempt_count = $2, next_retry_at = $3, updated_at = $4,
+                lease_token = NULL, leased_until_ms = 0
+            WHERE id = $5 AND lease_token = $6
             ";
 
 /// Bind a channel identity to a Pierre user for good.

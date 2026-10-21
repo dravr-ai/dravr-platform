@@ -28,9 +28,9 @@ use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
-    claim_verdicts, coach_access, device_auth, device_web, feature_flags, guardian_config,
-    harness_config, memory_worker, myth_busting, provider_data, settings, setup, strava_pool,
-    tokens, user_removal, users, website,
+    claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
+    guardian_config, harness_config, memory_worker, myth_busting, provider_data, settings, setup,
+    strava_pool, tokens, user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -73,6 +73,10 @@ impl AdminRoutes {
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
         );
 
+        let deletion_ledger_routes = Self::deletion_ledger_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
         // Device-grant authorization + token endpoints are public: the CLI is
         // not yet authenticated when it calls them (the raw device_code is the
         // bearer secret). Only /admin/device/approve is behind the admin token.
@@ -98,6 +102,7 @@ impl AdminRoutes {
             .merge(user_routes)
             .merge(strava_pool_routes)
             .merge(provider_data_routes)
+            .merge(deletion_ledger_routes)
             .merge(device_public_routes)
             .merge(device_approve_routes)
             .merge(settings_routes)
@@ -667,6 +672,26 @@ impl AdminRoutes {
             .route(
                 "/admin/providers/{provider}/purges",
                 get(provider_data::handle_list_provider_data_purges),
+            )
+            .with_state(context)
+    }
+
+    /// The super-admin deletion ledger `pierre-cli deletion` drives: the
+    /// receipt chain it verifies, and the import tombstones it lists and
+    /// clears.
+    fn deletion_ledger_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/deletion-receipts",
+                get(deletion_ledger::handle_list_deletion_receipts),
+            )
+            .route(
+                "/admin/import-tombstones",
+                get(deletion_ledger::handle_list_import_tombstones),
+            )
+            .route(
+                "/admin/import-tombstones/{tombstone_id}/clear",
+                post(deletion_ledger::handle_clear_import_tombstone),
             )
             .with_state(context)
     }

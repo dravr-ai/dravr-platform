@@ -38,10 +38,10 @@ pub trait PlatformPostClaimRepository: Send + Sync {
     /// Claim the post for `purpose` to `user_id` in `tenant_id`, owed once
     /// ever, at `claimed_at`.
     ///
-    /// Returns `true` when this call took the claim: none was held, or the one
-    /// held never posted and was taken before `lease_expired_before`, so the
-    /// trigger holding it is presumed gone. `false` when the post was made,
-    /// or a trigger took the claim within its lease and is making it.
+    /// Returns the claim's token when this call took it: none was held, or
+    /// the one held never posted and was taken before `lease_expired_before`,
+    /// so the trigger holding it is presumed gone. `None` when the post was
+    /// made, or a trigger took the claim within its lease and is making it.
     async fn claim_platform_post_once(
         &self,
         tenant_id: TenantId,
@@ -49,16 +49,17 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         purpose: &str,
         lease_expired_before: DateTime<Utc>,
         claimed_at: DateTime<Utc>,
-    ) -> AppResult<bool>;
+    ) -> AppResult<Option<String>>;
 
     /// Record that the post for `purpose` to `user_id` in `tenant_id` landed,
-    /// at `posted_at`, so its claim is never retaken. Returns whether a claim
-    /// was marked.
+    /// at `posted_at`, so its claim is never retaken. Applies only while the
+    /// claim `lease_token` names still holds the row; returns whether it did.
     async fn mark_platform_post_posted(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
+        lease_token: &str,
         posted_at: DateTime<Utc>,
     ) -> AppResult<bool>;
 
@@ -66,8 +67,8 @@ pub trait PlatformPostClaimRepository: Send + Sync {
     /// `claimed_at`, unless it was already claimed at or after `since` — the
     /// start of the period the post is owed for.
     ///
-    /// Returns `true` when this call took the claim: no claim was held, or
-    /// the one held dates from an earlier period. `false` when a trigger
+    /// Returns the claim's token when this call took it: no claim was held,
+    /// or the one held dates from an earlier period. `None` when a trigger
     /// already claimed it this period.
     async fn claim_platform_post_since(
         &self,
@@ -76,16 +77,19 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         purpose: &str,
         since: DateTime<Utc>,
         claimed_at: DateTime<Utc>,
-    ) -> AppResult<bool>;
+    ) -> AppResult<Option<String>>;
 
     /// Release the claim for `purpose` to `user_id` in `tenant_id` after the
-    /// trigger posted nothing, so the next trigger may post. Returns whether a
-    /// claim was released.
+    /// trigger posted nothing, so the next trigger may post. Applies only
+    /// while the claim `lease_token` names still holds the row: a trigger whose
+    /// claim was retaken does not free the newer one's. Returns whether a claim
+    /// was released.
     async fn release_platform_post(
         &self,
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
+        lease_token: &str,
     ) -> AppResult<bool>;
 
     /// When the post for `purpose` to `user_id` in `tenant_id` last landed:
@@ -104,10 +108,10 @@ pub trait PlatformPostClaimRepository: Send + Sync {
 /// count says whether this call took it. `excluded` names the proposed row on
 /// both engines.
 pub(crate) const CLAIM_PLATFORM_POST_ONCE_SQL: &str = r"
-            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, claimed_at_ms)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, claimed_at_ms, lease_token)
+            VALUES ($1, $2, $3, $4, $6)
             ON CONFLICT (tenant_id, user_id, purpose) DO UPDATE
-                SET claimed_at_ms = excluded.claimed_at_ms
+                SET claimed_at_ms = excluded.claimed_at_ms, lease_token = excluded.lease_token
                 WHERE platform_post_claims.posted_at_ms IS NULL
                   AND platform_post_claims.claimed_at_ms < $5
             ";
@@ -116,23 +120,23 @@ pub(crate) const CLAIM_PLATFORM_POST_ONCE_SQL: &str = r"
 pub(crate) const MARK_PLATFORM_POST_POSTED_SQL: &str = r"
             UPDATE platform_post_claims
             SET posted_at_ms = $4
-            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3
+            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3 AND lease_token = $5
             ";
 
 /// The same row, retaken once the claim it holds predates `$5`: the update's
 /// condition is the claim, and the affected count says whether this call took
 /// it. `excluded` names the proposed row on both engines.
 pub(crate) const CLAIM_PLATFORM_POST_SINCE_SQL: &str = r"
-            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, claimed_at_ms)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, claimed_at_ms, lease_token)
+            VALUES ($1, $2, $3, $4, $6)
             ON CONFLICT (tenant_id, user_id, purpose) DO UPDATE
-                SET claimed_at_ms = excluded.claimed_at_ms
+                SET claimed_at_ms = excluded.claimed_at_ms, lease_token = excluded.lease_token
                 WHERE platform_post_claims.claimed_at_ms < $5
             ";
 
 pub(crate) const RELEASE_PLATFORM_POST_SQL: &str = r"
             DELETE FROM platform_post_claims
-            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3
+            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3 AND lease_token = $4
             ";
 
 pub(crate) const PLATFORM_POST_POSTED_AT_SQL: &str = r"
@@ -154,19 +158,21 @@ macro_rules! impl_platform_post_claim_repository {
                 purpose: &str,
                 lease_expired_before: DateTime<Utc>,
                 claimed_at: DateTime<Utc>,
-            ) -> AppResult<bool> {
+            ) -> AppResult<Option<String>> {
+                let token = uuid::Uuid::new_v4().to_string();
                 let result = sqlx::query(CLAIM_PLATFORM_POST_ONCE_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
                     .bind(claimed_at.timestamp_millis())
                     .bind(lease_expired_before.timestamp_millis())
+                    .bind(&token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to claim the platform post: {e}"))
                     })?;
-                Ok(result.rows_affected() == 1)
+                Ok((result.rows_affected() == 1).then_some(token))
             }
 
             async fn mark_platform_post_posted(
@@ -174,6 +180,7 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
+                lease_token: &str,
                 posted_at: DateTime<Utc>,
             ) -> AppResult<bool> {
                 let result = sqlx::query(MARK_PLATFORM_POST_POSTED_SQL)
@@ -181,6 +188,7 @@ macro_rules! impl_platform_post_claim_repository {
                     .bind($ids::bind(user_id))
                     .bind(purpose)
                     .bind(posted_at.timestamp_millis())
+                    .bind(lease_token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -196,13 +204,15 @@ macro_rules! impl_platform_post_claim_repository {
                 purpose: &str,
                 since: DateTime<Utc>,
                 claimed_at: DateTime<Utc>,
-            ) -> AppResult<bool> {
+            ) -> AppResult<Option<String>> {
+                let token = uuid::Uuid::new_v4().to_string();
                 let result = sqlx::query(CLAIM_PLATFORM_POST_SINCE_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
                     .bind(claimed_at.timestamp_millis())
                     .bind(since.timestamp_millis())
+                    .bind(&token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -210,7 +220,7 @@ macro_rules! impl_platform_post_claim_repository {
                             "Failed to claim the periodic platform post: {e}"
                         ))
                     })?;
-                Ok(result.rows_affected() == 1)
+                Ok((result.rows_affected() == 1).then_some(token))
             }
 
             async fn release_platform_post(
@@ -218,11 +228,13 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
+                lease_token: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(RELEASE_PLATFORM_POST_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
+                    .bind(lease_token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

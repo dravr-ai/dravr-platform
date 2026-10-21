@@ -13,12 +13,18 @@
 //! needs to change, and it puts each item where its callers can see it.
 
 use std::env;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
+use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
 use pierre_mcp_schema::ToolAnnotations;
 use pierre_providers::backend_resolver::user_facing_name;
+use uuid::Uuid;
+
+use crate::activity_fetch::StaleReason;
+use crate::runtime::ToolRuntime;
 
 /// How far forward the coverage probe looks from `after`.
 ///
@@ -275,9 +281,10 @@ pub enum PrimaryStandIn {
     Dead(String),
     /// It could not answer just now, and its connection stands.
     Unreachable(String),
-    /// Its live read failed, or answered nothing over a window the cache
-    /// holds its activities in, and its own cached window answered instead.
-    Stale(String),
+    /// Its live read failed, timed out or is held back, or answered nothing
+    /// over a window the cache holds its activities in, and its own cached
+    /// window answered instead.
+    Stale(String, StaleReason),
 }
 
 impl PrimaryStandIn {
@@ -286,21 +293,68 @@ impl PrimaryStandIn {
     /// for one that could not answer or was served from its cache.
     #[must_use]
     pub fn caveat(&self) -> (&'static str, Value) {
-        match self {
+        let (key, mut note, reason) = match self {
             Self::Dead(backend) => (
                 "reconnect_required",
                 provider_reconnect_note(user_facing_name(backend), backend),
+                "auth",
             ),
             Self::Unreachable(backend) => (
                 "provider_unavailable",
                 provider_unavailable_note(user_facing_name(backend)),
+                "error",
             ),
-            Self::Stale(backend) => (
+            Self::Stale(backend, reason) => (
                 "provider_unavailable",
                 provider_stale_note(user_facing_name(backend)),
+                reason.as_str(),
             ),
+        };
+        if let Some(object) = note.as_object_mut() {
+            object.insert("reason".to_owned(), Value::String(reason.to_owned()));
+        }
+        (key, note)
+    }
+
+    /// The backend this stand-in is about.
+    #[must_use]
+    pub fn backend(&self) -> &str {
+        match self {
+            Self::Dead(backend) | Self::Unreachable(backend) | Self::Stale(backend, _) => backend,
         }
     }
+}
+
+/// Put a stand-in's caveat on a served window's payload.
+///
+/// The caveat says when that provider was last synced (`last_synced_at`,
+/// RFC 3339, `null` when never), so a reader knows how old "what was last
+/// synced" is instead of guessing.
+pub async fn attach_stand_in_caveat(
+    result: Option<&mut Value>,
+    stand_in: &PrimaryStandIn,
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: &TenantId,
+) {
+    let Some(object) = result.and_then(Value::as_object_mut) else {
+        return;
+    };
+    let (key, mut caveat) = stand_in.caveat();
+    let last_synced = runtime
+        .repos()
+        .activity_cache
+        .latest_activity_sync(user_id, tenant_id, stand_in.backend())
+        .await
+        .ok()
+        .flatten();
+    if let Some(note) = caveat.as_object_mut() {
+        note.insert(
+            "last_synced_at".to_owned(),
+            last_synced.map_or(Value::Null, |at| Value::String(at.to_rfc3339())),
+        );
+    }
+    object.insert(key.to_owned(), caveat);
 }
 
 /// Pull the `format` arg, defaulting to JSON.

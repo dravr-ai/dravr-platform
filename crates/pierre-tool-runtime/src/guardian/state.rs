@@ -19,10 +19,13 @@
 //! across that path. The key is tenant-scoped so two tenants never share a
 //! taint bucket.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::DenyReason;
@@ -90,6 +93,57 @@ pub struct TurnState {
     /// Tool names that introduced taint — for human-readable deny reasons and
     /// telemetry. Never contains arguments or PII, only registered tool names.
     sources: Vec<String>,
+    /// Reads that succeeded this turn, by [`ReadFingerprint`], and whether
+    /// their one repeat has been answered with a pointer back to them.
+    reads: HashMap<ReadFingerprint, ReadSeen>,
+}
+
+/// A read-only call's tool name and canonical arguments, hashed. Only the
+/// hash is kept, so the store never holds an argument value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ReadFingerprint(u64);
+
+impl ReadFingerprint {
+    /// Fingerprint `tool_name` called with `args`, independent of the order
+    /// the arguments' keys were written in.
+    #[must_use]
+    pub fn of(tool_name: &str, args: &Value) -> Self {
+        let mut hasher = DefaultHasher::new();
+        tool_name.hash(&mut hasher);
+        hash_canonical(args, &mut hasher);
+        Self(hasher.finish())
+    }
+}
+
+/// Hash `value` with every object's keys in sorted order.
+fn hash_canonical(value: &Value, hasher: &mut DefaultHasher) {
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            for key in keys {
+                key.hash(hasher);
+                hash_canonical(&map[key.as_str()], hasher);
+            }
+        }
+        Value::Array(items) => {
+            items.len().hash(hasher);
+            for item in items {
+                hash_canonical(item, hasher);
+            }
+        }
+        other => other.to_string().hash(hasher),
+    }
+}
+
+/// What a turn remembers of a read it served.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadSeen {
+    /// Served once; an identical call now gets a pointer back to it.
+    Served,
+    /// Its repeat was answered with that pointer; the next identical call
+    /// runs, because a model that asks a third time no longer has it.
+    Pointed,
 }
 
 impl TurnState {
@@ -214,6 +268,44 @@ struct Store {
 }
 
 impl GuardianTurns {
+    /// Whether the read `fingerprint` repeats one served earlier in `key`'s
+    /// turn, and should be answered with a pointer back to it instead of being
+    /// run again. Answers yes once per read: the call after that runs.
+    pub fn repeat_of_served_read(&self, key: &TurnKey, fingerprint: ReadFingerprint) -> bool {
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some((_, state)) = guard.map.get_mut(key) else {
+            return false;
+        };
+        match state.reads.get_mut(&fingerprint) {
+            Some(seen @ ReadSeen::Served) => {
+                *seen = ReadSeen::Pointed;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Remember that the read `fingerprint` was served in `key`'s turn.
+    pub fn record_served_read(&self, key: &TurnKey, fingerprint: ReadFingerprint) {
+        let now = Instant::now();
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let entry = guard
+            .map
+            .entry(key.clone())
+            .or_insert_with(|| (now, TurnState::default()));
+        entry.0 = now;
+        entry.1.reads.insert(fingerprint, ReadSeen::Served);
+    }
+
+    /// Forget every read `key`'s turn served: a write may have changed what
+    /// they returned, so an identical read after it runs.
+    pub fn forget_served_reads(&self, key: &TurnKey) {
+        let mut guard = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, state)) = guard.map.get_mut(key) {
+            state.reads.clear();
+        }
+    }
+
     /// Create an empty store.
     #[must_use]
     pub fn new() -> Self {

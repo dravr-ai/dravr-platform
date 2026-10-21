@@ -336,10 +336,12 @@ jobs:
         # of the path-sensitive tests use, is baked in at compile time and
         # needs nothing.
         #
-        # A target name is not unique across the workspace — `redaction_test`
-        # and `dek_versioning_test` each exist in two crates — so binaries are
-        # keyed by package as well as by name, and every match runs: the same
-        # set `cargo test --test <name>` runs from this virtual workspace root.
+        # A target name is not unique across the workspace — every crate's
+        # integration tests are one binary named `it` — so binaries are keyed
+        # by package as well as by name. A top-level name runs every match: the
+        # same set `cargo test --test <name>` runs from this virtual workspace
+        # root. The `it` binary runs per package: pierre-server's through this
+        # shard's module filters, pierre-database's whole on shard 1.
         # A selected file whose owning crate produced no binary fails the shard
         # instead of reporting green over a test file that never ran.
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
@@ -483,6 +485,7 @@ jobs:
             fi
           fi
           DB_TESTS=()
+          DB_IT=0
           PKGS=()
           if [ "$SHARD" -eq 1 ]; then
             # pierre-database's own suite carries the test-database factory's
@@ -508,14 +511,13 @@ jobs:
             #
             # The selection names packages because a `--test` filter matches
             # every selected package owning that target name, and smoke_test is
-            # owned by ten crates: naming pierre_mcp_server, pierre-database and
-            # pierre-core resolves it to pierre-database's alone. The pierre-server
-            # suites named dek_versioning_test and redaction_test are modules of
-            # the `it` binary, not targets, so only pierre-database's
-            # dek_versioning_test answers to that `--test`. No top-level
-            # pierre-server suite name is owned by a crate outside these three,
-            # so the restriction drops no binary; the per-owner check below fails
-            # the shard if one ever does.
+            # owned by several crates. pierre-database's suites are modules of
+            # its own `it` binary, so `--test it` also builds pierre-server's
+            # and pierre-core's; the run below picks each by package, and
+            # pierre-core's suites are not this lane's, so its binary is built
+            # and never run. No top-level pierre-server suite name is owned by a
+            # crate outside these three, so the restriction drops no binary;
+            # the per-owner check below fails the shard if one ever does.
             #
             # A `--test` filter selects integration tests, so the crate's
             # doctests run in ci-backend.yml's `cargo test --workspace --doc`
@@ -530,8 +532,8 @@ jobs:
             # copy from this lane with nothing going red. No name collides
             # today; this asks the filesystem rather than trusting that. The
             # pierre-database names are deliberately not checked — smoke_test is
-            # owned by ten crates and resolving it to pierre-database's alone is
-            # the point of the selection.
+            # owned by several crates and resolving it to pierre-database's
+            # alone is the point of the selection.
             mapfile -t FOREIGN_NAMES < <(
               find crates -maxdepth 3 -path '*/tests/*.rs' -printf '%p\n' \
                 | grep -v -E '^crates/(pierre-server|pierre-database|pierre-core)/' \
@@ -548,17 +550,20 @@ jobs:
               printf '::error::%s is a pierre-server test name also owned by a crate outside the -p selection; that crate copy would stop running on this shard. Add its package to PKGS.\n' "${COLLIDING[@]}"
               exit 1
             fi
+            # The crate's suites are modules of tests/it/main.rs; a suite that
+            # writes the process environment would be a top-level file beside it.
+            if [ ! -f crates/pierre-database/tests/it/main.rs ]; then
+              echo "::error::pierre-database has no tests/it/main.rs — refusing to report green."
+              exit 1
+            fi
+            DB_IT=1
             mapfile -t DB_TESTS < <(
               find crates/pierre-database/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
                 | sed 's/\.rs$//' \
                 | sort
             )
-            if [ "${#DB_TESTS[@]}" -eq 0 ]; then
-              echo "::error::pierre-database has no test files — refusing to report green."
-              exit 1
-            fi
-            echo "=== plus pierre-database: ${#DB_TESTS[@]} crate test files ==="
-            printf '  %s\n' "${DB_TESTS[@]}"
+            echo "=== plus pierre-database: its it binary and ${#DB_TESTS[@]} top-level test files ==="
+            [ "${#DB_TESTS[@]}" -eq 0 ] || printf '  %s\n' "${DB_TESTS[@]}"
             # A name in both crates' top-level suites would already be in
             # SHARD_BINS. Listing it once keeps one --test flag per name; both
             # crates' binaries are still built and both still run.
@@ -576,7 +581,7 @@ jobs:
           for test_file in "${RUN_TESTS[@]}"; do
             TEST_ARGS+=(--test "$test_file")
           done
-          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
+          if [ "${#IT_MODULES[@]}" -gt 0 ] || [ "$DB_IT" -eq 1 ]; then
             TEST_ARGS+=(--test it)
           fi
           ARTIFACT_JSON="$RUNNER_TEMP/pg-shard-artifacts.json"
@@ -613,6 +618,12 @@ jobs:
               *) UNMAPPED+=("crates/pierre-server/tests/it/main.rs") ;;
             esac
           fi
+          if [ "$DB_IT" -eq 1 ]; then
+            case "${TEST_BINARIES[it]:-}" in
+              *"/crates/pierre-database"$'\t'*) ;;
+              *) UNMAPPED+=("crates/pierre-database/tests/it/main.rs") ;;
+            esac
+          fi
           for test_file in "${DB_TESTS[@]}"; do
             case "${TEST_BINARIES[$test_file]:-}" in
               *"/crates/pierre-database"$'\t'*) ;;
@@ -637,17 +648,38 @@ jobs:
             done <<< "${TEST_BINARIES[$test_file]}"
             echo "::endgroup::"
           done
-          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
-            echo "::group::it (${#IT_MODULES[@]} suites)"
+          # `--test it` built one `it` binary per selected package, so each row
+          # is run by its package: pierre-server's through this shard's module
+          # filters, pierre-database's whole. A filter never reaches another
+          # crate's binary, where matching nothing would exit 0 having run
+          # nothing. pierre-core's binary is built by the same `--test it` and
+          # is not this lane's to run.
+          if [ "${#IT_MODULES[@]}" -gt 0 ] || [ "$DB_IT" -eq 1 ]; then
             while IFS=$'\t' read -r package_dir executable; do
               [ -n "$executable" ] || continue
-              echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
-              if ! ( cd "$package_dir" && "$executable" --test-threads=4 "${IT_ARGS[@]}" ); then
-                echo "::error::PostgreSQL suites in the it binary failed"
-                FAILED=1
-              fi
+              case "$package_dir" in
+                */crates/pierre-server)
+                  [ "${#IT_MODULES[@]}" -gt 0 ] || continue
+                  echo "::group::it (${#IT_MODULES[@]} suites)"
+                  echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
+                  if ! ( cd "$package_dir" && "$executable" --test-threads=4 "${IT_ARGS[@]}" ); then
+                    echo "::error::PostgreSQL suites in the it binary failed"
+                    FAILED=1
+                  fi
+                  echo "::endgroup::"
+                  ;;
+                */crates/pierre-database)
+                  [ "$DB_IT" -eq 1 ] || continue
+                  echo "::group::pierre-database it"
+                  echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
+                  if ! ( cd "$package_dir" && "$executable" --test-threads=4 ); then
+                    echo "::error::PostgreSQL suites in pierre-database's it binary failed"
+                    FAILED=1
+                  fi
+                  echo "::endgroup::"
+                  ;;
+              esac
             done <<< "${TEST_BINARIES[it]}"
-            echo "::endgroup::"
           fi
           exit $FAILED
         timeout-minutes: 75

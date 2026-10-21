@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::errors::AppResult;
 use crate::memory::InMemoryCache;
@@ -129,6 +130,21 @@ impl Cache {
             #[cfg(feature = "redis")]
             CacheBackend::Redis(cache) => cache.invalidate_pattern(pattern).await,
         }
+    }
+
+    /// Remove every entry cached for `user_id`, in every tenant and for every
+    /// provider ([`CacheKey::every_entry_of_user`]), on whichever backend this
+    /// cache runs. Returns how many entries were removed.
+    ///
+    /// The deleted-account path calls it: an account that no longer exists
+    /// must leave no response cached under its id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend cannot be reached
+    pub async fn invalidate_user(&self, user_id: Uuid) -> AppResult<u64> {
+        self.invalidate_pattern(&CacheKey::every_entry_of_user(user_id))
+            .await
     }
 
     /// Check if key exists in cache
@@ -280,5 +296,60 @@ impl CacheProvider for Cache {
 
     async fn clear_all(&self) -> AppResult<()> {
         Self::clear_all(self).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use uuid::Uuid;
+
+    use super::Cache;
+    use crate::models::TenantId;
+    use crate::{CacheConfig, CacheKey, CacheResource};
+
+    fn key(tenant_id: TenantId, user_id: Uuid, provider: &str) -> CacheKey {
+        CacheKey::new(
+            tenant_id,
+            user_id,
+            provider.to_owned(),
+            CacheResource::AthleteProfile,
+        )
+    }
+
+    /// Every entry of the deleted user goes, in every tenant and for every
+    /// provider, and nobody else's entry is touched.
+    #[tokio::test]
+    async fn invalidating_a_user_removes_their_entries_in_every_tenant_only() {
+        let cache = Cache::new(CacheConfig {
+            enable_background_cleanup: false,
+            ..CacheConfig::default()
+        })
+        .await
+        .unwrap();
+        let (deleted, kept) = (Uuid::new_v4(), Uuid::new_v4());
+        let (tenant_a, tenant_b) = (TenantId::generate(), TenantId::generate());
+        let ttl = Duration::from_secs(60);
+        for entry in [
+            key(tenant_a, deleted, "strava"),
+            key(tenant_b, deleted, "whoop"),
+            key(tenant_a, kept, "strava"),
+        ] {
+            cache.set(&entry, &"cached", ttl).await.unwrap();
+        }
+
+        assert_eq!(cache.invalidate_user(deleted).await.unwrap(), 2);
+
+        assert!(!cache
+            .exists(&key(tenant_a, deleted, "strava"))
+            .await
+            .unwrap());
+        assert!(!cache
+            .exists(&key(tenant_b, deleted, "whoop"))
+            .await
+            .unwrap());
+        assert!(cache.exists(&key(tenant_a, kept, "strava")).await.unwrap());
+        assert_eq!(cache.invalidate_user(deleted).await.unwrap(), 0);
     }
 }

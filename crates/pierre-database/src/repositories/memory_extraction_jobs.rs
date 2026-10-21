@@ -4,13 +4,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
+
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 
 /// One extraction owed: the request the turn produced, as JSON, plus who
 /// it is for and how many times it has been attempted.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MemoryExtractionJobRow {
     /// Job id (UUID string), minted by the recorder.
     pub id: String,
@@ -30,6 +32,56 @@ pub struct MemoryExtractionJobRow {
     pub leased_until_ms: i64,
     /// Runs started so far, including the one this claim represents.
     pub attempts: i64,
+    /// The token of the claim (or the recording) that holds the row; renewing
+    /// and finishing it require this token. `None` on a row recorded before
+    /// tokens existed, which only a claim can take.
+    pub lease_token: Option<String>,
+}
+
+/// Prints every field but the lease token, which grants the right to renew
+/// and finish the row and so stays out of logs and panics.
+impl fmt::Debug for MemoryExtractionJobRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemoryExtractionJobRow")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("usage_tenant_id", &self.usage_tenant_id)
+            .field("payload", &self.payload)
+            .field("created_at_ms", &self.created_at_ms)
+            .field("leased_until_ms", &self.leased_until_ms)
+            .field("attempts", &self.attempts)
+            .field("lease_token", &"[redacted]")
+            .finish()
+    }
+}
+
+/// A job row as one runner holds it: its id and the token of its lease.
+///
+/// Renewing and finishing a job name both, so a runner whose lease lapsed
+/// while another claimed the row changes nothing.
+#[derive(Clone, PartialEq, Eq)]
+pub struct JobLease {
+    /// The job row's id.
+    pub id: String,
+    /// The token the claim or the recording wrote.
+    pub token: String,
+}
+
+/// Prints every field but the lease token, which grants the right to renew
+/// and finish the row and so stays out of logs and panics.
+impl fmt::Debug for JobLease {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JobLease")
+            .field("id", &self.id)
+            .field("token", &"[redacted]")
+            .finish()
+    }
+}
+
+impl fmt::Display for JobLease {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.id)
+    }
 }
 
 /// Which rows a resume sweep may take.
@@ -64,12 +116,16 @@ pub trait MemoryExtractionJobRepository: Send + Sync {
     ) -> AppResult<Vec<MemoryExtractionJobRow>>;
 
     /// Extend a running job's lease to `leased_until_ms`. `false` when the row
-    /// is gone or another runner holds it past that moment; the caller stops
-    /// renewing.
-    async fn renew_extraction_job_lease(&self, id: &str, leased_until_ms: i64) -> AppResult<bool>;
+    /// is gone or another claim holds it; the caller stops renewing.
+    async fn renew_extraction_job_lease(
+        &self,
+        lease: &JobLease,
+        leased_until_ms: i64,
+    ) -> AppResult<bool>;
 
-    /// The extraction landed: delete the row.
-    async fn finish_extraction_job(&self, id: &str) -> AppResult<()>;
+    /// The extraction landed: delete the row, if this lease still holds it.
+    /// `false` when another claim took it, whose run finishes it instead.
+    async fn finish_extraction_job(&self, lease: &JobLease) -> AppResult<bool>;
 
     /// Delete every row at or past the attempt cap whose lease has lapsed:
     /// the run that was to finish it died too, and no claim will take it
@@ -82,8 +138,9 @@ pub trait MemoryExtractionJobRepository: Send + Sync {
 }
 
 pub(crate) const RECORD_EXTRACTION_JOB_SQL: &str = "INSERT INTO memory_extraction_jobs \
-     (id, tenant_id, usage_tenant_id, payload, created_at_ms, leased_until_ms, attempts) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7)";
+     (id, tenant_id, usage_tenant_id, payload, created_at_ms, leased_until_ms, attempts, \
+      lease_token) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
 
 /// The claim: one statement, so the lease and the attempt bump land
 /// together and the subquery picks the rows under the same lock. The
@@ -93,7 +150,7 @@ macro_rules! claim_extraction_jobs_sql {
     ($lock:literal) => {
         concat!(
             "UPDATE memory_extraction_jobs \
-             SET leased_until_ms = $1, attempts = attempts + 1 \
+             SET leased_until_ms = $1, attempts = attempts + 1, lease_token = $6 \
              WHERE id IN ( \
                  SELECT j.id FROM memory_extraction_jobs j \
                  WHERE j.leased_until_ms <= $2 \
@@ -104,7 +161,7 @@ macro_rules! claim_extraction_jobs_sql {
             $lock,
             ") \
              RETURNING id, tenant_id, usage_tenant_id, payload, created_at_ms, leased_until_ms, \
-             attempts"
+             attempts, lease_token"
         )
     };
 }
@@ -112,10 +169,10 @@ pub(crate) use claim_extraction_jobs_sql;
 
 pub(crate) const RENEW_EXTRACTION_JOB_LEASE_SQL: &str =
     "UPDATE memory_extraction_jobs SET leased_until_ms = $1 \
-     WHERE id = $2 AND leased_until_ms <= $1";
+     WHERE id = $2 AND lease_token = $3";
 
 pub(crate) const FINISH_EXTRACTION_JOB_SQL: &str =
-    "DELETE FROM memory_extraction_jobs WHERE id = $1";
+    "DELETE FROM memory_extraction_jobs WHERE id = $1 AND lease_token = $2";
 
 pub(crate) const REAP_EXHAUSTED_EXTRACTION_JOBS_SQL: &str =
     "DELETE FROM memory_extraction_jobs WHERE attempts >= $1 AND leased_until_ms <= $2";
@@ -125,6 +182,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
@@ -147,6 +205,9 @@ where
             .try_get("leased_until_ms")
             .map_err(|e| column("leased_until_ms", e))?,
         attempts: row.try_get("attempts").map_err(|e| column("attempts", e))?,
+        lease_token: row
+            .try_get("lease_token")
+            .map_err(|e| column("lease_token", e))?,
     })
 }
 
@@ -170,6 +231,7 @@ macro_rules! impl_memory_extraction_job_repository {
                     .bind(row.created_at_ms)
                     .bind(row.leased_until_ms)
                     .bind(row.attempts)
+                    .bind(&row.lease_token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -188,6 +250,7 @@ macro_rules! impl_memory_extraction_job_repository {
                     .bind(claim.now_ms.saturating_sub(claim.queued_older_than_ms))
                     .bind(claim.max_attempts)
                     .bind(claim.limit)
+                    .bind(uuid::Uuid::new_v4().to_string())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -198,12 +261,13 @@ macro_rules! impl_memory_extraction_job_repository {
 
             async fn renew_extraction_job_lease(
                 &self,
-                id: &str,
+                lease: &JobLease,
                 leased_until_ms: i64,
             ) -> AppResult<bool> {
                 let result = sqlx::query(RENEW_EXTRACTION_JOB_LEASE_SQL)
                     .bind(leased_until_ms)
-                    .bind(id)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -212,15 +276,16 @@ macro_rules! impl_memory_extraction_job_repository {
                 Ok(result.rows_affected() == 1)
             }
 
-            async fn finish_extraction_job(&self, id: &str) -> AppResult<()> {
-                sqlx::query(FINISH_EXTRACTION_JOB_SQL)
-                    .bind(id)
+            async fn finish_extraction_job(&self, lease: &JobLease) -> AppResult<bool> {
+                let done = sqlx::query(FINISH_EXTRACTION_JOB_SQL)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to finish extraction job: {e}"))
                     })?;
-                Ok(())
+                Ok(done.rows_affected() == 1)
             }
 
             async fn reap_exhausted_extraction_jobs(

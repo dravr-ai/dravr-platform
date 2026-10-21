@@ -1,0 +1,1546 @@
+// ABOUTME: Intervals.icu provider unit tests (auth validation, defaults, registry registration, push)
+// ABOUTME: Unit tests plus loopback-stub tests that pin the on-the-wire HTTP Basic credential pair
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Intervals.icu provider unit tests.
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use secrecy::SecretString;
+use std::time::Duration as StdDuration;
+
+use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use pierre_core::constants::oauth_providers::activity_attribution;
+use pierre_providers::core::{
+    ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
+};
+use pierre_providers::errors::ErrorCode;
+use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
+use pierre_providers::models::periodization::{
+    EvidenceTier, PhaseFit, PhaseKind, Progression, ReadinessLevel, WorkoutParams, WorkoutPurpose,
+};
+use pierre_providers::models::{
+    Feel, IntensityDistribution, PlannedSession, PlannedWorkout, SportType, TimeSeriesData,
+    WorkoutTargetZones, WorkoutTemplate,
+};
+use pierre_providers::pagination::PaginationParams;
+use pierre_providers::ProviderRegistry;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
+use tokio::time::timeout;
+
+fn sample_template() -> WorkoutTemplate {
+    WorkoutTemplate {
+        id: uuid::Uuid::new_v4(),
+        tenant_id: None,
+        user_id: None,
+        slug: "long_run_z2".to_owned(),
+        name: "Long Run Z2".to_owned(),
+        sport: SportType::Run,
+        duration_minutes: 90,
+        intensity_distribution: IntensityDistribution::Polarized,
+        purpose: WorkoutPurpose::EnduranceLong,
+        sport_variants: vec![SportType::Run, SportType::Ride],
+        evidence_tier: EvidenceTier::Cohort,
+        caveat: None,
+        structure: Vec::new(),
+        target_zones: WorkoutTargetZones {
+            hr_pct_of_lt2: None,
+            power_pct_of_ftp: None,
+        },
+        params: WorkoutParams::default(),
+        progression: Progression::default(),
+        fit: PhaseFit {
+            phases: vec![PhaseKind::Base, PhaseKind::Build],
+            readiness_min: ReadinessLevel::P1,
+            max_per_week: 1,
+            min_spacing_hours: 0,
+            contraindications: Vec::new(),
+        },
+        evidence_refs: vec![
+            "evidence/sports_science/training_prescription/haugen-2022-world-class-distance.md"
+                .to_owned(),
+        ],
+        is_compiled_in: true,
+        updated_at: Utc::now(),
+    }
+}
+
+fn empty_credentials() -> OAuth2Credentials {
+    OAuth2Credentials {
+        client_id: String::new(),
+        client_secret: SecretString::default(),
+        access_token: None,
+        refresh_token: None,
+        expires_at: None,
+        scopes: Vec::new(),
+        kind: CredentialKind::ApiKey,
+        request_budget: None,
+    }
+}
+
+fn good_credentials() -> OAuth2Credentials {
+    OAuth2Credentials {
+        client_id: "i123456".to_owned(),
+        client_secret: SecretString::default(),
+        access_token: Some(SecretString::from("test-api-key")),
+        refresh_token: None,
+        expires_at: None,
+        scopes: Vec::new(),
+        kind: CredentialKind::ApiKey,
+        request_budget: None,
+    }
+}
+
+#[tokio::test]
+async fn provider_name_is_intervals_icu() {
+    let provider = IntervalsIcuProvider::new();
+    assert_eq!(provider.name(), "intervals_icu");
+}
+
+#[tokio::test]
+async fn default_config_has_endurance_endpoints() {
+    let cfg = default_config();
+    assert_eq!(cfg.name, "intervals_icu");
+    assert!(cfg.api_base_url.contains("intervals.icu"));
+    // The OAuth endpoints Intervals.icu documents: the authorize page, the
+    // token exchange under `/api/oauth` (not `/api/v1`), and the bearer
+    // self-deauthorize.
+    assert_eq!(cfg.auth_url, "https://intervals.icu/oauth/authorize");
+    assert_eq!(cfg.token_url, "https://intervals.icu/api/oauth/token");
+    assert_eq!(
+        cfg.revoke_url.as_deref(),
+        Some("https://intervals.icu/api/v1/disconnect-app")
+    );
+    assert!(cfg
+        .default_scopes
+        .iter()
+        .any(|scope| scope == "CALENDAR:WRITE"));
+}
+
+#[tokio::test]
+async fn set_credentials_rejects_missing_athlete_id() {
+    let provider = IntervalsIcuProvider::new();
+    let mut creds = good_credentials();
+    creds.client_id.clear();
+    let err = provider
+        .set_credentials(creds)
+        .await
+        .expect_err("missing athlete id");
+    assert!(format!("{err}").contains("athlete id"));
+}
+
+#[tokio::test]
+async fn set_credentials_rejects_missing_api_key() {
+    let provider = IntervalsIcuProvider::new();
+    let mut creds = good_credentials();
+    creds.access_token = None;
+    let err = provider
+        .set_credentials(creds)
+        .await
+        .expect_err("missing api key");
+    assert!(format!("{err}").contains("API key"));
+}
+
+#[tokio::test]
+async fn set_credentials_rejects_empty_api_key() {
+    let provider = IntervalsIcuProvider::new();
+    let mut creds = good_credentials();
+    creds.access_token = Some(SecretString::default());
+    let err = provider
+        .set_credentials(creds)
+        .await
+        .expect_err("empty api key");
+    assert!(format!("{err}").contains("API key"));
+}
+
+#[tokio::test]
+async fn is_authenticated_false_until_credentials_set() {
+    let provider = IntervalsIcuProvider::new();
+    assert!(!provider.is_authenticated().await);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("ok credentials");
+    assert!(provider.is_authenticated().await);
+}
+
+#[tokio::test]
+async fn refresh_token_is_noop_for_api_key_auth() {
+    let provider = IntervalsIcuProvider::new();
+    // API keys never expire; refresh must be a no-op (Ok(())) regardless of state.
+    provider
+        .refresh_token_if_needed()
+        .await
+        .expect("api-key refresh is always Ok");
+}
+
+#[tokio::test]
+async fn unauthenticated_calls_return_auth_error() {
+    let provider = IntervalsIcuProvider::new();
+    let err = provider.get_athlete().await.expect_err("missing auth");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("intervals.icu")
+            || msg.contains("link your account")
+            || msg.contains("athlete id")
+            || msg.contains("API key"),
+        "expected auth error, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn empty_credentials_struct_rejects_at_set() {
+    let provider = IntervalsIcuProvider::new();
+    let err = provider
+        .set_credentials(empty_credentials())
+        .await
+        .expect_err("empty creds rejected");
+    let msg = format!("{err}");
+    assert!(msg.contains("athlete id") || msg.contains("API key"));
+}
+#[tokio::test]
+async fn registry_registers_intervals_icu_as_an_oauth_provider() {
+    // The provider is registered (factory + descriptor) and links through the
+    // shared OAuth flow; the pasted API key stays a second way in, which the
+    // credential's kind selects per call rather than the registry.
+    let registry = ProviderRegistry::new();
+    assert!(
+        registry.is_supported("intervals_icu"),
+        "intervals_icu must be registered"
+    );
+    assert!(
+        registry.requires_oauth("intervals_icu"),
+        "intervals_icu links through the OAuth app"
+    );
+    let provider = registry
+        .create_provider("intervals_icu")
+        .expect("factory creates provider");
+    assert_eq!(provider.name(), "intervals_icu");
+
+    // Activities with cheap detail, plus the wellness feed dravr-enforme
+    // syncs into sleep, recovery and body rows.
+    let caps = registry
+        .get_descriptor("intervals_icu")
+        .expect("descriptor registered")
+        .capabilities();
+    assert!(caps.supports_activities());
+    assert!(caps.supports_sleep());
+    assert!(caps.supports_recovery());
+    assert!(caps.supports_health());
+    assert!(!caps.supports_continuous_data());
+    // The calendar is read for the workouts and races planned on it.
+    assert!(caps.supports_planned_workouts());
+    assert!(registry
+        .planned_workout_providers()
+        .contains(&"intervals_icu"));
+}
+
+#[tokio::test]
+async fn push_planned_session_requires_credentials() {
+    let provider = IntervalsIcuProvider::new();
+    let date = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid date");
+    let session =
+        PlannedSession::from_template(&sample_template(), date, "dravr:rx:test".to_owned());
+    let err = provider
+        .push_planned_session(&session)
+        .await
+        .expect_err("push without credentials must fail");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("intervals.icu")
+            || msg.contains("link your account")
+            || msg.contains("athlete id")
+            || msg.contains("API key"),
+        "expected auth error, got: {msg}"
+    );
+}
+
+/// One-shot loopback HTTP stub. Accepts a single connection, captures the
+/// request head verbatim, answers with `body`, and returns the captured head so
+/// a test can assert on the exact bytes the provider put on the wire.
+async fn stub_once(body: &'static str) -> (String, JoinHandle<String>) {
+    stub_once_with_status("200 OK", body).await
+}
+
+/// [`stub_once`], answering with `status` (e.g. `401 Unauthorized`).
+async fn stub_once_with_status(
+    status: &'static str,
+    body: &'static str,
+) -> (String, JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
+    let addr = listener.local_addr().expect("stub addr");
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut head = Vec::new();
+        let mut buf = [0_u8; 1024];
+        loop {
+            let n = socket.read(&mut buf).await.expect("read request");
+            if n == 0 {
+                break;
+            }
+            head.extend_from_slice(&buf[..n]);
+            if head.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
+        socket.flush().await.expect("flush response");
+        String::from_utf8_lossy(&head).into_owned()
+    });
+    (format!("http://{addr}"), handle)
+}
+
+/// Pull the decoded `Authorization: Basic ...` credential pair out of a captured
+/// request head.
+fn basic_credentials(head: &str) -> String {
+    let encoded = head
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("authorization") {
+                value.trim().strip_prefix("Basic ")
+            } else {
+                None
+            }
+        })
+        .expect("request carries an Authorization: Basic header");
+    let decoded = STANDARD.decode(encoded).expect("base64 credential pair");
+    String::from_utf8(decoded).expect("utf-8 credential pair")
+}
+
+#[tokio::test]
+async fn basic_auth_username_is_the_literal_api_key_not_the_athlete_id() {
+    // Intervals.icu's API-key scheme is `curl -u API_KEY:<key>` — the username
+    // is the fixed string `API_KEY`. Sending the athlete id there returns 401 on
+    // every endpoint, which is exactly how the link flow shipped broken: the
+    // athlete id addresses the URL path, never the credential pair.
+    let (base_url, stub) = stub_once(r#"{"id":"i123456","name":"Test Athlete"}"#).await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let athlete = provider.get_athlete().await.expect("get_athlete succeeds");
+    assert_eq!(athlete.id, "i123456");
+
+    let head = stub.await.expect("stub task joins");
+    assert_eq!(
+        basic_credentials(&head),
+        "API_KEY:test-api-key",
+        "Basic credentials must be the literal API_KEY username plus the key"
+    );
+    assert!(
+        !head.contains("i123456:test-api-key"),
+        "the athlete id must never appear in the credential pair"
+    );
+    assert!(
+        head.starts_with("GET /api/v1/athlete/i123456 "),
+        "the athlete id addresses the URL path; got head: {head}"
+    );
+}
+
+fn bearer_credentials() -> OAuth2Credentials {
+    OAuth2Credentials {
+        // The OAuth app's client id, which names no athlete.
+        client_id: "dravr-app".to_owned(),
+        client_secret: SecretString::from("app-secret"),
+        access_token: Some(SecretString::from("oauth-token")),
+        refresh_token: None,
+        expires_at: None,
+        scopes: vec!["ACTIVITY:READ".to_owned()],
+        kind: CredentialKind::OAuthBearer,
+        request_budget: None,
+    }
+}
+
+#[tokio::test]
+async fn an_oauth_token_goes_out_as_bearer_and_addresses_its_own_athlete() {
+    // An OAuth grant is a bearer token, and Intervals.icu resolves athlete id
+    // `0` to the athlete it was issued for. The client id is the Dravr app's,
+    // so it must never reach the path, and no Basic pair is sent at all.
+    let (base_url, stub) = stub_once(r#"{"id":"i123456","name":"Test Athlete"}"#).await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+
+    let athlete = provider.get_athlete().await.expect("get_athlete succeeds");
+    assert_eq!(athlete.id, "i123456");
+
+    let head = stub.await.expect("stub task joins");
+    assert!(
+        head.starts_with("GET /api/v1/athlete/0 "),
+        "a bearer token addresses athlete 0; got head: {head}"
+    );
+    assert!(
+        head.lines()
+            .any(|line| line.eq_ignore_ascii_case("authorization: Bearer oauth-token")),
+        "the token goes out as a bearer credential; got head: {head}"
+    );
+    assert!(
+        !head.contains("dravr-app"),
+        "the app client id never reaches the wire"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_token_asks_the_athlete_to_reconnect() {
+    // A 401 is the athlete withdrawing the grant or regenerating the key. It
+    // must surface as the reconnect error (403 to our client), never as an
+    // upstream failure the model would paraphrase, nor as a 401 that would
+    // sign the athlete out of Dravr.
+    let (base_url, stub) = stub_once_with_status("401 Unauthorized", "{}").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+
+    let err = provider
+        .get_athlete()
+        .await
+        .expect_err("a 401 must fail the call");
+    stub.await.expect("stub task joins");
+    assert_eq!(err.code, ErrorCode::ProviderAuthRequired, "got: {err}");
+    assert_eq!(
+        err.provider_auth_required_provider().as_deref(),
+        Some("intervals_icu")
+    );
+}
+
+#[tokio::test]
+async fn every_athlete_scoped_call_uses_the_literal_api_key_username() {
+    // The username is a per-call-site decision (seven of them). Cover a second,
+    // structurally different endpoint so a partial fix cannot pass.
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let from = NaiveDate::from_ymd_opt(2026, 6, 1).expect("valid from date");
+    let to = NaiveDate::from_ymd_opt(2026, 6, 10).expect("valid to date");
+    let events = provider
+        .list_calendar_events(from, to)
+        .await
+        .expect("the calendar read succeeds");
+    assert!(events.is_empty(), "stub returns an empty event list");
+
+    let head = stub.await.expect("stub task joins");
+    assert_eq!(basic_credentials(&head), "API_KEY:test-api-key");
+}
+
+/// Pull the request target (`GET /path?query HTTP/1.1` → `/path?query`) out of
+/// a captured request head.
+fn request_target(head: &str) -> &str {
+    head.lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .expect("request head carries a target")
+}
+
+#[tokio::test]
+async fn activity_list_sends_local_datetime_bounds_not_rfc3339() {
+    // Intervals.icu parses `oldest`/`newest` as LOCAL date-times. `to_rfc3339()`
+    // appends a UTC offset and fractional seconds, and the API answers that with
+    // 422 — which is what every activity read got against the live service
+    // (prod 2026-08-26: `GET /api/v1/athlete/i550405/activities` → 422, and the
+    // agent then told the athlete it could only "read" a provider it could not
+    // read either). The same file already sends `%Y-%m-%d` on /wellness and
+    // /events, so the dialect was never in doubt — only this call site.
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let activities = provider
+        .get_activities(Some(10), None)
+        .await
+        .expect("get_activities succeeds");
+    assert!(activities.is_empty(), "stub returns an empty activity list");
+
+    let head = stub.await.expect("stub task joins");
+    let target = request_target(&head);
+
+    assert!(
+        target.contains("oldest=") && target.contains("newest="),
+        "both range bounds must be sent — Intervals.icu rejects an unbounded \
+         activity range; got: {target}"
+    );
+    assert!(
+        !target.contains("%2B") && !target.contains('+'),
+        "a UTC offset in the bounds is what returns 422; got: {target}"
+    );
+    assert!(
+        !target.contains('Z') && !target.contains("%3A%3A"),
+        "bounds must be local date-times, with no zone designator; got: {target}"
+    );
+
+    // Pin the exact shape: YYYY-MM-DDTHH:MM:SS, colons percent-encoded by the
+    // query serialiser. Anything else is a format the API has already rejected.
+    let decoded = target.replace("%3A", ":");
+    let bounds: Vec<&str> = decoded
+        .split(['?', '&'])
+        .filter(|p| p.starts_with("oldest=") || p.starts_with("newest="))
+        .collect();
+    assert_eq!(bounds.len(), 2, "exactly two bounds; got: {decoded}");
+    for bound in bounds {
+        let value = bound.split_once('=').expect("bound is a pair").1;
+        let (date, time) = value.split_once('T').unwrap_or_else(|| {
+            panic!("bound must be a local date-time with a T separator; got: {value}")
+        });
+        assert_eq!(date.len(), 10, "date half must be YYYY-MM-DD; got: {value}");
+        assert_eq!(
+            time.len(),
+            8,
+            "time half must be HH:MM:SS with no fraction or offset; got: {value}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn activity_cursor_page_sends_a_bounded_window() {
+    // The cursor entry point passed `None, None` straight through, asking
+    // Intervals.icu for an unbounded range while the other entry point
+    // defaulted both bounds. One window helper now serves both, so a caller
+    // cannot reach the API with no range at all.
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let page = provider
+        .get_activities_cursor(&PaginationParams::forward(None, 5))
+        .await
+        .expect("cursor page succeeds");
+    assert_eq!(page.count, 0, "stub returns an empty page");
+
+    let head = stub.await.expect("stub task joins");
+    let target = request_target(&head);
+    assert!(
+        target.contains("oldest=") && target.contains("newest="),
+        "the cursor path must send the same bounded window as the params path; \
+         got: {target}"
+    );
+}
+
+/// The lower bound must reach the wire early enough to survive being read as
+/// athlete-local.
+///
+/// [`QUERY_DATETIME_FORMAT`] sends a naive wall clock and Intervals.icu reads it
+/// as the athlete's *local* time — that is the whole reason the format was
+/// changed off `to_rfc3339()`. But the argument is a UTC instant, and for an
+/// athlete west of UTC our wall clock runs ahead of theirs, so an unpadded
+/// `oldest` is read as up to twelve hours *later* than the caller asked for.
+///
+/// The callers that pass a real lower bound are the incremental ones —
+/// `fetch_recent_activities_all_providers` and the fresh-head data path — so
+/// the activity lost in that gap is the one the athlete uploaded this morning,
+/// which is the same complaint the 422 produced. Widening is safe: the cache
+/// dedupes by activity id.
+#[tokio::test]
+async fn activity_list_pads_the_lower_bound_against_a_local_reading() {
+    let (base_url, stub) = stub_once("[]").await;
+
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let asked = NaiveDate::from_ymd_opt(2026, 6, 1)
+        .expect("valid date")
+        .and_hms_opt(12, 0, 0)
+        .expect("valid time")
+        .and_utc();
+
+    provider
+        .get_activities_with_params(&ActivityQueryParams::with_time_range(
+            None,
+            Some(asked.timestamp()),
+        ))
+        .await
+        .expect("get_activities_with_params succeeds");
+
+    let head = stub.await.expect("stub task joins");
+    let decoded = request_target(&head).replace("%3A", ":");
+    let oldest = decoded
+        .split(['?', '&'])
+        .find_map(|part| part.strip_prefix("oldest="))
+        .expect("oldest bound is present");
+    let sent = NaiveDateTime::parse_from_str(oldest, "%Y-%m-%dT%H:%M:%S")
+        .expect("oldest is a local date-time")
+        .and_utc();
+
+    let slack = asked - sent;
+    assert!(
+        slack >= Duration::hours(12),
+        "oldest must precede the requested bound by at least the widest western \
+         UTC offset, or a local reading of it silently drops activities: asked \
+         {asked}, sent {sent}, slack {}h",
+        slack.num_hours()
+    );
+}
+
+/// Serve `bodies.len()` sequential requests, returning every captured request
+/// head. The single-shot [`stub_once`] cannot express a paging walk, which is
+/// the whole point of the test below: the defect was that only one request was
+/// ever made.
+async fn stub_pages(bodies: Vec<String>) -> (String, JoinHandle<Vec<String>>) {
+    stub_answers(bodies.into_iter().map(|body| ("200 OK", body)).collect()).await
+}
+
+/// [`stub_pages`], each request answered with its own status line.
+async fn stub_answers(answers: Vec<(&'static str, String)>) -> (String, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
+    let addr = listener.local_addr().expect("stub addr");
+    let handle = tokio::spawn(async move {
+        let mut heads = Vec::new();
+        for (status, body) in answers {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut head = Vec::new();
+            let mut buf = [0_u8; 1024];
+            loop {
+                let n = socket.read(&mut buf).await.expect("read request");
+                if n == 0 {
+                    break;
+                }
+                head.extend_from_slice(&buf[..n]);
+                if head.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
+            socket.flush().await.expect("flush response");
+            heads.push(String::from_utf8_lossy(&head).into_owned());
+        }
+        heads
+    });
+    (format!("http://{addr}"), handle)
+}
+
+/// A request deeper than one response can carry must page, not truncate.
+///
+/// Intervals.icu answers at most 200 activities per request, and the provider
+/// used to clamp the caller's limit to that and return a single page. The
+/// truncation was invisible to the caller, and that is what made it costly: the
+/// historical backfill asks every provider for two thousand activities and then
+/// reads `fetched_count < requested_limit` as proof the window was exhausted.
+/// A silent 200 therefore made the backfill record a depth it never reached, and
+/// the gate served that shallow slice as a complete season from then on.
+///
+/// Two pages here: a full 200 (so the walk continues) then a short 3 (so it
+/// stops). A clamping provider returns 200 from one request and fails this.
+#[tokio::test]
+async fn a_deep_request_pages_past_the_single_response_cap() {
+    // Anchored near now, not on a fixed calendar date: with no explicit `after`
+    // the provider defaults the window to the last 90 days, and a fixture older
+    // than that is outside it - the walk correctly stops at the window floor and
+    // the test would be measuring the window, not the paging.
+    let base = (Utc::now() - Duration::days(2))
+        .naive_utc()
+        .with_nanosecond(0)
+        .expect("nanosecond truncation is in range")
+        .with_second(0)
+        .expect("second truncation is in range");
+    let row = |id: &str, hours_back: i64| {
+        let ts = base - Duration::hours(hours_back);
+        format!(
+            r#"{{"id":"{id}","start_date_local":"{}"}}"#,
+            ts.format("%Y-%m-%dT%H:%M:%S")
+        )
+    };
+
+    let page_one: Vec<String> = (0..200).map(|i| row(&format!("p1-{i}"), i)).collect();
+    let page_two: Vec<String> = (200..203).map(|i| row(&format!("p2-{i}"), i)).collect();
+    let bodies = vec![
+        format!("[{}]", page_one.join(",")),
+        format!("[{}]", page_two.join(",")),
+    ];
+
+    let (base_url, stub) = stub_pages(bodies).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("set creds");
+
+    let activities = provider
+        .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(500), None))
+        .await
+        .expect("deep fetch succeeds");
+
+    assert_eq!(
+        activities.len(),
+        203,
+        "a 500-activity ask must walk both pages, not stop at the 200-row cap"
+    );
+
+    let heads = timeout(StdDuration::from_secs(5), stub)
+        .await
+        .expect("stub finishes: a clamping provider issues only one request")
+        .expect("stub task joins");
+    assert_eq!(heads.len(), 2, "the walk must issue a second request");
+
+    // The second page resumes at the oldest row of the first, inclusively -
+    // several activities can share a start time and a page boundary can fall
+    // between them, so stepping past it would drop rows the id filter cannot
+    // recover. The duplicate this costs is what the id filter is for.
+    let resume = (base - Duration::hours(199))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let second = request_target(&heads[1]).replace("%3A", ":");
+    assert!(
+        second.contains(&format!("newest={resume}")),
+        "second page must resume at the first page's oldest row: expected \
+         newest={resume}, got {second}"
+    );
+}
+
+/// `get_activity_with_streams` folds the streams endpoint's response —
+/// including the `latlng` stream, latitudes in `data` and longitudes in
+/// `data2` — into the activity's time-series data. Three sequential requests: the activity, its comment
+/// thread (the tier sits above the detail read), then its streams.
+#[tokio::test]
+async fn get_activity_with_streams_folds_the_streams_response() {
+    let activity_body = serde_json::json!({
+        "id": "i777",
+        "name": "Stream ride",
+        "type": "Ride",
+        "start_date_local": "2026-08-30T10:00:00",
+        "elapsed_time": 4,
+        "distance": 100.0
+    })
+    .to_string();
+    let streams_body = serde_json::json!([
+        { "type": "heartrate", "data": [130.0, 131.0, 132.0, 133.0] },
+        { "type": "watts", "data": [210.0, 212.0, 214.0, 216.0] },
+        { "type": "latlng", "data": [45.5, 45.501, 45.502, 45.503],
+          "data2": [-73.6, -73.601, -73.602, -73.603] }
+    ])
+    .to_string();
+
+    let messages_body = serde_json::json!([
+        { "id": 1, "name": "Alex", "type": "TEXT", "created": "2026-08-30T12:00:00Z",
+          "content": "Short test ride" }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![activity_body, messages_body, streams_body]).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("credentials");
+
+    let activity = provider
+        .get_activity_with_streams("i777")
+        .await
+        .expect("activity with streams");
+
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+    assert_eq!(heads.len(), 3, "activity, comments, then streams");
+    assert!(
+        heads[1].contains("/api/v1/activity/i777/messages"),
+        "second request is the comment thread; got: {}",
+        heads[1]
+    );
+    assert!(
+        heads[2].contains("/api/v1/activity/i777/streams.json"),
+        "third request is the streams endpoint; got: {}",
+        heads[2]
+    );
+    let comments = activity.comments().expect("thread attached");
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0].text, "Short test ride");
+
+    let stream = activity
+        .time_series_data()
+        .expect("streams must be attached");
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[Some(130), Some(131), Some(132), Some(133)][..])
+    );
+    assert_eq!(
+        stream.power.as_deref(),
+        Some(&[Some(210), Some(212), Some(214), Some(216)][..])
+    );
+    let gps = stream.gps_coordinates.as_ref().expect("gps");
+    assert_eq!(
+        gps.as_slice(),
+        &[
+            (45.5, -73.6),
+            (45.501, -73.601),
+            (45.502, -73.602),
+            (45.503, -73.603)
+        ],
+        "latitudes in data and longitudes in data2 pair by index"
+    );
+    assert_eq!(
+        stream.timestamps.len(),
+        4,
+        "timestamps synthesised per sample"
+    );
+}
+
+/// Read `body` as the streams endpoint's answer for activity `i778` and return
+/// the time series `get_activity_with_streams` attached.
+async fn streams_through_provider(streams_body: serde_json::Value) -> TimeSeriesData {
+    let activity_body = serde_json::json!({
+        "id": "i778",
+        "name": "Bromont trail run",
+        "type": "Run",
+        "start_date_local": "2026-09-28T08:00:00",
+        "elapsed_time": 5,
+        "distance": 40.0
+    })
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![
+        activity_body,
+        "[]".to_owned(),
+        streams_body.to_string(),
+    ])
+    .await;
+    let provider = provider_against(base_url).await;
+    let activity = provider
+        .get_activity_with_streams("i778")
+        .await
+        .expect("activity with streams");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+    activity
+        .time_series_data()
+        .cloned()
+        .expect("streams must be attached")
+}
+
+/// The `latlng` stream in the shape intervals.icu's streams endpoint returns
+/// it (`OpenAPI` `ActivityStream`: `data` = latitudes, `data2` = longitudes),
+/// taken from a Bromont, Québec run. Reading it as one interleaved list paired
+/// consecutive latitudes, (45.30, 45.30), and drew the run as a diagonal in
+/// the Caucasus.
+#[tokio::test]
+async fn latlng_pairs_latitudes_from_data_with_longitudes_from_data2() {
+    let lats = [45.3051, 45.3054, 45.3058, 45.3061, 45.3065];
+    let lngs = [-72.6512, -72.6507, -72.6501, -72.6496, -72.6490];
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "time", "data": [0.0, 1.0, 2.0, 3.0, 4.0] },
+        { "type": "latlng", "data": lats, "data2": lngs },
+        { "type": "altitude", "data": [150.0, 151.0, 152.0, 152.5, 153.0] }
+    ]))
+    .await;
+
+    let gps = stream.gps_coordinates.as_ref().expect("the run has GPS");
+    assert_eq!(gps.len(), 5, "one coordinate per latitude sample");
+    let expected: Vec<(f64, f64)> = lats.iter().copied().zip(lngs).collect();
+    assert_eq!(gps, &expected);
+    for (lat, lng) in gps {
+        assert!(
+            (45.30..45.31).contains(lat) && (-72.66..-72.64).contains(lng),
+            "({lat}, {lng}) is not in Bromont"
+        );
+    }
+    assert_eq!(
+        stream.timestamps.len(),
+        5,
+        "the latlng stream counts one sample per latitude, not per value"
+    );
+}
+
+/// A `latlng` stream without `data2` carries no longitude: it is read as no
+/// GPS, never as coordinates built by pairing latitudes with each other.
+#[tokio::test]
+async fn latlng_without_data2_is_no_gps() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "heartrate", "data": [140.0, 141.0, 142.0, 143.0] },
+        { "type": "latlng", "data": [45.3051, 45.3054, 45.3058, 45.3061] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.gps_coordinates, None,
+        "latitudes alone place no point on the map"
+    );
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[Some(140), Some(141), Some(142), Some(143)][..])
+    );
+    assert_eq!(stream.timestamps.len(), 4);
+}
+
+/// A `latlng` sample without a fix arrives as `null` on either side. The read
+/// succeeds and the track holds only the fixed points, never a zero or a
+/// half-pair.
+#[tokio::test]
+async fn latlng_samples_without_a_fix_are_left_out_of_the_track() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "latlng",
+          "data":  [45.3051, null, 45.3058, 45.3061, 45.3065, null],
+          "data2": [-72.6512, -72.6507, null, -72.6496, -72.6490, null] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.gps_coordinates,
+        Some(vec![
+            (45.3051, -72.6512),
+            (45.3061, -72.6496),
+            (45.3065, -72.6490)
+        ]),
+        "only the samples with both a latitude and a longitude are points"
+    );
+    assert_eq!(
+        stream.timestamps.len(),
+        6,
+        "the recording keeps every sample, fixed or not"
+    );
+}
+
+/// A scalar stream with a sensor dropout (`null` samples) does not fail the
+/// read and is never filled: each `null` stays a gap at its own index, and
+/// the recorded samples around it keep their values and their instants.
+#[tokio::test]
+async fn a_scalar_stream_with_a_dropout_keeps_its_samples_and_its_gaps() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "heartrate", "data": [140.0, null, null, 143.0] },
+        { "type": "watts", "data": [200.0, 0.0, 210.0, 215.0] },
+        { "type": "altitude", "data": [150.0, 151.0, null, 152.0] },
+        { "type": "cadence", "data": [null, 88.0, 90.0, null] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.heart_rate,
+        Some(vec![Some(140), None, None, Some(143)]),
+        "no 0 bpm and no repeated reading stands in for the dropout"
+    );
+    assert_eq!(
+        stream.altitude,
+        Some(vec![Some(150.0), Some(151.0), None, Some(152.0)])
+    );
+    assert_eq!(stream.cadence, Some(vec![None, Some(88), Some(90), None]));
+    assert_eq!(
+        stream.power,
+        Some(vec![Some(200), Some(0), Some(210), Some(215)]),
+        "a recorded zero is a real reading and stays"
+    );
+    assert_eq!(stream.timestamps.len(), 4);
+}
+
+/// A stream flagged `allNull` recorded nothing: it is absent, whatever its
+/// `data` holds.
+#[tokio::test]
+async fn an_all_null_stream_is_absent() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "cadence", "allNull": true, "data": [null, null, null] },
+        { "type": "latlng", "allNull": true },
+        { "type": "heartrate", "data": [120.0, 121.0, 122.0] }
+    ]))
+    .await;
+
+    assert_eq!(stream.cadence, None);
+    assert_eq!(stream.gps_coordinates, None);
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[Some(120), Some(121), Some(122)][..])
+    );
+}
+
+async fn provider_against(base_url: String) -> IntervalsIcuProvider {
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(good_credentials())
+        .await
+        .expect("credentials");
+    provider
+}
+
+fn self_reported_activity_body() -> String {
+    serde_json::json!({
+        "id": "i901",
+        "name": "Threshold intervals",
+        "type": "Ride",
+        "start_date_local": "2026-09-20T17:00:00",
+        "elapsed_time": 3600,
+        "feel": 4,
+        "icu_rpe": 8,
+        "session_rpe": 480,
+        "description": "Legs heavy after the long weekend"
+    })
+    .to_string()
+}
+
+/// The detail tier reads the athlete's self-report and the comment thread.
+///
+/// `feel` 4 on Intervals.icu is *Poor* — its scale ranks 1 as the best. A
+/// mapping that assumed higher is better would call this session good.
+#[tokio::test]
+async fn detail_read_carries_the_self_report_and_the_comment_thread() {
+    let messages_body = serde_json::json!([
+        { "id": 3, "name": "Coach Marie", "type": "TEXT", "created": "2026-09-20T19:30:00Z",
+          "content": "Back off the last set next time" },
+        { "id": 1, "name": "Alex", "type": "TEXT", "created": "2026-09-20T18:10:00Z",
+          "content": "Could not hold the power on rep 4" },
+        { "id": 2, "name": "Alex", "type": "TEXT", "created": "2026-09-20T18:20:00Z",
+          "content": "deleted by me", "deleted": "2026-09-20T18:21:00Z" },
+        { "id": 4, "name": "Sam", "type": "COACH_REQ", "created": "2026-09-20T20:00:00Z",
+          "content": "Coach me?" },
+        { "id": 5, "name": "Alex", "type": "TEXT", "created": "2026-09-20T20:10:00Z",
+          "content": "   " }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![self_reported_activity_body(), messages_body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activity = provider
+        .get_activity_detailed("i901")
+        .await
+        .expect("detail read");
+
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+    assert_eq!(heads.len(), 2, "activity then its messages");
+    assert_eq!(
+        request_target(&heads[1]),
+        "/api/v1/activity/i901/messages?limit=50"
+    );
+    assert_eq!(basic_credentials(&heads[1]), "API_KEY:test-api-key");
+
+    assert_eq!(
+        activity.feel(),
+        Some(Feel::Poor),
+        "feel 4 is Poor, not Good"
+    );
+    assert_eq!(activity.perceived_exertion(), Some(8.0));
+    assert_eq!(
+        activity.description(),
+        Some("Legs heavy after the long weekend")
+    );
+
+    let comments = activity.comments().expect("thread attached");
+    let texts: Vec<&str> = comments.iter().map(|c| c.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "Could not hold the power on rep 4",
+            "Back off the last set next time"
+        ],
+        "live TEXT comments only, oldest first"
+    );
+    assert_eq!(comments[1].author.as_deref(), Some("Coach Marie"));
+    assert_eq!(
+        comments[0].created_at.map(|t| t.to_rfc3339()).as_deref(),
+        Some("2026-09-20T18:10:00+00:00")
+    );
+}
+
+/// A thread that cannot be read costs the comments, never the activity.
+#[tokio::test]
+async fn detail_read_survives_an_unreadable_comment_thread() {
+    let (base_url, stub) =
+        stub_pages(vec![self_reported_activity_body(), "not json".to_owned()]).await;
+    let provider = provider_against(base_url).await;
+
+    let activity = provider
+        .get_activity_detailed("i901")
+        .await
+        .expect("the activity is still served");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert!(activity.comments().is_none());
+    assert_eq!(activity.feel(), Some(Feel::Poor));
+    assert_eq!(activity.perceived_exertion(), Some(8.0));
+}
+
+/// The plain read pays one round trip: the thread belongs to the detail tier.
+#[tokio::test]
+async fn plain_read_carries_the_self_report_without_fetching_comments() {
+    let (base_url, stub) = stub_pages(vec![self_reported_activity_body()]).await;
+    let provider = provider_against(base_url).await;
+
+    let activity = provider.get_activity("i901").await.expect("plain read");
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert_eq!(heads.len(), 1);
+    assert_eq!(activity.feel(), Some(Feel::Poor));
+    assert!(activity.comments().is_none());
+}
+
+/// Every rank on Intervals.icu's inverted feel scale lands on its name, and
+/// the ranks and ratings that are not on the scale land on nothing.
+#[tokio::test]
+async fn list_read_maps_the_whole_inverted_feel_scale() {
+    let row = |id: &str, feel: i64, rpe: i64| {
+        serde_json::json!({
+            "id": id,
+            "start_date_local": (Utc::now() - Duration::days(2))
+                .format("%Y-%m-%dT%H:%M:%S")
+                .to_string(),
+            "feel": feel,
+            "icu_rpe": rpe
+        })
+    };
+    let body = serde_json::Value::Array(vec![
+        row("f1", 1, 1),
+        row("f2", 2, 10),
+        row("f3", 3, 5),
+        row("f4", 4, 0),
+        row("f5", 5, 11),
+        row("f0", 0, -1),
+        row("f6", 6, 7),
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activities = provider
+        .get_activities(Some(50), None)
+        .await
+        .expect("list read");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    let by_id = |id: &str| {
+        activities
+            .iter()
+            .find(|a| a.id() == id)
+            .unwrap_or_else(|| panic!("{id} in the list"))
+    };
+    assert_eq!(by_id("f1").feel(), Some(Feel::Strong), "1 is the best");
+    assert_eq!(by_id("f2").feel(), Some(Feel::Good));
+    assert_eq!(by_id("f3").feel(), Some(Feel::Normal));
+    assert_eq!(by_id("f4").feel(), Some(Feel::Poor));
+    assert_eq!(by_id("f5").feel(), Some(Feel::Weak), "5 is the worst");
+    assert_eq!(by_id("f0").feel(), None, "0 is not a rating");
+    assert_eq!(by_id("f6").feel(), None, "6 is not a rating");
+
+    assert_eq!(by_id("f1").perceived_exertion(), Some(1.0));
+    assert_eq!(by_id("f2").perceived_exertion(), Some(10.0));
+    assert_eq!(
+        by_id("f4").perceived_exertion(),
+        None,
+        "RPE 0 is not a rating"
+    );
+    assert_eq!(
+        by_id("f5").perceived_exertion(),
+        None,
+        "RPE 11 is off the scale"
+    );
+    assert_eq!(by_id("f0").perceived_exertion(), None);
+    assert!(
+        activities.iter().all(|a| a.comments().is_none()),
+        "the list never fetches threads"
+    );
+}
+
+/// intervals.icu's API terms identify Garmin-sourced data by `device_name`
+/// containing "garmin" (carnet#521): a FIT upload from a Garmin watch is
+/// `source: garmin`, as a Garmin Connect relay is, and so carries the Garmin
+/// attribution wherever it is shown; another device's upload has no upstream.
+#[tokio::test]
+async fn list_read_marks_garmin_recorded_activities_garmin_sourced() {
+    let started = (Utc::now() - Duration::days(1))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let body = serde_json::json!([
+        { "id": "g-upload", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "Garmin Forerunner 965" },
+        { "id": "g-connect", "start_date_local": started, "source": "GARMIN_CONNECT" },
+        { "id": "wahoo", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "Wahoo ELEMNT BOLT" },
+        { "id": "manual", "start_date_local": started, "source": "MANUAL" }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activities = provider
+        .get_activities(Some(50), None)
+        .await
+        .expect("list read");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    let source = |id: &str| {
+        activities
+            .iter()
+            .find(|a| a.id() == id)
+            .unwrap_or_else(|| panic!("{id} in the list"))
+            .source()
+            .map(str::to_owned)
+    };
+    assert_eq!(source("g-upload").as_deref(), Some("garmin"));
+    assert_eq!(source("g-connect").as_deref(), Some("garmin"));
+    assert_eq!(source("wahoo"), None);
+    assert_eq!(source("manual"), None);
+}
+
+/// The activity carries intervals.icu's `device_name`, so the Garmin
+/// attribution names the model, and a Garmin recording another service
+/// relayed keeps its relay as `source` while its device still says Garmin
+/// (carnet#521).
+#[tokio::test]
+async fn list_read_carries_the_recording_device() {
+    let started = (Utc::now() - Duration::days(1))
+        .format("%Y-%m-%dT%H:%M:%S")
+        .to_string();
+    let body = serde_json::json!([
+        { "id": "via-strava", "start_date_local": started, "source": "STRAVA",
+          "device_name": "Garmin Edge 840" },
+        { "id": "upload", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "  Garmin Forerunner 965 " },
+        { "id": "blank", "start_date_local": started, "source": "UPLOAD",
+          "device_name": "  " },
+        { "id": "none", "start_date_local": started, "source": "MANUAL" }
+    ])
+    .to_string();
+    let (base_url, stub) = stub_pages(vec![body]).await;
+    let provider = provider_against(base_url).await;
+
+    let activities = provider
+        .get_activities(Some(50), None)
+        .await
+        .expect("list read");
+    timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    let find = |id: &str| {
+        activities
+            .iter()
+            .find(|a| a.id() == id)
+            .unwrap_or_else(|| panic!("{id} in the list"))
+    };
+    let relayed = find("via-strava");
+    assert_eq!(
+        relayed.source(),
+        Some("strava"),
+        "the relay keeps its terms"
+    );
+    assert_eq!(relayed.device_name(), Some("Garmin Edge 840"));
+    assert_eq!(
+        activity_attribution(relayed.source(), relayed.device_name()).as_deref(),
+        Some("Garmin Edge 840")
+    );
+    assert_eq!(find("upload").device_name(), Some("Garmin Forerunner 965"));
+    assert_eq!(
+        find("blank").device_name(),
+        None,
+        "a blank name is no device"
+    );
+    assert_eq!(find("none").device_name(), None);
+}
+
+// ── Planned workouts ───────────────────────────────────────────────────────
+
+/// The calendar a planned read is served: a paired workout and a race the
+/// athlete planned, then what a planned calendar never shows — a note (which
+/// the category filter would have kept off the wire), one of Dravr's own
+/// pushes, an event the coach hid from the athlete, and one with no date.
+fn planned_calendar_body() -> String {
+    serde_json::json!([
+        { "id": 42, "category": "WORKOUT", "name": "Threshold 3x10", "type": "Ride",
+          "description": "Hold the line.", "start_date_local": "2026-09-29T00:00:00",
+          "moving_time": 3600, "distance": null, "hide_from_athlete": false },
+        { "id": 43, "category": "RACE_A", "name": "Fall Classic", "type": "Run",
+          "start_date_local": "2026-10-04" },
+        { "id": 44, "category": "NOTE", "name": "Travel", "start_date_local": "2026-09-30" },
+        { "id": 45, "category": "WORKOUT", "name": "Dravr session",
+          "start_date_local": "2026-09-30T00:00:00",
+          "external_id": "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:2026-09-30:0" },
+        { "id": 46, "category": "WORKOUT", "name": "Coach draft", "hide_from_athlete": true,
+          "start_date_local": "2026-10-01T00:00:00" },
+        { "id": 47, "category": "WORKOUT", "name": "Undated", "start_date_local": null }
+    ])
+    .to_string()
+}
+
+/// The pairing read's answer exactly as `fields=` shapes it: null values
+/// left out, no `start_date_local`.
+const PAIRING_BODY: &str = r#"[{"id":"i101","paired_event_id":42},{"id":"i102"}]"#;
+
+#[tokio::test]
+async fn the_calendar_read_asks_for_every_category() {
+    // The reconcile's view of the calendar: Dravr's week notes are NOTE
+    // events, so a category filter here would have them pushed again on
+    // every plan push.
+    let (base_url, stub) = stub_once("[]").await;
+    let provider = provider_against(base_url).await;
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    provider
+        .list_calendar_events(from, to)
+        .await
+        .expect("the calendar read succeeds");
+    let head = stub.await.expect("stub task joins");
+    assert_eq!(
+        request_target(&head),
+        "/api/v1/athlete/i123456/events?oldest=2026-09-28&newest=2026-10-04"
+    );
+}
+
+#[tokio::test]
+async fn a_planned_read_asks_for_workouts_and_races_then_who_completed_them() {
+    let (base_url, stub) = stub_pages(vec![planned_calendar_body(), PAIRING_BODY.to_owned()]).await;
+    let provider = provider_against(base_url).await;
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+
+    let planned = provider
+        .list_planned_workouts(from, to)
+        .await
+        .expect("the planned read succeeds");
+    let heads = timeout(StdDuration::from_secs(2), stub)
+        .await
+        .expect("stub finished")
+        .expect("join");
+
+    assert_eq!(heads.len(), 2, "the events, then the pairing");
+    assert_eq!(
+        request_target(&heads[0]),
+        "/api/v1/athlete/i123456/events?oldest=2026-09-28&newest=2026-10-04\
+         &category=WORKOUT%2CRACE_A%2CRACE_B%2CRACE_C"
+    );
+    assert_eq!(
+        request_target(&heads[1]),
+        "/api/v1/athlete/i123456/activities?oldest=2026-09-28&newest=2026-10-05\
+         &fields=id%2Cpaired_event_id",
+        "the pairing covers the window's last day"
+    );
+    for head in &heads {
+        assert_eq!(basic_credentials(head), "API_KEY:test-api-key");
+    }
+
+    let ids: Vec<&str> = planned
+        .iter()
+        .map(PlannedWorkout::provider_workout_id)
+        .collect();
+    assert_eq!(
+        ids,
+        ["42", "43"],
+        "notes, Dravr's own pushes, hidden and undated events are left out"
+    );
+    let ride = &planned[0];
+    assert_eq!(ride.provider(), "intervals_icu");
+    assert_eq!(ride.title(), "Threshold 3x10");
+    assert_eq!(ride.sport_type(), &SportType::Ride);
+    assert_eq!(
+        ride.date(),
+        NaiveDate::from_ymd_opt(2026, 9, 29).expect("valid date")
+    );
+    assert_eq!(ride.planned_duration_seconds(), Some(3600));
+    assert_eq!(ride.description(), Some("Hold the line."));
+    assert_eq!(ride.completed_activity_id(), Some("i101"));
+    let race = &planned[1];
+    assert_eq!(race.title(), "A race: Fall Classic");
+    assert_eq!(race.sport_type(), &SportType::Run);
+    assert_eq!(
+        race.completed_activity_id(),
+        None,
+        "nothing completed the race"
+    );
+}
+
+#[tokio::test]
+async fn an_oauth_planned_read_addresses_the_tokens_own_athlete() {
+    let (base_url, stub) = stub_pages(vec![planned_calendar_body(), PAIRING_BODY.to_owned()]).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+
+    let planned = provider
+        .list_planned_workouts(from, to)
+        .await
+        .expect("the planned read succeeds");
+    assert_eq!(planned.len(), 2);
+    let heads = stub.await.expect("stub task joins");
+    assert!(
+        request_target(&heads[0]).starts_with("/api/v1/athlete/0/events?"),
+        "{}",
+        heads[0]
+    );
+    assert!(
+        request_target(&heads[1]).starts_with("/api/v1/athlete/0/activities?"),
+        "{}",
+        heads[1]
+    );
+}
+
+#[tokio::test]
+async fn a_future_window_or_an_empty_plan_spends_no_pairing_request() {
+    // One connection each: a second request would find no listener and fail
+    // the read.
+    let today = Utc::now().date_naive();
+    let (base_url, stub) = stub_once(
+        r#"[{"id":7,"category":"WORKOUT","name":"Long ride","start_date_local":"2099-01-03"}]"#,
+    )
+    .await;
+    let provider = provider_against(base_url).await;
+    let planned = provider
+        .list_planned_workouts(today + Duration::days(3), today + Duration::days(10))
+        .await
+        .expect("a future window reads the plan alone");
+    stub.await.expect("stub task joins");
+    assert_eq!(planned.len(), 1);
+    assert_eq!(planned[0].completed_activity_id(), None);
+
+    let (base_url, stub) = stub_once("[]").await;
+    let provider = provider_against(base_url).await;
+    let planned = provider
+        .list_planned_workouts(today - Duration::days(7), today)
+        .await
+        .expect("an empty calendar reads");
+    stub.await.expect("stub task joins");
+    assert_eq!(planned, []);
+}
+
+#[tokio::test]
+async fn a_failed_pairing_read_fails_the_planned_read() {
+    // No `completed_activity_id` means "not done": a pairing that could not
+    // be read must never be reported as workouts the athlete skipped.
+    let (base_url, stub) = stub_answers(vec![
+        ("200 OK", planned_calendar_body()),
+        ("500 Internal Server Error", "{}".to_owned()),
+    ])
+    .await;
+    let provider = provider_against(base_url).await;
+    let from = NaiveDate::from_ymd_opt(2026, 9, 28).expect("valid date");
+    let to = NaiveDate::from_ymd_opt(2026, 10, 4).expect("valid date");
+    let error = provider
+        .list_planned_workouts(from, to)
+        .await
+        .expect_err("the pairing failed");
+    stub.await.expect("stub task joins");
+    assert_eq!(error.code, ErrorCode::ExternalServiceError, "{error}");
+}
+
+/// An athlete's sport settings: cycling's FTP and heart rates, running's
+/// heart rates and a 4 m/s threshold pace, and a W′ the read never takes.
+const SPORT_SETTINGS_BODY: &str = r#"[
+    {"types":["Ride","VirtualRide"],"ftp":285,"lthr":168,"max_hr":186,"w_prime":21000,
+     "updated":"2026-09-30T08:12:44Z"},
+    {"types":["Run"],"lthr":174,"max_hr":192,"threshold_pace":4.0,"pace_units":"MINS_KM",
+     "updated":"2026-08-14T19:01:02Z"}
+]"#;
+
+#[tokio::test]
+async fn sport_settings_are_read_at_the_athletes_own_path_with_their_key() {
+    let (base_url, stub) = stub_once(SPORT_SETTINGS_BODY).await;
+    let provider = provider_against(base_url).await;
+    let thresholds = provider
+        .read_thresholds(Some(&SportType::Run))
+        .await
+        .expect("the settings read");
+    let head = stub.await.expect("stub task joins");
+    assert!(
+        head.starts_with("GET /api/v1/athlete/i123456/sport-settings "),
+        "{head}"
+    );
+    assert_eq!(basic_credentials(&head), "API_KEY:test-api-key");
+    assert_eq!(thresholds.origin, "intervals.icu");
+    assert_eq!(thresholds.ftp_watts.map(|t| t.value), Some(285));
+    // A runner's heart rates come from the running settings.
+    assert_eq!(thresholds.threshold_hr.map(|t| t.value), Some(174));
+    assert_eq!(thresholds.max_hr.map(|t| t.value), Some(192));
+    assert_eq!(
+        thresholds.threshold_pace_sec_per_km.map(|t| t.value),
+        Some(250.0)
+    );
+}
+
+#[tokio::test]
+async fn an_oauth_token_reads_the_sport_settings_of_the_athlete_it_names() {
+    let (base_url, stub) = stub_once(SPORT_SETTINGS_BODY).await;
+    let mut config = default_config();
+    config.api_base_url = base_url;
+    let provider = IntervalsIcuProvider::with_config(config);
+    provider
+        .set_credentials(bearer_credentials())
+        .await
+        .expect("set creds");
+    let thresholds = provider
+        .read_thresholds(None)
+        .await
+        .expect("the settings read");
+    let head = stub.await.expect("stub task joins");
+    assert!(
+        head.starts_with("GET /api/v1/athlete/0/sport-settings "),
+        "{head}"
+    );
+    assert_eq!(thresholds.max_hr.map(|t| t.value), Some(186));
+}

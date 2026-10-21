@@ -47,7 +47,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, ReauthMark, TenantId};
-use pierre_database::repositories::{ActivityBackfillJobRow, BackfillCoverage};
+use pierre_database::repositories::{ActivityBackfillJobRow, BackfillCoverage, JobLease};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
@@ -263,7 +263,7 @@ pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
 /// a backfill for the pair: that run finishes the row itself.
 pub(crate) fn resume_recorded_backfill(
     job: ActivityBackfillJob,
-    row_id: String,
+    row_id: JobLease,
     attempts: i64,
 ) -> bool {
     let key = in_flight_key(job.user_id, &job.provider_name);
@@ -282,7 +282,7 @@ pub(crate) fn resume_recorded_backfill(
 
 /// The detached task every backfill runs in: holds the in-flight key for the
 /// life of the run and, when the job is on file, its row.
-fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(String, i64)>) {
+fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(JobLease, i64)>) {
     tokio::spawn(async move {
         match recorded {
             Some((row_id, attempts)) => {
@@ -299,7 +299,7 @@ fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(S
 /// What recording a job in the ledger came to.
 enum Recorded {
     /// The row is on file under this id, leased to this instance.
-    Inserted(String),
+    Inserted(JobLease),
     /// A row for the pair was already owed: the same job, already on file.
     AlreadyOwed,
     /// The ledger could not be written; the run goes ahead unrecorded, as
@@ -310,6 +310,7 @@ enum Recorded {
 /// Write the job's row before its spawn.
 async fn record_backfill_job(job: &ActivityBackfillJob) -> Recorded {
     let now = now_ms();
+    let lease_token = Uuid::new_v4().to_string();
     let row = ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: job.tenant_id,
@@ -325,6 +326,7 @@ async fn record_backfill_job(job: &ActivityBackfillJob) -> Recorded {
         created_at_ms: now,
         leased_until_ms: now.saturating_add(lease_ms()),
         attempts: 1,
+        lease_token: Some(lease_token.clone()),
     };
     match job
         .resources
@@ -333,7 +335,10 @@ async fn record_backfill_job(job: &ActivityBackfillJob) -> Recorded {
         .record_backfill_job(&row)
         .await
     {
-        Ok(true) => Recorded::Inserted(row.id),
+        Ok(true) => Recorded::Inserted(JobLease {
+            token: lease_token,
+            id: row.id,
+        }),
         Ok(false) => Recorded::AlreadyOwed,
         Err(e) => {
             warn!(
@@ -351,7 +356,7 @@ async fn record_backfill_job(job: &ActivityBackfillJob) -> Recorded {
 /// then settle the row on the outcome.
 async fn run_recorded_backfill(
     job: &ActivityBackfillJob,
-    row_id: &str,
+    row_id: &JobLease,
     attempts: i64,
 ) -> BackfillRunOutcome {
     let renewal = keep_backfill_lease(job, row_id);
@@ -368,7 +373,7 @@ async fn run_recorded_backfill(
 /// that this one is owed.
 async fn settle_backfill_job(
     job: &ActivityBackfillJob,
-    row_id: &str,
+    row_id: &JobLease,
     attempts: i64,
     outcome: &BackfillRunOutcome,
 ) {
@@ -398,7 +403,7 @@ async fn settle_backfill_job(
 
 /// Delete the job's row. A delete the ledger refuses is logged and left: the
 /// row's lease lapses, and the sweep either re-runs it or reaps it.
-async fn remove_backfill_job(job: &ActivityBackfillJob, row_id: &str, why: &str) {
+async fn remove_backfill_job(job: &ActivityBackfillJob, row_id: &JobLease, why: &str) {
     if let Err(e) = job
         .resources
         .repos()
@@ -431,9 +436,9 @@ impl Drop for LeaseRenewal {
 /// runner leased it past this one — the run still finishes, because its
 /// writes are idempotent and only the follow-up push has a dedup claim of
 /// its own; the renewals just stop.
-fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &str) -> LeaseRenewal {
+fn keep_backfill_lease(job: &ActivityBackfillJob, row_id: &JobLease) -> LeaseRenewal {
     let resources = job.resources.clone();
-    let row_id = row_id.to_owned();
+    let row_id = row_id.clone();
     let user_id = job.user_id;
     let provider = job.provider_name.clone();
     LeaseRenewal(tokio::spawn(async move {

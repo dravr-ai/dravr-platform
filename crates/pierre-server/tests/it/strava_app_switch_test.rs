@@ -53,6 +53,7 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::{athlete_marker, DeletionActor};
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "client-chat")]
 use pierre_llm::ChatMessage;
@@ -62,8 +63,11 @@ use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refr
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
 use pierre_runtime_context::IdentityCtx;
+use pierre_services::import_tombstones::{clear_for_account, refused_tombstone_id};
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
+use pierre_services::oauth_redirects::oauth_failure_url;
 use pierre_services::provider_revocation::DisconnectReason;
+use pierre_services::user_removal::{remove_user, UserRemoval};
 use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
@@ -2240,5 +2244,130 @@ async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
         revocations[0].0,
         basic(OWN_CLIENT, OWN_SECRET),
         "the revocation presents the client the refresh did"
+    );
+}
+
+/// A Strava account that belonged to a deleted account is refused at the
+/// callback: the refusal names the tombstone the deletion left (and the
+/// return URL carries its id), the grant the exchange just issued is revoked,
+/// nothing is stored, and the refused account's proof is recorded so that
+/// account, and no other, can clear the tombstone. Once it does, the same
+/// connect lands.
+#[tokio::test]
+async fn a_strava_account_of_a_deleted_account_is_refused_until_cleared() {
+    let (base, mock) = mock_strava().await;
+    let (resources, service) = service_pointed_at(&base).await;
+    let repos = &resources.common.repos;
+
+    // The deleted account held Strava athlete 4242, the id the mock's
+    // exchange answers with.
+    let (deleted, deleted_tenant) = athlete(&resources, "deleted").await;
+    connect(repos, deleted, deleted_tenant, None).await;
+    let mut held = stored(repos, deleted, deleted_tenant).await;
+    held.provider_user_id = Some("4242".to_owned());
+    repos.oauth_tokens.upsert_token(&held).await.unwrap();
+    let UserRemoval::Removed(report) = remove_user(
+        repos,
+        Some(&service),
+        None,
+        Some(resources.data().cache().as_ref()),
+        deleted,
+        DeletionActor::Athlete,
+    )
+    .await
+    .unwrap() else {
+        panic!("the account is removed");
+    };
+    assert_eq!(
+        mock.revocations.lock().unwrap().len(),
+        1,
+        "the deletion withdrew the grant first"
+    );
+
+    let (newcomer, tenant) = athlete(&resources, "newcomer").await;
+    let authorization = service
+        .get_auth_url(newcomer, tenant, "strava", AuthUrlOptions::default())
+        .await
+        .unwrap();
+    let refusal = service
+        .handle_callback("auth-code", &authorization.state, "strava")
+        .await
+        .expect_err("a tombstoned Strava account is refused");
+    assert_eq!(refusal.code, ErrorCode::ResourceLocked);
+    let tombstone_id = refused_tombstone_id(&refusal)
+        .expect("the refusal names its tombstone")
+        .to_owned();
+    assert!(
+        report.ledger.tombstone_ids.contains(&tombstone_id),
+        "the refusal names a tombstone this deletion left"
+    );
+    assert!(
+        refusal.message.contains(&tombstone_id),
+        "{}",
+        refusal.message
+    );
+    assert!(!refusal.message.contains("4242"), "{}", refusal.message);
+    let return_url = oauth_failure_url("https://app.example/oauth-callback", "strava", &refusal);
+    assert!(
+        return_url.contains(&format!(
+            "error=import_tombstoned&tombstone_id={tombstone_id}&deleted_at="
+        )),
+        "the return URL carries the code, the tombstone id and the deletion date: {return_url}"
+    );
+    assert!(repos
+        .oauth_tokens
+        .get_token(newcomer, tenant, "strava")
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        mock.revocations.lock().unwrap().len(),
+        2,
+        "the grant the refused exchange issued was revoked"
+    );
+    let tombstone = repos
+        .import_tombstones
+        .get(&tombstone_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        tombstone.claimed_by.as_deref(),
+        Some(athlete_marker(newcomer).as_str())
+    );
+
+    // Another account cannot clear it; the account that proved it can.
+    let (bystander, _) = athlete(&resources, "bystander").await;
+    let bystander = repos.users.get_global(bystander).await.unwrap().unwrap();
+    let refused = clear_for_account(
+        repos.import_tombstones.as_ref(),
+        &bystander,
+        Some(&tombstone_id),
+    )
+    .await
+    .expect_err("a tombstone is cleared by the account holding its identity");
+    assert_eq!(refused.code, ErrorCode::ResourceNotFound);
+    let newcomer_user = repos.users.get_global(newcomer).await.unwrap().unwrap();
+    let cleared = clear_for_account(
+        repos.import_tombstones.as_ref(),
+        &newcomer_user,
+        Some(&tombstone_id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(cleared.len(), 1);
+    assert_eq!(
+        cleared[0].cleared_by.as_deref(),
+        Some(athlete_marker(newcomer).as_str())
+    );
+
+    reconnect(&service, newcomer, tenant).await;
+    assert_eq!(
+        stored(repos, newcomer, tenant)
+            .await
+            .provider_user_id
+            .as_deref(),
+        Some("4242"),
+        "once cleared, the same Strava account connects"
     );
 }

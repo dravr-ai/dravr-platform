@@ -16,7 +16,7 @@
 use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobClaim, ExtractionJobClaim, MemoryExtractionJobRow,
+    ActivityBackfillJobRow, BackfillJobClaim, ExtractionJobClaim, JobLease, MemoryExtractionJobRow,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -44,6 +44,7 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
         created_at_ms: now,
         leased_until_ms: 0,
         attempts: 0,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     let stale = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
@@ -53,6 +54,7 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
         created_at_ms: now - 10 * 60_000,
         leased_until_ms: 0,
         attempts: 0,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     let exhausted = MemoryExtractionJobRow {
         id: Uuid::new_v4().to_string(),
@@ -62,6 +64,7 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
         created_at_ms: now - 10 * 60_000,
         leased_until_ms: 0,
         attempts: 3,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     for row in [&fresh, &stale, &exhausted] {
         ledger.record_extraction_job(row).await.unwrap();
@@ -115,8 +118,40 @@ async fn extraction_jobs_are_claimed_only_once_stale_and_unleased() {
     );
     assert_eq!(retaken[0].id, stale.id);
     assert_eq!(retaken[0].attempts, 2);
+    let first_token = taken[0]
+        .lease_token
+        .clone()
+        .expect("a claim writes a token");
+    let retaken_token = retaken[0]
+        .lease_token
+        .clone()
+        .expect("a claim writes a token");
+    assert_ne!(
+        first_token, retaken_token,
+        "each claim writes a fresh token"
+    );
 
-    ledger.finish_extraction_job(&stale.id).await.unwrap();
+    // The claim the retake superseded cannot finish the row out from under it.
+    assert!(
+        !ledger
+            .finish_extraction_job(&JobLease {
+                id: stale.id.clone(),
+                token: first_token,
+            })
+            .await
+            .unwrap(),
+        "a lapsed claim's finish deletes nothing"
+    );
+    assert!(
+        ledger
+            .finish_extraction_job(&JobLease {
+                id: stale.id.clone(),
+                token: retaken_token,
+            })
+            .await
+            .unwrap(),
+        "the claim holding the row finishes it"
+    );
     let after_finish = ledger
         .claim_stale_extraction_jobs(ExtractionJobClaim {
             now_ms: now + 20 * 60_000,
@@ -179,6 +214,7 @@ async fn backfill_jobs_are_one_per_user_and_provider_and_resume_after_a_lapsed_l
         created_at_ms: now - 10 * 60_000,
         leased_until_ms: now - 60_000,
         attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     assert!(
         ledger.record_backfill_job(&row).await.unwrap(),
@@ -217,22 +253,39 @@ async fn backfill_jobs_are_one_per_user_and_provider_and_resume_after_a_lapsed_l
     assert_eq!(job.attempts, 2, "the lapsed run and this claim");
     assert_eq!(job.leased_until_ms, now + 10 * 60_000);
 
+    let holder = JobLease {
+        id: job.id.clone(),
+        token: job.lease_token.clone().expect("a claim writes a token"),
+    };
+    assert_ne!(
+        Some(&holder.token),
+        row.lease_token.as_ref(),
+        "the claim wrote its own token over the lapsed run's"
+    );
     assert!(
         ledger
-            .renew_backfill_job_lease(&job.id, now + 20 * 60_000)
+            .renew_backfill_job_lease(&holder, now + 20 * 60_000)
             .await
             .unwrap(),
         "the holder can extend its own lease"
     );
+    let lapsed = JobLease {
+        id: job.id.clone(),
+        token: row.lease_token.clone().expect("recorded with a token"),
+    };
     assert!(
         !ledger
-            .renew_backfill_job_lease(&job.id, now + 15 * 60_000)
+            .renew_backfill_job_lease(&lapsed, now + 15 * 60_000)
             .await
             .unwrap(),
-        "a renewal that would shorten the lease is refused — it is not this runner's any more"
+        "the lapsed run's renewal is refused — the row is not that runner's any more"
+    );
+    assert!(
+        !ledger.finish_backfill_job(&lapsed).await.unwrap(),
+        "nor can the lapsed run finish it"
     );
 
-    ledger.finish_backfill_job(&job.id).await.unwrap();
+    assert!(ledger.finish_backfill_job(&holder).await.unwrap());
     assert!(
         ledger.record_backfill_job(&duplicate).await.unwrap(),
         "once finished, a new ask for the pair records a new job"
@@ -256,12 +309,17 @@ async fn a_renewed_extraction_lease_keeps_the_sweep_away() {
         created_at_ms: now - 10 * 60_000,
         leased_until_ms: now - 1,
         attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     ledger.record_extraction_job(&row).await.unwrap();
+    let own = JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().expect("recorded with a token"),
+    };
 
     let renewed_until = now + 5 * 60_000;
     assert!(ledger
-        .renew_extraction_job_lease(&row.id, renewed_until)
+        .renew_extraction_job_lease(&own, renewed_until)
         .await
         .unwrap());
     let claim = ExtractionJobClaim {
@@ -280,16 +338,28 @@ async fn a_renewed_extraction_lease_keeps_the_sweep_away() {
         "a renewed lease is not claimable"
     );
 
-    // A renewal shorter than the lease another runner holds is refused, and
-    // leaves that lease alone.
+    // A renewal by a runner whose claim does not hold the row is refused, and
+    // leaves the holder's lease alone.
+    let other = JobLease {
+        id: row.id.clone(),
+        token: Uuid::new_v4().to_string(),
+    };
     assert!(!ledger
-        .renew_extraction_job_lease(&row.id, now + 60_000)
+        .renew_extraction_job_lease(&other, now + 60_000)
         .await
         .unwrap());
+    assert!(
+        ledger
+            .claim_stale_extraction_jobs(claim)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the refused renewal left the holder's lease in place"
+    );
     // A finished row cannot be renewed back into existence.
-    ledger.finish_extraction_job(&row.id).await.unwrap();
+    assert!(ledger.finish_extraction_job(&own).await.unwrap());
     assert!(!ledger
-        .renew_extraction_job_lease(&row.id, now + 10 * 60_000)
+        .renew_extraction_job_lease(&own, now + 10 * 60_000)
         .await
         .unwrap());
 }

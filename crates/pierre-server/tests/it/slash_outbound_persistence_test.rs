@@ -328,7 +328,7 @@ async fn failed_send_records_the_attempt_without_queueing() {
     let pending = db
         .repositories()
         .messaging
-        .get_all_pending_outbound(10)
+        .claim_due_outbound(10, 60_000)
         .await
         .unwrap();
     assert!(pending.is_empty(), "no retry queue entry for a slash send");

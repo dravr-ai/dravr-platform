@@ -12,6 +12,8 @@
 pub mod a2a;
 /// The A2A reaper's bulk fail of tasks a dead instance left non-terminal
 pub mod a2a_task_reaper;
+/// Account deletion with its receipt (`Postgres`) backing `AccountDeletionRepository`.
+pub mod account_deletion;
 /// Historical activity backfills still owed, one per (user, provider), leased to one re-runner
 pub mod activity_backfill_jobs;
 /// Provider-agnostic activity cache (stale-while-revalidate) repository implementation
@@ -70,6 +72,8 @@ pub mod guardian_actions;
 pub mod health_persistence;
 /// Super-admin impersonation session audit records.
 pub mod impersonation;
+/// Import tombstones (`Postgres`) backing `ImportTombstoneRepository`.
+pub mod import_tombstones;
 /// LLM credential repository implementation
 pub mod llm_credentials;
 /// LLM usage tracking repository implementation

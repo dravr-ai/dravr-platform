@@ -418,6 +418,9 @@ pub mod user_approval;
 /// Operator removal of a user and of one provider grant, through the disconnect chokepoint.
 pub mod user_removal;
 
+/// The doors a deleted account's identities are refused at, and the explicit clear that reopens them.
+pub mod import_tombstones;
+
 /// Standing per-email pre-approval allow-list.
 pub mod pre_approval;
 

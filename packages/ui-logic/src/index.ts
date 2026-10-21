@@ -80,6 +80,13 @@ export {
   describeAccountDeletionBlocker,
   describeAccountDeletionFailure,
 } from './accountDeletion';
+export type { ImportTombstoneRefusal } from './importTombstone';
+export {
+  importTombstoneRefusal,
+  importTombstoneFromReturn,
+  describeProviderTombstone,
+  describeEmailTombstone,
+} from './importTombstone';
 
 // Server-state hooks both clients bind to their own API instance. Each client
 // keeps a thin `hooks/<name>` module that calls the factory once; only what is

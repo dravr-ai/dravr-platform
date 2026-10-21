@@ -18,6 +18,7 @@ use urlencoding::encode;
 use crate::analytics::cache_user_email;
 use crate::coach_platform::coach_platform;
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
+use crate::import_tombstones::{refused_tombstone_id, TOMBSTONED_ERROR_CODE};
 use crate::provider_revocation;
 use crate::strava_reconnect::{self, ReplacedGrants, StorePrecondition};
 use pierre_auth::config::oauth::OAuthProviderConfig;
@@ -189,6 +190,16 @@ impl OAuthService {
         let token = self
             .with_provider_user_id(provider, user_id, token, budget)
             .await;
+        // A provider account that belonged to a deleted account is refused
+        // until its tombstone is cleared; the grant just issued is withdrawn.
+        self.refuse_tombstoned_account(
+            user_id,
+            storage_tenant,
+            provider,
+            &token,
+            oauth_app_client_id.as_deref(),
+        )
+        .await?;
 
         // Persist token and dispatch all post-connection side effects. A failure
         // there still settles the grants: see `ReplacedGrants::abandon`.
@@ -962,11 +973,17 @@ fn code_exchange_failure(error: AppError, provider: &str, user_id: uuid::Uuid) -
 }
 
 /// Categorize OAuth errors for better user messaging
+///
+/// A provider account a deleted account's tombstone refused is reported by
+/// its machine-readable code alone ([`TOMBSTONED_ERROR_CODE`]): the clients
+/// render that refusal's text from their string catalogue.
 #[must_use]
 pub fn categorize_oauth_error(error: &AppError) -> (&'static str, Option<&'static str>) {
     let error_str = error.to_string().to_lowercase();
 
-    if error_str.contains("jwt") && error_str.contains("expired") {
+    if refused_tombstone_id(error).is_some() {
+        (TOMBSTONED_ERROR_CODE, None)
+    } else if error_str.contains("jwt") && error_str.contains("expired") {
         (
             "Your session has expired",
             Some("Please log in again to continue with OAuth authorization"),

@@ -16,6 +16,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
+use pierre_test_support::account::delete_account;
 use pierre_test_support::db::create_test_db_with_key;
 use serial_test::serial;
 use uuid::Uuid;
@@ -575,7 +576,7 @@ async fn test_delete_user() -> Result<()> {
     assert!(user_before.is_some(), "User should exist before deletion");
 
     // Delete the user
-    database.repositories().users.delete(user_id, None).await?;
+    delete_account(database.repositories(), user_id, None).await?;
 
     // Verify user no longer exists
     let user_after = database.repositories().users.get_global(user_id).await?;
@@ -591,11 +592,7 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
 
     // Try to delete a user that doesn't exist
     let nonexistent_id = Uuid::new_v4();
-    let result = database
-        .repositories()
-        .users
-        .delete(nonexistent_id, None)
-        .await;
+    let result = delete_account(database.repositories(), nonexistent_id, None).await;
 
     // Should return an error
     assert!(

@@ -20,6 +20,7 @@ use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
     UpsertChannelConfigParams,
 };
+use pierre_test_support::account::delete_account;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
@@ -656,9 +657,7 @@ async fn test_pg_delete_user_cascades_to_messaging_rows() {
         .unwrap();
 
     // Delete the user — CASCADE should wipe both channel_link and session
-    db.repositories()
-        .users
-        .delete(user_uuid, None)
+    delete_account(db.repositories(), user_uuid, None)
         .await
         .expect("user delete should succeed");
 

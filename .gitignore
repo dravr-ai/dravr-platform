@@ -142,3 +142,6 @@ judge-bakeoff-results.json
 # Pi coding agent (pi.dev) — package install dirs, not config
 .pi/npm/
 .pi/git/
+
+# scripts/setup/config-edit.sh: backups and ledger of setup edits (hold secrets)
+.setup-state/

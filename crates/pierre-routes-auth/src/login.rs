@@ -476,6 +476,10 @@ pub async fn handle_session(
                 .is_verified(user.id)
                 .await
                 .ok(),
+            // Only a Pending account carries one, and the middleware above
+            // restores no session for a Pending account: it reads it off the
+            // sign-in that landed it on the pending screen.
+            email_tombstone: None,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale,
             coaching_persona: user.coaching_persona.as_str().to_owned(),
@@ -542,6 +546,8 @@ pub async fn handle_update_profile(
             // response is not one the clients gate onboarding on. Left unresolved
             // rather than guessed.
             email_verified: None,
+            // Neither is a pending screen's reason to resolve it.
+            email_tombstone: None,
             created_at: updated_user.created_at.to_rfc3339(),
             locale: updated_user.locale,
             coaching_persona: updated_user.coaching_persona.as_str().to_owned(),

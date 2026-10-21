@@ -92,12 +92,8 @@ pub use rate_limiting::UsageLedgers;
 pub use redaction::mask_email;
 /// Redact sensitive HTTP headers
 pub use redaction::redact_headers;
-/// Redact JSON fields by pattern
-pub use redaction::redact_json_fields;
 /// Redact secret and PII values out of a URL query string
 pub use redaction::redact_query;
-/// Redact token patterns from strings
-pub use redaction::redact_token_patterns;
 /// Middleware attaching a log-safe request line to every request
 pub use redaction::redaction_middleware;
 /// Bounded tenant label for tracing

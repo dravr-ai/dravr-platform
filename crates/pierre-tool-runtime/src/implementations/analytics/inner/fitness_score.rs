@@ -190,11 +190,13 @@ pub fn calculate_fitness_metrics(
     // Component 1: CTL (Chronic Training Load) - 40% weight.
     //
     // Computed over the FULL fetched history, never the scoring window. The EMA
-    // is seeded at zero and walked forward over whatever span it is given, so a
-    // 30-day input leaves a 42-day average at ~76% of steady state and a 7-day
-    // input at ~28%. Chronic load is a point-in-time state, not a windowed
-    // aggregate; truncating its input does not narrow the answer, it
-    // understates it (registre#415).
+    // is seeded at the mean daily TSS of the span it is given and walked
+    // forward over it, so a truncated input reads its own opening days as the
+    // athlete's prior load: a 7-day input after a rest week reads a 42-day load
+    // of whatever those seven days averaged, not the base the athlete built.
+    // Chronic load is a point-in-time state, not a windowed aggregate;
+    // truncating its input does not narrow the answer, it misstates it
+    // (registre#415).
     let calculator =
         TrainingLoadCalculator::from_config(algorithm_config.clone(), Utc::now().date_naive());
     let training_load = athlete.training_load(&calculator, &chronological).ok();

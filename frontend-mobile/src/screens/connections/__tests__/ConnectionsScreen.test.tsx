@@ -5,6 +5,7 @@
 // ABOUTME: Verifies the Strava card defaults to OAuth while seats remain, uses Sciotte when the pool is full, and falls back to Sciotte on OAuth failure
 
 import React from 'react';
+import { Alert } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConnectionsScreen } from '../ConnectionsScreen';
@@ -146,5 +147,32 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     fireEvent.press(connect);
 
     expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
+  });
+  it('offers to start fresh, never the Sciotte fallback, when the account was a deleted account\'s', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
+    openAuthSessionAsync.mockResolvedValue({
+      type: 'success',
+      url: 'dravr://oauth-callback?success=false&error=import_tombstoned&tombstone_id=tomb-1&deleted_at=2026-10-20T08%3A00%3A00%2B00%3A00',
+    });
+    linkingParse.mockReturnValue({
+      queryParams: {
+        success: 'false',
+        error: 'import_tombstoned',
+        tombstone_id: 'tomb-1',
+        deleted_at: '2026-10-20T08:00:00+00:00',
+      },
+    });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    fireEvent.press(await screen.findByText('Connect'));
+
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+    expect(alert.mock.calls[0][0]).toBe('Strava');
+    expect(alert.mock.calls[0][1]).toBe(
+      'This Strava account belonged to a Dravr account deleted on Oct 20, 2026. Its data stays deleted until you choose to start fresh with it.'
+    );
+    expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
+    alert.mockRestore();
   });
 });

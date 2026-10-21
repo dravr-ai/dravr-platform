@@ -12,10 +12,13 @@ vi.mock('../../services/api', () => ({
   providersApi: {
     linkIntervalsIcu: vi.fn(),
   },
+  userApi: {
+    clearImportTombstone: vi.fn(),
+  },
 }));
 
 import IntervalsIcuLinkModal from '../IntervalsIcuLinkModal';
-import { providersApi } from '../../services/api';
+import { providersApi, userApi } from '../../services/api';
 
 const mockOnClose = vi.fn();
 const mockOnConnected = vi.fn();
@@ -161,5 +164,50 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
     expect(screen.getByLabelText('Athlete ID')).toBeInTheDocument();
     expect(screen.queryByTestId('intervals-back-to-authorize')).not.toBeInTheDocument();
     expect(screen.queryByTestId('intervals-authorize')).not.toBeInTheDocument();
+  });
+
+  it('words a tombstoned account, and starting fresh clears it and links the same pair again', async () => {
+    vi.mocked(providersApi.linkIntervalsIcu)
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            code: 'RESOURCE_LOCKED',
+            message: 'The data of this provider account was deleted',
+            details: {
+              error: 'import_tombstoned',
+              tombstone_id: 'tomb-9',
+              kind: 'provider_account',
+              provider: 'intervals_icu',
+              deleted_at: '2026-10-20T08:00:00+00:00',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 'connected',
+        provider: 'intervals_icu',
+        athlete: { id: 'i123456', name: 'Test Athlete' },
+      });
+    vi.mocked(userApi.clearImportTombstone).mockResolvedValue({ cleared: [], user_status: 'active' });
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByLabelText('Athlete ID'), 'i123456');
+    await user.type(screen.getByLabelText('API Key'), 'secret-key');
+    await user.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(
+      await screen.findByText(
+        'This Intervals.icu account belonged to a Dravr account deleted on Oct 20, 2026. Its data stays deleted until you choose to start fresh with it.'
+      )
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Start fresh and connect' }));
+
+    expect(userApi.clearImportTombstone).toHaveBeenCalledWith('tomb-9');
+    await waitFor(() => expect(providersApi.linkIntervalsIcu).toHaveBeenCalledTimes(2));
+    expect(providersApi.linkIntervalsIcu).toHaveBeenLastCalledWith({ athlete_id: 'i123456', api_key: 'secret-key' });
+    await waitFor(() => expect(mockOnConnected).toHaveBeenCalled(), { timeout: 2500 });
   });
 });

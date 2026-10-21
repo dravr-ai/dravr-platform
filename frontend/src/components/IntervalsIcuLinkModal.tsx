@@ -7,10 +7,12 @@
 import { useEffect, useId, useState } from 'react';
 import { providersApi } from '../services/api';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, importTombstoneRefusal, type ImportTombstoneRefusal } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { RevealButton } from './ui';
+import ProviderTombstoneNotice from './ProviderTombstoneNotice';
+import { coachPlatformName } from '@pierre/shared-constants';
 
 interface IntervalsIcuLinkModalProps {
   isOpen: boolean;
@@ -50,6 +52,9 @@ export default function IntervalsIcuLinkModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // The account belonged to a deleted Dravr account: the refusal names its
+  // tombstone, which the athlete may clear to link it again.
+  const [tombstone, setTombstone] = useState<ImportTombstoneRefusal | null>(null);
   const offersAuthorize = onAuthorize !== undefined;
   const [view, setView] = useState<LinkView>(offersAuthorize ? 'choose' : 'key');
 
@@ -62,14 +67,21 @@ export default function IntervalsIcuLinkModal({
       setIsLoading(false);
       setError(null);
       setSuccess(null);
+      setTombstone(null);
       setView(offersAuthorize ? 'choose' : 'key');
     }
   }, [isOpen, offersAuthorize]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    void link();
+  };
+
+  // Link the pair in the form; a refusal naming a tombstone shows the
+  // start-fresh notice instead of an error, and its action links again.
+  const link = async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -82,7 +94,12 @@ export default function IntervalsIcuLinkModal({
       // Brief confirmation, then hand control back to the parent (which refetches).
       setTimeout(onConnected, 1200);
     } catch (err) {
-      setError(describeApiError(err, { online, t, fallbackKey: 'shell.intervalsLinkFailed' }));
+      const refusal = importTombstoneRefusal(err);
+      if (refusal) {
+        setTombstone(refusal);
+      } else {
+        setError(describeApiError(err, { online, t, fallbackKey: 'shell.intervalsLinkFailed' }));
+      }
       setIsLoading(false);
     }
   };
@@ -139,6 +156,15 @@ export default function IntervalsIcuLinkModal({
               </div>
               <p className="text-on-surface font-medium">{success}</p>
             </div>
+          ) : tombstone ? (
+            <ProviderTombstoneNotice
+              refusal={tombstone}
+              providerName={coachPlatformName('intervals_icu')}
+              onCleared={() => {
+                setTombstone(null);
+                void link();
+              }}
+            />
           ) : view === 'choose' && onAuthorize ? (
             <div className="space-y-4" data-testid="intervals-authorize-choice">
               <p className="text-sm text-on-surface-variant leading-snug">

@@ -11866,6 +11866,16 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "last_synced_at": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": "When each connected source last synced this data, RFC 3339 by\nprovider (`null` when it never has), so an empty or short window can\nbe told apart from a source that stopped syncing.",
+                "type": "object"
+              },
               "range": {
                 "$ref": "#/$defs/DateRange",
                 "description": "The window that was read."
@@ -11881,7 +11891,8 @@
             "required": [
               "count",
               "snapshots",
-              "range"
+              "range",
+              "last_synced_at"
             ],
             "type": "object"
           },
@@ -14111,6 +14122,16 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "last_synced_at": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": "When each connected source last synced this data, RFC 3339 by\nprovider (`null` when it never has), so an empty or short window can\nbe told apart from a source that stopped syncing.",
+                "type": "object"
+              },
               "metrics": {
                 "description": "One reading per day, merged across sources.",
                 "items": {
@@ -14126,7 +14147,8 @@
             "required": [
               "count",
               "metrics",
-              "range"
+              "range",
+              "last_synced_at"
             ],
             "type": "object"
           }
@@ -14708,6 +14730,16 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "last_synced_at": {
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": "When each connected source last synced this data, RFC 3339 by\nprovider (`null` when it never has), so an empty or short window can\nbe told apart from a source that stopped syncing.",
+                "type": "object"
+              },
               "range": {
                 "$ref": "#/$defs/DateRange",
                 "description": "The window that was read."
@@ -14723,7 +14755,8 @@
             "required": [
               "count",
               "sessions",
-              "range"
+              "range",
+              "last_synced_at"
             ],
             "type": "object"
           },

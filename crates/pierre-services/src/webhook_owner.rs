@@ -30,6 +30,12 @@
 //! ([`link_binding`]): the member's read refuses that link, so an event
 //! through it would announce data the member cannot read. An event is never
 //! broadcast: an id that names no one, or more than one member, is dropped.
+//!
+//! Before either lookup, a provider account that belonged to a deleted account
+//! is refused: a live import tombstone naming it
+//! ([`crate::import_tombstones`]) drops the event, logged with the provider
+//! and the tombstone id, never the provider-side id. Its data stays refused
+//! until the tombstone is explicitly cleared.
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
@@ -38,6 +44,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::delegated_connections::unbound_link_reason;
+use crate::import_tombstones::provider_account_tombstone;
 use crate::trainingpeaks_accounts::link_binding;
 
 /// The coach connection a delegated member's data is read with.
@@ -62,6 +69,21 @@ pub struct WebhookOwner {
     /// `None` when the user owns the provider token; the coach connection to
     /// read with when the user is a member linked through their coach.
     pub read_through: Option<CoachConnection>,
+}
+
+/// What a provider push event resolves to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebhookTarget {
+    /// The user whose data the event announces.
+    Owner(WebhookOwner),
+    /// The provider account belonged to a deleted account: the event is
+    /// dropped until the tombstone is cleared.
+    Tombstoned {
+        /// The live tombstone that refused it.
+        tombstone_id: String,
+    },
+    /// No one, or more than one candidate: the event names nobody.
+    Nobody,
 }
 
 /// Who the stored tokens say holds a provider-side id.
@@ -105,17 +127,45 @@ async fn token_holder(
 
 /// Resolve the user a provider-side id names, for a push event of `provider`.
 ///
-/// Returns `None` when more than one stored token carries the id, or when it
-/// names no token owner and no single confirmed, still-backed delegated link
-/// whose athlete is the member by email.
+/// Returns [`WebhookTarget::Tombstoned`] when a live tombstone names the
+/// provider account, and [`WebhookTarget::Nobody`] when more than one stored
+/// token carries the id, or when it names no token owner and no single
+/// confirmed, still-backed delegated link whose athlete is the member by
+/// email.
 ///
 /// Neither lookup filters by tenant: the event carries none, so the
 /// provider-side id is the key and the tenant is read from the matched row.
 ///
 /// # Errors
-/// Returns a database error when either lookup fails, or when the member or
-/// their email verification cannot be read to check the link's binding.
+/// Returns a database error when the tombstone read or either lookup fails,
+/// or when the member or their email verification cannot be read to check
+/// the link's binding.
 pub async fn resolve_webhook_owner(
+    repos: &RepositoryRegistry,
+    provider: &str,
+    provider_user_id: &str,
+) -> AppResult<WebhookTarget> {
+    if let Some(tombstone) =
+        provider_account_tombstone(repos.import_tombstones.as_ref(), provider, provider_user_id)
+            .await?
+    {
+        info!(
+            provider = %provider,
+            tombstone_id = %tombstone.id,
+            "Dropped a provider push event: the provider account belonged to a deleted account"
+        );
+        return Ok(WebhookTarget::Tombstoned {
+            tombstone_id: tombstone.id,
+        });
+    }
+    Ok(resolve_live_owner(repos, provider, provider_user_id)
+        .await?
+        .map_or(WebhookTarget::Nobody, WebhookTarget::Owner))
+}
+
+/// The token owner or delegated member a provider-side id names, once no
+/// tombstone refused it.
+async fn resolve_live_owner(
     repos: &RepositoryRegistry,
     provider: &str,
     provider_user_id: &str,

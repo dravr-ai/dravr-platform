@@ -63,7 +63,7 @@ dravr-enforme = { workspace = true, features = ["provider-intervals-icu"] }
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 
 [dev-dependencies]
-# `net` + `io-util` back the loopback HTTP stub in intervals_icu_provider_test.rs,
+# `net` + `io-util` back the loopback HTTP stub in tests/it/intervals_icu_provider_test.rs,
 # which pins the bytes we put on the wire (the HTTP Basic username in particular).
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }
 base64 = "0.22"

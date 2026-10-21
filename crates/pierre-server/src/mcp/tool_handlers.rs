@@ -29,6 +29,7 @@ use pierre_services::usage_counter::UsageCounterService;
 use pierre_tool_runtime::context::GRANTED_SCOPES;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::converter::ProtocolConverter;
+use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::runtime::ToolRuntime;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
@@ -661,7 +662,7 @@ impl ToolHandlers {
                     if let Some(provider) = e.provider_auth_required_provider() {
                         return Self::provider_auth_required_mcp(provider, request_id);
                     }
-                    ToolResponse::error(format!("Tool execution failed: {e}"))
+                    ToolResponse::error(client_failure_text(&e))
                 }
             };
             Self::tool_response_to_mcp_response(&response, request_id)
@@ -870,5 +871,27 @@ impl ToolHandlers {
         Self::mark_notifications_read(notifications_repo, &unread_notifications, user_id).await;
 
         response
+    }
+}
+
+/// What an MCP client reads when a tool call fails before it produced a
+/// result. A failure the caller can act on (bad or missing parameters, an
+/// unknown tool, a refusal, a limit) keeps its message; anything else is the
+/// server's own and its text (database, serialization, internal detail) stays
+/// in the log.
+fn client_failure_text(error: &ProtocolError) -> String {
+    match error {
+        ProtocolError::InvalidParameters(_)
+        | ProtocolError::InvalidParameter { .. }
+        | ProtocolError::MissingParameter { .. }
+        | ProtocolError::InvalidRequest(_)
+        | ProtocolError::InvalidRequestDetailed { .. }
+        | ProtocolError::ToolNotFound { .. }
+        | ProtocolError::PermissionDenied { .. }
+        | ProtocolError::RateLimitExceeded { .. } => format!("Tool execution failed: {error}"),
+        _ => {
+            warn!(error = %error, "tool call failed");
+            "Tool execution failed".to_owned()
+        }
     }
 }

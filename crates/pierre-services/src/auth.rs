@@ -33,6 +33,7 @@ use pierre_runtime_context::DataContext;
 
 use crate::analytics::cache_user_email;
 use crate::default_agent::first_athlete_facing;
+use crate::import_tombstones::{email_held, pending_email_tombstone};
 use crate::link_token::split_link_token;
 use crate::operator_mail::PendingSignupMail;
 
@@ -218,7 +219,7 @@ impl AuthService {
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its operator)
         let approval = self.determine_approval_status(&email).await;
-        let self_activates = self_serve && self.activates_on_verified_email().await;
+        let self_activates = self_serve && self.activates_on_verified(&email).await;
         let (user_id, user) = self
             .create_account(
                 &email,
@@ -837,7 +838,8 @@ impl AuthService {
     /// A per-email pre-approval also carries the operator who recorded it, so
     /// the new account's `approved_by` attributes the decision to a person;
     /// the global switch and domain list are policy, not a person, and leave
-    /// it `None`.
+    /// it `None`. An email a deleted account's tombstone holds is admitted by
+    /// no rule: it waits Pending for an operator or an explicit clear.
     async fn determine_approval_status(
         &self,
         email: &str,
@@ -847,6 +849,9 @@ impl AuthService {
         Option<uuid::Uuid>,
     ) {
         let now = Utc::now();
+        if email_held(self.data.repos(), email).await {
+            return (UserStatus::Pending, None, None);
+        }
         if let Some(entry) = self.pre_approval_for(email).await {
             tracing::debug!("Auto-approval granted via pre-approved email");
             let approved_by = self.existing_operator(entry.allowed_by).await;
@@ -885,9 +890,12 @@ impl AuthService {
     ///
     /// With sign-up open to verified addresses, a proven address qualifies
     /// too ([`Self::verified_and_self_activating`]); an unproven one never
-    /// does, at login or anywhere else.
+    /// does, at login or anywhere else. Nor does one a deleted account's
+    /// tombstone holds, until it is explicitly cleared.
     async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
-        if user.user_status != UserStatus::Pending {
+        if user.user_status != UserStatus::Pending
+            || email_held(self.data.repos(), &user.email).await
+        {
             return Ok(());
         }
 
@@ -1094,6 +1102,11 @@ impl AuthService {
                 .is_verified(user.id)
                 .await
                 .ok(),
+            email_tombstone: pending_email_tombstone(
+                self.data.repos().import_tombstones.as_ref(),
+                user,
+            )
+            .await,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale.clone(),
             coaching_persona: user.coaching_persona.as_str().to_owned(),

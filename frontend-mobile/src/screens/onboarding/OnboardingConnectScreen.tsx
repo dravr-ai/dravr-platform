@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
+import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import type { ExtendedProviderStatus } from '../../types';
 import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useConnectProviderDone } from '../../hooks/useConnectProviderDone';
@@ -43,7 +44,7 @@ import {
   sciotteTargetForBackend,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, importTombstoneFromReturn } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
 /**
@@ -67,7 +68,7 @@ import { ownAppDevPortal } from '@pierre/domain-utils';
  * moves them on to their group.
  */
 export function OnboardingConnectScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const { isAuthenticated, user, logout } = useAuth();
@@ -158,6 +159,20 @@ export function OnboardingConnectScreen() {
             return;
           }
           const parsed = Linking.parse(result.url);
+          // A provider account a deleted Dravr account held: offered to
+          // start fresh, never sent to the credential login, which would be
+          // refused the same way.
+          const tombstone = importTombstoneFromReturn((name) => parsed.queryParams?.[name]);
+          if (tombstone) {
+            promptImportTombstoneClear({
+              refusal: tombstone,
+              providerName,
+              language,
+              t,
+              onCleared: () => void launchOAuthRef.current(providerId, providerName, tosConsent),
+            });
+            return;
+          }
           const success = parsed.queryParams?.success === 'true';
           const error = parsed.queryParams?.error as string | undefined;
           if (success) {
@@ -195,8 +210,14 @@ export function OnboardingConnectScreen() {
         setConnectingProvider(null);
       }
     },
-    [finalizeConnection, t],
+    [finalizeConnection, language, t],
   );
+  // The start-fresh action runs the connect again from inside the callback
+  // that defined it, so it reads the current one through a ref.
+  const launchOAuthRef = useRef(launchOAuth);
+  useEffect(() => {
+    launchOAuthRef.current = launchOAuth;
+  }, [launchOAuth]);
 
   const handleConnect = (provider: ExtendedProviderStatus) => {
     setConnectError(null);

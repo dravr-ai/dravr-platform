@@ -189,7 +189,9 @@ export default function ProviderConnectionCards({
           void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           return;
         }
-        if (fresh && result.provider === 'strava' && result.success === false) {
+        // A tombstoned account is resolved in the OAuth tab, which offers to
+        // start fresh; the credential login would be refused the same way.
+        if (fresh && result.provider === 'strava' && result.success === false && !result.tombstoned) {
           localStorage.removeItem('pierre_oauth_result');
           setSciotteModalTarget('strava');
         }

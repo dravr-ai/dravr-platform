@@ -54,6 +54,11 @@ use std::fmt;
 use std::time::Duration;
 use uuid::Uuid;
 
+/// How long a last-known copy of a provider read is kept (30 days): long
+/// enough to stand in through a provider outage or a lapsed session, short
+/// enough that what it serves is never older than a month.
+pub const TTL_LAST_KNOWN_SECS: u64 = 30 * 24 * 60 * 60;
+
 /// How long the drawable line of a discovered or composed route stays
 /// addressable by its `route_ref` (24 hours).
 ///
@@ -273,6 +278,17 @@ impl CacheKey {
         format!("tenant:{tenant_id}:user:{user_id}:provider:{provider}:*")
     }
 
+    /// Create pattern for invalidating every entry of one user, in every
+    /// tenant and for every provider.
+    ///
+    /// ISOLATION EXEMPTION: the pattern spans tenants on purpose. It serves
+    /// only the deletion of the account itself, which removes the user from
+    /// every tenant at once; the user id is the whole scope.
+    #[must_use]
+    pub fn every_entry_of_user(user_id: Uuid) -> String {
+        format!("tenant:*:user:{user_id}:*")
+    }
+
     /// Create pattern for invalidating all entries for a tenant
     #[must_use]
     pub fn tenant_pattern(tenant_id: TenantId, provider: &str) -> String {
@@ -356,6 +372,15 @@ pub enum CacheResource {
         /// The route's content-derived reference, `rt_` and 16 hex digits.
         route_ref: String,
     },
+    /// The athlete profile as last read live, kept after its 24 h entry lapses
+    /// ([`TTL_LAST_KNOWN_SECS`]). A read that cannot reach the provider
+    /// within its budget serves this, saying when it was synced, rather than
+    /// failing the call.
+    LastKnownAthleteProfile,
+    /// The athlete's statistics as last read live, for the same fallback
+    /// ([`TTL_LAST_KNOWN_SECS`]). Keyed by user and provider alone, so it is
+    /// found without the athlete id the 6 h entry needs.
+    LastKnownStats,
     /// General-purpose keyed resource for non-domain uses (nonces, rate limits, etc.).
     /// TTL is caller-specified — `recommended_ttl` returns 0 for this variant.
     Custom(String),
@@ -375,6 +400,9 @@ impl CacheResource {
             Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
             Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
             Self::DiscoveredRoute { .. } => Duration::from_secs(TTL_DISCOVERED_ROUTE_SECS),
+            Self::LastKnownAthleteProfile | Self::LastKnownStats => {
+                Duration::from_secs(TTL_LAST_KNOWN_SECS)
+            }
             Self::SciotteLoginFlow | Self::Custom(_) => Duration::ZERO,
         }
     }
@@ -412,6 +440,8 @@ impl fmt::Display for CacheResource {
             Self::ProviderRoster => write!(f, "provider_roster_v2"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
             Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),
+            Self::LastKnownAthleteProfile => write!(f, "last_known_athlete_profile"),
+            Self::LastKnownStats => write!(f, "last_known_stats"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),
         }
     }

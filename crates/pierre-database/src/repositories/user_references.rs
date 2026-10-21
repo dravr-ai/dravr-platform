@@ -241,24 +241,21 @@ user_owned_tables!(
     postgres_only: ["agents_orphaned"],
 );
 
-/// Clear a user completely inside one transaction: the user's rows in every
-/// table the engine's [`UserPurge`] (`$purge`) names, then the account row
-/// (whose foreign keys cascade to the rest), then prove nothing listed
-/// survived before committing. Evaluates to `AppResult<UserDeletion>`; any
-/// failure drops the transaction, rolling every statement back. A
-/// foreign-key violation anywhere is the conflict [`delete_user_error`]
-/// builds.
-macro_rules! delete_user_completely {
-    ($repo:expr, $ids:ident, $user_id:expr, $purge:ident, $firebase_project:expr) => {{
+/// Clear a user completely on an already open `TransactionGuard` (`$guard`),
+/// which the account deletion (`super::account_deletion`) commits: the user's
+/// rows in every table the engine's [`UserPurge`] (`$purge`) names, the
+/// queued Firebase identity, the account row (whose foreign keys cascade to
+/// the rest), then the survivor read that refuses while a listed table still
+/// holds a row. A foreign-key violation anywhere is the conflict
+/// [`delete_user_error`] builds. Evaluates to
+/// the rows removed per table; a failure returns the enclosing function's
+/// error, and the transaction rolls back when the guard drops uncommitted.
+macro_rules! clear_user_in_transaction {
+    ($guard:ident, $ids:ident, $user_id:expr, $purge:ident, $firebase_project:expr) => {{
         let user_id: Uuid = $user_id;
         let firebase_project: Option<&str> = $firebase_project;
         let owner = user_id.to_string();
-        let tx = $repo
-            .pool()
-            .begin()
-            .await
-            .map_err(|e| AppError::database(format!("Failed to begin the user delete: {e}")))?;
-        let mut guard = TransactionGuard::new(tx);
+        let guard = &mut $guard;
         let mut rows_removed = BTreeMap::new();
         for (table, statement) in $purge.tables.iter().zip($purge.statements) {
             let removed = sqlx::query(statement)
@@ -307,11 +304,10 @@ macro_rules! delete_user_completely {
                 tables.join(", ")
             )));
         }
-        guard.commit().await?;
-        Ok(UserDeletion { rows_removed })
+        rows_removed
     }};
 }
-pub(crate) use delete_user_completely;
+pub(crate) use clear_user_in_transaction;
 
 /// Every reference onto one user the delete refuses over, as `(kind, detail)`
 /// rows: the non-cascading foreign keys, and what the delete would take from

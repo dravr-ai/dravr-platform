@@ -8,6 +8,7 @@ pub mod api_key;
 pub mod auth;
 pub mod canary;
 pub mod config;
+pub mod deletion;
 pub mod drift;
 #[cfg(feature = "tools-verification")]
 pub mod harness;

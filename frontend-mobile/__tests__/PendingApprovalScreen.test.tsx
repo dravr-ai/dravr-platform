@@ -13,15 +13,24 @@ jest.mock('expo-router', () => ({
 }));
 
 const mockResendVerification = jest.fn();
+const mockClearImportTombstone = jest.fn();
 jest.mock('../src/services/api', () => ({
   authApi: {
     resendVerification: (...args: unknown[]) => mockResendVerification(...args),
   },
+  userApi: {
+    clearImportTombstone: (...args: unknown[]) => mockClearImportTombstone(...args),
+  },
 }));
 
-let mockUser: { email: string; email_verified?: boolean } = { email: 'jean@example.com', email_verified: true };
+let mockUser: {
+  email: string;
+  email_verified?: boolean;
+  email_tombstone?: { tombstone_id: string; deleted_at: string };
+} = { email: 'jean@example.com', email_verified: true };
+const mockUpdateUser = jest.fn();
 jest.mock('../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ user: mockUser }),
+  useAuth: () => ({ user: mockUser, updateUser: mockUpdateUser }),
 }));
 
 import { PendingApprovalScreen } from '../src/screens/auth/PendingApprovalScreen';
@@ -102,6 +111,39 @@ describe('PendingApprovalScreen', () => {
       await waitFor(() =>
         expect(getByText('Couldn’t send it just now. Try again in a moment.')).toBeTruthy(),
       );
+    });
+  });
+
+  describe('an email a deleted account left behind', () => {
+    const tombstone = { tombstone_id: 'tomb-1', deleted_at: '2026-10-20T08:00:00+00:00' };
+
+    it('says why the account waits and starts fresh on the athlete\'s tap', async () => {
+      mockUser = { email: 'back@example.com', email_verified: true, email_tombstone: tombstone };
+      mockClearImportTombstone.mockResolvedValue({ cleared: [], user_status: 'active' });
+      const { getByText, getByTestId, queryByText } = renderComponent();
+
+      expect(
+        getByText(
+          'This email belonged to a Dravr account deleted on Oct 20, 2026. Confirm you want to start fresh with it to continue.'
+        )
+      ).toBeTruthy();
+      // Nobody reviews it, so the review steps are not promised.
+      expect(queryByText('Our team reviews your registration')).toBeNull();
+
+      fireEvent.press(getByTestId('pending-email-tombstoned-clear'));
+
+      await waitFor(() =>
+        expect(mockUpdateUser).toHaveBeenCalledWith({ user_status: 'active', email_tombstone: undefined })
+      );
+      expect(mockClearImportTombstone).toHaveBeenCalledWith('tomb-1');
+    });
+
+    it('asks for the address to be confirmed first, with no clear before it is', () => {
+      mockUser = { email: 'back@example.com', email_verified: false, email_tombstone: tombstone };
+      const { getByText, queryByTestId } = renderComponent();
+
+      expect(getByText('Confirm your email address first, then start fresh.')).toBeTruthy();
+      expect(queryByTestId('pending-email-tombstoned-clear')).toBeNull();
     });
   });
 });

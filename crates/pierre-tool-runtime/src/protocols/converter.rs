@@ -13,62 +13,9 @@
 
 use crate::protocol::{UniversalRequest, UniversalResponse};
 use crate::protocols::{ProtocolError, ProtocolType};
-use pierre_core::untrusted::display_line;
 use pierre_mcp_schema::{Content, ToolCall, ToolResponse};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fmt::Write;
-use tracing::{debug, warn};
-
-/// Individual activity response from fitness platforms
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActivityResponse {
-    /// Activity identifier
-    #[serde(default)]
-    pub id: String,
-    /// Activity name
-    #[serde(default)]
-    pub name: String,
-    /// Sport/activity type
-    #[serde(default)]
-    pub sport_type: String,
-    /// Distance in meters
-    #[serde(default)]
-    pub distance_meters: Option<f64>,
-    /// Duration in seconds
-    #[serde(default)]
-    pub duration_seconds: Option<u64>,
-}
-
-/// Response containing multiple activities
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActivitiesResponse {
-    /// List of activities
-    pub activities: Vec<ActivityResponse>,
-}
-
-/// How much of one provider-controlled field survives into rendered prose.
-///
-/// An activity title is a phrase. A field far longer than one is either noise
-/// or an attempt to bury the surrounding line, and either way the listing is
-/// unreadable once one row runs to a paragraph.
-const MAX_RENDERED_FIELD_CHARS: usize = 120;
-
-/// Athlete profile response from fitness platforms
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AthleteResponse {
-    /// Athlete identifier
-    pub id: u64,
-    /// First name
-    #[serde(default)]
-    pub firstname: String,
-    /// Last name
-    #[serde(default)]
-    pub lastname: String,
-    /// Username
-    #[serde(default)]
-    pub username: String,
-}
+use tracing::debug;
 
 /// Protocol converter for translating between protocol formats
 pub struct ProtocolConverter;
@@ -149,108 +96,21 @@ impl ProtocolConverter {
         }
     }
 
-    /// Neutralize one provider-controlled field before a client renders it.
+    /// The text block a `tools/call` result carries beside `structuredContent`.
     ///
-    /// [`Self::format_response_content`] composes prose the server invented —
-    /// a numbered listing, a labelled profile — and drops provider strings into
-    /// it. Those strings are an activity title from Strava or Garmin: whatever
-    /// the athlete, or anyone who can write to their account, typed. A newline
-    /// in one forges an extra numbered row; markup in one forges interface in
-    /// the client that renders it.
-    ///
-    /// Only the composed branches need this. The default branch serializes
-    /// JSON, where the same text is a quoted string value and the escaping is
-    /// the delimiter — and the machine-readable copy rides `structured_content`
-    /// regardless, so nothing that parses the result loses anything here.
-    fn renderable(raw: &str) -> String {
-        display_line(raw, MAX_RENDERED_FIELD_CHARS)
-    }
-
-    /// Format response content into human-readable text
+    /// The payload's JSON, compact, for every tool. MCP asks a tool that
+    /// returns `structuredContent` to repeat it as serialized JSON in a text
+    /// block for clients that read only `content` (the Claude API's MCP
+    /// connector passes only `content` to the model), and Claude Code passes
+    /// only `structuredContent`. Repeating the JSON shows both kinds of client
+    /// the same reply, every item and every caveat the payload carries, where
+    /// composed prose would show one of them a summary. The JSON is also where
+    /// a provider's text is safe, as a quoted string value.
     fn format_response_content(result: Option<&Value>) -> String {
-        let Some(data) = result else {
-            return "No data available".to_owned();
-        };
-
-        // Try to deserialize as activities response
-        if let Ok(activities_resp) = serde_json::from_value::<ActivitiesResponse>(data.clone()) {
-            let count = activities_resp.activities.len();
-            let mut text = format!("Retrieved {count} activities:\n\n");
-
-            for (i, activity) in activities_resp.activities.iter().enumerate().take(10) {
-                let name = if activity.name.is_empty() {
-                    "Unnamed Activity".to_owned()
-                } else {
-                    Self::renderable(&activity.name)
-                };
-                let activity_type = if activity.sport_type.is_empty() {
-                    "Unknown".to_owned()
-                } else {
-                    Self::renderable(&activity.sport_type)
-                };
-                let distance = activity
-                    .distance_meters
-                    .map_or_else(|| "N/A".to_owned(), |d| format!("{:.2} km", d / 1000.0));
-                let moving_time = activity.duration_seconds.map_or_else(
-                    || "N/A".to_owned(),
-                    |t| {
-                        let hours = t / 3600;
-                        let minutes = (t % 3600) / 60;
-                        if hours > 0 {
-                            format!("{hours}h {minutes}m")
-                        } else {
-                            format!("{minutes}m")
-                        }
-                    },
-                );
-                let activity_id = if activity.id.is_empty() {
-                    "unknown".to_owned()
-                } else {
-                    Self::renderable(&activity.id)
-                };
-
-                writeln!(
-                    &mut text,
-                    "{}. {} - {} | {} | {} | ID: {}",
-                    i + 1,
-                    name,
-                    activity_type,
-                    distance,
-                    moving_time,
-                    activity_id
-                )
-                .unwrap_or_else(|_| warn!("Failed to write activity line"));
-            }
-
-            if count > 10 {
-                writeln!(&mut text, "\n... and {} more activities", count - 10)
-                    .unwrap_or_else(|_| warn!("Failed to write activity count"));
-            }
-
-            return text;
-        }
-
-        // Try to deserialize as athlete response
-        if let Ok(athlete) = serde_json::from_value::<AthleteResponse>(data.clone()) {
-            let name = Self::renderable(&format!("{} {}", athlete.firstname, athlete.lastname));
-            let username = if athlete.username.is_empty() {
-                "N/A".to_owned()
-            } else {
-                Self::renderable(&athlete.username)
-            };
-
-            return format!(
-                "Athlete Profile:\nName: {name}\nUsername: @{username}\nID: {}",
-                athlete.id
-            );
-        }
-
-        // Default: the payload's JSON, compact. MCP asks a tool that returns
-        // `structuredContent` to repeat it as serialized JSON in a text block
-        // for clients that read only `content`; those clients put this string
-        // in a model's context, where indentation is paid for in tokens and
-        // carries nothing the structure does not.
-        serde_json::to_string(data).unwrap_or_else(|_| "{}".into())
+        result.map_or_else(
+            || "No data available".to_owned(),
+            |data| serde_json::to_string(data).unwrap_or_else(|_| "{}".into()),
+        )
     }
 
     /// Detect protocol type from request format

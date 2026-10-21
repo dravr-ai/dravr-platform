@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_test_support::account::delete_account;
 use secrecy::{ExposeSecret, SecretString};
 
 use std::net::SocketAddr;
@@ -1391,11 +1392,7 @@ async fn an_address_now_held_by_another_google_account_is_not_attached() {
     );
 
     // Deleting the account takes its links with it.
-    f.resources
-        .common
-        .repos
-        .users
-        .delete(account.id, None)
+    delete_account(&f.resources.common.repos, account.id, None)
         .await
         .unwrap();
     assert_eq!(

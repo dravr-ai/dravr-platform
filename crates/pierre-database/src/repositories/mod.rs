@@ -10,6 +10,8 @@ pub mod a2a;
 pub(crate) mod a2a_backend;
 /// Repository trait for the A2A reaper's bulk fail (one statement, written once).
 pub mod a2a_task_reaper;
+/// An account deletion in one transaction, with its hash-chained receipt and the chain's verifier.
+pub mod account_deletion;
 /// Repository trait for historical activity backfills still owed (resumed by a sweep).
 pub mod activity_backfill_jobs;
 /// Repository traits for the provider-agnostic activity cache (stale-while-revalidate).
@@ -89,6 +91,8 @@ pub mod health;
 pub mod health_persistence;
 /// Repository trait, statements and shared body for super-admin impersonation sessions.
 pub mod impersonation;
+/// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
+pub mod import_tombstones;
 /// The one consume body every selector.verifier link token shares.
 pub(crate) mod link_token_consume;
 /// How each backend stores a list-of-strings column.
@@ -230,6 +234,10 @@ pub mod workouts;
 
 pub use a2a::*;
 pub use a2a_task_reaper::*;
+pub use account_deletion::{
+    verify_receipt_chain, AccountDeletion, AccountDeletionPlan, AccountDeletionRepository,
+    ChainBreak, ChainVerification, DeletionActor, DeletionReceipt, PlannedBackend, GENESIS_HASH,
+};
 pub use activity_backfill_jobs::*;
 pub use activity_cache::*;
 pub use activity_conversations::*;
@@ -260,6 +268,10 @@ pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
 pub use impersonation::*;
+pub use import_tombstones::{
+    athlete_marker, email_identity_hash, provider_identity_hash, subject_hash, ImportTombstone,
+    ImportTombstoneRepository, TombstoneKind,
+};
 pub use mcp_tasks::*;
 pub use memory_extraction_jobs::*;
 pub use messaging::*;

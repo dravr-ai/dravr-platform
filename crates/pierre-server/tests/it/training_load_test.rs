@@ -209,7 +209,11 @@ fn test_training_load_is_independent_of_input_order() {
 #[test]
 fn test_training_load_decays_over_rest_days_to_the_as_of_day() {
     let now = Utc::now();
+    // cageux seeds each load at the history's mean over its opening window,
+    // read through the as-of day. A history longer than the 42-day window on
+    // both as-of days gives both one seed, so rest days only decay the loads.
     let activities = vec![
+        create_test_activity(now - Duration::days(60), 3600, Some(180), None),
         create_test_activity(now - Duration::days(2), 3600, Some(200), None),
         create_test_activity(now - Duration::days(1), 3600, Some(220), None),
         create_test_activity(now, 3600, Some(210), None),
@@ -223,10 +227,11 @@ fn test_training_load_decays_over_rest_days_to_the_as_of_day() {
     let on_the_day = load(today);
     let after_rest = load(today + Duration::days(5));
 
-    // Five empty days multiply the 7-day EMA by (6/8)^5 and the 42-day one by
-    // (41/43)^5.
-    let atl_decay = (6.0_f64 / 8.0).powi(5);
-    let ctl_decay = (41.0_f64 / 43.0).powi(5);
+    // An N-day load takes in 1/N of each day (Coggan/TrainingPeaks), so five
+    // empty days multiply the 7-day ATL by (6/7)^5 and the 42-day CTL by
+    // (41/42)^5.
+    let atl_decay = (6.0_f64 / 7.0).powi(5);
+    let ctl_decay = (41.0_f64 / 42.0).powi(5);
     assert!(on_the_day.atl.mul_add(-atl_decay, after_rest.atl).abs() < 1e-9);
     assert!(on_the_day.ctl.mul_add(-ctl_decay, after_rest.ctl).abs() < 1e-9);
     assert!(after_rest.tsb > on_the_day.tsb);

@@ -46,7 +46,7 @@ use crate::activity_fetch::uploads::{holds_uploads, uploaded_window};
 use crate::activity_fetch::{
     activity_date_span, activity_window_totals, maybe_merge_other_connections, read_cached_window,
     read_live_window, serve_historical_window, serve_stale_activities, serve_without_primary,
-    sort_activities, touch_connection_used,
+    sort_activities, touch_connection_used, StaleReason,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -59,9 +59,9 @@ use crate::implementations::activity_detail_promotion::promote_to_detail;
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
-    backfill_placeholder_message, historical_backfill_fetch_limit, historical_window_read_limit,
-    pagination_has_more, read_only_annotations, response_cache_eligible, window_fetch_limit,
-    PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
+    historical_window_read_limit, pagination_has_more, read_only_annotations,
+    response_cache_eligible, window_fetch_limit, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -699,7 +699,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         served,
                     )
                     .await;
-                    stood_in = served.head_behind.then(|| PrimaryStandIn::Stale(provider_name.clone()));
+                    stood_in = served.behind.map(|why| PrimaryStandIn::Stale(provider_name.clone(), why));
                     (served.activities, None)
                 } else {
                     // Synchronous reconnect (priority): if this provider's
@@ -870,7 +870,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             {
                                 BudgetedRead::Answered { read, provider } => (read, provider),
                                 BudgetedRead::Cached(rows) => {
-                                    stood_in = Some(PrimaryStandIn::Stale(provider_name.clone()));
+                                    stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Timeout));
                                     break 'live (rows, None);
                                 }
                             }
@@ -932,7 +932,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 // nothing to write back, no serve to record, no
                                 // response to cache, and the caveat says the newest
                                 // sessions may be missing.
-                                stood_in = Some(PrimaryStandIn::Stale(provider_name.clone()));
+                                stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Error));
                                 (cached_rows, None)
                             }
                         }
@@ -1156,10 +1156,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // key aborts the turn into the deterministic reconnect reply, which is
             // exactly the blanking this path exists to avoid.
             if let Some(stand_in) = stood_in.as_ref() {
-                if let Some(obj) = response.result.as_mut().and_then(Value::as_object_mut) {
-                    let (key, caveat) = stand_in.caveat();
-                    obj.insert(key.to_owned(), caveat);
-                }
+                let (result, user) = (response.result.as_mut(), context.user_id);
+                attach_stand_in_caveat(result, stand_in, &context.resources, user, &tenant_id).await;
             }
             // Declared, so the shape above is the shape the schema names.
             debug_assert!(

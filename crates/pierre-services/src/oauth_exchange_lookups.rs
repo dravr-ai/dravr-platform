@@ -17,18 +17,23 @@
 //! it reaches refresh and revocation. The owner id is what a provider's push
 //! events name the athlete by; Strava returns it inline in the token
 //! response, WHOOP and Garmin only from their API, so for those it is read
-//! with the fresh access token before the token is stored.
+//! with the fresh access token before the token is stored. That id is also
+//! what a deleted account's tombstone names, so the callback refuses a
+//! tombstoned provider account here, before anything is stored
+//! ([`OAuthService::refuse_tombstoned_account`]).
 
 use pierre_auth::oauth2_client::OAuth2Token;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::User;
+use pierre_core::models::{TenantId, User, UserOAuthToken};
 use pierre_providers::owner_id::owner_id_for_access_token;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::OAuthEndpoints;
 use secrecy::ExposeSecret;
 use tracing::{error, info, warn};
 
+use crate::import_tombstones::{provider_account_tombstone, refuse_provider_account};
 use crate::oauth_flow::OAuthService;
+use crate::provider_revocation::revoke_stored_grant;
 
 impl OAuthService {
     /// Get user and tenant from database
@@ -158,5 +163,57 @@ impl OAuthService {
                 || endpoints.token_url.to_owned(),
                 |config| config.token_url.clone(),
             )
+    }
+
+    /// Refuse a callback whose provider account belonged to a deleted
+    /// account: a live tombstone names the token's provider-side id.
+    ///
+    /// The exchange already issued a grant nothing will store, so it is
+    /// revoked (best-effort) under the client that issued it, then the
+    /// refusal records this account's claim on the tombstone and names it.
+    /// A token without a provider-side id cannot be checked and passes.
+    ///
+    /// # Errors
+    /// Returns the tombstone refusal, or a database error when the tombstone
+    /// cannot be read.
+    pub(crate) async fn refuse_tombstoned_account(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        token: &OAuth2Token,
+        oauth_app_client_id: Option<&str>,
+    ) -> AppResult<()> {
+        let Some(provider_user_id) = token.provider_user_id.as_deref() else {
+            return Ok(());
+        };
+        let tombstones = self.data.repos().import_tombstones.as_ref();
+        let Some(tombstone) =
+            provider_account_tombstone(tombstones, provider, provider_user_id).await?
+        else {
+            return Ok(());
+        };
+        let fresh_grant = UserOAuthToken::new(
+            user_id,
+            tenant_id.to_string(),
+            provider.to_owned(),
+            token.access_token.expose_secret().to_owned(),
+            token
+                .refresh_token
+                .as_ref()
+                .map(|s| s.expose_secret().to_owned()),
+            token.expires_at,
+            token.scope.clone(),
+        )
+        .with_oauth_app_client_id(oauth_app_client_id.map(str::to_owned));
+        let revocation = revoke_stored_grant(self, fresh_grant, tenant_id).await;
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            tombstone_id = %tombstone.id,
+            revocation = ?revocation,
+            "Withdrew the grant a refused connect of a tombstoned provider account issued"
+        );
+        Err(refuse_provider_account(tombstones, user_id, provider, &tombstone).await)
     }
 }

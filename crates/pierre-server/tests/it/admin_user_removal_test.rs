@@ -57,9 +57,10 @@ use pierre_database::repositories::training_plans::PlanAuthor;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
 use pierre_database::repositories::{
-    CreateSessionParams, DraftOwner, EnqueueOutboundParams, InsertMessageParams, PlanOutlineInput,
-    PlanWeekInput, SaveDraftParams, SavePlanBundleParams, UpsertUserFactParams, UserPurge,
-    DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
+    email_identity_hash, subject_hash, CreateSessionParams, DraftOwner, EnqueueOutboundParams,
+    InsertMessageParams, PlanOutlineInput, PlanWeekInput, SaveDraftParams, SavePlanBundleParams,
+    TombstoneKind, UpsertUserFactParams, UserPurge, DELETION_BLOCKERS_SQL,
+    POSTGRES_ONLY_USER_OWNED_TABLES, SQLITE_USER_PURGE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
@@ -89,6 +90,7 @@ use uuid::Uuid;
 use crate::common::{create_test_server_resources_with_config, test_server_config_with_app};
 use crate::helpers::identity_toolkit_stub::{Answer, IdentityToolkitStub};
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
+use pierre_test_support::account::delete_account;
 
 /// The refresh token every seeded Strava grant carries; a revocation spends it.
 const REFRESH_TOKEN: &str = "refresh-material-do-not-log";
@@ -896,9 +898,7 @@ async fn a_residual_foreign_key_on_delete_is_a_conflict_not_a_database_error() {
 
     // Straight at the repository, past the blocker read: the database itself
     // refuses, and the refusal must say "still referenced", not "failed".
-    let error = repos
-        .users
-        .delete(owner_id, None)
+    let error = delete_account(repos, owner_id, None)
         .await
         .expect_err("the group's owner_id must block the delete");
     assert_eq!(error.code, ErrorCode::ResourceLocked);
@@ -1543,8 +1543,9 @@ async fn every_uncascaded_user_table_is_cleared_by_the_delete() {
 
 /// A reference written between the blocker read and the delete (here, while
 /// the grant is being withdrawn) fails the delete as a 409 through the handler,
-/// and the whole delete rolls back: the account, its membership and its rows
-/// stand, and the response says the grant was already withdrawn.
+/// and the whole delete rolls back: the account, its membership, its rows,
+/// its provider data stand, no receipt or tombstone is written, and the
+/// response says the grant was already withdrawn.
 #[tokio::test]
 async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
     struct GroupWritingDisconnector {
@@ -1555,15 +1556,22 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
     impl ProviderDisconnector for GroupWritingDisconnector {
         async fn disconnect(
             &self,
+            _: Uuid,
+            _: &str,
+            _: TenantId,
+            _: DisconnectReason,
+        ) -> AppResult<RevocationOutcome> {
+            panic!("an account removal withdraws grants, it never runs the per-provider disconnect")
+        }
+
+        async fn withdraw_upstream(
+            &self,
             user_id: Uuid,
             _: &str,
             tenant_id: TenantId,
-            reason: DisconnectReason,
-        ) -> AppResult<RevocationOutcome> {
-            // An operator removal names itself on the provider.disconnected event.
-            assert_eq!(reason, DisconnectReason::Operator);
+        ) -> RevocationOutcome {
             seed_group(&self.resources.common.repos, user_id, tenant_id, "Race Day").await;
-            Ok(RevocationOutcome::Revoked)
+            RevocationOutcome::Revoked
         }
 
         fn supports(&self, provider: &str) -> bool {
@@ -1581,7 +1589,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
     );
     let (owner_id, owner_tenant, _) = seed_user(repos, "host").await;
     let group_id = seed_group(repos, owner_id, owner_tenant, "Easy Sundays").await;
-    let (user_id, tenant_id, _) = seed_user(repos, "raced").await;
+    let (user_id, tenant_id, email) = seed_user(repos, "raced").await;
     connect_strava(repos, user_id, tenant_id, None).await;
     join_group(repos, group_id, user_id, tenant_id).await;
 
@@ -1598,7 +1606,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
     assert_eq!(
         body["message"],
         format!(
-            "The account delete failed: User is still referenced by a row that does not cascade; reassign it and retry. Already disconnected: strava (tenant {tenant_id}) revoked at the provider. The account, its memberships and its other rows were left in place."
+            "The account delete failed: User is still referenced by a row that does not cascade; reassign it and retry. Already disconnected: strava (tenant {tenant_id}) revoked at the provider. The account, its provider data, its memberships and its other rows were left in place."
         )
     );
     let disconnected = body["data"]["disconnected"].as_array().unwrap();
@@ -1624,20 +1632,40 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             .await
             .unwrap(),
         vec![(tenant_id.to_string(), "strava".to_owned())],
-        "the token row this stand-in left behind was not deleted either"
+        "the token row was not deleted either"
+    );
+    assert!(
+        repos
+            .account_deletion
+            .list_deletion_receipts(0, 1000)
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.subject_hash != subject_hash(user_id)),
+        "a rolled-back deletion leaves no receipt"
+    );
+    assert!(
+        repos
+            .import_tombstones
+            .find_live(TombstoneKind::Email, None, &email_identity_hash(&email))
+            .await
+            .unwrap()
+            .is_none(),
+        "a rolled-back deletion leaves no tombstone"
     );
 }
 
-/// A delete whose second disconnect fails reports the first as done and the
-/// second as failed, and leaves the account in place.
+/// A grant the provider did not confirm withdrawn does not stop the account
+/// delete (local deletion never waits on the provider), and the deletion's
+/// receipt names it among the copies that may survive.
 #[tokio::test]
-async fn a_disconnect_failing_after_another_succeeded_names_both() {
-    struct SecondCallFails {
+async fn an_unconfirmed_withdrawal_still_deletes_and_is_named_on_the_receipt() {
+    struct SecondCallUnconfirmed {
         calls: AtomicUsize,
     }
 
     #[async_trait]
-    impl ProviderDisconnector for SecondCallFails {
+    impl ProviderDisconnector for SecondCallUnconfirmed {
         async fn disconnect(
             &self,
             _: Uuid,
@@ -1645,10 +1673,14 @@ async fn a_disconnect_failing_after_another_succeeded_names_both() {
             _: TenantId,
             _: DisconnectReason,
         ) -> AppResult<RevocationOutcome> {
+            panic!("an account removal withdraws grants, it never runs the per-provider disconnect")
+        }
+
+        async fn withdraw_upstream(&self, _: Uuid, _: &str, _: TenantId) -> RevocationOutcome {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                Ok(RevocationOutcome::Revoked)
+                RevocationOutcome::Revoked
             } else {
-                Err(AppError::internal("the second revocation broke"))
+                RevocationOutcome::Unconfirmed("the provider answered HTTP 503".to_owned())
             }
         }
 
@@ -1661,7 +1693,7 @@ async fn a_disconnect_failing_after_another_succeeded_names_both() {
     let repos = &resources.common.repos;
     let context = admin_context_with(
         &resources,
-        Arc::new(SecondCallFails {
+        Arc::new(SecondCallUnconfirmed {
             calls: AtomicUsize::new(0),
         }),
     );
@@ -1669,8 +1701,6 @@ async fn a_disconnect_failing_after_another_succeeded_names_both() {
     let second_tenant = extra_tenant(repos, user_id).await;
     connect_strava(repos, user_id, first_tenant, None).await;
     connect_strava(repos, user_id, second_tenant, None).await;
-    let mut tenants = [first_tenant.to_string(), second_tenant.to_string()];
-    tenants.sort();
 
     let response = handle_delete_user(
         State(context),
@@ -1679,23 +1709,36 @@ async fn a_disconnect_failing_after_another_succeeded_names_both() {
         delete_request(),
     )
     .await
-    .expect("an interrupted removal is a response");
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    .expect("the removal answers");
+    assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
-    let cause = AppError::internal("the second revocation broke").sanitized_message();
+    let disconnected = body["data"]["disconnected"].as_array().unwrap();
+    assert_eq!(disconnected.len(), 2, "{body}");
+    let not_deleted = body["data"]["ledger"]["not_deleted"].as_array().unwrap();
     assert_eq!(
-        body["message"],
-        format!(
-            "Disconnecting strava (tenant {}) failed: {cause}. Its grant may already have been revoked at the provider. Already disconnected: strava (tenant {}) revoked at the provider. The account was left in place.",
-            tenants[1], tenants[0]
-        )
+        not_deleted
+            .iter()
+            .filter(|copy| copy.as_str().unwrap().starts_with("provider_grant:strava:"))
+            .count(),
+        1,
+        "{not_deleted:?}"
     );
-    assert_eq!(
-        body["data"]["disconnected"][0]["tenant_id"],
-        tenants[0].as_str()
+    assert!(repos.users.get_global(user_id).await.unwrap().is_none());
+    let receipts = repos
+        .account_deletion
+        .list_deletion_receipts(0, 1000)
+        .await
+        .unwrap();
+    let receipt = receipts
+        .iter()
+        .find(|r| r.subject_hash == subject_hash(user_id))
+        .expect("the deletion appended its receipt");
+    assert!(
+        receipt.not_deleted.contains("HTTP 503"),
+        "{}",
+        receipt.not_deleted
     );
-    assert_eq!(body["data"]["failed"]["tenant_id"], tenants[1].as_str());
-    assert!(repos.users.get_global(user_id).await.unwrap().is_some());
+    assert_eq!(receipt.actor, "operator");
 }
 
 /// A token scoped to one tenant cannot disconnect or delete a user held in
@@ -2140,11 +2183,10 @@ async fn a_scoped_token_cannot_reach_a_user_who_also_belongs_to_an_inactive_tena
     );
 }
 
-/// A disconnect that fails as the first one may still have revoked its grant
-/// upstream, so the delete answers with what it knows rather than a bare
-/// error, and leaves the account.
+/// A provider disconnect that fails may still have revoked its grant
+/// upstream, so it answers with what it knows rather than a bare error.
 #[tokio::test]
-async fn a_first_disconnect_that_fails_is_reported_as_an_interrupted_removal() {
+async fn a_provider_disconnect_that_fails_is_reported_as_interrupted() {
     struct AlwaysFails;
 
     #[async_trait]
@@ -2159,6 +2201,10 @@ async fn a_first_disconnect_that_fails_is_reported_as_an_interrupted_removal() {
             Err(AppError::internal(
                 "the token delete broke after the revocation",
             ))
+        }
+
+        async fn withdraw_upstream(&self, _: Uuid, _: &str, _: TenantId) -> RevocationOutcome {
+            panic!("a single-provider disconnect never runs the account removal's withdrawal")
         }
 
         fn supports(&self, _: &str) -> bool {
@@ -2177,14 +2223,13 @@ async fn a_first_disconnect_that_fails_is_reported_as_an_interrupted_removal() {
         "Disconnecting strava (tenant {tenant_id}) failed: {cause}. Its grant may already have been revoked at the provider. No other provider was disconnected. The account was left in place."
     );
 
-    let response = handle_delete_user(
-        State(context.clone()),
+    let response = handle_disconnect_user_provider(
+        State(context),
         Extension(manage_users_token()),
-        Path(user_id.to_string()),
-        delete_request(),
+        Path((user_id.to_string(), "strava".to_owned())),
     )
     .await
-    .expect("a failed first disconnect is a response naming what may have happened");
+    .expect("the provider disconnect answers with what may have happened");
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let body = body_json(response).await;
     assert_eq!(body["message"], expected.as_str());
@@ -2192,19 +2237,7 @@ async fn a_first_disconnect_that_fails_is_reported_as_an_interrupted_removal() {
         body["data"]["failed"]["tenant_id"],
         tenant_id.to_string().as_str()
     );
-    assert_eq!(body["data"]["disconnected"].as_array().unwrap().len(), 0);
-    assert_eq!(body["data"]["account_removed"], false);
     assert!(repos.users.get_global(user_id).await.unwrap().is_some());
-
-    let response = handle_disconnect_user_provider(
-        State(context),
-        Extension(manage_users_token()),
-        Path((user_id.to_string(), "strava".to_owned())),
-    )
-    .await
-    .expect("the provider disconnect answers the same way");
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(body_json(response).await["message"], expected.as_str());
 }
 
 /// An A2A client's API key belongs to the client's system user, so the
@@ -2553,7 +2586,7 @@ fn a_failed_account_delete_with_nothing_disconnected_names_no_provider() {
 
     assert_eq!(
         interruption.describe("the account delete broke"),
-        "The account delete failed: the account delete broke. No provider was disconnected. The account, its memberships and its other rows were left in place."
+        "The account delete failed: the account delete broke. No provider was disconnected. The account, its provider data, its memberships and its other rows were left in place."
     );
 }
 
@@ -2579,6 +2612,11 @@ async fn disconnecting_a_provider_this_build_cannot_revoke_changes_nothing() {
             Err(AppError::invalid_input(format!(
                 "Unsupported provider: {provider}"
             )))
+        }
+
+        async fn withdraw_upstream(&self, _: Uuid, _: &str, _: TenantId) -> RevocationOutcome {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            RevocationOutcome::NoGrant
         }
 
         fn supports(&self, provider: &str) -> bool {

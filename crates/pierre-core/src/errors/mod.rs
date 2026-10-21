@@ -381,6 +381,27 @@ impl AppError {
         }
     }
 
+    /// The message a tool reply carries: [`Self::sanitized_message`], plus a
+    /// missing resource's message and a provider's failure. A tool's caller is
+    /// the athlete's agent acting on what it asked for: "there is no saved plan
+    /// to push" and "intervals.icu answered 503" tell it what to say and do
+    /// next where "resource not found" and "an external service encountered an
+    /// error" do not. Those messages are written here about the athlete's own
+    /// request or their provider, never the server's internals; database,
+    /// storage, configuration and internal failures stay sanitized. The HTTP
+    /// routes keep the narrower rule, since there a not-found message can
+    /// confirm what exists to someone who should not know.
+    #[must_use]
+    pub fn tool_message(&self) -> String {
+        match self.code {
+            ErrorCode::ResourceNotFound
+            | ErrorCode::ExternalServiceError
+            | ErrorCode::ExternalServiceUnavailable
+            | ErrorCode::ExternalAuthFailed => self.message.clone(),
+            _ => self.sanitized_message(),
+        }
+    }
+
     /// Get full error details for internal logging
     /// NEVER send this to clients - contains sensitive information
     #[must_use]

@@ -6,7 +6,9 @@
 
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { authApi } from '../services/api';
+import { authApi, userApi } from '../services/api';
+import { describeApiError, describeEmailTombstone } from '@pierre/ui-logic';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { Button, Card, Badge } from './ui';
 
 // Clock icon for pending status
@@ -41,13 +43,39 @@ import { useTranslation } from '@pierre/i18n';
  * `email_verified` is optional on purpose: absent means the server didn't resolve
  * it on this response, not that the address is unconfirmed. Only an explicit
  * `false` puts the page in confirm-your-email mode.
+ *
+ * A third reason rides on either: the address belonged to a Dravr account that
+ * was deleted (`email_tombstone`). Nobody reviews that one — the athlete
+ * chooses to start fresh with it, once the address is confirmed as theirs.
  */
 export default function PendingApproval() {
-  const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { t, language } = useTranslation();
+  const online = useOnlineStatus();
+  const { user, logout, updateUser } = useAuth();
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   const needsEmailConfirmation = user?.email_verified === false;
+  const tombstone = user?.email_tombstone;
+  // A tombstoned address the athlete has proven: theirs to start fresh with.
+  const offersClear = tombstone !== undefined && !needsEmailConfirmation;
+
+  const handleClear = async () => {
+    if (!tombstone || clearing) return;
+    setClearing(true);
+    setClearError(null);
+    try {
+      const { user_status } = await userApi.clearImportTombstone(tombstone.tombstone_id);
+      // An approval rule may admit the account at once; otherwise it now waits
+      // for an ordinary review.
+      updateUser({ user_status, email_tombstone: undefined });
+    } catch (err) {
+      setClearError(describeApiError(err, { online, t, fallbackKey: 'errors.unknown' }));
+    } finally {
+      setClearing(false);
+    }
+  };
 
   const handleResend = async () => {
     if (!user?.email || resendState === 'sending') return;
@@ -82,13 +110,44 @@ export default function PendingApproval() {
                   <>
                     {t('auth.confirmationLinkSent')}
                   </>
+                ) : tombstone ? (
+                  <span data-testid="pending-email-tombstoned">
+                    {describeEmailTombstone(tombstone, { language, t })}
+                  </span>
                 ) : (
                   <>
                     {t('auth.pendingApprovalBody')}
                   </>
                 )}
               </p>
+              {needsEmailConfirmation && tombstone && (
+                <p
+                  className="mt-2 text-sm text-on-surface-variant max-w-sm"
+                  data-testid="pending-email-tombstoned-verify-first"
+                >
+                  {t('auth.pendingEmailTombstonedVerifyFirst')}
+                </p>
+              )}
             </div>
+
+            {offersClear && (
+              <div className="mt-6 flex flex-col items-center gap-2">
+                <Button size="lg"
+                  variant="primary"
+                  onClick={() => void handleClear()}
+                  loading={clearing}
+                  className="w-full"
+                  data-testid="pending-email-tombstoned-clear"
+                >
+                  {t('auth.pendingEmailTombstonedClear')}
+                </Button>
+                {clearError && (
+                  <p className="text-xs text-error" role="alert">
+                    {clearError}
+                  </p>
+                )}
+              </div>
+            )}
 
             {needsEmailConfirmation && (
               <div className="mt-6 flex flex-col items-center gap-2">
@@ -146,7 +205,9 @@ export default function PendingApproval() {
               )}
             </div>
 
-            {/* What happens next */}
+            {/* What happens next — nobody reviews a tombstoned address, so the
+                review steps would promise a wait that is not coming. */}
+            {!offersClear && (
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-on-surface mb-3">
                 {t('auth.whatHappensNext')}
@@ -185,6 +246,7 @@ export default function PendingApproval() {
                 )}
               </ul>
             </div>
+            )}
 
             {/* Sign out button */}
             <div className="mt-8">

@@ -122,7 +122,7 @@ async-trait = { version = "0.1", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # Optional: Embacle CLI LLM runner types (standalone library)
-embacle = { version = "0.38.0", optional = true }
+embacle = { version = "0.39.0", optional = true }
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core re-exports types/errors and reads channel names from their descriptors —
@@ -147,7 +147,7 @@ dravr-stripe = { workspace = true, optional = true }
 # the always-on safety surface.
 sha2 = "0.10"
 # The leak canary is HMAC-SHA256 under a key derived from the admin JWT
-# secret (prompt_fingerprint::CanaryKey); tests/billing_stripe_test.rs also
+# secret (prompt_fingerprint::CanaryKey); tests/it/billing_stripe_test.rs also
 # signs webhook payloads with it the way Stripe does.
 hmac = "0.12"
 
@@ -156,10 +156,10 @@ rand = { version = "0.9", optional = true }
 bcrypt = { version = "0.16", optional = true }
 
 [dev-dependencies]
-# Used by the DummyProvider tests in tests/billing_dummy_test.rs.
+# Used by the DummyProvider tests in tests/it/billing_dummy_test.rs.
 tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
 hex = "0.4"
-# tests/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
+# tests/it/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
 # (SdkTracerProvider + InMemorySpanExporter) to pin traceparent injection.
 opentelemetry_sdk = { version = "0.32.1", features = ["trace", "testing"] }
 tracing-subscriber = { version = "0.3", features = ["registry"] }

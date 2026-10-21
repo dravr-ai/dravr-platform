@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
+use super::repeated_read;
 use super::tool_response::{
     is_unavailable_over_transport, protocol_error_from_raised, provider_auth_required_slug,
     raised_error_code, tool_response_to_universal_response,
@@ -15,7 +16,7 @@ use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
     TURN_AGENT_ID,
 };
-use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, TurnKey};
+use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
 use crate::protocol::provider_helpers::no_provider_refusal;
 use crate::protocol::types::{UniversalRequest, UniversalResponse};
@@ -671,6 +672,18 @@ impl UniversalExecutor {
             }
         }
 
+        // A read repeated within one real turn is answered with a pointer to
+        // the result the model already has (see `repeated_read`).
+        let read = (!writes_data && self.turn_token.is_some())
+            .then(|| ReadFingerprint::of(&tool_name, &args));
+        let turns = self.resources.guardian_turns();
+        if let Some(pointer) = repeated_read::answer(turns, &turn_key, read, &tool_name) {
+            if reserved {
+                turns.refund(&turn_key, labels, writes_data);
+            }
+            return Ok(pointer);
+        }
+
         // Scope the originating conversation id into the task-local for the
         // duration of the tool body so `ToolExecutionContext::from_tronc` can
         // recover it — the tronc `ToolContext` has no field to carry it through.
@@ -745,6 +758,9 @@ impl UniversalExecutor {
             self.resources
                 .guardian_turns()
                 .refund(&turn_key, labels, writes_data);
+        }
+        if !response.is_error {
+            repeated_read::remember(turns, &turn_key, read, writes_data);
         }
 
         if response.is_error {

@@ -36,6 +36,11 @@ interface AuthContextType {
   clearSignInFailure: () => void;
   loginWithFirebase: (idToken: string) => Promise<FirebaseLoginResponse>;
   logout: () => void;
+  /**
+   * Merge what the server just said about the signed-in user — a status an
+   * action changed — into the session, as the phone's `updateUser` does.
+   */
+  updateUser: (patch: Partial<User>) => void;
   impersonation: ImpersonationState;
   startImpersonation: (targetUserId: string, reason?: string) => Promise<void>;
   endImpersonation: () => Promise<void>;

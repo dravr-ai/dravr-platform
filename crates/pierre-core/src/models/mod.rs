@@ -163,7 +163,7 @@ pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
 pub use user::{
     default_locale, locale_from_accept_language, max_hr_fraction_at_vo2max_fraction,
     normalize_email, page_locale, roster_display_name, supported_ui_locale, CoachingPersona,
-    ColorScheme, OperatorRosterGrant, PreApprovedEmail, User, UserDeletion, UserId, UserInvitation,
+    ColorScheme, OperatorRosterGrant, PreApprovedEmail, User, UserId, UserInvitation,
     UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
     FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES, SWAIN_HRMAX_INTERCEPT_PERCENT,
     SWAIN_HRMAX_PER_VO2MAX_SLOPE,

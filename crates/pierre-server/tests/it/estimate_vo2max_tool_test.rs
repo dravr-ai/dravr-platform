@@ -91,6 +91,10 @@ async fn estimate_expecting_rejection(
     }
 }
 
+/// Kilograms in one pound: Kline's Rockport equation takes weight in pounds,
+/// the tool takes it in kilograms.
+const KG_PER_LB: f64 = 0.453_592_37;
+
 fn vo2(result: &Value) -> f64 {
     result["vo2max_ml_kg_min"]
         .as_f64()
@@ -180,8 +184,8 @@ async fn rockport_takes_weight_and_age_from_the_profile_and_says_so() -> Result<
         saved.error
     );
 
-    // Kline et al. (1987), as cageux implements it with time in minutes:
-    // 132.853 − 0.0769·kg − 0.3877·age + 6.315·gender − 3.2649·min − 0.1565·HR
+    // Kline et al. (1987), with weight in pounds and time in minutes:
+    // 132.853 − 0.0769·lb − 0.3877·age + 6.315·gender − 3.2649·min − 0.1565·HR
     let result = estimate(
         &executor,
         user_id,
@@ -199,7 +203,7 @@ async fn rockport_takes_weight_and_age_from_the_profile_and_says_so() -> Result<
     // mul_add preference does not apply to a plain sum.
     let expected: f64 = [
         132.853,
-        -0.0769 * 70.0,
+        -0.0769 * 70.0 / KG_PER_LB,
         -0.3877 * 30.0,
         6.315,
         -3.2649 * 13.0,
@@ -249,10 +253,11 @@ async fn a_restated_weight_overrides_the_profile() -> Result<()> {
     )
     .await?;
 
-    // Weight from the call (60), age from the profile (30), gender 0.
+    // Weight from the call (60 kg, in pounds), age from the profile (30),
+    // gender 0.
     let expected: f64 = [
         132.853,
-        -0.0769 * 60.0,
+        -0.0769 * 60.0 / KG_PER_LB,
         -0.3877 * 30.0,
         -3.2649 * 15.0,
         -0.1565 * 150.0,

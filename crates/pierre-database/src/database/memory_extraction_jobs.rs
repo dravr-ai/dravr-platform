@@ -9,7 +9,7 @@ use pierre_core::errors::{AppError, AppResult};
 use crate::database::Database;
 use crate::repositories::memory_extraction_jobs::{
     claim_extraction_jobs_sql, extraction_job_from_row, impl_memory_extraction_job_repository,
-    ExtractionJobClaim, MemoryExtractionJobRepository, MemoryExtractionJobRow,
+    ExtractionJobClaim, JobLease, MemoryExtractionJobRepository, MemoryExtractionJobRow,
     FINISH_EXTRACTION_JOB_SQL, REAP_EXHAUSTED_EXTRACTION_JOBS_SQL, RECORD_EXTRACTION_JOB_SQL,
     RENEW_EXTRACTION_JOB_LEASE_SQL,
 };

@@ -183,7 +183,7 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
 
     // The owner rode an hour a day for seven weeks, then forty minutes a day
     // for the last one, up to yesterday: acute load fell faster than chronic,
-    // so last night's balance reads about +16% of CTL, inside the fresh band.
+    // so last night's balance reads about +17.7% of CTL, inside the fresh band.
     seed_rides(
         &fx.res,
         fx.owner_id,
@@ -193,8 +193,9 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     .await;
 
     // A second member still riding an hour every day, not yet today, sits in
-    // balanced form (about -7% of CTL): the ride they have not done yet must
-    // not read as a rest day that freshens them, so the report leaves them out.
+    // balanced form (0% of CTL: a constant load reads CTL = ATL once seeded at
+    // its mean): the ride they have not done yet must not read as a rest day
+    // that freshens them (+12% of CTL), so the report leaves them out.
     let (rider_id, _, rider_tenant) = create_test_user_with_plan(
         &fx.res.agent.database,
         "report-rider@test.com",
@@ -255,8 +256,31 @@ async fn report_names_the_fresh_member_with_their_form_share_and_tsb() {
     let tsb = fresh[0]["tsb"].as_f64().unwrap();
     // Yesterday evening's CTL minus ATL, as a share of yesterday's CTL: the
     // same numbers a reading taken tonight, after a ride today, would give.
-    assert!((form_pct - 15.87).abs() < 0.05, "form_pct {form_pct}");
-    assert!((tsb - 6.95).abs() < 0.05, "tsb {tsb}");
+    //
+    // An hour's ride here scores T = 51.84 TSS: cageux's pace fallback reads
+    // 8 m/s (125 s/km) against cycling's 120 s/km baseline as IF
+    // 120/125 x 0.75 = 0.72, and T = 1 h x 0.72^2 x 100. Forty minutes score
+    // 2T/3. The snapshot reads 60 days, and the
+    // series' first 42 are all hour rides, so CTL and ATL are seeded at T and
+    // held there until the taper. Seven days of 2T/3 then leave
+    // CTL = T(2/3 + (1/3)(41/42)^7) = 49.158 and
+    // ATL = T(2/3 + (1/3)(6/7)^7) = 40.434: TSB 8.724, 17.75% of CTL.
+    let hour = 0.72_f64.powi(2) * 100.0;
+    let after_taper = |n: f64| {
+        let keep = (1.0 - 1.0 / n).powi(7);
+        hour * (2.0 / 3.0 + keep / 3.0)
+    };
+    let (ctl, atl) = (after_taper(42.0), after_taper(7.0));
+    let expected_tsb = ctl - atl;
+    let expected_pct = expected_tsb / ctl * 100.0;
+    assert!(
+        (form_pct - expected_pct).abs() < 0.05,
+        "form_pct {form_pct} vs {expected_pct}"
+    );
+    assert!(
+        (tsb - expected_tsb).abs() < 0.05,
+        "tsb {tsb} vs {expected_tsb}"
+    );
 }
 
 /// `/stats` is open to every member, so for a member who does not manage the

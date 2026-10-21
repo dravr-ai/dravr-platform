@@ -83,11 +83,20 @@ pub(super) fn protocol_error_from_raised(
         };
     }
     let rendered = format!("{tool_name}: {message}");
+    // A caller's mistake is a parameter error and a request the caller can
+    // change is a request error; only what the caller cannot fix is internal.
     match error_code {
-        "InvalidInput" => ProtocolError::InvalidParameters(rendered),
-        "AuthRequired" | "AuthInvalid" | "AuthExpired" | "NoProviderConnected" => {
-            ProtocolError::InvalidRequest(rendered)
+        "InvalidInput" | "MissingRequiredField" | "InvalidFormat" | "ValueOutOfRange" => {
+            ProtocolError::InvalidParameters(rendered)
         }
+        "AuthRequired"
+        | "AuthInvalid"
+        | "AuthExpired"
+        | "NoProviderConnected"
+        | "ResourceNotFound"
+        | "RateLimitExceeded"
+        | "QuotaExceeded"
+        | "ExternalRateLimited" => ProtocolError::InvalidRequest(rendered),
         _ => ProtocolError::InternalError(rendered),
     }
 }

@@ -619,7 +619,7 @@ async fn test_get_session_messages_pagination() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn test_enqueue_and_get_all_pending_outbound() {
+async fn test_enqueue_and_claim_due_outbound() {
     let db = create_test_db().await;
     let (user_uuid, tenant_id) = seed_user(&db).await;
     let user_id = user_uuid.to_string();
@@ -647,7 +647,7 @@ async fn test_enqueue_and_get_all_pending_outbound() {
     let pending = db
         .repositories()
         .messaging
-        .get_all_pending_outbound(100)
+        .claim_due_outbound(100, 60_000)
         .await
         .unwrap()
         .into_iter()
@@ -656,7 +656,11 @@ async fn test_enqueue_and_get_all_pending_outbound() {
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0]["channel_type"], "whatsapp");
     assert_eq!(pending[0]["status"], "pending");
-    // Phase 4: user_id round-trips through enqueue + get_all_pending_outbound
+    assert!(
+        pending[0]["lease_token"].as_str().is_some(),
+        "a claimed entry names the claim that holds it"
+    );
+    // Phase 4: user_id round-trips through enqueue + claim_due_outbound
     // so the dead-letter PostHog distinct_id has a real user to attach to.
     assert_eq!(pending[0]["user_id"].as_str(), Some(user_id.as_str()));
 }
@@ -686,18 +690,30 @@ async fn test_update_outbound_status() {
         .await
         .unwrap();
 
-    // Mark as sent
-    db.repositories()
+    // Claim it, as the retry worker does, then mark it sent with that claim.
+    let claimed = db
+        .repositories()
         .messaging
-        .update_outbound_status(&queue_id, "sent", 1, None)
+        .claim_due_outbound(100, 60_000)
         .await
         .unwrap();
+    let entry = claimed
+        .iter()
+        .find(|e| e["id"].as_str() == Some(queue_id.as_str()))
+        .expect("the enqueued entry is due");
+    let token = entry["lease_token"].as_str().expect("claim token");
+    assert!(db
+        .repositories()
+        .messaging
+        .update_outbound_status(&queue_id, token, "sent", 1, None)
+        .await
+        .unwrap());
 
-    // Should no longer appear in pending
+    // Should no longer appear in pending, now that its lease is released
     let still_pending = db
         .repositories()
         .messaging
-        .get_all_pending_outbound(100)
+        .claim_due_outbound(100, 60_000)
         .await
         .unwrap()
         .into_iter()
@@ -735,26 +751,28 @@ async fn test_retry_worker_dead_letters_invalid_tenant() {
     let pending = db
         .repositories()
         .messaging
-        .get_all_pending_outbound(10)
+        .claim_due_outbound(10, 60_000)
         .await
         .unwrap();
-    assert!(
-        pending.iter().any(|e| e["id"].as_str() == Some(&queue_id)),
-        "Entry should be pending before dead-letter"
-    );
+    let entry = pending
+        .iter()
+        .find(|e| e["id"].as_str() == Some(&queue_id))
+        .expect("Entry should be pending before dead-letter");
+    let token = entry["lease_token"].as_str().expect("claim token");
 
     // Simulate the retry worker dead-lettering an entry (e.g., invalid tenant_id parse)
-    db.repositories()
+    assert!(db
+        .repositories()
         .messaging
-        .update_outbound_status(&queue_id, "dlq", 1, None)
+        .update_outbound_status(&queue_id, token, "dlq", 1, None)
         .await
-        .unwrap();
+        .unwrap());
 
     // Entry should no longer appear in pending queue
     let pending_after = db
         .repositories()
         .messaging
-        .get_all_pending_outbound(10)
+        .claim_due_outbound(10, 60_000)
         .await
         .unwrap();
     assert!(

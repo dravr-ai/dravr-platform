@@ -13,5 +13,6 @@ use crate::repositories::activity_backfill_jobs::{
     FINISH_BACKFILL_JOB_SQL, REAP_EXHAUSTED_BACKFILL_JOBS_SQL, RECORD_BACKFILL_JOB_SQL,
     RENEW_BACKFILL_JOB_LEASE_SQL,
 };
+use crate::repositories::memory_extraction_jobs::JobLease;
 
 impl_activity_backfill_job_repository!(Database, "");

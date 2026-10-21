@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Automated setup script for Claude Code sessions with Pierre MCP Server
-# ABOUTME: Validates/refreshes JWT token, starts server if needed, updates .envrc
+# ABOUTME: Validates/refreshes JWT token, starts server if needed, updates .envrc; --undo takes its edits back
 
 set -e
 
@@ -18,8 +18,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=../../bin/dev-processes.sh
 . "$PROJECT_ROOT/bin/dev-processes.sh"
+# shellcheck source=config-edit.sh
+. "$SCRIPT_DIR/config-edit.sh"
 
 cd "$PROJECT_ROOT"
+
+# --undo: put back what earlier runs changed. .envrc is restored from the
+# backup taken before the first edit, unless it was changed by hand since; the
+# Stitch MCP entry this script registered is removed.
+if [ "${1:-}" = "--undo" ]; then
+    echo -e "${BLUE}=== Undoing Claude Code session setup ===${NC}"
+    if cfg_undo "$PROJECT_ROOT/.envrc"; then
+        echo -e "${GREEN}  .envrc restored to its state before the first setup run${NC}"
+    fi
+    if grep -q $'\tregistered stitch MCP entry' "$PROJECT_ROOT/.setup-state/ledger.tsv" 2>/dev/null \
+        && command -v claude >/dev/null 2>&1; then
+        claude mcp remove stitch -s user 2>/dev/null || true
+        cfg_record "$PROJECT_ROOT/.envrc" "removed stitch MCP entry (undo)"
+        echo -e "${GREEN}  Stitch MCP entry removed${NC}"
+    fi
+    exit 0
+fi
 
 echo -e "${BLUE}=== Pierre MCP Server - Claude Code Session Setup ===${NC}"
 echo -e "Project root: ${PROJECT_ROOT}"
@@ -177,17 +196,9 @@ if [ "$TOKEN_VALID" = false ]; then
     if [ -n "$NEW_TOKEN" ]; then
     echo -e "${BLUE}Step 5: Updating .envrc...${NC}"
 
-    if grep -q "^export PIERRE_JWT_TOKEN=" "$ENVRC_PATH"; then
-        # Update existing line
-        sed -i '' "s|^export PIERRE_JWT_TOKEN=.*|export PIERRE_JWT_TOKEN=\"$NEW_TOKEN\"|" "$ENVRC_PATH"
-        echo -e "${GREEN}  Updated existing PIERRE_JWT_TOKEN in .envrc${NC}"
-    else
-        # Add new line
-        echo "" >> "$ENVRC_PATH"
-        echo "# JWT token for MCP authentication (auto-generated)" >> "$ENVRC_PATH"
-        echo "export PIERRE_JWT_TOKEN=\"$NEW_TOKEN\"" >> "$ENVRC_PATH"
-        echo -e "${GREEN}  Added PIERRE_JWT_TOKEN to .envrc${NC}"
-    fi
+    # Backed up once, written atomically, recorded: `--undo` takes it back.
+    cfg_set_export "$ENVRC_PATH" PIERRE_JWT_TOKEN "$NEW_TOKEN"
+    echo -e "${GREEN}  PIERRE_JWT_TOKEN set in .envrc (undo: $0 --undo)${NC}"
 
     # Export for current session
     export PIERRE_JWT_TOKEN="$NEW_TOKEN"
@@ -229,12 +240,16 @@ if command -v gcloud &> /dev/null; then
     STITCH_TOKEN=$(gcloud auth application-default print-access-token 2>/dev/null) || true
     if [ -n "$STITCH_TOKEN" ]; then
         claude mcp remove stitch -s user 2>/dev/null || true
-        claude mcp add stitch \
+        if claude mcp add stitch \
             --transport http https://stitch.googleapis.com/mcp \
             --header "Authorization: Bearer ${STITCH_TOKEN}" \
             --header "X-Goog-User-Project: dravr-dev-8d4a3" \
-            -s user 2>/dev/null
-        echo -e "${GREEN}  Stitch MCP token refreshed (expires in ~1 hour)${NC}"
+            -s user 2>/dev/null; then
+            cfg_record "$ENVRC_PATH" "registered stitch MCP entry"
+            echo -e "${GREEN}  Stitch MCP token refreshed (expires in ~1 hour)${NC}"
+        else
+            echo -e "${YELLOW}  Stitch MCP entry could not be registered; run: claude mcp add stitch ...${NC}"
+        fi
     else
         echo -e "${YELLOW}  Could not get Stitch token - run: gcloud auth application-default login${NC}"
     fi

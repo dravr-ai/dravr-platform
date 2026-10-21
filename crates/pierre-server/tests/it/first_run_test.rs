@@ -111,18 +111,19 @@ fn today() -> NaiveDate {
 /// reply is stored.
 async fn check_in_posted(fx: &Fixture, at: chrono::DateTime<Utc>) {
     let claims = &fx.repos().platform_post_claims;
-    assert!(claims
+    let lease_token = claims
         .claim_platform_post_since(
             fx.tenant,
             fx.user_id,
             "check_in",
             at - Duration::hours(1),
-            at
+            at,
         )
         .await
-        .unwrap());
+        .unwrap()
+        .expect("the hour's claim takes the post");
     assert!(claims
-        .mark_platform_post_posted(fx.tenant, fx.user_id, "check_in", at)
+        .mark_platform_post_posted(fx.tenant, fx.user_id, "check_in", &lease_token, at)
         .await
         .unwrap());
 }

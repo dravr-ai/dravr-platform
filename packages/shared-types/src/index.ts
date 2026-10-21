@@ -76,7 +76,12 @@ export type {
   DeleteAccountRequest,
   DeleteAccountResponse,
   AccountDeletionRefusal,
+  ImportTombstoneKind,
+  EmailTombstone,
+  ClearedImportTombstone,
+  ClearImportTombstoneResponse,
 } from './auth.js';
+export { IMPORT_TOMBSTONED_ERROR } from './auth.js';
 
 // API types (chat, prompts, common patterns)
 export type {

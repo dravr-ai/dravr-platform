@@ -51,12 +51,6 @@ impl LoggingConfig {
         {
             features |= RedactionFeatures::HEADERS;
         }
-        if env_var_or("PIERRE_LOG_REDACT_BODY", "true")
-            .parse()
-            .unwrap_or(true)
-        {
-            features |= RedactionFeatures::BODY_FIELDS;
-        }
         if env_var_or("PIERRE_LOG_MASK_EMAILS", "true")
             .parse()
             .unwrap_or(true)
@@ -85,17 +79,11 @@ impl Serialize for LoggingConfig {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("LoggingConfig", 7)?;
+        let mut state = serializer.serialize_struct("LoggingConfig", 6)?;
         state.serialize_field("redact_pii", &self.redact_pii)?;
         state.serialize_field(
             "redact_headers",
             &self.redaction_features.contains(RedactionFeatures::HEADERS),
-        )?;
-        state.serialize_field(
-            "redact_body_fields",
-            &self
-                .redaction_features
-                .contains(RedactionFeatures::BODY_FIELDS),
         )?;
         state.serialize_field(
             "mask_emails",
@@ -131,7 +119,6 @@ impl<'de> Deserialize<'de> for LoggingConfig {
             {
                 let mut redact_pii = None;
                 let mut redact_headers = None;
-                let mut redact_body_fields = None;
                 let mut mask_emails = None;
                 let mut redaction_placeholder = None;
                 let mut debug_sampling_enabled = None;
@@ -144,9 +131,6 @@ impl<'de> Deserialize<'de> for LoggingConfig {
                         }
                         "redact_headers" => {
                             redact_headers = Some(map.next_value()?);
-                        }
-                        "redact_body_fields" => {
-                            redact_body_fields = Some(map.next_value()?);
                         }
                         "mask_emails" => {
                             mask_emails = Some(map.next_value()?);
@@ -169,7 +153,6 @@ impl<'de> Deserialize<'de> for LoggingConfig {
                 let redact_pii =
                     redact_pii.ok_or_else(|| de::Error::missing_field("redact_pii"))?;
                 let redact_headers = redact_headers.unwrap_or(true);
-                let redact_body_fields = redact_body_fields.unwrap_or(true);
                 let mask_emails = mask_emails.unwrap_or(true);
                 let redaction_placeholder =
                     redaction_placeholder.unwrap_or_else(|| "[REDACTED]".to_owned());
@@ -179,9 +162,6 @@ impl<'de> Deserialize<'de> for LoggingConfig {
                 let mut features = RedactionFeatures::empty();
                 if redact_headers {
                     features |= RedactionFeatures::HEADERS;
-                }
-                if redact_body_fields {
-                    features |= RedactionFeatures::BODY_FIELDS;
                 }
                 if mask_emails {
                     features |= RedactionFeatures::EMAILS;
@@ -200,7 +180,6 @@ impl<'de> Deserialize<'de> for LoggingConfig {
         const FIELDS: &[&str] = &[
             "redact_pii",
             "redact_headers",
-            "redact_body_fields",
             "mask_emails",
             "redaction_placeholder",
             "debug_sampling_enabled",

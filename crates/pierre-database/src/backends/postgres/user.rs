@@ -7,39 +7,34 @@
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    normalize_email, CoachingPersona, OperatorRosterGrant, TenantId, User, UserDeletion,
-    UserReference, UserStatus, UserTier,
+    normalize_email, CoachingPersona, OperatorRosterGrant, TenantId, User, UserReference,
+    UserStatus, UserTier,
 };
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
 use serde_json::Value;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::user_preferences as preferences;
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::enums::user_status_to_str;
-use crate::backends::shared::transactions::TransactionGuard;
-use crate::repositories::firebase_identity_deletions::QUEUE_FIREBASE_DELETION_SQL;
 use crate::repositories::user_profiles::{
     impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL, GET_USER_GOALS_SQL,
     GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL, UPSERT_USER_PROFILE_SQL,
 };
-use crate::repositories::user_references::{
-    delete_user_completely, delete_user_error, user_reference_from_row, DELETION_BLOCKERS_SQL,
-    POSTGRES_USER_PURGE,
-};
+use crate::repositories::user_references::{user_reference_from_row, DELETION_BLOCKERS_SQL};
 use crate::repositories::users::{
     impl_user_repository, listing_status_filter, user_from_row, user_status_filter,
     users_by_ids_sql, ADD_TENANT_MEMBER_SQL, COUNT_USERS_CREATED_SINCE_SQL, COUNT_USERS_SQL,
-    CREATE_USER_SQL, DELETE_USER_SQL, FIRST_ADMIN_USER_SQL, GET_USER_BY_EMAIL_SQL,
-    GET_USER_BY_FIREBASE_UID_SQL, GET_USER_BY_ID_SQL, GET_USER_IN_TENANT_SQL, LIST_ADMIN_USERS_SQL,
-    SET_USER_ADMIN_STATUS_SQL, SET_USER_TENANT_SQL, SET_USER_TIER_SQL, UPDATE_LAST_ACTIVE_SQL,
-    UPDATE_USER_DISPLAY_NAME_SQL, UPDATE_USER_PASSWORD_SQL, UPDATE_USER_SQL,
-    UPDATE_USER_STATUS_SQL, USERS_BY_STATUS_AFTER_CURSOR_SQL, USERS_BY_STATUS_IN_TENANT_SQL,
-    USERS_BY_STATUS_PAGE_SQL, USERS_BY_STATUS_SQL,
+    CREATE_USER_SQL, FIRST_ADMIN_USER_SQL, GET_USER_BY_EMAIL_SQL, GET_USER_BY_FIREBASE_UID_SQL,
+    GET_USER_BY_ID_SQL, GET_USER_IN_TENANT_SQL, LIST_ADMIN_USERS_SQL, SET_USER_ADMIN_STATUS_SQL,
+    SET_USER_TENANT_SQL, SET_USER_TIER_SQL, UPDATE_LAST_ACTIVE_SQL, UPDATE_USER_DISPLAY_NAME_SQL,
+    UPDATE_USER_PASSWORD_SQL, UPDATE_USER_SQL, UPDATE_USER_STATUS_SQL,
+    USERS_BY_STATUS_AFTER_CURSOR_SQL, USERS_BY_STATUS_IN_TENANT_SQL, USERS_BY_STATUS_PAGE_SQL,
+    USERS_BY_STATUS_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::{ProfileRepository, UserRepository};
@@ -75,11 +70,5 @@ fn duplicate_user_error(error: &sqlx::Error) -> Option<AppError> {
     })
 }
 
-impl_user_repository!(
-    PostgresDatabase,
-    PgRow,
-    NativeUuid,
-    duplicate_user_error,
-    POSTGRES_USER_PURGE
-);
+impl_user_repository!(PostgresDatabase, PgRow, NativeUuid, duplicate_user_error);
 impl_profile_repository!(PostgresDatabase, NativeUuid);

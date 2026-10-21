@@ -141,6 +141,15 @@ pub fn cache_user_email(user_id: &str, email: &str) {
     USER_EMAILS.insert(user_id.to_owned(), email.to_owned());
 }
 
+/// Forget the cached email of `user_id`: the deleted-account path's eviction.
+///
+/// An account that no longer exists must not keep its address in a process
+/// cache. Returns whether an entry was there. Only this process's cache is
+/// reached; another instance keeps its copy until it restarts.
+pub fn evict_user_email(user_id: &str) -> bool {
+    USER_EMAILS.remove(user_id).is_some()
+}
+
 /// Resolve a cached email for `user_id`, or `None` when the user has not been
 /// seen on this pod since its last cold start.
 ///

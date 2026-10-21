@@ -1,5 +1,5 @@
-// ABOUTME: Operator removal of a user, and of one provider grant, through the disconnect chokepoint
-// ABOUTME: Every grant is revoked at the provider before the account goes; group and operator rows refuse it
+// ABOUTME: Removal of a user, and of one provider grant: every grant revoked upstream, then one transaction
+// ABOUTME: The account, every provider's data, the tombstones and a chained receipt commit together or not at all
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,28 +23,45 @@
 //! per grant: the local rows go either way, so "disconnected" never stands in
 //! for "revoked".
 //!
-//! The account delete then runs in one transaction that also clears every row
-//! the user owns in a table no foreign key cascades to, and refuses to commit
-//! while one survives. A disconnect or delete that fails comes back as an
-//! [`Interruption`] naming what was already done, a failed disconnect's own
-//! grant included, since it may have been revoked before the failure.
+//! A whole-account removal ([`remove_user`]) withdraws every grant at the
+//! provider first ([`ProviderDisconnector::withdraw_upstream`]: network calls,
+//! best-effort, each outcome recorded), then deletes everything in ONE
+//! database transaction (`AccountDeletionRepository::delete_account`): every
+//! provider's data, every row the user owns in a table no foreign key
+//! cascades to, the account row, a tombstone per provider-side id and for
+//! the email, and a hash-chained deletion receipt. It refuses to commit while
+//! a purged table still holds a row. A delete that fails rolls all of that
+//! back and comes back as an [`Interruption`], since the grants were already
+//! withdrawn upstream. After the commit, the user's cache entries and their
+//! cached email are evicted, and each provider raises `provider.disconnected`.
+//!
+//! A single-provider disconnect ([`disconnect_user_provider`]) still goes
+//! through the chokepoint, and a failed one comes back as an [`Interruption`]
+//! naming what was already done, its own grant included, since it may have
+//! been revoked before the failure.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use chrono::Utc;
 use pierre_auth::firebase_identity::{FirebaseIdentityDeleter, FirebaseIdentityRemoval};
+use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserReference};
+use pierre_database::repositories::{
+    AccountDeletion, AccountDeletionPlan, DeletionActor, PlannedBackend,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
 use serde::Serialize;
+use serde_json::json;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::analytics::evict_user_email;
 use crate::firebase_identity_outbox;
 use crate::oauth_flow::OAuthService;
-use crate::provider_revocation::{DisconnectReason, RevocationOutcome};
+use crate::provider_revocation::{self, DisconnectReason, RevocationOutcome};
 
 /// How many blocking references a refusal names before summarising the rest.
 const BLOCKERS_NAMED: usize = 10;
@@ -71,6 +88,18 @@ pub trait ProviderDisconnector: Send + Sync {
         reason: DisconnectReason,
     ) -> AppResult<RevocationOutcome>;
 
+    /// Withdraw every grant `provider` holds for `user_id` in `tenant_id` at
+    /// the provider (the revocation, and the scrape session's drop), deleting
+    /// nothing here: the account deletion deletes the rows afterwards, in one
+    /// transaction. Best-effort, so never an error: returns what the provider
+    /// said.
+    async fn withdraw_upstream(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        tenant_id: TenantId,
+    ) -> RevocationOutcome;
+
     /// Whether this server can disconnect `provider` at all. A provider this
     /// build does not register has no revocation path here; the account
     /// delete clears its token and connection rows itself.
@@ -88,6 +117,15 @@ impl ProviderDisconnector for OAuthService {
     ) -> AppResult<RevocationOutcome> {
         self.disconnect_provider(user_id, provider, Some(tenant_id.as_uuid()), reason)
             .await
+    }
+
+    async fn withdraw_upstream(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        tenant_id: TenantId,
+    ) -> RevocationOutcome {
+        provider_revocation::withdraw_upstream(self, user_id, tenant_id, provider).await
     }
 
     fn supports(&self, provider: &str) -> bool {
@@ -162,6 +200,30 @@ pub struct RemovalReport {
     /// What became of the account's Firebase identity at Google, deleted
     /// after the account itself.
     pub firebase_identity: FirebaseIdentityRemoval,
+    /// The receipt and tombstones the deletion committed, and what the
+    /// post-commit evictions did.
+    pub ledger: DeletionLedger,
+}
+
+/// What an account deletion left on the record, and the evictions after it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DeletionLedger {
+    /// The deletion receipt's id.
+    pub receipt_id: String,
+    /// Its position in the receipt chain.
+    pub receipt_seq: i64,
+    /// Its hash, the chain's new head.
+    pub receipt_hash: String,
+    /// The tombstones left live: one per provider-side id and the email.
+    pub tombstone_ids: Vec<String>,
+    /// The copies the deletion could not delete, as the receipt records them.
+    pub not_deleted: Vec<String>,
+    /// Cache entries removed after the commit; `None` when no cache was
+    /// given or it could not be reached (logged).
+    pub cache_entries_removed: Option<u64>,
+    /// Whether this process held the account's email for notify events and
+    /// evicted it.
+    pub identity_cache_evicted: bool,
 }
 
 /// A removal that failed part-way.
@@ -192,7 +254,7 @@ impl Interruption {
         self.failed.as_ref().map_or_else(
             || {
                 format!(
-                    "The account delete failed: {cause}. {done}. The account, its memberships and its other rows were left in place."
+                    "The account delete failed: {cause}. {done}. The account, its provider data, its memberships and its other rows were left in place."
                 )
             },
             |failed| {
@@ -378,23 +440,28 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
 }
 
 /// Remove a user completely, on an operator's request or the user's own
-/// (`reason` names which on every `provider.disconnected` event).
+/// (`actor` names who asked, on the receipt and as the reason of every
+/// `provider.disconnected` event).
 ///
 /// In order: refuse while any row references the user without cascading
-/// (nothing touched), disconnect every held provider through the chokepoint
-/// so each grant is revoked at the provider, then delete the account in one
-/// transaction that clears the user's memberships and every other row no
-/// foreign key cascades to, and proves none survived before committing. A
-/// row written between the blocker read and the delete fails the delete with
-/// `ErrorCode::ResourceLocked`, after the grants were already withdrawn,
-/// which the [`Interruption`] reports.
+/// (nothing touched); withdraw every held grant at the provider
+/// ([`ProviderDisconnector::withdraw_upstream`], best-effort, each outcome
+/// kept); then delete in ONE transaction every provider's data, every row
+/// the user owns, the account row, with a tombstone per provider-side id and
+/// for the email and a chained deletion receipt, proving no purged table
+/// still holds a row before it commits. A row written between the blocker
+/// read and the delete fails it with `ErrorCode::ResourceLocked`, and the
+/// whole transaction rolls back: the account and its provider data stay,
+/// while the grants were already withdrawn upstream, which the
+/// [`Interruption`] reports.
 ///
-/// The account's Firebase identity (`users.firebase_uid`, the Google or Apple
-/// sign-in record at Google) is queued in `firebase_identity_deletions` by
-/// the delete's own transaction, then deleted through `firebase` right after
-/// the commit, so Firebase being unreachable can never keep or resurrect an
-/// account the user asked to delete, and never loses the identity either: a
-/// failure stays queued for the retry sweep
+/// After the commit, the user's entries in `cache` (every tenant, every
+/// provider) and their cached email are evicted, each disconnected provider
+/// raises `provider.disconnected`, and the account's Firebase identity
+/// (queued in `firebase_identity_deletions` by the transaction) is deleted
+/// through `firebase`, so Firebase being unreachable can never keep or
+/// resurrect an account the user asked to delete, and never loses the
+/// identity either: a failure stays queued for the retry sweep
 /// ([`crate::firebase_identity_outbox`]) and is reported in
 /// [`RemovalReport::firebase_identity`]. `firebase` is `None` when this server
 /// has no Firebase project configured; nothing is queued then.
@@ -404,14 +471,15 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
 /// Returns a database error from the reads, and a `ResourceUnavailable`
 /// error when the user holds providers and no disconnector is wired
 /// (deleting would strand the grants upstream); nothing was touched then. A
-/// failed disconnect or account delete is `UserRemoval::Interrupted`, not an
-/// error, since a disconnect may have revoked its grant before failing.
+/// failed account delete is `UserRemoval::Interrupted`, not an error, since
+/// the grants were withdrawn before it.
 pub async fn remove_user(
     repos: &RepositoryRegistry,
     disconnector: Option<&dyn ProviderDisconnector>,
     firebase: Option<&FirebaseIdentityDeleter>,
+    cache: Option<&Cache>,
     user_id: Uuid,
-    reason: DisconnectReason,
+    actor: DeletionActor,
 ) -> AppResult<UserRemoval> {
     let blockers = repos.users.deletion_blockers(user_id).await?;
     if !blockers.is_empty() {
@@ -431,27 +499,23 @@ pub async fn remove_user(
                 "Provider disconnect is not wired on this server; deleting would leave the user's grants authorized at the provider",
             ));
         };
-        let (revocable, not_revocable): (Vec<HeldProvider>, Vec<HeldProvider>) = held
-            .into_iter()
-            .partition(|target| disconnector.supports(&target.provider));
-        for target in &not_revocable {
-            warn!(
-                user_id = %user_id,
-                tenant_id = %target.tenant_id,
-                provider = %target.provider,
-                "Provider not registered in this build; the account delete clears its rows, nothing revoked upstream"
-            );
-        }
+        let (disconnected, not_revocable) =
+            withdraw_held(disconnector, user_id, &held, actor).await;
+        report.disconnected = disconnected;
         report.not_revocable = not_revocable;
-        report.disconnected = match disconnect_each(disconnector, user_id, revocable, reason).await
-        {
-            Ok(disconnected) => disconnected,
-            Err(interruption) => return Ok(UserRemoval::Interrupted(*interruption)),
-        };
     }
 
-    let firebase_project = firebase.map(FirebaseIdentityDeleter::project_id);
-    let deletion = match repos.users.delete(user_id, firebase_project).await {
+    let firebase_project = firebase.map(|deleter| deleter.project_id().to_owned());
+    let not_deleted = copies_not_deleted(&report, firebase_uid.is_some(), firebase.is_some());
+    let plan = AccountDeletionPlan {
+        user_id,
+        actor,
+        firebase_project,
+        backends: planned_backends(&held),
+        revocations: revocations_json(&report)?,
+        not_deleted: not_deleted.clone(),
+    };
+    let deletion = match repos.account_deletion.delete_account(&plan).await {
         Ok(deletion) => deletion,
         Err(error) => {
             return Ok(UserRemoval::Interrupted(Interruption {
@@ -462,7 +526,11 @@ pub async fn remove_user(
         }
     };
     report.memberships_removed = deletion.removed_from("coaching_group_members");
+    report.ledger = ledger_of(&deletion, not_deleted);
     report.rows_removed = deletion.rows_removed;
+
+    evict_after_commit(cache, user_id, &mut report.ledger).await;
+    announce_disconnects(&report, user_id, actor);
     if let Some(uid) = firebase_uid {
         report.firebase_identity = delete_firebase_identity(repos, firebase, user_id, &uid).await;
     }
@@ -473,11 +541,188 @@ pub async fn remove_user(
         not_revocable = report.not_revocable.len(),
         memberships_removed = report.memberships_removed,
         tables_cleared = report.rows_removed.len(),
+        receipt_seq = report.ledger.receipt_seq,
+        tombstones = report.ledger.tombstone_ids.len(),
         firebase_identity = ?report.firebase_identity,
-        reason = reason.as_str(),
+        actor = actor.as_str(),
         "User removed completely"
     );
     Ok(UserRemoval::Removed(report))
+}
+
+/// Withdraw every grant in `held` at its provider, through `disconnector`.
+///
+/// Returns the providers withdrawn, each with what its provider said, and
+/// those this build cannot revoke (warned, left to the account delete).
+async fn withdraw_held(
+    disconnector: &dyn ProviderDisconnector,
+    user_id: Uuid,
+    held: &[HeldProvider],
+    actor: DeletionActor,
+) -> (Vec<DisconnectedProvider>, Vec<HeldProvider>) {
+    let (revocable, not_revocable): (Vec<HeldProvider>, Vec<HeldProvider>) = held
+        .iter()
+        .cloned()
+        .partition(|target| disconnector.supports(&target.provider));
+    for target in &not_revocable {
+        warn!(
+            user_id = %user_id,
+            tenant_id = %target.tenant_id,
+            provider = %target.provider,
+            "Provider not registered in this build; the account delete clears its rows, nothing revoked upstream"
+        );
+    }
+    let mut disconnected = Vec::with_capacity(revocable.len());
+    for target in revocable {
+        let revocation = disconnector
+            .withdraw_upstream(user_id, &target.provider, target.tenant_id)
+            .await;
+        info!(
+            user_id = %user_id,
+            tenant_id = %target.tenant_id,
+            provider = %target.provider,
+            revocation = ?revocation,
+            actor = actor.as_str(),
+            "Withdrew a provider's grant upstream before deleting the user"
+        );
+        disconnected.push(DisconnectedProvider {
+            tenant_id: target.tenant_id,
+            provider: target.provider,
+            revocation,
+        });
+    }
+    (disconnected, not_revocable)
+}
+
+/// The reason each `provider.disconnected` event of an account deletion
+/// carries: an athlete deleting from the app or a channel is the athlete's.
+const fn disconnect_reason(actor: DeletionActor) -> DisconnectReason {
+    match actor {
+        DeletionActor::Operator => DisconnectReason::Operator,
+        DeletionActor::Athlete | DeletionActor::Messaging => DisconnectReason::Athlete,
+    }
+}
+
+/// Every backend whose data the deletion purges: both halves of each held
+/// provider's coalesced pair, in the tenant holding it.
+fn planned_backends(held: &[HeldProvider]) -> Vec<PlannedBackend> {
+    held.iter()
+        .flat_map(|target| {
+            backend_resolver::backend_pair_for(&target.provider)
+                .into_iter()
+                .map(|backend| PlannedBackend {
+                    tenant_id: target.tenant_id,
+                    backend,
+                })
+        })
+        .collect()
+}
+
+/// What each provider said about its grant, as the receipt stores it.
+fn revocations_json(report: &RemovalReport) -> AppResult<String> {
+    let mut entries: Vec<serde_json::Value> = report
+        .disconnected
+        .iter()
+        .map(|d| json!({ "provider": d.provider, "tenant_id": d.tenant_id, "revocation": d.revocation }))
+        .collect();
+    entries.extend(report.not_revocable.iter().map(|h| {
+        json!({ "provider": h.provider, "tenant_id": h.tenant_id, "revocation": { "status": "not_revocable" } })
+    }));
+    serde_json::to_string(&entries)
+        .map_err(|e| AppError::internal(format!("Failed to encode the revocations: {e}")))
+}
+
+/// The copies an account deletion cannot delete, each named with why, as its
+/// receipt records them. Decided before the transaction, so it names what is
+/// known then: grants the provider did not confirm withdrawn, and the copies
+/// no deletion here reaches.
+fn copies_not_deleted(
+    report: &RemovalReport,
+    has_firebase_identity: bool,
+    firebase_configured: bool,
+) -> Vec<String> {
+    let mut copies = Vec::new();
+    for d in &report.disconnected {
+        if let RevocationOutcome::Unconfirmed(reason) = &d.revocation {
+            copies.push(format!(
+                "provider_grant:{}: the provider did not confirm the revocation ({reason}); the grant may still be authorized there",
+                d.provider
+            ));
+        }
+    }
+    for h in &report.not_revocable {
+        copies.push(format!(
+            "provider_grant:{}: this build cannot revoke it; the grant may still be authorized at the provider",
+            h.provider
+        ));
+    }
+    if has_firebase_identity {
+        copies.push(if firebase_configured {
+            "firebase_identity: queued in this transaction and deleted at Google after the commit; the receipt cannot attest Google's answer".to_owned()
+        } else {
+            "firebase_identity: no Firebase project is configured here, so the sign-in identity at Google was left there".to_owned()
+        });
+    }
+    copies.push(
+        "posthog_person: no PostHog person-deletion call is wired; events already captured under the account's hashed id stay in PostHog".to_owned(),
+    );
+    copies.push(
+        "process_caches: the response cache and the notify-event email cache are evicted after the commit, the email cache on this instance only; other instances keep their copy until they restart".to_owned(),
+    );
+    copies.push(
+        "server_logs: log lines naming the account id stay in the log store until its retention expires".to_owned(),
+    );
+    copies.push(
+        "database_backups: backups taken before the deletion keep the account until they rotate out".to_owned(),
+    );
+    copies
+}
+
+/// The ledger the committed deletion left.
+fn ledger_of(deletion: &AccountDeletion, not_deleted: Vec<String>) -> DeletionLedger {
+    DeletionLedger {
+        receipt_id: deletion.receipt.id.clone(),
+        receipt_seq: deletion.receipt.seq,
+        receipt_hash: deletion.receipt.hash.clone(),
+        tombstone_ids: deletion.tombstone_ids.clone(),
+        not_deleted,
+        cache_entries_removed: None,
+        identity_cache_evicted: false,
+    }
+}
+
+/// Evict what this process caches about the deleted user, recording it on
+/// `ledger`: every response cached under their id, and their email.
+async fn evict_after_commit(cache: Option<&Cache>, user_id: Uuid, ledger: &mut DeletionLedger) {
+    if let Some(cache) = cache {
+        match cache.invalidate_user(user_id).await {
+            Ok(removed) => ledger.cache_entries_removed = Some(removed),
+            Err(e) => warn!(
+                user_id = %user_id,
+                error = %e,
+                "Could not evict the deleted user's cache entries; they expire with their TTL"
+            ),
+        }
+    }
+    ledger.identity_cache_evicted = evict_user_email(&user_id.to_string());
+}
+
+/// Raise `provider.disconnected` for each provider the deletion withdrew,
+/// as the chokepoint raises it for a single disconnect, so a deleted
+/// account's providers count in the same funnel.
+fn announce_disconnects(report: &RemovalReport, user_id: Uuid, actor: DeletionActor) {
+    let reason = disconnect_reason(actor);
+    for d in &report.disconnected {
+        info!(
+            target: "notify",
+            event = "provider.disconnected",
+            provider = %d.provider,
+            user_id = %user_id,
+            tenant_id = %d.tenant_id,
+            reason = reason.as_str(),
+            "user disconnected fitness provider"
+        );
+    }
 }
 
 /// Delete the Firebase identity of the just-deleted account `user_id`, the

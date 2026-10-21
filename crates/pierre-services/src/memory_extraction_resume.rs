@@ -28,7 +28,7 @@ use chrono::Utc;
 use futures_util::future::join_all;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_core::errors::AppResult;
-use pierre_database::repositories::{ExtractionJobClaim, MemoryExtractionJobRow};
+use pierre_database::repositories::{ExtractionJobClaim, JobLease, MemoryExtractionJobRow};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::ChatProvider;
 use tokio_util::task::TaskTracker;
@@ -137,7 +137,7 @@ async fn resume_one(
     row: MemoryExtractionJobRow,
 ) -> bool {
     let Some(payload) = parse_payload(&row) else {
-        finish(repos, &row.id).await;
+        finish(repos, lease_of(&row).as_ref()).await;
         return false;
     };
     info!(
@@ -154,10 +154,8 @@ async fn resume_one(
     };
     // The claim leased the row; keep it leased while the run is alive, as
     // the turn's own run does.
-    let renewal = keep_extraction_lease(
-        Arc::clone(&repos.memory_extraction_jobs),
-        Some(row.id.clone()),
-    );
+    let lease = lease_of(&row);
+    let renewal = keep_extraction_lease(Arc::clone(&repos.memory_extraction_jobs), lease.clone());
     let run = run_extraction_job(
         repos.memory.as_ref(),
         usage,
@@ -170,7 +168,7 @@ async fn resume_one(
     drop(renewal);
     match run {
         Ok(()) => {
-            finish(repos, &row.id).await;
+            finish(repos, lease.as_ref()).await;
             true
         }
         Err(e) => {
@@ -200,14 +198,26 @@ fn parse_payload(row: &MemoryExtractionJobRow) -> Option<ExtractionJobPayload> {
     }
 }
 
-/// Delete a row nothing is owed on any more.
-async fn finish(repos: &RepositoryRegistry, job_id: &str) {
+/// The lease this sweep's claim holds on `row`; `None` for a row the claim
+/// returned without a token, which it cannot renew or finish.
+fn lease_of(row: &MemoryExtractionJobRow) -> Option<JobLease> {
+    row.lease_token.as_ref().map(|token| JobLease {
+        id: row.id.clone(),
+        token: token.clone(),
+    })
+}
+
+/// Delete a row nothing is owed on any more, if this claim still holds it.
+async fn finish(repos: &RepositoryRegistry, lease: Option<&JobLease>) {
+    let Some(lease) = lease else {
+        return;
+    };
     if let Err(e) = repos
         .memory_extraction_jobs
-        .finish_extraction_job(job_id)
+        .finish_extraction_job(lease)
         .await
     {
-        warn!(job_id, error = %e, "extraction job could not be finished; the sweep will see it again after its lease");
+        warn!(job_id = %lease.id, error = %e, "extraction job could not be finished; the sweep will see it again after its lease");
     }
 }
 

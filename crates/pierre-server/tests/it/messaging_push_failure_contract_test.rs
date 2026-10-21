@@ -114,7 +114,7 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
     //     session tenant — the queue row owner is `tenant_id`.
     let pending = repos
         .messaging
-        .get_all_pending_outbound(100)
+        .claim_due_outbound(100, 60_000)
         .await
         .unwrap()
         .into_iter()
@@ -195,7 +195,7 @@ async fn successful_push_does_not_enqueue() {
     // ...and NOTHING is queued — the enqueue path fires only on failure.
     let pending = repos
         .messaging
-        .get_all_pending_outbound(100)
+        .claim_due_outbound(100, 60_000)
         .await
         .unwrap()
         .into_iter()
@@ -278,7 +278,7 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
     //     tenant — `tenant_id`.
     let pending = repos
         .messaging
-        .get_all_pending_outbound(100)
+        .claim_due_outbound(100, 60_000)
         .await
         .unwrap()
         .into_iter()

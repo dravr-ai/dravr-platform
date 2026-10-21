@@ -11,16 +11,17 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::database::Database as SqliteDatabase;
 use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
-    A2ARepository, A2ATaskReaperRepository, ActivityBackfillJobRepository, ActivityCacheRepository,
-    ActivityConversationRepository, ActivityRouteTrackRepository, AdminRepository,
-    AgentsRepository, ApiKeyRepository, AppAttestKeyRepository, AthleteGearRepository,
-    ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
-    CoachAccessRequestRepository, CoachReplyReviewRepository, CoachingGroupRepository,
-    CommitmentRepository, DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
-    EmailVerificationRepository, FeatureFlagsRepository, FederatedIdentityRepository,
-    FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
-    GuardianPendingActionsRepository, HarnessMemoryRepository, HealthSnapshotRepository,
-    HomePreferencesRepository, ImpersonationRepository, LlmCredentialRepository,
+    A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository,
+    ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
+    ActivityRouteTrackRepository, AdminRepository, AgentsRepository, ApiKeyRepository,
+    AppAttestKeyRepository, AthleteGearRepository, ChatRepository, CheckInPreferenceRepository,
+    ClaimVerdictRepository, CoachAccessRequestRepository, CoachReplyReviewRepository,
+    CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
+    DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
+    FeatureFlagsRepository, FederatedIdentityRepository, FirebaseIdentityDeletionRepository,
+    FirstRunProgressRepository, FitnessConfigRepository, GuardianPendingActionsRepository,
+    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
+    ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
     LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository,
     MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
     OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
@@ -226,6 +227,12 @@ pub struct RepositoryRegistry {
     /// went: written by the account delete, drained by its post-commit call
     /// and the retry sweep.
     pub firebase_identity_deletions: Arc<dyn FirebaseIdentityDeletionRepository>,
+    /// An account deletion in one transaction with its hash-chained receipt,
+    /// and the receipt chain an operator verifies.
+    pub account_deletion: Arc<dyn AccountDeletionRepository>,
+    /// Tombstones of deleted accounts' provider accounts and emails: written
+    /// by the account deletion, read by every door that would import them.
+    pub import_tombstones: Arc<dyn ImportTombstoneRepository>,
     /// Guardian pending actions parked by `TaintedDestructive::Confirm`,
     /// claimed single-use by the `/confirm` and `/deny` slash commands.
     pub guardian_actions: Arc<dyn GuardianPendingActionsRepository>,
@@ -342,6 +349,8 @@ impl RepositoryRegistry {
             provider_data: db.clone(),
             feature_flags: db.clone(),
             firebase_identity_deletions: db.clone(),
+            account_deletion: db.clone(),
+            import_tombstones: db.clone(),
             guardian_actions: db,
         }
     }
@@ -438,6 +447,8 @@ impl RepositoryRegistry {
             provider_data: db.clone(),
             feature_flags: db.clone(),
             firebase_identity_deletions: db.clone(),
+            account_deletion: db.clone(),
+            import_tombstones: db.clone(),
             guardian_actions: db,
         }
     }

@@ -16,6 +16,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_test_support::account::delete_account;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
@@ -490,7 +491,7 @@ async fn deleting_the_requester_takes_their_requests_along() -> Result<()> {
     );
     assert!(repos.coach_access_requests.get(request_id).await?.is_some());
 
-    repos.users.delete(coach.user_id, None).await?;
+    delete_account(repos, coach.user_id, None).await?;
     assert!(
         repos.coach_access_requests.get(request_id).await?.is_none(),
         "the request must go with the account"

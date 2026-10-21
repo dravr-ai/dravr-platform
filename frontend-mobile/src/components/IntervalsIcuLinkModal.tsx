@@ -7,9 +7,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, KeyboardAvoidingView, Platform } from 'react-native';
 import { CheckCircle2 } from 'lucide-react-native';
-import { describeApiError } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  describeProviderTombstone,
+  importTombstoneRefusal,
+  type ImportTombstoneRefusal,
+} from '@pierre/ui-logic';
 import { useThemeColors } from '../constants/theme';
-import { oauthApi } from '../services/api';
+import { oauthApi, userApi } from '../services/api';
 import { ProviderGlyph } from './ProviderGlyph';
 import { PROVIDER_BRAND } from '../constants/brands';
 import { Button, Input, Sheet } from './ui';
@@ -33,7 +38,7 @@ interface IntervalsIcuLinkModalProps {
 type LinkView = 'choose' | 'key';
 
 export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthorize }: IntervalsIcuLinkModalProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const [athleteId, setAthleteId] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -43,6 +48,10 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
   // else the id, else nothing but the confirmation word.
   const [linkedAthlete, setLinkedAthlete] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // The account belonged to a deleted Dravr account: the refusal names its
+  // tombstone, which the athlete may clear to link it again.
+  const [tombstone, setTombstone] = useState<ImportTombstoneRefusal | null>(null);
+  const [clearing, setClearing] = useState(false);
   const offersAuthorize = onAuthorize !== undefined;
   const [view, setView] = useState<LinkView>(offersAuthorize ? 'choose' : 'key');
 
@@ -54,6 +63,8 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
       setError(null);
       setLinkedAthlete(null);
       setSuccess(false);
+      setTombstone(null);
+      setClearing(false);
       setView(offersAuthorize ? 'choose' : 'key');
     }
   }, [visible, offersAuthorize]);
@@ -70,8 +81,29 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
       setSuccess(true);
       setTimeout(onConnected, 1200);
     } catch (err) {
-      setError(describeApiError(err, { t, fallbackKey: 'shell.intervalsLinkFailed' }));
+      const refusal = importTombstoneRefusal(err);
+      if (refusal) {
+        setTombstone(refusal);
+      } else {
+        setError(describeApiError(err, { t, fallbackKey: 'shell.intervalsLinkFailed' }));
+      }
       setIsLoading(false);
+    }
+  };
+
+  // Start fresh with the account, then link the same pair again.
+  const handleClear = async () => {
+    if (!tombstone) return;
+    setClearing(true);
+    setError(null);
+    try {
+      await userApi.clearImportTombstone(tombstone.tombstoneId);
+      setTombstone(null);
+      await handleSubmit();
+    } catch (err) {
+      setError(describeApiError(err, { t, fallbackKey: 'errors.unknown' }));
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -99,6 +131,24 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
             {linkedAthlete !== null && (
               <Text className="mt-1 text-sm text-text-secondary">{linkedAthlete}</Text>
             )}
+          </View>
+        ) : tombstone ? (
+          <View testID="intervals-tombstoned">
+            <Text className="text-sm text-text-secondary mb-4">
+              {describeProviderTombstone(tombstone, PROVIDER_BRAND.intervalsIcu, { language, t })}
+            </Text>
+            {error && (
+              <Text className="text-sm text-error mb-3" testID="intervals-error">
+                {error}
+              </Text>
+            )}
+            <Button
+              title={t('providers.connectTombstonedClear')}
+              onPress={() => void handleClear()}
+              loading={clearing}
+              fullWidth
+              testID="intervals-tombstone-clear"
+            />
           </View>
         ) : view === 'choose' && onAuthorize ? (
           <View testID="intervals-authorize-choice">

@@ -16,6 +16,7 @@
 //! so a decode or a join that differs between the two backends fails here.
 
 use crate::common;
+use pierre_test_support::account::delete_account;
 
 use chrono::{DateTime, Duration, Utc};
 use common::{create_test_database, create_test_user_with_plan};
@@ -975,7 +976,7 @@ async fn deleting_the_member_takes_their_links_with_them() {
     let (member, tenant) = f.member("gone@delegation.test", group).await;
     let link = f.confirmed(group, member, tenant, "900001").await;
 
-    f.repos.users.delete(member, None).await.unwrap();
+    delete_account(&f.repos, member, None).await.unwrap();
 
     assert!(repo
         .get_for_participant(link.id, group, f.coach)

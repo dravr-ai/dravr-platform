@@ -257,12 +257,8 @@ fn callback_failure_response(
     let (error_msg, description) = categorize_oauth_error(e);
 
     if let Some(mobile_url) = mobile_url {
-        let redirect_url = oauth_redirects::oauth_return_url(
-            mobile_url.trim_end_matches('/'),
-            provider,
-            false,
-            Some(error_msg),
-        );
+        let redirect_url =
+            oauth_redirects::oauth_failure_url(mobile_url.trim_end_matches('/'), provider, e);
         // Don't log the full URL — a hosted-connect return carries the
         // connect link-token in its query string.
         info!(provider = %provider, "Redirecting OAuth error to embedded return URL");
@@ -272,8 +268,7 @@ fn callback_failure_response(
     // If frontend URL is configured, redirect to frontend with error params
     if let Some(url) = frontend_url {
         let base = format!("{}/oauth-callback", url.trim_end_matches('/'));
-        let redirect_url =
-            oauth_redirects::oauth_return_url(&base, provider, false, Some(error_msg));
+        let redirect_url = oauth_redirects::oauth_failure_url(&base, provider, e);
         info!(provider = %provider, "Redirecting OAuth error to frontend");
         return (StatusCode::FOUND, [(header::LOCATION, redirect_url)], "").into_response();
     }

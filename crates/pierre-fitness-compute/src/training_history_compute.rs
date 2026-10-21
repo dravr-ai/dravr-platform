@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use chrono::{Duration, NaiveDate};
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::constants::limits::MAX_TIMEFRAME_DAYS;
 use dravr_cageux::error::IntelligenceResult;
 use dravr_cageux::metrics::MetricsCalculator;
 use dravr_cageux::models::activity::Activity;
@@ -61,10 +62,15 @@ pub const MAX_BACKFILL_DAYS: i64 = 365;
 /// Extra days of activity history the CTL EMA needs on top of its own window
 /// before the series it produces can be stood behind.
 ///
-/// `ctl_prev` seeds at `0.0`, so a day computed with less than this behind it
-/// carries a chronic load that is wrong low — and `ctl`/`atl`/`tsb` are plain
-/// `f64` with no `None` arm to say so. Callers that source activities from a
-/// bounded store must check they actually hold this depth before `from`.
+/// cageux seeds each load at the history's mean daily TSS over its opening
+/// window (42 days for CTL), so a steady athlete reads true from the first
+/// day. What a short history still gets wrong is an athlete whose load before
+/// the history began differed from its opening weeks: that gap survives as
+/// `(prior - seed) x (41/42)^n` after `n` days, a third of it at 42 days and
+/// a sixth at the 72 days [`warmup_days`] asks for. `ctl`/`atl`/`tsb` are
+/// plain `f64` with no `None` arm to say so. Callers that source activities
+/// from a bounded store must check they actually hold this depth before
+/// `from`.
 pub const CTL_WARMUP_MARGIN_DAYS: i64 = 30;
 
 /// Days of history that must precede `from` for that day's CTL/ATL/TSB to be
@@ -280,6 +286,15 @@ pub fn compute_training_history(
 /// are asked for separately from `[from, to]` so the ramp rate of `from`
 /// itself has a prior value without widening one call past cageux's 365-day
 /// series cap, which `[from, to]` alone can already reach.
+///
+/// Both calls must read one seed. cageux starts each load at the history's
+/// mean daily TSS over its opening window, read through the call's as-of day,
+/// so a lookback series ending the day before `from` would seed a history
+/// shorter than 42 days there differently from `[from, to]`. The lookback
+/// series runs toward `to` instead, as far as the cap allows, and keeps its
+/// first days: through `to` it reads the same seed, and when the cap stops it
+/// short the history spans more than a chronic window by then, where the
+/// seed no longer moves.
 fn load_series(
     algorithm_config: &AlgorithmConfig,
     daily_load: &[(NaiveDate, f64)],
@@ -293,7 +308,11 @@ fn load_series(
         .copied()
         .collect();
     let lookback_from = from - Duration::days(RAMP_RATE_LOOKBACK_DAYS);
-    let mut series = algorithm.daily_series(&daily_tss, lookback_from, from - Duration::days(1))?;
+    let lookback_as_of = to
+        .min(lookback_from + Duration::days(i64::from(MAX_TIMEFRAME_DAYS)))
+        .max(from - Duration::days(1));
+    let mut series = algorithm.daily_series(&daily_tss, lookback_from, lookback_as_of)?;
+    series.truncate(usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(7));
     series.extend(algorithm.daily_series(&daily_tss, from, to)?);
     Ok(series)
 }

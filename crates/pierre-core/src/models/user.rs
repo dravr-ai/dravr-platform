@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::transport::TransportPolicy;
-use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
@@ -1034,25 +1033,6 @@ impl UserReference {
     #[must_use]
     pub fn describe(&self) -> String {
         self.kind.describe(&self.detail)
-    }
-}
-
-/// What a complete user delete removed beyond the account row itself.
-///
-/// The rows its foreign keys cascade to go unrecorded; these are the user's
-/// own rows in every table that holds them without a cascade on one engine or
-/// the other, deleted explicitly in the same transaction as the account.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UserDeletion {
-    /// Rows deleted per table, for each table that held any.
-    pub rows_removed: BTreeMap<String, u64>,
-}
-
-impl UserDeletion {
-    /// Rows the delete removed from `table`; zero for a table that held none.
-    #[must_use]
-    pub fn removed_from(&self, table: &str) -> u64 {
-        self.rows_removed.get(table).copied().unwrap_or(0)
     }
 }
 

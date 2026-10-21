@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use pierre_test_support::account::delete_account;
 
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
@@ -217,9 +218,7 @@ async fn an_invitation_outliving_its_operator_still_creates_the_account_unattrib
     let operator_id = operator(&resources, "departed-operator@example.com").await;
     let issued = invite(&resources, "outlived@example.com", Some(operator_id)).await;
 
-    repos
-        .users
-        .delete(operator_id, None)
+    delete_account(repos, operator_id, None)
         .await
         .expect("an operator whose only trace is an invitation can be deleted");
 

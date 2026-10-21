@@ -4,10 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::activity_fetch::StaleReason;
 use crate::implementations::analytics::output::{
     ActivityIntelligence, ActivityIntelligenceResult, ActivityPerformanceMetrics,
     AutoSelectedActivity,
 };
+use crate::implementations::last_known::{self, LiveRead};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{
@@ -20,11 +22,12 @@ use dravr_cageux::physiological_constants::business_thresholds::{
 use dravr_cageux::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::Activity;
+use pierre_core::models::{Activity, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use pierre_providers::core::FitnessProvider;
+use pierre_providers::{ai_scope, backend_resolver};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -269,13 +272,11 @@ async fn fetch_and_analyze_activity(
                 }
             }
 
-            // Other errors - generic message
-            Ok(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Failed to fetch activity {activity_id}: {e}")),
-                metadata: None,
-            })
+            // Other errors: a refused credential stays typed.
+            Ok(last_known::provider_failure(
+                &format!("Failed to fetch activity {activity_id}"),
+                &e,
+            ))
         }
     }
 }
@@ -321,16 +322,34 @@ pub fn handle_get_activity_intelligence(
             .await
         {
             Ok(provider) => {
-                let result = fetch_and_analyze_activity(
-                    provider,
-                    activity_id,
-                    user_uuid,
-                    request.tenant_id,
-                    output_format,
-                )
-                .await?;
-
-                Ok(result)
+                // The live read gets the refresh budget; late or failed, the
+                // activity's cached row answers, with a caveat.
+                let read = {
+                    let (id, tenant) = (activity_id.to_owned(), request.tenant_id.clone());
+                    async move {
+                        fetch_and_analyze_activity(provider, &id, user_uuid, tenant, output_format)
+                            .await
+                            .unwrap_or_else(|e| last_known::failed_read(&e))
+                    }
+                };
+                match last_known::read_within_budget(&executor.resources.config().timeouts, read)
+                    .await
+                {
+                    LiveRead::Answered(response) => Ok(response),
+                    LiveRead::AuthRequired(provider) => {
+                        Err(ProtocolError::ProviderAuthRequired { provider })
+                    }
+                    LiveRead::Missed(reason, failed) => {
+                        let cached = CachedRead {
+                            provider: &provider_name,
+                            activity_id,
+                            user_uuid,
+                            tenant_id: request.tenant_id,
+                            output_format,
+                        };
+                        Ok(cached.serve(executor, reason).await?.unwrap_or(failed))
+                    }
+                }
             }
             Err(response) => {
                 // A lapsed or missing token must surface as the TYPED auth
@@ -348,6 +367,86 @@ pub fn handle_get_activity_intelligence(
             }
         }
     })
+}
+
+/// The activity a missed live read asked for, to be served from its cached row.
+struct CachedRead<'a> {
+    provider: &'a str,
+    activity_id: &'a str,
+    user_uuid: Uuid,
+    tenant_id: Option<String>,
+    output_format: OutputFormat,
+}
+
+impl CachedRead<'_> {
+    /// The intelligence for the activity's cached row under a
+    /// `provider_unavailable` caveat, or `None` when no row is cached or the
+    /// request names no tenant to read it under.
+    async fn serve(
+        self,
+        executor: &UniversalToolExecutor,
+        reason: StaleReason,
+    ) -> Result<Option<UniversalResponse>, ProtocolError> {
+        let Some(tenant) = self
+            .tenant_id
+            .as_deref()
+            .and_then(|t| Uuid::parse_str(t).ok())
+            .map(TenantId::from_uuid)
+        else {
+            return Ok(None);
+        };
+        let repos = executor.resources.repos();
+        let backend = backend_resolver::resolve_backend(
+            &repos.auth_repos(),
+            self.user_uuid,
+            Some(tenant),
+            self.provider,
+        )
+        .await;
+        let cache = &repos.activity_cache;
+        let Ok(Some(activity)) = cache
+            .get_cached_activity(self.user_uuid, &tenant, &backend, self.activity_id)
+            .await
+        else {
+            return Ok(None);
+        };
+        // The copy reaches the model like a live read, so the provider's AI
+        // terms hold on it too: a row they keep from AI is served as no copy.
+        let Some(activity) = ai_scope::filter_activities(
+            executor.resources.provider_registry().as_ref(),
+            vec![activity],
+        )
+        .into_iter()
+        .next() else {
+            return Ok(None);
+        };
+        let synced_at = cache
+            .latest_activity_sync(self.user_uuid, &tenant, &backend)
+            .await
+            .ok()
+            .flatten();
+        let (analysis, metadata) = create_intelligence_response(
+            &activity,
+            self.activity_id,
+            self.user_uuid,
+            self.tenant_id,
+        );
+        let mut served = apply_format_typed(
+            UniversalResponse {
+                success: true,
+                result: None,
+                error: None,
+                metadata: Some(metadata),
+            },
+            analysis,
+            self.output_format,
+        )?;
+        last_known::attach_caveat(
+            &mut served,
+            last_known::caveat(&backend, "activity", reason, synced_at),
+        );
+        Ok(Some(served))
+    }
 }
 
 /// Create metadata for activity analysis responses

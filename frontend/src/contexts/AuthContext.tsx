@@ -403,6 +403,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.reload();
   }, [impersonation]);
 
+  const updateUser = useCallback((patch: Partial<User>) => {
+    setUser((current) => {
+      if (!current) return current;
+      const next = { ...current, ...patch };
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
   const value = {
     user,
     token,
@@ -414,6 +423,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearSignInFailure,
     loginWithFirebase,
     logout,
+    updateUser,
     impersonation,
     startImpersonation,
     endImpersonation,

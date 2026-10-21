@@ -233,26 +233,26 @@ impl PersonalBests {
 
     /// Take the lease on measuring the athlete's runs, asking again every
     /// [`LEASE_RETRY`] for up to `patience` while another batch holds it.
-    /// `false` when it was still held at the end.
+    /// The lease's token, or `None` when it was still held at the end.
     async fn hold_athlete(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         patience: Duration,
-    ) -> AppResult<bool> {
+    ) -> AppResult<Option<String>> {
         let name = athlete_lease_name(user_id, tenant_id);
         let deadline = Instant::now() + patience;
         loop {
             let now_ms = Utc::now().timestamp_millis();
-            if self
+            if let Some(token) = self
                 .leases
                 .claim_worker_run(&name, 0, now_ms, millis(ATHLETE_LEASE))
                 .await?
             {
-                return Ok(true);
+                return Ok(Some(token));
             }
             if Instant::now() + LEASE_RETRY > deadline {
-                return Ok(false);
+                return Ok(None);
             }
             sleep(LEASE_RETRY).await;
         }
@@ -260,11 +260,11 @@ impl PersonalBests {
 
     /// Give the athlete's lease back. A release that fails is logged: the
     /// lease then runs out on its own.
-    async fn release_athlete(&self, user_id: Uuid, tenant_id: TenantId) {
+    async fn release_athlete(&self, user_id: Uuid, tenant_id: TenantId, lease: &str) {
         let name = athlete_lease_name(user_id, tenant_id);
         if let Err(e) = self
             .leases
-            .finish_worker_run(&name, Utc::now().timestamp_millis())
+            .finish_worker_run(&name, Utc::now().timestamp_millis(), Some(lease))
             .await
         {
             warn!(%user_id, error = %e, "athlete lease could not be released; it runs out on its own");
@@ -337,14 +337,14 @@ impl PersonalBests {
         tenant_id: TenantId,
         activities: &[Activity],
     ) -> AppResult<usize> {
-        if !self.hold_athlete(user_id, tenant_id, SCAN_PATIENCE).await? {
+        let Some(lease) = self.hold_athlete(user_id, tenant_id, SCAN_PATIENCE).await? else {
             info!(%user_id, "athlete's runs held by another batch past the wait; they wait for the next sync");
             return Ok(0);
-        }
+        };
         let measured = self
             .scan_runs_held(provider, user_id, tenant_id, activities)
             .await;
-        self.release_athlete(user_id, tenant_id).await;
+        self.release_athlete(user_id, tenant_id, &lease).await;
         measured
     }
 
@@ -390,14 +390,14 @@ impl PersonalBests {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<SeedProgress> {
-        if !self
+        let Some(lease) = self
             .hold_athlete(user_id, tenant_id, Duration::ZERO)
             .await?
-        {
+        else {
             return Ok(SeedProgress::Held);
-        }
+        };
         let progress = in_background(self.walk_history_held(provider, user_id, tenant_id)).await;
-        self.release_athlete(user_id, tenant_id).await;
+        self.release_athlete(user_id, tenant_id, &lease).await;
         progress
     }
 

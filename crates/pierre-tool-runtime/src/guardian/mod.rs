@@ -46,7 +46,7 @@ pub use policy::{
     validate_settings, ExternalSendAllowlist, GuardianEnvOverrides, GuardianMode, GuardianPolicy,
     PlanMode, TaintedDestructive,
 };
-pub use state::{GuardianTurns, HeadlessBlock, TurnKey, TurnState};
+pub use state::{GuardianTurns, HeadlessBlock, ReadFingerprint, TurnKey, TurnState};
 pub use verify::{verify, ToolLabels, VerifyError, VerifyOutcome};
 pub use workflow::{ArgValue, PlanParseError, StepId, SymRef, Workflow, WorkflowStep};
 

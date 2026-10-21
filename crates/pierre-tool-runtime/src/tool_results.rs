@@ -24,6 +24,7 @@ use tracing::info;
 
 use crate::guardian::StepOutput;
 use crate::reconnect::offer_in_payload;
+use crate::reply_budget::REPLY_BUDGET_KEY;
 
 /// Serialize one tool response for injection into the prompt.
 ///
@@ -62,7 +63,10 @@ pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> Stri
 /// [`format_tool_results_as_text`] project through it, so a key absent from
 /// this list reaches no model at all. The prefetch, which keeps the prose
 /// alone, carries them through [`served_without_notes`].
-const ACTIVITIES_ENVELOPE_KEPT: [&str; 11] = [
+///
+/// `reply_budget` is kept for the same reason: a window cut to fit one reply
+/// is partial, and its note says how to page to the rest.
+const ACTIVITIES_ENVELOPE_KEPT: [&str; 12] = [
     "activity_list",
     "provider",
     "count",
@@ -74,6 +78,7 @@ const ACTIVITIES_ENVELOPE_KEPT: [&str; 11] = [
     "has_more",
     SERVED_WITHOUT_SIDECARS[0],
     SERVED_WITHOUT_SIDECARS[1],
+    REPLY_BUDGET_KEY,
 ];
 
 /// The sidecars a `get_activities` window carries when it was served without

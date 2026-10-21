@@ -33,6 +33,7 @@ use pierre_providers::{CredentialKind, OAuth2Credentials};
 use pierre_services::coach_access::email_super_admins;
 use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
+use pierre_services::import_tombstones::{provider_account_tombstone, refuse_provider_account};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde::Deserialize;
@@ -71,6 +72,9 @@ pub enum IntervalsLinkError {
     Rejected(String),
     /// Setting the credentials or storing the link failed.
     Storage(AppError),
+    /// The athlete id belonged to a deleted account: its tombstone's refusal,
+    /// which names the tombstone to clear.
+    Tombstoned(AppError),
 }
 
 impl From<AppError> for IntervalsLinkError {
@@ -98,7 +102,7 @@ impl From<IntervalsLinkError> for AppError {
             IntervalsLinkError::Rejected(reason) => Self::invalid_input(format!(
                 "Intervals.icu rejected those credentials — check the athlete id and API key ({reason})"
             )),
-            IntervalsLinkError::Storage(error) => error,
+            IntervalsLinkError::Storage(error) | IntervalsLinkError::Tombstoned(error) => error,
         }
     }
 }
@@ -213,6 +217,16 @@ pub async fn link_intervals_icu_account(
         .get_athlete()
         .await
         .map_err(|e| IntervalsLinkError::Rejected(e.to_string()))?;
+
+    // The key just proved this athlete id is the caller's; one that belonged
+    // to a deleted account stays refused until its tombstone is cleared.
+    let tombstones = resources.repos.import_tombstones.as_ref();
+    if let Some(tombstone) =
+        provider_account_tombstone(tombstones, INTERVALS_ICU, &athlete_id).await?
+    {
+        let refusal = refuse_provider_account(tombstones, user_id, INTERVALS_ICU, &tombstone);
+        return Err(IntervalsLinkError::Tombstoned(refusal.await));
+    }
 
     let now = Utc::now();
     let token = UserOAuthToken {

@@ -101,6 +101,39 @@ pub fn parse_date_range(args: &Value) -> AppResult<(DateTime<Utc>, DateTime<Utc>
     Ok((start, end))
 }
 
+/// When each of the athlete's connected sources last synced `data_type` (the
+/// health sync's cursor name: `sleep`, `recovery`, `health`), by provider.
+/// A source whose cursor cannot be read is reported as never synced.
+async fn last_synced(
+    context: &ToolExecutionContext,
+    tenant_id: &TenantId,
+    data_type: &str,
+) -> BTreeMap<String, Option<String>> {
+    let repos = context.resources.repos();
+    let user = context.user_id.to_string();
+    let sources = repos
+        .data_sources
+        .list_data_sources(context.user_id, tenant_id)
+        .await
+        .unwrap_or_default();
+    let mut synced = BTreeMap::new();
+    for source in sources {
+        if synced.contains_key(&source.provider) {
+            continue;
+        }
+        let at = repos
+            .sync_cursors
+            .get_sync_cursor(&user, tenant_id, &source.provider, data_type)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|cursor| cursor.last_sync_at)
+            .map(|at| at.to_rfc3339());
+        synced.insert(source.provider, at);
+    }
+    synced
+}
+
 /// Build the standard date-range + format property set used by stored
 /// health-data queries (sleep, recovery, snapshots), whose handlers read
 /// `start`, `end` and `format` from `request.parameters`.
@@ -167,6 +200,10 @@ pub struct SleepSessionsResult {
     pub attribution: Option<String>,
     /// The window that was read.
     pub range: DateRange,
+    /// When each connected source last synced this data, RFC 3339 by
+    /// provider (`null` when it never has), so an empty or short window can
+    /// be told apart from a source that stopped syncing.
+    pub last_synced_at: BTreeMap<String, Option<String>>,
 }
 
 /// What `get_recovery_metrics` answers with.
@@ -184,6 +221,10 @@ pub struct RecoveryMetricsResult {
     pub attribution: Option<String>,
     /// The window that was read.
     pub range: DateRange,
+    /// When each connected source last synced this data, RFC 3339 by
+    /// provider (`null` when it never has), so an empty or short window can
+    /// be told apart from a source that stopped syncing.
+    pub last_synced_at: BTreeMap<String, Option<String>>,
 }
 
 /// What `get_health_snapshots` answers with.
@@ -201,6 +242,10 @@ pub struct HealthSnapshotsResult {
     pub attribution: Option<String>,
     /// The window that was read.
     pub range: DateRange,
+    /// When each connected source last synced this data, RFC 3339 by
+    /// provider (`null` when it never has), so an empty or short window can
+    /// be told apart from a source that stopped syncing.
+    pub last_synced_at: BTreeMap<String, Option<String>>,
 }
 
 /// What `list_data_sources` answers with.
@@ -268,10 +313,12 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             {
                 Ok(read) => {
                     let sessions = merge_sleep_sessions(read.records);
+                    let last_synced_at = last_synced(&context, &tenant_id, "sleep").await;
                     let payload = SleepSessionsResult {
                         count: sessions.len(),
                         sessions,
                         attribution: read.attribution,
+                        last_synced_at,
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -365,10 +412,12 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             {
                 Ok(read) => {
                     let metrics = fence_athlete_notes(merge_recovery_metrics(read.records));
+                    let last_synced_at = last_synced(&context, &tenant_id, "recovery").await;
                     let payload = RecoveryMetricsResult {
                         count: metrics.len(),
                         metrics,
                         attribution: read.attribution,
+                        last_synced_at,
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),
@@ -439,10 +488,12 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             {
                 Ok(read) => {
                     let snapshots = merge_health_metrics(read.records);
+                    let last_synced_at = last_synced(&context, &tenant_id, "health").await;
                     let payload = HealthSnapshotsResult {
                         count: snapshots.len(),
                         snapshots,
                         attribution: read.attribution,
+                        last_synced_at,
                         range: DateRange {
                             start: start.to_rfc3339(),
                             end: end.to_rfc3339(),

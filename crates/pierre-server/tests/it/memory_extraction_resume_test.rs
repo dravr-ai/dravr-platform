@@ -33,7 +33,7 @@ use pierre_core::llm::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    ExtractionJobClaim, MemoryExtractionJobRepository, MemoryExtractionJobRow,
+    ExtractionJobClaim, JobLease, MemoryExtractionJobRepository, MemoryExtractionJobRow,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_llm::ChatProvider;
@@ -142,8 +142,9 @@ impl LlmProvider for ScriptedExtractor {
     }
 }
 
-/// The real ledger, with every record and finish it is asked for kept, so a
-/// test can see a row that was written and then deleted inside one call.
+/// The real ledger, with every record it is asked for and every finish that
+/// deleted a row kept, so a test can see a row that was written and then
+/// deleted inside one call.
 struct WatchedLedger {
     inner: Arc<dyn MemoryExtractionJobRepository>,
     recorded: Mutex<Vec<MemoryExtractionJobRow>>,
@@ -162,14 +163,21 @@ impl MemoryExtractionJobRepository for WatchedLedger {
     ) -> AppResult<Vec<MemoryExtractionJobRow>> {
         self.inner.claim_stale_extraction_jobs(claim).await
     }
-    async fn renew_extraction_job_lease(&self, id: &str, leased_until_ms: i64) -> AppResult<bool> {
+    async fn renew_extraction_job_lease(
+        &self,
+        lease: &JobLease,
+        leased_until_ms: i64,
+    ) -> AppResult<bool> {
         self.inner
-            .renew_extraction_job_lease(id, leased_until_ms)
+            .renew_extraction_job_lease(lease, leased_until_ms)
             .await
     }
-    async fn finish_extraction_job(&self, id: &str) -> AppResult<()> {
-        self.finished.lock().unwrap().push(id.to_owned());
-        self.inner.finish_extraction_job(id).await
+    async fn finish_extraction_job(&self, lease: &JobLease) -> AppResult<bool> {
+        let finished = self.inner.finish_extraction_job(lease).await?;
+        if finished {
+            self.finished.lock().unwrap().push(lease.id.clone());
+        }
+        Ok(finished)
     }
 
     async fn reap_exhausted_extraction_jobs(
@@ -243,6 +251,7 @@ fn stale_row(tenant_id: TenantId, payload: String, now: i64) -> MemoryExtraction
         created_at_ms: now - 10 * MINUTE_MS,
         leased_until_ms: now - MINUTE_MS,
         attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
     }
 }
 
@@ -574,6 +583,7 @@ async fn a_fresh_row_is_left_to_its_own_spawn() {
         created_at_ms: now,
         leased_until_ms: now + 5 * MINUTE_MS,
         attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
     };
     fx.repos
         .memory_extraction_jobs

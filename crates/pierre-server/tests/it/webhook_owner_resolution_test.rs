@@ -23,7 +23,9 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_services::webhook_owner::{resolve_webhook_owner, CoachConnection, WebhookOwner};
+use pierre_services::webhook_owner::{
+    resolve_webhook_owner, CoachConnection, WebhookOwner, WebhookTarget,
+};
 use pierre_test_support::delegation::{add_group_member, create_coached_group, create_group_agent};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -190,9 +192,16 @@ impl Fixture {
     }
 
     async fn resolve(&self, provider: &str, id: &str) -> Option<WebhookOwner> {
-        resolve_webhook_owner(&self.repos, provider, id)
+        match resolve_webhook_owner(&self.repos, provider, id)
             .await
             .unwrap()
+        {
+            WebhookTarget::Owner(owner) => Some(owner),
+            WebhookTarget::Nobody => None,
+            WebhookTarget::Tombstoned { tombstone_id } => {
+                panic!("no account was deleted here, yet tombstone {tombstone_id} refused")
+            }
+        }
     }
 }
 

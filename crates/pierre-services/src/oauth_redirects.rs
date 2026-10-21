@@ -7,9 +7,13 @@
 use std::iter;
 use std::net::Ipv4Addr;
 
+use pierre_core::errors::AppError;
 use tracing::warn;
 use url::{Host, Url};
 use urlencoding::encode;
+
+use crate::import_tombstones::{refused_tombstone_deleted_at, refused_tombstone_id};
+use crate::oauth_flow::categorize_oauth_error;
 
 /// App deep-link schemes that are always allowed for mobile OAuth redirects.
 /// A website cannot claim them, so a redirect there reaches the app.
@@ -159,4 +163,75 @@ pub fn oauth_return_url(base: &str, provider: &str, success: bool, error: Option
             )
         },
     )
+}
+
+/// The return URL for a callback that failed with `error`.
+///
+/// The success flag is off and `error` is what [`categorize_oauth_error`]
+/// names it. A tombstone refusal also carries `tombstone_id`, which the
+/// account clears it by, and `deleted_at`, the date the client's sentence
+/// names.
+#[must_use]
+pub fn oauth_failure_url(base: &str, provider: &str, error: &AppError) -> String {
+    let mut url = oauth_return_url(base, provider, false, Some(categorize_oauth_error(error).0));
+    if let Some(id) = refused_tombstone_id(error) {
+        url.push_str("&tombstone_id=");
+        url.push_str(&encode(id));
+        if let Some(deleted_at) = refused_tombstone_deleted_at(error) {
+            url.push_str("&deleted_at=");
+            url.push_str(&encode(deleted_at));
+        }
+    }
+    url
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::import_tombstones::refusal;
+    use chrono::{DateTime, Utc};
+    use pierre_database::repositories::{
+        provider_identity_hash, subject_hash, ImportTombstone, TombstoneKind,
+    };
+    use uuid::Uuid;
+
+    #[test]
+    fn a_tombstone_refusal_returns_its_id_and_deletion_date() {
+        let tombstone = ImportTombstone {
+            id: "t-1".to_owned(),
+            subject_hash: subject_hash(Uuid::new_v4()),
+            kind: TombstoneKind::ProviderAccount,
+            provider: Some("strava".to_owned()),
+            identity_hash: provider_identity_hash("42"),
+            created_at: DateTime::parse_from_rfc3339("2026-10-20T08:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            cleared_at: None,
+            cleared_by: None,
+            claimed_by: None,
+            claimed_at: None,
+        };
+        let url = oauth_failure_url(
+            "https://app.example/oauth-callback",
+            "strava",
+            &refusal(&tombstone),
+        );
+        assert!(
+            url.ends_with(
+                "error=import_tombstoned&tombstone_id=t-1&deleted_at=2026-10-20T08%3A00%3A00%2B00%3A00"
+            ),
+            "{url}"
+        );
+    }
+
+    #[test]
+    fn any_other_failure_carries_no_tombstone_params() {
+        let url = oauth_failure_url(
+            "https://app.example/oauth-callback",
+            "strava",
+            &AppError::internal("boom"),
+        );
+        assert!(!url.contains("tombstone_id"), "{url}");
+        assert!(!url.contains("deleted_at"), "{url}");
+    }
 }

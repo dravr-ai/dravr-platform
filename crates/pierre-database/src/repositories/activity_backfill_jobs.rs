@@ -7,11 +7,14 @@
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use std::fmt;
 use uuid::Uuid;
+
+use crate::repositories::memory_extraction_jobs::JobLease;
 
 /// One backfill owed: the window that was asked for and where its finished
 /// answer is expected.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ActivityBackfillJobRow {
     /// Job id (UUID string), minted by the recorder.
     pub id: String,
@@ -35,6 +38,31 @@ pub struct ActivityBackfillJobRow {
     pub leased_until_ms: i64,
     /// Runs started so far, including the one this claim represents.
     pub attempts: i64,
+    /// The token of the claim (or the recording) that holds the row; renewing
+    /// and finishing it require this token. `None` on a row recorded before
+    /// tokens existed, which only a claim can take.
+    pub lease_token: Option<String>,
+}
+
+/// Prints every field but the lease token, which grants the right to renew
+/// and finish the row and so stays out of logs and panics.
+impl fmt::Debug for ActivityBackfillJobRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActivityBackfillJobRow")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("provider", &self.provider)
+            .field("after_ts", &self.after_ts)
+            .field("before_ts", &self.before_ts)
+            .field("fetch_limit", &self.fetch_limit)
+            .field("conversation_id", &self.conversation_id)
+            .field("created_at_ms", &self.created_at_ms)
+            .field("leased_until_ms", &self.leased_until_ms)
+            .field("attempts", &self.attempts)
+            .field("lease_token", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Which rows a resume sweep may take.
@@ -72,12 +100,17 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     ) -> AppResult<Vec<ActivityBackfillJobRow>>;
 
     /// Extend the lease a running backfill holds. Returns `false` when the
-    /// row is gone or leased past this runner's claim by someone else.
-    async fn renew_backfill_job_lease(&self, id: &str, leased_until_ms: i64) -> AppResult<bool>;
+    /// row is gone or another claim holds it.
+    async fn renew_backfill_job_lease(
+        &self,
+        lease: &JobLease,
+        leased_until_ms: i64,
+    ) -> AppResult<bool>;
 
     /// The backfill reached a terminal outcome the athlete has been told
-    /// about (completed, or reconnect needed): delete the row.
-    async fn finish_backfill_job(&self, id: &str) -> AppResult<()>;
+    /// about (completed, or reconnect needed): delete the row, if this lease
+    /// still holds it. `false` when another claim took it.
+    async fn finish_backfill_job(&self, lease: &JobLease) -> AppResult<bool>;
 
     /// Delete every row at or past the attempt cap whose lease has lapsed:
     /// the run that was to finish it died too, no claim will take it again,
@@ -90,8 +123,8 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
 /// is owed is the same job, and `rows_affected` tells the caller so.
 pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
-      conversation_id, created_at_ms, leased_until_ms, attempts) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+      conversation_id, created_at_ms, leased_until_ms, attempts, lease_token) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
      ON CONFLICT (user_id, provider) DO NOTHING";
 
 /// The claim: one statement, so the lease and the attempt bump land
@@ -102,7 +135,7 @@ macro_rules! claim_backfill_jobs_sql {
     ($lock:literal) => {
         concat!(
             "UPDATE activity_backfill_jobs \
-             SET leased_until_ms = $1, attempts = attempts + 1 \
+             SET leased_until_ms = $1, attempts = attempts + 1, lease_token = $6 \
              WHERE id IN ( \
                  SELECT j.id FROM activity_backfill_jobs j \
                  WHERE j.leased_until_ms <= $2 \
@@ -113,19 +146,19 @@ macro_rules! claim_backfill_jobs_sql {
             $lock,
             ") \
              RETURNING id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
-                       conversation_id, created_at_ms, leased_until_ms, attempts"
+                       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token"
         )
     };
 }
 pub(crate) use claim_backfill_jobs_sql;
 
-/// A renewal only ever moves the lease later: one that would shorten it is
-/// not this runner's row any more.
+/// A renewal applies only while this runner's claim holds the row.
 pub(crate) const RENEW_BACKFILL_JOB_LEASE_SQL: &str =
     "UPDATE activity_backfill_jobs SET leased_until_ms = $1 \
-     WHERE id = $2 AND leased_until_ms <= $1";
+     WHERE id = $2 AND lease_token = $3";
 
-pub(crate) const FINISH_BACKFILL_JOB_SQL: &str = "DELETE FROM activity_backfill_jobs WHERE id = $1";
+pub(crate) const FINISH_BACKFILL_JOB_SQL: &str =
+    "DELETE FROM activity_backfill_jobs WHERE id = $1 AND lease_token = $2";
 
 pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str =
     "DELETE FROM activity_backfill_jobs WHERE attempts >= $1 AND leased_until_ms <= $2";
@@ -169,6 +202,9 @@ where
             .try_get("leased_until_ms")
             .map_err(|e| column("leased_until_ms", e))?,
         attempts: row.try_get("attempts").map_err(|e| column("attempts", e))?,
+        lease_token: row
+            .try_get("lease_token")
+            .map_err(|e| column("lease_token", e))?,
     })
 }
 
@@ -196,6 +232,7 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(row.created_at_ms)
                     .bind(row.leased_until_ms)
                     .bind(row.attempts)
+                    .bind(&row.lease_token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -214,6 +251,7 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(claim.now_ms.saturating_sub(claim.queued_older_than_ms))
                     .bind(claim.max_attempts)
                     .bind(claim.limit)
+                    .bind(uuid::Uuid::new_v4().to_string())
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -224,12 +262,13 @@ macro_rules! impl_activity_backfill_job_repository {
 
             async fn renew_backfill_job_lease(
                 &self,
-                id: &str,
+                lease: &JobLease,
                 leased_until_ms: i64,
             ) -> AppResult<bool> {
                 let result = sqlx::query(RENEW_BACKFILL_JOB_LEASE_SQL)
                     .bind(leased_until_ms)
-                    .bind(id)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -238,15 +277,16 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(result.rows_affected() == 1)
             }
 
-            async fn finish_backfill_job(&self, id: &str) -> AppResult<()> {
-                sqlx::query(FINISH_BACKFILL_JOB_SQL)
-                    .bind(id)
+            async fn finish_backfill_job(&self, lease: &JobLease) -> AppResult<bool> {
+                let done = sqlx::query(FINISH_BACKFILL_JOB_SQL)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to finish backfill job: {e}"))
                     })?;
-                Ok(())
+                Ok(done.rows_affected() == 1)
             }
 
             async fn reap_exhausted_backfill_jobs(

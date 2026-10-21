@@ -55,7 +55,10 @@
 //! Every purge writes one `provider_data_purges` row in the same transaction:
 //! who, which provider, why ([`PurgeReason`]), how many rows and when, never
 //! the data itself. That is the record a provider's terms can ask Dravr to
-//! attest from (Nolio API terms §7.3).
+//! attest from (Nolio API terms §7.3). An account deletion runs the same
+//! per-user statements inside its own transaction without that row, which
+//! would name a user the same transaction deletes: it records the counts on
+//! its deletion receipt instead (`super::account_deletion`).
 //!
 //! A provider whose terms cap how long a copy may be held declares a cache
 //! TTL on its descriptor, and [`ProviderDataRepository::expire_provider_cache`]
