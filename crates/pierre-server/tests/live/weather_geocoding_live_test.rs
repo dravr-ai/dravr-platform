@@ -13,12 +13,30 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use dravr_meteo::{WeatherError, WeatherProvider, WeatherQuery, WeatherSample};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_services::weather_backfill::fill_activity_temperatures;
+use tokio::time::sleep;
+
+/// Passes over the backfill before the test gives up.
+///
+/// Since 2026-10-16, Open-Meteo's geocoding API has sometimes held a request
+/// from a GitHub runner until dravr-meteo's 10s request timeout. Five of
+/// seven scheduled runs failed after exactly 10s or 20s, while the same
+/// lookup answers in under a second from a workstation (carnet#1121).
+///
+/// The backfill drops a city it cannot geocode instead of returning the
+/// error, so a pass that resolves fewer cities than it was given is the
+/// only signal available. The geocoder caches resolutions but not failures,
+/// so a later pass asks again only for the cities still missing. A city that
+/// never resolves fails every pass, and the test still fails: nothing here
+/// skips (carnet#805).
+const GEOCODE_ATTEMPTS: usize = 3;
+const GEOCODE_BACKOFF: Duration = Duration::from_secs(15);
 
 /// Answers every weather lookup with one temperature, so the assertion is
 /// about geocoding reaching the provider, not about the forecast.
@@ -77,7 +95,20 @@ async fn fills_temperature_via_city_geocoding_when_gps_absent() {
         build_activity_city_only("a2", "Montreal", "Quebec"),
     ];
 
-    let result = fill_activity_temperatures(&activities, provider).await;
+    let mut calls_before_pass = 0;
+    let mut result = fill_activity_temperatures(&activities, provider.clone()).await;
+    let mut attempt = 1;
+    while result.len() < activities.len() && attempt < GEOCODE_ATTEMPTS {
+        eprintln!(
+            "geocode attempt {attempt} resolved {} of {} cities, retrying",
+            result.len(),
+            activities.len()
+        );
+        attempt += 1;
+        sleep(GEOCODE_BACKOFF).await;
+        calls_before_pass = calls.load(Ordering::SeqCst);
+        result = fill_activity_temperatures(&activities, provider.clone()).await;
+    }
 
     assert_eq!(
         result.len(),
@@ -86,5 +117,6 @@ async fn fills_temperature_via_city_geocoding_when_gps_absent() {
     );
     assert!((result["a1"] - -8.0).abs() < f32::EPSILON);
     assert!((result["a2"] - -8.0).abs() < f32::EPSILON);
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    // The pass that resolved both cities asked the provider once for each.
+    assert_eq!(calls.load(Ordering::SeqCst) - calls_before_pass, 2);
 }
