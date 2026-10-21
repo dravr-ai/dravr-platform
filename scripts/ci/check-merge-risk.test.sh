@@ -383,16 +383,19 @@ add_origin() { # $1 = fixture dir; renames its branch to main and pushes it
   git -C "$1" push -q origin main
 }
 
-# $1 = dir, $2 = event, $3 = pushed ref, $4 = the gate_base step's sha.
-# Echoes the exit code, output in $OUT. The gate sits where the step calls it
-# only while the step runs, so no fixture commit picks it up.
+# $1 = dir, $2 = event, $3 = pushed ref, $4 = the event's base: the pull
+# request's base sha, or the push's before-sha. Echoes the exit code, output in
+# $OUT. The gate and the base resolver sit where the step calls them only while
+# the step runs, so no fixture commit picks them up.
 run_step() {
-  local code=0
+  local code=0 pr_base="" before=""
   require_fixture "$1"
+  if [ "$2" = pull_request ]; then pr_base="$4"; else before="$4"; fi
   mkdir -p "$1/scripts/ci"
   cp "$UNDER_TEST" "$1/scripts/ci/check-merge-risk.sh"
-  ( cd "$1" && GATE_BASE="$4" EVENT_NAME="$2" PUSHED_REF="$3" bash -e "$STEP" >"$OUT" 2>&1 ) || code=$?
-  rm -f "$1/scripts/ci/check-merge-risk.sh"
+  cp "$SCRIPT_DIR/resolve-push-base.sh" "$1/scripts/ci/resolve-push-base.sh"
+  ( cd "$1" && PR_BASE="$pr_base" BEFORE="$before" EVENT_NAME="$2" PUSHED_REF="$3" bash -e "$STEP" >"$OUT" 2>&1 ) || code=$?
+  rm -f "$1/scripts/ci/check-merge-risk.sh" "$1/scripts/ci/resolve-push-base.sh"
   printf '%s\n' "$code"
 }
 
@@ -460,6 +463,20 @@ expect "a branch push with no fork point in reach judges nothing" \
   "$(run_step "$d" push refs/heads/features/z "$(git -C "$d" rev-parse HEAD)")" 0
 says "the skip says why" "no fork point from main"
 rm -rf "$d" "$d.origin.git"
+
+# An origin the runner cannot reach is a crash: the step fails rather than
+# reading it as "no fork point" and skipping.
+d="$(make_repo)"
+add_origin "$d"
+git -C "$d" checkout -qb features/w
+printf 'CREATE TABLE o (id TEXT);\n' >"$d/migrations/20261012000014_o.sql"
+commit "$d" "feat(db): add table o"
+git -C "$d" push -q origin features/w
+rm -rf "$d.origin.git"
+expect "a branch push whose fork-point lookup crashes fails" \
+  "$(run_step "$d" push refs/heads/features/w "$(git -C "$d" rev-parse HEAD~1)")" 3
+says "the failure names the resolver" "resolve-push-base.sh failed"
+rm -rf "$d"
 
 echo ""
 if [ "$failures" -gt 0 ]; then

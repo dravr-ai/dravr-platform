@@ -274,18 +274,17 @@ jobs:
       # branch's FIRST push has an all-zero before-sha; the gates then fell back
       # to HEAD~1 and judged only the newest commit, or failed outright when
       # that one parent held a state the tip had already fixed. A new branch's
-      # base is where it forked from main.
+      # base is where it forked from main. scripts/ci/resolve-push-base.sh
+      # holds the rule (`before` mode); no base at all fails this step.
       - name: Resolve the gate base
         id: gate_base
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
         run: |
-          base="${PR_BASE:-$BEFORE}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            git fetch --no-tags --depth=200 origin main
-            base="$(git merge-base FETCH_HEAD HEAD)"
-          fi
+          base="$(./scripts/ci/resolve-push-base.sh before)"
           echo "Gate base: $base"
           echo "sha=$base" >> "$GITHUB_OUTPUT"
 
@@ -358,26 +357,30 @@ jobs:
       # restates it. Judged from its before-sha, a second push re-touching a
       # migration the first push declared passed before the push and failed
       # here, skipping every heavy job. So a branch push is judged from its
-      # fork point, found in this commit's history and main's, each fetched 200
-      # commits deep (the checkout holds 50). A fork point beyond that judges
+      # fork point: scripts/ci/resolve-push-base.sh in `fork` mode. A fork
+      # point beyond its 200-commit reach (the resolver's exit 1) judges
       # nothing, as a base the checkout lacks does; the squash that lands the
-      # branch is judged then.
+      # branch is judged then. Any other resolver failure is a crash and fails.
       # check-merge-risk.test.sh lifts this run block and drives it.
       - name: Merge-Risk one-way doors
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         env:
-          GATE_BASE: ${{ steps.gate_base.outputs.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
           EVENT_NAME: ${{ github.event_name }}
           PUSHED_REF: ${{ github.ref }}
         run: |
-          base="$GATE_BASE"
+          code=0
+          base="$(./scripts/ci/resolve-push-base.sh fork)" || code=$?
+          if [ "$code" -eq 1 ]; then
+            echo "::warning::merge-risk: no fork point from main within 200 commits of HEAD, so this branch push is not judged; the squash that lands it on main is."
+            exit 0
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "::error::merge-risk: resolve-push-base.sh failed (exit $code), so nothing was judged"
+            exit "$code"
+          fi
           if [ "$EVENT_NAME" = push ] && [ "$PUSHED_REF" != refs/heads/main ]; then
-            git fetch --no-tags --depth=200 origin "$(git rev-parse HEAD)"
-            git fetch --no-tags --depth=200 origin main
-            if ! base="$(git merge-base FETCH_HEAD HEAD)"; then
-              echo "::warning::merge-risk: no fork point from main within 200 commits of HEAD, so this branch push is not judged; the squash that lands it on main is."
-              exit 0
-            fi
             echo "Merge-Risk base: $base, where this branch forked from main"
           fi
           ./scripts/ci/check-merge-risk.sh "$base"
@@ -394,7 +397,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, push base resolution)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -428,6 +431,7 @@ jobs:
           ./scripts/ci/monitor-scheduled-lanes.test.sh
           ./scripts/ci/standing-issue.test.sh
           ./scripts/ci/sciotte-local.test.sh
+          ./scripts/ci/resolve-push-base.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/lto-compare.test.sh
@@ -456,7 +460,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
@@ -477,14 +481,12 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
-      # origin/main cannot be the base here: actions/checkout fetches only the
-      # pushed ref, so on main origin/main IS HEAD (an empty diff skips the job)
-      # and on a branch origin/main does not exist. A pull request diffs against
-      # its base, main against the push's before-sha, and a branch push against
-      # where it forked from main (the "Merge-Risk one-way doors" rule), which is
-      # the base pre-push-validate.sh resolves locally: merge-base(origin/main,
-      # HEAD). A schedule or dispatch run, or a base the runner cannot fetch,
-      # lints the tip commit (HEAD~1); the full `clippy` job lints everything.
+      # A pull request lints against its base and a push everything since the
+      # branch forked from main (scripts/ci/resolve-push-base.sh `fork` mode;
+      # on main, the push's before-sha), the range pre-push-validate.sh
+      # resolves locally as merge-base(origin/main, HEAD). A schedule or
+      # dispatch run, or a base the runner cannot resolve, lints the tip commit
+      # (HEAD~1); the full `clippy` job lints everything either way.
       - name: Detect changed leaf crates
         id: detect
         env:
@@ -493,21 +495,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PUSHED_REF: ${{ github.ref }}
         run: |
-          ZERO=0000000000000000000000000000000000000000
           BASE=""
-          if [ -n "$PR_BASE" ]; then
-              BASE="$PR_BASE"
-          elif [ "$EVENT_NAME" = push ] && [ "$PUSHED_REF" = refs/heads/main ]; then
-              [ -n "$BEFORE" ] && [ "$BEFORE" != "$ZERO" ] && BASE="$BEFORE"
-          elif [ "$EVENT_NAME" = push ]; then
-              git fetch --no-tags --depth=200 origin "$(git rev-parse HEAD)" || true
-              git fetch --no-tags --depth=200 origin main \
-                  && BASE="$(git merge-base FETCH_HEAD HEAD 2>/dev/null || true)"
-          fi
-          # A diff needs both trees, not the history between them, so a base
-          # deeper than the 50-commit checkout is fetched on its own.
-          if [ -n "$BASE" ] && ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-              git fetch --no-tags --depth=1 origin "$BASE" || true
+          if [ "$EVENT_NAME" = push ] || [ "$EVENT_NAME" = pull_request ]; then
+              BASE="$(./scripts/ci/resolve-push-base.sh fork)" || BASE=""
           fi
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
               echo "::warning::preflight-clippy: no usable base for this ${EVENT_NAME} run; linting the tip commit only (HEAD~1). The full clippy job still lints everything."
@@ -1125,15 +1115,27 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      # A push runs the test files it added or edited: resolve-push-base.sh in
+      # `before` mode, where a branch's first push (all-zero before-sha) means
+      # every test file the branch changed since it forked from main, and a
+      # failed fork-point lookup fails the step. A pull request's synchronize
+      # diffs from the event's before-sha; no usable base runs the tip
+      # commit's files.
       - name: Detect changed test files
         id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
         run: |
-          BEFORE="${{ github.event.before }}"
-          # A branch's first push has an all-zero before-sha: its tests are
-          # every test file the branch changed since it forked from main.
-          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            git fetch --no-tags --depth=200 origin main
-            BEFORE="$(git merge-base FETCH_HEAD HEAD 2>/dev/null || echo "")"
+          if [ "$EVENT_NAME" = push ]; then
+            code=0
+            BEFORE="$(./scripts/ci/resolve-push-base.sh before)" || code=$?
+            case "$code" in
+              0) ;;
+              1) BEFORE="" ;;
+              *) echo "::error::resolve-push-base.sh failed (exit $code)"; exit "$code" ;;
+            esac
           fi
           if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
             BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
