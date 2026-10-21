@@ -52,18 +52,32 @@ pub(super) const OVERPASS_SERVER_TIMEOUT_SECS: u64 = 20;
 
 /// How long one request to one instance may take, end to end.
 ///
-/// The server's own budget plus room to transfer the body (~560 kB for 300
-/// elements with geometry). An instance that holds the connection open
-/// without answering is abandoned here instead of at the shared client's
-/// 30s timeout.
-const OVERPASS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(OVERPASS_SERVER_TIMEOUT_SECS + 2);
+/// The server's `[timeout:N]` caps only the query's run time. A loaded
+/// instance first holds the request in its queue, and that wait counts here.
+/// On 2026-10-21, with every public instance saturated (carnet#1121),
+/// overpass-api.de answered the Prevost running query in 33s; an attempt cut
+/// near the server's own 20s gives up on an answer that is on its way. 38s
+/// leaves room for that wait plus the body (~560 kB for 300 elements with
+/// geometry).
+///
+/// The per-request timeout set in `attempt` replaces, for this request, the
+/// shared client's timeout configured at startup (`API_CLIENT_TIMEOUT_SECS`):
+/// reqwest reads a request's own timeout before the client's.
+const OVERPASS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(38);
 
 /// Wall-clock budget for the whole walk over every instance.
 ///
 /// A hard ceiling: each attempt's timeout is clipped to what remains, so a
 /// tool call fails within this budget whatever the instances do, and the
 /// agent can tell the athlete instead of leaving the turn hanging.
-const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(45);
+///
+/// 78s holds two full attempts, so a slow first instance still leaves a
+/// whole attempt for the next one. It also stays under the chat loopback's
+/// 90s per-tool ceiling (`LOOPBACK_TOOL_TIMEOUT` in pierre-server), leaving
+/// about 12s for the place geocode that runs before the walk. If the walk
+/// outlasted that ceiling, the agent would get a bare timeout instead of
+/// this walk's per-instance reasons.
+const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(78);
 
 /// Pause before the one retry an instance gets after a gateway error.
 const OVERPASS_RETRY_PAUSE: Duration = Duration::from_secs(1);
@@ -581,12 +595,18 @@ mod tests {
     }
 
     #[test]
-    fn production_attempts_fit_the_budget_and_the_shared_client() {
-        // The server is told to stop before the client gives up, and one
-        // attempt never outlasts the shared client's 30s ceiling.
+    fn production_attempts_fit_the_budget_and_the_tool_ceiling() {
+        // The server is told to stop before the client gives up. Two full
+        // attempts fit the budget, so one slow instance cannot use up the
+        // whole walk. The walk ends before the chat loopback's 90s per-tool
+        // ceiling, with room for the geocode that runs before it. This crate
+        // cannot import either figure, so both are written here by name:
+        // 90s is `LOOPBACK_TOOL_TIMEOUT` (pierre-server,
+        // src/mcp/resources/tool_surface.rs) and 10s is dravr-meteo's
+        // `REQUEST_TIMEOUT` for the Open-Meteo geocode.
         assert!(Duration::from_secs(OVERPASS_SERVER_TIMEOUT_SECS) < OVERPASS_ATTEMPT_TIMEOUT);
-        assert!(OVERPASS_ATTEMPT_TIMEOUT < Duration::from_secs(30));
-        assert!(OVERPASS_ATTEMPT_TIMEOUT < OVERPASS_TOTAL_BUDGET);
+        assert!(OVERPASS_ATTEMPT_TIMEOUT * 2 + OVERPASS_RETRY_PAUSE <= OVERPASS_TOTAL_BUDGET);
+        assert!(OVERPASS_TOTAL_BUDGET + Duration::from_secs(10) <= Duration::from_secs(90));
     }
 
     #[test]
