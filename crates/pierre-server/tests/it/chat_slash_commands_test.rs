@@ -409,7 +409,8 @@ fn rendered(resources: &Arc<ServerContext>, key: &str, args: &[&str]) -> String 
 }
 
 /// Publish "Recovery Coach" under a fresh author and install it for the
-/// athlete; returns the installed copy's id, which answers to `@recovery-agent`.
+/// athlete; returns the catalogue agent's own id (an install puts the agent
+/// itself on the team), which answers to `@recovery-coach`.
 async fn install_recovery_agent(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -692,6 +693,62 @@ async fn agent_list_shows_installed_agents_with_handles_and_no_uninstalled_syste
     }
 }
 
+/// carnet#1096/#1098: using a catalogue agent never puts it on the shelf.
+/// An athlete who chatted with an agent they never installed finds it neither
+/// in `/agent` nor by `/agent add @handle`.
+#[tokio::test]
+async fn agent_list_leaves_out_a_catalogue_agent_the_athlete_only_used() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-used@test.com").await;
+    let (author_id, author_tenant, _author_auth) =
+        seed_user_tenant(&resources, "coach-used-author@test.com").await;
+    let used = publish_catalogue_agent(
+        &resources.common.repos,
+        author_id,
+        author_tenant,
+        "Recovery Coach",
+        "You are the recovery coach.",
+    )
+    .await;
+    for _ in 0..3 {
+        assert!(resources
+            .common
+            .repos
+            .agents
+            .record_usage(&used.to_string(), user_id, tenant_id)
+            .await
+            .unwrap());
+    }
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &auth).await;
+    let bound = conversation_agent(&resources, &conv_id, user_id, tenant_id).await;
+
+    let body = send_command(router.clone(), &auth, &conv_id, "/coach").await;
+    let text = &body.assistant.message.content;
+    assert!(
+        !text.contains("Recovery Coach") && !text.contains("@recovery-coach"),
+        "an agent the athlete only used is not on the shelf:\n{text}"
+    );
+    assert!(
+        turn_actions(&body)
+            .iter()
+            .all(|a| !a.value.contains("recovery-coach") && !a.value.contains(&used.to_string())),
+        "no button for an agent only used"
+    );
+
+    let body = send_command(router, &auth, &conv_id, "/coach add @recovery-coach").await;
+    assert!(
+        body.assistant.message.content.contains("@recovery-coach"),
+        "the refusal names the handle: {}",
+        body.assistant.message.content
+    );
+    assert_eq!(
+        conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
+        bound,
+        "an agent only used is not added by its handle"
+    );
+}
+
 /// `/agent add <id>` — the form the list card sends for an agent without a
 /// handle — moves the selection pointer and binds the conversation, and says
 /// so without any "group" wording: an unbound thread is personal.
@@ -739,7 +796,7 @@ async fn agent_add_by_id_in_chat_binds_the_conversation_and_the_selection() {
     );
 }
 
-/// `/agent add @handle` binds the caller's installed copy; a handle nobody
+/// `/agent add @handle` binds the caller's installed agent; a handle nobody
 /// installed — unknown, or a system agent still on the catalogue only — is
 /// refused by name and binds nothing.
 #[tokio::test]
@@ -817,7 +874,7 @@ async fn agent_add_by_handle_in_chat_binds_the_conversation() {
             .await
             .as_deref(),
         Some(installed_id.as_str()),
-        "the conversation is bound to the installed copy"
+        "the conversation is bound to the installed agent"
     );
     assert_eq!(
         selected_agent(&resources, user_id, tenant_id)

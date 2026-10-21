@@ -860,26 +860,29 @@ async fn prompt_of(
         .system_prompt
 }
 
-/// An install is a copy that keeps its origin's slug, and the seed path finds
-/// the catalogue row by slug. On PostgreSQL an updated row moves to the end of
+/// An athlete's copy (a fork made when they edit a catalogue agent) keeps its
+/// origin's slug, and the seed path finds the catalogue row by slug. On PostgreSQL an updated row moves to the end of
 /// the heap, so once the origin has been updated an unordered lookup can return
 /// the copy instead: the next seed then rewrites the athlete's copy and leaves
 /// the catalogue row stale. Every seed must land on the origin, and the drift
 /// gate's slug lookup must read it.
 #[tokio::test]
-async fn a_reseed_updates_the_catalogue_row_never_an_installed_copy() {
+async fn a_reseed_updates_the_catalogue_row_never_an_athletes_copy() {
     let (repos, admin, tenant) = seeded_repos().await;
     let checkout = TempDir::new().unwrap();
     write_agent(checkout.path(), KEPT, None);
     assert!(seed(&repos, checkout.path(), false).await);
     let origin = agent_id(&repos, KEPT, tenant).await.unwrap();
     let copy = repos
-        .store_listings
-        .install_from_store(&origin, admin, tenant)
+        .agents
+        .fork_agent(&origin, admin, tenant)
         .await
-        .unwrap()
-        .id
-        .to_string();
+        .unwrap();
+    assert_eq!(
+        copy.forked_from.map(|id| id.to_string()).as_deref(),
+        Some(origin.as_str())
+    );
+    let copy = copy.id.to_string();
     let installed_prompt = prompt_of(&repos, &copy, admin, tenant).await;
 
     for instructions in [
@@ -892,7 +895,7 @@ async fn a_reseed_updates_the_catalogue_row_never_an_installed_copy() {
         assert_eq!(
             agent_id(&repos, KEPT, tenant).await.as_deref(),
             Some(origin.as_str()),
-            "the slug names the catalogue row, never the install"
+            "the slug names the catalogue row, never the copy"
         );
         assert_eq!(
             repos
@@ -903,7 +906,7 @@ async fn a_reseed_updates_the_catalogue_row_never_an_installed_copy() {
                 .map(|(source, _)| source)
                 .as_deref(),
             Some("contremaitre"),
-            "the drift gate reads the catalogue row, never the install"
+            "the drift gate reads the catalogue row, never the copy"
         );
         assert!(
             prompt_of(&repos, &origin, admin, tenant)
@@ -914,7 +917,7 @@ async fn a_reseed_updates_the_catalogue_row_never_an_installed_copy() {
         assert_eq!(
             prompt_of(&repos, &copy, admin, tenant).await,
             installed_prompt,
-            "the athlete's copy is left as it was installed"
+            "the athlete's copy is left as it was forked"
         );
     }
 }

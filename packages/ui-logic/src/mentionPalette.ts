@@ -76,12 +76,13 @@ export function createMentionPaletteHook(agentsApi: Pick<AgentsApi, 'list'>) {
       staleTime: AGENT_LIST_STALE_MS,
     });
 
-    // Only an agent the athlete has actually installed answers a mention:
-    // `find_installed_by_handle` joins `coach_assignments` for this user, so a
-    // catalogue agent nobody installed would be offered here and then silently
-    // not route. `is_assigned` is that same join surfaced on the list row — and
-    // it is the discriminator, not `is_system`: the resolver admits a system
-    // agent (`OR c.is_system = 1`) once the athlete has been assigned it.
+    // Only an agent on the athlete's team answers a mention:
+    // `find_installed_by_handle` joins this user's `agent_assignments` rows
+    // with `is_member = TRUE`, so a catalogue agent that is not on the team —
+    // even one the athlete has used — would be offered here and then silently
+    // not route. `is_assigned` is that same membership surfaced on the list
+    // row, and it is the discriminator, not `is_system`: the resolver admits a
+    // system agent once it is on the athlete's team.
     const mentionable = useMemo(
       () => (data?.agents ?? []).filter(agent => agent.is_assigned === true),
       [data],

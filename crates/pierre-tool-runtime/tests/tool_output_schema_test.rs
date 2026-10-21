@@ -3146,7 +3146,7 @@ fn the_store_schemas_accept_their_payloads() {
             serde_json::to_value(Formatted::Json(InstallAgentFromStoreResult {
                 installed: true,
                 agent: a_store_agent(),
-                message: "'Marathon Build' is now in your agent library.".to_owned(),
+                message: "'Marathon Build' is now on your team.".to_owned(),
             }))
             .expect("serializes"),
         ),

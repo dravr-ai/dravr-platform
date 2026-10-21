@@ -198,9 +198,11 @@ impl CommandHandler for AgentAddHandler {
     }
 }
 
-/// The caller's own agent list: the agents they created and the ones they
-/// installed from Discover — the set `/agent` shows and `/agent add` resolves
-/// against. System agents they never installed are not on it.
+/// The caller's own agent list — their team: the agents they created or
+/// edited, and every agent they are a member of (installed from Discover,
+/// assigned, activated or favourited) — the set `/agent` shows and
+/// `/agent add` resolves against. A system agent they only used, or never
+/// touched, is not on it.
 fn installed_filter() -> ListAgentsFilter {
     ListAgentsFilter {
         include_system: false,

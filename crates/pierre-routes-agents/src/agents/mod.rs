@@ -53,6 +53,7 @@ where
         .route("/api/agents/{id}", get(user::handle_get::<C>))
         .route("/api/agents/{id}", put(user::handle_update::<C>))
         .route("/api/agents/{id}", delete(user::handle_delete::<C>))
+        .route("/api/agents/{id}/fork", post(user::handle_fork::<C>))
         .route(
             "/api/agents/{id}/usage",
             post(user::handle_record_usage::<C>),

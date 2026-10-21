@@ -99,10 +99,13 @@ pub async fn publish_catalogue_agent_tagged(
     agent.id
 }
 
-/// Install a published agent on `user_id`'s agent list and return the copy.
+/// Install a published agent on `user_id`'s team and return what joined it.
 ///
-/// The copy carries its origin's handle, which is what
-/// `AgentsRepository::find_installed_by_handle` resolves for this athlete.
+/// A catalogue (system) agent — every agent [`publish_catalogue_agent`]
+/// makes — joins as itself: the returned agent is the origin, its own id and
+/// handle, which `AgentsRepository::find_installed_by_handle` now resolves
+/// for this athlete. Only another tenant's user-published agent comes back as
+/// a copy (`forked_from` = the origin).
 pub async fn install_catalogue_agent(
     repos: &RepositoryRegistry,
     origin: Uuid,
@@ -120,10 +123,10 @@ pub async fn install_catalogue_agent(
 /// open bind that agent rather than the catalogue default.
 ///
 /// Signup leaves every account holding a selection; without one, a thread
-/// falls back to the newest athlete-facing catalogue agent, and opening it
-/// records usage on that agent — which reads as "installed" to
-/// `find_installed_by_handle`. Tests about installing a catalogue agent pin
-/// the thread here so that fallback never chooses the agent under test.
+/// falls back to the newest athlete-facing catalogue agent and records usage
+/// on it. Usage no longer puts an agent on the team, but tests about
+/// installing a catalogue agent still pin the thread here, so the agent under
+/// test is touched by the install alone.
 pub async fn select_own_agent(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) {
     let request: CreateAgentRequest = serde_json::from_value(serde_json::json!({
         "title": "Own Agent",

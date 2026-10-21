@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the onboarding coach proposal — « Démarrer » opens a thread bound to the chosen coach
-// ABOUTME: Pins the profile sentence and the localized sport and category words the cards show
+// ABOUTME: Pins the lead agent handed to onComplete, the profile sentence and the localized sport and category words
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -45,8 +45,23 @@ const PROPOSAL = {
   ],
 };
 
+/** Two proposed agents, so the lead is visibly the one tapped and not merely the only one. */
+const TWO_AGENT_PROPOSAL = {
+  ...PROPOSAL,
+  agents: [
+    PROPOSAL.agents[0],
+    {
+      agent: { id: 'coach-road', title: 'Road Coach', category: 'training' },
+      reason: 'You race on the road.',
+    },
+  ],
+};
+
 function renderProposal(onComplete = vi.fn()) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The component sets `retry: 1` itself; a zero delay keeps the error case quick.
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, retryDelay: 0 } },
+  });
   render(
     <QueryClientProvider client={client}>
       <OnboardingCoachProposal userDisplayName="Maya" onComplete={onComplete} />
@@ -73,11 +88,47 @@ describe('OnboardingCoachProposal', () => {
     await userEvent.click(start);
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    // The chosen coach is the lead the step records as the athlete's agent.
+    expect(onComplete).toHaveBeenCalledWith('coach-trail');
     expect(recordUsage).toHaveBeenCalledWith('coach-trail');
     // The athlete's one thread, rebound to the coach — never a second thread.
     expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
     expect(createConversation).not.toHaveBeenCalled();
     expect(window.location.hash).toBe('#home/chat/conv-9');
+  });
+
+  it('hands onComplete the agent whose card was tapped, not the first one', async () => {
+    getProposal.mockResolvedValue(TWO_AGENT_PROPOSAL);
+    const onComplete = renderProposal();
+    const starts = await screen.findAllByRole('button', { name: 'Start' });
+    await userEvent.click(starts[1]);
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(onComplete).toHaveBeenCalledWith('coach-road');
+    expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-road' });
+  });
+
+  it('Skip hands onComplete the first proposed agent and opens no topic', async () => {
+    getProposal.mockResolvedValue(TWO_AGENT_PROPOSAL);
+    const onComplete = renderProposal();
+    await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }));
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalledWith('coach-trail');
+    expect(recordUsage).not.toHaveBeenCalled();
+    expect(openPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  it('Continue after a failed proposal hands onComplete no agent at all', async () => {
+    getProposal.mockRejectedValue(new Error('network'));
+    const onComplete = renderProposal();
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue to dashboard' }, { timeout: 5000 }),
+    );
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    // Exactly no argument — not a click event mistaken for an agent id.
+    expect(onComplete.mock.calls[0]).toEqual([]);
   });
 
   it('writes the profile as one sentence with localized sport and category words', async () => {

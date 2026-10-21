@@ -172,9 +172,9 @@ describe('createMentionPaletteHook', () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it('never offers a catalogue agent the athlete has not installed', async () => {
-    // `find_installed_by_handle` joins `coach_assignments` for this athlete, so an
-    // agent that is merely listed would be a mention that silently does not route.
+  it('never offers a catalogue agent that is not on the athlete\'s team', async () => {
+    // `find_installed_by_handle` reads this athlete's team membership, so an agent
+    // that is merely listed (or merely used) would be a mention that silently does not route.
     list.mockResolvedValue({
       agents: [
         agent(),
@@ -190,9 +190,9 @@ describe('createMentionPaletteHook', () => {
     expect(result.current.matches.map((c) => c.handle)).toEqual(['tempo-coach']);
   });
 
-  it('offers an installed system agent — the resolver admits one', async () => {
-    // `WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = 1)`: a system agent
-    // the athlete has been assigned resolves, so `is_system` is not the filter.
+  it('offers a system agent on the athlete\'s team — the resolver admits one', async () => {
+    // A system agent on the athlete's team resolves by its own handle (no copy is
+    // made on install), so `is_system` is not the filter.
     list.mockResolvedValue({
       agents: [agent({ id: 'agent-sys', title: 'Sleep Coach', handle: 'sleep-coach', is_system: true })],
     });

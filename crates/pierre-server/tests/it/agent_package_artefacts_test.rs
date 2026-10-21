@@ -308,13 +308,17 @@ async fn a_package_is_lent_only_while_its_listing_is_published() -> Result<()> {
 }
 
 #[tokio::test]
-async fn an_installed_copy_reads_the_origin_package() -> Result<()> {
+async fn a_forked_copy_reads_the_origin_package() -> Result<()> {
     let executor = create_executor().await?;
     let (author, tenant) = create_test_user(&executor).await?;
     let repos = executor.resources.repos();
     let origin = published_coach_with_package(repos, author, tenant, &house_flavour_yaml()).await;
-    let copy =
-        helpers::agent_fixtures::install_catalogue_agent(repos, origin, author, tenant).await;
+    // Installing a catalogue agent no longer copies it; editing does.
+    let copy = repos
+        .agents
+        .fork_agent(&origin.to_string(), author, tenant)
+        .await?;
+    assert_ne!(copy.id, origin, "a fork is a new row");
     assert_eq!(copy.forked_from, Some(origin));
 
     let package = load_agent_package(repos, tenant, author, Some(&copy.id.to_string()))

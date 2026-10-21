@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for StoreScreen component
-// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, and the edit sheet on an installed agent
+// ABOUTME: Tests browsing, filtering, searching, install → hint → Open chat, team membership, and fork-on-edit
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -95,21 +95,24 @@ vi.mock('../../services/api', () => ({
       created_at: '2024-01-10T00:00:00Z',
       author_id: 'author-123',
       publish_status: 'published',
+      is_own: false,
     }),
+    // Installing a system agent makes no copy: the response is the listing
+    // itself, now on the athlete's team, with this install counted.
     install: vi.fn().mockResolvedValue({
       message: 'Coach installed successfully',
       agent: {
-        id: 'installed-copy-1',
+        id: 'coach-1',
         title: 'Marathon Training Coach',
         description: 'A comprehensive marathon training program',
         category: 'training',
         tags: ['marathon', 'running', 'endurance'],
         sample_prompts: ['What should my weekly mileage be?'],
         token_count: 1200,
-        install_count: 0,
+        install_count: 76,
         icon_url: null,
-        published_at: null,
-        author_id: null,
+        published_at: '2024-01-15T00:00:00Z',
+        author_id: 'author-123',
         handle: 'marathon-training-coach',
       },
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
@@ -129,6 +132,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
+    fork: vi.fn(),
   },
   chatApi: {
     createConversation: vi.fn().mockResolvedValue({ id: 'conv-new', title: 'Chat' }),
@@ -142,10 +146,37 @@ vi.mock('../../services/api', () => ({
 import { storeApi, coachesApi, chatApi } from '../../services/api';
 import { networkFailure } from '../../test/apiRefusal';
 
-// A coach installed from the store is a personal copy: fresh id, `forked_from`
-// pointing at the store listing. Mirrors GET /api/agents on a live server.
-const installedCopyOfCoach1 = {
-  id: 'installed-copy-1',
+const metadata = () => ({ timestamp: new Date().toISOString(), api_version: '1.0' });
+
+// A system agent on the athlete's team is the listing itself: same id, no
+// `forked_from`, `is_assigned` set. Mirrors GET /api/agents on a live server.
+const coach1OnTeam = {
+  id: 'coach-1',
+  title: 'Marathon Training Coach',
+  description: 'A comprehensive marathon training program',
+  system_prompt: 'You are an expert marathon coach...',
+  category: 'training',
+  tags: ['marathon', 'running', 'endurance'],
+  token_count: 1200,
+  is_favorite: false,
+  use_count: 3,
+  last_used_at: '2024-02-02T00:00:00Z',
+  created_at: '2024-01-10T00:00:00Z',
+  updated_at: '2024-01-10T00:00:00Z',
+  is_system: true,
+  visibility: 'public',
+  is_assigned: true,
+  handle: 'marathon-training-coach',
+};
+
+// The same system agent merely used, never added: still in the list, but not
+// on the team.
+const coach1UsedOnly = { ...coach1OnTeam, is_assigned: false };
+
+// A copy exists only once the athlete edits: fresh id, `forked_from` pointing
+// at the listing, the membership moved onto it.
+const editedCopyOfCoach1 = {
+  id: 'edited-copy-1',
   title: 'Marathon Training Coach',
   description: 'A comprehensive marathon training program',
   system_prompt: 'You are an expert marathon coach...',
@@ -197,7 +228,8 @@ describe('StoreScreen', () => {
       total: 0,
       metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
     });
-    vi.mocked(coachesApi.get).mockResolvedValue(installedCopyOfCoach1);
+    vi.mocked(coachesApi.get).mockResolvedValue(editedCopyOfCoach1);
+    vi.mocked(coachesApi.fork).mockResolvedValue(editedCopyOfCoach1);
   });
 
   describe('rendering', () => {
@@ -457,7 +489,7 @@ describe('StoreScreen', () => {
   describe('no agent list of its own', () => {
     it('renders the catalogue straight under the search box, with no pinned agents', async () => {
       vi.mocked(coachesApi.list).mockResolvedValue({
-        agents: [installedCopyOfCoach1],
+        agents: [coach1OnTeam],
         total: 1,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       });
@@ -486,7 +518,7 @@ describe('StoreScreen', () => {
       expect(screen.queryByText(/has been added to your agents/)).not.toBeInTheDocument();
     });
 
-    it('Open chat opens a topic bound to the installed copy in the personal thread and routes Home', async () => {
+    it('Open chat opens a topic bound to the installed agent in the personal thread and routes Home', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
@@ -495,10 +527,11 @@ describe('StoreScreen', () => {
 
       await user.click(screen.getByRole('button', { name: 'Open chat' }));
 
-      // Bound to the athlete's own copy, not the store listing, so the server
-      // posts the agent's welcome — in the personal thread, never a second one.
+      // Bound to the agent the install put on the team — the listing itself,
+      // no copy — so the server posts the agent's welcome, in the personal
+      // thread, never a second one.
       await waitFor(() => {
-        expect(chatApi.openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
+        expect(chatApi.openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-1' });
       });
       expect(chatApi.createConversation).not.toHaveBeenCalled();
       await waitFor(() => {
@@ -523,12 +556,8 @@ describe('StoreScreen', () => {
   });
 
   describe('edit sheet', () => {
-    it('opens the edit sheet on the installed copy from the listing detail', async () => {
-      vi.mocked(coachesApi.list).mockResolvedValue({
-        agents: [installedCopyOfCoach1],
-        total: 1,
-        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-      });
+    it('forks a listing on the team on first edit and opens the sheet on the copy', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [coach1OnTeam], total: 1, metadata: metadata() });
       const user = userEvent.setup();
       renderStoreScreen();
       await openMarathonListing(user);
@@ -536,9 +565,39 @@ describe('StoreScreen', () => {
       await user.click(await screen.findByRole('button', { name: 'Edit agent' }));
 
       expect(await screen.findByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
-      // The copy, never the store listing: the listing is not the athlete's to edit.
-      expect(coachesApi.get).toHaveBeenCalledWith('installed-copy-1');
+      // The listing is not the athlete's to edit: the edit forks it, then
+      // opens the editor on the copy the fork returned.
+      expect(coachesApi.fork).toHaveBeenCalledWith('coach-1');
+      expect(coachesApi.get).toHaveBeenCalledWith('edited-copy-1');
+      expect(coachesApi.get).not.toHaveBeenCalledWith('coach-1');
       expect(screen.getByRole('button', { name: 'Delete this agent' })).toBeInTheDocument();
+    });
+
+    it('opens an already edited copy without forking again', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [editedCopyOfCoach1], total: 1, metadata: metadata() });
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit agent' }));
+
+      expect(await screen.findByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
+      expect(coachesApi.get).toHaveBeenCalledWith('edited-copy-1');
+      expect(coachesApi.fork).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a refused fork and opens no sheet', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [coach1OnTeam], total: 1, metadata: metadata() });
+      vi.mocked(coachesApi.fork).mockRejectedValueOnce(new Error('Agent not found'));
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      await user.click(await screen.findByRole('button', { name: 'Edit agent' }));
+
+      expect(await screen.findByText('Agent not found')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Edit Agent' })).not.toBeInTheDocument();
+      expect(coachesApi.get).not.toHaveBeenCalled();
     });
 
     it('offers no Edit agent on a listing the athlete has not installed', async () => {
@@ -552,10 +611,10 @@ describe('StoreScreen', () => {
 
     it('mounts the sheet for the ownCoachId route and hands the route back on close', async () => {
       const user = userEvent.setup();
-      renderStoreScreen({ ownCoachId: 'installed-copy-1' });
+      renderStoreScreen({ ownCoachId: 'edited-copy-1' });
 
       expect(await screen.findByRole('heading', { name: 'Edit Agent' })).toBeInTheDocument();
-      expect(coachesApi.get).toHaveBeenCalledWith('installed-copy-1');
+      expect(coachesApi.get).toHaveBeenCalledWith('edited-copy-1');
 
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
@@ -564,12 +623,8 @@ describe('StoreScreen', () => {
   });
 
   describe('installed state', () => {
-    it('should show Remove for a store agent the user already installed', async () => {
-      vi.mocked(coachesApi.list).mockResolvedValue({
-        agents: [installedCopyOfCoach1],
-        total: 1,
-        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-      });
+    it('shows Remove for a store agent on the athlete\'s team', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [coach1OnTeam], total: 1, metadata: metadata() });
 
       const user = userEvent.setup();
       renderStoreScreen();
@@ -582,33 +637,90 @@ describe('StoreScreen', () => {
       expect(screen.queryByRole('button', { name: 'Add Agent' })).not.toBeInTheDocument();
     });
 
-    it('should uninstall the personal copy id, not the store listing id', async () => {
-      vi.mocked(coachesApi.list).mockResolvedValue({
-        agents: [installedCopyOfCoach1],
-        total: 1,
-        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
-      });
+    it('removes a membership by the listing id — there is no copy', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [coach1OnTeam], total: 1, metadata: metadata() });
       const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
       const user = userEvent.setup();
       renderStoreScreen();
+      await openMarathonListing(user);
 
-      const grid = await screen.findByTestId('store-coach-grid');
-      await user.click(within(grid).getByText('Marathon Training Coach'));
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument();
-      });
-      await user.click(screen.getByRole('button', { name: 'Remove' }));
+      await user.click(await screen.findByRole('button', { name: 'Remove' }));
 
       await waitFor(() => {
-        expect(storeApi.uninstall).toHaveBeenCalledWith('installed-copy-1');
+        expect(storeApi.uninstall).toHaveBeenCalledWith('coach-1');
       });
 
       confirmSpy.mockRestore();
     });
 
-    it('should show Add Agent when no personal copy points at the listing', async () => {
+    it('removes an edited copy by the copy id, not the store listing id', async () => {
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [editedCopyOfCoach1], total: 1, metadata: metadata() });
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      await user.click(await screen.findByRole('button', { name: 'Remove' }));
+
+      await waitFor(() => {
+        expect(storeApi.uninstall).toHaveBeenCalledWith('edited-copy-1');
+      });
+
+      confirmSpy.mockRestore();
+    });
+
+    it('offers neither Add, Remove nor Edit on the author\'s own listing', async () => {
+      // The author's own published agent is on their team as their creation
+      // (an owner membership), not as a Store install: nothing to add or remove.
+      const ownCoach1 = { ...coach1OnTeam, is_system: false, visibility: 'private' };
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [ownCoach1], total: 1, metadata: metadata() });
+      vi.mocked(storeApi.get).mockResolvedValueOnce({
+        id: 'coach-1',
+        title: 'Marathon Training Coach',
+        description: 'A comprehensive marathon training program',
+        category: 'training',
+        tags: ['marathon', 'running', 'endurance'],
+        sample_prompts: ['What should my weekly mileage be?'],
+        system_prompt: 'You are an expert marathon coach...',
+        token_count: 1200,
+        install_count: 75,
+        icon_url: null,
+        published_at: '2024-01-15T00:00:00Z',
+        created_at: '2024-01-10T00:00:00Z',
+        author_id: null,
+        publish_status: 'published',
+        is_own: true,
+      });
+
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      expect(await screen.findByText('You are an expert marathon coach...')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add Agent' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit agent' })).not.toBeInTheDocument();
+    });
+
+    it('shows Add Agent for a system agent the athlete has only used', async () => {
+      // Usage keeps counters on a row that is not a membership: the agent is
+      // listed but not on the team, so the listing is still to add.
+      vi.mocked(coachesApi.list).mockResolvedValue({ agents: [coach1UsedOnly], total: 1, metadata: metadata() });
+
+      const user = userEvent.setup();
+      renderStoreScreen();
+      await openMarathonListing(user);
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Add Agent' })).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit agent' })).not.toBeInTheDocument();
+    });
+
+    it('shows Add Agent when the listing is not on the team', async () => {
       const user = userEvent.setup();
       renderStoreScreen();
 

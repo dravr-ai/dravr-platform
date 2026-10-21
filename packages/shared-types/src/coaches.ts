@@ -4,7 +4,14 @@
 // ========== COACH ENUMS ==========
 
 /** Category of an agent */
-export type AgentCategory = 'training' | 'nutrition' | 'recovery' | 'recipes' | 'mobility' | 'custom';
+export type AgentCategory =
+  | 'training'
+  | 'nutrition'
+  | 'recovery'
+  | 'recipes'
+  | 'mobility'
+  | 'analysis'
+  | 'custom';
 
 /** Visibility setting for agents */
 export type AgentVisibility = 'private' | 'tenant' | 'global';
@@ -56,14 +63,15 @@ export interface Agent {
   is_system: boolean;
   /** Visibility - API may return any string value */
   visibility?: string;
+  /** Whether this agent is on the athlete's team (owned, added from the Store, assigned by an admin or favourited) */
   is_assigned?: boolean;
   is_hidden?: boolean;
-  /** ID of source agent if forked */
+  /** ID of the origin agent when this is a copy the athlete forked to edit */
   forked_from?: string;
   /**
    * Addressable catalogue handle — the `@handle` that invites this agent
-   * into a conversation. Present on catalogue agents and on installed
-   * copies; absent on a personal agent that was never published.
+   * into a conversation. Present on catalogue agents and on copies forked
+   * from them; absent on a personal agent that was never published.
    */
   handle?: string;
   /** Query auto-sent on first message to provide analysis context */
@@ -290,6 +298,12 @@ export interface StoreAgentDetail extends StoreAgent {
   system_prompt: string;
   created_at: string;
   publish_status: PublishStatus;
+  /**
+   * Whether the viewer authored this (non-system) agent. It is on their team
+   * as their own creation, not as a Store install, so the listing offers
+   * neither Install nor Remove to them.
+   */
+  is_own: boolean;
 }
 
 /** Standard metadata for store API responses */
@@ -317,6 +331,10 @@ export interface SearchAgentsResponse {
 /** Response for installing an agent */
 export interface InstallAgentResponse {
   message: string;
+  /**
+   * The agent now on the athlete's team: the listing itself for a system
+   * agent (no copy is made), or a reviewed copy for another tenant's agent.
+   */
   agent: StoreAgent;
   metadata: StoreMetadata;
 }
@@ -324,11 +342,12 @@ export interface InstallAgentResponse {
 /** Response for uninstalling an agent */
 export interface UninstallAgentResponse {
   message: string;
+  /** The Store listing (origin) the athlete took off their team */
   source_agent_id: string;
   metadata: StoreMetadata;
 }
 
-/** Response for listing installed agents */
+/** Response for listing installed agents: system agents on the athlete's team plus their own copies */
 export interface InstallationsResponse {
   agents: StoreAgent[];
   metadata: StoreMetadata;

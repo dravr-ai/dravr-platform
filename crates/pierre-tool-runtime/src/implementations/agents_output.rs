@@ -40,7 +40,8 @@ pub struct AgentListEntry {
     pub is_favorite: bool,
     /// Whether it ships with the platform rather than being athlete-authored.
     pub is_system: bool,
-    /// Whether it is assigned to this athlete.
+    /// Whether it is on this athlete's team (installed, assigned, activated,
+    /// favourited or their own) — an agent they only used is not.
     pub is_assigned: bool,
     /// How many times it has been used.
     pub use_count: u32,

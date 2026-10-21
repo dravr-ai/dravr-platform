@@ -656,7 +656,9 @@ pub struct AgentListItem {
     /// The agent data
     #[serde(flatten)]
     pub agent: Agent,
-    /// Whether this agent is assigned to the current user (computed from query)
+    /// Whether this agent is on the current user's team (computed from
+    /// query): an `agent_assignments` row with `is_member`, never a row that
+    /// only counts usage
     pub is_assigned: bool,
     /// Whether this agent is marked as favorite by the current user
     pub is_favorite: bool,
@@ -796,6 +798,20 @@ impl ListAgentsFilter {
             ..Default::default()
         }
     }
+}
+
+/// One user's own state on an agent: their `agent_assignments` row, or its
+/// defaults when they have none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentUserState {
+    /// The agent is on the user's team (carnet#1096).
+    pub is_member: bool,
+    /// The user marked it a favourite.
+    pub is_favorite: bool,
+    /// How many times the user used it.
+    pub use_count: u32,
+    /// When the user last used it.
+    pub last_used_at: Option<DateTime<Utc>>,
 }
 
 /// Agent assignment info

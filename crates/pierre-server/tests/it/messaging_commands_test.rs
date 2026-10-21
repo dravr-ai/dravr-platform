@@ -3101,7 +3101,8 @@ mod command_tests {
     // ════════════════════════════════════════════════════════════════
 
     /// Publish a catalogue agent under a fresh author and install it for
-    /// `user_id`; returns the athlete's installed copy.
+    /// `user_id`; returns the agent now on the athlete's team (the catalogue
+    /// agent itself).
     async fn install_recovery_agent(
         resources: &ServerContext,
         user_id: Uuid,
@@ -3198,7 +3199,7 @@ mod command_tests {
                 .await
                 .as_deref(),
             Some(installed_id.as_str()),
-            "the conversation is bound to the caller's installed copy"
+            "the conversation is bound to the caller's installed agent"
         );
         assert_eq!(
             resources

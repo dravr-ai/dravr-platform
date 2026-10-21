@@ -298,11 +298,12 @@ async fn the_listing_carries_the_users_state_and_honours_its_filters() {
         .collect();
     assert_eq!(nutrition_ids, vec![nutrition.id]);
 
-    let (favorite, uses, last_used) = repos
+    let state = repos
         .agents
         .get_user_preferences(&training_id, owner)
         .await
         .unwrap();
+    let (favorite, uses, last_used) = (state.is_favorite, state.use_count, state.last_used_at);
     assert!(favorite);
     assert_eq!(uses, 2);
     assert!(last_used.is_some());

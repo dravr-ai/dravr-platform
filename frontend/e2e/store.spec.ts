@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for Agent Store functionality.
-// ABOUTME: Tests browsing, searching, filtering, viewing details, install → hint → Open chat, uninstall, and the edit sheet.
+// ABOUTME: Tests browsing, searching, filtering, viewing details, install → hint → Open chat, uninstall, and fork-on-edit.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
@@ -60,12 +60,12 @@ const mockCoachDetail = {
   publish_status: 'published',
 };
 
-// Installing a store coach mints a personal copy: a fresh id with `forked_from`
-// pointing back at the store listing. Both GET /api/agents and
-// GET /api/store/installations return those copies, never the listing itself.
-function personalCopyOf(storeCoach: (typeof mockStoreCoaches)[number]) {
+// The athlete's agent-list row for a store coach on their team, as
+// GET /api/agents serialises it. Installing a system agent makes no copy: the
+// row is the listing itself, `is_assigned` because it is on the team.
+function membershipOf(storeCoach: (typeof mockStoreCoaches)[number]) {
   return {
-    id: `installed-copy-of-${storeCoach.id}`,
+    id: storeCoach.id,
     title: storeCoach.title,
     description: storeCoach.description,
     system_prompt: mockCoachDetail.system_prompt,
@@ -75,34 +75,54 @@ function personalCopyOf(storeCoach: (typeof mockStoreCoaches)[number]) {
     token_count: storeCoach.token_count,
     is_favorite: false,
     use_count: 0,
-    last_used_at: null,
+    last_used_at: null as string | null,
+    created_at: '2024-01-10T00:00:00Z',
+    updated_at: '2024-01-10T00:00:00Z',
+    is_system: true,
+    visibility: 'public',
+    is_assigned: true,
+    forked_from: undefined as string | undefined,
+    handle: storeCoach.handle,
+  };
+}
+
+// A copy exists only once the athlete edits a coach on their team: a fresh id
+// with `forked_from` pointing back at the listing, the membership moved onto it.
+function editedCopyOf(storeCoach: (typeof mockStoreCoaches)[number]) {
+  return {
+    ...membershipOf(storeCoach),
+    id: `edited-copy-of-${storeCoach.id}`,
     created_at: '2024-02-01T00:00:00Z',
     updated_at: '2024-02-01T00:00:00Z',
     is_system: false,
     visibility: 'private',
-    is_assigned: true,
-    forked_from: storeCoach.id,
+    forked_from: storeCoach.id as string | undefined,
     // The copy answers to its origin's catalogue handle.
     handle: storeCoach.handle,
   };
 }
 
+type TeamEntry = ReturnType<typeof membershipOf>;
+
 async function setupStoreMocks(
   page: Page,
-  options: { emptyStore?: boolean; installed?: string[]; failStore?: boolean } = {}
+  options: { emptyStore?: boolean; installed?: string[]; edited?: string[]; failStore?: boolean } = {}
 ) {
-  const { emptyStore = false, installed = [], failStore = false } = options;
-  // The athlete's copies, as the server holds them: an install adds one and
-  // an uninstall removes it, so the coach list and the installations
-  // endpoint answer the next fetch the way the real server does.
-  const installedCopies = mockStoreCoaches
-    .filter((c) => installed.includes(c.id))
-    .map(personalCopyOf);
+  const { emptyStore = false, installed = [], edited = [], failStore = false } = options;
+  // The athlete's team, as the server holds it: `installed` listings sit on
+  // it as themselves, `edited` ones as the athlete's copy. An install adds a
+  // membership, a fork swaps it for a copy, an uninstall removes the entry, so
+  // the coach list and the installations endpoint answer the next fetch the
+  // way the real server does.
+  const team: TeamEntry[] = [
+    ...mockStoreCoaches.filter((c) => installed.includes(c.id)).map(membershipOf),
+    ...mockStoreCoaches.filter((c) => edited.includes(c.id)).map(editedCopyOf),
+  ];
 
   // Set up base dashboard mocks for regular user
   await setupDashboardMocks(page, { role: 'user' });
 
-  // "Open chat" on the post-install hint opens a topic bound to the copy in
+  // "Open chat" on the post-install hint opens a topic bound to the agent in
   // the athlete's one thread (carnet#840), which forges it for an athlete with
   // none yet.
   await page.route('**/api/chat/personal/topics', async (route) => {
@@ -129,19 +149,49 @@ async function setupStoreMocks(
   });
 
   // Mock user coaches endpoint (required for sidebar, and the source of the
-  // `forked_from` mapping the store uses to recognize an installed coach).
-  // The regex also matches the `?include_hidden=true&personalize=true` variant
-  // while leaving sub-paths like /api/agents/<id> to the mocks below.
+  // `is_assigned` / `forked_from` mapping the store uses to recognize a coach
+  // on the team). The regex also matches the `?include_hidden=true&personalize=true`
+  // variant while leaving sub-paths like /api/agents/<id> to the mocks below.
   await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        agents: installedCopies,
-        total: installedCopies.length,
+        agents: team,
+        total: team.length,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
     });
+  });
+
+  // One agent of the athlete's own, as the edit sheet loads it.
+  await page.route(/\/api\/agents\/[^/?]+$/, async (route) => {
+    const pathId = new URL(route.request().url()).pathname.split('/').pop() ?? '';
+    const entry = team.find((a) => a.id === pathId);
+    if (route.request().method() !== 'GET' || !entry) {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(entry) });
+  });
+
+  // The first edit of a coach on the team forks it: the copy replaces the
+  // membership on the team and comes back 201, the way POST /api/agents/{id}/fork does.
+  await page.route(/\/api\/agents\/[^/]+\/fork$/, async (route) => {
+    const pathId = new URL(route.request().url()).pathname.split('/').slice(-2)[0] ?? '';
+    const index = team.findIndex((a) => a.id === pathId);
+    const source = mockStoreCoaches.find((c) => c.id === pathId);
+    if (route.request().method() !== 'POST' || index === -1 || !source) {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'ResourceNotFound', message: 'The requested resource was not found' }),
+      });
+      return;
+    }
+    const copy = editedCopyOf(source);
+    team.splice(index, 1, copy);
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(copy) });
   });
 
   // Mock store installations endpoint (must come before /api/store/agents/*)
@@ -150,7 +200,7 @@ async function setupStoreMocks(
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        agents: installedCopies,
+        agents: team,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
       }),
     });
@@ -188,9 +238,10 @@ async function setupStoreMocks(
     const url = route.request().url();
     const pathId = url.split('/api/store/agents/')[1]?.split('/')[0] ?? '';
 
-    // Install takes the store listing id and rejects a second install
+    // Install takes the store listing id and rejects a second install,
+    // whether the listing sits on the team as itself or as an edited copy.
     if (url.includes('/install') && route.request().method() === 'POST') {
-      if (installedCopies.some((c) => c.forked_from === pathId)) {
+      if (team.some((a) => a.id === pathId || a.forked_from === pathId)) {
         await route.fulfill({
           status: 400,
           contentType: 'application/json',
@@ -201,27 +252,30 @@ async function setupStoreMocks(
         });
         return;
       }
+      // A system agent goes on the team as itself — no copy — and the
+      // response is the listing with this install counted.
       const source = mockStoreCoaches.find((c) => c.id === pathId);
-      const copy = source ? personalCopyOf(source) : null;
-      if (copy) {
-        installedCopies.push(copy);
+      if (source) {
+        team.push(membershipOf(source));
       }
       await route.fulfill({
-        status: 200,
+        status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach installed successfully',
-          agent: copy,
+          agent: source ? { ...source, install_count: source.install_count + 1 } : null,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
       return;
     }
 
-    // Uninstall takes the personal copy id — the server 404s on a listing id
+    // Uninstall takes the team entry's id: the listing id for a membership,
+    // the copy id for an edited copy. The server 404s on anything else —
+    // including the listing id while the athlete holds a copy of it.
     if (url.includes('/install') && route.request().method() === 'DELETE') {
-      const copy = installedCopies.find((c) => c.id === pathId);
-      if (!copy) {
+      const entry = team.find((a) => a.id === pathId);
+      if (!entry) {
         await route.fulfill({
           status: 404,
           contentType: 'application/json',
@@ -232,13 +286,13 @@ async function setupStoreMocks(
         });
         return;
       }
-      installedCopies.splice(installedCopies.indexOf(copy), 1);
+      team.splice(team.indexOf(entry), 1);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           message: 'Coach uninstalled successfully',
-          source_agent_id: copy.forked_from,
+          source_agent_id: entry.forked_from ?? entry.id,
           metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
         }),
       });
@@ -777,7 +831,7 @@ test.describe('Agent Store Add/Remove', () => {
     await page.getByText('Marathon Training Coach').click();
     await page.getByRole('button', { name: 'Add Agent' }).click();
 
-    // The hint names the command and the mention, with the copy's own handle
+    // The hint names the command and the mention, with the agent's own handle
     const hint = page.getByTestId('post-install-hint');
     await expect(hint).toBeVisible({ timeout: 5000 });
     await expect(hint).toContainText('Use it in any chat: /agent add @marathon-training-coach');
@@ -864,7 +918,7 @@ test.describe('Agent Store Add/Remove', () => {
     await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
   });
 
-  test('uninstall addresses the personal copy id, not the store listing id', async ({ page }) => {
+  test('uninstall of a membership addresses the store listing id — there is no copy', async ({ page }) => {
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -890,7 +944,36 @@ test.describe('Agent Store Add/Remove', () => {
     await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
 
     expect(deleteUrls).toHaveLength(1);
-    expect(deleteUrls[0]).toContain('/api/store/agents/installed-copy-of-store-coach-1/install');
+    expect(deleteUrls[0]).toContain('/api/store/agents/store-coach-1/install');
+  });
+
+  test('uninstall of an edited copy addresses the copy id, not the store listing id', async ({ page }) => {
+    await setupStoreMocks(page, { edited: ['store-coach-1'] });
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    const listing = page.getByTestId('store-coach-grid').getByText('Marathon Training Coach');
+    await expect(listing).toBeVisible({ timeout: 10000 });
+
+    await listing.click();
+    await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
+
+    const deleteUrls: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'DELETE' && request.url().includes('/install')) {
+        deleteUrls.push(request.url());
+      }
+    });
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+
+    await page.getByRole('button', { name: 'Remove' }).click();
+    await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
+
+    expect(deleteUrls).toHaveLength(1);
+    expect(deleteUrls[0]).toContain('/api/store/agents/edited-copy-of-store-coach-1/install');
   });
 });
 
@@ -948,7 +1031,7 @@ test.describe('Agent Store Failures', () => {
 });
 
 test.describe('Agent Store Navigation', () => {
-  test('Open chat on the hint opens a topic bound to the installed copy in the athlete\'s thread and lands on it', async ({ page }) => {
+  test('Open chat on the hint opens a topic bound to the installed agent in the athlete\'s thread and lands on it', async ({ page }) => {
     await setupStoreMocks(page, { installed: [] });
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
@@ -965,26 +1048,20 @@ test.describe('Agent Store Navigation', () => {
       (request) => request.method() === 'POST' && request.url().includes('/api/chat/personal/topics'),
     );
     await page.getByTestId('post-install-open-chat').click();
-    // Bound to the copy the install minted, not the listing, so the server
-    // posts the agent's welcome — in the athlete's thread, never a second one.
-    expect((await opened).postDataJSON()).toEqual({ agent_id: personalCopyOf(mockStoreCoaches[0]).id });
+    // Bound to the agent the install put on the team — the listing itself, no
+    // copy — so the server posts the agent's welcome, in the athlete's thread,
+    // never a second one.
+    expect((await opened).postDataJSON()).toEqual({ agent_id: mockStoreCoaches[0].id });
 
     // The athlete's thread on Home is the route: Discover has no agent list to return to.
     await expect(page).toHaveURL(/#home\/chat\/conv-from-hint$/, { timeout: 10000 });
     await expect(page.getByTestId('post-install-hint')).toHaveCount(0);
   });
 
-  test('an installed listing offers Edit agent on the copy, and Remove works from the listing', async ({ page }) => {
-    // Start with the agent already installed
+  test('the first Edit agent forks the listing on the team, and Remove then removes the copy', async ({ page }) => {
+    // Start with the agent on the team as itself: no copy yet
     await setupStoreMocks(page, { installed: ['store-coach-1'] });
-    const copy = personalCopyOf(mockStoreCoaches[0]);
-    await page.route(`**/api/agents/${copy.id}`, async (route) => {
-      if (route.request().method() === 'GET') {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(copy) });
-        return;
-      }
-      await route.fallback();
-    });
+    const copy = editedCopyOf(mockStoreCoaches[0]);
     await loginToDashboard(page);
     await page.waitForSelector('main', { timeout: 10000 });
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
@@ -994,24 +1071,37 @@ test.describe('Agent Store Navigation', () => {
     await expect(page.getByRole('region', { name: /Your agents/ })).toHaveCount(0);
     await expect(page.getByText('View My Agents')).toHaveCount(0);
 
-    // The listing the athlete installed is their own copy, so it can be edited from here.
+    // A listing on the team can be edited from here: the first edit forks it
+    // into the athlete's own copy and opens the editor on that copy.
     await page.getByTestId('store-coach-grid').getByText('Marathon Training Coach').click();
     await expect(page.getByText('System Prompt')).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: 'Edit agent' })).toBeVisible({ timeout: 10000 });
+    const forked = page.waitForRequest(
+      (request) => request.method() === 'POST' && request.url().includes('/api/agents/store-coach-1/fork'),
+    );
+    const loadedCopy = page.waitForRequest(
+      (request) => request.method() === 'GET' && request.url().endsWith(`/api/agents/${copy.id}`),
+    );
     await page.getByRole('button', { name: 'Edit agent' }).click();
+    await forked;
+    await loadedCopy;
     await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeVisible({ timeout: 5000 });
     await expect(page.getByPlaceholder('e.g., Marathon Training Agent')).toHaveValue('Marathon Training Coach');
     await expect(page.getByRole('button', { name: 'Delete this agent' })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('heading', { name: 'Edit Agent' })).toBeHidden();
 
-    // And Remove still uninstalls the copy from the listing.
+    // The membership moved onto the copy, so Remove now uninstalls the copy.
     await expect(page.getByRole('button', { name: 'Remove' })).toBeVisible({ timeout: 10000 });
     page.on('dialog', async (dialog) => {
       await dialog.accept();
     });
+    const removed = page.waitForRequest(
+      (request) => request.method() === 'DELETE' && request.url().includes('/install'),
+    );
     await page.getByRole('button', { name: 'Remove' }).click();
 
+    expect((await removed).url()).toContain(`/api/store/agents/${copy.id}/install`);
     await expect(page.getByText(/has been removed from your library/)).toBeVisible({ timeout: 5000 });
   });
 });

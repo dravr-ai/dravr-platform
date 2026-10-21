@@ -21,8 +21,10 @@
 //! `/api/store/*` REST handlers also call, so the ranking an athlete sees in
 //! chat is the ranking the web store shows.
 //!
-//! Install is a real, reversible write: it creates the caller's own copy of a
-//! published agent. Uninstall is deliberately *not* exposed here — removing a
+//! Install is a real, reversible write: it adds a published agent to the
+//! athlete's team — a membership of the catalogue agent itself, or the
+//! reviewed copy of an agent another workspace's author published.
+//! Uninstall is deliberately *not* exposed here — removing an
 //! agent an athlete may have conversation history with is a destructive act
 //! that belongs to a deliberate UI gesture, not to an LLM's reading of a
 //! sentence.
@@ -161,7 +163,9 @@ pub struct SearchAgentStoreResult {
 pub struct InstallAgentFromStoreResult {
     /// Always true: the tool errors rather than reporting a failed install.
     pub installed: bool,
-    /// The installed copy, in the same shape browse and search send.
+    /// The installed agent, in the same shape browse and search send: the
+    /// catalogue agent itself (its own id and handle) for a system agent, or
+    /// the athlete's copy of another tenant's published agent.
     pub agent: StoreAgentEntry,
     /// What to tell the athlete, already written for them.
     pub message: String,
@@ -389,10 +393,11 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
 
         answers_with::<Formatted<InstallAgentFromStoreResult>>(tool_definition(
             "install_agent_from_store",
-            "Install a published Agent Store agent into the athlete's own library, creating their \
-             personal copy. Call it only once the athlete has asked for that specific agent — \
-             pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, \
-             `activate_agent` makes it the agent that answers.",
+            "Install a published Agent Store agent: add it to the athlete's team. A catalogue \
+             agent joins as itself, never as a copy. Call it only once the athlete has asked for \
+             that specific agent — pass the `id` from `browse_agent_store` or \
+             `search_agent_store`. After installing, `activate_agent` makes it the agent that \
+             answers.",
             schema,
             Some(write_annotations()),
         ))
@@ -440,9 +445,8 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
 
             let payload = InstallAgentFromStoreResult {
                 installed: true,
-                // "agent library": main renamed the athlete-facing persona.
                 message: format!(
-                    "'{}' is now in your agent library. Activate it to start using it.",
+                    "'{}' is now on your team. Activate it to start using it.",
                     installed.title
                 ),
                 agent: project(&installed),
@@ -457,7 +461,8 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
 // Guardian security classifications (see `crate::security`). The two reads echo
 // agent-author-written titles, descriptions and sample prompts back into the
 // LLM context, which is third-party text and therefore a taint source. Install
-// creates a reversible copy, so it carries no label of its own.
+// adds a reversible team membership (or, for another tenant's agent, a
+// reversible copy), so it carries no label of its own.
 crate::declare_security!(BrowseAgentStoreTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(SearchAgentStoreTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(InstallAgentFromStoreTool => empty);

@@ -596,12 +596,8 @@ pub(super) async fn handle_get<C: AgentsCtx + MiddlewareCtx>(
 
     let mut response: AgentResponse = agent.into();
 
-    // Enrich with user-specific preferences from agent_assignments
-    let (is_favorite, use_count, last_used_at) =
-        manager.get_user_preferences(&id, auth.user_id).await?;
-    response.is_favorite = is_favorite;
-    response.use_count = use_count;
-    response.last_used_at = last_used_at.map(|dt| dt.to_rfc3339());
+    // Enrich with the user's own row: team membership, favourite, counters.
+    response.set_caller_state(manager.get_user_preferences(&id, auth.user_id).await?);
 
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -629,8 +625,58 @@ pub(super) async fn handle_update<C: AgentsCtx + MiddlewareCtx>(
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
 
-    let response: AgentResponse = agent.into();
+    let mut response: AgentResponse = agent.into();
+    response.set_caller_state(manager.get_user_preferences(&id, auth.user_id).await?);
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Handle POST /api/agents/:id/fork - Fork an agent into the caller's own
+/// editable copy.
+///
+/// An athlete edits an agent on their team — a catalogue agent they joined,
+/// one assigned to them — by forking it first; the copy is theirs, carries
+/// every runtime field of the origin, and takes over their membership (with
+/// its counters and favourite) and their selection in this tenant. Answers
+/// `201` with the copy. Forking again returns the copy already made, and
+/// forking their own agent returns it unchanged. A coach-facing agent is
+/// refused to an athlete exactly as binding it would be; an agent the caller
+/// cannot see is `404`.
+#[tracing::instrument(
+    skip(ctx, auth),
+    fields(
+        route = "coach_fork",
+        user_id = field::Empty,
+        tenant_id = field::Empty,
+    )
+)]
+pub(super) async fn handle_fork<C: AgentsCtx + MiddlewareCtx>(
+    State(ctx): State<Arc<C>>,
+    auth: AuthenticatedUser,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let auth = auth.into_inner();
+    let tenant_id = super::get_user_tenant(&auth)?;
+    let span = Span::current();
+    span.record("user_id", field::display(&auth.user_id));
+    span.record("tenant_id", field::display(&tenant_id));
+
+    let manager = super::get_agents_manager(&ctx);
+    agents_service::require_bindable_agent(
+        manager,
+        MiddlewareCtx::repos(ctx.as_ref()).users.as_ref(),
+        &id,
+        auth.user_id,
+        tenant_id,
+    )
+    .await?;
+    let copy = manager.fork_agent(&id, auth.user_id, tenant_id).await?;
+    let copy_id = copy.id.to_string();
+
+    let mut response: AgentResponse = copy.into();
+    // The copy is on the caller's team, with the counters their row carried.
+    response.set_caller_state(manager.get_user_preferences(&copy_id, auth.user_id).await?);
+
+    Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
 /// Handle DELETE /api/agents/:id - Delete an agent

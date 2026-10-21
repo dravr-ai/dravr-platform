@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::{
-    Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentVersion,
-    CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter, UpdateAgentRequest,
+    Agent, AgentAssignment, AgentCategory, AgentHandle, AgentListItem, AgentUserState,
+    AgentVersion, CreateAgentRequest, CreateSystemAgentRequest, ListAgentsFilter,
+    UpdateAgentRequest,
 };
 use pierre_core::models::groups::{
     CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSetupTimeline, GroupSummary,
@@ -45,12 +46,13 @@ pub trait AgentsRepository: Send + Sync {
     /// need not own, install or share a tenant with it: a coaching group's
     /// AI agent, read by a member who joined from another tenant.
     async fn get_in_tenant(&self, agent_id: &str, tenant_id: TenantId) -> AppResult<Option<Agent>>;
-    /// Resolve an installed agent by its catalogue handle for one user.
+    /// Resolve an agent on the user's team by its catalogue handle.
     ///
-    /// "Installed" means the agent sits on the user's agent list through a
-    /// `agent_assignments` row — a Store install, a fork, or an admin
-    /// assignment — and belongs to the user's tenant or is a system agent.
-    /// An agent the user merely *could* browse in the catalogue does not
+    /// "On the team" means a membership row (`agent_assignments.is_member`):
+    /// a Store install of a system agent, the user's own agent or edited
+    /// copy, an admin assignment, an activation or a favourite — and the
+    /// agent belongs to the user's tenant or is a system agent. An agent the
+    /// user merely *used*, or could browse in the catalogue, does not
     /// resolve. When both the user's own copy and the origin answer to the
     /// handle, the user's copy wins; among several copies the oldest wins.
     async fn find_installed_by_handle(
@@ -101,14 +103,47 @@ pub trait AgentsRepository: Send + Sync {
     ) -> AppResult<Option<Agent>>;
     /// Delete an agent
     async fn delete(&self, agent_id: &str, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool>;
-    /// Record a usage event for an agent interaction
+    /// Fork an agent the user can reach into a private copy they own and can
+    /// edit — the only way a copy comes to exist besides a Store install of
+    /// another tenant's published agent.
+    ///
+    /// The copy carries every content and runtime column of the origin and
+    /// its translation overlays, `forked_from` = the origin, the origin's
+    /// handle, `source = "custom"` and private visibility. The user's row on
+    /// the origin (membership, counters and favourite) moves onto the copy
+    /// as a membership — one is created if they held none — and a selection
+    /// in `tenant_id` that named the origin now names the copy. A user who was
+    /// not a member of a published origin adds one to its install count (the
+    /// copy is a new install); a member's fork moves their install.
+    ///
+    /// Idempotent: when the user already owns a copy of the origin in this
+    /// tenant, that copy is returned and nothing is forked. An agent the
+    /// user owns themselves is returned as is — it is already theirs to
+    /// edit. Not-found when the origin is not visible to the user (their own,
+    /// a system agent, or one assigned to them) or not reachable from
+    /// `tenant_id`.
+    async fn fork_agent(
+        &self,
+        origin_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Agent>;
+    /// Count one use of an agent by the user.
+    ///
+    /// Usage never puts an agent on the user's team: it bumps `use_count`
+    /// and `last_used_at` on the user's row for the agent, creating a
+    /// non-member row the first time. Returns whether the agent is reachable
+    /// from `tenant_id` (one of its agents, or a system agent) — `false` is
+    /// "no such agent here", and nothing is recorded.
     async fn record_usage(
         &self,
         agent_id: &str,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
-    /// Toggle favorite status for an agent
+    /// Toggle favorite status for an agent. Turning a favourite on is an
+    /// explicit choice and puts the agent on the user's team; turning it off
+    /// leaves the membership as it was.
     async fn toggle_favorite(
         &self,
         agent_id: &str,
@@ -131,7 +166,8 @@ pub trait AgentsRepository: Send + Sync {
 
     // --- User methods ---
 
-    /// Activate an agent for the user
+    /// Activate an agent for the user: select it in the tenant and put it on
+    /// their team (an explicit choice, unlike usage).
     async fn activate_agent(
         &self,
         agent_id: &str,
@@ -184,30 +220,28 @@ pub trait AgentsRepository: Send + Sync {
 
     // --- Assignment methods ---
 
-    /// Get user preferences for an agent (`is_favorite`, `is_hidden`, `usage_count`, `last_used_at`)
-    /// Per-user agent preferences: `(is_favorite, use_count, last_used_at)`.
-    ///
-    /// No longer reports an "active" flag. Selection moved to
-    /// `tenant_users.selected_agent_id` and `agent_assignments.is_active` was
-    /// dropped with it; this returned the column long enough for the only
-    /// caller to bind it to `_is_active` and ignore it.
+    /// The user's own state on an agent: whether it is on their team, their
+    /// favourite flag and usage counters. Defaults when they hold no row.
     async fn get_user_preferences(
         &self,
         agent_id: &str,
         user_id: Uuid,
-    ) -> AppResult<(bool, u32, Option<DateTime<Utc>>)>;
-    /// Assign an agent to a user
+    ) -> AppResult<AgentUserState>;
+    /// Put an agent on a user's team on someone's behalf. `true` when the
+    /// user became a member (a new row, or a usage row turned membership);
+    /// `false` when they already were one.
     async fn assign_agent(
         &self,
         agent_id: &str,
         user_id: Uuid,
         assigned_by: Uuid,
     ) -> AppResult<bool>;
-    /// Unassign an agent from a user
+    /// Take an agent off a user's team. The row stays with its usage
+    /// counters and favourite history; `true` when a membership ended.
     async fn unassign_agent(&self, agent_id: &str, user_id: Uuid) -> AppResult<bool>;
-    /// List all assignments for an agent
+    /// List the members of an agent (membership rows only)
     async fn list_assignments(&self, agent_id: &str) -> AppResult<Vec<AgentAssignment>>;
-    /// List assignments for an agent within a tenant
+    /// List the members of an agent within a tenant
     async fn list_assignments_for_tenant(
         &self,
         agent_id: &str,
@@ -653,26 +687,34 @@ macro_rules! agent_columns {
     };
 }
 
-/// Give a user an assignment row for an agent unless they already hold one;
-/// the user assigns themselves. Favourites, usage and selection all update
-/// that row, so each of them makes sure it exists first.
+/// Give a user their own row for an agent; the user assigns themselves.
+///
+/// `$5` says whether the row is a team membership. Usage counters and the
+/// favourite flag live on the same row, so usage makes sure a row exists
+/// (`$5 = FALSE`) without ever making the agent a member, while creating,
+/// activating or favouriting an agent is an explicit choice (`$5 = TRUE`)
+/// that turns an existing usage row into a membership, counters kept. A row
+/// that is already a member, or a usage row asked for again as usage, is
+/// left alone, so `rows_affected` is 1 exactly when the row was created or
+/// just became a membership.
 pub(crate) const ENSURE_ASSIGNMENT_SQL: &str = r"
-    INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
-    VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL)
-    ON CONFLICT (agent_id, user_id) DO NOTHING
+    INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at, is_member)
+    VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL, $5)
+    ON CONFLICT (agent_id, user_id) DO UPDATE SET is_member = TRUE
+    WHERE agent_assignments.is_member = FALSE AND excluded.is_member = TRUE
 ";
 
 /// Whether an agent is a system agent.
 pub(crate) const AGENT_IS_SYSTEM_SQL: &str =
     "SELECT 1 FROM agents WHERE id = $1 AND is_system = TRUE";
 
-/// Whether an agent of the caller's tenant is assigned to the caller. The
+/// Whether an agent of the caller's tenant is on the caller's team. The
 /// tenant join keeps an agent id from another tenant answering the same as a
-/// nonexistent one.
+/// nonexistent one; a usage-only row is not a membership.
 pub(crate) const AGENT_ASSIGNED_IN_TENANT_SQL: &str = r"
     SELECT 1 FROM agent_assignments ca
     INNER JOIN agents c ON c.id = ca.agent_id
-    WHERE ca.agent_id = $1 AND ca.user_id = $2 AND c.tenant_id = $3
+    WHERE ca.agent_id = $1 AND ca.user_id = $2 AND c.tenant_id = $3 AND ca.is_member = TRUE
 ";
 
 /// Create a user's agent.
@@ -706,19 +748,25 @@ pub(crate) const GET_AGENT_IN_TENANT_SQL: &str = concat!(
     " FROM agents WHERE id = $1 AND (tenant_id = $2 OR is_system = TRUE)"
 );
 
-/// The copy of a handle the user has installed: their own first, then the
-/// oldest.
+/// The agent on the user's team answering to a handle: their own edited
+/// copy first, then the oldest. Membership only — an agent the user merely
+/// used carries a usage row, never `is_member`.
 pub(crate) const FIND_INSTALLED_BY_HANDLE_SQL: &str = concat!(
     "SELECT ",
     agent_columns!("c."),
     " FROM agents c
-    JOIN agent_assignments ca ON ca.agent_id = c.id AND ca.user_id = $1
+    JOIN agent_assignments ca ON ca.agent_id = c.id AND ca.user_id = $1 AND ca.is_member = TRUE
     WHERE c.slug = $2 AND (c.tenant_id = $3 OR c.is_system = TRUE)
     ORDER BY CASE WHEN c.user_id = $1 THEN 0 ELSE 1 END, c.created_at ASC
     LIMIT 1"
 );
 
 /// The agents a user sees, with their per-user assignment state.
+///
+/// `is_assigned` is team membership (`agent_assignments.is_member`); the
+/// favourite flag and usage counters are read off the user's row whether or
+/// not it is a membership. A system agent the user only used appears when
+/// `$5` includes system agents, never as assigned.
 ///
 /// The filters are parameters, not composed text: `$5` includes system
 /// agents, `$6` restricts to one category when not NULL, `$7` keeps
@@ -727,7 +775,7 @@ pub(crate) const LIST_AGENTS_SQL: &str = concat!(
     "SELECT ",
     agent_columns!("c."),
     ",
-        CASE WHEN ca.agent_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_assigned,
+        CASE WHEN ca.is_member = TRUE THEN TRUE ELSE FALSE END AS is_assigned,
         COALESCE(ca.is_favorite, FALSE) AS is_favorite,
         CASE WHEN tu.selected_agent_id = c.id THEN TRUE ELSE FALSE END AS is_active,
         COALESCE(ca.use_count, 0) AS use_count,
@@ -738,7 +786,7 @@ pub(crate) const LIST_AGENTS_SQL: &str = concat!(
     WHERE (
         (c.user_id = $1 AND c.is_system = FALSE AND c.tenant_id = $2)
         OR ($5 AND c.is_system = TRUE)
-        OR c.id IN (SELECT agent_id FROM agent_assignments WHERE user_id = $1)
+        OR c.id IN (SELECT agent_id FROM agent_assignments WHERE user_id = $1 AND is_member = TRUE)
     )
     AND ($6 IS NULL OR c.category = $6)
     AND (NOT $7 OR ca.is_favorite = TRUE)
@@ -765,6 +813,16 @@ pub(crate) const UPDATE_AGENT_SQL: &str = r"
         max_tool_iterations = $20
     WHERE id = $9 AND user_id = $10 AND tenant_id = $11
 ";
+
+/// Whether the user owns an agent in the tenant: the rows `UPDATE_AGENT_SQL`
+/// and `DELETE_AGENT_SQL` write.
+pub(crate) const AGENT_OWNED_SQL: &str =
+    "SELECT 1 FROM agents WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
+
+/// The agent a user's own agent was forked from (NULL when it is no fork);
+/// no row when the user does not own the agent in the tenant.
+pub(crate) const OWNED_AGENT_FORKED_FROM_SQL: &str =
+    "SELECT forked_from FROM agents WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 
 /// Delete a user's own agent.
 pub(crate) const DELETE_AGENT_SQL: &str =
@@ -877,36 +935,116 @@ pub(crate) const UPDATE_SYSTEM_AGENT_SQL: &str = r"
 pub(crate) const DELETE_SYSTEM_AGENT_SQL: &str =
     "DELETE FROM agents WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE";
 
-/// A user's favourite flag, use count and last use of an agent.
+/// A user's own row on an agent: membership, favourite flag, use count and last use.
 pub(crate) const USER_PREFERENCES_SQL: &str = r"
-    SELECT is_favorite, use_count, last_used_at
+    SELECT is_member, is_favorite, use_count, last_used_at
     FROM agent_assignments WHERE agent_id = $1 AND user_id = $2
 ";
 
-/// Assign an agent to a user on someone's behalf; a second assignment is a no-op.
+/// Put an agent on a user's team on someone's behalf. A usage row the user
+/// already holds becomes the membership, counters kept, and records who
+/// assigned it; a second assignment of a member is a no-op (0 rows).
 pub(crate) const ASSIGN_AGENT_SQL: &str = r"
-    INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at)
-    VALUES ($1, $2, $3, $4, $5, FALSE, 0, NULL)
-    ON CONFLICT (agent_id, user_id) DO NOTHING
+    INSERT INTO agent_assignments (id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at, is_member)
+    VALUES ($1, $2, $3, $4, $5, FALSE, 0, NULL, TRUE)
+    ON CONFLICT (agent_id, user_id) DO UPDATE SET is_member = TRUE, assigned_by = excluded.assigned_by
+    WHERE agent_assignments.is_member = FALSE
 ";
 
-/// Remove a user's assignment.
-pub(crate) const UNASSIGN_AGENT_SQL: &str =
-    "DELETE FROM agent_assignments WHERE agent_id = $1 AND user_id = $2";
+/// Take an agent off a user's team. The row stays, with its usage counters
+/// and favourite history; only the membership ends.
+pub(crate) const UNASSIGN_AGENT_SQL: &str = r"
+    UPDATE agent_assignments SET is_member = FALSE
+    WHERE agent_id = $1 AND user_id = $2 AND is_member = TRUE
+";
 
-/// Every assignment of an agent, newest first.
+/// Every member of an agent's team roster, newest first.
 pub(crate) const LIST_ASSIGNMENTS_SQL: &str = r"
     SELECT ca.user_id, ca.created_at, ca.assigned_by, u.email
     FROM agent_assignments ca LEFT JOIN users u ON ca.user_id = u.id
-    WHERE ca.agent_id = $1 ORDER BY ca.created_at DESC
+    WHERE ca.agent_id = $1 AND ca.is_member = TRUE ORDER BY ca.created_at DESC
 ";
 
-/// The assignments of an agent held by members of one tenant, newest first.
+/// The members of an agent held by members of one tenant, newest first.
 pub(crate) const LIST_ASSIGNMENTS_FOR_TENANT_SQL: &str = r"
     SELECT ca.user_id, ca.created_at, ca.assigned_by, u.email
     FROM agent_assignments ca LEFT JOIN users u ON ca.user_id = u.id
     INNER JOIN tenant_users tu ON ca.user_id = tu.user_id AND tu.tenant_id = $2
-    WHERE ca.agent_id = $1 ORDER BY ca.created_at DESC
+    WHERE ca.agent_id = $1 AND ca.is_member = TRUE ORDER BY ca.created_at DESC
+";
+
+/// The user's own copy of an origin in the tenant, oldest first: the copy a
+/// fork returns instead of forking twice.
+pub(crate) const OWNED_COPY_OF_SQL: &str = concat!(
+    "SELECT ",
+    agent_columns!(""),
+    " FROM agents WHERE user_id = $1 AND tenant_id = $2 AND forked_from = $3
+    ORDER BY created_at ASC LIMIT 1"
+);
+
+/// Fork an agent the caller can reach into a private agent they own.
+///
+/// Every content and runtime column is copied verbatim from the origin, so
+/// the copy runs exactly as the origin did the moment it was forked; `source`
+/// becomes `custom` because the athlete now owns the text (the live prompt
+/// registry overlays `contremaitre` agents only). `$1` is the copy id, `$2`
+/// the owner, `$3` their tenant, `$4` the call time (both timestamps), `$5`
+/// the visibility and `$6` the origin, which must belong to the tenant or be
+/// a system agent. `forked_from` points at the origin and `slug` keeps its
+/// handle, which a copy carries as a reference.
+pub(crate) const FORK_AGENT_SQL: &str = r"
+    INSERT INTO agents (
+        id, user_id, tenant_id, title, description, system_prompt, category, tags,
+        sample_prompts, token_count, created_at, updated_at, is_system, visibility,
+        prerequisites, forked_from, slug, purpose, when_to_use, instructions,
+        example_inputs, example_outputs, success_criteria, startup_query,
+        data_requirements, visuals, max_tool_iterations, temperature, source
+    )
+    SELECT $1, $2, $3, title, description, system_prompt, category, tags,
+        sample_prompts, token_count, $4, $4, FALSE, $5,
+        prerequisites, id, slug, purpose, when_to_use, instructions,
+        example_inputs, example_outputs, success_criteria, startup_query,
+        data_requirements, visuals, max_tool_iterations, temperature, 'custom'
+    FROM agents WHERE id = $6 AND (tenant_id = $3 OR is_system = TRUE)
+";
+
+/// Carry the origin's translation overlays onto a fork: `$1` the copy, `$2`
+/// the origin.
+pub(crate) const FORK_TRANSLATIONS_SQL: &str = r"
+    INSERT INTO agent_translations (
+        agent_id, locale, title, description, purpose, instructions, source_sha,
+        tags, sample_prompts, created_at, updated_at
+    )
+    SELECT $1, locale, title, description, purpose, instructions, source_sha,
+        tags, sample_prompts, created_at, updated_at
+    FROM agent_translations WHERE agent_id = $2
+";
+
+/// Count a fork as an install of its published origin `$2` when the user
+/// (`$3`) was not already a member of it: the install count is members plus
+/// live copies, and uninstalling the copy later takes one away. A member's
+/// fork moves their install rather than adding one. Runs before
+/// `MOVE_MEMBERSHIP_SQL`; `$1` is the call time.
+pub(crate) const COUNT_FORK_AS_INSTALL_SQL: &str = r"
+    UPDATE store_listings SET install_count = install_count + 1, updated_at = $1
+    WHERE agent_id = $2 AND publish_status = 'published'
+    AND NOT EXISTS (
+        SELECT 1 FROM agent_assignments
+        WHERE agent_id = $2 AND user_id = $3 AND is_member = TRUE)
+";
+
+/// Move the user's row (counters and favourite with it) from the origin `$2`
+/// onto their fork `$1`, as a membership.
+pub(crate) const MOVE_MEMBERSHIP_SQL: &str = r"
+    UPDATE agent_assignments SET agent_id = $1, is_member = TRUE
+    WHERE agent_id = $2 AND user_id = $3
+";
+
+/// Point the user's selection in the tenant at their fork `$1` when it named
+/// the origin `$4`.
+pub(crate) const RESELECT_FORK_SQL: &str = r"
+    UPDATE tenant_users SET selected_agent_id = $1
+    WHERE user_id = $2 AND tenant_id = $3 AND selected_agent_id = $4
 ";
 
 /// Hide an agent from a user's list.

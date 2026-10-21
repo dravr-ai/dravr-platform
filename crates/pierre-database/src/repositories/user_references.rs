@@ -323,7 +323,8 @@ pub(crate) use delete_user_completely;
 /// the user is its sole owner and someone else belongs to it; one the user is
 /// alone in goes with its last member's row. An agent blocks while it is shared
 /// beyond its author (tenant or global visibility) or another user's
-/// conversation, a group, or another user's assignment is bound to it; a
+/// conversation, a group, or another user's team membership is bound to it (a
+/// usage-only row does not block); a
 /// private agent only its author used goes with them. A subscription blocks in
 /// every status the provider may still bill in; a `canceled` or
 /// `incomplete_expired` one is the user's own record and the delete clears it.
@@ -390,7 +391,8 @@ pub const DELETION_BLOCKERS_SQL: &str = r"
                        WHERE g.agent_id = a.id)
                    OR EXISTS (
                        SELECT 1 FROM agent_assignments s
-                       WHERE s.agent_id = a.id AND s.user_id <> $1))
+                       WHERE s.agent_id = a.id AND s.user_id <> $1
+                         AND s.is_member = TRUE))
             UNION ALL
             SELECT 'billing_subscription',
                    s.plan_tier || ' plan with ' || s.provider || ' (' || s.status

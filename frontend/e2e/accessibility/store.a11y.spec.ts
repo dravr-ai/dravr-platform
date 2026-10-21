@@ -34,6 +34,8 @@ test.describe('Store Pages Accessibility', () => {
               created_at: '2026-01-01T00:00:00Z',
               updated_at: '2026-01-01T00:00:00Z',
               is_system: false,
+              // A copy the athlete forked to edit: the team membership moved onto it.
+              is_assigned: true,
               forked_from: 'store-listing-1',
               handle: 'marathon-training-coach',
             },
@@ -51,6 +53,8 @@ test.describe('Store Pages Accessibility', () => {
               created_at: '2026-01-01T00:00:00Z',
               updated_at: '2026-01-01T00:00:00Z',
               is_system: true,
+              // A favourite is on the team: the system agent itself, no copy.
+              is_assigned: true,
               handle: 'nutrition-advisor',
             },
           ],

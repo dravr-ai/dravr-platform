@@ -380,7 +380,7 @@ test.describe('Create Agent Form', () => {
     await page.waitForTimeout(500);
     expect(createCalled).toBe(true);
     expect(createdData.title).toBe('Recovery Coach');
-    expect(createdData.category).toBe('Recovery');
+    expect(createdData.category).toBe('recovery');
   });
 
   test('Back button returns to list view', async ({ page }) => {

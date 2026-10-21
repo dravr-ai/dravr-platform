@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coaches domain API - list, read, update, delete and submit to the Store the caller's coaches, and their version history
+// ABOUTME: Coaches domain API - list, read, update, fork, delete and submit to the Store the caller's coaches, and their version history
 // ABOUTME: Creation, install and catalogue browsing live in /coach and /discover
 
 import type { AxiosInstance } from 'axios';
@@ -138,7 +138,19 @@ export function createCoachesApi(axios: AxiosInstance) {
     },
 
     /**
-     * Record coach usage (for analytics).
+     * Fork a coach on the caller's team into their own editable copy, and
+     * return the copy. The copy takes over the athlete's team membership,
+     * counters, favourite and selection. Forking the caller's own coach, or
+     * one they already forked in this tenant, returns that coach unchanged.
+     */
+    async fork(agentId: string): Promise<Agent> {
+      const response = await axios.post<Agent>(ENDPOINTS.COACHES.FORK(agentId));
+      return response.data;
+    },
+
+    /**
+     * Record coach usage (for analytics). It never puts the coach on the
+     * athlete's team.
      */
     async recordUsage(agentId: string): Promise<void> {
       try {

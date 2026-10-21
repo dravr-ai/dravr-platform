@@ -1230,7 +1230,7 @@ export interface ImportProviderThresholdsParams {}
 
 
 /**
- * Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, `activate_agent` makes it the agent that answers.
+ * Install a published Agent Store agent: add it to the athlete's team. A catalogue agent joins as itself, never as a copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, `activate_agent` makes it the agent that answers.
  */
 export interface InstallAgentFromStoreParams {
 

@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use super::agents::row_to_agent;
 use super::Database;
+use crate::repositories::agents::AgentsRepository;
 use crate::repositories::store_listings::{
     agent_columns_aliased, agent_with_listing_from_row, agent_with_listing_select,
     coach_tool_exclusion, column, contains_pattern, ensure_catalogue_handle,
@@ -23,9 +24,9 @@ use crate::repositories::store_listings::{
     published_page_sql, search_published_sql, store_admin_stats_from_row, store_listing_from_row,
     token_count_column, CoachTools, StoreListingsRepository, AGENT_WITH_LISTING_SQL,
     APPROVE_LISTING_SQL, ASSIGN_HANDLE_SQL, AUTHOR_EMAIL_SQL, DECREMENT_INSTALLS_SQL,
-    DELETE_OWNED_AGENT_SQL, EXISTING_INSTALL_SQL, EXISTING_LISTING_SQL, GET_LISTING_SQL,
-    HANDLE_OWNER_SQL, HANDLE_TAKEN_SQL, INCREMENT_INSTALLS_SQL, INSERT_PENDING_LISTING_SQL,
-    INSTALLED_AGENTS_SQL, INSTALLED_AGENT_SQL, INSTALL_AGENT_SQL, MAX_HANDLE_ATTEMPTS,
+    EXISTING_INSTALL_SQL, EXISTING_LISTING_SQL, GET_LISTING_SQL, HANDLE_OWNER_SQL,
+    HANDLE_TAKEN_SQL, INCREMENT_INSTALLS_SQL, INSERT_PENDING_LISTING_SQL, INSTALLED_AGENTS_SQL,
+    INSTALLED_AGENT_SQL, INSTALL_AGENT_SQL, LEAVE_MEMBERSHIP_SQL, MAX_HANDLE_ATTEMPTS,
     NEWEST_AFTER, NEWEST_ORDER, OWNED_AGENT_ORIGIN_SQL, OWNED_AGENT_SQL, PENDING_REVIEW_SQL,
     POPULAR_AFTER, POPULAR_ORDER, PUBLISHED_AGENT_SQL, PUBLISHED_BY_HANDLE_SQL, REJECTED_SQL,
     REJECT_LISTING_SQL, SELF_ASSIGN_SQL, STORE_ADMIN_STATS_SQL, SUBMIT_LISTING_SQL, TITLE_AFTER,

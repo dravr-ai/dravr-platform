@@ -75,7 +75,8 @@ async fn seed_pg_tenant(db: &Database, owner_id: Uuid) -> TenantId {
 }
 
 /// Publish a catalogue agent (which assigns its `@handle`) and install it for
-/// `athlete_id`, returning the installed copy's id.
+/// `athlete_id`, returning its id: the install puts the catalogue agent
+/// itself on the athlete's team.
 async fn install_published_agent(
     repos: &RepositoryRegistry,
     author_id: Uuid,
@@ -111,13 +112,16 @@ async fn install_published_agent(
         .approve_agent(&id, author_tenant, Some(author_id))
         .await
         .unwrap();
-    repos
+    let installed = repos
         .store_listings
         .install_from_store(&id, athlete_id, athlete_tenant)
         .await
-        .unwrap()
-        .id
-        .to_string()
+        .unwrap();
+    assert_eq!(
+        installed.id, agent.id,
+        "a catalogue install is never a copy"
+    );
+    id
 }
 
 /// The unread count `user` sees on `conversation_id`, or `None` when the

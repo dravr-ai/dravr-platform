@@ -65,13 +65,13 @@ export function mentionDraftAt(value: string, caret: number): MentionDraft | nul
 }
 
 /**
- * The installed agents whose handle begins with the draft, one row per
- * handle, in handle order.
+ * The agents on the athlete's team whose handle begins with the draft, one
+ * row per handle, in handle order.
  *
  * Only an agent carrying a handle is addressable — a personal agent that was
  * never published has none and cannot be mentioned, so it is never offered.
- * A user's installed copy carries its origin's handle, so when both sit on
- * the list they collapse to one row.
+ * A copy the athlete forked to edit carries its origin's handle, so when both
+ * sit on the list they collapse to one row.
  */
 export function matchMentionCoaches(coaches: readonly Agent[], query: string): MentionCandidate[] {
   const prefix = query.toLowerCase();

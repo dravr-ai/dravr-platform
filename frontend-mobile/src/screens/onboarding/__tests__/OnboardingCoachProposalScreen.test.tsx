@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the mobile OnboardingCoachProposalScreen — analyzing spinner, inferred profile, top-3 coaches
-// ABOUTME: Pins the sport-mix summary, the "Start" flow (recordUsage → markSeen → openPersonalTopic → push) and the error/skip fallbacks
+// ABOUTME: Pins the sport-mix summary, the "Start" flow (recordUsage → markSeen → openPersonalTopic → push), the error/skip fallbacks and the lead agent each one records
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -117,8 +117,9 @@ describe('OnboardingCoachProposalScreen', () => {
 
     await waitFor(() => expect(recordUsage).toHaveBeenCalledWith('agent-1'));
     await waitFor(() => expect(markSeen).toHaveBeenCalled());
-    // Recorded on the server too: the gate reads it on every surface (carnet#1042).
-    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
+    // Recorded on the server too: the gate reads it on every surface (carnet#1042),
+    // with the started coach as the athlete's agent (carnet#1101).
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete', { agentId: 'agent-1' });
     // The coach is bound to a topic of the athlete's one thread, never a second thread.
     await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'agent-1' }));
     await waitFor(() =>
@@ -153,16 +154,46 @@ describe('OnboardingCoachProposalScreen', () => {
     ).toBeTruthy();
     fireEvent.press(screen.getByText('Continue'));
     expect(markSeen).toHaveBeenCalled();
-    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
+    // No proposal loaded, so no agent to select: the server keeps the selection as is.
+    expect(setOnboardingStep).toHaveBeenCalledTimes(1);
+    const [stepId, status, options] = setOnboardingStep.mock.calls[0];
+    expect([stepId, status]).toEqual(['coach_proposal', 'complete']);
+    expect(options?.agentId).toBeUndefined();
   }, 10000);
 
-  it('"Skip for now" marks the step seen without starting a coach', async () => {
-    getProposal.mockResolvedValue(PROPOSAL);
+  it('"Skip for now" marks the step seen with the first proposed coach as the lead, starting none', async () => {
+    getProposal.mockResolvedValue({
+      ...PROPOSAL,
+      agents: [
+        ...PROPOSAL.agents,
+        { agent: baseAgent({ id: 'agent-2', title: 'Coach Bea' }), match_score: 0.7, reason: 'Also fits.' },
+      ],
+    });
     renderScreen();
 
     fireEvent.press(await screen.findByText('Skip for now'));
     expect(markSeen).toHaveBeenCalled();
-    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete', { agentId: 'agent-1' });
     expect(recordUsage).not.toHaveBeenCalled();
+    expect(openPersonalTopic).not.toHaveBeenCalled();
+  });
+
+  it('starting the second coach records that coach as the lead, not the first', async () => {
+    getProposal.mockResolvedValue({
+      ...PROPOSAL,
+      agents: [
+        ...PROPOSAL.agents,
+        { agent: baseAgent({ id: 'agent-2', title: 'Coach Bea' }), match_score: 0.7, reason: 'Also fits.' },
+      ],
+    });
+    renderScreen();
+
+    const starts = await screen.findAllByText('Start');
+    fireEvent.press(starts[1]);
+
+    await waitFor(() =>
+      expect(setOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete', { agentId: 'agent-2' }),
+    );
+    await waitFor(() => expect(openPersonalTopic).toHaveBeenCalledWith({ agent_id: 'agent-2' }));
   });
 });

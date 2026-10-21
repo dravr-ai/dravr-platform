@@ -23,8 +23,9 @@ export const DEFAULT_MAX_TOOL_ITERATIONS = 10;
 
 /**
  * The corpus key naming each agent category — the filter chips, the card
- * badges and the onboarding proposal read one table, so a screen never shows
- * a category as a translated word in one place and a raw enum in another.
+ * badges, the agent editor and the onboarding proposal read one table, so a
+ * screen never shows a category as a translated word in one place and a raw
+ * enum in another.
  */
 export const COACH_CATEGORY_LABEL_KEY: Record<AgentCategory, string> = {
   training: 'chat.categoryTraining',
@@ -32,12 +33,13 @@ export const COACH_CATEGORY_LABEL_KEY: Record<AgentCategory, string> = {
   recovery: 'chat.categoryRecovery',
   recipes: 'chat.categoryRecipes',
   mobility: 'chat.categoryMobility',
+  analysis: 'chat.categoryAnalysis',
   custom: 'chat.categoryCustom',
 };
 
 /**
  * The label key for a category as the wire carries it. A catalogue row's
- * category is a plain string on some reads, so a value outside the six known
+ * category is a plain string on some reads, so a value outside the seven known
  * ones reads as custom rather than as a missing key.
  */
 export function coachCategoryLabelKey(category: string): string {

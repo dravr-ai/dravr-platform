@@ -19993,7 +19993,7 @@
     },
     {
       "name": "install_agent_from_store",
-      "description": "Install a published Agent Store agent into the athlete's own library, creating their personal copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, `activate_agent` makes it the agent that answers.",
+      "description": "Install a published Agent Store agent: add it to the athlete's team. A catalogue agent joins as itself, never as a copy. Call it only once the athlete has asked for that specific agent — pass the `id` from `browse_agent_store` or `search_agent_store`. After installing, `activate_agent` makes it the agent that answers.",
       "inputSchema": {
         "properties": {
           "agent_id": {
@@ -20017,7 +20017,7 @@
             "properties": {
               "agent": {
                 "$ref": "#/$defs/StoreAgentEntry",
-                "description": "The installed copy, in the same shape browse and search send."
+                "description": "The installed agent, in the same shape browse and search send: the\ncatalogue agent itself (its own id and handle) for a system agent, or\nthe athlete's copy of another tenant's published agent."
               },
               "installed": {
                 "description": "Always true: the tool errors rather than reporting a failed install.",
@@ -20218,7 +20218,7 @@
                 "type": "string"
               },
               "is_assigned": {
-                "description": "Whether it is assigned to this athlete.",
+                "description": "Whether it is on this athlete's team (installed, assigned, activated,\nfavourited or their own) — an agent they only used is not.",
                 "type": "boolean"
               },
               "is_favorite": {

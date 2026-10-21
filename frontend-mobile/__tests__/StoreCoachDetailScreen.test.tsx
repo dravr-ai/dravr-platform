@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for StoreCoachDetailScreen component
-// ABOUTME: Tests agent detail display, install → hint → Open chat, uninstall by copy id, and Edit agent
+// ABOUTME: Tests detail display, install → hint → Open chat, uninstall by installation id, and Edit (fork a membership first)
 
 import React from 'react';
 import { act, render as rtlRender, fireEvent, waitFor } from '@testing-library/react-native';
@@ -35,10 +35,14 @@ const mockInstall = jest.fn();
 const mockUninstall = jest.fn();
 const mockGetInstallations = jest.fn();
 const mockOpenPersonalTopic = jest.fn();
+const mockFork = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   chatApi: {
     openPersonalTopic: (...args: unknown[]) => mockOpenPersonalTopic(...args),
+  },
+  coachesApi: {
+    fork: (...args: unknown[]) => mockFork(...args),
   },
   storeApi: {
     get: (...args: unknown[]) => mockGet(...args),
@@ -76,25 +80,36 @@ const createMockStoreCoachDetail = (overrides: Partial<StoreAgentDetail> = {}): 
   author_id: 'author-123',
   created_at: '2024-01-10T00:00:00Z',
   publish_status: 'published',
+  is_own: false,
   handle: COACH_HANDLE,
   ...overrides,
 });
 
-// An install mints a personal copy with its own id, carrying the listing's
-// handle. Both the install response and the installations list return copies.
-const installedCopy: StoreAgent = {
-  id: 'installed-copy-1',
+// Installing a catalogue agent puts it on the athlete's team: the install
+// response and the installations list return the listing itself (same id).
+const membership: StoreAgent = {
+  id: 'test-coach-id',
   title: 'Marathon Training Agent',
   description: 'A comprehensive marathon training program',
   category: 'training' as AgentCategory,
   tags: ['marathon', 'running', 'endurance'],
   sample_prompts: [],
   token_count: 1200,
-  install_count: 0,
+  install_count: 76,
   icon_url: null,
+  published_at: '2024-01-15T00:00:00Z',
+  author_id: 'author-123',
+  handle: COACH_HANDLE,
+};
+
+// A copy — forked when the athlete edited the agent, or installed from another
+// workspace — has an id of its own and carries the listing's handle.
+const installedCopy: StoreAgent = {
+  ...membership,
+  id: 'installed-copy-1',
+  install_count: 0,
   published_at: null,
   author_id: null,
-  handle: COACH_HANDLE,
 };
 
 // Open chat refreshes the conversation list the chat tab reads from the
@@ -114,7 +129,8 @@ describe('StoreCoachDetailScreen', () => {
     mockRouter.navigate.mockClear();
     mockGet.mockResolvedValue(createMockStoreCoachDetail());
     mockGetInstallations.mockResolvedValue({ agents: [] });
-    mockInstall.mockResolvedValue({ message: 'Coach installed successfully', agent: installedCopy });
+    mockInstall.mockResolvedValue({ message: 'Coach installed successfully', agent: membership });
+    mockFork.mockResolvedValue({ id: 'forked-copy-1', title: 'Marathon Training Agent', forked_from: 'test-coach-id' });
     mockOpenPersonalTopic.mockResolvedValue({
       conversation: { id: 'conv-personal', title: 'Marathon Training Agent', personal: true },
       divider: null,
@@ -296,6 +312,23 @@ describe('StoreCoachDetailScreen', () => {
       expect(queryByTestId('edit-coach-button')).toBeNull();
     });
 
+    it('offers neither Install nor Installed on the author\'s own listing', async () => {
+      // The author's own agent is on their team as their creation, not as a
+      // Store install; installations leave it out, and there is nothing to
+      // install or remove.
+      mockGet.mockResolvedValue(createMockStoreCoachDetail({ is_own: true }));
+      mockGetInstallations.mockResolvedValue({ agents: [] });
+
+      const { getByTestId, queryByText, queryByTestId } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('coach-detail-action-bar')).toBeTruthy();
+      });
+      expect(queryByText('Install Agent')).toBeNull();
+      expect(queryByTestId('installed-button')).toBeNull();
+      expect(queryByTestId('edit-coach-button')).toBeNull();
+    });
+
     it('should call install when Install button is pressed', async () => {
       mockGetInstallations.mockResolvedValue({ agents: [] });
 
@@ -333,12 +366,12 @@ describe('StoreCoachDetailScreen', () => {
       expect(Alert.alert).not.toHaveBeenCalled();
       // The install is what the funnel counts.
       expect(mockTrackMobile).toHaveBeenCalledWith({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
-      // The copy the install minted is what the screen now addresses.
+      // The agent the install put on the team is what the screen now addresses.
       expect(getByText('Installed')).toBeTruthy();
       expect(getByTestId('edit-coach-button')).toBeTruthy();
     });
 
-    it('Open chat on the hint opens a topic bound to the installed copy in the personal thread', async () => {
+    it('Open chat on the hint opens a topic bound to the installed agent in the personal thread', async () => {
       const invalidate = jest.spyOn(queryClient, 'invalidateQueries');
       const { getByText, findByTestId, getByTestId, queryByTestId } = render(
         <StoreCoachDetailScreen />
@@ -352,9 +385,9 @@ describe('StoreCoachDetailScreen', () => {
 
       fireEvent.press(getByTestId('post-install-open-chat'));
 
-      // Bound with the topic to the athlete's own copy, not the store listing,
-      // so the server has posted the agent's welcome before the thread is
-      // read — in the athlete's personal thread, never a second one.
+      // Bound with the topic to the agent the install returned — the catalogue
+      // agent itself, since no copy is minted — so the server has posted the
+      // agent's welcome before the thread is read, in the personal thread.
       await waitFor(() => {
         expect(mockRouter.push).toHaveBeenCalledWith({
           pathname: CHAT_THREAD_ROUTE,
@@ -362,7 +395,7 @@ describe('StoreCoachDetailScreen', () => {
         });
       });
       expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
-      expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'installed-copy-1' });
+      expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'test-coach-id' });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.chat.conversations() });
       expect(queryByTestId('post-install-hint')).toBeNull();
     });
@@ -452,17 +485,24 @@ describe('StoreCoachDetailScreen', () => {
     });
   });
 
-  describe('installed copy', () => {
+  // Mocks Alert so the confirmation's destructive action runs at once.
+  function confirmEveryUninstall() {
+    (Alert.alert as jest.Mock).mockImplementation((_title, _message, buttons) => {
+      const uninstallButton = buttons?.find((b: { text: string }) => b.text === 'Uninstall');
+      if (uninstallButton?.onPress) {
+        uninstallButton.onPress();
+      }
+    });
+  }
+
+  describe('membership on the catalogue agent', () => {
     beforeEach(() => {
-      // The installations list holds copies (own id, the listing's handle),
-      // never the listing itself.
-      mockGetInstallations.mockResolvedValue({ agents: [installedCopy] });
+      // The installations list returns the listing itself for a membership.
+      mockGetInstallations.mockResolvedValue({ agents: [membership] });
     });
 
-    it('recognises the installed copy by the handle it inherited from the listing', async () => {
-      const { getByText, getByTestId, queryByText } = render(
-        <StoreCoachDetailScreen />
-      );
+    it('recognises the membership by the listing handle', async () => {
+      const { getByText, getByTestId, queryByText } = render(<StoreCoachDetailScreen />);
 
       await waitFor(() => {
         expect(getByText('Installed')).toBeTruthy();
@@ -471,10 +511,8 @@ describe('StoreCoachDetailScreen', () => {
       expect(getByTestId('edit-coach-button')).toBeTruthy();
     });
 
-    it('Edit agent opens the edit sheet on the copy, not the listing', async () => {
-      const { getByTestId } = render(
-        <StoreCoachDetailScreen />
-      );
+    it('Edit agent forks the catalogue agent and opens the editor on the copy', async () => {
+      const { getByTestId } = render(<StoreCoachDetailScreen />);
 
       await waitFor(() => {
         expect(getByTestId('edit-coach-button')).toBeTruthy();
@@ -482,16 +520,80 @@ describe('StoreCoachDetailScreen', () => {
 
       fireEvent.press(getByTestId('edit-coach-button'));
 
-      expect(mockRouter.push).toHaveBeenCalledWith({
+      await waitFor(() => {
+        expect(mockRouter.push).toHaveBeenCalledWith({
+          pathname: COACH_EDIT_ROUTE,
+          params: { agentId: 'forked-copy-1' },
+        });
+      });
+      expect(mockFork).toHaveBeenCalledTimes(1);
+      expect(mockFork).toHaveBeenCalledWith('test-coach-id');
+      // The editor never opens on the catalogue agent itself.
+      expect(mockRouter.push).not.toHaveBeenCalledWith({
         pathname: COACH_EDIT_ROUTE,
-        params: { agentId: 'installed-copy-1' },
+        params: { agentId: 'test-coach-id' },
+      });
+    });
+
+    it('Edit agent forks once however often it is tapped', async () => {
+      let resolveFork: (copy: { id: string }) => void = () => {};
+      mockFork.mockReturnValue(
+        new Promise((resolve) => {
+          resolveFork = resolve;
+        }),
+      );
+      const { getByTestId } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('edit-coach-button')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('edit-coach-button'));
+      fireEvent.press(getByTestId('edit-coach-button'));
+      await act(async () => {
+        resolveFork({ id: 'forked-copy-1' });
+      });
+
+      expect(mockFork).toHaveBeenCalledTimes(1);
+      expect(mockRouter.push).toHaveBeenCalledTimes(1);
+    });
+
+    it('a fork that fails says so and opens no editor', async () => {
+      mockFork.mockRejectedValue(new Error('service unavailable'));
+      const { getByTestId } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('edit-coach-button')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('edit-coach-button'));
+
+      await waitFor(() => {
+        expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to update agent');
+      });
+      expect(mockRouter.push).not.toHaveBeenCalled();
+    });
+
+    it('after the fork, uninstall removes the copy rather than the listing', async () => {
+      mockUninstall.mockResolvedValue({ message: 'Uninstalled', source_agent_id: 'test-coach-id' });
+      const { getByTestId, getByText } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('edit-coach-button')).toBeTruthy();
+      });
+      fireEvent.press(getByTestId('edit-coach-button'));
+      await waitFor(() => {
+        expect(mockRouter.push).toHaveBeenCalledTimes(1);
+      });
+
+      confirmEveryUninstall();
+      fireEvent.press(getByText('Installed'));
+
+      await waitFor(() => {
+        expect(mockUninstall).toHaveBeenCalledWith('forked-copy-1');
       });
     });
 
     it('should show confirmation dialog when Installed button is pressed', async () => {
-      const { getByText } = render(
-        <StoreCoachDetailScreen />
-      );
+      const { getByText } = render(<StoreCoachDetailScreen />);
 
       await waitFor(() => {
         expect(getByText('Installed')).toBeTruthy();
@@ -509,47 +611,85 @@ describe('StoreCoachDetailScreen', () => {
       });
     });
 
-    it('uninstalls the copy id, never the store listing id', async () => {
+    it('uninstalls the membership by the listing id', async () => {
       mockUninstall.mockResolvedValue({ message: 'Uninstalled', source_agent_id: 'test-coach-id' });
+      confirmEveryUninstall();
 
-      // Mock Alert to automatically call the destructive action
-      (Alert.alert as jest.Mock).mockImplementation(
-        (title, message, buttons) => {
-          const uninstallButton = buttons?.find(
-            (b: { text: string }) => b.text === 'Uninstall'
-          );
-          if (uninstallButton?.onPress) {
-            uninstallButton.onPress();
-          }
-        }
-      );
-
-      const { getByText } = render(
-        <StoreCoachDetailScreen />
-      );
+      const { getByText } = render(<StoreCoachDetailScreen />);
 
       await waitFor(() => {
         expect(getByText('Installed')).toBeTruthy();
       });
 
-      // Pressing "Installed" button triggers uninstall confirmation
       fireEvent.press(getByText('Installed'));
 
       await waitFor(() => {
-        expect(mockUninstall).toHaveBeenCalledWith('installed-copy-1');
+        expect(mockUninstall).toHaveBeenCalledWith('test-coach-id');
       });
       await waitFor(() => {
         expect(getByText('Install Agent')).toBeTruthy();
       });
     });
 
-    it('a listing without a handle cannot be matched to a copy', async () => {
+    it('a listing without a handle cannot be matched to an installation', async () => {
       mockGet.mockResolvedValue(createMockStoreCoachDetail({ handle: undefined }));
 
-      const { getByText } = render(
-        <StoreCoachDetailScreen />
-      );
+      const { getByText } = render(<StoreCoachDetailScreen />);
 
+      await waitFor(() => {
+        expect(getByText('Install Agent')).toBeTruthy();
+      });
+    });
+  });
+
+  describe('installed copy', () => {
+    beforeEach(() => {
+      // An edited agent, or one installed from another workspace, is listed as
+      // a copy: its own id, the listing's handle.
+      mockGetInstallations.mockResolvedValue({ agents: [installedCopy] });
+    });
+
+    it('recognises the installed copy by the handle it inherited from the listing', async () => {
+      const { getByText, getByTestId, queryByText } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Installed')).toBeTruthy();
+      });
+      expect(queryByText('Install Agent')).toBeNull();
+      expect(getByTestId('edit-coach-button')).toBeTruthy();
+    });
+
+    it('Edit agent opens the edit sheet on the copy without forking again', async () => {
+      const { getByTestId } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('edit-coach-button')).toBeTruthy();
+      });
+
+      fireEvent.press(getByTestId('edit-coach-button'));
+
+      expect(mockRouter.push).toHaveBeenCalledWith({
+        pathname: COACH_EDIT_ROUTE,
+        params: { agentId: 'installed-copy-1' },
+      });
+      expect(mockFork).not.toHaveBeenCalled();
+    });
+
+    it('uninstalls the copy id, never the store listing id', async () => {
+      mockUninstall.mockResolvedValue({ message: 'Uninstalled', source_agent_id: 'test-coach-id' });
+      confirmEveryUninstall();
+
+      const { getByText } = render(<StoreCoachDetailScreen />);
+
+      await waitFor(() => {
+        expect(getByText('Installed')).toBeTruthy();
+      });
+
+      fireEvent.press(getByText('Installed'));
+
+      await waitFor(() => {
+        expect(mockUninstall).toHaveBeenCalledWith('installed-copy-1');
+      });
       await waitFor(() => {
         expect(getByText('Install Agent')).toBeTruthy();
       });

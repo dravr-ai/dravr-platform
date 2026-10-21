@@ -59,9 +59,12 @@ use pierre_core::models::{CheckInCadence, TenantId, TopicSlug};
 use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };
+use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
+use crate::agents::require_bindable_agent;
 use crate::parq::{persist_parq_flags, retire_parq_flags};
+use crate::personal_thread::find_personal_thread;
 
 /// How many times one question may be put to the athlete.
 ///
@@ -90,6 +93,10 @@ pub(crate) const STEP_ABOUT_YOU: &str = "about_you";
 /// Step id for the check-in cadence answer, shared with the web and mobile
 /// onboarding step.
 pub const STEP_CHECK_IN: &str = "check_in";
+
+/// The onboarding step that proposes the athlete's team; its Start and its
+/// Skip both name the lead agent (carnet#1101).
+pub(crate) const STEP_COACH_PROPOSAL: &str = "coach_proposal";
 
 /// One question in the intake, in the order it is asked.
 ///
@@ -534,6 +541,75 @@ where
     }
     for tenant_id in tenants.list_membership_tenant_ids(user_id).await? {
         tenants.set_selected_agent(tenant_id, user_id, None).await?;
+    }
+    Ok(())
+}
+
+/// Make the lead the onboarding proposal named the athlete's selected agent.
+///
+/// Both Start and Skip on the team proposal send the lead's id with the step
+/// write: Skip opens no topic, and a phone sends the step before its topic
+/// opens, so the step write is the one place every surface passes through.
+/// The selection is what the Home thread, a thread created without an agent
+/// and the messaging DM answer with, so the athlete's pick replaces the
+/// starter signup chose. It sets the selection only; joining the team is the
+/// proposal's own step (carnet#1095).
+///
+/// The athlete's personal thread follows when it still runs on the agent the
+/// selection named before (or on none), so the thread the athlete lands on
+/// answers with the lead; a thread they had already pointed at another agent
+/// keeps it. Any other step, status or a missing lead is a no-op, and so is a
+/// coach who does not train: their own thread resolves the roster agent from
+/// that answer ([`release_coach_only_agent`]).
+///
+/// # Errors
+///
+/// Returns not found for an agent the athlete cannot read, invalid input for
+/// a coach-facing agent offered to an athlete (as `/agent add` refuses it),
+/// and the repository error when a read or a write fails.
+pub async fn select_onboarding_lead(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    step_id: &str,
+    status: &str,
+    lead: Option<&str>,
+) -> AppResult<()> {
+    let Some(lead) = lead.filter(|id| !id.is_empty()) else {
+        return Ok(());
+    };
+    if step_id != STEP_COACH_PROPOSAL || !(status == STATUS_COMPLETE || status == STATUS_SKIPPED) {
+        return Ok(());
+    }
+    let user_key = user_id.to_string();
+    let steps = repos
+        .user_onboarding
+        .get_onboarding_steps(&user_key)
+        .await?;
+    if athlete_steps_waived(&steps) {
+        return Ok(());
+    }
+    require_bindable_agent(
+        repos.agents.as_ref(),
+        repos.users.as_ref(),
+        lead,
+        user_id,
+        tenant_id,
+    )
+    .await?;
+    let previous = repos.tenants.get_selected_agent(tenant_id, user_id).await?;
+    repos
+        .tenants
+        .set_selected_agent(tenant_id, user_id, Some(lead))
+        .await?;
+    if let Some(thread) = find_personal_thread(repos, &user_key, tenant_id).await? {
+        let bound = thread.agent_id.as_deref();
+        if bound != Some(lead) && (bound.is_none() || bound == previous.as_deref()) {
+            repos
+                .chat
+                .set_conversation_agent_id(&thread.id, Some(lead), tenant_id)
+                .await?;
+        }
     }
     Ok(())
 }

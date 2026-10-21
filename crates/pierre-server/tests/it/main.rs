@@ -636,6 +636,8 @@ mod sync_failure_notice_test;
 mod synthetic_activities_onboarding_test;
 mod synthetic_activities_start_point_test;
 mod system_prompt_hot_reload_test;
+mod team_membership_migration_test;
+mod team_membership_test;
 mod telegram_bot_commands_test;
 mod telegram_issues_regression_test;
 mod tenant_context_resolution_test;

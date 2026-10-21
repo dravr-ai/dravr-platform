@@ -1,5 +1,5 @@
 // ABOUTME: The Agent Store is reachable from a chat turn — browse, search and install as MCP tools
-// ABOUTME: Content-asserting: real published agents through the executor, then a real installed copy
+// ABOUTME: Content-asserting: real published agents through the executor, then a real team membership
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,7 +15,7 @@
 //! These assert the fix by value, not by the existence of a registration:
 //! the three tools appear in the chat-callable schema set, browse returns the
 //! published agent by title, search finds it by a word from that title, and
-//! install leaves a real second row the athlete owns.
+//! install puts the catalogue agent itself on the athlete's team — no copy.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -249,7 +249,7 @@ async fn search_agent_store_matches_published_titles() -> Result<()> {
 }
 
 #[tokio::test]
-async fn install_agent_from_store_creates_the_athletes_own_copy() -> Result<()> {
+async fn install_agent_from_store_puts_the_catalogue_agent_on_the_team() -> Result<()> {
     let executor = create_executor().await?;
     let (author_id, tenant_id) = create_test_user(&executor).await?;
     let published = publish_agent(
@@ -265,6 +265,8 @@ async fn install_agent_from_store_creates_the_athletes_own_copy() -> Result<()> 
     let (installer_id, _user) =
         common::create_test_user_with_email(executor.resources.database(), &installer_email)
             .await?;
+    let repos = executor.resources.database().repositories();
+    let owned_before = repos.agents.count(installer_id, tenant_id).await?;
 
     let (events, _guard) = helpers::notify_capture::capture_notify();
     let payload = run(
@@ -278,6 +280,11 @@ async fn install_agent_from_store_creates_the_athletes_own_copy() -> Result<()> 
 
     assert_eq!(payload["installed"], true);
     assert_eq!(payload["agent"]["title"], "Ultra Trail Fuelling");
+    assert_eq!(
+        payload["message"],
+        "'Ultra Trail Fuelling' is now on your team. Activate it to start using it.",
+        "the reply says the agent joined the team, never that a copy was made"
+    );
 
     // `agent.installed` fires once, from the install service this tool
     // shares with the REST route and `/discover install`.
@@ -285,28 +292,28 @@ async fn install_agent_from_store_creates_the_athletes_own_copy() -> Result<()> 
     assert_eq!(installed.field("agent_slug"), published.to_string());
     assert_eq!(installed.field("user_id"), installer_id.to_string());
 
-    let copy_coach_id = payload["agent"]["id"]
-        .as_str()
-        .expect("the installed copy carries its own id");
-    assert_ne!(
-        copy_coach_id,
+    assert_eq!(
+        payload["agent"]["id"],
         published.to_string(),
-        "install must create the athlete's own copy, not hand back the listing row"
+        "a catalogue agent joins the team as itself, never as a copy"
+    );
+    assert_eq!(
+        repos.agents.count(installer_id, tenant_id).await?,
+        owned_before,
+        "installing a catalogue agent writes no agents row of the athlete's"
     );
 
-    // And the copy is really in the installer's library.
-    let installed = executor
-        .resources
-        .database()
-        .repositories()
+    // And the catalogue agent is really on the installer's team.
+    let installed = repos
         .store_listings
         .get_installed_agents(installer_id, tenant_id)
         .await?;
     assert_eq!(
         installed.len(),
         1,
-        "exactly the one installed coach is in the library"
+        "exactly the one installed coach is on the team"
     );
+    assert_eq!(installed[0].id, published);
     assert_eq!(installed[0].title, "Ultra Trail Fuelling");
     Ok(())
 }

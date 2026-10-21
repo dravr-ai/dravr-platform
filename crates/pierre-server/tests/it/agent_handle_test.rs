@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the agent catalogue handle on SQLite
-// ABOUTME: Approval assigns a unique @handle, installs carry it, and only installed agents resolve
+// ABOUTME: Approval assigns a unique @handle, and only agents on the athlete's team resolve it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -159,7 +159,7 @@ async fn approval_assigns_a_catalogue_unique_handle() {
 }
 
 #[tokio::test]
-async fn install_carries_the_handle_and_only_installers_resolve_it() {
+async fn install_puts_the_origin_on_the_team_and_only_members_resolve_its_handle() {
     let resources = create_test_server_resources().await.unwrap();
     let repos = &resources.common.repos;
     let (author_id, _author, author_tenant) =
@@ -181,14 +181,16 @@ async fn install_carries_the_handle_and_only_installers_resolve_it() {
     let origin = publish_agent(repos, author_id, author_tenant, "Recovery Coach").await;
     let handle = AgentHandle::parse("recovery-coach").unwrap();
 
-    // Installing across tenants copies the handle onto the athlete's row.
+    // Installing a catalogue agent across tenants puts the agent itself on
+    // the athlete's team: no copy, the origin's own id and handle.
     let installed = repos
         .store_listings
         .install_from_store(&origin.to_string(), athlete_id, athlete_tenant)
         .await
         .unwrap();
+    assert_eq!(installed.id, origin, "a catalogue install is never a copy");
+    assert_eq!(installed.forked_from, None);
     assert_eq!(installed.handle.as_deref(), Some("recovery-coach"));
-    assert_eq!(installed.forked_from, Some(origin));
 
     let listed = repos
         .store_listings
@@ -196,33 +198,43 @@ async fn install_carries_the_handle_and_only_installers_resolve_it() {
         .await
         .unwrap();
     assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, origin);
     assert_eq!(listed[0].handle.as_deref(), Some("recovery-coach"));
 
-    // The athlete resolves their own copy, not the catalogue origin.
+    // The athlete resolves the catalogue agent itself.
     let resolved = repos
         .agents
         .find_installed_by_handle(&handle, athlete_id, athlete_tenant)
         .await
         .unwrap()
-        .expect("installed coach resolves by handle");
-    assert_eq!(resolved.id, installed.id);
+        .expect("a coach on the team resolves by handle");
+    assert_eq!(resolved.id, origin);
     assert_eq!(resolved.title, "Recovery Coach");
 
     // A user who never installed it gets nothing, even though the catalogue
-    // lists the agent.
+    // lists the agent — and using it does not change that.
+    assert!(repos
+        .agents
+        .record_usage(&origin.to_string(), bystander_id, bystander_tenant)
+        .await
+        .unwrap());
     let none = repos
         .agents
         .find_installed_by_handle(&handle, bystander_id, bystander_tenant)
         .await
         .unwrap();
-    assert!(none.is_none(), "a non-installed coach must not resolve");
+    assert!(
+        none.is_none(),
+        "a coach the user only used is not on their team"
+    );
 
-    // Uninstalling withdraws the name.
-    repos
+    // Uninstalling — by the origin's id — withdraws the name.
+    let source = repos
         .store_listings
-        .uninstall_agent(&installed.id.to_string(), athlete_id, athlete_tenant)
+        .uninstall_agent(&origin.to_string(), athlete_id, athlete_tenant)
         .await
         .unwrap();
+    assert_eq!(source, origin.to_string());
     let gone = repos
         .agents
         .find_installed_by_handle(&handle, athlete_id, athlete_tenant)

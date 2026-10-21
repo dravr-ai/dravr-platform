@@ -353,15 +353,23 @@ pub const AGENT_POINTER_REWRITES: [&str; 9] = [
 
 /// The same rewrite for the two tables that hold one row per (athlete, agent).
 ///
-/// `agent_assignments` is the install and `user_agent_preferences` the
-/// hide/show flag; both carry a `UNIQUE` over the pair, so an athlete who
-/// holds the retired agent *and* its successor already has the successor's
-/// row and a plain `UPDATE` would collide on it. The `NOT EXISTS` leaves that
-/// athlete's row where it is, and the `ON DELETE CASCADE` then drops it with
-/// the retired agent — which is the right end state: they keep one install,
-/// not two. Correlated against the target table, so it reads the same on
+/// `agent_assignments` carries the team membership (`is_member`) with the
+/// usage counters, and `user_agent_preferences` the hide/show flag; both
+/// carry a `UNIQUE` over the pair, so an athlete who holds the retired agent
+/// *and* its successor already has the successor's row and a plain `UPDATE`
+/// would collide on it. The first statement carries a membership across
+/// first: an athlete who was a member of the retired agent and only a user of
+/// the successor becomes a member of the successor. The `NOT EXISTS` then
+/// leaves that athlete's successor row where it is, and the `ON DELETE
+/// CASCADE` drops the retired one with the agent — which is the right end
+/// state: they keep one row, not two. A row that moves keeps its own
+/// `is_member`. Correlated against the target table, so it reads the same on
 /// `SQLite` and `PostgreSQL`.
-pub const AGENT_POINTER_MERGES: [&str; 2] = [
+pub const AGENT_POINTER_MERGES: [&str; 3] = [
+    "UPDATE agent_assignments SET is_member = TRUE WHERE agent_id = $1 AND is_member = FALSE \
+     AND EXISTS (SELECT 1 FROM agent_assignments retired \
+                 WHERE retired.agent_id = $2 AND retired.user_id = agent_assignments.user_id \
+                 AND retired.is_member = TRUE)",
     "UPDATE agent_assignments SET agent_id = $1 WHERE agent_id = $2 \
      AND NOT EXISTS (SELECT 1 FROM agent_assignments held \
                      WHERE held.user_id = agent_assignments.user_id AND held.agent_id = $1)",
@@ -376,14 +384,23 @@ pub const AGENT_POINTER_MERGES: [&str; 2] = [
 /// paths keep, not a figure read off `agent_assignments` — and it is what the
 /// store screen prints to the athlete as "N installs". Handing installs over
 /// moves the rows without touching it, so the successor would advertise only
-/// the installs it held before the merge. Counting the rows also re-truths a
-/// listing whose counter had already drifted. `$1` is the successor.
+/// the installs it held before the merge. Counting re-truths a listing whose
+/// counter had already drifted: an install is a team membership of the agent
+/// itself (a usage-only row is not one) or a copy forked from it, exactly
+/// what every membership change and every copy install or uninstall count.
+/// The author's own row on an agent they wrote for themselves is not an
+/// install: it exists before any listing does. A catalogue agent's operator
+/// holds no such row, and joins its team by installing it like anyone. `$1`
+/// is the successor.
 ///
 /// (`agents` carries an `install_count` column of its own from the original
 /// store migration, but nothing has ever written or read it; the listing's is
 /// the live one.)
 pub const AGENT_INSTALL_COUNT_RESYNC: &str = "UPDATE store_listings SET install_count = \
-     (SELECT COUNT(*) FROM agent_assignments WHERE agent_id = $1) WHERE agent_id = $1";
+     (SELECT COUNT(*) FROM agent_assignments aa WHERE aa.agent_id = $1 AND aa.is_member = TRUE \
+      AND NOT EXISTS (SELECT 1 FROM agents own WHERE own.id = $1 AND own.user_id = aa.user_id \
+                  AND own.is_system = FALSE)) \
+     + (SELECT COUNT(*) FROM agents WHERE forked_from = $1) WHERE agent_id = $1";
 
 /// One `UPDATE` per athlete-side pointer that may name the agent by *slug*.
 ///

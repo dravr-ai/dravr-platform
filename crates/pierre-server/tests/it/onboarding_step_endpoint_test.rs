@@ -1,5 +1,5 @@
 // ABOUTME: HTTP tests for PUT /api/me/onboarding/steps/{step_id} — status (incl. not_applicable) + chosen_channel validation
-// ABOUTME: Pins the slug guard, and that the coach-only answer clears the account's own selected agent
+// ABOUTME: Pins the slug guard, the coach-only answer clearing the selected agent, and the proposal's lead becoming it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -331,4 +331,236 @@ async fn an_athletes_answer_keeps_the_selected_agent() {
 
     let selected = tenants.get_selected_agent(tenant, user_id).await.unwrap();
     assert_eq!(selected, held, "an athlete keeps the agent they hold");
+}
+
+// ============================================================================
+// The proposal's lead becomes the selected agent (carnet#1101)
+// ============================================================================
+
+async fn put_proposal(router: &axum::Router, token: &str, body: serde_json::Value) -> StatusCode {
+    AxumTestRequest::put("/api/me/onboarding/steps/coach_proposal")
+        .header("Authorization", token)
+        .json(&body)
+        .send(router.clone())
+        .await
+        .status_code()
+}
+
+/// Start and Skip both send the lead with the step write, and it replaces the
+/// starter signup selected, so Home, a new thread and the DM answer with the
+/// agent the athlete was proposed. A write with no lead (the error state's
+/// Continue) leaves the selection alone.
+#[tokio::test]
+async fn start_and_skip_make_the_proposals_lead_the_selected_agent() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let tenants = Arc::clone(&resources.agent.database.repositories().tenants);
+    let tempo = system_agent(&resources, user_id, tenant, "Tempo Coach", vec![]).await;
+    let hills = system_agent(&resources, user_id, tenant, "Hill Coach", vec![]).await;
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "complete", "agent_id": tempo })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
+        Some(tempo.clone()),
+        "Start makes the tapped lead the selected agent"
+    );
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "skipped", "agent_id": hills })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
+        Some(hills.clone()),
+        "Skip makes the proposed lead the selected agent"
+    );
+
+    assert_eq!(
+        put_proposal(&router, &token, json!({ "status": "complete" })).await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
+        Some(hills),
+        "a step write with no lead keeps the selection"
+    );
+}
+
+/// The personal thread the athlete lands on answers with the lead when it
+/// still runs on the agent that was selected before; a thread the athlete had
+/// already pointed at another agent keeps it.
+#[tokio::test]
+async fn the_personal_thread_follows_the_lead_unless_the_athlete_moved_it() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let repos = resources.agent.database.repositories();
+    let starter = repos
+        .tenants
+        .get_selected_agent(tenant, user_id)
+        .await
+        .unwrap()
+        .expect("the fixture selects an agent");
+    let thread = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            "Home",
+            "test-model",
+            Some(&starter),
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+    let tempo = system_agent(&resources, user_id, tenant, "Tempo Coach", vec![]).await;
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "skipped", "agent_id": tempo })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    let rebound = repos
+        .chat
+        .get_conversation(&thread, &user_id.to_string(), tenant)
+        .await
+        .unwrap()
+        .expect("the thread exists");
+    assert_eq!(rebound.agent_id.as_deref(), Some(tempo.as_str()));
+
+    // The athlete points the thread at an agent of their own choosing.
+    let hills = system_agent(&resources, user_id, tenant, "Hill Coach", vec![]).await;
+    let mine = system_agent(&resources, user_id, tenant, "My Pick", vec![]).await;
+    repos
+        .chat
+        .set_conversation_agent_id(&thread, Some(&mine), tenant)
+        .await
+        .unwrap();
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "complete", "agent_id": hills })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    let kept = repos
+        .chat
+        .get_conversation(&thread, &user_id.to_string(), tenant)
+        .await
+        .unwrap()
+        .expect("the thread exists");
+    assert_eq!(
+        kept.agent_id.as_deref(),
+        Some(mine.as_str()),
+        "a thread the athlete moved keeps its agent"
+    );
+    assert_eq!(
+        repos
+            .tenants
+            .get_selected_agent(tenant, user_id)
+            .await
+            .unwrap(),
+        Some(hills),
+        "the selection still takes the lead"
+    );
+}
+
+/// The step write is never an unguarded setter: an agent the athlete cannot
+/// read is not found, a coach-facing one is refused as `/agent add` refuses
+/// it, and either way the selection is untouched.
+#[tokio::test]
+async fn a_lead_the_athlete_cannot_be_given_is_refused() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let tenants = Arc::clone(&resources.agent.database.repositories().tenants);
+    let held = tenants.get_selected_agent(tenant, user_id).await.unwrap();
+    let coach_tool = system_agent(
+        &resources,
+        user_id,
+        tenant,
+        "Roster Agent",
+        vec![Agent::COACH_TOOL_TAG.to_owned()],
+    )
+    .await;
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "complete", "agent_id": Uuid::new_v4().to_string() })
+        )
+        .await,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "complete", "agent_id": coach_tool })
+        )
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
+        held
+    );
+    let steps = resources
+        .agent
+        .database
+        .repositories()
+        .user_onboarding
+        .get_onboarding_steps(&user_id.to_string())
+        .await
+        .unwrap();
+    assert!(
+        steps.iter().all(|step| step.step_id != "coach_proposal"),
+        "a refused lead leaves the step unwritten"
+    );
+}
+
+/// A coach who does not train keeps nothing selected: their own thread
+/// resolves the roster agent from that answer, and a proposal's lead does not
+/// read them as an athlete.
+#[tokio::test]
+async fn a_coach_who_does_not_train_is_not_given_the_lead() {
+    let (resources, router, token, user_id, tenant) = user_with_selected_agent().await;
+    let tenants = Arc::clone(&resources.agent.database.repositories().tenants);
+    let tempo = system_agent(&resources, user_id, tenant, "Tempo Coach", vec![]).await;
+    let resp = AxumTestRequest::put("/api/me/onboarding/steps/about_you")
+        .header("Authorization", &token)
+        .json(&json!({ "status": "not_applicable" }))
+        .send(router.clone())
+        .await;
+    assert_eq!(resp.status_code(), StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        put_proposal(
+            &router,
+            &token,
+            json!({ "status": "complete", "agent_id": tempo })
+        )
+        .await,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        tenants.get_selected_agent(tenant, user_id).await.unwrap(),
+        None
+    );
 }

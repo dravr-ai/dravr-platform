@@ -575,13 +575,41 @@ macro_rules! impl_store_listings_repository {
                     )));
                 }
 
-                // The copy is a personal agent: no store fields, private, not system.
                 let now = Utc::now();
+                if source.agent.is_system {
+                    // A catalogue agent joins the team as itself: no copy, so
+                    // the athlete runs the live agent. A usage row they already
+                    // hold becomes the membership, counters kept.
+                    let joined = sqlx::query(SELF_ASSIGN_SQL)
+                        .bind(Uuid::new_v4().to_string())
+                        .bind(source_agent_id)
+                        .bind($ids::bind(user_id))
+                        .bind(now)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to create coach assignment: {e}"))
+                        })?;
+                    if joined.rows_affected() > 0 {
+                        self.increment_install_count(source_agent_id).await?;
+                    }
+                    return Ok(source.agent);
+                }
+
+                // Another tenant's published agent is installed as the copy
+                // that was reviewed: its author's later edits do not reach
+                // this tenant unreviewed. The copy is a personal agent: no
+                // store fields, private, not system.
                 let id = Uuid::new_v4().to_string();
                 let tags_json = serde_json::to_string(&source.agent.tags)?;
                 let sample_prompts_json = serde_json::to_string(&source.agent.sample_prompts)?;
                 let prerequisites_json = serde_json::to_string(&source.agent.prerequisites)?;
 
+                let mut tx = self
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to begin install: {e}")))?;
                 sqlx::query(INSTALL_AGENT_SQL)
                     .bind(&id)
                     .bind($ids::bind(user_id))
@@ -598,7 +626,7 @@ macro_rules! impl_store_listings_repository {
                     .bind(&prerequisites_json)
                     .bind(source_agent_id)
                     .bind(&source.agent.handle)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("Failed to install coach: {e}")))?;
 
@@ -607,13 +635,23 @@ macro_rules! impl_store_listings_repository {
                     .bind(&id)
                     .bind($ids::bind(user_id))
                     .bind(now)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to create coach assignment: {e}"))
                     })?;
 
-                self.increment_install_count(source_agent_id).await?;
+                sqlx::query(INCREMENT_INSTALLS_SQL)
+                    .bind(now)
+                    .bind(source_agent_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to increment install count: {e}"))
+                    })?;
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to commit install: {e}")))?;
 
                 let row = sqlx::query(INSTALLED_AGENT_SQL)
                     .bind(&id)
@@ -633,29 +671,44 @@ macro_rules! impl_store_listings_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
             ) -> AppResult<String> {
-                let row = sqlx::query(OWNED_AGENT_ORIGIN_SQL)
+                let owned = sqlx::query(OWNED_AGENT_ORIGIN_SQL)
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
                     .bind(tenant_id)
                     .fetch_optional(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to get coach: {e}")))?
-                    .ok_or_else(|| AppError::not_found(format!("Coach {agent_id}")))?;
+                    .map_err(|e| AppError::database(format!("Failed to get coach: {e}")))?;
 
+                let Some(row) = owned else {
+                    // Not theirs: a membership on the origin itself.
+                    let left = sqlx::query(LEAVE_MEMBERSHIP_SQL)
+                        .bind(agent_id)
+                        .bind($ids::bind(user_id))
+                        .bind(tenant_id)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to uninstall coach: {e}"))
+                        })?;
+                    if left.rows_affected() == 0 {
+                        return Err(AppError::not_found(format!("Coach {agent_id}")));
+                    }
+                    self.decrement_install_count(agent_id).await?;
+                    return Ok(agent_id.to_owned());
+                };
+
+                // Their own agent: only a copy (a fork, or another tenant's
+                // reviewed agent) is uninstalled, by deleting it.
                 let source_id: Option<String> = column(&row, "forked_from")?;
                 let source_id = source_id.ok_or_else(|| {
                     AppError::invalid_input("This agent was not installed from the Store")
                 })?;
 
-                sqlx::query(DELETE_OWNED_AGENT_SQL)
-                    .bind(agent_id)
-                    .bind($ids::bind(user_id))
-                    .bind(tenant_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to uninstall coach: {e}")))?;
-
-                self.decrement_install_count(&source_id).await?;
+                // Deleting the copy hands what ran on it to the origin and
+                // gives the origin back the install the copy counted.
+                if !AgentsRepository::delete(self, agent_id, user_id, tenant_id).await? {
+                    return Err(AppError::not_found(format!("Coach {agent_id}")));
+                }
 
                 Ok(source_id)
             }

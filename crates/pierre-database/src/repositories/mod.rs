@@ -28,6 +28,8 @@ pub(crate) mod agent_rows;
 pub mod agents;
 /// The one `AgentsRepository` body, emitted per backend.
 pub(crate) mod agents_backend;
+/// The fork and delete bodies of `AgentsRepository`, emitted per backend.
+pub(crate) mod agents_lifecycle_backend;
 /// Shared statements, row decode and body for API-key and JWT usage accounting both backends serve.
 pub mod analytics;
 /// Repository trait for API keys.

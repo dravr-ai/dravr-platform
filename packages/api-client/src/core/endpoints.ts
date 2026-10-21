@@ -102,6 +102,8 @@ export const ENDPOINTS = {
     VERSION_REVERT: (id: string, version: number) => `/api/agents/${id}/versions/${version}/revert`,
     /** Submit the caller's own coach to the Store review queue */
     SUBMIT: (id: string) => `/api/agents/${id}/submit`,
+    /** Fork a team coach into the caller's own editable copy */
+    FORK: (id: string) => `/api/agents/${id}/fork`,
   },
 
   // ==================== OAUTH ====================

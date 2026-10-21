@@ -106,7 +106,7 @@ export function useMessagingOnboarding(
 
   const persist = useCallback(
     (stepId: 'messaging_channel' | 'messaging_configure', status: 'complete' | 'skipped', channel?: string) => {
-      void userApi.setOnboardingStep(stepId, status, channel).catch(() => {});
+      void userApi.setOnboardingStep(stepId, status, { chosenChannel: channel }).catch(() => {});
     },
     [],
   );

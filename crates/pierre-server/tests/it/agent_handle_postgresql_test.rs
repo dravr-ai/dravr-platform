@@ -109,7 +109,7 @@ async fn publish_agent(db: &Database, author_id: Uuid, tenant_id: TenantId, titl
 }
 
 #[tokio::test]
-async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
+async fn test_pg_handle_is_assigned_and_resolved_for_team_members_only() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
 
@@ -154,15 +154,17 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
         "expected idx_agents_handle violation, got: {err}"
     );
 
-    // Cross-tenant install copies the handle onto the athlete's row.
+    // A cross-tenant install of a catalogue agent puts the origin itself on
+    // the athlete's team: no copy, the origin's id and handle.
     let handle = AgentHandle::parse("tempo-coach").unwrap();
     let installed = repos
         .store_listings
         .install_from_store(&first.to_string(), athlete_id, athlete_tenant)
         .await
         .unwrap();
+    assert_eq!(installed.id, first, "a catalogue install is never a copy");
+    assert_eq!(installed.forked_from, None);
     assert_eq!(installed.handle.as_deref(), Some("tempo-coach"));
-    assert_eq!(installed.forked_from, Some(first));
 
     let resolved = repos
         .agents
@@ -173,18 +175,26 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
     assert_eq!(resolved.id, installed.id);
     assert_eq!(resolved.title, "Tempo Coach");
 
+    // Using the coach is not joining the team, on the BOOLEAN column too.
+    let bystander_tenant = seed_pg_tenant(&db, bystander_id).await;
+    assert!(repos
+        .agents
+        .record_usage(&first.to_string(), bystander_id, bystander_tenant)
+        .await
+        .unwrap());
     let none = repos
         .agents
-        .find_installed_by_handle(&handle, bystander_id, TenantId::generate())
+        .find_installed_by_handle(&handle, bystander_id, bystander_tenant)
         .await
         .unwrap();
-    assert!(none.is_none(), "a non-installed coach must not resolve");
+    assert!(none.is_none(), "a coach only used must not resolve");
 
-    repos
+    let source = repos
         .store_listings
-        .uninstall_agent(&installed.id.to_string(), athlete_id, athlete_tenant)
+        .uninstall_agent(&first.to_string(), athlete_id, athlete_tenant)
         .await
         .unwrap();
+    assert_eq!(source, first.to_string());
     assert!(repos
         .agents
         .find_installed_by_handle(&handle, athlete_id, athlete_tenant)
@@ -195,7 +205,7 @@ async fn test_pg_handle_is_assigned_copied_and_resolved_for_installers_only() {
 
 /// `/discover install @handle` resolves the handle against the catalogue on
 /// PG exactly as on `SQLite`: the origin agent that owns it, only while its
-/// listing is published — never an athlete's installed copy.
+/// listing is published.
 #[tokio::test]
 async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() {
     let db = create_test_db().await.unwrap();
@@ -219,13 +229,14 @@ async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() 
     assert_eq!(listed.agent.handle.as_deref(), Some("fuel-coach"));
     assert_eq!(listed.agent.title, "Fuel Coach");
 
-    // The athlete's copy carries the handle as a reference; the catalogue
-    // entry stays the origin.
+    // Installing puts the origin on the athlete's team; the catalogue entry
+    // stays the origin.
     let installed = repos
         .store_listings
         .install_from_store(&origin.to_string(), athlete_id, athlete_tenant)
         .await
         .unwrap();
+    assert_eq!(installed.id, origin);
     assert_eq!(installed.handle.as_deref(), Some("fuel-coach"));
     let still_origin = repos
         .store_listings
@@ -235,7 +246,7 @@ async fn test_pg_find_published_by_handle_resolves_the_origin_while_published() 
         .unwrap();
     assert_eq!(
         still_origin.agent.id, origin,
-        "an installed copy never resolves"
+        "the catalogue handle resolves the origin"
     );
 
     let unknown = AgentHandle::parse("nobody-here").unwrap();

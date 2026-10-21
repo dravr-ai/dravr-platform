@@ -255,12 +255,15 @@ pub async fn search_store(
     Ok(agents.into_iter().map(StoreAgent::from).collect())
 }
 
-/// Install a published agent, creating the caller's own copy.
+/// Install a published agent: put it on the caller's team.
 ///
-/// The returned [`StoreAgent`] describes that copy: it has no listing of its
+/// A catalogue (system) agent is never copied — the caller becomes a member
+/// of the agent itself, so they run the live agent — and the returned
+/// [`StoreAgent`] is that agent with its listing (its id, handle and install
+/// count, this install included). Another tenant's published agent is
+/// installed as the caller's private copy of the reviewed version; the
+/// returned [`StoreAgent`] describes that copy, which has no listing of its
 /// own, so `install_count` is 0 and the listing-only fields are absent.
-///
-/// LIMITATION(registre#1096): `install_store_agent` copies a system agent into a private row whose prompt never refreshes.
 ///
 /// # Errors
 ///
@@ -309,6 +312,13 @@ pub async fn install_store_agent(
         agent_slug = %agent_id,
         "coach installed from store"
     );
+
+    if installed.forked_from.is_none() {
+        // The origin itself: describe it with its listing, as the Store does.
+        if let Some(listed) = repos.store_listings.get_published_agent(agent_id).await? {
+            return Ok(StoreAgent::from(listed));
+        }
+    }
 
     Ok(StoreAgent {
         id: installed.id,

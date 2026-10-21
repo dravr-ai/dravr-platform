@@ -33,8 +33,12 @@ export interface OnboardingState {
   completeParq: (status?: 'complete' | 'skipped') => void;
   /** The check-in cadence chosen (stored by the step) or skipped — persist + advance. */
   completeCheckIn: (status: 'complete' | 'skipped') => void;
-  /** Coach proposal dismissed/accepted — persist + advance to the dashboard. */
-  completeCoachProposal: () => void;
+  /**
+   * Coach proposal dismissed/accepted — persist + advance to the dashboard.
+   * `leadAgentId` is the agent the athlete started with (the first proposed one
+   * on Skip); the server makes it their selected agent. None when no proposal loaded.
+   */
+  completeCoachProposal: (leadAgentId?: string) => void;
   /** The coach's group step finished (`complete`) or put off (`skipped`) — persist + advance. */
   completeCoachGroup: (status: 'complete' | 'skipped') => void;
   /** Continue past the connect step once a first provider is connected this session. */
@@ -228,9 +232,9 @@ export function useOnboardingState(): OnboardingState {
     (
       stepId: string,
       status: 'complete' | 'skipped' | 'not_applicable',
-      chosenChannel?: string,
+      options?: { chosenChannel?: string; agentId?: string },
     ) => {
-      void userApi.setOnboardingStep(stepId, status, chosenChannel).catch(() => {});
+      void userApi.setOnboardingStep(stepId, status, options).catch(() => {});
     },
     [],
   );
@@ -249,12 +253,15 @@ export function useOnboardingState(): OnboardingState {
     [athleteStepsWaivedKey, profileTypeKey, persistStep],
   );
 
-  const completeCoachProposal = useCallback(() => {
-    if (coachProposalKey) localStorage.setItem(coachProposalKey, '1');
-    setCoachProposalDoneLocal(true);
-    setJustOnboarded(false);
-    persistStep('coach_proposal', 'complete');
-  }, [coachProposalKey, persistStep]);
+  const completeCoachProposal = useCallback(
+    (leadAgentId?: string) => {
+      if (coachProposalKey) localStorage.setItem(coachProposalKey, '1');
+      setCoachProposalDoneLocal(true);
+      setJustOnboarded(false);
+      persistStep('coach_proposal', 'complete', { agentId: leadAgentId });
+    },
+    [coachProposalKey, persistStep],
+  );
 
   const completeCoachGroup = useCallback(
     (status: 'complete' | 'skipped') => {
@@ -298,7 +305,7 @@ export function useOnboardingState(): OnboardingState {
   const chooseChannel = useCallback(
     (channel: string) => {
       setChosenChannelLocal(channel);
-      persistStep('messaging_channel', 'complete', channel);
+      persistStep('messaging_channel', 'complete', { chosenChannel: channel });
     },
     [persistStep],
   );

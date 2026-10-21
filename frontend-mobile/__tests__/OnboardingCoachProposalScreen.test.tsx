@@ -142,8 +142,11 @@ describe('OnboardingCoachProposalScreen', () => {
     expect(mockRecordUsage).toHaveBeenCalledTimes(1);
     expect(mockRecordUsage).toHaveBeenCalledWith('coach-trail');
     expect(mockMarkSeen).toHaveBeenCalledTimes(1);
-    // The server row too, which every surface's gate reads (carnet#1042).
-    expect(mockSetOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete');
+    // The server row too, which every surface's gate reads (carnet#1042),
+    // carrying the coach the server makes the athlete's agent (carnet#1101).
+    expect(mockSetOnboardingStep).toHaveBeenCalledWith('coach_proposal', 'complete', {
+      agentId: 'coach-trail',
+    });
     expect(mockOpenPersonalTopic).toHaveBeenCalledTimes(1);
     expect(mockOpenPersonalTopic).toHaveBeenCalledWith({ agent_id: 'coach-trail' });
     expect(mockRouter.push).toHaveBeenCalledWith({

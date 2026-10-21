@@ -5,6 +5,7 @@
 // ABOUTME: A modal over whatever mounted it; the caller owns the form state and the save/delete requests
 
 import {
+  COACH_CATEGORY_LABEL_KEY,
   MIN_MAX_TOOL_ITERATIONS,
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
@@ -134,19 +135,15 @@ export default function CoachFormModal({
               }
             />
 
+            {/* The value is the category slug the API stores; only the label is translated. */}
             <Select
               label={t('chat.categoryLabel')}
               value={formData.category}
               onChange={(e) => onFormDataChange({ ...formData, category: e.target.value })}
-              options={[
-                { value: t('chat.categoryTraining'), label: t('chat.categoryTraining') },
-                { value: t('chat.categoryNutrition'), label: t('chat.categoryNutrition') },
-                { value: t('chat.categoryRecovery'), label: t('chat.categoryRecovery') },
-                { value: t('chat.categoryRecipes'), label: t('chat.categoryRecipes') },
-                { value: t('chat.categoryMobility'), label: t('chat.categoryMobility') },
-                { value: t('chat.categoryAnalysis'), label: t('chat.categoryAnalysis') },
-                { value: t('chat.categoryCustom'), label: t('chat.categoryCustom') },
-              ]}
+              options={Object.entries(COACH_CATEGORY_LABEL_KEY).map(([slug, labelKey]) => ({
+                value: slug,
+                label: t(labelKey),
+              }))}
             />
 
             {/* Data Context Section */}

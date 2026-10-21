@@ -21,6 +21,7 @@ jest.mock('../src/services/api', () => ({
     get: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    fork: jest.fn(),
     recordUsage: jest.fn(),
   },
   oauthApi: {
@@ -31,6 +32,9 @@ jest.mock('../src/services/api', () => ({
     browse: jest.fn(),
     search: jest.fn(),
     get: jest.fn(),
+    install: jest.fn(),
+    uninstall: jest.fn(),
+    getInstallations: jest.fn(),
   },
   userApi: {
     getMcpTokens: jest.fn(),
@@ -97,6 +101,10 @@ describe('API Service', () => {
       expect(typeof coachesApi.delete).toBe('function');
     });
 
+    it('should have fork method', () => {
+      expect(typeof coachesApi.fork).toBe('function');
+    });
+
     it('should have recordUsage method', () => {
       expect(typeof coachesApi.recordUsage).toBe('function');
     });
@@ -105,6 +113,12 @@ describe('API Service', () => {
   describe('storeApi methods', () => {
     it('should have browse method', () => {
       expect(typeof storeApi.browse).toBe('function');
+    });
+
+    it('should have the install, uninstall and installations methods', () => {
+      expect(typeof storeApi.install).toBe('function');
+      expect(typeof storeApi.uninstall).toBe('function');
+      expect(typeof storeApi.getInstallations).toBe('function');
     });
   });
 

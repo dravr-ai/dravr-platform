@@ -48,7 +48,9 @@ mod agent_alias {
     use crate::common::{
         create_test_server_resources, create_test_server_resources_with_chat_provider,
     };
-    use crate::helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
+    use crate::helpers::agent_fixtures::{
+        install_catalogue_agent, publish_catalogue_agent, select_own_agent,
+    };
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::command_e2e::{commands_dir, CommandE2e, Member, RouterLlm};
     use dravr_canot::commands::{CommandDefinition, CommandMatcher, CommandRegistry};
@@ -394,7 +396,8 @@ mod agent_alias {
     }
 
     /// Publish "Recovery Coach" under a fresh author and install it for the
-    /// athlete; the installed copy answers to `@recovery-agent`.
+    /// athlete; the catalogue agent itself joins their team and answers to
+    /// `@recovery-coach`.
     async fn install_recovery_agent(
         resources: &Arc<ServerContext>,
         user_id: Uuid,
@@ -756,7 +759,7 @@ mod agent_alias {
                 .await
                 .as_deref(),
             Some(installed.as_str()),
-            "/coach add bound its conversation to the same installed copy"
+            "/coach add bound its conversation to the same installed agent"
         );
         assert_eq!(
             selected_agent(&resources, user_id, tenant_id)
@@ -1185,6 +1188,15 @@ mod agent_alias {
 
         let author = e2e.linked_member(false).await;
         let member = e2e.linked_member(false).await;
+        // The thread must not already know the agent under test: without a
+        // selection of their own, the DM falls back to the newest catalogue
+        // agent — which, installed as itself, is that very agent.
+        select_own_agent(
+            &e2e.resources.common.repos,
+            member.user_id,
+            member.home_tenant,
+        )
+        .await;
         let origin = publish_catalogue_agent(
             &e2e.resources.common.repos,
             author.user_id,

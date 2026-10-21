@@ -385,6 +385,10 @@ pub struct SetOnboardingStepRequest {
     /// For the `messaging_channel` step: the messaging app the user chose.
     #[serde(default)]
     pub chosen_channel: Option<String>,
+    /// For the `coach_proposal` step: the lead agent the proposal offered,
+    /// sent on Start and on Skip; it becomes the athlete's selected agent.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 /// `PUT /api/me/onboarding/steps/{step_id}` — persist a step's completion status.
@@ -398,7 +402,8 @@ pub struct SetOnboardingStepRequest {
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, the step id or status is not
-/// recognised, `chosen_channel` is too long, or persistence fails.
+/// recognised, `chosen_channel` is too long, the `coach_proposal` lead is an
+/// agent the athlete cannot be given, or persistence fails.
 pub async fn handle_step_put(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -430,6 +435,19 @@ pub async fn handle_step_put(
         }
         Some(c) => Some(c),
     };
+    // The lead is checked before the step is written, so a refused lead
+    // leaves no half-made write behind.
+    if let Some(active_tenant) = auth.active_tenant_id {
+        intake::select_onboarding_lead(
+            &resources.common.repos,
+            auth.user_id,
+            TenantId::from_uuid(active_tenant),
+            &step_id,
+            &req.status,
+            req.agent_id.as_deref(),
+        )
+        .await?;
+    }
     let tenant_id = auth.active_tenant_id.map(|t| t.to_string());
     resources
         .common

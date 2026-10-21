@@ -395,9 +395,10 @@ mod discover_over_messaging {
         publish_catalogue_agent(repos, author_id, author_tenant, "Tempo Coach", "You pace.").await;
         let router = MessagingRoutes::routes(Arc::clone(&resources));
 
-        // Over the wire: the webhook dispatches the install and the copy lands.
+        // Over the wire: the webhook dispatches the install and the
+        // catalogue agent joins the athlete's team as itself.
         webhook(&router, &athlete, "/discover install @recovery-coach", 2).await;
-        let copy = repos
+        let member = repos
             .agents
             .find_installed_by_handle(
                 &AgentHandle::parse("recovery-coach").unwrap(),
@@ -407,7 +408,7 @@ mod discover_over_messaging {
             .await
             .unwrap()
             .expect("installed from the Telegram DM");
-        assert_eq!(copy.forked_from, Some(recovery));
+        assert_eq!(member.id, recovery, "installed as itself, never as a copy");
 
         // The DM keeps the hint the athlete read, with its one button.
         let history = transcript(&resources, &athlete).await;
@@ -461,7 +462,11 @@ mod discover_over_messaging {
             .get_installed_agents(athlete.user_id, athlete.tenant_id)
             .await
             .unwrap();
-        assert_eq!(library.len(), 2, "one copy of each, none twice");
+        assert_eq!(
+            library.len(),
+            2,
+            "each catalogue agent on the team once, none twice"
+        );
     }
 
     #[tokio::test]

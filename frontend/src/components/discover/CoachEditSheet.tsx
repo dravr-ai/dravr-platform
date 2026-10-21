@@ -22,7 +22,7 @@ import { describeApiError } from '@pierre/ui-logic';
 const coachKey = (agentId: string) => [...QUERY_KEYS.coaches.all, 'coach', agentId] as const;
 
 export interface AgentEditSheetProps {
-  /** The athlete's own agent — a personal agent or a copy installed from the store. */
+  /** The athlete's own agent — a personal agent, or a copy forked from a Store agent on the team on its first edit. */
   agentId: string;
   /** Called when the sheet is done: after a save, after a delete, or on cancel. */
   onClose: () => void;

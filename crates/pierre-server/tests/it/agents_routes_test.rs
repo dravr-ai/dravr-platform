@@ -18,6 +18,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::TenantId;
 use pierre_database::database::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
+use pierre_database::database::Agent;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::agents::{AgentResponse, ListAgentsResponse, RecordUsageResponse};
 use pierre_routes_agents::build_agents_router;
@@ -171,6 +172,11 @@ async fn test_update_agent() {
         .await;
 
     assert_eq!(update_response.status_code(), StatusCode::OK);
+    let updated: AgentResponse = update_response.json();
+    assert!(
+        updated.is_assigned,
+        "the owner's edited agent is still on their team in the PUT answer"
+    );
 
     // Verify the update
     let get_response = AxumTestRequest::get(&format!("/api/agents/{}", created.id))
@@ -803,4 +809,194 @@ async fn test_version_history_diff_against_current_and_lossless_revert() {
             .assert_status(StatusCode::OK)
             .json();
     assert_eq!(clean["changes"].as_array().unwrap().len(), 0);
+}
+
+// ============================================================================
+// Fork on edit (carnet#1096)
+// ============================================================================
+
+/// A catalogue agent another user wrote, visible to every athlete.
+async fn catalogue_agent(seed: &Seed, tags: Vec<String>) -> String {
+    let (author_id, _author) =
+        create_test_user_with_email(&seed.resources.agent.database, "catalogue-author@test.com")
+            .await
+            .unwrap();
+    let author_tenant = seed
+        .resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(author_id)
+        .await
+        .unwrap()[0]
+        .id;
+    seed.resources
+        .common
+        .repos
+        .agents
+        .create_system_agent(
+            author_id,
+            author_tenant,
+            &CreateSystemAgentRequest {
+                title: "Catalogue Coach".to_owned(),
+                description: Some("Paces tempo runs.".to_owned()),
+                system_prompt: "You are the catalogue coach.".to_owned(),
+                category: AgentCategory::Training,
+                tags,
+                visibility: AgentVisibility::Tenant,
+                sample_prompts: vec!["Pace my tempo".to_owned()],
+            },
+        )
+        .await
+        .unwrap()
+        .id
+        .to_string()
+}
+
+/// Editing a catalogue agent starts with a fork: 201 with the athlete's own
+/// copy, already on their team with the uses their row carried.
+#[tokio::test]
+async fn test_fork_returns_the_athletes_copy_on_their_team() {
+    let (router, auth_token, seed) = setup_test_environment().await;
+    let origin = catalogue_agent(&seed, vec!["tempo".to_owned()]).await;
+    assert!(seed
+        .resources
+        .common
+        .repos
+        .agents
+        .record_usage(&origin, seed.user_id, seed.tenant_id)
+        .await
+        .unwrap());
+
+    let response = AxumTestRequest::post(&format!("/api/agents/{origin}/fork"))
+        .header("authorization", &auth_token)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    let copy: AgentResponse = response.json();
+    assert_ne!(copy.id, origin);
+    assert_eq!(copy.forked_from.as_deref(), Some(origin.as_str()));
+    assert_eq!(copy.title, "Catalogue Coach");
+    assert!(!copy.is_system);
+    assert!(copy.is_assigned, "the copy is on the athlete's team");
+    assert_eq!(copy.use_count, 1, "the athlete's row moved onto the copy");
+
+    // The copy is theirs to edit.
+    let edit = AxumTestRequest::put(&format!("/api/agents/{}", copy.id))
+        .header("authorization", &auth_token)
+        .json(&json!({ "title": "My Tempo Coach", "system_prompt": "You pace me." }))
+        .send(router.clone())
+        .await;
+    assert_eq!(edit.status_code(), StatusCode::OK);
+
+    // Reading either agent back says which one is on the team.
+    let read = |id: String| {
+        AxumTestRequest::get(&format!("/api/agents/{id}"))
+            .header("authorization", &auth_token)
+            .send(router.clone())
+    };
+    let copy_read: AgentResponse = read(copy.id.clone()).await.json();
+    assert!(copy_read.is_assigned, "the copy reads as on the team");
+    let origin_read: AgentResponse = read(origin.clone()).await.json();
+    assert!(
+        !origin_read.is_assigned,
+        "the origin's row moved to the copy"
+    );
+
+    // Forking again hands back the same copy.
+    let again: AgentResponse = AxumTestRequest::post(&format!("/api/agents/{origin}/fork"))
+        .header("authorization", &auth_token)
+        .send(router)
+        .await
+        .json();
+    assert_eq!(again.id, copy.id);
+}
+
+#[tokio::test]
+async fn test_fork_of_an_unknown_agent_is_not_found() {
+    let (router, auth_token, _seed) = setup_test_environment().await;
+    let response = AxumTestRequest::post(&format!("/api/agents/{}/fork", Uuid::new_v4()))
+        .header("authorization", &auth_token)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+}
+
+/// A coach-facing agent is refused to an athlete here as everywhere it binds.
+#[tokio::test]
+async fn test_fork_of_a_coach_facing_agent_is_refused_to_an_athlete() {
+    let (router, auth_token, seed) = setup_test_environment().await;
+    let origin = catalogue_agent(
+        &seed,
+        vec![Agent::COACH_TOOL_TAG.to_owned(), "roster".to_owned()],
+    )
+    .await;
+    let response = AxumTestRequest::post(&format!("/api/agents/{origin}/fork"))
+        .header("authorization", &auth_token)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        seed.resources
+            .common
+            .repos
+            .agents
+            .count(seed.user_id, seed.tenant_id)
+            .await
+            .unwrap(),
+        0,
+        "nothing was copied"
+    );
+}
+
+#[tokio::test]
+async fn test_fork_without_authentication_is_unauthorized() {
+    let (router, _auth_token, seed) = setup_test_environment().await;
+    let origin = catalogue_agent(&seed, vec![]).await;
+    let response = AxumTestRequest::post(&format!("/api/agents/{origin}/fork"))
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::UNAUTHORIZED);
+}
+
+/// A PUT on an agent the athlete can see but does not own is a 404 that
+/// writes nothing — no version row is left on the owner's history.
+#[tokio::test]
+async fn test_update_of_an_agent_the_athlete_does_not_own_is_not_found_and_leaves_no_version() {
+    let (router, auth_token, seed) = setup_test_environment().await;
+    let origin = catalogue_agent(&seed, vec![]).await;
+    let repos = &seed.resources.common.repos;
+    let owner_tenant = TenantId::parse_str(
+        &repos
+            .agents
+            .get_by_id(&origin, seed.user_id, seed.tenant_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .tenant_id,
+    )
+    .unwrap();
+    let before = repos
+        .agents
+        .get_versions(&origin, owner_tenant, 50)
+        .await
+        .unwrap()
+        .len();
+
+    let response = AxumTestRequest::put(&format!("/api/agents/{origin}"))
+        .header("authorization", &auth_token)
+        .json(&json!({ "title": "Hijacked", "system_prompt": "You are someone else." }))
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        repos
+            .agents
+            .get_versions(&origin, owner_tenant, 50)
+            .await
+            .unwrap()
+            .len(),
+        before,
+        "the refused edit snapshots no version"
+    );
 }

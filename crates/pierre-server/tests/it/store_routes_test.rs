@@ -16,12 +16,13 @@ use common::{
 };
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
-use pierre_core::models::TenantId;
+use pierre_core::models::{CreateGroupRequest, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::database::agents::{
-    AgentCategory, AgentVisibility, CreateSystemAgentRequest, PublishStatus,
+    AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest, PublishStatus,
 };
 use pierre_database::database::Agent;
+use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::build_store_router;
 use pierre_routes_agents::store::{
@@ -108,6 +109,65 @@ async fn create_published_agent_tagged(
         .unwrap();
 
     agent_with_listing.agent
+}
+
+/// The tenant `user_id` owns, which their test token carries as active.
+async fn tenant_of(resources: &ServerContext, user_id: Uuid) -> TenantId {
+    resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()[0]
+        .id
+}
+
+/// A listing's install counter, read from the repository.
+async fn listing_install_count(resources: &ServerContext, agent_id: &str) -> u32 {
+    resources
+        .common
+        .repos
+        .store_listings
+        .get_listing(agent_id)
+        .await
+        .unwrap()
+        .expect("the agent is listed")
+        .install_count
+}
+
+/// An athlete-authored (not system) agent approved into the Store.
+async fn create_user_published_agent(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    title: &str,
+) -> Agent {
+    let request: CreateAgentRequest = serde_json::from_value(serde_json::json!({
+        "title": title,
+        "system_prompt": format!("You are {title}."),
+        "category": "training",
+        "tags": ["test"],
+    }))
+    .unwrap();
+    let agent = resources
+        .common
+        .repos
+        .agents
+        .create(user_id, tenant_id, &request)
+        .await
+        .unwrap();
+    let id = agent.id.to_string();
+    let listings = &resources.common.repos.store_listings;
+    listings
+        .submit_for_review(&id, user_id, tenant_id)
+        .await
+        .unwrap();
+    listings
+        .approve_agent(&id, tenant_id, Some(user_id))
+        .await
+        .unwrap()
+        .agent
 }
 
 // ============================================================================
@@ -856,8 +916,10 @@ async fn test_search_agents_no_results() {
 // Install Agent Tests
 // ============================================================================
 
+/// carnet#1096: a catalogue agent joins the athlete's team as itself — the
+/// response is the origin, with the install counted, and no copy is written.
 #[tokio::test]
-async fn test_install_agent() {
+async fn test_install_agent_puts_the_catalogue_agent_on_the_team() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
 
@@ -889,6 +951,14 @@ async fn test_install_agent() {
     let token = generate_test_token(&resources, &user2).await;
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let installer_tenant = tenant_of(&resources, installer_id).await;
+    let owned_before = resources
+        .common
+        .repos
+        .agents
+        .count(installer_id, installer_tenant)
+        .await
+        .unwrap();
     let (events, _guard) = capture_notify();
 
     let response = AxumTestRequest::post(&format!("/api/store/agents/{}/install", agent.id))
@@ -901,6 +971,22 @@ async fn test_install_agent() {
     let result: InstallAgentResponse = response.json();
     assert!(result.message.contains("Successfully installed"));
     assert_eq!(result.agent.title, "Installable Coach");
+    assert_eq!(
+        result.agent.id, agent.id,
+        "the catalogue agent itself, never a copy"
+    );
+    assert_eq!(result.agent.install_count, 1, "this install is counted");
+    assert_eq!(
+        resources
+            .common
+            .repos
+            .agents
+            .count(installer_id, installer_tenant)
+            .await
+            .unwrap(),
+        owned_before,
+        "no agents row is written for the installer"
+    );
 
     // `agent.installed` fires once, from the install service this route
     // shares with the `install_agent_from_store` tool and `/discover install`.
@@ -1033,8 +1119,10 @@ async fn test_install_increments_install_count() {
 // Uninstall Agent Tests
 // ============================================================================
 
+/// Uninstalling a catalogue agent ends the membership by the origin's id; the
+/// row stays with its usage, so installing again resumes the same counters.
 #[tokio::test]
-async fn test_uninstall_agent() {
+async fn test_uninstall_agent_ends_the_membership_and_keeps_its_counters() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
 
@@ -1059,35 +1147,88 @@ async fn test_uninstall_agent() {
     .await;
 
     // Create a second user to install then uninstall
-    let (_user2_id, user2) =
-        create_test_user_with_email(&resources.agent.database, "user2@example.com")
+    let (athlete_id, athlete) =
+        create_test_user_with_email(&resources.agent.database, "athlete@example.com")
             .await
             .unwrap();
-    let token = generate_test_token(&resources, &user2).await;
+    let athlete_tenant = tenant_of(&resources, athlete_id).await;
+    let token = generate_test_token(&resources, &athlete).await;
     let auth_token = format!("Bearer {token}");
     let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let repos = &resources.common.repos;
+    let source_id = source_coach.id.to_string();
 
-    // Install first
-    let install_response =
-        AxumTestRequest::post(&format!("/api/store/agents/{}/install", source_coach.id))
-            .header("authorization", &auth_token)
-            .send(router.clone())
-            .await;
+    // Install first, then use it three times.
+    let install_response = AxumTestRequest::post(&format!("/api/store/agents/{source_id}/install"))
+        .header("authorization", &auth_token)
+        .send(router.clone())
+        .await;
     let installed: InstallAgentResponse = install_response.json();
-    let installed_agent_id = installed.agent.id;
+    assert_eq!(installed.agent.id, source_coach.id);
+    for _ in 0..3 {
+        assert!(repos
+            .agents
+            .record_usage(&source_id, athlete_id, athlete_tenant)
+            .await
+            .unwrap());
+    }
 
-    // Uninstall the installed copy
-    let response =
-        AxumTestRequest::delete(&format!("/api/store/agents/{installed_agent_id}/install"))
-            .header("authorization", &auth_token)
-            .send(router)
-            .await;
+    // Uninstall by the origin's id: the membership ends.
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{source_id}/install"))
+        .header("authorization", &auth_token)
+        .send(router.clone())
+        .await;
 
     assert_eq!(response.status_code(), StatusCode::OK);
 
     let result: UninstallAgentResponse = response.json();
     assert!(result.message.contains("uninstalled"));
-    assert_eq!(result.source_agent_id, source_coach.id.to_string());
+    assert_eq!(result.source_agent_id, source_id);
+
+    assert!(repos
+        .store_listings
+        .get_installed_agents(athlete_id, athlete_tenant)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(repos
+        .agents
+        .list_assignments(&source_id)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(listing_install_count(&resources, &source_id).await, 0);
+    let state = repos
+        .agents
+        .get_user_preferences(&source_id, athlete_id)
+        .await
+        .unwrap();
+    assert!(!state.is_member, "uninstalling ends the membership");
+    let (use_count, last_used_at) = (state.use_count, state.last_used_at);
+    assert_eq!(use_count, 3, "leaving the team keeps the usage counters");
+    assert!(last_used_at.is_some());
+
+    // A second uninstall finds no membership.
+    let again = AxumTestRequest::delete(&format!("/api/store/agents/{source_id}/install"))
+        .header("authorization", &auth_token)
+        .send(router.clone())
+        .await;
+    assert_eq!(again.status_code(), StatusCode::NOT_FOUND);
+
+    // Installing again promotes the same row: the counters are still there.
+    let reinstall = AxumTestRequest::post(&format!("/api/store/agents/{source_id}/install"))
+        .header("authorization", &auth_token)
+        .send(router)
+        .await;
+    assert_eq!(reinstall.status_code(), StatusCode::CREATED);
+    let state = repos
+        .agents
+        .get_user_preferences(&source_id, athlete_id)
+        .await
+        .unwrap();
+    assert!(state.is_member, "the re-install is a membership again");
+    assert_eq!(state.use_count, 3);
+    assert_eq!(listing_install_count(&resources, &source_id).await, 1);
 }
 
 #[tokio::test]
@@ -1106,19 +1247,19 @@ async fn test_uninstall_agent_not_from_store() {
         .first()
         .map_or_else(|| TenantId::from_uuid(user_id), |t| t.id);
 
-    // Create a regular agent (not from Store - no forked_from)
-    let agents_manager = &resources.common.repos.agents;
-    let system_request = CreateSystemAgentRequest {
-        title: "Not From Store".to_owned(),
-        description: None,
-        system_prompt: "Prompt".to_owned(),
-        category: AgentCategory::Training,
-        tags: vec![],
-        visibility: AgentVisibility::Private,
-        sample_prompts: vec![],
-    };
-    let agent = agents_manager
-        .create_system_agent(user_id, tenant_id, &system_request)
+    // The user's own agent, created in the editor: not a Store install.
+    let request: CreateAgentRequest = serde_json::from_value(serde_json::json!({
+        "title": "Not From Store",
+        "system_prompt": "Prompt",
+        "category": "training",
+        "tags": [],
+    }))
+    .unwrap();
+    let agent = resources
+        .common
+        .repos
+        .agents
+        .create(user_id, tenant_id, &request)
         .await
         .unwrap();
 
@@ -1131,16 +1272,21 @@ async fn test_uninstall_agent_not_from_store() {
         .send(router)
         .await;
 
-    // NOTE: The uninstall endpoint currently returns 200 (success) even for agents
-    // not installed from the Store. This is because the direct database manager bypass
-    // in tests creates the agent in a way that may not be visible to the route's database
-    // state (separate SQLite in-memory pool instances). For true E2E testing, the agent
-    // should be created via the API, not directly via the database.
-    // For now, we just verify the endpoint responds (doesn't crash).
-    let status = response.status_code();
+    assert_eq!(
+        response.status_code(),
+        StatusCode::BAD_REQUEST,
+        "an agent the user wrote is not uninstallable from the Store"
+    );
     assert!(
-        status.is_success() || status.is_client_error(),
-        "Expected success or client error, got {status:?}"
+        resources
+            .common
+            .repos
+            .agents
+            .get_by_id(&agent.id.to_string(), user_id, tenant_id)
+            .await
+            .unwrap()
+            .is_some(),
+        "the refused uninstall deletes nothing"
     );
 }
 
@@ -1155,6 +1301,526 @@ async fn test_uninstall_agent_not_found() {
         .await;
 
     assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+}
+
+/// Another tenant's athlete-published agent keeps the reviewed-copy install:
+/// the copy carries the membership, is the one the installations list shows,
+/// and is uninstalled by its own id.
+#[tokio::test]
+async fn test_install_of_a_user_published_agent_installs_a_reviewed_copy() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, _author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin =
+        create_user_published_agent(&resources, author_id, author_tenant, "Hill Coach").await;
+    assert!(!origin.is_system);
+    let origin_id = origin.id.to_string();
+
+    let (copier_id, copier) =
+        create_test_user_with_email(&resources.agent.database, "copy-copier@example.com")
+            .await
+            .unwrap();
+    let copier_tenant = tenant_of(&resources, copier_id).await;
+    let auth = format!("Bearer {}", generate_test_token(&resources, &copier).await);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    let installed: InstallAgentResponse = response.json();
+    let copy_id = installed.agent.id;
+    assert_ne!(copy_id, origin.id, "another tenant's agent is copied");
+    let copy = resources
+        .common
+        .repos
+        .agents
+        .get_by_id(&copy_id.to_string(), copier_id, copier_tenant)
+        .await
+        .unwrap()
+        .expect("the copy is the copier's");
+    assert_eq!(copy.forked_from, Some(origin.id));
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 1);
+
+    let again = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        again.status_code(),
+        StatusCode::BAD_REQUEST,
+        "holding a copy is already installed"
+    );
+
+    let listed: InstallationsResponse = AxumTestRequest::get("/api/store/installations")
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await
+        .json();
+    assert_eq!(
+        listed.agents.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![copy_id]
+    );
+
+    // The copy is uninstalled by its own id; the origin's id finds no
+    // membership to end.
+    let by_origin = AxumTestRequest::delete(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(by_origin.status_code(), StatusCode::NOT_FOUND);
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{copy_id}/install"))
+        .header("authorization", &auth)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: UninstallAgentResponse = response.json();
+    assert_eq!(result.source_agent_id, origin_id);
+    assert!(resources
+        .common
+        .repos
+        .agents
+        .get_by_id(&copy_id.to_string(), copier_id, copier_tenant)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 0);
+}
+
+/// Uninstalling an athlete's edited copy deletes it, and the conversation that
+/// ran on it moves to the catalogue agent instead of blocking the delete.
+#[tokio::test]
+async fn test_uninstall_of_a_forked_copy_hands_its_conversation_to_the_origin() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, _author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin = create_published_agent(
+        &resources,
+        author_id,
+        author_tenant,
+        "Forkable Coach",
+        AgentCategory::Training,
+    )
+    .await;
+    let origin_id = origin.id.to_string();
+
+    let (athlete_id, athlete) =
+        create_test_user_with_email(&resources.agent.database, "forker@example.com")
+            .await
+            .unwrap();
+    let athlete_tenant = tenant_of(&resources, athlete_id).await;
+    let auth = format!("Bearer {}", generate_test_token(&resources, &athlete).await);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let repos = &resources.common.repos;
+
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    let copy = repos
+        .agents
+        .fork_agent(&origin_id, athlete_id, athlete_tenant)
+        .await
+        .unwrap();
+    let copy_id = copy.id.to_string();
+    let conversation = repos
+        .chat
+        .create_conversation(
+            &athlete_id.to_string(),
+            athlete_tenant,
+            "On the copy",
+            "test-model",
+            Some(&copy_id),
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+    assert_eq!(
+        listing_install_count(&resources, &origin_id).await,
+        1,
+        "a fork moves the membership, it is not a second install"
+    );
+
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{copy_id}/install"))
+        .header("authorization", &auth)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    let result: UninstallAgentResponse = response.json();
+    assert_eq!(result.source_agent_id, origin_id);
+
+    assert!(repos
+        .agents
+        .get_by_id(&copy_id, athlete_id, athlete_tenant)
+        .await
+        .unwrap()
+        .is_none());
+    let moved = repos
+        .chat
+        .get_conversation(&conversation, &athlete_id.to_string(), athlete_tenant)
+        .await
+        .unwrap()
+        .expect("the conversation survives the uninstall");
+    assert_eq!(moved.agent_id.as_deref(), Some(origin_id.as_str()));
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 0);
+}
+
+/// Catalogue agents are owned by the operator who wrote them. An operator who
+/// also coaches with one installs it like anyone else, and can take it off
+/// their team again.
+#[tokio::test]
+async fn test_the_author_of_a_catalogue_agent_can_take_it_off_their_team() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin = create_published_agent(
+        &resources,
+        author_id,
+        author_tenant,
+        "Operator Coach",
+        AgentCategory::Training,
+    )
+    .await;
+    let origin_id = origin.id.to_string();
+    let auth = format!("Bearer {}", generate_test_token(&resources, &author).await);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    assert!(resources
+        .common
+        .repos
+        .store_listings
+        .get_installed_agents(author_id, author_tenant)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(
+        resources
+            .common
+            .repos
+            .agents
+            .get_system_agent(&origin_id, author_tenant)
+            .await
+            .unwrap()
+            .is_some(),
+        "leaving the team never deletes the catalogue agent"
+    );
+}
+
+/// The install counter counts members plus live copies. A fork by an athlete
+/// who was never a member adds a copy, so uninstalling that copy later must not
+/// take an install away from someone else.
+#[tokio::test]
+async fn test_a_fork_without_a_membership_never_skews_the_install_count() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, _author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin = create_published_agent(
+        &resources,
+        author_id,
+        author_tenant,
+        "Counted Coach",
+        AgentCategory::Training,
+    )
+    .await;
+    let origin_id = origin.id.to_string();
+    let repos = &resources.common.repos;
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+
+    let (member_id, member) =
+        create_test_user_with_email(&resources.agent.database, "member@example.com")
+            .await
+            .unwrap();
+    let member_auth = format!("Bearer {}", generate_test_token(&resources, &member).await);
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &member_auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    assert!(repos
+        .agents
+        .list_assignments(&origin_id)
+        .await
+        .unwrap()
+        .iter()
+        .any(|a| a.user_id == member_id.to_string()));
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 1);
+
+    // Someone who only used the agent edits it: a fork, never installed.
+    let (forker_id, forker) =
+        create_test_user_with_email(&resources.agent.database, "forker@example.com")
+            .await
+            .unwrap();
+    let forker_tenant = tenant_of(&resources, forker_id).await;
+    assert!(repos
+        .agents
+        .record_usage(&origin_id, forker_id, forker_tenant)
+        .await
+        .unwrap());
+    let copy = repos
+        .agents
+        .fork_agent(&origin_id, forker_id, forker_tenant)
+        .await
+        .unwrap();
+    assert_eq!(
+        listing_install_count(&resources, &origin_id).await,
+        2,
+        "the new copy is counted like an install"
+    );
+
+    let forker_auth = format!("Bearer {}", generate_test_token(&resources, &forker).await);
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{}/install", copy.id))
+        .header("authorization", &forker_auth)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    assert_eq!(
+        listing_install_count(&resources, &origin_id).await,
+        1,
+        "the member's install is still counted"
+    );
+}
+
+/// Favouriting, activating and an admin assignment make a membership without
+/// a Store install, and a Store Remove (or an admin unassign) can end it. The
+/// counter follows every membership change, so ending one never takes away an
+/// install nobody counted.
+#[tokio::test]
+async fn test_every_membership_change_moves_the_install_count() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, _author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin = create_published_agent(
+        &resources,
+        author_id,
+        author_tenant,
+        "Membership Coach",
+        AgentCategory::Training,
+    )
+    .await;
+    let origin_id = origin.id.to_string();
+    let repos = &resources.common.repos;
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 0);
+
+    // A favourite joins the team and counts; Remove in the Store uncounts it.
+    let (fan_id, fan) = create_test_user_with_email(&resources.agent.database, "fan@example.com")
+        .await
+        .unwrap();
+    let fan_tenant = tenant_of(&resources, fan_id).await;
+    assert_eq!(
+        repos
+            .agents
+            .toggle_favorite(&origin_id, fan_id, fan_tenant)
+            .await
+            .unwrap(),
+        Some(true)
+    );
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 1);
+    let fan_auth = format!("Bearer {}", generate_test_token(&resources, &fan).await);
+    let again = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &fan_auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        again.status_code(),
+        StatusCode::BAD_REQUEST,
+        "a favourite is already on the team"
+    );
+    let removed = AxumTestRequest::delete(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &fan_auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(removed.status_code(), StatusCode::OK);
+    assert_eq!(
+        listing_install_count(&resources, &origin_id).await,
+        0,
+        "the favourite's install was counted, so its removal leaves the real count"
+    );
+
+    // Activating joins the team once; a second activation changes nothing.
+    let (picker_id, _picker) =
+        create_test_user_with_email(&resources.agent.database, "picker@example.com")
+            .await
+            .unwrap();
+    let picker_tenant = tenant_of(&resources, picker_id).await;
+    for _ in 0..2 {
+        assert!(repos
+            .agents
+            .activate_agent(&origin_id, picker_id, picker_tenant)
+            .await
+            .unwrap()
+            .is_some());
+    }
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 1);
+
+    // Usage never counts.
+    let (user_id, _user) =
+        create_test_user_with_email(&resources.agent.database, "user@example.com")
+            .await
+            .unwrap();
+    let user_tenant = tenant_of(&resources, user_id).await;
+    assert!(repos
+        .agents
+        .record_usage(&origin_id, user_id, user_tenant)
+        .await
+        .unwrap());
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 1);
+
+    // An admin assignment of that usage row counts; unassigning uncounts it.
+    assert!(repos
+        .agents
+        .assign_agent(&origin_id, user_id, author_id)
+        .await
+        .unwrap());
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 2);
+    assert!(repos
+        .agents
+        .unassign_agent(&origin_id, user_id)
+        .await
+        .unwrap());
+    assert!(!repos
+        .agents
+        .unassign_agent(&origin_id, user_id)
+        .await
+        .unwrap());
+    assert_eq!(
+        listing_install_count(&resources, &origin_id).await,
+        1,
+        "only the picker is still on the team"
+    );
+}
+
+/// The author of an athlete-published agent sees their own listing as their
+/// own: it is on their team as their creation, not as a Store install, so the
+/// clients offer neither Install nor Remove. Anyone else sees a listing.
+#[tokio::test]
+async fn test_the_author_sees_their_own_listing_as_their_own() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin =
+        create_user_published_agent(&resources, author_id, author_tenant, "Own Coach").await;
+    let (_other_id, other) =
+        create_test_user_with_email(&resources.agent.database, "viewer@example.com")
+            .await
+            .unwrap();
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+
+    for (user, expected) in [(&author, true), (&other, false)] {
+        let auth = format!("Bearer {}", generate_test_token(&resources, user).await);
+        let response = AxumTestRequest::get(&format!("/api/store/agents/{}", origin.id))
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let detail: StoreAgentDetail = response.json();
+        assert_eq!(detail.is_own, expected, "{}", user.email);
+    }
+
+    // A catalogue agent is never "own", even to the operator who wrote it:
+    // they install and remove it like anyone.
+    let catalogue = create_published_agent(
+        &resources,
+        author_id,
+        author_tenant,
+        "Catalogue Coach",
+        AgentCategory::Training,
+    )
+    .await;
+    let auth = format!("Bearer {}", generate_test_token(&resources, &author).await);
+    let detail: StoreAgentDetail =
+        AxumTestRequest::get(&format!("/api/store/agents/{}", catalogue.id))
+            .header("authorization", &auth)
+            .send(router)
+            .await
+            .json();
+    assert!(!detail.is_own);
+}
+
+/// A reviewed copy of another tenant's agent that still runs a coaching group
+/// cannot be uninstalled: the group's tenant cannot run the origin, and a
+/// group cannot go without an agent. The refusal changes nothing.
+#[tokio::test]
+async fn test_a_copy_running_a_group_its_tenant_cannot_move_is_not_uninstalled() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, _author) = create_test_user(&resources.agent.database).await.unwrap();
+    let author_tenant = tenant_of(&resources, author_id).await;
+    let origin =
+        create_user_published_agent(&resources, author_id, author_tenant, "Group Coach").await;
+    let origin_id = origin.id.to_string();
+
+    let (copier_id, copier) =
+        create_test_user_with_email(&resources.agent.database, "group-copier@example.com")
+            .await
+            .unwrap();
+    let copier_tenant = tenant_of(&resources, copier_id).await;
+    let auth = format!("Bearer {}", generate_test_token(&resources, &copier).await);
+    let router = build_store_router::<ServerContext>().with_state(Arc::clone(&resources));
+    let response = AxumTestRequest::post(&format!("/api/store/agents/{origin_id}/install"))
+        .header("authorization", &auth)
+        .send(router.clone())
+        .await;
+    assert_eq!(response.status_code(), StatusCode::CREATED);
+    let copy_id = response.json::<InstallAgentResponse>().agent.id.to_string();
+
+    let group_id = resources
+        .group_service()
+        .create_group(
+            &CreateGroupRequest {
+                name: "Copy Crew".to_owned(),
+                description: None,
+                agent_id: copy_id.clone(),
+                max_members: None,
+                coach_user_id: None,
+            },
+            copier_id,
+            copier_tenant,
+            &EnterpriseTierStrategy,
+        )
+        .await
+        .unwrap()
+        .id;
+
+    let response = AxumTestRequest::delete(&format!("/api/store/agents/{copy_id}/install"))
+        .header("authorization", &auth)
+        .send(router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+    assert!(
+        resources
+            .common
+            .repos
+            .agents
+            .get_by_id(&copy_id, copier_id, copier_tenant)
+            .await
+            .unwrap()
+            .is_some(),
+        "the refused uninstall deletes nothing"
+    );
+    let group = resources
+        .common
+        .repos
+        .groups
+        .get_group(&group_id.to_string(), copier_tenant)
+        .await
+        .unwrap()
+        .expect("the group is still there");
+    assert_eq!(group.agent_id, copy_id, "the group still runs on the copy");
+    assert_eq!(listing_install_count(&resources, &origin_id).await, 1);
 }
 
 // ============================================================================
@@ -1237,7 +1903,11 @@ async fn test_list_installations() {
     assert_eq!(response.status_code(), StatusCode::OK);
 
     let result: InstallationsResponse = response.json();
-    assert_eq!(result.agents.len(), 2);
+    let mut ids: Vec<Uuid> = result.agents.iter().map(|a| a.id).collect();
+    ids.sort();
+    let mut expected = vec![coach1.id, coach2.id];
+    expected.sort();
+    assert_eq!(ids, expected, "the catalogue agents themselves, no copies");
 }
 
 // ============================================================================

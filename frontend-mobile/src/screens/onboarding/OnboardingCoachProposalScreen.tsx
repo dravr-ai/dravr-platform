@@ -39,9 +39,11 @@ export function OnboardingCoachProposalScreen() {
   // The step is done on this device at once, and on the server for every other
   // surface: the gate reads the server's step row (carnet#1042), so a step
   // finished only here would be asked again on the web or a new install. The
-  // server write is best-effort, like the other steps' writes.
-  const markSeen = async () => {
-    userApi.setOnboardingStep('coach_proposal', 'complete').catch(() => {});
+  // server write is best-effort, like the other steps' writes. `agentId` is the
+  // lead the athlete leaves with, which the server makes their selected agent;
+  // none when no proposal loaded.
+  const markSeen = async (agentId?: string) => {
+    userApi.setOnboardingStep('coach_proposal', 'complete', { agentId }).catch(() => {});
     await markSeenLocal();
   };
   const progress = useOnboardingProgress('coach_proposal');
@@ -63,7 +65,7 @@ export function OnboardingCoachProposalScreen() {
     retry: 1,
   });
 
-  // LIMITATION(registre#1095): `handleStart` opens one agent's topic and adds nothing to a team; Skip adds nothing either.
+  // LIMITATION(registre#1095): Start and Skip select the lead but add nothing to a team.
   const handleStart = async (agentId: string) => {
     setSelecting(agentId);
     try {
@@ -75,7 +77,7 @@ export function OnboardingCoachProposalScreen() {
     // the athlete lands in their personal thread, in a topic bound to the
     // coach, rather than on the list. Marking the step first lets the layout
     // leave onboarding.
-    await markSeen();
+    await markSeen(agentId);
     try {
       const personalThreadId = await openPersonalTopic({ agent_id: agentId });
       router.push(threadHref(personalThreadId));
@@ -84,7 +86,8 @@ export function OnboardingCoachProposalScreen() {
     }
   };
 
-  const finish = () => {
+  // No proposal loaded: the step is done with no agent to select.
+  const finishWithoutProposal = () => {
     void markSeen();
   };
 
@@ -109,7 +112,7 @@ export function OnboardingCoachProposalScreen() {
           <Text className="text-base text-on-surface font-medium text-center">
             {t('onboarding.agentSuggestionsFailed')}
           </Text>
-          <Button title={t('app.continue')} onPress={finish} />
+          <Button title={t('app.continue')} onPress={finishWithoutProposal} />
         </View>
       </Shell>
     );
@@ -183,7 +186,13 @@ export function OnboardingCoachProposalScreen() {
       </View>
 
       <View className="mt-6">
-        <Button title={t('app.skipForNow')} variant="secondary" onPress={finish} disabled={selecting !== null} />
+        {/* Skipping still leaves the athlete with an agent: the proposal's first. */}
+        <Button
+          title={t('app.skipForNow')}
+          variant="secondary"
+          onPress={() => void markSeen(agents[0]?.agent.id)}
+          disabled={selecting !== null}
+        />
       </View>
     </Shell>
   );

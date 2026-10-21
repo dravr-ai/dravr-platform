@@ -18,7 +18,7 @@ export interface PostInstallHintProps {
   /** True while the caller creates the bound thread; Open chat waits on it. */
   isOpeningChat?: boolean;
   /**
-   * Starts a conversation bound to the installed copy, so the agent's welcome
+   * Starts a conversation bound to the installed agent, so the agent's welcome
    * is in it. The `/agent add @handle` the hint teaches is for any other chat.
    */
   onOpenChat: () => void;

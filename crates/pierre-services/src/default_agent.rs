@@ -52,8 +52,6 @@ pub fn roster_agent(system: &[Agent]) -> Option<&Agent> {
 /// A coach who does not train gets the roster agent and never an athlete's:
 /// with no roster agent seeded yet, the thread runs on the house prompt
 /// rather than read them as an athlete.
-///
-/// LIMITATION(registre#1101): `own_thread_default` serves the signup pick; onboarding's lead never writes `selected_agent_id`.
 #[must_use]
 pub fn own_thread_default(system: &[Agent], coach_only: bool) -> Option<String> {
     let agent = if coach_only {

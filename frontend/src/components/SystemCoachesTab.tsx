@@ -11,9 +11,14 @@ import type { Agent, User } from '../types/api';
 import { Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
 
-// Agent category options
-const COACH_CATEGORIES = ['Training', 'Nutrition', 'Recovery', 'Recipes', 'Mobility', 'Custom'];
+// The select submits the slug the API stores, so an edited agent's own
+// category matches an option.
+const COACH_CATEGORY_OPTIONS = Object.keys(COACH_CATEGORY_LABEL_KEY).map((slug) => ({
+  value: slug,
+  label: slug.charAt(0).toUpperCase() + slug.slice(1),
+}));
 
 // Category colors for visual differentiation
 const CATEGORY_COLORS: Record<string, string> = {
@@ -22,6 +27,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
   Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
   Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
+  Analysis: 'bg-primary/10 text-primary border-primary/20',
   Custom: 'bg-primary/10 text-primary border-primary/20',
 };
 
@@ -50,7 +56,7 @@ const defaultFormData: AgentFormData = {
   title: '',
   description: '',
   system_prompt: '',
-  category: 'Training',
+  category: 'training',
   tags: '',
   visibility: 'tenant',
   purpose: '',
@@ -394,7 +400,7 @@ export default function SystemCoachesTab() {
                 label="Category"
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                options={COACH_CATEGORIES.map((cat) => ({ value: cat, label: cat }))}
+                options={COACH_CATEGORY_OPTIONS}
               />
               <Select
                 label="Visibility"

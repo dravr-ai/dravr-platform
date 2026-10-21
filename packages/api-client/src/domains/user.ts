@@ -533,18 +533,24 @@ export function createUserApi(axios: AxiosInstance) {
     /**
      * Persist an onboarding step's completion status so the flow is durable and
      * follows the user across devices (rather than living only in localStorage).
-     * `chosenChannel` is set only for the messaging-channel step. Returns nothing
-     * (204); callers treat failure as non-fatal — the local flag still advances
-     * the flow, the server write is a durability best-effort.
+     * `chosenChannel` is set only for the messaging-channel step. `agentId` is
+     * set only for the coach-proposal step: the agent the athlete picked (or the
+     * first proposed one on Skip), which the server makes their selected agent
+     * and binds their personal thread to. Absent, the server changes neither.
+     * Returns nothing (204); callers treat failure as non-fatal — the local flag
+     * still advances the flow, the server write is a durability best-effort.
      */
     async setOnboardingStep(
       stepId: string,
       status: 'complete' | 'skipped' | 'not_applicable',
-      chosenChannel?: string,
+      options?: { chosenChannel?: string; agentId?: string },
     ): Promise<void> {
+      // An undefined field is dropped by JSON serialization, so a step that
+      // carries neither sends `{ status }` alone.
       await axios.put(ENDPOINTS.USER.ONBOARDING_STEP(stepId), {
         status,
-        chosen_channel: chosenChannel,
+        chosen_channel: options?.chosenChannel,
+        agent_id: options?.agentId,
       });
     },
   };

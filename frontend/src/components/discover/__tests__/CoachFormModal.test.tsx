@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the CoachFormModal tool-budget input and its delete affordance
+// ABOUTME: Tests for the CoachFormModal tool-budget input, category select and delete affordance
 // ABOUTME: Verifies the stored budget renders, edits propagate, bounds hold, clearing is explicit, prompt size reads localised
 
 import { describe, it, expect, vi } from 'vitest';
@@ -168,5 +168,18 @@ describe('CoachFormModal prompt size', () => {
     } finally {
       await i18n.changeLanguage('en');
     }
+  });
+});
+
+describe('CoachFormModal category', () => {
+  it('shows the stored category and sends its slug, never the translated label', () => {
+    const { onFormDataChange } = renderModal(makeFormData({ category: 'nutrition' }));
+    const select = screen.getByLabelText(i18n.t('chat.categoryLabel')) as HTMLSelectElement;
+
+    expect(select.value).toBe('nutrition');
+
+    fireEvent.change(select, { target: { value: 'recovery' } });
+    const next = onFormDataChange.mock.calls[0][0] as AgentFormData;
+    expect(next.category).toBe('recovery');
   });
 });

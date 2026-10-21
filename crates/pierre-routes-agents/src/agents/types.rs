@@ -7,7 +7,9 @@
 use pierre_core::constants::tool_execution::{MAX_MAX_TOOL_ITERATIONS, MIN_MAX_TOOL_ITERATIONS};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::field_update::FieldUpdate;
-use pierre_core::models::agents::{AgentWithListing, DataRequirements, PublishStatus};
+use pierre_core::models::agents::{
+    AgentUserState, AgentWithListing, DataRequirements, PublishStatus,
+};
 use pierre_database::database::agents::{
     Agent, AgentAssignment as DbAgentAssignment, AgentCategory, AgentListItem, AgentVersion,
     AgentVisibility, CreateSystemAgentRequest as DbCreateSystemAgentRequest, UpdateAgentRequest,
@@ -50,7 +52,11 @@ pub struct AgentResponse {
     pub is_system: bool,
     /// Visibility level
     pub visibility: String,
-    /// Whether this agent is assigned to the current user
+    /// Whether this agent is on the current user's team: a membership
+    /// (their own agent, a Store install, an admin assignment, an activation
+    /// or a favourite) — never merely an agent they used. A plain
+    /// single-agent read does not compute it and answers `false`; the fork
+    /// answer is `true`, its copy being on the team.
     pub is_assigned: bool,
     /// ID of the agent this was forked from (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,7 +138,7 @@ impl From<Agent> for AgentResponse {
             updated_at: agent.updated_at.to_rfc3339(),
             is_system: agent.is_system,
             visibility: agent.visibility.as_str().to_owned(),
-            is_assigned: false, // Default for single agent responses
+            is_assigned: false, // The row names no caller; `set_caller_state` fills it in
             forked_from: agent.forked_from.map(|id| id.to_string()),
             handle: agent.handle,
             prerequisites_met: None,
@@ -149,6 +155,17 @@ impl From<Agent> for AgentResponse {
             recommended: None,
             max_tool_iterations: agent.max_tool_iterations,
         }
+    }
+}
+
+impl AgentResponse {
+    /// Fill in the caller's own row: whether the agent is on their team,
+    /// their favourite and their usage counters.
+    pub(super) fn set_caller_state(&mut self, state: AgentUserState) {
+        self.is_assigned = state.is_member;
+        self.is_favorite = state.is_favorite;
+        self.use_count = state.use_count;
+        self.last_used_at = state.last_used_at.map(|dt| dt.to_rfc3339());
     }
 }
 

@@ -32,23 +32,77 @@ macro_rules! impl_agents_repository {
         }
 
         impl $ty {
-            /// Make sure the user holds an assignment row for the agent.
+            /// Make sure the user holds a row for the agent; `member` makes
+            /// it a team membership (an existing usage row is promoted,
+            /// counters kept), while `false` only ensures a usage row exists
+            /// and never demotes a membership. `true` when a row was created
+            /// or just became a membership. A row that just became a
+            /// membership is one more install of the agent's published
+            /// listing, as a Store install is.
             async fn ensure_agent_assignment(
                 &self,
                 agent_id: &str,
                 user_id: Uuid,
-            ) -> AppResult<()> {
-                sqlx::query(ENSURE_ASSIGNMENT_SQL)
+                member: bool,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(ENSURE_ASSIGNMENT_SQL)
                     .bind(Uuid::new_v4().to_string())
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
                     .bind(Utc::now())
+                    .bind(member)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to ensure coach assignment: {e}"))
                     })?;
+                let changed = result.rows_affected() > 0;
+                if member && changed {
+                    self.count_membership_change(agent_id, true).await?;
+                }
+                Ok(changed)
+            }
+
+            /// Keep the agent's listing `install_count` in step with its
+            /// team: one install per membership, whichever path made it (a
+            /// Store install, an admin assignment, activating or
+            /// favouriting), and one fewer when a membership ends, so a
+            /// later Store uninstall never takes away an install nobody
+            /// counted. Only a published listing counts up, as a Store
+            /// install does; the decrement is clamped at zero.
+            async fn count_membership_change(&self, agent_id: &str, joined: bool) -> AppResult<()> {
+                let sql = if joined {
+                    INCREMENT_INSTALLS_SQL
+                } else {
+                    DECREMENT_INSTALLS_SQL
+                };
+                sqlx::query(sql)
+                    .bind(Utc::now())
+                    .bind(agent_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to update install count: {e}"))
+                    })?;
                 Ok(())
+            }
+
+            /// Whether the user owns the agent in the tenant — the predicate
+            /// `UPDATE_AGENT_SQL` writes under.
+            async fn agent_owned(
+                &self,
+                agent_id: &str,
+                user_id: Uuid,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                Ok(sqlx::query(AGENT_OWNED_SQL)
+                    .bind(agent_id)
+                    .bind($ids::bind(user_id))
+                    .bind(tenant_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to verify coach: {e}")))?
+                    .is_some())
             }
 
             /// Whether the caller can reach the agent (see `AGENT_REACHABLE_SQL`).
@@ -269,8 +323,8 @@ macro_rules! impl_agents_repository {
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create coach: {e}")))?;
 
-                // The creator's own assignment row.
-                self.ensure_agent_assignment(&id.to_string(), user_id)
+                // The creator's own agent is on their team.
+                self.ensure_agent_assignment(&id.to_string(), user_id, true)
                     .await?;
 
                 Ok(Agent {
@@ -387,6 +441,13 @@ macro_rules! impl_agents_repository {
                 else {
                     return Ok(None);
                 };
+                // Only the owner edits an agent. Checked before the snapshot,
+                // so an edit refused below leaves no version row behind on an
+                // agent the caller can see but not change (a system agent,
+                // one assigned to them): they fork it first.
+                if !self.agent_owned(agent_id, user_id, tenant_id).await? {
+                    return Ok(None);
+                }
                 // Snapshot before the change, carrying the caller's summary.
                 self.create_version(agent_id, user_id, change_summary)
                     .await?;
@@ -484,14 +545,16 @@ macro_rules! impl_agents_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
-                let result = sqlx::query(DELETE_AGENT_SQL)
-                    .bind(agent_id)
-                    .bind($ids::bind(user_id))
-                    .bind(tenant_id)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to delete coach: {e}")))?;
-                Ok(result.rows_affected() > 0)
+                self.delete_owned_agent(agent_id, user_id, tenant_id).await
+            }
+
+            async fn fork_agent(
+                &self,
+                origin_id: &str,
+                user_id: Uuid,
+                tenant_id: TenantId,
+            ) -> AppResult<Agent> {
+                self.fork_into_copy(origin_id, user_id, tenant_id).await
             }
 
             async fn record_usage(
@@ -503,8 +566,11 @@ macro_rules! impl_agents_repository {
                 if !self.agent_reachable(agent_id, tenant_id).await? {
                     return Ok(false);
                 }
-                self.ensure_agent_assignment(agent_id, user_id).await?;
-                let result = sqlx::query(RECORD_USAGE_SQL)
+                // Usage counts on the user's row without making it a
+                // membership: a first use creates a non-member row.
+                self.ensure_agent_assignment(agent_id, user_id, false)
+                    .await?;
+                sqlx::query(RECORD_USAGE_SQL)
                     .bind(Utc::now())
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
@@ -513,7 +579,7 @@ macro_rules! impl_agents_repository {
                     .map_err(|e| {
                         AppError::database(format!("Failed to record coach usage: {e}"))
                     })?;
-                Ok(result.rows_affected() > 0)
+                Ok(true)
             }
 
             async fn toggle_favorite(
@@ -525,7 +591,6 @@ macro_rules! impl_agents_repository {
                 if !self.agent_reachable(agent_id, tenant_id).await? {
                     return Ok(None);
                 }
-                self.ensure_agent_assignment(agent_id, user_id).await?;
                 let row = sqlx::query(FAVORITE_STATUS_SQL)
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
@@ -539,6 +604,10 @@ macro_rules! impl_agents_repository {
                     None => false,
                 };
                 let new_value = !current;
+                // Favouriting is an explicit choice and puts the agent on the
+                // team; un-favouriting leaves the membership as it was.
+                self.ensure_agent_assignment(agent_id, user_id, new_value)
+                    .await?;
                 sqlx::query(SET_FAVORITE_SQL)
                     .bind(new_value)
                     .bind(agent_id)
@@ -591,8 +660,9 @@ macro_rules! impl_agents_repository {
                 if !self.agent_reachable(agent_id, tenant_id).await? {
                     return Ok(None);
                 }
-                // The roster row still records entitlement, favourites and usage.
-                self.ensure_agent_assignment(agent_id, user_id).await?;
+                // Activating is an explicit choice: the agent joins the team.
+                self.ensure_agent_assignment(agent_id, user_id, true)
+                    .await?;
                 sqlx::query(SELECT_AGENT_SQL)
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
@@ -792,7 +862,7 @@ macro_rules! impl_agents_repository {
                 &self,
                 agent_id: &str,
                 user_id: Uuid,
-            ) -> AppResult<(bool, u32, Option<DateTime<Utc>>)> {
+            ) -> AppResult<AgentUserState> {
                 let row = sqlx::query(USER_PREFERENCES_SQL)
                     .bind(agent_id)
                     .bind($ids::bind(user_id))
@@ -802,14 +872,15 @@ macro_rules! impl_agents_repository {
                         AppError::database(format!("Failed to get user preferences: {e}"))
                     })?;
                 let Some(row) = row else {
-                    return Ok((false, 0, None));
+                    return Ok(AgentUserState::default());
                 };
                 let use_count: i32 = column(&row, "use_count")?;
-                Ok((
-                    column(&row, "is_favorite")?,
-                    u32::try_from(use_count).unwrap_or(0),
-                    column(&row, "last_used_at")?,
-                ))
+                Ok(AgentUserState {
+                    is_member: column(&row, "is_member")?,
+                    is_favorite: column(&row, "is_favorite")?,
+                    use_count: u32::try_from(use_count).unwrap_or(0),
+                    last_used_at: column(&row, "last_used_at")?,
+                })
             }
 
             async fn assign_agent(
@@ -827,7 +898,11 @@ macro_rules! impl_agents_repository {
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to assign coach: {e}")))?;
-                Ok(result.rows_affected() > 0)
+                let joined = result.rows_affected() > 0;
+                if joined {
+                    self.count_membership_change(agent_id, true).await?;
+                }
+                Ok(joined)
             }
 
             async fn unassign_agent(&self, agent_id: &str, user_id: Uuid) -> AppResult<bool> {
@@ -837,7 +912,11 @@ macro_rules! impl_agents_repository {
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to unassign coach: {e}")))?;
-                Ok(result.rows_affected() > 0)
+                let left = result.rows_affected() > 0;
+                if left {
+                    self.count_membership_change(agent_id, false).await?;
+                }
+                Ok(left)
             }
 
             async fn list_assignments(&self, agent_id: &str) -> AppResult<Vec<AgentAssignment>> {

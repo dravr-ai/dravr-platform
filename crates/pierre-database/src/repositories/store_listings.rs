@@ -132,21 +132,41 @@ pub trait StoreListingsRepository: Send + Sync {
     async fn increment_install_count(&self, agent_id: &str) -> AppResult<()>;
     /// Decrement install count for an agent's store listing
     async fn decrement_install_count(&self, agent_id: &str) -> AppResult<()>;
-    /// Install an agent from the Store (creates user's copy)
+    /// Install an agent from the Store: put it on the user's team.
+    ///
+    /// A system (catalogue) agent is never copied: the user gains a
+    /// membership on the origin — an existing usage row is promoted,
+    /// counters kept — and the origin itself is returned. Another tenant's
+    /// published agent is installed as a private copy of the reviewed
+    /// version (`forked_from` = the origin), carrying the membership, and
+    /// the copy is returned. The listing's install count grows by one either
+    /// way. `invalid_input` ("… is already installed") when the user already
+    /// is a member of the origin or owns a copy of it in the tenant;
+    /// `not_found` when the agent is not published.
     async fn install_from_store(
         &self,
         source_agent_id: &str,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Agent>;
-    /// Uninstall an agent (deletes user's copy, returns source agent ID)
+    /// Uninstall an agent from the user's team, returning the origin's id.
+    ///
+    /// `agent_id` is either the origin the user is a member of — the
+    /// membership ends, the row and its counters stay — or the user's own
+    /// copy (a fork or a reviewed copy), which is deleted after its
+    /// conversations move to the origin (detached when the tenant cannot run
+    /// the origin) and its groups to the origin. The origin's install count
+    /// drops by one. `invalid_input` for the user's own agent that is not a
+    /// copy; `not_found` when the user holds neither.
     async fn uninstall_agent(
         &self,
         agent_id: &str,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<String>;
-    /// Get user's installed agents from the Store
+    /// The Store agents on the user's team: system agents they are a
+    /// member of, and their own copies in the tenant; never agents they
+    /// created themselves or only used
     async fn get_installed_agents(
         &self,
         user_id: Uuid,
@@ -341,11 +361,18 @@ pub(crate) const DECREMENT_INSTALLS_SQL: &str = "UPDATE store_listings \
      updated_at = $1 \
      WHERE agent_id = $2";
 
-/// The caller's existing copy of a Store agent, if any.
-pub(crate) const EXISTING_INSTALL_SQL: &str =
-    "SELECT id FROM agents WHERE user_id = $1 AND tenant_id = $2 AND forked_from = $3";
+/// Whether the caller already holds a Store agent: a membership on the
+/// origin itself, or their own copy of it in the tenant (an edited fork, or
+/// the reviewed copy of another tenant's published agent).
+pub(crate) const EXISTING_INSTALL_SQL: &str = "SELECT id FROM agents \
+     WHERE user_id = $1 AND tenant_id = $2 AND forked_from = $3 \
+     UNION ALL \
+     SELECT agent_id AS id FROM agent_assignments \
+     WHERE agent_id = $3 AND user_id = $1 AND is_member = TRUE";
 
-/// Create the caller's personal copy of a Store agent. `$11` is the call
+/// Create the caller's personal copy of a Store agent another tenant's
+/// author published (a system agent is installed by membership, never
+/// copied). `$11` is the call
 /// time, bound to both timestamps; `FALSE` is the boolean spelling both
 /// engines accept for `is_system`.
 pub(crate) const INSTALL_AGENT_SQL: &str = "INSERT INTO agents ( \
@@ -354,11 +381,52 @@ pub(crate) const INSTALL_AGENT_SQL: &str = "INSERT INTO agents ( \
      created_at, updated_at, is_system, visibility, prerequisites, forked_from, slug \
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, $12, $13, $14, $15)";
 
-/// Self-assign the installed copy. `ON CONFLICT DO NOTHING` keeps an
-/// existing `(agent_id, user_id)` row on both engines.
+/// Put the installed agent on the caller's team: a new membership row, or
+/// the caller's existing usage row on it promoted, counters kept. A row that
+/// already is a membership is left alone, so `rows_affected` is 1 exactly
+/// when the caller just became a member.
 pub(crate) const SELF_ASSIGN_SQL: &str = "INSERT INTO agent_assignments ( \
-     id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at \
-     ) VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL) ON CONFLICT DO NOTHING";
+     id, agent_id, user_id, assigned_by, created_at, is_favorite, use_count, last_used_at, is_member \
+     ) VALUES ($1, $2, $3, $3, $4, FALSE, 0, NULL, TRUE) \
+     ON CONFLICT (agent_id, user_id) DO UPDATE SET is_member = TRUE \
+     WHERE agent_assignments.is_member = FALSE";
+
+/// End the caller's membership of a Store agent reachable from their tenant
+/// (one of its agents, or a system agent). The row stays with its usage
+/// counters and favourite history.
+pub(crate) const LEAVE_MEMBERSHIP_SQL: &str = "UPDATE agent_assignments SET is_member = FALSE \
+     WHERE agent_id = $1 AND user_id = $2 AND is_member = TRUE \
+     AND agent_id IN (SELECT id FROM agents WHERE id = $1 AND (tenant_id = $3 OR is_system = TRUE))";
+
+/// Before an agent is deleted, hand the conversations that ran on it to the
+/// agent it was forked from (`$2`, NULL when it is no fork) when the caller's
+/// tenant (`$3`) can still run that origin, else detach them:
+/// `chat_conversations.agent_id` has no `ON DELETE` rule, so a conversation
+/// left pointing at the agent would block the delete. Keyed by the agent id
+/// alone, deliberately: besides the owner's own conversations (whatever
+/// tenant they were opened under), a coaching group running the agent gives
+/// each member a conversation row on it, and those follow the group, which
+/// [`REPOINT_AGENT_GROUPS_SQL`] moves to the same origin.
+pub(crate) const HAND_ON_AGENT_CONVERSATIONS_SQL: &str =
+    "UPDATE chat_conversations SET agent_id = \
+     (SELECT o.id FROM agents o WHERE o.id = $2 AND (o.tenant_id = $3 OR o.is_system = TRUE)) \
+     WHERE agent_id = $1";
+
+/// Before an agent is deleted, hand the coaching groups of its tenant that
+/// run on it to the agent it was forked from (`$2`), when that tenant can run
+/// the origin: `coaching_groups.agent_id` is `NOT NULL` with no `ON DELETE`
+/// rule, so a group can neither keep the agent nor go without one. `$3` is
+/// the tenant as `coaching_groups` stores it (TEXT on both engines), `$4` the
+/// same tenant as `agents` stores it.
+pub(crate) const REPOINT_AGENT_GROUPS_SQL: &str = "UPDATE coaching_groups SET agent_id = $2 \
+     WHERE agent_id = $1 AND tenant_id = $3 \
+     AND EXISTS (SELECT 1 FROM agents o WHERE o.id = $2 AND (o.tenant_id = $4 OR o.is_system = TRUE))";
+
+/// Groups of the tenant (`$2`, as TEXT) still running on the agent `$1` once
+/// [`REPOINT_AGENT_GROUPS_SQL`] ran: nothing they can move to, so the agent
+/// cannot be deleted from under them.
+pub(crate) const AGENT_GROUPS_LEFT_SQL: &str =
+    "SELECT id FROM coaching_groups WHERE agent_id = $1 AND tenant_id = $2 LIMIT 1";
 
 /// The copy just installed, owner-scoped.
 pub(crate) const INSTALLED_AGENT_SQL: &str = concat!(
@@ -367,20 +435,26 @@ pub(crate) const INSTALLED_AGENT_SQL: &str = concat!(
     " FROM agents WHERE id = $1 AND user_id = $2 AND tenant_id = $3"
 );
 
-/// The caller's agent with its origin, for an uninstall.
-pub(crate) const OWNED_AGENT_ORIGIN_SQL: &str =
-    "SELECT id, forked_from FROM agents WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
+/// The caller's agent with its origin, for an uninstall. A system agent is
+/// never "theirs" here even when they authored it: an operator who has it on
+/// their team leaves the membership like any athlete.
+pub(crate) const OWNED_AGENT_ORIGIN_SQL: &str = "SELECT id, forked_from FROM agents \
+     WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND is_system = FALSE";
 
-/// Delete the caller's copy.
-pub(crate) const DELETE_OWNED_AGENT_SQL: &str =
-    "DELETE FROM agents WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// Every agent the caller installed from the Store, newest first.
+/// The Store agents on the caller's team, most recently joined first: every
+/// system agent they are a member of (whatever tenant holds the row), and
+/// their own copies in the tenant (an edited fork, or another tenant's
+/// published agent installed as a reviewed copy). Agents the caller created
+/// themselves are not Store installs and stay out, as do agents they only
+/// used.
 pub(crate) const INSTALLED_AGENTS_SQL: &str = concat!(
     "SELECT ",
-    agent_columns!(),
-    " FROM agents WHERE user_id = $1 AND tenant_id = $2 AND forked_from IS NOT NULL \
-     ORDER BY created_at DESC"
+    agent_columns_aliased!(),
+    " FROM agents c \
+     JOIN agent_assignments ca ON ca.agent_id = c.id AND ca.user_id = $1 AND ca.is_member = TRUE \
+     WHERE c.is_system = TRUE \
+        OR (c.user_id = $1 AND c.tenant_id = $2 AND c.forked_from IS NOT NULL) \
+     ORDER BY ca.created_at DESC"
 );
 
 /// The agent a handle is being assigned to: its title, the handle it owns,

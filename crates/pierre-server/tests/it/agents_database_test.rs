@@ -1317,8 +1317,12 @@ async fn test_record_usage() {
 // exposed to every tenant via the catalog, so chatting with one from any other
 // tenant silently skipped the use_count bump. The fix accepts is_system = TRUE
 // unconditionally; this test pins that behaviour.
+//
+// carnet#1096/#1098: counting a use never puts the agent on the user's team.
+// The counters live on a non-member row, visible where the catalogue is
+// listed, and the default (team) listing stays without the agent.
 #[tokio::test]
-async fn test_record_usage_for_system_agent_from_other_tenant() {
+async fn test_record_usage_counts_a_system_agent_from_another_tenant_without_joining_the_team() {
     let db = create_test_db().await;
     let manager = &db.repositories().agents;
 
@@ -1339,7 +1343,7 @@ async fn test_record_usage_for_system_agent_from_other_tenant() {
     assert_eq!(agent.tenant_id, test_tenant().to_string());
 
     // A user from a *different* tenant chats with this system agent. Before the
-    // fix, record_usage returned Ok(false) and coach_assignments stayed empty.
+    // fix, record_usage returned Ok(false) and the use was never counted.
     let recorded = manager
         .record_usage(&agent.id.to_string(), other_user_id(), other_tenant())
         .await
@@ -1349,22 +1353,45 @@ async fn test_record_usage_for_system_agent_from_other_tenant() {
         "system agents must accept use_count bumps from non-pinning tenants"
     );
 
-    // Bumping a second time confirms the assignment row was created and the
+    // Bumping a second time confirms the usage row was created and the
     // counter increments rather than being recreated.
     manager
         .record_usage(&agent.id.to_string(), other_user_id(), other_tenant())
         .await
         .unwrap();
 
-    let filter = ListAgentsFilter::default();
-    let items = manager
-        .list(other_user_id(), other_tenant(), &filter)
+    // The team listing does not show an agent the user only used.
+    let team = manager
+        .list(
+            other_user_id(),
+            other_tenant(),
+            &ListAgentsFilter::default(),
+        )
         .await
         .unwrap();
-    // System agent must surface in cross-tenant listing.
+    assert!(
+        team.iter().all(|i| i.agent.id != agent.id),
+        "usage must not put the agent on the user's team"
+    );
+    assert!(manager
+        .list_assignments(&agent.id.to_string())
+        .await
+        .unwrap()
+        .is_empty());
+
+    // The catalogue listing carries the counters, as a non-member.
+    let catalogue = ListAgentsFilter {
+        include_system: true,
+        ..Default::default()
+    };
+    let items = manager
+        .list(other_user_id(), other_tenant(), &catalogue)
+        .await
+        .unwrap();
     let item = items.iter().find(|i| i.agent.id == agent.id).unwrap();
     assert_eq!(item.use_count, 2);
     assert!(item.last_used_at.is_some());
+    assert!(!item.is_assigned, "a used agent is not on the team");
 }
 
 // Companion regression for activate_agent: non-seed-tenant users must be able

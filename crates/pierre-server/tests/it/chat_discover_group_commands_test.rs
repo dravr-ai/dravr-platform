@@ -590,22 +590,23 @@ async fn discover_install_by_handle_installs_once_and_teaches_agent_add() {
     );
 
     let handle = AgentHandle::parse("recovery-coach").unwrap();
-    let copy = resources
+    let member = resources
         .common
         .repos
         .agents
         .find_installed_by_handle(&handle, user_id, tenant_id)
         .await
         .unwrap()
-        .expect("the athlete's copy resolves by handle");
-    assert_eq!(copy.forked_from, Some(origin));
-    assert_eq!(copy.title, "Recovery Coach");
+        .expect("the catalogue agent on the athlete's team resolves by handle");
+    assert_eq!(member.id, origin, "installed as itself, never as a copy");
+    assert_eq!(member.forked_from, None);
+    assert_eq!(member.title, "Recovery Coach");
     let emitted = only(&events, "agent.installed");
     assert_eq!(emitted.field("user_id"), user_id.to_string());
     assert_eq!(emitted.field("tenant_id"), tenant_id.to_string());
     assert_eq!(emitted.field("agent_slug"), origin.to_string());
 
-    // A second install is the same hint and no second copy.
+    // A second install is the same hint and no second membership.
     let again = send(router, &auth, &conv, "/discover install @recovery-coach").await;
     assert_eq!(
         again.assistant.message.content,
@@ -624,11 +625,75 @@ async fn discover_install_by_handle_installs_once_and_teaches_agent_add() {
         .await
         .unwrap();
     assert_eq!(
-        library.len(),
-        1,
-        "one copy, however many times it is asked for"
+        library.iter().map(|a| a.id).collect::<Vec<_>>(),
+        vec![origin],
+        "one membership on the origin, however many times it is asked for"
     );
     assert_eq!(named(&events, "agent.installed").len(), 1, "counted once");
+}
+
+/// carnet#1098: an agent the athlete only chatted with is not installed, so
+/// `/discover install` installs it — the usage row becomes the membership,
+/// its counters kept — rather than answering "already installed".
+#[tokio::test]
+async fn discover_install_turns_an_agent_only_used_into_a_membership() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (author_id, author_tenant, _) =
+        seed_user_tenant(&resources, "used-author@test.com", "professional").await;
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "used-user@test.com", "professional").await;
+    select_own_agent(&resources.common.repos, user_id, tenant_id).await;
+    let origin = publish_catalogue_agent(
+        &resources.common.repos,
+        author_id,
+        author_tenant,
+        "Recovery Coach",
+        "You are the recovery coach.",
+    )
+    .await;
+    let repos = &resources.common.repos;
+    for _ in 0..2 {
+        assert!(repos
+            .agents
+            .record_usage(&origin.to_string(), user_id, tenant_id)
+            .await
+            .unwrap());
+    }
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv = create_conversation(router.clone(), &auth).await;
+    let (events, _guard) = capture_notify();
+
+    let installed = send(router, &auth, &conv, "/discover install @recovery-coach").await;
+    assert_eq!(
+        installed.assistant.message.content,
+        rendered(
+            &resources,
+            KEY_DISCOVER_INSTALLED,
+            &["Recovery Coach", "recovery-coach"]
+        ),
+        "using an agent is not having installed it"
+    );
+    assert_eq!(named(&events, "agent.installed").len(), 1);
+    let library: Vec<_> = repos
+        .store_listings
+        .get_installed_agents(user_id, tenant_id)
+        .await
+        .unwrap()
+        .iter()
+        .map(|a| a.id)
+        .collect();
+    assert_eq!(library, vec![origin]);
+    let state = repos
+        .agents
+        .get_user_preferences(&origin.to_string(), user_id)
+        .await
+        .unwrap();
+    assert!(state.is_member, "the install made it a membership");
+    let uses = state.use_count;
+    assert_eq!(
+        uses, 2,
+        "the usage row became the membership, counters kept"
+    );
 }
 
 // ============================================================================

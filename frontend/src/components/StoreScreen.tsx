@@ -20,6 +20,7 @@ import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
 import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
+import type { StoreAgent, StoreAgentDetail } from '@pierre/shared-types';
 
 // Category filter options
 // Built at import time, where `t` does not exist: the table carries the key
@@ -56,31 +57,13 @@ const COACH_CATEGORY_DOT: Record<string, string> = {
   custom: 'bg-outline-variant',
 };
 
-interface StoreAgent {
-  id: string;
-  title: string;
-  description: string | null;
-  category: string;
-  tags: string[];
-  sample_prompts: string[];
-  token_count: number;
-  install_count: number;
-  icon_url: string | null;
-  published_at: string | null;
-  author_id: string | null;
-}
-
-interface StoreAgentDetail extends StoreAgent {
-  system_prompt: string;
-  created_at: string;
-  publish_status: string;
-}
-
 /**
- * The copy the install minted: its id binds the thread Open chat starts, its
- * title and handle are what the post-install hint teaches.
+ * The agent the install put on the athlete's team — the listing itself for a
+ * system agent, a reviewed copy for another tenant's agent: its id binds the
+ * thread Open chat starts, its title and handle are what the post-install
+ * hint teaches.
  */
-interface InstalledCopy {
+interface InstalledAgent {
   id: string;
   title: string;
   handle: string | undefined;
@@ -89,7 +72,7 @@ interface InstalledCopy {
 interface StoreScreenProps {
   /**
    * Dashboard route navigator, `tab[/subview]`. t('discover.openChat') on the post-install
-   * hint starts a conversation bound to the installed copy and routes to
+   * hint starts a conversation bound to the installed agent and routes to
    * `chat/<conversationId>`; closing
    * the edit sheet opened by route returns to `discover`.
    */
@@ -112,7 +95,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [installedCopy, setInstalledCopy] = useState<InstalledCopy | null>(null);
+  const [installedAgent, setInstalledAgent] = useState<InstalledAgent | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   // The edit sheet opened from a store detail; the route-driven one arrives as `ownCoachId`.
   const [detailEditCoachId, setDetailEditCoachId] = useState<string | null>(null);
@@ -180,34 +163,44 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     staleTime: 30_000,
   });
 
-  // Installing a store agent mints a personal copy with a fresh id and
-  // `forked_from` set to the store listing's id, so the user's own agent list
-  // is what maps a listing back to the copy. Same cache slot as the chat tab's
-  // agent list, so an install here is visible there without a second fetch.
+  // A listing is on the athlete's team either as itself — installing a system
+  // agent makes no copy, the athlete's agent list marks it `is_assigned` — or
+  // as a copy whose `forked_from` is the listing: one the athlete forked to
+  // edit, or the reviewed copy another tenant's agent installs as. Same cache
+  // slot as the chat tab's agent list, so an install here is visible there
+  // without a second fetch.
   const { data: myCoaches } = useQuery({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
   });
 
-  // Store listing id -> id of the personal copy that installing it created.
-  const installedCopyBySource = useMemo(() => {
+  // Store listing id -> id of the athlete's team entry for it. A copy wins over
+  // the listing itself: forking moves the membership onto the copy.
+  const teamEntryBySource = useMemo(() => {
     const bySource = new Map<string, string>();
     for (const coach of myCoaches?.agents ?? []) {
       if (coach.forked_from) {
         bySource.set(coach.forked_from, coach.id);
       }
     }
+    for (const coach of myCoaches?.agents ?? []) {
+      if (coach.is_assigned === true && !bySource.has(coach.id)) {
+        bySource.set(coach.id, coach.id);
+      }
+    }
     return bySource;
   }, [myCoaches]);
 
-  // Uninstall and edit address the personal copy, not the store listing.
-  const installedCopyId = selectedAgentId
-    ? installedCopyBySource.get(selectedAgentId)
+  // Remove and Open chat address the team entry: the listing id for a
+  // membership, the copy id for a copy. Edit needs a copy the athlete owns.
+  const teamEntryId = selectedAgentId
+    ? teamEntryBySource.get(selectedAgentId)
     : undefined;
-  const isInstalled = installedCopyId !== undefined;
+  const isInstalled = teamEntryId !== undefined;
 
-  // Install mutation. The response is the minted copy, carrying the handle
-  // the listing was approved with — the name the hint teaches.
+  // Install mutation. The response is the agent now on the team — the listing
+  // itself for a system agent — carrying the handle the listing was approved
+  // with, the name the hint teaches.
   const installMutation = useMutation({
     mutationFn: (agentId: string) => storeApi.install(agentId),
     onSuccess: (installed) => {
@@ -215,7 +208,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
       setSuccessMessage(null);
-      setInstalledCopy({
+      setInstalledAgent({
         id: installed.agent.id,
         title: installed.agent.title,
         handle: installed.agent.handle,
@@ -223,7 +216,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       track({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     },
     onError: (error: Error) => {
-      setInstalledCopy(null);
+      setInstalledAgent(null);
       setActionError(error.message || t('app.failedAddAgent'));
     },
   });
@@ -235,7 +228,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setActionError(null);
-      setInstalledCopy(null);
+      setInstalledAgent(null);
       setSuccessMessage(t('app.agentRemovedFromLibrary'));
     },
     onError: (error: Error) => {
@@ -245,10 +238,10 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   });
 
   // t('discover.openChat') on the post-install hint: a new topic in the
-  // athlete's personal thread, bound to the copy the install minted, then
-  // Home. Binding it with the topic is what makes the server post the agent's
-  // welcome before the thread is read. The store refuses to install a listing
-  // twice, so the hint only ever holds a freshly minted copy and its id.
+  // athlete's personal thread, bound to the agent the install put on the
+  // team, then Home. Binding it with the topic is what makes the server post
+  // the agent's welcome before the thread is read. The store refuses to
+  // install a listing twice, so the hint only ever holds a fresh install.
   const openChat = useMutation({
     mutationFn: (agentId: string) => chatApi.openPersonalTopic({ agent_id: agentId }),
     onSuccess: ({ conversation }) => {
@@ -257,7 +250,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
       // The topic may be what opened the athlete's thread.
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.personal() });
       setActionError(null);
-      setInstalledCopy(null);
+      setInstalledAgent(null);
       onNavigate?.(homeConversationRoute(conversation.id));
     },
     onError: (error: Error) => {
@@ -266,13 +259,13 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   });
 
   const handleOpenChat = useCallback(() => {
-    if (installedCopy) {
-      openChat.mutate(installedCopy.id);
+    if (installedAgent) {
+      openChat.mutate(installedAgent.id);
     }
-  }, [openChat, installedCopy]);
+  }, [openChat, installedAgent]);
 
   const handleDismissHint = useCallback(() => {
-    setInstalledCopy(null);
+    setInstalledAgent(null);
   }, []);
 
   // The edit sheet: opened by the `discover/<agentId>` route or from the
@@ -286,11 +279,32 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
     }
   }, [ownCoachId, onNavigate]);
 
-  const handleEditInstalledCopy = useCallback(() => {
-    if (installedCopyId) {
-      setDetailEditCoachId(installedCopyId);
+  // Editing a listing on the team edits the athlete's own copy of it. A
+  // membership on the listing itself has none yet, so the edit forks first and
+  // opens the editor on the copy the fork returns; the copy takes over the
+  // membership, so the agent list now maps the listing to it.
+  const forkMutation = useMutation({
+    mutationFn: (agentId: string) => coachesApi.fork(agentId),
+    onSuccess: (copy) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.store.installations() });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setActionError(null);
+      setDetailEditCoachId(copy.id);
+    },
+    onError: (error: Error) => {
+      setActionError(error.message || t('app.failedUpdateAgent'));
+    },
+  });
+
+  const handleEditTeamEntry = useCallback(() => {
+    if (!teamEntryId) return;
+    if (teamEntryId !== selectedAgentId) {
+      setDetailEditCoachId(teamEntryId);
+      return;
     }
-  }, [installedCopyId]);
+    setActionError(null);
+    forkMutation.mutate(teamEntryId);
+  }, [teamEntryId, selectedAgentId, forkMutation]);
 
   // Flatten pages for rendering
   const coaches = useMemo(() => {
@@ -339,7 +353,7 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   const handleBackToStore = useCallback(() => {
     setSelectedCoachId(null);
     setSuccessMessage(null);
-    setInstalledCopy(null);
+    setInstalledAgent(null);
     setActionError(null);
   }, []);
 
@@ -351,11 +365,11 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
   }, [selectedAgentId, installMutation]);
 
   const handleRemove = useCallback(() => {
-    if (installedCopyId && window.confirm(`Remove Agent?\n\nRemove "${coachDetail?.title}" from your agents? You can always reinstall it later.`)) {
+    if (teamEntryId && window.confirm(`Remove Agent?\n\nRemove "${coachDetail?.title}" from your agents? You can always reinstall it later.`)) {
       setActionError(null);
-      uninstallMutation.mutate(installedCopyId);
+      uninstallMutation.mutate(teamEntryId);
     }
-  }, [installedCopyId, coachDetail, uninstallMutation]);
+  }, [teamEntryId, coachDetail, uninstallMutation]);
 
   const editSheet = editingCoachId ? (
     <CoachEditSheet agentId={editingCoachId} onClose={handleCloseEditSheet} />
@@ -370,14 +384,15 @@ export default function StoreScreen({ onNavigate, ownCoachId }: StoreScreenProps
           isLoading={isLoadingDetail}
           isInstalled={isInstalled}
           isInstalling={installMutation.isPending || uninstallMutation.isPending}
+          isForking={forkMutation.isPending}
           successMessage={successMessage}
-          installedCopy={installedCopy}
+          installedAgent={installedAgent}
           isOpeningChat={openChat.isPending}
           actionError={actionError}
           onBack={handleBackToStore}
           onInstall={handleInstall}
           onRemove={handleRemove}
-          onEdit={handleEditInstalledCopy}
+          onEdit={handleEditTeamEntry}
           onOpenChat={handleOpenChat}
           onDismissHint={handleDismissHint}
         />
@@ -587,15 +602,17 @@ interface CoachDetailViewProps {
   isLoading: boolean;
   isInstalled: boolean;
   isInstalling: boolean;
+  /** Set while the first edit forks the listing into the athlete's own copy. */
+  isForking: boolean;
   successMessage: string | null;
   /** Set right after an install; the hint that teaches the agent's handle. */
-  installedCopy: InstalledCopy | null;
+  installedAgent: InstalledAgent | null;
   isOpeningChat: boolean;
   actionError: string | null;
   onBack: () => void;
   onInstall: () => void;
   onRemove: () => void;
-  /** Open the edit sheet on the athlete's installed copy. */
+  /** Open the edit sheet on the athlete's own copy, forking the listing first when there is none. */
   onEdit: () => void;
   onOpenChat: () => void;
   onDismissHint: () => void;
@@ -606,8 +623,9 @@ function CoachDetailView({
   isLoading,
   isInstalled,
   isInstalling,
+  isForking,
   successMessage,
-  installedCopy,
+  installedAgent,
   isOpeningChat,
   actionError,
   onBack,
@@ -760,10 +778,10 @@ function CoachDetailView({
 
           {/* After an install: the hint that teaches how to use the coach from
               any chat. Discover keeps no coach list of its own. */}
-          {installedCopy && (
+          {installedAgent && (
             <PostInstallHint
-              agentTitle={installedCopy.title}
-              handle={installedCopy.handle}
+              agentTitle={installedAgent.title}
+              handle={installedAgent.handle}
               isOpeningChat={isOpeningChat}
               onOpenChat={onOpenChat}
               onDismiss={onDismissHint}
@@ -782,51 +800,56 @@ function CoachDetailView({
         </div>
       </div>
 
-      {/* Fixed action bar at bottom. An installed listing is the athlete's own
-          copy, so it can be edited from here — the one coach editor outside chat. */}
-      <div className="flex items-center justify-end gap-2 border-t ghost-border bg-surface px-6 py-3">
-        {isInstalled ? (
-          <>
+      {/* Fixed action bar at bottom. A listing on the athlete's team can be
+          edited from here — the edit works on the athlete's own copy, forked on
+          first edit — the one coach editor outside chat. The author's own
+          listing has no bar: the agent is theirs, not a Store install, so
+          there is nothing to install or remove. */}
+      {!coach.is_own && (
+        <div className="flex items-center justify-end gap-2 border-t ghost-border bg-surface px-6 py-3">
+          {isInstalled ? (
+            <>
+              <button
+                onClick={onEdit}
+                disabled={isInstalling || isOpeningChat || isForking}
+                className="btn-base btn-tertiary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Pencil className="h-4 w-4" />
+                {t('chat.editAgent')}
+              </button>
+              <button
+                onClick={onRemove}
+                disabled={isInstalling || isForking}
+                className="btn-base btn-secondary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isInstalling ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    {t('discover.removeAgent')}
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
             <button
-              onClick={onEdit}
-              disabled={isInstalling || isOpeningChat}
-              className="btn-base btn-tertiary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Pencil className="h-4 w-4" />
-              {t('chat.editAgent')}
-            </button>
-            <button
-              onClick={onRemove}
+              onClick={onInstall}
               disabled={isInstalling}
-              className="btn-base btn-secondary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-base btn-primary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isInstalling ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <Trash2 className="w-4 h-4" />
-                  {t('discover.removeAgent')}
+                  <Plus className="w-4 h-4" />
+                  {t('discover.addAgent')}
                 </>
               )}
             </button>
-          </>
-        ) : (
-          <button
-            onClick={onInstall}
-            disabled={isInstalling}
-            className="btn-base btn-primary gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isInstalling ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <>
-                <Plus className="w-4 h-4" />
-                {t('discover.addAgent')}
-              </>
-            )}
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

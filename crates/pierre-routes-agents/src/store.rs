@@ -71,17 +71,24 @@ pub struct StoreAgentDetail {
     pub created_at: String,
     /// Publish status
     pub publish_status: PublishStatus,
+    /// Whether the viewer authored this (non-system) agent. It is on their
+    /// team as their own creation, not as a Store install, so the listing
+    /// offers neither Install nor Remove to them.
+    pub is_own: bool,
 }
 
-impl From<AgentWithListing> for StoreAgentDetail {
-    fn from(cwl: AgentWithListing) -> Self {
+impl StoreAgentDetail {
+    /// The detail as `viewer` sees it.
+    fn for_viewer(cwl: AgentWithListing, viewer: Uuid) -> Self {
         let system_prompt = cwl.agent.system_prompt.clone();
         let created_at = cwl.agent.created_at.to_rfc3339();
         let publish_status = cwl.listing.publish_status;
+        let is_own = !cwl.agent.is_system && cwl.agent.user_id == viewer;
         Self {
             system_prompt,
             created_at,
             publish_status,
+            is_own,
             agent: cwl.into(),
         }
     }
@@ -127,9 +134,10 @@ pub struct StoreMetadata {
 /// - `GET /api/store/agents` - Browse published agents
 /// - `GET /api/store/agents/{id}` - Get agent details by ID
 /// - `GET /api/store/search` - Search agents
-/// - `POST /api/store/agents/{id}/install` - Install an agent
-/// - `DELETE /api/store/agents/{id}/install` - Uninstall an agent
-/// - `GET /api/store/installations` - List user's installed agents
+/// - `POST /api/store/agents/{id}/install` - Put an agent on the user's team
+/// - `DELETE /api/store/agents/{id}/install` - Take it off (`{id}` is the
+///   origin for a membership, the copy id for an edited or reviewed copy)
+/// - `GET /api/store/installations` - List the Store agents on the user's team
 pub fn build_store_router<C>() -> Router<Arc<C>>
 where
     C: AgentsCtx + MiddlewareCtx,
@@ -257,7 +265,7 @@ async fn handle_get_agent<C: AgentsCtx + MiddlewareCtx>(
         auth.user_id, cwl.agent.title, agent_id
     );
 
-    let detail: StoreAgentDetail = cwl.into();
+    let detail = StoreAgentDetail::for_viewer(cwl, auth.user_id);
     Ok((StatusCode::OK, Json(detail)).into_response())
 }
 
@@ -330,7 +338,8 @@ async fn handle_install<C: AgentsCtx + MiddlewareCtx>(
         auth.user_id,
     )
     .await;
-    // Install the agent (creates user's copy)
+    // A catalogue agent joins the team as itself; another tenant's published
+    // agent is installed as the reviewed copy.
     let store_agent = install_store_agent(
         &ctx.repos().agent_repos(),
         &agent_id,
@@ -384,7 +393,7 @@ async fn handle_uninstall<C: AgentsCtx + MiddlewareCtx>(
     Uuid::parse_str(&agent_id)
         .map_err(|_| AppError::invalid_input(format!("Invalid coach ID: {agent_id}")))?;
 
-    // Uninstall the agent (deletes user's copy)
+    // End the membership on the origin, or delete the user's own copy.
     let source_id = manager
         .uninstall_agent(&agent_id, auth.user_id, tenant_id)
         .await?;
@@ -410,7 +419,10 @@ async fn handle_uninstall<C: AgentsCtx + MiddlewareCtx>(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// Handle GET /api/store/installations - List user's installed agents
+/// Handle GET /api/store/installations - List the Store agents on the user's team
+///
+/// Each entry is the agent the athlete runs: the catalogue agent itself for
+/// a membership (its own id and handle), or the athlete's copy.
 async fn handle_list_installations<C: AgentsCtx + MiddlewareCtx>(
     State(ctx): State<Arc<C>>,
     auth: AuthenticatedUser,
@@ -424,7 +436,8 @@ async fn handle_list_installations<C: AgentsCtx + MiddlewareCtx>(
         .get_installed_agents(auth.user_id, tenant_id)
         .await?;
 
-    // Installed agents are personal copies without listing data
+    // The listing belongs to the catalogue agent, not to the athlete's
+    // membership of it, so no listing data is carried here.
     let store_agents: Vec<StoreAgent> = agents
         .into_iter()
         .map(|c| StoreAgent {
@@ -462,7 +475,8 @@ async fn handle_list_installations<C: AgentsCtx + MiddlewareCtx>(
 pub struct InstallAgentResponse {
     /// Success message
     pub message: String,
-    /// The installed agent (user's copy)
+    /// The installed agent: the catalogue agent itself (with its listing)
+    /// for a system agent, or the user's copy of another tenant's agent
     pub agent: StoreAgent,
     /// Response metadata
     pub metadata: StoreMetadata,
@@ -473,7 +487,7 @@ pub struct InstallAgentResponse {
 pub struct UninstallAgentResponse {
     /// Success message
     pub message: String,
-    /// The source agent ID that was uninstalled
+    /// The origin (Store) agent the user no longer holds
     pub source_agent_id: String,
     /// Response metadata
     pub metadata: StoreMetadata,

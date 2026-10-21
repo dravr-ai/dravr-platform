@@ -35,7 +35,8 @@ export default function OnboardingCoachProposal({
   onComplete,
 }: {
   userDisplayName?: string | null;
-  onComplete: () => void;
+  /** The step is done; `leadAgentId` is the agent to select, absent when no proposal loaded. */
+  onComplete: (leadAgentId?: string) => void;
 }) {
   const { t } = useTranslation();
   const [selecting, setSelecting] = useState<string | null>(null);
@@ -55,7 +56,7 @@ export default function OnboardingCoachProposal({
     retry: 1,
   });
 
-  // LIMITATION(registre#1095): `handleStart` opens one agent's topic and adds nothing to a team; Skip adds nothing either.
+  // LIMITATION(registre#1095): Start and Skip select the lead but add nothing to a team.
   const handleStart = async (agentId: string) => {
     setSelecting(agentId);
     try {
@@ -74,7 +75,7 @@ export default function OnboardingCoachProposal({
     } catch {
       // The dashboard still opens on Home; its "+" starts the topic.
     }
-    onComplete();
+    onComplete(agentId);
   };
 
   // "Analyzing your data" — shown while the activity scan + LLM re-rank run.
@@ -99,7 +100,7 @@ export default function OnboardingCoachProposal({
           <p className="text-sm text-on-surface">
             {t('onboarding.agentSuggestionsFailed')}
           </p>
-          <Button variant="primary" onClick={onComplete}>
+          <Button variant="primary" onClick={() => onComplete()}>
             {t('onboarding.continueToDashboard')}
           </Button>
         </div>
@@ -165,7 +166,13 @@ export default function OnboardingCoachProposal({
       </div>
 
       <div className="mt-8">
-        <Button variant="secondary" onClick={onComplete} className="w-full" disabled={selecting !== null}>
+        {/* Skipping still leaves the athlete with an agent: the proposal's first. */}
+        <Button
+          variant="secondary"
+          onClick={() => onComplete(agents[0]?.agent.id)}
+          className="w-full"
+          disabled={selecting !== null}
+        >
           {t('onboarding.skipForNow')}
         </Button>
       </div>

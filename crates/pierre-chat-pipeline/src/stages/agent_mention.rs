@@ -41,8 +41,8 @@ use super::super::turn::TurnInput;
 #[derive(Debug, Clone)]
 pub struct MentionedAgent {
     /// `agents.id` of the row that answered to the handle — the athlete's
-    /// own installed copy when they have one, otherwise the origin they were
-    /// assigned.
+    /// own edited copy when they have one, otherwise the origin on their
+    /// team.
     pub agent_id: String,
     /// The handle as it resolved, without the `@`.
     pub handle: AgentHandle,

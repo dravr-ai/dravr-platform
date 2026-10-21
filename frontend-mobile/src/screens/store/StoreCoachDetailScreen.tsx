@@ -1,5 +1,5 @@
 // ABOUTME: Agent Store detail screen showing full agent info with install/uninstall/edit actions
-// ABOUTME: Installing ends with the hint that teaches /agent add @handle and opens a thread bound to the copy
+// ABOUTME: Installing puts the agent on the athlete's team; Edit forks a copy first, Open chat binds the installed agent
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
-import { storeApi } from '../../services/api';
+import { coachesApi, storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
 import { COACH_EDIT_ROUTE, threadHref } from '../../navigation/routes';
 import { useOpenPersonalTopic } from '../chat/usePersonalThread';
@@ -28,21 +28,22 @@ import { formatCount, formatDate } from '@pierre/chat-utils';
 import { coachCategoryLabelKey } from '@pierre/shared-constants';
 
 /**
- * The athlete's installed copy of a listing, if any. An install mints a copy
- * with its own id that carries the listing's handle, and the installations
- * endpoint returns those copies — so the handle is what maps a listing back
- * to the copy that uninstall and edit address.
+ * The athlete's installation of a listing, if any. The installations endpoint
+ * returns two shapes: a membership on a catalogue agent is the listing itself
+ * (same id), and a copy — forked when the athlete edited it, or installed from
+ * another workspace — has its own id. Both carry the listing's handle, so the
+ * handle is what maps a listing back to the entry uninstall and edit address.
  */
-function findInstalledCopy(listing: StoreAgentDetail, copies: StoreAgent[]): StoreAgent | null {
+function findInstallation(listing: StoreAgentDetail, installations: StoreAgent[]): StoreAgent | null {
   if (!listing.handle) return null;
-  return copies.find((copy) => copy.handle === listing.handle) ?? null;
+  return installations.find((entry) => entry.handle === listing.handle) ?? null;
 }
 
 /**
- * The copy the install minted: its id binds the thread Open chat starts, its
- * title and handle are what the post-install hint teaches.
+ * The agent the install put on the athlete's team: its id binds the thread
+ * Open chat starts, its title and handle are what the post-install hint teaches.
  */
-interface InstalledCopy {
+interface InstalledAgent {
   id: string;
   title: string;
   handle: string | undefined;
@@ -64,12 +65,15 @@ export function StoreCoachDetailScreen() {
   const [coach, setCoach] = useState<StoreAgentDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInstalling, setIsInstalling] = useState(false);
-  const [installedCopy, setInstalledCopy] = useState<StoreAgent | null>(null);
-  const [postInstall, setPostInstall] = useState<InstalledCopy | null>(null);
+  const [installation, setInstallation] = useState<StoreAgent | null>(null);
+  const [postInstall, setPostInstall] = useState<InstalledAgent | null>(null);
+  const [isForking, setIsForking] = useState(false);
+  // A second tap on Edit lands before the re-render that disables it.
+  const forkingRef = useRef(false);
   const [isOpeningChat, setIsOpeningChat] = useState(false);
   // A second tap lands before the re-render that disables the button.
   const openingChatRef = useRef(false);
-  const isInstalled = installedCopy !== null;
+  const isInstalled = installation !== null;
 
   const loadCoachDetail = useCallback(async () => {
     if (!isAuthenticated || !agentId) return;
@@ -79,9 +83,9 @@ export function StoreCoachDetailScreen() {
       const response = await storeApi.get(agentId);
       setCoach(response);
 
-      // Already installed? The copy is what uninstall and edit address.
+      // Already installed? The entry is what uninstall and edit address.
       const installations = await storeApi.getInstallations();
-      setInstalledCopy(findInstalledCopy(response, installations.agents));
+      setInstallation(findInstallation(response, installations.agents));
     } catch (error) {
       console.error('Failed to load coach detail:', error);
       Alert.alert(t('common.error'), t('app.failedLoadAgentDetails'));
@@ -100,7 +104,7 @@ export function StoreCoachDetailScreen() {
     try {
       setIsInstalling(true);
       const response = await storeApi.install(coach.id);
-      setInstalledCopy(response.agent);
+      setInstallation(response.agent);
       setPostInstall({ id: response.agent.id, title: coach.title, handle: response.agent.handle });
       trackMobile({ name: 'feature_engaged', props: { feature: 'coach_installed' } });
     } catch (error) {
@@ -112,10 +116,10 @@ export function StoreCoachDetailScreen() {
   };
 
   // t('discover.openChat') on the post-install hint: a new topic in the
-  // athlete's personal thread, bound to the copy the install minted. Binding it
-  // with the topic is what makes the server post the agent's welcome before the
-  // thread is read. The store refuses to install a listing twice, so the hint
-  // only ever holds a freshly minted copy and its id.
+  // athlete's personal thread, bound to the agent the install returned — the
+  // catalogue agent itself for a membership, the copy for another workspace's
+  // listing. Binding it with the topic is what makes the server post the
+  // agent's welcome before the thread is read.
   const handleOpenChat = async () => {
     if (!postInstall || openingChatRef.current) return;
     openingChatRef.current = true;
@@ -133,14 +137,36 @@ export function StoreCoachDetailScreen() {
     }
   };
 
-  const handleEdit = () => {
-    if (!installedCopy) return;
-    router.push({ pathname: COACH_EDIT_ROUTE, params: { agentId: installedCopy.id } });
+  // A membership points at the catalogue agent, which is not the athlete's to
+  // edit: the server forks a copy of it onto their team first, and the editor
+  // opens on that copy. An installation that is already a copy opens as is.
+  const handleEdit = async () => {
+    if (!coach || !installation || forkingRef.current) return;
+    if (installation.id !== coach.id) {
+      router.push({ pathname: COACH_EDIT_ROUTE, params: { agentId: installation.id } });
+      return;
+    }
+    forkingRef.current = true;
+    setIsForking(true);
+    try {
+      const copy = await coachesApi.fork(coach.id);
+      // From here on the screen addresses the copy: uninstall removes it.
+      setInstallation({ ...installation, id: copy.id });
+      router.push({ pathname: COACH_EDIT_ROUTE, params: { agentId: copy.id } });
+    } catch (error) {
+      console.error('Failed to fork the agent for editing:', error);
+      Alert.alert(t('common.error'), t('app.failedUpdateAgent'));
+    } finally {
+      forkingRef.current = false;
+      setIsForking(false);
+    }
   };
 
   const handleUninstall = async () => {
-    if (!coach || !installedCopy) return;
-    const copyId = installedCopy.id;
+    if (!coach || !installation) return;
+    // The listing's id for a membership, the copy's id for a copy: the server
+    // ends the one and deletes the other.
+    const installationId = installation.id;
 
     Alert.alert(
       t('app.uninstallAgentQ'),
@@ -153,9 +179,8 @@ export function StoreCoachDetailScreen() {
           onPress: async () => {
             try {
               setIsInstalling(true);
-              // The copy, never the listing: the listing is not the athlete's to delete.
-              await storeApi.uninstall(copyId);
-              setInstalledCopy(null);
+              await storeApi.uninstall(installationId);
+              setInstallation(null);
               setPostInstall(null);
               Alert.alert(t('app.uninstalled'), t('app.agentRemovedFromLibrary'));
             } catch (error) {
@@ -331,9 +356,11 @@ export function StoreCoachDetailScreen() {
             />
           </View>
         )}
-        {isInstalled ? (
+        {/* The author's own listing offers no action: the agent is theirs,
+            not a Store install, so there is nothing to install or remove. */}
+        {coach.is_own ? null : isInstalled ? (
           <View className="flex-row gap-3">
-            {/* An installed listing is the athlete's own copy: editable from here. */}
+            {/* An installed listing is editable from here: a membership forks a copy first. */}
             <TouchableOpacity
               className="flex-1 flex-row items-center justify-center py-3.5 rounded-xl"
               style={{
@@ -342,7 +369,7 @@ export function StoreCoachDetailScreen() {
                 borderColor: colors.border.strong,
               }}
               onPress={handleEdit}
-              disabled={isInstalling}
+              disabled={isInstalling || isForking}
               accessibilityRole="button"
               accessibilityLabel={t('app.editAgent')}
               testID="edit-coach-button"
@@ -358,7 +385,7 @@ export function StoreCoachDetailScreen() {
                 borderColor: colors.border.strong,
               }}
               onPress={handleUninstall}
-              disabled={isInstalling}
+              disabled={isInstalling || isForking}
               testID="installed-button"
             >
               {isInstalling ? (
