@@ -53,6 +53,7 @@ jobs:
   test:
     name: Pre-flight Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # type check, lint and unit tests, ~9 min
     defaults:
       run:
         working-directory: frontend-mobile
@@ -161,6 +162,7 @@ jobs:
     needs: build
     if: ${{ inputs.submit == true && inputs.profile == 'production' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # two eas submit calls that wait on the store uploads
     defaults:
       run:
         working-directory: frontend-mobile

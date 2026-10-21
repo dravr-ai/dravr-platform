@@ -29,6 +29,7 @@ jobs:
   canary:
     name: Emit and read back the tronc canary
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # the Slack read-back polls for 2 min
 
     steps:
       # A canary that cannot reach the server must SAY SO, loudly.

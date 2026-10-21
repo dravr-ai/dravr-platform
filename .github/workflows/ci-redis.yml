@@ -7,27 +7,26 @@ on:
     branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
       - 'crates/pierre-cache/**'
-      - 'crates/pierre-server/src/cache/**'
+      - 'crates/pierre-server/src/cache.rs'
       - 'crates/pierre-server/tests/live/cache_redis_test.rs'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - '.github/workflows/ci-redis.yml'
       - '.github/actions/rust-setup/**'
   pull_request:
     branches: [ main ]
     paths:
       - 'crates/pierre-cache/**'
-      - 'crates/pierre-server/src/cache/**'
+      - 'crates/pierre-server/src/cache.rs'
       - 'crates/pierre-server/tests/live/cache_redis_test.rs'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - '.github/workflows/ci-redis.yml'
       - '.github/actions/rust-setup/**'
+  # No Cargo.toml or Cargo.lock above: nearly every satellite bump moves the
+  # lock, and none of those touch the cache. The daily run below picks up a
+  # dependency change within a day.
   schedule:
-    # Daily full Redis validation (3 AM UTC). Daily, not weekly, because this run
+    # Daily full Redis validation (03:41 UTC). Daily, not weekly, because this run
     # is the only one that saves the redis-tests Rust cache (rust-setup
     # cache-save: auto); push runs restore it.
-    - cron: '0 3 * * *'
+    - cron: '41 3 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -58,6 +57,7 @@ jobs:
   redis-tests:
     name: Cache Tests (Redis)
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Redis cache suite, p90 10 min
 
     services:
       redis:

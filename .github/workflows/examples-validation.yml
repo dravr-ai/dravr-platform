@@ -6,16 +6,19 @@ name: "CI: Examples Validation"
 on:
   push:
     branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
+    # The examples are standalone crates with their own lockfiles and no path
+    # dependency on the server, so a server change cannot break their build.
+    # The integration smoke test that does run the server is nightly only.
     paths:
       - 'examples/**'
-      - 'crates/pierre-server/src/a2a/**'
-      - 'crates/pierre-server/src/mcp/**'
+      - '.github/workflows/examples-validation.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'examples/**'
+      - '.github/workflows/examples-validation.yml'
   schedule:
-    - cron: '0 6 * * *'  # Nightly at 6 AM UTC
+    - cron: '21 6 * * *'  # Nightly at 06:21 UTC
   workflow_dispatch:
 
 concurrency:
@@ -24,7 +27,10 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. The ref
   # test lives in `group` rather than in `cancel-in-progress` because only the
   # former is known to work here — see ci-backend.yml for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  # The event name is in the group because a nightly cron on main carries the
+  # tip's sha: without it that run joins the tip's push-run group and cancels
+  # that verdict mid-flight (ci-backend.yml records the same collision).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 # Security: Explicit permissions following principle of least privilege
@@ -43,6 +49,7 @@ jobs:
   compile-rust-examples:
     name: Compile Rust Examples
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # three cargo checks, ~1 min warm
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -79,6 +86,7 @@ jobs:
   validate-python-examples:
     name: Validate Python Examples
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~20 s
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -105,6 +113,7 @@ jobs:
   test-rust-examples:
     name: Test Rust Examples
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # ~1 min warm
     needs: compile-rust-examples
     steps:
       - name: Checkout code
@@ -136,6 +145,7 @@ jobs:
     name: Integration Smoke Test
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # release server build + smoke, ~14 min
     needs: [compile-rust-examples, validate-python-examples]
     steps:
       - name: Checkout code

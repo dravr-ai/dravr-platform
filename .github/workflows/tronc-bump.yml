@@ -17,15 +17,17 @@
 # the chain's private-git-dep step arms for dravr-stripe and dravr-photograveur.
 #
 # Three things differ from a satellite. The gate is the three lanes
-# bump-embacle.yml already dispatches; on a fix/* branch ci-postgres runs the
-# eight-file smoke rather than the suite, so 45 minutes fits inside the chain's
-# 60-minute gate job. A tronc minor is not always pin-only here — 0.10 and
-# 0.11 moved JsonSchema::properties to BTreeMap and forced fifteen source
-# files; a red gate then means source work, not a flake, and the stall issue
-# the chain files on the register says so. And embacle moves in lockstep:
-# embacle-tool-host pins tronc itself and ships from crates.io, so a tronc
-# bump that leaves it behind resolves two tronc versions and hard-fails the
-# duplicate gate — which blocked the platform on 2026-08-31 and 2026-09-03.
+# bump-embacle.yml already dispatches. Dispatched, ci-postgres runs its full
+# suite even on the fix/* bump branch (the 12-suite `*_postgresql_test` smoke
+# is for pushes only), so the chain's gate job waits on a full PostgreSQL run,
+# 23-28 min a shard at p50-p90 in October. A tronc minor is not always
+# pin-only here — 0.10 and 0.11 moved JsonSchema::properties to BTreeMap and
+# forced fifteen source files; a red gate then means source work, not a flake,
+# and the stall issue the chain files on the register says so. And embacle
+# moves in lockstep: embacle-tool-host pins tronc itself and ships from
+# crates.io, so a tronc bump that leaves it behind resolves two tronc versions
+# and hard-fails the duplicate gate — which blocked the platform on 2026-08-31
+# and 2026-09-03.
 # The chain bumps embacle and embacle-tool-host to their latest release in
 # the same commit, after checking that release is on the target tronc; if it
 # is not, the run says which crate to release first and rewrites nothing.

@@ -44,6 +44,7 @@ jobs:
   unit-tests:
     name: Typecheck, Lint & Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # p90 9 min
 
     steps:
       - name: Checkout code

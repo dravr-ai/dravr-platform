@@ -75,6 +75,7 @@ jobs:
   deploy:
     name: Deploy ${{ inputs.service }} to dev
     runs-on: ubuntu-latest
+    timeout-minutes: 75  # 15-min quiesce + 10-min settle, twice when it rolls back
     environment: development
     steps:
       # Before auth: checkout cleans the workspace, which would delete the
@@ -290,6 +291,7 @@ jobs:
   tag-deployed:
     name: Tag Deployed Digest (${{ inputs.service }}, dev)
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # one Artifact Registry tag, ~20 s
     needs: deploy
     # Explicit, not defaulted: tag only a deploy that succeeded, so a rolled-back
     # image is never anchored. The caller's lane skips its bump/gate/merge jobs on
@@ -357,6 +359,7 @@ jobs:
   platform:
     name: Ship the platform binary carrying the new crate
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # dispatches publish-images.yml, ~15 s
     needs: deploy
     if: ${{ !cancelled() && inputs.ship_platform && needs.deploy.result == 'success' }}
     permissions:

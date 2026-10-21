@@ -15,6 +15,13 @@ on:
       - 'migrations_pg/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      # Non-Rust files the Rust code reads: the locale JSONs that
+      # messaging_strings.rs embeds, activity-sports.json (activity_sports.rs),
+      # and the dev Terraform the `it` suite include_str!s (llm_test,
+      # oauth_launch_reaper_test, key_material_alert_test and others).
+      - 'packages/i18n/**'
+      - 'packages/shared-constants/**'
+      - 'infra/environments/dev/**'
       - '.github/workflows/ci-postgres.yml'
       # The shard packing reads this, so a change to it changes which
       # tests land on which shard. Without it here, a manifest edit ships
@@ -30,6 +37,9 @@ on:
       - 'migrations_pg/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'packages/i18n/**'
+      - 'packages/shared-constants/**'
+      - 'infra/environments/dev/**'
       - '.github/workflows/ci-postgres.yml'
       # The shard packing reads this, so a change to it changes which
       # tests land on which shard. Without it here, a manifest edit ships

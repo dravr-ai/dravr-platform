@@ -12,10 +12,11 @@ concurrency:
   group: claude-health-probe
   cancel-in-progress: false
 
+# The tracking issue goes to dravr-carnet through DRAVR_CARNET_TOKEN, so the
+# job's own token needs no issues scope.
 permissions:
   contents: read
   id-token: write
-  issues: write
 
 jobs:
   probe-claude-auth:
@@ -145,9 +146,10 @@ jobs:
           PROBE_MODEL: ${{ steps.probe.outputs.model }}
           PROBE_OUTPUT: ${{ steps.probe.outputs.output }}
         with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
           script: |
-            const title = 'Claude Code auth probe failing — rotate dev OAuth token';
-            const label = 'incident';
+            const title = '[platform] Claude Code auth probe failing — rotate dev OAuth token';
+            const label = 'dravr-platform';
             const today = new Date().toISOString().split('T')[0];
             const reason = process.env.PROBE_REASON;
             const exitCode = process.env.PROBE_EXIT_CODE;
@@ -197,19 +199,20 @@ jobs:
 
             const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
             await upsertStandingIssue(github, core, {
-              ...context.repo, label, title, body, onExisting: 'update',
-              newLabel: { color: 'b60205', description: 'Production incident or outage' },
+              owner: 'dravr-ai', repo: 'dravr-carnet', label, title, body, onExisting: 'update',
+              labels: ['dravr-platform', 'bug', 'critical'],
             });
 
       - name: Close tracking issue on probe success
         if: steps.probe.outputs.failed != 'true'
         uses: actions/github-script@v9
         with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
           script: |
             const { closeStandingIssues } = require('./scripts/ci/standing-issue.cjs');
             await closeStandingIssues(github, core, {
-              ...context.repo,
-              label: 'incident',
-              title: 'Claude Code auth probe failing — rotate dev OAuth token',
+              owner: 'dravr-ai', repo: 'dravr-carnet',
+              label: 'dravr-platform',
+              title: '[platform] Claude Code auth probe failing — rotate dev OAuth token',
               comment: 'Claude Code auth probe succeeded. Auto-closing.',
             });

@@ -2,8 +2,8 @@ name: "CI: Cross-Platform Build"
 
 on:
   schedule:
-    # Run Sunday 11 PM EDT (Monday 3 AM UTC) — macOS/Windows runners are expensive
-    - cron: '0 3 * * 1'
+    # Run Sunday 11:51 PM EDT (Monday 03:51 UTC) — macOS/Windows runners are expensive
+    - cron: '51 3 * * 1'
   workflow_dispatch: # Allow manual trigger when needed
 
 concurrency:
@@ -28,6 +28,9 @@ jobs:
     # Ubuntu excluded - already covered by ci-backend/ci-postgres/ci-redis workflows
     name: Platform Tests (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    # Per platform: macOS runs ~115 min and Windows ~15-20 min, and with no cap
+    # a hung Windows leg ran 288 min on 2026-10-19.
+    timeout-minutes: ${{ matrix.timeout }}
 
     strategy:
       fail-fast: false
@@ -35,8 +38,10 @@ jobs:
         include:
           - os: macos-latest
             platform: macOS
+            timeout: 180
           - os: windows-latest
             platform: Windows
+            timeout: 60
 
     steps:
       - name: Enable Windows long paths (pre-checkout)

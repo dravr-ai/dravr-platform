@@ -42,7 +42,7 @@ on:
         default: false
         type: boolean
   schedule:
-    # 03:30 UTC nightly — ahead of the messaging-eval nightly at 04:00
+    # 03:30 UTC nightly — ahead of the messaging-eval nightly at 04:08
     # so an early signal lights up before the heavier suite runs.
     - cron: "30 3 * * *"
   push:
@@ -69,7 +69,14 @@ env:
   CARGO_BUILD_WARNINGS: deny
 
 concurrency:
-  group: chat-conversation-eval-${{ github.ref }}
+  # A ref-only group holds one waiting run, and a newer arrival replaces it, so
+  # on main a push landing behind a running eval evicted the queued commit's
+  # verdict with zero jobs started (carnet#1116; ci-postgres.yml records the
+  # same eviction, carnet#169). On main the sha is part of the group, so every
+  # commit gets its own; branches share one per ref. The event name keeps the
+  # nightly live-LLM pass and a dispatch out of the push runs' group, and
+  # nothing cancels: a live pass is minutes of local-model turns.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: false
 
 jobs:

@@ -60,13 +60,15 @@
 #
 # WHEN IT RUNS
 #
-# 01:37 UTC sits alone in the fleet's schedule: the other daily lanes start at 02:30
-# (ci-postgres), 03:00 (ci-redis), 03:30 (chat-conversation-eval), 04:00
-# (messaging-eval), 04:30 (mcp-compliance), 05:00 (benchmarks), 05:30 and 05:45 (the
-# Copilot and Claude account probes), 06:00 (daily-health-check, examples-validation,
-# both mobile E2E nightlies), 06:30 (llm-live-cron), 07:13 (satellite-drift), 07:17
-# (live-apis-cron), 08:00 (ci-backend), 10:00, 11:23, 11:43, 12:00 and 12:17, plus
-# tronc-canary at :17 every six hours and contremaitre-bump at :03 every ten minutes.
+# 01:37 UTC sits alone among the fleet's daily lanes: the others start at 02:30
+# (ci-postgres), 03:30 (chat-conversation-eval), 03:41 (ci-redis), 04:08
+# (messaging-eval), 04:30 (mcp-compliance), 05:19 (benchmarks), 05:30 and 05:45 (the
+# Copilot and Claude account probes), 06:04 and 06:06 (the iOS and Android E2E
+# nightlies), 06:14 (daily-health-check), 06:21 (examples-validation), 06:27
+# (purge-landed-branches), 06:30 (llm-live-cron), 07:13 (satellite-drift), 07:17
+# (live-apis-cron), 08:11 (ci-backend), 10:12, 11:23, 11:43, 12:08 and 12:17, plus
+# tronc-canary at :17 every six hours, carnet-strip-footer at :37 every hour and
+# contremaitre-bump at :03 every ten minutes.
 # Running before the 05:30 account probe means the probe reads the quota after this
 # lane has spent its share.
 

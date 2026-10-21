@@ -15,9 +15,9 @@ name: "CI: Benchmarks"
 
 on:
   schedule:
-    # 05:00 UTC, after the 02:30-03:00 database lanes and before ci-backend's
-    # 08:00 run, so it does not compete with them for runners.
-    - cron: '0 5 * * *'
+    # 05:19 UTC, after the 02:30-03:41 database lanes and before ci-backend's
+    # 08:11 run, so it does not compete with them for runners.
+    - cron: '19 5 * * *'
   workflow_dispatch:
     inputs:
       benchmark_suite:

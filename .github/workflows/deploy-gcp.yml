@@ -17,6 +17,7 @@ jobs:
   resolve-images:
     name: Resolve Image Tags
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # reads refs and secrets, seconds
 
     outputs:
       short_sha: ${{ steps.sha.outputs.short_sha }}
@@ -58,6 +59,7 @@ jobs:
   deploy-api:
     name: Deploy Backend API
     runs-on: ubuntu-latest
+    timeout-minutes: 40  # 15-min quiesce and 10-min settle waits around the rollout
     needs: resolve-images
     if: needs.resolve-images.outputs.gcp_configured == 'true'
 
@@ -113,6 +115,7 @@ jobs:
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 40  # 15-min quiesce and 10-min settle waits around the rollout
     needs: [resolve-images, deploy-api]
     if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' }}
 
@@ -164,6 +167,7 @@ jobs:
   update-seed-jobs:
     name: Update Seed Job Images
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # gcloud job image updates
     needs: [resolve-images, deploy-api, deploy-frontend]
     if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' && needs.deploy-api.result == 'success' }}
 
@@ -270,6 +274,7 @@ jobs:
   deployment-summary:
     name: Deployment Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # writes the summary
     needs: [deploy-api, deploy-frontend, update-seed-jobs, verify-seed-jobs]
     if: always()
 

@@ -73,6 +73,7 @@ jobs:
   scan:
     name: Read every cron lane's scheduled and dispatched verdicts
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # ~5 min of Actions API reads
 
     steps:
       - name: Checkout code
@@ -258,7 +259,7 @@ jobs:
               # Each event is judged on its own, never collapsed to the newest.
               # The events are not equivalent coverage: contremaitre-bump
               # dispatches messaging-eval with asserters_only=true, which skips
-              # the live Slack job the 04:00 cron runs, and chat-conversation-
+              # the live Slack job the 04:08 cron runs, and chat-conversation-
               # eval's live-llm job only runs on `schedule` or an explicit
               # mode input. Taking whichever run started last would let that
               # strict subset conclude success and bury the cron's red — the

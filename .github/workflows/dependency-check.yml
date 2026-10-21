@@ -2,13 +2,14 @@ name: "Security: Dependency Audit"
 
 on:
   schedule:
-    # Every Monday at 8 AM UTC (4 AM EDT)
-    - cron: '0 8 * * 1'
+    # Every Monday at 08:26 UTC (04:26 EDT)
+    - cron: '26 8 * * 1'
   workflow_dispatch:
 
+# The report goes to dravr-carnet through DRAVR_CARNET_TOKEN, so the job's own
+# token needs no issues scope.
 permissions:
   contents: read
-  issues: write
 
 env:
   # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
@@ -22,6 +23,7 @@ jobs:
   check-dependencies:
     name: Check Outdated Dependencies
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # installs cargo-edit and cargo-audit, ~5 min
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -121,16 +123,17 @@ jobs:
           # 2026-09-14 scheduled run ("SyntaxError: Invalid left-hand side
           # expression in postfix operation"), and since crate names and
           # advisory text come from the dependency graph it is an injection
-          # surface in a job holding `issues: write`, not only a crash
+          # surface in a job holding a tracker token, not only a crash
           # (carnet#432: cargo-edit quotes flags as `--incompatible`).
           COMPATIBLE: ${{ steps.compatible.outputs.COMPATIBLE }}
           INCOMPATIBLE: ${{ steps.incompatible.outputs.INCOMPATIBLE }}
           AUDIT: ${{ steps.audit.outputs.AUDIT }}
           HAS_VULNS: ${{ steps.check.outputs.has_vulnerabilities }}
         with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
           script: |
-            const title = '🔧 Dependency updates available';
-            const label = 'dependencies';
+            const title = '[platform] Dependency updates available';
+            const label = 'dravr-platform';
 
             // Build issue body
             const compatible = process.env.COMPATIBLE || '';
@@ -167,8 +170,7 @@ jobs:
 
             const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
             await upsertStandingIssue(github, core, {
-              ...context.repo, label, title, body, onExisting: 'update',
-              newLabel: { color: '0366d6', description: 'Dependency updates' },
+              owner: 'dravr-ai', repo: 'dravr-carnet', label, title, body, onExisting: 'update',
             });
 
       - name: No updates needed

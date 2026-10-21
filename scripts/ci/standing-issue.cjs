@@ -44,26 +44,13 @@ async function findStandingIssues(github, { owner, repo, label, state = 'open', 
   return issues.filter((issue) => !issue.pull_request && matches(issue));
 }
 
-// Creates `name` when the repository lacks it. Only a 404 means "absent": any
-// other failure is rethrown rather than answered with a create that would fail
-// on its own and hide the first error.
-async function ensureLabel(github, { owner, repo, name, color, description }) {
-  try {
-    await github.rest.issues.getLabel({ owner, repo, name });
-  } catch (error) {
-    if (error.status !== 404) throw error;
-    await github.rest.issues.createLabel({ owner, repo, name, color, description });
-  }
-}
-
 // Finds the open standing issue and either replaces its title and body
 // (`onExisting: 'update'`) or appends `body` as a comment (`onExisting:
 // 'comment'`); files it with `labels` when none is open. `titlePrefixes` finds an
 // issue whose title carries detail that changes between runs, and `title` is what
-// it is (re)titled to. `newLabel` ({ color, description }) creates the lookup
-// label before filing, for a repository that may not have it yet.
+// it is (re)titled to.
 async function upsertStandingIssue(github, core, {
-  owner, repo, label, title, titlePrefixes, body, onExisting, labels = [label], newLabel,
+  owner, repo, label, title, titlePrefixes, body, onExisting, labels = [label],
 }) {
   if (onExisting !== 'update' && onExisting !== 'comment') {
     throw new Error(`standing-issue: onExisting must be 'update' or 'comment', got ${onExisting}`);
@@ -72,7 +59,6 @@ async function upsertStandingIssue(github, core, {
   const [existing] = await findStandingIssues(github, { owner, repo, label, ...lookup });
 
   if (!existing) {
-    if (newLabel) await ensureLabel(github, { owner, repo, name: label, ...newLabel });
     const { data: created } = await github.rest.issues.create({ owner, repo, title, body, labels });
     core.info(`Opened issue #${created.number}`);
     return { number: created.number, created: true };
@@ -102,4 +88,4 @@ async function closeStandingIssues(github, core, { owner, repo, label, title, ti
   return open.map((issue) => issue.number);
 }
 
-module.exports = { findStandingIssues, ensureLabel, upsertStandingIssue, closeStandingIssues };
+module.exports = { findStandingIssues, upsertStandingIssue, closeStandingIssues };

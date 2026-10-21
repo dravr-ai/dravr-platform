@@ -10,9 +10,10 @@ name: "Contremaitre: Bump Dependency"
 # started while the org's private Actions minutes were spent (2026-10-04 on), so
 # the pin moved only on an hourly cron GitHub ran every four to six hours. This
 # repo is public and its minutes are free: every ten minutes, off the hour that
-# GitHub sheds first, a no-op costs one API call. `gh workflow run
-# contremaitre-bump.yml` moves the pin now. Branches never move it — Tier 1b
-# Check 8 refuses one that does (carnet#826).
+# GitHub sheds first, a no-op costs a full-history checkout and two API calls,
+# about 20 seconds of runner. `gh workflow run contremaitre-bump.yml` moves the
+# pin now. Branches never move it — Tier 1b Check 8 refuses one that does
+# (carnet#826).
 on:
   schedule:
     - cron: "3-59/10 * * * *"
@@ -37,6 +38,7 @@ jobs:
   bump:
     name: Bump dravr-contremaitre rev to latest main
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # a no-op ~20 s, a real bump up to 17 min
     steps:
       - name: Checkout dravr-platform main
         uses: actions/checkout@v6
@@ -72,7 +74,8 @@ jobs:
           esac
 
       # Everything below runs only when the pin moves, so the ten-minute poll
-      # pays one API call and no toolchain when contremaitre has not moved.
+      # pays the checkout and two API calls, and no toolchain, when
+      # contremaitre has not moved.
       - uses: dtolnay/rust-toolchain@1.99.1
         if: steps.target.outputs.move == 'true'
 
@@ -226,7 +229,7 @@ jobs:
       - name: Run the messaging eval asserters on the bumped prompts
         # A bump lands new coach prompts. Dispatching the eval's Phase 0-3
         # asserters here surfaces a prompt regression within minutes instead of
-        # waiting for its 04:00 UTC nightly — the same suppressed-run problem as
+        # waiting for its 04:08 UTC nightly — the same suppressed-run problem as
         # the step above, and gated on `changed` so the polling no-op costs
         # nothing. `asserters_only` skips the live Slack round trip.
         # `always()` so a dispatch hiccup in the step above cannot cancel this

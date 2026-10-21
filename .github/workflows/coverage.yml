@@ -2,15 +2,18 @@ name: "CI: Code Coverage"
 
 # The coverage run never fires on push. It measures line coverage of the SQLite
 # test suite — the local development database, not the one in production — and
-# it is the longest single job the fleet has (~65 min in batches). The report goes to Codecov,
-# and an upload Codecov refuses fails the job: until 2026-09-27 every upload was
+# it is one of the longest jobs the fleet has (~92 min in batches in October).
+# The report goes to Codecov, and an upload Codecov refuses fails the job:
+# until 2026-09-27 every upload was
 # refused ("Repository not found") while the lane stayed green. Nothing gates on
 # the per-commit number — there is no codecov config, threshold, badge or PR
-# bot — and every test it runs already gets a per-commit verdict from ci-backend.yml's own
-# SQLite shards, so bisect fidelity comes from there. Against the free plan's
-# cap of 20 concurrent jobs, the 2026-08-30 main burst held three of these at
-# once and queued the deploy behind them (carnet#156). Weekly plus on-demand
-# is the honest cadence for a number nobody reads per commit.
+# bot — and the suite it runs gets its per-commit verdict on PostgreSQL from
+# ci-postgres.yml, so bisect fidelity comes from there. ci-backend.yml's SQLite
+# shards are no substitute: they run nightly and on dispatch only, since
+# 2179d3d33 (2026-04-14). Against the free plan's cap of 20 concurrent jobs,
+# the 2026-08-30 main burst held three of these at once and queued the deploy
+# behind them (carnet#156). Weekly plus on-demand is the honest cadence for a
+# number nobody reads per commit.
 #
 # A push to main that touches the batcher runs only its self-test, a job of
 # seconds: otherwise a broken edit to it would first show at the next Sunday run.
@@ -87,6 +90,7 @@ jobs:
     name: Generate Coverage Report
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 150  # ~92 min in batches
 
     steps:
       - name: Checkout code

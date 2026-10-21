@@ -115,6 +115,7 @@ jobs:
   resolve:
     name: Resolve target version
     runs-on: ubuntu-latest
+    timeout-minutes: 25  # its consumability poll gives up after 15 min
     outputs:
       version: ${{ steps.v.outputs.version }}
       pinned: ${{ steps.v.outputs.pinned }}
@@ -350,6 +351,7 @@ jobs:
   bump:
     name: Bump the pins on a branch
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # pin rewrite and cargo update, ~1 min
     needs: resolve
     if: needs.resolve.outputs.needed == 'true'
     outputs:
@@ -629,6 +631,7 @@ jobs:
   merge:
     name: Squash merge onto main
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~15 s
     needs: [resolve, bump, gate]
     if: needs.bump.outputs.state == 'pushed'
     # Eleven lanes resolve, bump and gate in parallel — the expensive part —
@@ -683,6 +686,7 @@ jobs:
   report-failure:
     name: File the stall on the register
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~15 s
     needs: [resolve, bump, gate, merge]
     if: failure() && needs.resolve.outputs.needed == 'true'
     steps:

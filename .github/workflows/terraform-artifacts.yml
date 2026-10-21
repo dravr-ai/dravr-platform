@@ -72,6 +72,7 @@ jobs:
   plan:
     name: Plan Artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # init + plan, ~1 min
     if: >
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.action == 'plan'
@@ -168,6 +169,7 @@ jobs:
   apply:
     name: Apply Artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # generous on purpose: a timeout cancels a running apply, as cancel-in-progress would
     # No `needs: plan` — plan only runs on action=plan, so gating apply on it
     # would block workflow_dispatch(action=apply) entirely. An approved plan
     # instead travels between runs as the artifacts-tfplan artifact, named by the

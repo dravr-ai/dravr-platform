@@ -166,14 +166,6 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 
-# Measurement fixture for .github/workflows/lto-comparison.yml (carnet#499).
-# It differs from `release-lto` in `lto` alone, so whatever separates their
-# builds is the LTO mode, not how the compile is partitioned.
-[profile.lto-compare-thin]
-inherits = "release"
-lto = "thin"
-codegen-units = 1
-
 # ============================================================================
 # Workspace Lint Configuration
 # ============================================================================

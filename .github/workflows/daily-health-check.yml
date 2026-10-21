@@ -4,8 +4,8 @@ name: "Monitor: Daily Health Check"
 
 on:
   schedule:
-    # Every day at 06:00 UTC
-    - cron: '0 6 * * *'
+    # Every day at 06:14 UTC
+    - cron: '14 6 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -20,6 +20,7 @@ jobs:
   architectural-health:
     name: Architectural Health
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # two grep gates, seconds
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

@@ -62,6 +62,7 @@ jobs:
   mcp-compliance:
     name: MCP Protocol Compliance
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # release server build + validation, p90 18 min
 
     steps:
       - name: Checkout code

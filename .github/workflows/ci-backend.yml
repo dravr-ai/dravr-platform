@@ -75,8 +75,14 @@ on:
       - '.github/actions/rust-setup/**'
       - '.github/actions/server-binaries/**'
       # check-server-features.sh compares the builder stage's --features with the
-      # action above and the production clippy entry (carnet#928).
-      - 'docker/images/server/Dockerfile'
+      # action above and the production clippy entry (carnet#928). The image
+      # inputs are here too because publish-images.yml deploys only on this
+      # workflow's green main run (carnet#1116): without them a change to an
+      # image, the frontend build or the Trivy ignore list never reaches dev.
+      - 'docker/images/server/**'
+      - 'docker/images/frontend/**'
+      - '.github/actions/frontend-dist/**'
+      - '.trivyignore'
   pull_request:
     branches: [ main ]
     paths:
@@ -141,11 +147,17 @@ on:
       - '.github/actions/rust-setup/**'
       - '.github/actions/server-binaries/**'
       # check-server-features.sh compares the builder stage's --features with the
-      # action above and the production clippy entry (carnet#928).
-      - 'docker/images/server/Dockerfile'
+      # action above and the production clippy entry (carnet#928). The image
+      # inputs are here too because publish-images.yml deploys only on this
+      # workflow's green main run (carnet#1116): without them a change to an
+      # image, the frontend build or the Trivy ignore list never reaches dev.
+      - 'docker/images/server/**'
+      - 'docker/images/frontend/**'
+      - '.github/actions/frontend-dist/**'
+      - '.trivyignore'
   schedule:
-    # Daily at 08:00 UTC (04:00 EDT / 03:00 EST) — runs the SQLite shard job.
-    - cron: '0 8 * * *'
+    # Daily at 08:11 UTC (04:11 EDT / 03:11 EST) — runs the SQLite shard job.
+    - cron: '11 8 * * *'
 
 concurrency:
   # On main the sha is part of the group, so every commit gets its own group and
@@ -439,7 +451,6 @@ jobs:
           ./scripts/ci/resolve-push-base.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
-          ./scripts/ci/lto-compare.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
           ./scripts/ci/check-secret-fields.test.sh
           ./scripts/ci/check-merge-risk.test.sh
@@ -918,7 +929,7 @@ jobs:
     timeout-minutes: 90  # one SQLite shard of the full suite (cron only)
     runs-on: ubuntu-latest
     needs: fast-gate
-    # SQLite shards run daily via cron (04:00 EDT) and on manual dispatch only.
+    # SQLite shards run daily via cron (08:11 UTC) and on manual dispatch only.
     # Per-push coverage comes from PostgreSQL via ci-postgres.yml; SQLite is a
     # compatibility check that doesn't need to gate every push.
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

@@ -34,7 +34,7 @@ on:
       - 'crates/pierre-seeders/src/coached_group.rs'
       - '.github/workflows/mobile-e2e-android.yml'
   schedule:
-    - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
+    - cron: '6 6 * * *'  # 06:06 UTC nightly (02:06 EDT / 01:06 EST)
   workflow_dispatch:
 
 concurrency:
@@ -44,7 +44,7 @@ concurrency:
   # sha this lane would lose verdicts the moment it gained a push trigger: a burst
   # of mobile pushes would cancel each other's e2e run (carnet#169 on ci-postgres).
   # `github.event_name` is in the group for the mirror-image reason: a scheduled or
-  # dispatched run on main carries the TIP's sha, so without it the 06:00 cron joins
+  # dispatched run on main carries the TIP's sha, so without it the 06:06 cron joins
   # the tip's push-run group and kills that verdict mid-flight (ci-backend.yml records
   # the same collision on 2026-08-31).
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}

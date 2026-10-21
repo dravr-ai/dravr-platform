@@ -44,7 +44,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "0 4 * * *"  # 04:00 UTC nightly
+    - cron: "8 4 * * *"  # 04:08 UTC nightly
   push:
     paths:
       - "crates/pierre-server/src/services/slack_socket.rs"
@@ -57,11 +57,12 @@ on:
       - ".github/workflows/messaging-eval.yml"
   # The fast-feedback chain after a contremaitre prompt change is a dispatch
   # from contremaitre-bump.yml, not a workflow_run trigger here: that workflow
-  # also runs hourly as a safety net and completes without changing anything,
-  # so a completion-keyed trigger would rebuild this suite 24 times a day for
-  # nothing. contremaitre-bump dispatches `asserters_only` only on a real bump,
-  # alongside the ci-backend dispatch it already makes for the same reason —
-  # a GITHUB_TOKEN push raises no workflow runs of its own.
+  # polls on a ten-minute cron (`3-59/10`) and nearly always completes without
+  # changing anything, so a completion-keyed trigger would rebuild this suite on
+  # every poll GitHub runs for nothing. contremaitre-bump dispatches
+  # `asserters_only` only on a real bump, alongside the ci-backend dispatch it
+  # already makes for the same reason — a GITHUB_TOKEN push raises no workflow
+  # runs of its own.
 
 concurrency:
   # On main the sha is part of the group, so every commit gets its own group
@@ -69,7 +70,11 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. The ref
   # test lives in `group` rather than in `cancel-in-progress` because only the
   # former is known to work here — see ci-backend.yml for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  # The event name is in the group because a nightly cron or a
+  # contremaitre-bump dispatch on main carries the tip's sha: without it that
+  # run joins the tip's push-run group and cancels that verdict mid-flight
+  # (ci-backend.yml records the same collision).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 env:
@@ -82,6 +87,7 @@ jobs:
   rust-asserters:
     name: Rust asserters (Phase 0-3)
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # p90 7 min
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true

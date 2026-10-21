@@ -45,9 +45,10 @@ permissions:
 # the dispatch passed, identical code, which reads as a flaky infra check and
 # is really state contention.
 #
-# cancel-in-progress is deliberately FALSE, unlike every other workflow in this
-# repo: cancelling a running `terraform apply` can leave real infrastructure
-# half-created with the state file not yet written back. Queue instead.
+# cancel-in-progress is deliberately FALSE, here and in terraform-drift.yml,
+# which queues in this group too: cancelling a running `terraform apply` can
+# leave real infrastructure half-created with the state file not yet written
+# back. Queue instead.
 concurrency:
   group: terraform-state
   cancel-in-progress: false
@@ -60,6 +61,7 @@ jobs:
   plan-dev:
     name: Plan Dev
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # init + plan, ~1 min
     if: >
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' &&
@@ -132,6 +134,7 @@ jobs:
   plan-prod:
     name: Plan Prod
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # init + plan
     if: >
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.environment == 'prod' &&
@@ -202,6 +205,7 @@ jobs:
   apply-dev:
     name: Apply Dev
     runs-on: ubuntu-latest
+    timeout-minutes: 90  # two 15-min quiesce waits around the apply; generous on purpose, a timeout cancels a running apply
     # No `needs: plan-dev` — plan-dev runs on push/PR/`action=plan`,
     # so gating apply on it would block workflow_dispatch(action=apply) entirely.
     # Apply-dev runs its own `terraform init` and `terraform apply` below.
@@ -258,6 +262,7 @@ jobs:
   apply-prod:
     name: Apply Prod
     runs-on: ubuntu-latest
+    timeout-minutes: 90  # disabled (if: false); generous on purpose, a timeout cancels a running apply
     needs: plan-prod
     # Production apply is disabled. To re-enable, replace the line below with:
     # if: >

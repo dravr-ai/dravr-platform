@@ -26,6 +26,7 @@ jobs:
   validate:
     name: Validate Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # version and npm checks, seconds
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
       npm_tag: ${{ steps.version.outputs.NPM_TAG }}
@@ -116,6 +117,7 @@ jobs:
     name: Build and Test SDK
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # lint, type check, build and unit tests
 
     steps:
       - name: Checkout code
@@ -176,6 +178,7 @@ jobs:
     name: Publish to npm
     needs: [validate, build-and-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # npm publish and a read-back
     if: github.event.inputs.dry_run != 'true'
 
     steps:
@@ -240,6 +243,7 @@ jobs:
     name: Release Summary
     needs: [validate, publish-npm]
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # writes the summary
     if: always() && needs.validate.result == 'success'
 
     steps:

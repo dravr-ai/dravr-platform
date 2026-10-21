@@ -23,10 +23,18 @@ permissions:
   contents: read
   id-token: write
 
+# docker/build-push-action uploads a build record (`*.dockerbuild`) for every
+# build as a workflow artifact, kept 90 days by default, where every other
+# artifact in this repo keeps 14 days or less. A week keeps a recent build's
+# record for debugging (carnet#1116).
+env:
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
+
 jobs:
   publish-and-deploy:
     name: Build & Deploy (${{ inputs.component }})
     runs-on: ubuntu-latest
+    timeout-minutes: 120  # server build ~25 min, then two rollouts with 25 min of waits each
     environment: development
 
     steps:

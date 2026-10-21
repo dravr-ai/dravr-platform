@@ -27,6 +27,7 @@ jobs:
   validate:
     name: Validate Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # version checks, seconds
     outputs:
       version: ${{ steps.get_version.outputs.VERSION }}
     steps:
@@ -95,6 +96,7 @@ jobs:
     name: Create Draft Release
     needs: [validate]
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # release notes and a draft, seconds
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -151,6 +153,7 @@ jobs:
     name: Build ${{ matrix.target }}
     needs: [validate, create-draft]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120  # fat-LTO release build per target
 
     strategy:
       fail-fast: false
@@ -356,6 +359,7 @@ jobs:
     name: Publish Release
     needs: [validate, create-draft, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # download, checksum and upload the assets
 
     steps:
       - name: Checkout code

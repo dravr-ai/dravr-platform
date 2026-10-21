@@ -28,23 +28,16 @@ const expect = (label, got, want) => {
 };
 
 // A tracker of `filler` issues newest-first, then `extra` (the old ones).
-function tracker({ filler = 249, extra = [], labels = ['incident'] } = {}) {
+function tracker({ filler = 249, extra = [] } = {}) {
   const issues = [
     ...Array.from({ length: filler }, (_, i) => ({ number: 10000 - i, title: `noise ${i}`, state: 'open' })),
     ...extra,
   ];
   const calls = [];
-  const notFound = Object.assign(new Error('Not Found'), { status: 404 });
   const github = {
     rest: {
       issues: {
         listForRepo: async (p) => ({ data: issues.slice(0, p.per_page ?? 30) }),
-        getLabel: async (p) => {
-          calls.push(['getLabel', p.name]);
-          if (!labels.includes(p.name)) throw notFound;
-          return { data: {} };
-        },
-        createLabel: async (p) => { calls.push(['createLabel', p.name, p.color, p.description]); },
         create: async (p) => { calls.push(['create', p.title, p.labels]); return { data: { number: 20000 } }; },
         update: async (p) => { calls.push(['update', p.issue_number, p.title ?? null, p.state ?? null, p.state_reason ?? null]); },
         createComment: async (p) => { calls.push(['comment', p.issue_number, p.body]); },
@@ -76,20 +69,18 @@ const repo = 'dravr-platform';
     const t = tracker({ extra: [{ number: 8, title: 'Probe failing', state: 'open', pull_request: {} }] });
     const got = await standing.upsertStandingIssue(t.github, t.core, {
       owner, repo, label: 'dependencies', title: 'Probe failing', body: 'b', onExisting: 'update',
-      newLabel: { color: '0366d6', description: 'Dependency updates' },
     });
     expect('a pull request with the same title is never taken for the issue', got, { number: 20000, created: true });
-    expect('  ...the missing label is created with its colour before filing',
-      t.calls.slice(1), [['getLabel', 'dependencies'], ['createLabel', 'dependencies', '0366d6', 'Dependency updates'],
-        ['create', 'Probe failing', ['dependencies']]]);
+    expect('  ...a fresh issue is filed under the lookup label',
+      t.calls.slice(1), [['create', 'Probe failing', ['dependencies']]]);
   }
   {
-    const t = tracker({ labels: ['dravr-platform'] });
+    const t = tracker();
     await standing.upsertStandingIssue(t.github, t.core, {
       owner, repo: 'dravr-carnet', label: 'dravr-platform', title: '[platform] x', body: 'b',
       onExisting: 'comment', labels: ['dravr-platform', 'bug', 'critical'],
     });
-    expect('with no open issue it files one carrying every label given, and touches no label without newLabel',
+    expect('with no open issue it files one carrying every label given',
       t.calls.slice(1), [['create', '[platform] x', ['dravr-platform', 'bug', 'critical']]]);
   }
   {
@@ -128,17 +119,6 @@ const repo = 'dravr-platform';
       owner, repo, label: 'dravr-platform', state: 'all', titlePrefixes: ['[platform] lane: '],
     });
     expect('state all returns closed matches too', all.map((i) => i.number), [15]);
-  }
-  {
-    const t = tracker();
-    const denied = Object.assign(new Error('Forbidden'), { status: 403 });
-    t.github.rest.issues.getLabel = async () => { throw denied; };
-    let thrown = null;
-    try {
-      await standing.ensureLabel(t.github, { owner, repo, name: 'incident', color: 'b60205', description: 'x' });
-    } catch (e) { thrown = e.status; }
-    expect('a label read that fails for any reason but 404 is rethrown, never answered with a create',
-      [thrown, t.calls.filter((c) => c[0] === 'createLabel').length], [403, 0]);
   }
   {
     const t = tracker();

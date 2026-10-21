@@ -29,8 +29,8 @@ on:
         required: false
         default: "5"
   schedule:
-    # 06:00 Eastern — after a full day and night of real traffic.
-    - cron: "0 10 * * *"
+    # 06:12 Eastern — after a full day and night of real traffic.
+    - cron: "12 10 * * *"
 
 concurrency:
   group: messaging-tool-usage

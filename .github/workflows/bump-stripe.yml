@@ -78,6 +78,7 @@ jobs:
   ship:
     name: Ship the platform binary carrying the new crate
     runs-on: ubuntu-latest
+    timeout-minutes: 5  # dispatches publish-images.yml, ~15 s
     needs: bump
     if: ${{ !cancelled() && needs.bump.outputs.state == 'pushed' }}
     permissions:

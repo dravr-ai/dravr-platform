@@ -1,5 +1,5 @@
 # ABOUTME: Builds and publishes Docker images to the central Artifact Registry, then deploys to Cloud Run
-# ABOUTME: Builds and deploys once Backend CI on main is green; docker/** pushes and v*.*.* tags trigger directly
+# ABOUTME: Builds and deploys once Backend CI on main is green, or on a manual dispatch; nothing deploys on a bare push
 
 name: "Deploy: Build & Ship (dev)"
 
@@ -43,20 +43,16 @@ on:
   # saturating. The build compiles on the runner against the rust-cache that
   # ci-backend.yml's nightly run saves, so after green it is the shorter half of
   # that trade.
+  #
+  # There is no push trigger: a push run would deploy straight to dev, past the
+  # rollback guard and the newest-green picker, which run on workflow_run only.
+  # The image inputs (docker/images/server and frontend, frontend-dist,
+  # .trivyignore) and this file are in ci-backend.yml's filter instead, so a
+  # change to them deploys here once CI on main is green (carnet#1116).
   workflow_run:
     workflows: ["CI: Backend (Rust)"]
     types: [completed]
     branches: [main]
-  # Docker/infra changes and version tags trigger directly
-  push:
-    branches: [main]
-    paths:
-      - 'docker/**'
-      - '.github/workflows/publish-images.yml'
-      - '.github/actions/frontend-dist/**'
-      - '.trivyignore'
-    tags:
-      - 'v*.*.*'
 
 permissions:
   contents: read
@@ -94,6 +90,13 @@ concurrency:
   group: ${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.event != 'push' || github.event.workflow_run.conclusion != 'success')) && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
   cancel-in-progress: false
 
+# docker/build-push-action uploads a build record (`*.dockerbuild`) for every
+# build as a workflow artifact, kept 90 days by default, where every other
+# artifact in this repo keeps 14 days or less. A week keeps a recent build's
+# record for debugging (carnet#1116).
+env:
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
+
 jobs:
   # ---------------------------------------------------------------------------
   # Resolve the commit SHA to use for image tagging
@@ -101,13 +104,13 @@ jobs:
   resolve-sha:
     name: Resolve Commit SHA
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # picker, rollback guard and label reads, ~30 s
     # Build only for a CI run that a real push started AND that went green. A
     # schedule- or dispatch-triggered CI run rebuilds a commit main already has,
     # which would create a Cloud Run revision for zero code change; a red or
     # cancelled one must never deploy. The concurrency group above mirrors this
     # condition exactly — change both or neither.
     if: >
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
 
@@ -116,7 +119,7 @@ jobs:
       short_sha: ${{ steps.sha.outputs.short_sha }}
       gcp_configured: ${{ steps.secrets.outputs.gcp_configured }}
       # 'true' only when the guard below PROVED this deploy would roll dev
-      # back; empty on push and workflow_dispatch, where the guard does not run.
+      # back; empty on workflow_dispatch, where the guard does not run.
       rollback: ${{ steps.guard.outputs.rollback }}
       # 'false' only when the step below PROVED nothing the frontend image is
       # built from changed since the commit the dev frontend serves.
@@ -226,9 +229,8 @@ jobs:
       #
       # The steps sit in this job, before publish-server compiles anything or
       # reads the registry, so a refused deploy costs a few seconds and no
-      # egress. workflow_run only: a push deploy builds github.sha, which is
-      # the tip and cannot be behind dev, and a workflow_dispatch is a person
-      # asking for exactly this commit — a deliberate rollback stays possible.
+      # egress. workflow_run only: a workflow_dispatch is a person asking for
+      # exactly this commit — a deliberate rollback stays possible.
       #
       # The verdict is fail-open: the label read swallows its own failures,
       # and the script treats an absent, malformed or unknown live commit as
@@ -315,9 +317,9 @@ jobs:
       # Fail-open like the rollback guard: only a readable label, a linear
       # history (compare status ahead or identical) and a complete file list
       # (under the compare API's 300-file cap) with no frontend input in it
-      # skip the build. push and workflow_dispatch always build, and so does a
-      # change to a VITE_* repository variable once the next deploy runs one of
-      # those (a variable is not in git, so no diff can see it).
+      # skip the build. workflow_dispatch always builds, so a change to a VITE_*
+      # repository variable reaches the frontend through a dispatch (a variable
+      # is not in git, so no diff can see it).
       # -----------------------------------------------------------------------
       - name: Read the commit the dev frontend serves
         id: live-frontend
@@ -362,6 +364,7 @@ jobs:
   publish-server:
     name: Publish Server Image
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # binaries, image and Trivy, p90 29 min
     needs: resolve-sha
     # The rollback verdict is honoured here and in publish-frontend only. deploy-dev
     # requires this job's success in its `if:`, and tag-deployed-dev, sdk-smoke-dev
@@ -570,6 +573,7 @@ jobs:
   publish-frontend:
     name: Publish Frontend Image
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # ~2 min
     needs: resolve-sha
     if: >-
       needs.resolve-sha.outputs.gcp_configured == 'true' &&
@@ -718,6 +722,7 @@ jobs:
   deploy-dev:
     name: Deploy to Development
     runs-on: ubuntu-latest
+    timeout-minutes: 75  # two 15-min quiesce and two 10-min settle waits around the rollouts
     # resolve-sha is already an ancestor through the publish jobs; it is named
     # here because `needs.<job>.outputs` reaches direct dependencies only. The
     # CI gate is resolve-sha's `if:`: a run for a CI run that is not green
@@ -728,7 +733,7 @@ jobs:
     # skipped frontend through and nothing else.
     if: >-
       !cancelled() &&
-      (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
+      (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') &&
       needs.publish-server.result == 'success' &&
       (needs.publish-frontend.result == 'success' || needs.publish-frontend.result == 'skipped')
     environment: development
@@ -817,6 +822,7 @@ jobs:
   tag-deployed-dev:
     name: Tag Deployed Digests (dev)
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~30 s
     needs: [publish-server, publish-frontend, deploy-dev]
     # A skipped publish-frontend (frontend unchanged) must not skip the server's
     # tag; the frontend's deployed-dev tag then stays on the digest dev serves.
@@ -889,6 +895,7 @@ jobs:
   sdk-smoke-dev:
     name: MCP SDK Smoke (dev)
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~30 s
     needs: [deploy-dev]
     # Without it the implicit success() also counts deploy-dev's skipped
     # publish-frontend (frontend unchanged) and would skip the smoke test.
@@ -927,6 +934,7 @@ jobs:
   seed-dev:
     name: Run Seed Jobs (dev)
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # waits on the seed jobs, ~1 min
     needs: [deploy-dev, publish-server]
     # As sdk-smoke-dev: a skipped publish-frontend must not skip the seeds.
     if: ${{ !cancelled() && needs.deploy-dev.result == 'success' && needs.publish-server.result == 'success' }}
@@ -1033,13 +1041,16 @@ jobs:
           echo "All seed jobs completed successfully"
 
   # ---------------------------------------------------------------------------
-  # Deploy to production (every v*.*.* tag)
+  # Deploy to production (a dispatch on a v*.*.* tag)
   # ---------------------------------------------------------------------------
   deploy-prod:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # disabled (if: false); two rollouts, no waits
     needs: [publish-server, publish-frontend]
-    # Production deployment is disabled. To re-enable, replace the line below with:
+    # Production deployment is disabled. A tag does not trigger this workflow,
+    # so a release reaches it by `gh workflow run publish-images.yml --ref vX.Y.Z`.
+    # To re-enable, replace the line below with:
     # if: startsWith(github.ref, 'refs/tags/v')
     if: false
     environment: production

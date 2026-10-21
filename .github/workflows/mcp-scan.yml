@@ -15,8 +15,8 @@ on:
       - '.mcp.json'
       - '.github/workflows/mcp-scan.yml'
   schedule:
-    # Weekly scan (Sundays at 3 AM UTC)
-    - cron: '0 3 * * 0'
+    # Weekly scan (Sundays at 03:47 UTC)
+    - cron: '47 3 * * 0'
 
 concurrency:
   # On main the sha is part of the group, so every commit gets its own group
@@ -24,7 +24,10 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. The ref
   # test lives in `group` rather than in `cancel-in-progress` because only the
   # former is known to work here — see ci-backend.yml for the run that proved it.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  # The event name is in the group because a weekly cron on main carries the
+  # tip's sha: without it that run joins the tip's push-run group and cancels
+  # that verdict mid-flight (ci-backend.yml records the same collision).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
 
 permissions:
@@ -34,6 +37,7 @@ jobs:
   mcp-scan:
     name: Scan MCP Config & Skills
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~20 s
     # SNYK_TOKEN is mapped at job level so each scan step can gate on its presence.
     # GitHub withholds repo secrets from dependabot/fork PRs, where the token is empty;
     # the scanner hard-exits without it, so those contexts skip rather than red. main and

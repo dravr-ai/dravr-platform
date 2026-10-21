@@ -7,12 +7,12 @@ on:
       - 'frontend/**'
       - 'packages/**'
       - 'bun.lock'
-      - 'crates/pierre-server/src/routes/auth/**'
+      - 'crates/pierre-routes-auth/src/**'
       # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
       - 'crates/pierre-routes-auth/templates/**'
       - 'crates/pierre-server/src/routes/admin/**'
       - 'crates/pierre-server/src/routes/api_keys/**'
-      - 'crates/pierre-server/src/routes/dashboard/**'
+      - 'crates/pierre-routes-dashboard/src/**'
       - 'crates/pierre-core/src/models/**'
       - '.github/workflows/frontend-tests.yml'
       - 'docker/images/frontend/**'
@@ -25,12 +25,12 @@ on:
       - 'frontend/**'
       - 'packages/**'
       - 'bun.lock'
-      - 'crates/pierre-server/src/routes/auth/**'
+      - 'crates/pierre-routes-auth/src/**'
       # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
       - 'crates/pierre-routes-auth/templates/**'
       - 'crates/pierre-server/src/routes/admin/**'
       - 'crates/pierre-server/src/routes/api_keys/**'
-      - 'crates/pierre-server/src/routes/dashboard/**'
+      - 'crates/pierre-routes-dashboard/src/**'
       - 'crates/pierre-core/src/models/**'
       - '.github/workflows/frontend-tests.yml'
       - 'docker/images/frontend/**'
@@ -67,6 +67,7 @@ jobs:
   nginx-routing:
     name: nginx Routing Contract
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~30 s
 
     steps:
       - name: Checkout code
@@ -124,6 +125,7 @@ jobs:
   frontend-tests:
     name: Frontend Test Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 20  # lint, type check, tests and build, ~4 min
 
     steps:
       - name: Checkout code
@@ -177,6 +179,7 @@ jobs:
   e2e-tests:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # Playwright, ~20 min
 
     steps:
       - name: Checkout code

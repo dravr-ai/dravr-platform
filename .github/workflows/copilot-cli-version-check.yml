@@ -4,22 +4,24 @@ name: "Monitor: Copilot CLI Version"
 
 on:
   schedule:
-    # Every Monday at 06:00 UTC
-    - cron: '0 6 * * 1'
+    # Every Monday at 06:09 UTC
+    - cron: '9 6 * * 1'
   workflow_dispatch:
 
 concurrency:
   group: copilot-cli-version-check
   cancel-in-progress: false
 
+# The tracking issue goes to dravr-carnet through DRAVR_CARNET_TOKEN, so the
+# job's own token needs no issues scope.
 permissions:
   contents: read
-  issues: write
 
 jobs:
   check-copilot-cli:
     name: Check Copilot CLI Version
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # two registry reads and the issue, ~15 s
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -114,14 +116,15 @@ jobs:
           SDK_PINNED: ${{ steps.sdk_pinned.outputs.version }}
           SDK_LATEST: ${{ steps.sdk_latest.outputs.version }}
         with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
           script: |
             const sdkPinned = process.env.SDK_PINNED;
             const sdkLatest = process.env.SDK_LATEST;
             const cliDrift = process.env.PINNED !== process.env.LATEST;
             const sdkDrift = sdkPinned !== sdkLatest;
             const drifted = [cliDrift ? `CLI ${process.env.LATEST}` : null, sdkDrift ? `SDK ${sdkLatest}` : null].filter(Boolean).join(', ');
-            const title = `Copilot pin drift: ${drifted}`;
-            const label = 'dependencies';
+            const title = `[platform] Copilot pin drift: ${drifted}`;
+            const label = 'dravr-platform';
             const pinned = process.env.PINNED;
             const latest = process.env.LATEST;
             const today = new Date().toISOString().split('T')[0];
@@ -180,24 +183,23 @@ jobs:
             ].join('\n');
 
             // The title carries the drifted versions, so the open issue from an
-            // earlier run is found by prefix and retitled. The second prefix is
-            // the title this monitor filed under before it also watched the SDK.
+            // earlier run is found by prefix and retitled.
             const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
             await upsertStandingIssue(github, core, {
-              ...context.repo, label, title, body, onExisting: 'update',
-              titlePrefixes: ['Copilot pin drift:', 'Copilot CLI update available:'],
-              newLabel: { color: '0366d6', description: 'Dependency updates' },
+              owner: 'dravr-ai', repo: 'dravr-carnet', label, title, body, onExisting: 'update',
+              titlePrefixes: ['[platform] Copilot pin drift:'],
             });
 
       - name: Close stale tracking issue when caught up
         if: steps.compare.outputs.drift == 'false'
         uses: actions/github-script@v9
         with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
           script: |
             const { closeStandingIssues } = require('./scripts/ci/standing-issue.cjs');
             await closeStandingIssues(github, core, {
-              ...context.repo,
-              label: 'dependencies',
-              titlePrefixes: ['Copilot pin drift:', 'Copilot CLI update available:'],
+              owner: 'dravr-ai', repo: 'dravr-carnet',
+              label: 'dravr-platform',
+              titlePrefixes: ['[platform] Copilot pin drift:'],
               comment: 'Both Copilot pins are current (Dockerfile CLI ARG vs npm `latest`, Cargo.lock github-copilot-sdk vs crates.io). Auto-closing.',
             });

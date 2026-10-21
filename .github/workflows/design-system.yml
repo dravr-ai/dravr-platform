@@ -47,6 +47,7 @@ jobs:
   design-system:
     name: Design System Conformance
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # DESIGN.md token lint, seconds
 
     steps:
       - name: Checkout code

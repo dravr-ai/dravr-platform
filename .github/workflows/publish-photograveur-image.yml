@@ -40,10 +40,18 @@ permissions:
   security-events: write # For Trivy SARIF upload
   actions: read # List and download the Trivy layer-cache artifacts
 
+# docker/build-push-action uploads a build record (`*.dockerbuild`) for every
+# build as a workflow artifact, kept 90 days by default, where every other
+# artifact in this repo keeps 14 days or less. A week keeps a recent build's
+# record for debugging (carnet#1116).
+env:
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
+
 jobs:
   publish-photograveur:
     name: Publish Photograveur Image
     runs-on: ubuntu-latest
+    timeout-minutes: 45  # image build and Trivy, ~3 min on its buildcache
 
     # Exported by digest rather than by tag: the caller deploys and, if the
     # rollout fails, rolls back to an exact set of bytes. A moving tag cannot

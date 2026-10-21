@@ -56,8 +56,8 @@ name: "Monitor: Terraform Drift (dev + artifacts)"
 # drift).
 on:
   schedule:
-    # Daily at 12:00 UTC (offset from the 06:00 Daily Health Check).
-    - cron: '0 12 * * *'
+    # Daily at 12:08 UTC (offset from the 06:14 Daily Health Check).
+    - cron: '8 12 * * *'
   workflow_dispatch:
     inputs:
       test_alert:
@@ -65,9 +65,15 @@ on:
         type: boolean
         default: false
 
+# The dev leg takes the same GCS state lock as terraform.yml, with Terraform's
+# default zero lock timeout, so a drift plan overlapping an apply would fail one
+# of the two. It therefore queues in terraform.yml's `terraform-state` group, and
+# never cancels: cancel-in-progress there would kill a running apply with the
+# state not yet written back. Like any arrival in that group, a drift run
+# replaces a run that is still WAITING behind a running one (carnet#1116).
 concurrency:
-  group: terraform-drift
-  cancel-in-progress: true
+  group: terraform-state
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -77,6 +83,7 @@ jobs:
   drift:
     name: Drift (${{ matrix.label }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # init + plan, ~40 s
 
     strategy:
       # Each leg is its own verdict: drift in one root must not cancel the
@@ -208,6 +215,7 @@ jobs:
   notify:
     name: Notify Slack
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # one Slack post, ~15 s
     needs: drift
     if: ${{ !cancelled() && (needs.drift.result == 'failure' || github.event.inputs.test_alert == 'true') }}
 
