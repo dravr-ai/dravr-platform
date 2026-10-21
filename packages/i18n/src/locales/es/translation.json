@@ -2257,7 +2257,8 @@
       "loadFailed": "No hemos podido cargar tus conexiones. Inténtalo de nuevo en un momento.",
       "noticeRequired": "Para conectar este servicio, primero hay que aceptar su aviso. Vuelve atrás, marca el aviso e inténtalo de nuevo.",
       "oauthStartFailed": "No hemos podido iniciar la conexión con este servicio. Vuelve atrás e inténtalo de nuevo.",
-      "generic": "Algo ha salido mal al conectar tu cuenta. Pide un enlace nuevo en tu chat."
+      "generic": "Algo ha salido mal al conectar tu cuenta. Pide un enlace nuevo en tu chat.",
+      "importTombstoned": "Esta cuenta pertenecía a una cuenta de Dravr eliminada. Empieza de cero con ella desde la app de Dravr antes de conectarla aquí."
     }
   },
   "humanCoach": {

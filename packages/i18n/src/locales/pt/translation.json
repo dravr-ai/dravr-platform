@@ -2257,7 +2257,8 @@
       "loadFailed": "Não conseguimos carregar as tuas ligações. Tenta de novo daqui a pouco.",
       "noticeRequired": "Para ligar este serviço, é preciso aceitar primeiro o seu aviso. Volta atrás, assinala o aviso e tenta de novo.",
       "oauthStartFailed": "Não conseguimos iniciar a ligação a este serviço. Volta atrás e tenta de novo.",
-      "generic": "Algo correu mal ao ligar a tua conta. Pede um novo link na tua conversa."
+      "generic": "Algo correu mal ao ligar a tua conta. Pede um novo link na tua conversa.",
+      "importTombstoned": "Esta conta pertencia a uma conta Dravr eliminada. Recomeça com ela na app Dravr antes de a ligares aqui."
     }
   },
   "humanCoach": {

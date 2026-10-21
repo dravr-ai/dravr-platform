@@ -2257,7 +2257,8 @@
       "loadFailed": "Nous n’avons pas pu charger tes connexions. Réessaie dans un instant.",
       "noticeRequired": "Pour connecter ce service, il faut d’abord accepter son avis. Reviens en arrière, coche l’avis et réessaie.",
       "oauthStartFailed": "Nous n’avons pas pu démarrer la connexion pour ce service. Reviens en arrière et réessaie.",
-      "generic": "Un problème est survenu pendant la connexion de ton compte. Demande un nouveau lien dans ta conversation."
+      "generic": "Un problème est survenu pendant la connexion de ton compte. Demande un nouveau lien dans ta conversation.",
+      "importTombstoned": "Ce compte appartenait à un compte Dravr supprimé. Repars de zéro avec lui depuis l’app Dravr avant de le connecter ici."
     }
   },
   "humanCoach": {

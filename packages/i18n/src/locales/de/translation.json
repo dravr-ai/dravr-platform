@@ -2257,7 +2257,8 @@
       "loadFailed": "Wir konnten deine Verbindungen nicht laden. Versuche es gleich noch einmal.",
       "noticeRequired": "Um diesen Dienst zu verbinden, muss zuerst sein Hinweis akzeptiert werden. Geh zurück, setze das Häkchen und versuche es erneut.",
       "oauthStartFailed": "Wir konnten die Verbindung zu diesem Dienst nicht starten. Geh zurück und versuche es erneut.",
-      "generic": "Beim Verbinden deines Kontos ist etwas schiefgelaufen. Fordere in deinem Chat einen neuen Link an."
+      "generic": "Beim Verbinden deines Kontos ist etwas schiefgelaufen. Fordere in deinem Chat einen neuen Link an.",
+      "importTombstoned": "Dieses Konto gehörte zu einem gelöschten Dravr-Konto. Fang in der Dravr-App damit neu an, bevor du es hier verbindest."
     }
   },
   "humanCoach": {
