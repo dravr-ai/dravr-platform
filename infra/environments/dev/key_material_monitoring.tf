@@ -32,7 +32,7 @@ resource "google_logging_metric" "key_material_failures" {
   description = "Counts key-material failure lines on the API service (jsonPayload.event key_material.*): stored-secret decrypt failures, DEK read or unwrap failures, signing-keypair load failures, and a boot refused because the DEK or signing keypair is missing on a database that holds ciphertext. Labelled by event and, for decrypt failures, by the kind of secret."
 
   # The event prefix is pinned by a test in the platform repo
-  # (crates/pierre-server/tests/key_material_alert_test.rs), which reads this
+  # (crates/pierre-server/tests/it/key_material_alert_test.rs), which reads this
   # filter and checks every event the code emits against it.
   filter = <<-EOT
     resource.type="cloud_run_revision"
@@ -99,6 +99,11 @@ resource "google_monitoring_alert_policy" "key_material_failures" {
         (a new key could open none of the data, or would sign out every
         session) and refuses to boot until the original row is back. Nothing
         was written: the data is intact, only its key row is gone.
+
+      A read the database could not serve at all (no free connection slot, a
+      closed pool, a lost connection) is not one of these: it logs
+      `database.key_store_unavailable` and alerts on dravr-database-capacity,
+      whose runbook applies instead (carnet#1130).
 
       Do not rotate, mint or delete anything, and do not empty the encrypted
       tables to get a boot through. Recover the key that sealed the data with

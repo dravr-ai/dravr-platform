@@ -203,7 +203,12 @@ macro_rules! impl_security_repository {
                 let rows = sqlx::query(LOAD_RSA_KEYPAIRS_SQL)
                     .fetch_all(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Database query failed: {e}")))?;
+                    .map_err(|e| {
+                        $crate::backends::shared::key_material::key_store_query_error(
+                            "Database query failed",
+                            &e,
+                        )
+                    })?;
 
                 let mut keypairs = Vec::with_capacity(rows.len());
                 for row in rows {
@@ -265,7 +270,12 @@ macro_rules! impl_security_repository {
                     .bind(secret_type)
                     .fetch_optional(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Database query failed: {e}")))?
+                    .map_err(|e| {
+                        $crate::backends::shared::key_material::key_store_query_error(
+                            "Database query failed",
+                            &e,
+                        )
+                    })?
                     .ok_or_else(|| AppError::not_found(format!("System secret '{secret_type}'")))?;
 
                 row.try_get("secret_value")
@@ -313,7 +323,10 @@ macro_rules! impl_security_repository {
                     .fetch_one(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("Failed to count encrypted rows: {e}"))
+                        $crate::backends::shared::key_material::key_store_query_error(
+                            "Failed to count encrypted rows",
+                            &e,
+                        )
                     })?;
                 row.try_get("encrypted_rows")
                     .map_err(|e| AppError::database(format!("Failed to get encrypted_rows: {e}")))

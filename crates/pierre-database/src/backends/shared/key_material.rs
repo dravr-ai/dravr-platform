@@ -65,6 +65,65 @@ pub const RSA_KEYPAIR_LOAD_FAILED: &str = "key_material.rsa_keypair_load_failed"
 pub const RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT: &str =
     "key_material.rsa_keypair_minted_over_ciphertext";
 
+/// The database could not serve a key-store read at boot.
+///
+/// No free connection slot, a closed pool, a lost connection: the key is not
+/// in question, so the event stays out of the `key_material.` namespace the
+/// key-loss page matches; the database-capacity alert in
+/// `infra/environments/dev/database_capacity_monitoring.tf` matches it
+/// instead. The instance still refuses to boot and mints nothing.
+///
+/// On 2026-10-21 a deploy's overlapping revisions took every connection slot,
+/// four boots timed out on the DEK read, and the key-loss page told on-call to
+/// restore the key from a point-in-time clone (carnet#1130).
+pub(crate) const KEY_STORE_UNAVAILABLE: &str = "database.key_store_unavailable";
+
+/// The event a failed key-store read logs under: `database.key_store_unavailable`
+/// when the database could not serve it, `key_event` for anything that puts
+/// the stored key itself in question.
+#[must_use]
+pub fn key_read_event(error: &AppError, key_event: &'static str) -> &'static str {
+    if error.code == ErrorCode::ResourceUnavailable {
+        KEY_STORE_UNAVAILABLE
+    } else {
+        key_event
+    }
+}
+
+/// `SQLSTATE` 53300 `too_many_connections`: Postgres refused the connection
+/// because every slot is taken.
+const TOO_MANY_CONNECTIONS: &str = "53300";
+
+/// `SQLSTATE` 57P03 `cannot_connect_now`: the server is starting or
+/// restarting.
+const CANNOT_CONNECT_NOW: &str = "57P03";
+
+/// Whether `error` says the database could not serve the query at all, as
+/// opposed to answering it wrongly.
+fn is_database_unavailable(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::PoolTimedOut
+        | sqlx::Error::PoolClosed
+        | sqlx::Error::Io(_)
+        | sqlx::Error::Tls(_) => true,
+        sqlx::Error::Database(db) => db
+            .code()
+            .is_some_and(|code| code == TOO_MANY_CONNECTIONS || code == CANNOT_CONNECT_NOW),
+        _ => false,
+    }
+}
+
+/// Map a failed key-store query: a database that could not serve it becomes
+/// [`ErrorCode::ResourceUnavailable`], which [`key_read_event`] keeps off the
+/// key-loss page; every other failure stays a database error.
+pub(crate) fn key_store_query_error(context: &str, error: &sqlx::Error) -> AppError {
+    if is_database_unavailable(error) {
+        AppError::resource_unavailable(format!("{context}: database unavailable: {error}"))
+    } else {
+        AppError::database(format!("{context}: {error}"))
+    }
+}
+
 /// How long one stored-secret failure stays quiet at `ERROR` after it
 /// alerted.
 ///
@@ -310,6 +369,13 @@ where
 mod tests {
     use super::*;
 
+    use std::borrow::Cow;
+    use std::error::Error as StdError;
+    use std::fmt::{Display, Formatter, Result as FmtResult};
+    use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+
+    use sqlx::error::{DatabaseError, ErrorKind as SqlxErrorKind};
+
     const WINDOW: Duration = Duration::from_secs(60);
 
     #[test]
@@ -393,5 +459,98 @@ mod tests {
             );
         }
         assert_eq!(latches.admit(FIRST, 1_000, WINDOW), Admission::Repeat);
+    }
+
+    /// A Postgres error carrying only its `SQLSTATE`.
+    #[derive(Debug)]
+    struct Sqlstate(&'static str);
+
+    impl Display for Sqlstate {
+        fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+            write!(f, "SQLSTATE {}", self.0)
+        }
+    }
+
+    impl StdError for Sqlstate {}
+
+    impl DatabaseError for Sqlstate {
+        fn message(&self) -> &str {
+            self.0
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            Some(Cow::Borrowed(self.0))
+        }
+
+        fn as_error(&self) -> &(dyn StdError + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn StdError + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn StdError + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> SqlxErrorKind {
+            SqlxErrorKind::Other
+        }
+    }
+
+    fn classified(error: &sqlx::Error) -> &'static str {
+        key_read_event(
+            &key_store_query_error("Database query failed", error),
+            DEK_READ_FAILED,
+        )
+    }
+
+    #[test]
+    fn a_database_that_cannot_serve_the_read_stays_off_the_key_loss_page() {
+        let unavailable = [
+            sqlx::Error::PoolTimedOut,
+            sqlx::Error::PoolClosed,
+            sqlx::Error::Io(IoError::from(IoErrorKind::ConnectionReset)),
+            sqlx::Error::Database(Box::new(Sqlstate(TOO_MANY_CONNECTIONS))),
+            sqlx::Error::Database(Box::new(Sqlstate(CANNOT_CONNECT_NOW))),
+        ];
+        for error in &unavailable {
+            assert_eq!(classified(error), KEY_STORE_UNAVAILABLE, "{error}");
+            assert_eq!(
+                key_store_query_error("Database query failed", error).code,
+                ErrorCode::ResourceUnavailable,
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_read_the_database_answered_wrongly_still_pages_as_key_material() {
+        let answered = [
+            sqlx::Error::RowNotFound,
+            sqlx::Error::ColumnNotFound("secret_value".to_owned()),
+            // 42P01 undefined_table: the store itself is wrong, not busy.
+            sqlx::Error::Database(Box::new(Sqlstate("42P01"))),
+        ];
+        for error in &answered {
+            assert_eq!(classified(error), DEK_READ_FAILED, "{error}");
+            assert_eq!(
+                key_store_query_error("Database query failed", error).code,
+                ErrorCode::DatabaseError,
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_capacity_event_is_outside_the_key_material_namespace() {
+        // The key-loss metric matches `^key_material[.]`; the capacity event
+        // must never match it.
+        assert!(!KEY_STORE_UNAVAILABLE.starts_with("key_material."));
+        assert_eq!(
+            key_read_event(&AppError::not_found("System secret"), DEK_READ_FAILED),
+            DEK_READ_FAILED
+        );
     }
 }

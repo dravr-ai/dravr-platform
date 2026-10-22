@@ -18,7 +18,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::shared::key_material::{
-    DEK_MINTED_OVER_CIPHERTEXT, DEK_READ_FAILED, DEK_UNWRAP_FAILED,
+    key_read_event, DEK_MINTED_OVER_CIPHERTEXT, DEK_READ_FAILED, DEK_UNWRAP_FAILED,
 };
 use pierre_database::backends::SecurityRepository;
 use pierre_database::database::generate_encryption_key;
@@ -372,7 +372,7 @@ impl KeyManager {
             Err(e) if e.code == ErrorCode::ResourceNotFound => return Ok(1),
             Err(e) => {
                 error!(
-                    event = DEK_READ_FAILED,
+                    event = key_read_event(&e, DEK_READ_FAILED),
                     error_code = ?e.code,
                     error = %e,
                     "Failed to read the active DEK version"
@@ -430,7 +430,7 @@ impl KeyManager {
             .await
             .inspect_err(|e| {
                 error!(
-                    event = DEK_READ_FAILED,
+                    event = key_read_event(e, DEK_READ_FAILED),
                     dek_version = version,
                     error_code = ?e.code,
                     error = %e,
@@ -542,7 +542,7 @@ impl KeyManager {
             }
             Err(e) => {
                 error!(
-                    event = DEK_READ_FAILED,
+                    event = key_read_event(&e, DEK_READ_FAILED),
                     error_code = ?e.code,
                     error = %e,
                     "Failed to read the stored DEK; refusing to initialize key management"
@@ -642,7 +642,7 @@ impl KeyManager {
             }
             Err(e) => {
                 error!(
-                    event = DEK_READ_FAILED,
+                    event = key_read_event(&e, DEK_READ_FAILED),
                     error_code = ?e.code,
                     error = %e,
                     "Failed to read the stored DEK; refusing to initialize key management"
@@ -657,7 +657,7 @@ impl KeyManager {
     async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
         security.count_encrypted_rows().await.inspect_err(|e| {
             error!(
-                event = DEK_READ_FAILED,
+                event = key_read_event(e, DEK_READ_FAILED),
                 error_code = ?e.code,
                 error = %e,
                 "Failed to count encrypted rows before storing a DEK; refusing to initialize key management"

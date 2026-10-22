@@ -1,5 +1,5 @@
 // ABOUTME: Every key-material failure logs at ERROR under a key_material.* event, once per incident, never with a secret
-// ABOUTME: Covers stored-secret decrypt failures per kind, DEK read/unwrap failures, boots that refuse to mint a key over ciphertext, and the alert filter
+// ABOUTME: Covers stored-secret decrypt failures per kind, DEK read/unwrap failures, boots that refuse to mint a key over ciphertext, the alert filter, and a database too busy to serve a key read (capacity, not key loss)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -798,6 +798,106 @@ async fn failed_ciphertext_count_before_a_keypair_mint_pages() {
     .await;
     assert!(loaded.is_err(), "an unanswered count must refuse the mint");
     captured.page("key_material.rsa_keypair_load_failed");
+}
+
+// ── A database that cannot serve the read (carnet#1130) ─────────────────────
+//
+// On 2026-10-21 a deploy took every Postgres connection slot; four booting
+// instances timed out on the DEK read and the key-loss page told on-call to
+// restore the key from a point-in-time clone. The key was intact. A read the
+// database could not serve still refuses the boot and mints nothing, but it
+// logs under the database-capacity event, never under `key_material.`.
+
+/// The event the database-capacity metric matches.
+///
+/// This reads the Terraform source on purpose, as [`alert_filter`] does: the
+/// log line and the metric filter sit on two sides of a boundary no test can
+/// cross (the metric runs in Cloud Logging), and a renamed event would
+/// otherwise stop alerting in silence (.savoir/platform/coding-standards.md,
+/// Tests).
+fn capacity_event() -> String {
+    let terraform =
+        include_str!("../../../../infra/environments/dev/database_capacity_monitoring.tf");
+    let pattern = Regex::new(r#"(?m)^\s*jsonPayload\.event="([^"]+)"\s*$"#).unwrap();
+    pattern
+        .captures(terraform)
+        .expect("database_capacity_monitoring.tf must filter a metric on jsonPayload.event")[1]
+        .to_owned()
+}
+
+/// Close the pool every handle on `database` shares, so every query fails
+/// the way a database with no free connection does: before reaching a row.
+async fn close_pool(database: &Database) {
+    match database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlite.pool().close().await,
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => pg.pool().close().await,
+    }
+}
+
+/// Assert the boot logged one capacity event at `ERROR` and nothing the
+/// key-loss filter would page on.
+fn assert_capacity_not_key_loss(captured: &Captured) {
+    let key_loss = alert_filter();
+    let paged: Vec<CapturedEvent> = captured
+        .all()
+        .into_iter()
+        .filter(|e| {
+            e.fields
+                .get("event")
+                .is_some_and(|ev| key_loss.is_match(ev))
+        })
+        .collect();
+    assert!(
+        paged.is_empty(),
+        "an unavailable database must not page as key loss: {paged:#?}"
+    );
+
+    let event = capacity_event();
+    assert!(
+        !key_loss.is_match(&event),
+        "the capacity event {event:?} must stay outside the key-material filter"
+    );
+    let capacity = captured.with_event(&event, Level::ERROR);
+    assert_eq!(
+        capacity.len(),
+        1,
+        "expected one ERROR with event {event:?}, got: {:#?}",
+        captured.all()
+    );
+}
+
+#[tokio::test]
+async fn dek_read_on_an_unavailable_database_refuses_the_boot_without_paging_key_loss() {
+    let database = initialized_database().await;
+    close_pool(&database).await;
+
+    let captured = Captured::start();
+    let mut booting = booting_manager(7);
+    let mut booting_database = database.clone();
+    let refused = booting
+        .complete_initialization(&mut booting_database)
+        .await
+        .expect_err("a DEK the database cannot serve must refuse the boot");
+
+    assert_eq!(refused.code, ErrorCode::ResourceUnavailable);
+    assert_capacity_not_key_loss(&captured);
+}
+
+#[tokio::test]
+async fn signing_keypair_read_on_an_unavailable_database_refuses_without_paging_key_loss() {
+    let database = create_test_db_with_key(WRITE_KEY.to_vec()).await.unwrap();
+    close_pool(&database).await;
+
+    let captured = Captured::start();
+    let loaded =
+        load_or_store_first_keypair(database.as_security_repository(), TEST_RSA_BITS).await;
+
+    let Err(refused) = loaded else {
+        panic!("keypairs the database cannot serve must refuse the boot");
+    };
+    assert_eq!(refused.code, ErrorCode::ResourceUnavailable);
+    assert_capacity_not_key_loss(&captured);
 }
 
 /// Run one raw statement against whichever backend the factory opened.

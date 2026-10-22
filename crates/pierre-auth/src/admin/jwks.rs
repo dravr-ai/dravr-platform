@@ -56,7 +56,7 @@ use pierre_core::admin::jwt::{JwtSigner, JwtVerifier};
 use pierre_core::constants::service_names::{ADMIN_API, PIERRE_MCP_SERVER};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::shared::key_material::{
-    RSA_KEYPAIR_LOAD_FAILED, RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT,
+    key_read_event, RSA_KEYPAIR_LOAD_FAILED, RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT,
 };
 use pierre_database::backends::SecurityRepository;
 use tracing::{error, info};
@@ -522,7 +522,7 @@ async fn store_first_keypair(
 async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
     security.count_encrypted_rows().await.inspect_err(|e| {
         error!(
-            event = RSA_KEYPAIR_LOAD_FAILED,
+            event = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED),
             error_code = ?e.code,
             error = %e,
             "Failed to count encrypted rows before storing the first RSA keypair"
@@ -581,7 +581,7 @@ async fn load_rsa_keypairs_or_page(
 ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
     security.load_rsa_keypairs().await.inspect_err(|e| {
         error!(
-            event = RSA_KEYPAIR_LOAD_FAILED,
+            event = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED),
             error_code = ?e.code,
             error = %e,
             "Failed to read the persisted RSA keypairs"
