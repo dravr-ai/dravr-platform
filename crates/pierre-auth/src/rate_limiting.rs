@@ -21,7 +21,7 @@ use serde::Serialize;
 
 use crate::api_keys::{ApiKey, ApiKeyTier};
 use crate::config::rate_limit::RateLimitConfig;
-use pierre_core::constants::oauth_rate_limiting::KNOWN_DEVICE_FAILURES;
+use pierre_core::constants::oauth_rate_limiting::{KNOWN_DEVICE_FAILURES, SIGNUP_CODE_ATTEMPTS};
 use pierre_core::models::{A2AClient, JwtMonthlyUsage, User, WindowUsage};
 use pierre_database::repositories::analytics::next_utc_month_start;
 
@@ -216,6 +216,9 @@ pub enum OAuth2Endpoint {
     /// link page's register form) or a verification-mail resend, metered per
     /// client address
     SignUp,
+    /// An attempt to redeem a signup code, at registration or from the
+    /// pending page, metered per client address (carnet#1128)
+    SignupCode,
 }
 
 impl OAuth2Endpoint {
@@ -231,6 +234,7 @@ impl OAuth2Endpoint {
             Self::PasswordLoginAccount => "password_login_account",
             Self::PasswordLoginKnownDevice => "password_login_known_device",
             Self::SignUp => "sign_up",
+            Self::SignupCode => "signup_code",
         }
     }
 }
@@ -318,6 +322,7 @@ impl OAuth2RateLimitConfig {
             OAuth2Endpoint::PasswordLoginAccount => self.password_login_account_rpm,
             OAuth2Endpoint::PasswordLoginKnownDevice => KNOWN_DEVICE_FAILURES,
             OAuth2Endpoint::SignUp => self.sign_up_rpm,
+            OAuth2Endpoint::SignupCode => SIGNUP_CODE_ATTEMPTS,
         }
     }
 }

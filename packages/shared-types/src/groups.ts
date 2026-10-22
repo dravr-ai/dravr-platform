@@ -97,6 +97,8 @@ export interface GroupInvite {
   max_uses: number | null;
   use_count: number;
   is_active: boolean;
+  /** Whether redeeming it also approves a pending account: a coach's signup code */
+  approves_signup: boolean;
   created_at: string;
 }
 
@@ -143,6 +145,12 @@ export interface CreateInviteRequest {
   max_uses?: number;
   /** Athlete membership (default) or coach attachment */
   kind?: GroupInviteKind;
+  /**
+   * Also approve the pending account that redeems it (carnet#1128). Only a
+   * coach with coach access may set it; it then needs `max_uses` (1-50) and
+   * `expires_in_days` (1-30).
+   */
+  approves_signup?: boolean;
 }
 
 // ========== RESPONSE TYPES ==========

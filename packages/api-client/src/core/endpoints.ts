@@ -239,6 +239,7 @@ export const ENDPOINTS = {
      * for. A pending account reaches it.
      */
     IMPORT_TOMBSTONES_CLEAR: '/api/user/import-tombstones/clear',
+    SIGNUP_CODE_REDEEM: '/api/user/signup-code/redeem',
     /**
      * Reply language (`users.locale`) — the language the coach answers in.
      * Clients PUT this whenever the viewer changes the app language, so the

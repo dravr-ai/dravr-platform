@@ -8,6 +8,7 @@ import type { User } from '../types/api';
 import { Button, Input } from './ui';
 import PendingUsersList from './PendingUsersList';
 import PreApprovedEmails from './PreApprovedEmails';
+import SignupCodes from './SignupCodes';
 import CoachAccessRequests from './CoachAccessRequests';
 import UserApprovalModal from './UserApprovalModal';
 import UserDetailDrawer from './UserDetailDrawer';
@@ -15,7 +16,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 
-type UserTab = 'pending' | 'preapproved' | 'coach_access' | 'active' | 'suspended' | 'all';
+type UserTab = 'pending' | 'preapproved' | 'signup_codes' | 'coach_access' | 'active' | 'suspended' | 'all';
 
 export default function UserManagement() {
   const { language } = useTranslation();
@@ -97,6 +98,18 @@ export default function UserManagement() {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+        </svg>
+      )
+    },
+    {
+      id: 'signup_codes',
+      name: 'Signup codes',
+      // Like the allow-list, the codes are not a user listing: the view owns
+      // its query and shows the total in its own header.
+      count: 0,
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
         </svg>
       )
     },
@@ -224,6 +237,16 @@ export default function UserManagement() {
       <div className="space-y-6">
         {tabNav}
         <PreApprovedEmails />
+      </div>
+    );
+  }
+
+  // Signup codes (carnet#1128): minted here, or a coach's approving group code.
+  if (activeTab === 'signup_codes') {
+    return (
+      <div className="space-y-6">
+        {tabNav}
+        <SignupCodes />
       </div>
     );
   }

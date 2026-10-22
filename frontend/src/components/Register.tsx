@@ -1,5 +1,5 @@
 // ABOUTME: User registration page for new account creation
-// ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed
+// ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed; takes an optional signup code
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,13 +15,16 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
+import { isInvalidSignupCode } from '@pierre/ui-logic';
 
 interface RegisterProps {
   onNavigateToLogin: () => void;
   onRegistrationSuccess: (message: string, email: string) => void;
+  /** A signup code the create-account link carried (`/signup?code=…`). */
+  initialSignupCode?: string;
 }
 
-export default function Register({ onNavigateToLogin, onRegistrationSuccess }: RegisterProps) {
+export default function Register({ onNavigateToLogin, onRegistrationSuccess, initialSignupCode }: RegisterProps) {
   const { t } = useTranslation();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,6 +34,10 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  // A signup code approves the account at once (carnet#1128). Most people have
+  // none, so the field stays behind a link unless the link carried one.
+  const [signupCode, setSignupCode] = useState(initialSignupCode ?? '');
+  const [showSignupCode, setShowSignupCode] = useState(Boolean(initialSignupCode));
   const turnstileRef = useRef<TurnstileWidgetHandle>(null);
 
   // Whether sign-up is open and which bot check to render. A server that does
@@ -63,20 +70,29 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
 
     setIsLoading(true);
 
+    const trimmedCode = signupCode.trim();
     try {
       const response = await authApi.register({
         email,
         password,
         display_name: displayName || undefined,
         turnstile_token: turnstileToken ?? undefined,
+        ...(trimmedCode ? { signup_code: trimmedCode } : {}),
       });
       onRegistrationSuccess(response.message, email);
     } catch (err: unknown) {
       // The server's sentence covers each guard: paused or past the day's
       // ceiling (429 QuotaExceeded), too many sign-ups from this network
-      // (429 RateLimitExceeded), the human check failed (403).
+      // (429 RateLimitExceeded), the human check failed (403), the signup
+      // code is not one (400, nothing created: the field stays to fix it).
       const apiError = err as { response?: { data?: { message?: string; error?: string } } };
-      setError(apiError.response?.data?.message || apiError.response?.data?.error || t('app.registrationFailedRetry'));
+      setError(
+        isInvalidSignupCode(err)
+          ? t('auth.signupCodeInvalid')
+          : apiError.response?.data?.message ||
+              apiError.response?.data?.error ||
+              t('app.registrationFailedRetry')
+      );
       // A Turnstile token is single-use: the next attempt needs a fresh one.
       turnstileRef.current?.reset();
     } finally {
@@ -194,6 +210,32 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                   variant="dark"
                 />
               </div>
+
+              {showSignupCode ? (
+                <Input
+                  id="signupCode"
+                  name="signupCode"
+                  type="text"
+                  label={t('auth.signupCodeLabel')}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  placeholder={t('auth.signupCodePlaceholder')}
+                  helpText={t('auth.signupCodeHint')}
+                  value={signupCode}
+                  onChange={(e) => setSignupCode(e.target.value)}
+                  variant="dark"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowSignupCode(true)}
+                  className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
+                  data-testid="signup-code-reveal"
+                >
+                  {t('auth.haveSignupCode')}
+                </button>
+              )}
 
               {turnstileSiteKey && (
                 <TurnstileWidget

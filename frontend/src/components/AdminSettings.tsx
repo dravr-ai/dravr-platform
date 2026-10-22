@@ -10,7 +10,9 @@ import { adminApi } from '../services/api';
 import type { AutoApprovalSetting, SignupSetting, SignupSettingUpdate } from '../services/api/admin';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
-import { Button, Card, Input, Select } from './ui';
+import { Button, Card, ConfirmDialog, Input, Select } from './ui';
+import { formatDateTime } from '@pierre/chat-utils';
+import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { featureFlagsQuery } from './featureFlagsQuery';
@@ -49,6 +51,7 @@ function SettingSwitch({ checked, label, onToggle, disabled = false, title }: Se
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();
+  const { language } = useTranslation();
   const { user } = useAuth();
   const adminTenantId = user?.tenant_id ?? null;
 
@@ -83,6 +86,18 @@ export default function AdminSettings() {
       // Only a saved limit clears the field; flipping a toggle keeps a half-typed one.
       if (update.daily_limit !== undefined) setDailyLimitDraft(null);
     },
+  });
+
+  // Restart the daily count from zero, limit unchanged (carnet#1131). Asked
+  // for in a dialog first: it lets another day's worth of accounts in.
+  const [confirmResetCount, setConfirmResetCount] = useState(false);
+  const resetCountMutation = useMutation({
+    mutationFn: () => adminApi.resetSignupCount(),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(QUERY_KEYS.adminSettings.signup(), updated);
+      setConfirmResetCount(false);
+    },
+    onError: () => setConfirmResetCount(false),
   });
 
   // The ceiling being typed, or null while the field shows the saved value.
@@ -292,7 +307,7 @@ export default function AdminSettings() {
                     </Button>
                   </div>
                   <p className="text-xs text-on-surface-variant mt-2">
-                    Accounts allowed per rolling 24 hours. 0 means no ceiling.
+                    Accounts allowed per rolling 24 hours, or since the last reset when that is later. 0 means no ceiling.
                   </p>
                 </form>
 
@@ -319,10 +334,24 @@ export default function AdminSettings() {
 
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">
-                    <dt className="text-on-surface-variant">Accounts created in the last 24 h</dt>
-                    <dd className="mt-1 font-medium text-on-surface" data-testid="signup-created-24h">
-                      {signupData.created_last_24h}
+                    <dt className="text-on-surface-variant">Accounts counted against the limit</dt>
+                    <dd className="mt-1 font-medium text-on-surface" data-testid="signup-counted">
+                      {signupData.counted}
                       {signupData.daily_limit > 0 ? ` / ${signupData.daily_limit}` : ''}
+                    </dd>
+                    <dd className="mt-1 text-xs text-on-surface-variant" data-testid="signup-counted-since">
+                      counted since {formatDateTime(signupData.counted_since, language)}
+                    </dd>
+                    <dd className="mt-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setConfirmResetCount(true)}
+                        disabled={resetCountMutation.isPending}
+                      >
+                        Reset today&apos;s count
+                      </Button>
                     </dd>
                   </div>
                   <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">
@@ -343,6 +372,36 @@ export default function AdminSettings() {
                     Failed to update the sign-up settings. Please try again.
                   </div>
                 )}
+                {resetCountMutation.isSuccess && (
+                  <div
+                    role="status"
+                    className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30"
+                  >
+                    Today&apos;s count restarted from zero.
+                  </div>
+                )}
+                {resetCountMutation.isError && (
+                  <div
+                    role="alert"
+                    className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30"
+                  >
+                    Failed to reset the count. Please try again.
+                  </div>
+                )}
+                <ConfirmDialog
+                  isOpen={confirmResetCount}
+                  onClose={() => setConfirmResetCount(false)}
+                  onConfirm={() => resetCountMutation.mutate()}
+                  title="Reset today's count?"
+                  message={
+                    signupData.daily_limit > 0
+                      ? `The count restarts from zero now, so another ${signupData.daily_limit} accounts can be created before the ceiling stops sign-ups again. The limit itself is unchanged.`
+                      : 'The count restarts from zero now. No daily limit is set, so this only resets the figure.'
+                  }
+                  confirmLabel="Reset count"
+                  variant="warning"
+                  isLoading={resetCountMutation.isPending}
+                />
               </>
             ) : null}
           </div>

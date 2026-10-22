@@ -251,6 +251,10 @@ impl ServerContext {
             rate_limiter: self.auth.oauth2_rate_limiter.clone(),
             play_integrity: self.auth.play_integrity.clone(),
             human_check: self.auth.human_check.clone(),
+            #[cfg(feature = "tools-groups")]
+            group_service: Some(self.common.group_service.clone()),
+            #[cfg(not(feature = "tools-groups"))]
+            group_service: None,
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
         }

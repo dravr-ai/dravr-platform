@@ -127,6 +127,8 @@ pub mod seeder;
 pub mod session_refresh_tokens;
 /// URL shortener: `code` → `target_url` with an integer-epoch TTL (`PostgreSQL`)
 pub mod short_links;
+/// Admin signup codes and their redemptions (Postgres)
+pub mod signup_codes;
 /// Store listings repository implementation (marketplace publishing workflow)
 pub mod store_listings;
 /// Warnings sent before a Strava seat is reclaimed (`PostgreSQL`)

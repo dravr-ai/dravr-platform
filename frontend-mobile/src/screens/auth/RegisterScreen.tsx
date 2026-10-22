@@ -12,7 +12,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
-import { classifyApiError, describeApiError, useAsyncAction } from '@pierre/ui-logic';
+import {
+  classifyApiError,
+  describeApiError,
+  isInvalidSignupCode,
+  useAsyncAction,
+} from '@pierre/ui-logic';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, FormScrollView, Input } from '../../components/ui';
@@ -22,6 +27,7 @@ import { authApi } from '../../services/api';
 import { spacing } from '../../constants/theme';
 import { useRouter } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
+import { signupCodeOrUndefined } from '../../utils/signupCode';
 
 /**
  * The sentence an alert shows for a failed registration.
@@ -48,11 +54,16 @@ export function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // A signup code is optional and most athletes have none, so its field
+  // stays folded behind a link until asked for.
+  const [showSignupCode, setShowSignupCode] = useState(false);
+  const [signupCode, setSignupCode] = useState('');
   const [errors, setErrors] = useState<{
     displayName?: string;
     email?: string;
     password?: string;
     confirmPassword?: string;
+    signupCode?: string;
   }>({});
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const turnstileRef = useRef<TurnstileWebViewHandle>(null);
@@ -103,14 +114,27 @@ export function RegisterScreen() {
 
   // Delegate registration loading lifecycle to @pierre/ui-logic
   const registerAction = useAsyncAction({
-    action: () => register(email.trim(), password, displayName.trim(), turnstileToken ?? undefined),
+    action: () =>
+      register(
+        email.trim(),
+        password,
+        displayName.trim(),
+        turnstileToken ?? undefined,
+        signupCodeOrUndefined(signupCode),
+      ),
     onSuccess: (response) => {
       // The server's sentence (awaiting review, or confirm the address to
       // activate) goes to the waiting screen rather than a fixed one.
       router.replace({ pathname: '/(auth)/pending-approval', params: { message: response.message } });
     },
     onError: (error: unknown) => {
-      Alert.alert(t('app.registrationFailedTitle'), describeRegisterError(error, t));
+      // A code the server will not take creates nothing: say so next to the
+      // field, where the athlete fixes it, rather than in a dismissable alert.
+      if (isInvalidSignupCode(error)) {
+        setErrors((current) => ({ ...current, signupCode: t('auth.signupCodeInvalid') }));
+      } else {
+        Alert.alert(t('app.registrationFailedTitle'), describeRegisterError(error, t));
+      }
       // A Turnstile token is single-use: the next attempt needs a fresh one.
       turnstileRef.current?.reset();
     },
@@ -227,6 +251,37 @@ export function RegisterScreen() {
                 onSubmitEditing={handleRegister}
                 testID="register-confirm-password-input"
               />
+
+              {showSignupCode ? (
+                <View testID="register-signup-code">
+                  <Input
+                    label={t('auth.signupCodeLabel')}
+                    placeholder={t('auth.signupCodePlaceholder')}
+                    value={signupCode}
+                    onChangeText={(value) => {
+                      setSignupCode(value);
+                      if (errors.signupCode) {
+                        setErrors((current) => ({ ...current, signupCode: undefined }));
+                      }
+                    }}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    error={errors.signupCode}
+                    returnKeyType="go"
+                    onSubmitEditing={handleRegister}
+                    testID="register-signup-code-input"
+                  />
+                  <Text className="text-xs text-text-tertiary mb-2">{t('auth.signupCodeHint')}</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => setShowSignupCode(true)}
+                  className="self-start py-2 mb-2"
+                  testID="register-signup-code-toggle"
+                >
+                  <Text className="text-sm font-semibold text-primary">{t('auth.haveSignupCode')}</Text>
+                </TouchableOpacity>
+              )}
 
               {turnstileSiteKey && (
                 <TurnstileWebView

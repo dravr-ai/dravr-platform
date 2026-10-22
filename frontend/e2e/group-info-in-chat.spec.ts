@@ -139,6 +139,7 @@ const mockInvites = {
       max_uses: 10,
       use_count: 3,
       is_active: true,
+      approves_signup: false,
       created_at: '2026-03-15T10:00:00Z',
     },
   ],
@@ -288,6 +289,7 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
           max_uses: null,
           use_count: 0,
           is_active: true,
+          approves_signup: false,
           created_at: new Date().toISOString(),
         }),
       });

@@ -64,18 +64,78 @@ export interface AutoApprovalSetting {
 }
 
 /// The sign-up guards an operator controls (carnet#1063). `open` is the kill
-/// switch; `daily_limit` caps accounts created per rolling 24 h (0 = no
-/// ceiling); `activate_on_verified_email` makes confirming the address
-/// activate the account. `created_last_24h` and `turnstile_configured` are
-/// read-only: what the ceiling is measured against, and whether the server
-/// holds a Turnstile secret to check the bot-check token with.
+/// switch; `daily_limit` caps accounts created per day (0 = no ceiling);
+/// `activate_on_verified_email` makes confirming the address activate the
+/// account. `counted`, `counted_since` and `turnstile_configured` are
+/// read-only: what the ceiling is measured against since when (the later of
+/// 24 h ago and the last reset, carnet#1131), and whether the server holds a
+/// Turnstile secret to check the bot-check token with.
 export interface SignupSetting {
   open: boolean;
   daily_limit: number;
   activate_on_verified_email: boolean;
-  created_last_24h: number;
+  counted: number;
+  /// RFC 3339 start of the window `counted` covers
+  counted_since: string;
   turnstile_configured: boolean;
   description: string;
+}
+
+/// Which kind of signup code (carnet#1128): one an admin minted, or a coach's
+/// group invite that also approves the account that redeems it.
+export type SignupCodeKind = 'admin' | 'coach';
+
+/// An account that came in on a signup code.
+export interface SignupCodeRedeemer {
+  email: string;
+  /// The account's status now: `pending` while it waits on its confirmation link
+  status: string;
+  redeemed_at: string;
+  /// When the code activated it; `null` while it still waits
+  activated_at: string | null;
+}
+
+/// One signup code as the admin console lists it. The code itself is never
+/// here: only its last characters (`code_hint`), since only a hash is stored.
+export interface SignupCodeListing {
+  kind: SignupCodeKind;
+  id: string;
+  code_hint: string;
+  note: string | null;
+  created_by: string | null;
+  created_by_email: string | null;
+  /// The coach's group, for a coach's code
+  group_id: string | null;
+  expires_at: string | null;
+  /// `null` is unlimited
+  max_uses: number | null;
+  use_count: number;
+  /// Not revoked, not expired, not used up
+  live: boolean;
+  created_at: string;
+  redeemed_by: SignupCodeRedeemer[];
+}
+
+/// What an admin asks for when minting a code; an absent field is unlimited or never.
+export interface MintSignupCodeRequest {
+  note?: string;
+  /// 1-12 letters or digits in front of the random part
+  prefix?: string;
+  /// 1-10000
+  max_uses?: number;
+  /// 1-365
+  expires_in_days?: number;
+}
+
+/// The React Query key for the signup-code listing. Web-only, like the
+/// listing itself, so it lives beside the endpoint rather than in the shared
+/// key table the mobile app also reads.
+export const SIGNUP_CODES_QUERY_KEY = ['admin-signup-codes'] as const;
+
+/// A freshly minted admin code: `code` is in this response and nowhere else.
+export interface MintedSignupCode {
+  message: string;
+  code: string;
 }
 
 /// The fields `PUT /api/admin/settings/signup` changes; an absent one is kept.
@@ -284,6 +344,30 @@ export const adminApi = {
       removed: response.data.data?.removed ?? false,
       invitation_revoked: response.data.data?.invitation_revoked ?? false,
     };
+  },
+
+  // ==================== SIGNUP CODES ====================
+  // A code an admin mints, or a coach's group invite that approves signups:
+  // whoever enters a live one is approved at once (carnet#1128).
+  async getSignupCodes(): Promise<SignupCodeListing[]> {
+    const response = await axios.get('/api/admin/signup-codes');
+    return response.data.data?.codes || [];
+  },
+
+  async mintSignupCode(request: MintSignupCodeRequest): Promise<MintedSignupCode> {
+    const response = await axios.post('/api/admin/signup-codes', request);
+    return { message: response.data.message, code: response.data.data?.code };
+  },
+
+  /** Withdraw a code; the accounts it already approved stay approved. */
+  async revokeSignupCode(
+    kind: SignupCodeKind,
+    id: string,
+  ): Promise<{ message: string; revoked: boolean }> {
+    const response = await axios.delete(
+      `/api/admin/signup-codes/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,
+    );
+    return { message: response.data.message, revoked: response.data.data?.revoked ?? false };
   },
 
   /**
@@ -526,6 +610,12 @@ export const adminApi = {
 
   async updateSignupSetting(update: SignupSettingUpdate): Promise<SignupSetting> {
     const response = await axios.put('/api/admin/settings/signup', update);
+    return response.data.data;
+  },
+
+  /** Restart the daily sign-up count from zero; the limit is unchanged (carnet#1131). */
+  async resetSignupCount(): Promise<SignupSetting> {
+    const response = await axios.post('/api/admin/settings/signup/reset');
     return response.data.data;
   },
 

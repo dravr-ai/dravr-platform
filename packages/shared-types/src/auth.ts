@@ -195,6 +195,17 @@ export interface ClearImportTombstoneResponse {
   user_status: UserStatus;
 }
 
+/** Body of `POST /api/user/signup-code/redeem` (carnet#1128). */
+export interface RedeemSignupCodeResponse {
+  /**
+   * The account's status after the redemption: `active` when the code
+   * activated it, `pending` while it waits on the email confirmation link.
+   */
+  user_status: UserStatus;
+  /** Whether a coach's code joined the coach's group; `null` for an admin's code. */
+  group_joined: boolean | null;
+}
+
 // ========== AUTH RESPONSE TYPES ==========
 
 /** Response from login endpoint */

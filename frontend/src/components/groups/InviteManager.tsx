@@ -2,14 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Invite management panel for coaching groups
-// ABOUTME: Lists active invites, create new invites with expiry/max uses, copy links, deactivate
+// ABOUTME: Lists active invites, create new invites with expiry/max uses (optionally approving signups), copy links, deactivate
 
 import { useState } from 'react';
-import { Link2, Plus, Copy, Check, Trash2, UserCog } from 'lucide-react';
+import { Link2, Plus, Copy, Check, Trash2, UserCog, BadgeCheck } from 'lucide-react';
 import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hooks/useGroups';
-import { Button, Card, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import { Button, Card, Checkbox, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { useAuth } from '../../hooks/useAuth';
 import { formatDateTime } from '@pierre/chat-utils';
 import type {
   GroupRole,
@@ -52,6 +53,19 @@ function kind_options(t: (key: string) => string): SelectOption[] {
 ];
 }
 
+/**
+ * An invite that also approves signups is a coach's signup code (carnet#1128):
+ * the server takes it only bounded, at most 50 uses for at most 30 days. Every
+ * concrete option above is within both, so the bound drops the unlimited and
+ * never-expires choices and falls back to these when one was picked.
+ */
+const SIGNUP_CODE_DEFAULT_EXPIRY = '7';
+const SIGNUP_CODE_DEFAULT_MAX_USES = '10';
+
+function bounded(options: SelectOption[]): SelectOption[] {
+  return options.filter((option) => option.value !== '0');
+}
+
 function isExpired(invite: GroupInvite): boolean {
   if (!invite.expires_at) return false;
   return new Date(invite.expires_at) < new Date();
@@ -69,23 +83,45 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
   const { deactivateInvite, isPending: isDeactivating } = useDeactivateInvite(groupId);
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
+  // Only a coach with coach access may mint an invite that approves signups;
+  // the server enforces it, this only hides a toggle that would be refused.
+  const { user } = useAuth();
+  const canApproveSignups = user?.manages_roster === true;
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [expiryDays, setExpiryDays] = useState('7');
   const [maxUses, setMaxUses] = useState('10');
   const [inviteKind, setInviteKind] = useState<GroupInviteKind>('member');
+  const [approvesSignup, setApprovesSignup] = useState(false);
+  const signupCode = canApproveSignups && inviteKind === 'member' && approvesSignup;
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<GroupInvite | null>(null);
 
   const canManage = currentUserRole === 'owner' || currentUserRole === 'admin';
 
+  const handleApprovesSignupChange = (checked: boolean) => {
+    setApprovesSignup(checked);
+    if (checked) {
+      // A signup code is always bounded: replace an unlimited choice.
+      if (expiryDays === '0') setExpiryDays(SIGNUP_CODE_DEFAULT_EXPIRY);
+      if (maxUses === '0') setMaxUses(SIGNUP_CODE_DEFAULT_MAX_USES);
+    }
+  };
+
   const handleCreate = async () => {
     const request: CreateInviteRequest = {};
-    const days = parseInt(expiryDays, 10);
+    if (signupCode) {
+      request.approves_signup = true;
+    }
+    // A signup code is always bounded, even if an unlimited choice was made
+    // while the form showed a coach invite.
+    const bound = (value: string, fallback: string) =>
+      signupCode && value === '0' ? fallback : value;
+    const days = parseInt(bound(expiryDays, SIGNUP_CODE_DEFAULT_EXPIRY), 10);
     if (days > 0) {
       request.expires_in_days = days;
     }
-    const uses = parseInt(maxUses, 10);
+    const uses = parseInt(bound(maxUses, SIGNUP_CODE_DEFAULT_MAX_USES), 10);
     if (uses > 0) {
       request.max_uses = uses;
     }
@@ -101,6 +137,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
           : t('groups.inviteReadyToShare');
       showSuccess(t('app.inviteCreated'), detail);
       setShowCreateForm(false);
+      setApprovesSignup(false);
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.inviteCreateFailed' });
       showError(t('app.creationFailed'), message);
@@ -184,17 +221,27 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
               </p>
             )}
           </div>
+          {canApproveSignups && inviteKind === 'member' && (
+            <div className="mb-4">
+              <Checkbox
+                label={t('groups.approvesSignupLabel')}
+                description={t('groups.approvesSignupHint')}
+                checked={approvesSignup}
+                onChange={(e) => handleApprovesSignupChange(e.target.checked)}
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <Select
               label={t('groups.inviteExpiresAfter')}
-              options={expiry_options(t)}
-              value={expiryDays}
+              options={signupCode ? bounded(expiry_options(t)) : expiry_options(t)}
+              value={signupCode && expiryDays === '0' ? SIGNUP_CODE_DEFAULT_EXPIRY : expiryDays}
               onChange={(e) => setExpiryDays(e.target.value)}
             />
             <Select
               label={t('groups.inviteMaxUses')}
-              options={max_uses_options(t)}
-              value={maxUses}
+              options={signupCode ? bounded(max_uses_options(t)) : max_uses_options(t)}
+              value={signupCode && maxUses === '0' ? SIGNUP_CODE_DEFAULT_MAX_USES : maxUses}
               onChange={(e) => setMaxUses(e.target.value)}
             />
           </div>
@@ -229,6 +276,15 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
                       <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
                         <UserCog className="w-3 h-3" />
                         {t('humanCoach.coach')}
+                      </span>
+                    )}
+                    {invite.approves_signup && (
+                      <span
+                        className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full"
+                        data-testid="invite-signup-code-badge"
+                      >
+                        <BadgeCheck className="w-3 h-3" />
+                        {t('groups.signupCodeBadge')}
                       </span>
                     )}
                   </div>

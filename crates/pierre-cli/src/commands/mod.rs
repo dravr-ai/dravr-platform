@@ -16,6 +16,7 @@ pub mod key;
 pub mod provider_data;
 pub mod seed;
 pub mod settings;
+pub mod signup_code;
 pub mod strava_pool;
 pub mod strava_webhook;
 pub mod tenant;

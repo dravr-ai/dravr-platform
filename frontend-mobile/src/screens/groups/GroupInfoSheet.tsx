@@ -49,6 +49,13 @@ import { inviteLink } from '../../constants/inviteLink';
 /** How long an invite created from this sheet stays redeemable. */
 const INVITE_LIFETIME_DAYS = 7;
 
+/**
+ * The uses an approving invite (a coach's signup code, carnet#1128) carries:
+ * the server's ceiling, which it requires the request to name. Its lifetime is
+ * `INVITE_LIFETIME_DAYS`, inside the server's 30-day ceiling.
+ */
+const SIGNUP_INVITE_MAX_USES = 50;
+
 /** Each weekly-digest mode, in the order the sheet offers them, with its label and one-line hint. */
 const DIGEST_MODES: ReadonlyArray<{ mode: GroupDigestMode; labelKey: string; hintKey: string }> = [
   { mode: 'off', labelKey: 'groups.digestOff', hintKey: 'groups.digestOffHint' },
@@ -155,6 +162,10 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
+  // Whether the next invite also approves the pending account that redeems
+  // it. Only a coach with coach access may mint one, so only they see it.
+  const [approvesSignup, setApprovesSignup] = useState(false);
+  const mayApproveSignups = user?.manages_roster === true;
 
   const isOwner = myMembership?.role === 'owner';
   // The owner of a coachless group who coaches others but holds no coach
@@ -208,12 +219,18 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   );
 
   const createInviteOfKind = useCallback(
-    async (kind: 'member' | 'coach') => {
+    async (kind: 'member' | 'coach' | 'signup') => {
       try {
         const invite = await createInvite(
           kind === 'coach'
             ? { expires_in_days: INVITE_LIFETIME_DAYS, kind: 'coach' as const }
-            : { expires_in_days: INVITE_LIFETIME_DAYS },
+            : kind === 'signup'
+              ? {
+                  expires_in_days: INVITE_LIFETIME_DAYS,
+                  max_uses: SIGNUP_INVITE_MAX_USES,
+                  approves_signup: true,
+                }
+              : { expires_in_days: INVITE_LIFETIME_DAYS },
         );
         const shareArgs = {
           group: group?.name ?? fallbackName ?? t('app.group'),
@@ -229,16 +246,22 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedCreateInvite' }));
       }
     },
-    [createInvite, group?.name, t],
+    [createInvite, fallbackName, group?.name, t],
   );
 
   const handleShareInvite = useCallback(() => {
+    // An approving invite is a member invite: a coach invite cannot approve
+    // accounts, so there is no kind to pick.
+    if (mayApproveSignups && approvesSignup) {
+      void createInviteOfKind('signup');
+      return;
+    }
     Alert.alert(t('app.createInvite'), t('app.whoIsInviteFor'), [
       { text: t('app.inviteKindMember'), onPress: () => void createInviteOfKind('member') },
       { text: t('humanCoach.coach'), onPress: () => void createInviteOfKind('coach') },
       { text: t('common.cancel'), style: 'cancel' },
     ]);
-  }, [createInviteOfKind, t]);
+  }, [approvesSignup, createInviteOfKind, mayApproveSignups, t]);
 
   const handleDeactivateInvite = useCallback(
     (inviteId: string, code: string) => {
@@ -500,6 +523,23 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 last={false}
                 testID="group-info-create-invite"
               />
+              {mayApproveSignups && (
+                <Row
+                  title={t('groups.approvesSignupLabel')}
+                  subtitle={t('groups.approvesSignupHint')}
+                  trailing={
+                    <Switch
+                      value={approvesSignup}
+                      onValueChange={setApprovesSignup}
+                      disabled={isCreatingInvite}
+                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      testID="group-invite-approves-signup-switch"
+                    />
+                  }
+                  last={false}
+                  testID="group-invite-approves-signup-row"
+                />
+              )}
             </View>
 
             {isLoadingInvites ? (
@@ -518,12 +558,24 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     title={invite.code}
                     subtitle={`${invite.kind === 'coach' ? t('humanCoach.invite') : t('app.memberInvite')} · used ${invite.use_count}×`}
                     trailing={
-                      <Button
-                        title={t('app.deactivate')}
-                        variant="danger"
-                        onPress={() => handleDeactivateInvite(invite.id, invite.code)}
-                        testID={`deactivate-invite-${invite.id}`}
-                      />
+                      <View className="flex-row items-center">
+                        {invite.approves_signup && (
+                          <View
+                            className="px-2 py-1 mr-2 rounded border border-border-strong"
+                            testID={`group-invite-signup-badge-${invite.id}`}
+                          >
+                            <Text className="text-xs font-semibold text-text-secondary">
+                              {t('groups.signupCodeBadge')}
+                            </Text>
+                          </View>
+                        )}
+                        <Button
+                          title={t('app.deactivate')}
+                          variant="danger"
+                          onPress={() => handleDeactivateInvite(invite.id, invite.code)}
+                          testID={`deactivate-invite-${invite.id}`}
+                        />
+                      </View>
                     }
                     last={index === activeInvites.length - 1}
                     testID={`group-invite-${invite.id}`}

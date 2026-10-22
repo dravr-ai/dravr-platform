@@ -4306,6 +4306,7 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
+ "pierre-groups",
  "pierre-mcp-transport",
  "pierre-middleware",
  "pierre-providers",

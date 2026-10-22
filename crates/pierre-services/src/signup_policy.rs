@@ -23,15 +23,17 @@
 //! operator trips the switch from the console or `pierre-cli settings signup`
 //! and every replica reads it on the next sign-up.
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_config::constants::signup as defaults;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::backends::factory::Database;
 use pierre_database::database::system_settings::{
-    SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL, SETTING_SIGNUP_DAILY_LIMIT, SETTING_SIGNUP_OPEN,
+    SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL, SETTING_SIGNUP_DAILY_LIMIT,
+    SETTING_SIGNUP_DAILY_LIMIT_RESET_AT, SETTING_SIGNUP_OPEN,
 };
 use pierre_database::repositories::UserRepository;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::email_verification::resolve_clamped;
 
@@ -163,15 +165,71 @@ pub async fn set_signup_policy(db: &Database, update: SignupPolicyUpdate) -> App
     Ok(())
 }
 
-/// How many accounts were created in the last 24 hours.
+/// The accounts the daily ceiling counts right now, and since when.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CeilingCount {
+    /// The window's start: the later of 24 hours ago and the last reset
+    pub since: DateTime<Utc>,
+    /// Accounts created since then, whatever created them
+    pub counted: i64,
+}
+
+/// When an admin last reset the ceiling's count, `None` when never or when
+/// the row cannot be read or parsed. An unreadable reset counts the full 24
+/// hours, so a database hiccup never widens the ceiling.
+async fn resolve_reset_at(db: &Database) -> Option<DateTime<Utc>> {
+    match db
+        .get_system_setting(SETTING_SIGNUP_DAILY_LIMIT_RESET_AT)
+        .await
+    {
+        Ok(Some(setting)) => DateTime::parse_from_rfc3339(setting.value.trim())
+            .map(|at| at.with_timezone(&Utc))
+            .map_err(|e| warn!(error = %e, "sign-up reset time is not RFC 3339; ignoring it"))
+            .ok(),
+        Ok(None) => None,
+        Err(e) => {
+            warn!(error = %e, "failed to read the sign-up reset time; counting the full 24 hours");
+            None
+        }
+    }
+}
+
+/// The window the daily ceiling counts in: the last 24 hours, cut short by
+/// an admin's reset inside them.
+pub async fn ceiling_window_start(db: &Database) -> DateTime<Utc> {
+    let day_ago = Utc::now() - Duration::hours(24);
+    resolve_reset_at(db)
+        .await
+        .map_or(day_ago, |reset_at| reset_at.max(day_ago))
+}
+
+/// How many accounts the daily ceiling counts right now ([`ceiling_window_start`]).
 ///
 /// # Errors
 ///
 /// Returns the repository's error when the count fails.
-pub async fn created_last_24h(users: &dyn UserRepository) -> AppResult<i64> {
-    users
-        .count_created_since(Utc::now() - Duration::hours(24))
+pub async fn ceiling_count(db: &Database, users: &dyn UserRepository) -> AppResult<CeilingCount> {
+    let since = ceiling_window_start(db).await;
+    let counted = users.count_created_since(since).await?;
+    Ok(CeilingCount { since, counted })
+}
+
+/// Restart the daily ceiling's count from zero now, leaving the limit as it
+/// is (carnet#1131). Returns the new window's start.
+///
+/// # Errors
+///
+/// Returns an internal error when the reset cannot be stored.
+pub async fn reset_ceiling_count(db: &Database, by: Option<Uuid>) -> AppResult<DateTime<Utc>> {
+    let now = Utc::now();
+    db.set_system_setting(SETTING_SIGNUP_DAILY_LIMIT_RESET_AT, &now.to_rfc3339())
         .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to store the sign-up reset time");
+            AppError::internal(format!("Failed to reset the sign-up count: {e}"))
+        })?;
+    info!(reset_by = ?by, "Sign-up daily ceiling count reset");
+    Ok(now)
 }
 
 /// Whether `policy` admits one more self-serve sign-up, with `recent` accounts
@@ -209,8 +267,8 @@ pub async fn signup_refusal(db: &Database, users: &dyn UserRepository) -> Option
     if policy.daily_limit == 0 {
         return None;
     }
-    let recent = match created_last_24h(users).await {
-        Ok(recent) => recent,
+    let recent = match ceiling_count(db, users).await {
+        Ok(count) => count.counted,
         Err(e) => {
             error!(error = %e, "Could not count recent accounts; admitting the sign-up");
             return None;
@@ -250,6 +308,22 @@ pub async fn admit_self_signup(db: &Database, users: &dyn UserRepository) -> App
             Err(paused())
         }
     }
+}
+
+/// Admit one sign-up that carries a valid signup code (carnet#1128): the
+/// kill switch still refuses it, the daily ceiling does not, since the code's
+/// own use limit sized the cohort.
+///
+/// # Errors
+///
+/// Returns a quota-exceeded error (429) reading [`SIGNUP_PAUSED`] when the
+/// switch is closed.
+pub async fn admit_signup_code(db: &Database) -> AppResult<()> {
+    if resolve_signup_policy(db).await.open {
+        return Ok(());
+    }
+    warn!("Signup code refused: sign-up is closed by an admin");
+    Err(paused())
 }
 
 #[cfg(test)]

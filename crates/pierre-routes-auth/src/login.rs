@@ -19,6 +19,7 @@ use pierre_routes_admin::auth::service::AdminAuthService;
 
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
+use crate::signup_code::{join_coach_group, meter_signup_code};
 use crate::signup_guards::{
     client_address, meter_sign_up, pass_human_check, PublicRegisterRequest,
 };
@@ -221,11 +222,25 @@ pub async fn handle_public_register(
     )
     .await?;
     let request = body.account;
+    if body.signup_code.is_some() {
+        meter_signup_code(&resources.rate_limiter, client).await?;
+    }
 
     let auth_service = resources.account_service();
+    let registered = match body.signup_code.as_ref() {
+        Some(code) => {
+            auth_service
+                .self_register_with_code(request.clone(), code)
+                .await
+        }
+        None => auth_service
+            .self_register(request.clone())
+            .await
+            .map(|response| (response, None)),
+    };
 
-    match auth_service.self_register(request.clone()).await {
-        Ok(response) => {
+    match registered {
+        Ok((response, redeemed)) => {
             // notify: record the new user on the current span so the NotifyLayer can
             // attribute the user.signed_up event without re-passing the id. The
             // personal tenant is created inside register() and not exposed on the
@@ -239,9 +254,17 @@ pub async fn handle_public_register(
                 source = "web",
                 "user account created"
             );
-            let self_activates = resolve_signup_policy(resources.data.database())
-                .await
-                .activate_on_verified_email;
+            if let (Some(redeemed), Ok(user_id)) =
+                (redeemed.as_ref(), uuid::Uuid::parse_str(&response.user_id))
+            {
+                join_coach_group(&resources, redeemed, user_id).await;
+            }
+            // A code that waits on the address activates it with the
+            // confirmation link: there is no review to announce.
+            let self_activates = redeemed.is_some()
+                || resolve_signup_policy(resources.data.database())
+                    .await
+                    .activate_on_verified_email;
             send_post_registration_email(&resources, &request.email, &response, self_activates)
                 .await;
 

@@ -139,7 +139,7 @@ describe('RegisterScreen', () => {
       fireEvent.press(getByTestId('register-submit-button'));
 
       await waitFor(() =>
-        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined),
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined),
       );
       await waitFor(() =>
         expect(mockRouter.replace).toHaveBeenCalledWith({
@@ -162,6 +162,74 @@ describe('RegisterScreen', () => {
       await waitFor(() =>
         expect(Alert.alert).toHaveBeenCalledWith('Registration Failed', 'Email already registered'),
       );
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+    });
+  });
+
+  // A code handed out by an admin or a coach approves the account at once
+  // (carnet#1128); the field stays folded until the athlete asks for it.
+  describe('signup code', () => {
+    it('keeps the code field folded until asked for', async () => {
+      const { getByTestId, queryByTestId } = await renderReady();
+      expect(queryByTestId('register-signup-code-input')).toBeNull();
+
+      fireEvent.press(getByTestId('register-signup-code-toggle'));
+
+      const input = getByTestId('register-signup-code-input');
+      expect(input.props.autoCapitalize).toBe('characters');
+      expect(input.props.autoCorrect).toBe(false);
+    });
+
+    it('sends the trimmed code as the signup code', async () => {
+      mockRegister.mockResolvedValueOnce({ user_id: 'u1', user_status: 'active', message: 'Welcome.' });
+      const { getByTestId } = await renderReady();
+
+      fillForm(getByTestId);
+      fireEvent.press(getByTestId('register-signup-code-toggle'));
+      fireEvent.changeText(getByTestId('register-signup-code-input'), '  BETA-ABCD-EFGH  ');
+      fireEvent.press(getByTestId('register-submit-button'));
+
+      await waitFor(() =>
+        expect(mockRegister).toHaveBeenCalledWith(
+          'jean@example.com',
+          'ValidPassword123',
+          'Jean',
+          undefined,
+          'BETA-ABCD-EFGH',
+        ),
+      );
+    });
+
+    it('omits a code left blank', async () => {
+      mockRegister.mockResolvedValueOnce({ user_id: 'u1', user_status: 'pending', message: 'Pending.' });
+      const { getByTestId } = await renderReady();
+
+      fillForm(getByTestId);
+      fireEvent.press(getByTestId('register-signup-code-toggle'));
+      fireEvent.changeText(getByTestId('register-signup-code-input'), '   ');
+      fireEvent.press(getByTestId('register-submit-button'));
+
+      await waitFor(() =>
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined),
+      );
+    });
+
+    it('shows a refused code next to its field, not in an alert', async () => {
+      mockRegister.mockRejectedValueOnce(
+        apiRefusal(400, {
+          message: "This code isn't valid. Check it and try again.",
+          details: { reason: 'invalid_signup_code' },
+        }),
+      );
+      const { getByTestId, findByText } = await renderReady();
+
+      fillForm(getByTestId);
+      fireEvent.press(getByTestId('register-signup-code-toggle'));
+      fireEvent.changeText(getByTestId('register-signup-code-input'), 'NOPE');
+      fireEvent.press(getByTestId('register-submit-button'));
+
+      expect(await findByText("This code isn't valid. Check it and try again.")).toBeTruthy();
+      expect(Alert.alert).not.toHaveBeenCalled();
       expect(mockRouter.replace).not.toHaveBeenCalled();
     });
   });
@@ -211,7 +279,7 @@ describe('RegisterScreen', () => {
       fireEvent.press(getByTestId('register-submit-button'));
 
       await waitFor(() =>
-        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', 'tok-1'),
+        expect(mockRegister).toHaveBeenCalledWith('jean@example.com', 'ValidPassword123', 'Jean', 'tok-1', undefined),
       );
     });
 

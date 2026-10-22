@@ -226,6 +226,8 @@ pub mod recent_load;
 pub mod about_you;
 pub mod email_verification;
 pub mod link_token;
+/// Signup codes: mint, list, revoke, resolve and claim (carnet#1128)
+pub mod signup_codes;
 /// The operator's bounds on self-serve sign-up (carnet#1063)
 pub mod signup_policy;
 

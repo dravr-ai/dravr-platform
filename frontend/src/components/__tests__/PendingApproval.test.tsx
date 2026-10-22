@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 
 vi.mock('../../services/api', () => ({
   authApi: { resendVerification: vi.fn() },
-  userApi: { clearImportTombstone: vi.fn() },
+  userApi: { clearImportTombstone: vi.fn(), redeemSignupCode: vi.fn() },
 }))
 
 import PendingApproval from '../PendingApproval'
@@ -150,6 +150,77 @@ describe('PendingApproval', () => {
 
       expect(screen.getByText('Confirm your email address first, then start fresh.')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Start fresh' })).not.toBeInTheDocument()
+      // The server refuses a code beside a deleted account's address, so none is offered.
+      expect(screen.queryByTestId('pending-signup-code')).not.toBeInTheDocument()
+    })
+  })
+  describe('a signup code', () => {
+    function renderPending(emailVerified: boolean | undefined = true) {
+      const mockUpdateUser = vi.fn()
+      vi.mocked(useAuth).mockReturnValue({
+        user: { id: '1', email: 'pending@example.com', email_verified: emailVerified },
+        logout: mockLogout,
+        updateUser: mockUpdateUser,
+      } as unknown as ReturnType<typeof useAuth>)
+      render(<PendingApproval />)
+      return { mockUpdateUser }
+    }
+
+    async function enterCode(user: ReturnType<typeof userEvent.setup>, code: string) {
+      await user.click(screen.getByRole('button', { name: 'Have a signup code?' }))
+      await user.type(screen.getByLabelText('Signup code'), code)
+      await user.click(screen.getByRole('button', { name: 'Use code' }))
+    }
+
+    it('activates the account at once: the user is refreshed to active', async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({ user_status: 'active', group_joined: null })
+      const user = userEvent.setup()
+      const { mockUpdateUser } = renderPending()
+
+      await enterCode(user, ' BETA-ABCD-EFGH-JKLM ')
+
+      expect(userApi.redeemSignupCode).toHaveBeenCalledWith('BETA-ABCD-EFGH-JKLM')
+      await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ user_status: 'active' }))
+    })
+
+    it('says the confirmation link is what remains when the code leaves the account pending', async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({ user_status: 'pending', group_joined: null })
+      const user = userEvent.setup()
+      const { mockUpdateUser } = renderPending(false)
+
+      await enterCode(user, 'BETA-ABCD-EFGH-JKLM')
+
+      expect(
+        await screen.findByText('Code accepted. Confirm your email address to activate your account.'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText("You've also joined the group this code came from.")).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Signup code')).not.toBeInTheDocument()
+      expect(mockUpdateUser).not.toHaveBeenCalled()
+    })
+
+    it("also says a coach's code joined the coach's group", async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({ user_status: 'pending', group_joined: true })
+      const user = userEvent.setup()
+      renderPending(false)
+
+      await enterCode(user, 'COACH-1234')
+
+      expect(await screen.findByText("You've also joined the group this code came from.")).toBeInTheDocument()
+    })
+
+    it("shows the server's refusal inline and keeps the field to retry", async () => {
+      vi.mocked(userApi.redeemSignupCode).mockRejectedValue({
+        isAxiosError: true,
+        response: { status: 400, data: { message: "This code isn't valid. Check it and try again." } },
+      })
+      const user = userEvent.setup()
+      const { mockUpdateUser } = renderPending()
+
+      await enterCode(user, 'NOPE')
+
+      expect(await screen.findByRole('alert')).toHaveTextContent("This code isn't valid. Check it and try again.")
+      expect(screen.getByLabelText('Signup code')).toHaveValue('NOPE')
+      expect(mockUpdateUser).not.toHaveBeenCalled()
     })
   })
 })

@@ -27,7 +27,13 @@ interface AuthContextType {
    * says what happens next; `turnstileToken` is the bot-check token when the
    * sign-up config names a Turnstile site key.
    */
-  register: (email: string, password: string, displayName?: string, turnstileToken?: string) => Promise<RegisterResponse>;
+  register: (
+    email: string,
+    password: string,
+    displayName?: string,
+    turnstileToken?: string,
+    signupCode?: string,
+  ) => Promise<RegisterResponse>;
   updateUser: (patch: Partial<User>) => Promise<void>;
 }
 
@@ -207,9 +213,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     password: string,
     displayName?: string,
     turnstileToken?: string,
+    signupCode?: string,
   ): Promise<RegisterResponse> => {
-    // After registration, user needs to log in (or wait for approval if pending)
-    return authApi.register({ email, password, display_name: displayName, turnstile_token: turnstileToken });
+    // After registration, user needs to log in (or wait for approval if pending).
+    // A signup code, when the athlete has one, approves the account at once.
+    return authApi.register({
+      email,
+      password,
+      display_name: displayName,
+      turnstile_token: turnstileToken,
+      ...(signupCode ? { signup_code: signupCode } : {}),
+    });
   }, []);
 
   const updateUser = useCallback(async (patch: Partial<User>) => {

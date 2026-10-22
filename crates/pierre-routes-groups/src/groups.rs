@@ -121,6 +121,8 @@ pub struct InviteResponse {
     pub use_count: i32,
     /// Whether the invite is active
     pub is_active: bool,
+    /// Whether redeeming it also approves a pending account
+    pub approves_signup: bool,
     /// When the invite was created
     pub created_at: String,
 }
@@ -137,6 +139,7 @@ impl From<GroupInvite> for InviteResponse {
             max_uses: inv.max_uses,
             use_count: inv.use_count,
             is_active: inv.is_active,
+            approves_signup: inv.approves_signup,
             created_at: inv.created_at.to_rfc3339(),
         }
     }
@@ -221,6 +224,11 @@ pub struct CreateInviteBody {
     /// attachment. Omitted → `member`.
     #[serde(default)]
     pub kind: GroupInviteKind,
+    /// Whether the invite also approves the pending account that redeems
+    /// it: a coach's signup code (carnet#1128). Only a coach with roster
+    /// management may mint one, and it needs both caps.
+    #[serde(default)]
+    pub approves_signup: bool,
 }
 
 /// Request to create a coaching group — the onboarding group step's call
@@ -392,6 +400,27 @@ impl GroupRoutes {
             .get_member(group_id, user_id)
             .await?;
         Self::admin_membership(member)
+    }
+
+    /// Refuse a caller who does not manage a roster: only a coach whose
+    /// coaching an admin granted may mint codes that approve accounts.
+    async fn require_roster_manager<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        user_id: Uuid,
+    ) -> Result<(), AppError> {
+        let manages = resources
+            .repos()
+            .users
+            .get_global(user_id)
+            .await?
+            .is_some_and(|user| user.manages_roster);
+        if manages {
+            return Ok(());
+        }
+        Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "Only a coach with coach access can create signup codes",
+        ))
     }
 
     /// The caller's membership when it holds an admin or owner role, and the
@@ -927,17 +956,36 @@ impl GroupRoutes {
             }
         }
 
-        let created = resources
-            .group_service()
-            .create_invite(
-                group_uuid,
-                auth.user_id,
-                tenant_id,
-                body.expires_in_days,
-                body.max_uses,
-                body.kind,
-            )
-            .await?;
+        let created = if body.approves_signup {
+            Self::require_roster_manager(&resources, auth.user_id).await?;
+            if body.kind != GroupInviteKind::Member {
+                return Err(AppError::invalid_input(
+                    "A signup code is a member invite; a coach invite cannot approve accounts",
+                ));
+            }
+            resources
+                .group_service()
+                .create_signup_invite(
+                    group_uuid,
+                    auth.user_id,
+                    tenant_id,
+                    body.expires_in_days,
+                    body.max_uses,
+                )
+                .await?
+        } else {
+            resources
+                .group_service()
+                .create_invite(
+                    group_uuid,
+                    auth.user_id,
+                    tenant_id,
+                    body.expires_in_days,
+                    body.max_uses,
+                    body.kind,
+                )
+                .await?
+        };
 
         let response: InviteResponse = created.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())

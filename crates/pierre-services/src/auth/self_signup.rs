@@ -34,7 +34,7 @@ impl AuthService {
     /// error [`Self::register`] returns.
     pub async fn self_register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
         self.admit_self_signup().await?;
-        self.register_through(request, true).await
+        self.register_through(request, true, false).await
     }
 
     /// Refuse a self-serve sign-up the operator's bounds do not admit

@@ -80,6 +80,7 @@ export type {
   EmailTombstone,
   ClearedImportTombstone,
   ClearImportTombstoneResponse,
+  RedeemSignupCodeResponse,
 } from './auth.js';
 export { IMPORT_TOMBSTONED_ERROR } from './auth.js';
 

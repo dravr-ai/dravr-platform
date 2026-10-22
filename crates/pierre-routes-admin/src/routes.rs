@@ -30,7 +30,7 @@ use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
     guardian_config, harness_config, memory_worker, myth_busting, provider_data, settings, setup,
-    strava_pool, tokens, user_removal, users, website,
+    signup_codes, strava_pool, tokens, user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -402,6 +402,15 @@ impl AdminRoutes {
                 "/admin/pre-approved-emails/{email}",
                 delete(users::handle_disallow_email),
             )
+            .route(
+                "/admin/signup-codes",
+                get(signup_codes::handle_list_signup_codes)
+                    .post(signup_codes::handle_mint_signup_code),
+            )
+            .route(
+                "/admin/signup-codes/{kind}/{id}",
+                delete(signup_codes::handle_revoke_signup_code),
+            )
             .with_state(context)
     }
 
@@ -423,6 +432,10 @@ impl AdminRoutes {
             .route(
                 "/api/admin/settings/signup",
                 get(settings::handle_get_signup_settings).put(settings::handle_set_signup_settings),
+            )
+            .route(
+                "/api/admin/settings/signup/reset",
+                post(settings::handle_reset_signup_count),
             )
             .route("/api/admin/pending-users", get(users::handle_pending_users))
             .route(
@@ -477,6 +490,15 @@ impl AdminRoutes {
                 "/api/admin/pre-approved-emails/{email}",
                 delete(users::handle_disallow_email),
             )
+            .route(
+                "/api/admin/signup-codes",
+                get(signup_codes::handle_list_signup_codes)
+                    .post(signup_codes::handle_mint_signup_code),
+            )
+            .route(
+                "/api/admin/signup-codes/{kind}/{id}",
+                delete(signup_codes::handle_revoke_signup_code),
+            )
             .with_state(context)
     }
 
@@ -498,6 +520,10 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/signup",
                 get(settings::handle_get_signup_settings).put(settings::handle_set_signup_settings),
+            )
+            .route(
+                "/admin/settings/signup/reset",
+                post(settings::handle_reset_signup_count),
             )
             .route(
                 "/admin/settings/harness",

@@ -48,6 +48,8 @@ pub mod provider_data;
 pub mod settings;
 /// Admin endpoints driving first-run / bootstrap setup of a tenant.
 pub mod setup;
+/// Signup codes: list, mint, revoke (carnet#1128)
+pub mod signup_codes;
 /// Super-admin endpoints managing the Strava shared-app OAuth credential pool.
 pub mod strava_pool;
 /// Admin endpoints for issuing and revoking admin / service API tokens.

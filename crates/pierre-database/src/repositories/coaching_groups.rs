@@ -96,14 +96,6 @@ macro_rules! member_columns {
     };
 }
 
-/// The columns every invite read decodes.
-macro_rules! invite_columns {
-    () => {
-        "id, group_id, tenant_id, code, kind, created_by, expires_at, max_uses,
-              use_count, is_active, created_at"
-    };
-}
-
 // ============================================================================
 // coaching_groups
 // ============================================================================
@@ -282,51 +274,6 @@ pub(crate) const GROUP_SETUP_TIMELINE_SQL: &str = r"SELECT g.created_at AS group
               (SELECT m.id FROM coaching_group_members m WHERE m.group_id = g.id AND m.role <> 'owner'
                ORDER BY m.joined_at ASC, m.id ASC LIMIT 1) AS first_member_id
               FROM coaching_groups g JOIN users u ON u.id = g.owner_id WHERE g.id = $1 AND g.tenant_id = $2";
-
-// ============================================================================
-// group_invites
-// ============================================================================
-
-/// One invite, unused and active from the start.
-pub(crate) const INSERT_INVITE_SQL: &str = r"INSERT INTO group_invites
-              (id, group_id, tenant_id, code, kind, created_by, expires_at, max_uses, use_count, is_active, created_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, TRUE, $9)";
-
-/// The invite just created, read back under its tenant.
-pub(crate) const GET_INVITE_SQL: &str = concat!(
-    "SELECT ",
-    invite_columns!(),
-    " FROM group_invites
-              WHERE id = $1 AND tenant_id = $2"
-);
-
-/// An active invite by code. Cross-tenant: codes are globally unique for
-/// the join flow.
-pub(crate) const GET_INVITE_BY_CODE_SQL: &str = concat!(
-    "SELECT ",
-    invite_columns!(),
-    " FROM group_invites
-              WHERE code = $1 AND is_active = TRUE"
-);
-
-/// Count one more redemption of an invite.
-pub(crate) const INCREMENT_INVITE_USE_COUNT_SQL: &str =
-    "UPDATE group_invites SET use_count = use_count + 1 WHERE id = $1";
-
-/// Retire one invite, scoped by group so an admin cannot retire another
-/// group's invite.
-pub(crate) const DEACTIVATE_INVITE_SQL: &str =
-    "UPDATE group_invites SET is_active = FALSE WHERE id = $1 AND group_id = $2";
-
-/// Every invite of a group, newest first. No tenant filter: invites belong
-/// to the group, and admins view cross-tenant.
-pub(crate) const LIST_INVITES_SQL: &str = concat!(
-    "SELECT ",
-    invite_columns!(),
-    " FROM group_invites
-              WHERE group_id = $1
-              ORDER BY created_at DESC"
-);
 
 // ============================================================================
 // Context queries (the transcript's statements: `super::group_transcript`)
@@ -539,6 +486,7 @@ macro_rules! impl_coaching_group_repository {
                 max_uses: column(r, "max_uses")?,
                 use_count: column(r, "use_count")?,
                 is_active: column(r, "is_active")?,
+                approves_signup: column(r, "approves_signup")?,
                 created_at: instant(r, "created_at")?,
             })
         }
@@ -954,6 +902,7 @@ macro_rules! impl_coaching_group_repository {
                     .bind($ids::bind(invite.created_by))
                     .bind(invite.expires_at)
                     .bind(invite.max_uses)
+                    .bind(invite.approves_signup)
                     .bind(Utc::now())
                     .execute(self.pool())
                     .await
@@ -993,6 +942,37 @@ macro_rules! impl_coaching_group_repository {
                     })?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn claim_signup_invite(
+                &self,
+                code: &str,
+                now: DateTime<Utc>,
+            ) -> AppResult<Option<GroupInvite>> {
+                let row = sqlx::query(CLAIM_SIGNUP_INVITE_SQL)
+                    .bind(code)
+                    .bind(now)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to claim invite: {e}")))?;
+                row.as_ref().map(row_to_invite).transpose()
+            }
+
+            async fn get_invite_by_id(&self, invite_id: &str) -> AppResult<Option<GroupInvite>> {
+                let row = sqlx::query(GET_INVITE_BY_ID_SQL)
+                    .bind($ids::bind_text(invite_id)?)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to get invite: {e}")))?;
+                row.as_ref().map(row_to_invite).transpose()
+            }
+
+            async fn list_signup_invites(&self) -> AppResult<Vec<GroupInvite>> {
+                let rows = sqlx::query(LIST_SIGNUP_INVITES_SQL)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to list invites: {e}")))?;
+                rows.iter().map(row_to_invite).collect()
             }
 
             async fn deactivate_invite(&self, group_id: &str, invite_id: &str) -> AppResult<bool> {

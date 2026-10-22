@@ -17,6 +17,7 @@ mod device_flow_test;
 mod pierre_cli_test;
 mod remote_token_target_test;
 mod sciotte_login_canary_test;
+mod signup_code_cli_test;
 mod strava_webhook_test;
 mod token_generate_output_test;
 mod user_removal_cli_test;

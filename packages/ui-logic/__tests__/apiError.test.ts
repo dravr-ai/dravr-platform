@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  isInvalidSignupCode,
   classifyApiError,
   describeApiError,
   describeQuotaRefusal,
@@ -263,6 +264,22 @@ describe('describeApiError', () => {
     });
     expect(out).not.toContain('Error');
     expect(out).toBe(API_ERROR_KEYS.network);
+  });
+});
+
+describe('isInvalidSignupCode', () => {
+  it('reads the invalid-code reason, not the English message', () => {
+    const err = responded(400, {
+      message: 'anything at all',
+      details: { reason: 'invalid_signup_code' },
+    });
+    expect(isInvalidSignupCode(err)).toBe(true);
+  });
+
+  it('is false for every other refusal', () => {
+    expect(isInvalidSignupCode(responded(400, { message: "This code isn't valid." }))).toBe(false);
+    expect(isInvalidSignupCode(responded(400, { details: { reason: 'own_connection' } }))).toBe(false);
+    expect(isInvalidSignupCode(new Error('Network Error'))).toBe(false);
   });
 });
 

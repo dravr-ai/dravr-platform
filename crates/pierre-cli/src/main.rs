@@ -525,6 +525,12 @@ enum UserCommand {
         token: Option<SecretString>,
     },
 
+    /// Mint, list or revoke signup codes: whoever enters one is approved
+    Code {
+        #[command(subcommand)]
+        action: commands::signup_code::CodeCommand,
+    },
+
     /// List pre-approved emails and whether each has registered
     ListAllowed {
         /// Output format: table | json | csv
@@ -887,6 +893,7 @@ async fn main() -> Result<()> {
                 | UserCommand::Allow { .. }
                 | UserCommand::Disallow { .. }
                 | UserCommand::ListAllowed { .. }
+                | UserCommand::Code { .. }
                 | UserCommand::Disconnect(_)
                 | UserCommand::Delete(_)
                 | UserCommand::ResetOnboarding(_)
@@ -990,6 +997,7 @@ async fn main() -> Result<()> {
             | UserCommand::Allow { .. }
             | UserCommand::Disallow { .. }
             | UserCommand::ListAllowed { .. }
+            | UserCommand::Code { .. }
             | UserCommand::Disconnect(_)
             | UserCommand::Delete(_)
             | UserCommand::ResetOnboarding(_) => {

@@ -292,7 +292,7 @@ impl AuthService {
     /// created or attached by a Firebase Google sign-in, which verifies the
     /// address it carries. An account like that is the athlete's own, so a
     /// first hosted Google sign-in attaches to it without retiring anything.
-    async fn email_already_proven(&self, user: &User) -> AppResult<bool> {
+    pub(super) async fn email_already_proven(&self, user: &User) -> AppResult<bool> {
         if user.firebase_uid.is_some() && user.auth_provider == GOOGLE_PROVIDER {
             return Ok(true);
         }

@@ -13,13 +13,14 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button } from '../../components/ui';
+import { Button, Input } from '../../components/ui';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { authApi, userApi } from '../../services/api';
 import { describeApiError, describeEmailTombstone } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
+import { describeSignupCodeError, signupCodeOrUndefined } from '../../utils/signupCode';
 
 // Logo style (pixel-specific dimensions)
 const logoStyle: ImageStyle = {
@@ -62,6 +63,11 @@ const stepBadgeStyle: ViewStyle = {
  * A third reason rides on either: the address belonged to a Dravr account that
  * was deleted (`email_tombstone`). Nobody reviews that one — the athlete
  * chooses to start fresh with it, once the address is confirmed as theirs.
+ *
+ * A signed-in account may also enter a signup code an admin or a coach handed
+ * it (carnet#1128): a valid one approves the account at once, or once the
+ * address is confirmed when it is not yet. A deleted account's address is
+ * refused a code, so the field is not offered beside the tombstone.
  */
 export function PendingApprovalScreen() {
   const colors = useThemeColors();
@@ -72,10 +78,38 @@ export function PendingApprovalScreen() {
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  const [signupCode, setSignupCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
+  const [redeemNotices, setRedeemNotices] = useState<string[]>([]);
   const needsEmailConfirmation = user?.email_verified === false;
   const tombstone = user?.email_tombstone;
   // A tombstoned address the athlete has proven: theirs to start fresh with.
   const offersClear = tombstone !== undefined && !needsEmailConfirmation;
+  // Redeeming needs a session: arriving straight from the register form,
+  // nobody is signed in yet.
+  const offersSignupCode = !!user && tombstone === undefined;
+  const typedSignupCode = signupCodeOrUndefined(signupCode);
+
+  const handleRedeem = async () => {
+    if (!typedSignupCode || redeeming) return;
+    setRedeeming(true);
+    setRedeemError(null);
+    setRedeemNotices([]);
+    try {
+      const { user_status, group_joined } = await userApi.redeemSignupCode(typedSignupCode);
+      setRedeemNotices([
+        user_status === 'active' ? t('auth.signupCodeAccepted') : t('auth.signupCodeAcceptedConfirmEmail'),
+        ...(group_joined === true ? [t('auth.signupCodeJoinedGroup')] : []),
+      ]);
+      // An active account leaves this screen: the auth gate reads the status.
+      await updateUser({ user_status });
+    } catch (err) {
+      setRedeemError(describeSignupCodeError(err, t));
+    } finally {
+      setRedeeming(false);
+    }
+  };
 
   const handleClear = async () => {
     if (!tombstone || clearing) return;
@@ -190,6 +224,45 @@ export function PendingApprovalScreen() {
               {clearError && (
                 <Text className="text-xs text-error text-center mt-2">{clearError}</Text>
               )}
+            </View>
+          )}
+
+          {offersSignupCode && (
+            <View className="mb-6" testID="pending-signup-code">
+              <Input
+                label={t('auth.signupCodeLabel')}
+                placeholder={t('auth.signupCodePlaceholder')}
+                value={signupCode}
+                onChangeText={(value) => {
+                  setSignupCode(value);
+                  setRedeemError(null);
+                }}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!redeeming}
+                error={redeemError ?? undefined}
+                returnKeyType="go"
+                onSubmitEditing={() => void handleRedeem()}
+                testID="pending-signup-code-input"
+              />
+              <Text className="text-xs text-text-tertiary mb-3">{t('auth.signupCodeHint')}</Text>
+              <Button
+                title={redeeming ? t('auth.signupCodeApplying') : t('auth.signupCodeApply')}
+                onPress={() => void handleRedeem()}
+                disabled={redeeming || !typedSignupCode}
+                variant="secondary"
+                fullWidth
+                testID="pending-signup-code-apply"
+              />
+              {redeemNotices.map((notice) => (
+                <Text
+                  key={notice}
+                  className="text-xs text-text-secondary text-center mt-2"
+                  testID="pending-signup-code-notice"
+                >
+                  {notice}
+                </Text>
+              ))}
             </View>
           )}
 

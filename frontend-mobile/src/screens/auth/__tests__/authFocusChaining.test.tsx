@@ -96,7 +96,8 @@ const FORMS: Array<{
     ],
     submit: mockRegister,
     // No Turnstile site key in the config, so no token rides along.
-    submittedWith: ['jean@example.com', 'ValidPassword123', 'Jean', undefined],
+    // No signup code was entered, so none is sent.
+    submittedWith: ['jean@example.com', 'ValidPassword123', 'Jean', undefined, undefined],
     resolvesWith: { message: 'Registration received.' },
     ready: async (view) => {
       await waitFor(() => expect(view.getByTestId('register-submit-button')).toBeEnabled());

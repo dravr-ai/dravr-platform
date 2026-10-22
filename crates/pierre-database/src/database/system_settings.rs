@@ -26,6 +26,10 @@ pub const SETTING_SIGNUP_OPEN: &str = "signup_open";
 /// The most accounts self-serve sign-up admits in any 24 hours; `"0"` sets no
 /// ceiling. Clamped on read, like the verification knobs.
 pub const SETTING_SIGNUP_DAILY_LIMIT: &str = "signup_daily_limit";
+/// When an admin last reset the daily ceiling's count (RFC 3339). The ceiling
+/// counts accounts created after the later of 24 hours ago and this moment;
+/// an absent row was never reset (carnet#1131).
+pub const SETTING_SIGNUP_DAILY_LIMIT_RESET_AT: &str = "signup_daily_limit_reset_at";
 /// Whether proving the address activates a self-registered account that no
 /// auto-approval rule admitted. `"true"` opens sign-up to verified addresses.
 pub const SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL: &str = "signup_activate_on_verified_email";

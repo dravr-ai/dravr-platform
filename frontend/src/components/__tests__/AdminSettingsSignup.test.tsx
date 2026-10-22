@@ -1,5 +1,5 @@
 // ABOUTME: Tests the Sign-up block of AdminSettings: the kill switch, the daily ceiling, activate-on-verified-email
-// ABOUTME: Asserts each control sends only the field it changes, and the read-only figures render (carnet#1063)
+// ABOUTME: Asserts each control sends only the field it changes, the count and its window render, and the reset confirms first
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,6 +18,7 @@ vi.mock('../../services/api', () => ({
     updateAutoApprovalSetting: vi.fn(),
     getSignupSetting: vi.fn(),
     updateSignupSetting: vi.fn(),
+    resetSignupCount: vi.fn(),
     updateConfig: vi.fn(),
   },
 }))
@@ -40,7 +41,8 @@ const OPEN: SignupSetting = {
   open: true,
   daily_limit: 50,
   activate_on_verified_email: false,
-  created_last_24h: 12,
+  counted: 12,
+  counted_since: '2026-10-22T08:30:00Z',
   turnstile_configured: true,
   description: 'Who may create an account, and how many per day.',
 }
@@ -63,7 +65,8 @@ describe('AdminSettings sign-up guards', () => {
   it('renders the figures the server reports', async () => {
     renderSettings()
 
-    expect(await screen.findByTestId('signup-created-24h')).toHaveTextContent('12 / 50')
+    expect(await screen.findByTestId('signup-counted')).toHaveTextContent('12 / 50')
+    expect(screen.getByTestId('signup-counted-since')).toHaveTextContent(/^counted since .*2026/)
     expect(screen.getByTestId('signup-turnstile-configured')).toHaveTextContent('Yes')
     expect(screen.getByText(OPEN.description)).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Sign-up open' })).toHaveAttribute('aria-checked', 'true')
@@ -110,6 +113,39 @@ describe('AdminSettings sign-up guards', () => {
 
     await waitFor(() => expect(adminApi.updateSignupSetting).toHaveBeenCalledWith({ daily_limit: 0 }))
     // With no ceiling the count stands alone.
-    await waitFor(() => expect(screen.getByTestId('signup-created-24h')).toHaveTextContent(/^12$/))
+    await waitFor(() => expect(screen.getByTestId('signup-counted')).toHaveTextContent(/^12$/))
+  })
+
+  it('resets the count only once the dialog confirms it, and shows the new window', async () => {
+    vi.mocked(adminApi.resetSignupCount).mockResolvedValue({
+      ...OPEN,
+      counted: 0,
+      counted_since: '2026-10-22T15:00:00Z',
+    })
+    renderSettings()
+
+    fireEvent.click(await screen.findByRole('button', { name: "Reset today's count" }))
+    // The first click only asks.
+    expect(adminApi.resetSignupCount).not.toHaveBeenCalled()
+    expect(screen.getByText("Reset today's count?")).toBeInTheDocument()
+    expect(screen.getByText(/another 50 accounts can be created/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset count' }))
+
+    await waitFor(() => expect(adminApi.resetSignupCount).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('signup-counted')).toHaveTextContent('0 / 50'))
+    expect(screen.getByText("Today's count restarted from zero.")).toBeInTheDocument()
+    expect(screen.queryByText("Reset today's count?")).not.toBeInTheDocument()
+  })
+
+  it('leaves the count alone when the dialog is cancelled', async () => {
+    renderSettings()
+
+    fireEvent.click(await screen.findByRole('button', { name: "Reset today's count" }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByText("Reset today's count?")).not.toBeInTheDocument())
+    expect(adminApi.resetSignupCount).not.toHaveBeenCalled()
+    expect(screen.getByTestId('signup-counted')).toHaveTextContent('12 / 50')
   })
 })

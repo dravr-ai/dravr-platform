@@ -69,6 +69,7 @@ crates/pierre-routes-groups/src/group_update_access.rs:The group's coach may cha
 crates/pierre-routes-groups/src/groups.rs:Admin or owner role required for this operation
 crates/pierre-routes-groups/src/groups.rs:Cannot change the group owner's role
 crates/pierre-routes-groups/src/groups.rs:Cannot remove the group owner
+crates/pierre-routes-groups/src/groups.rs:Only a coach with coach access can create signup codes
 crates/pierre-routes-groups/src/groups.rs:Only the owner can promote members to admin or owner
 crates/pierre-routes-groups/src/groups.rs:Owner cannot leave the group. Transfer ownership or delete the group instead.
 crates/pierre-routes-groups/src/groups.rs:Owner role required for this operation

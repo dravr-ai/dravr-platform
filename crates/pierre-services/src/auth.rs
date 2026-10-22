@@ -42,6 +42,9 @@ mod federated;
 
 /// The operator's bounds on a stranger's sign-up, and activation on a proven address
 mod self_signup;
+/// Signup codes: register with one, redeem one from the pending page, activate on a proven address
+mod signup_code;
+pub use signup_code::RedeemedSignupCode;
 
 pub use federated::{FederatedIdentity, SignupSource};
 
@@ -181,7 +184,7 @@ impl AuthService {
     /// Returns error if user validation fails or database operation fails
     #[tracing::instrument(skip(self, request), fields(route = "register"))]
     pub async fn register(&self, request: RegisterRequest) -> AppResult<RegisterResponse> {
-        self.register_through(request, false).await
+        self.register_through(request, false, false).await
     }
 
     /// Register `request`'s account. `self_serve` says a stranger's door
@@ -189,10 +192,13 @@ impl AuthService {
     /// address, so only it skips the operators' review and is told to confirm
     /// its email. An operator's door sends no confirmation link, so its
     /// Pending account stays in review whatever the sign-up settings say.
+    /// `code_vouched` says a signup code will activate it once the address is
+    /// proven (carnet#1128), so it is not announced for review either.
     async fn register_through(
         &self,
         request: RegisterRequest,
         self_serve: bool,
+        code_vouched: bool,
     ) -> AppResult<RegisterResponse> {
         info!("User registration attempt");
 
@@ -219,7 +225,9 @@ impl AuthService {
         // Check if user should be auto-approved (global setting, domain
         // allow-list, or a per-email pre-approval carrying its operator)
         let approval = self.determine_approval_status(&email).await;
-        let self_activates = self_serve && self.activates_on_verified(&email).await;
+        let self_activates = self_serve
+            && ((code_vouched && !email_held(self.data.repos(), &email).await)
+                || self.activates_on_verified(&email).await);
         let (user_id, user) = self
             .create_account(
                 &email,
@@ -896,6 +904,14 @@ impl AuthService {
         if user.user_status != UserStatus::Pending
             || email_held(self.data.repos(), &user.email).await
         {
+            return Ok(());
+        }
+
+        // A signup code entered before the address was proven (carnet#1128).
+        if let Some(redemption) = self.code_awaiting_activation(user).await {
+            self.activate_by_code(user, redemption.granted_by).await?;
+            user.user_status = UserStatus::Active;
+            user.approved_at = Some(Utc::now());
             return Ok(());
         }
 

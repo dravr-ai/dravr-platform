@@ -6,9 +6,9 @@
 
 import React from 'react';
 import { render, fireEvent, waitFor, act, within } from '@testing-library/react-native';
-import { Alert } from 'react-native';
+import { Alert, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CoachingGroup, GroupMember, GroupRole } from '@pierre/shared-types';
+import type { CoachingGroup, GroupInvite, GroupMember, GroupRole } from '@pierre/shared-types';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -372,6 +372,102 @@ describe('GroupInfoSheet', () => {
     expect(await findByTestId('leave-group-button')).toBeTruthy();
     await waitFor(() => expect(queryByTestId('archive-group-button')).toBeNull());
     expect(queryByTestId('group-info-invites')).toBeNull();
+  });
+
+  // A coach with coach access may make an invite that also approves the
+  // pending account redeeming it: a signup code (carnet#1128).
+  describe('signup code invites', () => {
+    function invite(id: string, approvesSignup: boolean): GroupInvite {
+      return {
+        id,
+        group_id: 'group-1',
+        tenant_id: 'tenant-1',
+        code: `CODE-${id}`,
+        kind: 'member',
+        created_by: 'user-owner',
+        expires_at: '2026-11-01T08:00:00Z',
+        max_uses: approvesSignup ? 50 : null,
+        use_count: 0,
+        is_active: true,
+        approves_signup: approvesSignup,
+        created_at: '2026-10-22T08:00:00Z',
+      };
+    }
+
+    beforeEach(() => {
+      jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+      (groupsApi.createInvite as jest.Mock).mockResolvedValue(invite('new', true));
+    });
+
+    async function openInvites(view: ReturnType<typeof renderSheet>) {
+      await act(async () => {
+        fireEvent.press(await view.findByTestId('group-info-invites-toggle'));
+      });
+    }
+
+    it('offers the switch only to a coach with coach access', async () => {
+      const view = renderSheet();
+      await openInvites(view);
+
+      expect(view.getByTestId('group-info-create-invite')).toBeTruthy();
+      expect(view.queryByTestId('group-invite-approves-signup-switch')).toBeNull();
+    });
+
+    it('sends a capped, approving member invite with no kind to pick when switched on', async () => {
+      mockManagesRoster = true;
+      const view = renderSheet();
+      await openInvites(view);
+
+      const toggle = view.getByTestId('group-invite-approves-signup-switch');
+      expect(toggle.props.value).toBe(false);
+      fireEvent(toggle, 'valueChange', true);
+      await act(async () => {
+        fireEvent.press(view.getByTestId('group-info-create-invite'));
+      });
+
+      await waitFor(() =>
+        expect(groupsApi.createInvite).toHaveBeenCalledWith('group-1', {
+          expires_in_days: 7,
+          max_uses: 50,
+          approves_signup: true,
+        }),
+      );
+      // A coach invite cannot approve accounts, so no kind picker opened.
+      expect(Alert.alert).not.toHaveBeenCalled();
+      expect(Share.share).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the kind picker and sends no approval while the switch is off', async () => {
+      mockManagesRoster = true;
+      (groupsApi.createInvite as jest.Mock).mockResolvedValue(invite('new', false));
+      const view = renderSheet();
+      await openInvites(view);
+
+      fireEvent.press(view.getByTestId('group-info-create-invite'));
+      const picker = (Alert.alert as jest.Mock).mock.calls.at(-1) as [
+        string,
+        string,
+        Array<{ text: string; onPress?: () => void }>,
+      ];
+      await act(async () => {
+        picker[2][0]?.onPress?.();
+      });
+
+      await waitFor(() =>
+        expect(groupsApi.createInvite).toHaveBeenCalledWith('group-1', { expires_in_days: 7 }),
+      );
+    });
+
+    it('badges an approving invite and only that one', async () => {
+      (groupsApi.listInvites as jest.Mock).mockResolvedValue({
+        invites: [invite('signup', true), invite('plain', false)],
+      });
+      const view = renderSheet();
+      await openInvites(view);
+
+      expect(await view.findByTestId('group-invite-signup-badge-signup')).toHaveTextContent('Signup code');
+      expect(view.queryByTestId('group-invite-signup-badge-plain')).toBeNull();
+    });
   });
 
   describe('the weekly digest mode', () => {

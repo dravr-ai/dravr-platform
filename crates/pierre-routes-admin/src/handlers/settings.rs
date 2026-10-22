@@ -14,7 +14,8 @@ use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::AppResult;
 use pierre_services::admin_settings::{get_auto_approval_settings, set_auto_approval};
 use pierre_services::signup_policy::{
-    created_last_24h, resolve_signup_policy, set_signup_policy, SignupPolicyUpdate,
+    ceiling_count, reset_ceiling_count, resolve_signup_policy, set_signup_policy,
+    SignupPolicyUpdate,
 };
 
 use super::api_keys::json_response;
@@ -28,7 +29,8 @@ use crate::context::AdminApiContext;
 /// What the sign-up settings mean, returned with every read and write.
 const SIGNUP_DESCRIPTION: &str = "open is the kill switch for every self-serve sign-up \
      (the register form, the messaging link page, in-chat sign-up, a first Google sign-in). \
-     daily_limit caps the accounts created in any 24 hours (0 sets no ceiling). \
+     daily_limit caps the accounts created in any 24 hours (0 sets no ceiling); \
+     counted is how many it counts since counted_since, which a reset moves to now. \
      activate_on_verified_email lets a self-registered account activate itself by \
      confirming its email address.";
 
@@ -130,15 +132,16 @@ pub(crate) async fn handle_set_auto_approval(
     .into_response())
 }
 
-/// The sign-up settings in force, with the 24-hour count they bound.
+/// The sign-up settings in force, with the count the ceiling meets.
 async fn signup_settings(context: &AdminApiContext) -> AppResult<SignupSettingsResponse> {
     let policy = resolve_signup_policy(&context.database).await;
-    let created_last_24h = created_last_24h(context.repos.users.as_ref()).await?;
+    let count = ceiling_count(&context.database, context.repos.users.as_ref()).await?;
     Ok(SignupSettingsResponse {
         open: policy.open,
         daily_limit: policy.daily_limit,
         activate_on_verified_email: policy.activate_on_verified_email,
-        created_last_24h,
+        counted: count.counted,
+        counted_since: count.since,
         turnstile_configured: context.human_check_configured,
         description: SIGNUP_DESCRIPTION.to_owned(),
     })
@@ -197,6 +200,29 @@ pub(crate) async fn handle_set_signup_settings(
         AdminResponse {
             success: true,
             message: "Sign-up settings updated".to_owned(),
+            data: to_value(settings).ok(),
+        },
+        StatusCode::OK,
+    )
+    .into_response())
+}
+
+/// Handle resetting the daily ceiling's count to zero now, leaving the limit
+/// as it is (carnet#1131). The response reads the settings back.
+pub(crate) async fn handle_reset_signup_count(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+) -> AppResult<impl IntoResponse> {
+    if let Some(denied) = deny_without_manage_users(&admin_token) {
+        return Ok(denied.into_response());
+    }
+    reset_ceiling_count(&context.database, admin_token.operator_user_id).await?;
+    let settings = signup_settings(&context).await?;
+    info!(token_id = %admin_token.token_id, "Sign-up daily count reset");
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: "Sign-up daily count reset".to_owned(),
             data: to_value(settings).ok(),
         },
         StatusCode::OK,

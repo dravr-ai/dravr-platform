@@ -682,7 +682,8 @@ async fn the_admin_route_reads_and_writes_every_knob() {
     assert_eq!(shown["data"]["open"], true);
     assert_eq!(shown["data"]["activate_on_verified_email"], false);
     assert_eq!(shown["data"]["turnstile_configured"], true);
-    assert!(shown["data"]["created_last_24h"].is_i64());
+    assert!(shown["data"]["counted"].is_i64());
+    assert!(shown["data"]["counted_since"].is_string());
 
     let updated: Value = AxumTestRequest::put("/admin/settings/signup")
         .header("authorization", &bearer)

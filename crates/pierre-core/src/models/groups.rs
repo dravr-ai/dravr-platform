@@ -542,6 +542,10 @@ pub struct GroupInvite {
     pub use_count: i32,
     /// Whether the invite is active
     pub is_active: bool,
+    /// Whether redeeming it also approves a pending account: a coach's
+    /// signup code (carnet#1128). A plain invite needs an approved account.
+    #[serde(default)]
+    pub approves_signup: bool,
     /// When the invite was created
     pub created_at: DateTime<Utc>,
 }

@@ -1,15 +1,15 @@
 // ABOUTME: Waiting screen for accounts that cannot sign in yet — unconfirmed address, or awaiting review
-// ABOUTME: The two are different situations with different next actions, so the page renders them differently
+// ABOUTME: The two are different situations with different next actions; a signup code approves either at once
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { authApi, userApi } from '../services/api';
-import { describeApiError, describeEmailTombstone } from '@pierre/ui-logic';
+import { describeApiError, describeEmailTombstone, isInvalidSignupCode } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import { Button, Card, Badge } from './ui';
+import { Button, Card, Badge, Input } from './ui';
 
 // Clock icon for pending status
 function ClockIcon({ className }: { className?: string }) {
@@ -55,6 +55,13 @@ export default function PendingApproval() {
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const [clearing, setClearing] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
+  const [showSignupCode, setShowSignupCode] = useState(false);
+  const [signupCode, setSignupCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
+  // Set once a code was accepted but the account still waits on the
+  // confirmation link: the field gives way to what happens next.
+  const [redeemed, setRedeemed] = useState<{ groupJoined: boolean } | null>(null);
 
   const needsEmailConfirmation = user?.email_verified === false;
   const tombstone = user?.email_tombstone;
@@ -74,6 +81,35 @@ export default function PendingApproval() {
       setClearError(describeApiError(err, { online, t, fallbackKey: 'errors.unknown' }));
     } finally {
       setClearing(false);
+    }
+  };
+
+  const handleRedeem = async (e: FormEvent) => {
+    e.preventDefault();
+    const code = signupCode.trim();
+    if (!code || redeeming || !online) return;
+    setRedeeming(true);
+    setRedeemError(null);
+    try {
+      const { user_status, group_joined } = await userApi.redeemSignupCode(code);
+      if (user_status === 'active') {
+        // The account is in: the app leaves this screen on the new status.
+        updateUser({ user_status });
+      } else {
+        // Accepted, but the address is not confirmed yet: the confirmation
+        // link activates it.
+        setRedeemed({ groupJoined: group_joined === true });
+      }
+    } catch (err) {
+      // The server says which refusal it was: not a code, already active,
+      // already used one, too many tries.
+      setRedeemError(
+        isInvalidSignupCode(err)
+          ? t('auth.signupCodeInvalid')
+          : describeApiError(err, { online, t, fallbackKey: 'errors.unknown' })
+      );
+    } finally {
+      setRedeeming(false);
     }
   };
 
@@ -168,6 +204,64 @@ export default function PendingApproval() {
                   <p className="text-xs text-error" role="alert">
                     {t('auth.resendFailed')}
                   </p>
+                )}
+              </div>
+            )}
+
+            {/* A signup code from Dravr or a coach skips the wait (carnet#1128).
+                A deleted account's address is refused a code, so the field is
+                not offered beside the tombstone. */}
+            {tombstone === undefined && (
+              <div className="mt-6" data-testid="pending-signup-code">
+                {redeemed ? (
+                  <div
+                    role="status"
+                    className="bg-surface-container-low border ghost-border text-on-surface px-4 py-3 rounded-lg text-sm space-y-1"
+                  >
+                    <p>{t('auth.signupCodeAcceptedConfirmEmail')}</p>
+                    {redeemed.groupJoined && <p>{t('auth.signupCodeJoinedGroup')}</p>}
+                  </div>
+                ) : showSignupCode ? (
+                  <form onSubmit={(e) => void handleRedeem(e)} className="space-y-3">
+                    <Input
+                      id="pendingSignupCode"
+                      name="signupCode"
+                      type="text"
+                      label={t('auth.signupCodeLabel')}
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      placeholder={t('auth.signupCodePlaceholder')}
+                      helpText={t('auth.signupCodeHint')}
+                      value={signupCode}
+                      onChange={(e) => setSignupCode(e.target.value)}
+                    />
+                    {redeemError && (
+                      <p className="text-xs text-error" role="alert">
+                        {redeemError}
+                      </p>
+                    )}
+                    <Button
+                      size="lg"
+                      type="submit"
+                      variant="primary"
+                      loading={redeeming}
+                      disabled={!signupCode.trim() || !online}
+                      className="w-full"
+                    >
+                      {redeeming ? t('auth.signupCodeApplying') : t('auth.signupCodeApply')}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowSignupCode(true)}
+                      className="text-sm text-primary hover:text-primary-fixed-dim font-medium transition-colors"
+                    >
+                      {t('auth.haveSignupCode')}
+                    </button>
+                  </div>
                 )}
               </div>
             )}

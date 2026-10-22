@@ -36,14 +36,12 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use tracing::info;
-use uuid::Uuid;
 
-use pierre_auth::security::cookies::{auth_cookie_name, get_cookie_value};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{User, UserStatus};
 use pierre_database::repositories::TombstoneKind;
 use pierre_services::import_tombstones::clear_for_account;
 
+use crate::pending_session::session_account;
 use crate::AuthRoutesContext;
 
 /// Body of `POST /api/user/import-tombstones/clear`.
@@ -53,47 +51,6 @@ pub struct ClearTombstoneRequest {
     /// own email.
     #[serde(default)]
     pub tombstone_id: Option<String>,
-}
-
-/// The session token a request carries: the auth cookie, else a bearer
-/// header.
-fn session_token(headers: &HeaderMap) -> Option<String> {
-    get_cookie_value(headers, &auth_cookie_name()).or_else(|| {
-        headers
-            .get("authorization")?
-            .to_str()
-            .ok()?
-            .strip_prefix("Bearer ")
-            .map(str::to_owned)
-    })
-}
-
-/// The account behind a first-party session, whatever its approval status
-/// but suspended.
-async fn session_account(resources: &AuthRoutesContext, headers: &HeaderMap) -> AppResult<User> {
-    let token = session_token(headers).ok_or_else(AppError::auth_required)?;
-    let claims = resources
-        .auth_manager
-        .validate_session_token(&token, &resources.jwks_manager)?;
-    if claims.impersonation_session_id.is_some() {
-        return Err(AppError::auth_invalid(
-            "An impersonation session cannot clear the account's tombstones",
-        ));
-    }
-    let user_id = Uuid::parse_str(&claims.sub)
-        .map_err(|_| AppError::auth_invalid("The session names no account"))?;
-    let user = resources
-        .repos
-        .users
-        .get_global(user_id)
-        .await?
-        .ok_or_else(|| AppError::auth_invalid("The session's account no longer exists"))?;
-    if user.user_status == UserStatus::Suspended {
-        return Err(AppError::account_suspended(
-            "Your account has been suspended",
-        ));
-    }
-    Ok(user)
 }
 
 /// `POST /api/user/import-tombstones/clear` — clear a tombstone whose
@@ -114,7 +71,7 @@ pub async fn handle_clear_import_tombstone(
     headers: HeaderMap,
     body: Option<Json<ClearTombstoneRequest>>,
 ) -> AppResult<Response> {
-    let user = session_account(&resources, &headers).await?;
+    let user = session_account(&resources, &headers, "clear the account's tombstones").await?;
     let request = body.map(|Json(request)| request).unwrap_or_default();
 
     // An email is held by whoever proved the inbox, not by whoever typed it

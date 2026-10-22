@@ -160,6 +160,7 @@ const INVITES: GroupInvitesResponse = {
       max_uses: null,
       use_count: 3,
       is_active: true,
+      approves_signup: false,
       created_at: '2026-08-01T08:00:00Z',
     },
   ],

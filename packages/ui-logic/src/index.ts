@@ -69,6 +69,8 @@ export {
   describeSignInFailure,
   type SignInFailure,
   refusalReason,
+  INVALID_SIGNUP_CODE_REASON,
+  isInvalidSignupCode,
   refusalProvider,
 } from './apiError';
 export { describeTurnFailure, isTurnFailureRetryable } from './turnFailure';

@@ -500,8 +500,23 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// Look up an invite by its code (cross-tenant for join flow)
     async fn get_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>>;
 
-    /// Increment the use count of an invite
+    /// Count one more use of an invite while it is under its use limit.
+    /// Returns `false` when the invite is missing or already used up.
     async fn increment_invite_use_count(&self, invite_id: &str) -> AppResult<bool>;
+
+    /// Claim one use of a coach's approving invite (`approves_signup`) by
+    /// code, atomically: `None` when no live approving invite has that code.
+    async fn claim_signup_invite(
+        &self,
+        code: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<GroupInvite>>;
+
+    /// Look up an invite by id (cross-tenant, for signup-code activation)
+    async fn get_invite_by_id(&self, invite_id: &str) -> AppResult<Option<GroupInvite>>;
+
+    /// Every coach's approving invite, newest first (admin listing)
+    async fn list_signup_invites(&self) -> AppResult<Vec<GroupInvite>>;
 
     /// Deactivate an invite, scoped to its owning group.
     /// The `group_id` filter prevents a group admin from deactivating an invite

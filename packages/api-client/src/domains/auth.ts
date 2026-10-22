@@ -107,6 +107,12 @@ export interface RegisterCredentials {
   display_name?: string;
   /** The Cloudflare Turnstile token, sent when `SignupConfig.turnstile_site_key` is set. */
   turnstile_token?: string;
+  /**
+   * A signup code an admin or coach handed out: a valid one approves the
+   * account (carnet#1128). An invalid one fails the registration with a 400,
+   * so nothing is created and the person can fix the typo.
+   */
+  signup_code?: string;
 }
 
 export interface FirebaseLoginData {

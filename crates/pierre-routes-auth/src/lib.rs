@@ -59,6 +59,7 @@ use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_groups::GroupService;
 #[cfg(feature = "provider-sciotte")]
 use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::McpAuthMiddleware;
@@ -85,6 +86,7 @@ mod invitation;
 mod login;
 mod oauth;
 mod password_attempts;
+mod pending_session;
 mod provider_ai_consent;
 #[cfg(feature = "provider-sciotte")]
 mod provider_link_webhook;
@@ -99,6 +101,7 @@ mod sciotte_prefetch;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
 mod short_link;
+mod signup_code;
 mod signup_guards;
 
 pub use signup_guards::meter_sign_up;
@@ -216,6 +219,10 @@ pub struct AuthRoutesContext {
     /// The bot check the public register form passes (carnet#1063); `None`
     /// when Turnstile's keys are not configured.
     pub human_check: Option<Arc<dyn HumanCheck>>,
+    /// Joins an account a coach's signup code approved to the coach's group
+    /// (carnet#1128); `None` in a build without group coaching, where no
+    /// coach code can have been minted.
+    pub group_service: Option<Arc<GroupService>>,
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,
@@ -311,6 +318,12 @@ impl AuthRoutes {
             .route(
                 "/api/user/import-tombstones/clear",
                 post(import_tombstones::handle_clear_import_tombstone),
+            )
+            // A Pending account enters a signup code from the waiting screen
+            // (carnet#1128); reached without the status gate, like the clear.
+            .route(
+                "/api/user/signup-code/redeem",
+                post(signup_code::handle_redeem_signup_code),
             )
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))

@@ -685,6 +685,7 @@ mod session_refresh_tokens_postgresql_test;
 mod session_refresh_tokens_test;
 mod set_physiology_tool_test;
 mod short_link_test;
+mod signup_codes_test;
 mod signup_guards_test;
 mod simple_integration_test;
 mod slack_actions_unit_test;

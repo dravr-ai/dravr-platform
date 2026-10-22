@@ -200,6 +200,18 @@ export function refusalReason(err: unknown): string | undefined {
 }
 
 /**
+ * The `details.reason` of a signup code the server will not take
+ * (`pierre_services::signup_codes::INVALID_SIGNUP_CODE_REASON`, carnet#1128).
+ * One reason for unknown, revoked, expired and used up alike.
+ */
+export const INVALID_SIGNUP_CODE_REASON = 'invalid_signup_code';
+
+/** Whether a refusal says the signup code itself was not valid. */
+export function isInvalidSignupCode(err: unknown): boolean {
+  return refusalReason(err) === INVALID_SIGNUP_CODE_REASON;
+}
+
+/**
  * The provider a refusal is about, from `details.provider` — a delegated-link
  * refusal names the coaching platform it concerns, which the sentence names.
  */

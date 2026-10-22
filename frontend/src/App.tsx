@@ -80,12 +80,22 @@ function getGroupInviteCode(): string | null {
 }
 
 /**
- * Whether the current URL is the create-account link: /register. dravr.ai's
- * "Create your account" button points here, so it opens the form it names
- * rather than the sign-in form.
+ * Whether the current URL is the create-account link: /register, or /signup.
+ * dravr.ai's "Create your account" button points here, so it opens the form it
+ * names rather than the sign-in form.
  */
 function isRegisterPath(): boolean {
-  return window.location.pathname === '/register';
+  return window.location.pathname === '/register' || window.location.pathname === '/signup';
+}
+
+/**
+ * The signup code a create-account link carries (`/signup?code=…`), so a code
+ * an admin or coach shares as a link fills itself in (carnet#1128).
+ */
+function getSignupCodeParam(): string | null {
+  if (!isRegisterPath()) return null;
+  const code = new URLSearchParams(window.location.search).get('code')?.trim();
+  return code ? code : null;
 }
 
 type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
@@ -95,6 +105,8 @@ function AppContent() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [authView, setAuthView] = useState<AuthView>(() => (isRegisterPath() ? 'register' : 'login'));
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+  // Read once, before the effect below cleans the create-account link.
+  const [signupCodeFromLink] = useState<string | null>(getSignupCodeParam);
   const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<ReturnType<typeof getOAuthCallbackParams>>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
@@ -175,6 +187,8 @@ function AppContent() {
 
   // Clean the create-account link once the form is chosen, so a reload after
   // switching to sign-in does not reopen it and a signed-in user lands on '/'.
+  // The signup code it may carry is already in state, and leaves the address
+  // bar with the rest of the link.
   useEffect(() => {
     if (isRegisterPath()) {
       window.history.replaceState({}, document.title, '/');
@@ -290,6 +304,7 @@ function AppContent() {
     if (authView === 'register') {
       return (
         <Register
+          initialSignupCode={signupCodeFromLink ?? undefined}
           onNavigateToLogin={() => {
             setAuthView('login');
             setRegistrationMessage(null);

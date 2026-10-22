@@ -71,8 +71,10 @@ pub enum SettingsCommand {
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub enum SignupAction {
-    /// Show the sign-up settings and the accounts created in the last 24 hours
+    /// Show the sign-up settings and the accounts the daily ceiling counts
     Show,
+    /// Restart the daily ceiling's count from zero now; the limit is unchanged
+    Reset,
     /// Update settings; unset flags leave their settings unchanged
     Set {
         /// The kill switch: `true` admits self-serve sign-ups, `false` refuses them all
@@ -173,6 +175,7 @@ pub async fn dispatch(command: SettingsCommand) -> AppResult<()> {
         },
         SettingsCommand::Signup { action } => match action {
             SignupAction::Show => signup_show().await,
+            SignupAction::Reset => signup_reset().await,
             SignupAction::Set {
                 open,
                 daily_limit,
@@ -400,6 +403,15 @@ async fn signup_show() -> AppResult<()> {
     Ok(())
 }
 
+async fn signup_reset() -> AppResult<()> {
+    let response = client()?
+        .post_json(&format!("{SIGNUP_PATH}/reset"), &serde_json::json!({}))
+        .await?;
+    println!("  Sign-up daily count reset.");
+    print_signup(&response);
+    Ok(())
+}
+
 async fn signup_set(
     open: Option<bool>,
     daily_limit: Option<i64>,
@@ -439,9 +451,10 @@ fn print_signup(response: &Value) {
         field("activate_on_verified_email")
     );
     println!(
-        "  {:<28}  {}",
-        "created_last_24h",
-        field("created_last_24h")
+        "  {:<28}  {} since {}",
+        "counted",
+        field("counted"),
+        field("counted_since")
     );
     println!(
         "  {:<28}  {}",

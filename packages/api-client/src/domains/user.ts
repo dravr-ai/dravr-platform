@@ -18,6 +18,7 @@ import type {
   MemoryFactStatus,
   OAuthApp,
   OAuthAppCredentials,
+  RedeemSignupCodeResponse,
   ThemePreference,
   User,
 } from '@pierre/shared-types';
@@ -227,6 +228,18 @@ export function createUserApi(axios: AxiosInstance) {
       const response = await axios.post<ClearImportTombstoneResponse>(
         ENDPOINTS.USER.IMPORT_TOMBSTONES_CLEAR,
         tombstoneId ? { tombstone_id: tombstoneId } : {}
+      );
+      return response.data;
+    },
+
+    /**
+     * Redeem a signup code for the signed-in Pending account (carnet#1128).
+     * Reached from the waiting screen, so it works before approval.
+     */
+    async redeemSignupCode(code: string): Promise<RedeemSignupCodeResponse> {
+      const response = await axios.post<RedeemSignupCodeResponse>(
+        ENDPOINTS.USER.SIGNUP_CODE_REDEEM,
+        { code }
       );
       return response.data;
     },

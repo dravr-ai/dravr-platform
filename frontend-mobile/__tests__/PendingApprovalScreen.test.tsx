@@ -14,16 +14,18 @@ jest.mock('expo-router', () => ({
 
 const mockResendVerification = jest.fn();
 const mockClearImportTombstone = jest.fn();
+const mockRedeemSignupCode = jest.fn();
 jest.mock('../src/services/api', () => ({
   authApi: {
     resendVerification: (...args: unknown[]) => mockResendVerification(...args),
   },
   userApi: {
     clearImportTombstone: (...args: unknown[]) => mockClearImportTombstone(...args),
+    redeemSignupCode: (...args: unknown[]) => mockRedeemSignupCode(...args),
   },
 }));
 
-let mockUser: {
+let mockUser: null | {
   email: string;
   email_verified?: boolean;
   email_tombstone?: { tombstone_id: string; deleted_at: string };
@@ -34,6 +36,7 @@ jest.mock('../src/contexts/AuthContext', () => ({
 }));
 
 import { PendingApprovalScreen } from '../src/screens/auth/PendingApprovalScreen';
+import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
 describe('PendingApprovalScreen', () => {
   beforeEach(() => {
@@ -144,6 +147,114 @@ describe('PendingApprovalScreen', () => {
 
       expect(getByText('Confirm your email address first, then start fresh.')).toBeTruthy();
       expect(queryByTestId('pending-email-tombstoned-clear')).toBeNull();
+    });
+  });
+
+  // A code an admin or a coach handed out approves the waiting account
+  // (carnet#1128).
+  describe('signup code', () => {
+    function enterCode(view: ReturnType<typeof renderComponent>, code: string) {
+      fireEvent.changeText(view.getByTestId('pending-signup-code-input'), code);
+      fireEvent.press(view.getByTestId('pending-signup-code-apply'));
+    }
+
+    it('is not offered before anyone is signed in', () => {
+      mockUser = null;
+      mockParams = { message: 'Registration received.' };
+      const { queryByTestId } = renderComponent();
+      expect(queryByTestId('pending-signup-code')).toBeNull();
+    });
+
+    it('is not offered beside a deleted account\'s address', () => {
+      mockUser = {
+        email: 'back@example.com',
+        email_verified: true,
+        email_tombstone: { tombstone_id: 'tomb-1', deleted_at: '2026-10-20T08:00:00+00:00' },
+      };
+      const { queryByTestId } = renderComponent();
+      expect(queryByTestId('pending-signup-code')).toBeNull();
+    });
+
+    it('holds the button until a code is typed', () => {
+      const { getByTestId } = renderComponent();
+      expect(getByTestId('pending-signup-code-apply')).toBeDisabled();
+      fireEvent.changeText(getByTestId('pending-signup-code-input'), '   ');
+      expect(getByTestId('pending-signup-code-apply')).toBeDisabled();
+    });
+
+    it('activates the account with a code that holds', async () => {
+      mockRedeemSignupCode.mockResolvedValueOnce({ user_status: 'active', group_joined: null });
+      const view = renderComponent();
+
+      enterCode(view, '  BETA-ABCD  ');
+
+      await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ user_status: 'active' }));
+      expect(mockRedeemSignupCode).toHaveBeenCalledWith('BETA-ABCD');
+      expect(view.getByText('Code accepted. Your account is ready.')).toBeTruthy();
+      expect(view.queryByText("You've also joined the group this code came from.")).toBeNull();
+    });
+
+    it('asks for the confirmation link while the address is unconfirmed', async () => {
+      mockUser = { email: 'jean@example.com', email_verified: false };
+      mockRedeemSignupCode.mockResolvedValueOnce({ user_status: 'pending', group_joined: null });
+      const view = renderComponent();
+
+      enterCode(view, 'BETA-ABCD');
+
+      expect(
+        await view.findByText('Code accepted. Confirm your email address to activate your account.'),
+      ).toBeTruthy();
+      expect(mockUpdateUser).toHaveBeenCalledWith({ user_status: 'pending' });
+    });
+
+    it("says so when a coach's code also joined the group", async () => {
+      mockRedeemSignupCode.mockResolvedValueOnce({ user_status: 'active', group_joined: true });
+      const view = renderComponent();
+
+      enterCode(view, 'COACH123');
+
+      expect(await view.findByText("You've also joined the group this code came from.")).toBeTruthy();
+      expect(view.getByText('Code accepted. Your account is ready.')).toBeTruthy();
+    });
+
+    it('shows a refused code under the field and leaves the account waiting', async () => {
+      mockRedeemSignupCode.mockRejectedValueOnce(
+        apiRefusal(400, {
+          message: "This code isn't valid. Check it and try again.",
+          details: { reason: 'invalid_signup_code' },
+        }),
+      );
+      const view = renderComponent();
+
+      enterCode(view, 'NOPE');
+
+      expect(await view.findByText("This code isn't valid. Check it and try again.")).toBeTruthy();
+      expect(mockUpdateUser).not.toHaveBeenCalled();
+      expect(view.getByTestId('pending-signup-code-apply')).toBeEnabled();
+    });
+
+    it("keeps a rate limit's own sentence", async () => {
+      mockRedeemSignupCode.mockRejectedValueOnce(
+        apiRefusal(429, { message: 'Too many attempts. Try again later.' }),
+      );
+      const view = renderComponent();
+
+      enterCode(view, 'BETA-ABCD');
+
+      expect(await view.findByText('Too many attempts. Try again later.')).toBeTruthy();
+    });
+
+    it('disables the button while the code is checked', async () => {
+      let resolve: (value: { user_status: 'active'; group_joined: null }) => void = () => {};
+      mockRedeemSignupCode.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+      const view = renderComponent();
+
+      enterCode(view, 'BETA-ABCD');
+
+      await waitFor(() => expect(view.getByTestId('pending-signup-code-apply')).toBeDisabled());
+      expect(view.getByText('Checking…')).toBeTruthy();
+      resolve({ user_status: 'active', group_joined: null });
+      await waitFor(() => expect(mockUpdateUser).toHaveBeenCalled());
     });
   });
 });

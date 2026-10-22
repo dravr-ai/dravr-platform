@@ -56,6 +56,11 @@ pub struct PublicRegisterRequest {
     /// The Turnstile token, required when the bot check is configured
     #[serde(default)]
     pub turnstile_token: Option<SecretString>,
+    /// A signup code that approves the account (carnet#1128). Like the
+    /// Turnstile token it stays out of [`RegisterRequest`], so the doors
+    /// without a form field for it are unchanged.
+    #[serde(default)]
+    pub signup_code: Option<SecretString>,
 }
 
 /// `GET /api/auth/signup-config`: what the register form needs before it is

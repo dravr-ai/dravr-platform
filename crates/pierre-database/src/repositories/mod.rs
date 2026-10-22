@@ -79,6 +79,8 @@ pub mod firebase_identity_deletions;
 pub mod first_run_progress;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
+/// Shared statements for group invites, run by the coaching-group repository body.
+pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
 pub(crate) mod group_transcript;
 /// Repository trait for Guardian pending actions (Confirm human-in-the-loop).
@@ -157,6 +159,8 @@ pub mod seeder_body;
 pub mod session_refresh_tokens;
 /// Repository trait + helper for the channel-agnostic URL shortener.
 pub mod short_links;
+/// Repository trait, statements and shared body for admin signup codes.
+pub mod signup_codes;
 /// Repository trait for the agent marketplace: review workflow, catalogue browsing, installs, the @handle.
 pub mod store_listings;
 pub(crate) mod store_listings_backend;
@@ -291,6 +295,7 @@ pub use route_summaries::*;
 pub use security::*;
 pub use seeder::*;
 pub use short_links::*;
+pub use signup_codes::SignupCodeRepository;
 pub use store_listings::*;
 pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;

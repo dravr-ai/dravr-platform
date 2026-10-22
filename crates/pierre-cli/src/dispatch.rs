@@ -96,6 +96,7 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
             let format = commands::user_admin::OutputFormat::parse(&format)?;
             commands::user_admin::list_allowed(&client, format).await
         }
+        UserCommand::Code { action } => commands::signup_code::run(action).await,
         UserCommand::Disconnect(args) => {
             let client = commands::auth::admin_client(args.server, args.token)?;
             let id = commands::user_admin::resolve_user_id(&client, &args.email).await?;

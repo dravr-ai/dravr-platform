@@ -658,6 +658,10 @@ pub mod oauth_rate_limiting {
     /// like a stranger, in the account window (carnet#1088): a stolen cookie
     /// buys this many guesses a day, no more
     pub const KNOWN_DEVICE_FAILURES: u32 = 10;
+    /// Signup-code attempts (registration with a code, the pending page's
+    /// redeem) per client address per window (carnet#1128). A code is a
+    /// bearer secret, so entering one is metered like a password guess.
+    pub const SIGNUP_CODE_ATTEMPTS: u32 = 10;
     /// The known-device window's length: one day
     pub const KNOWN_DEVICE_WINDOW_SECS: u64 = 24 * 60 * 60;
     /// Self-serve sign-ups and verification resends per client address per window.

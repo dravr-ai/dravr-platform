@@ -74,6 +74,7 @@ pub struct ChannelGroupSpec<'a> {
 use crate::athlete_billing::{AthleteBilling, AthleteCharge};
 use crate::context_alerts::connection_and_staleness_alerts;
 use crate::delegation::DelegationStore;
+use crate::invites::unambiguous_code;
 use crate::setup_timing::record_member_joined;
 use crate::strategies::context::select_context_strategy;
 use crate::strategies::tier::{GroupTierStrategy, OwnerGroupLimit};
@@ -707,94 +708,6 @@ impl GroupService {
     // Membership operations
     // ========================================================================
 
-    /// Join a group via invite code
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the invite is invalid, expired, full, or the user is already a member.
-    pub async fn join_group(
-        &self,
-        invite_code: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<GroupMember> {
-        let invite = self
-            .repo
-            .get_invite_by_code(invite_code)
-            .await?
-            .ok_or_else(|| AppError::not_found("Invalid or expired invite code"))?;
-
-        Self::check_invite_usable(&invite)?;
-
-        // Member invites never attach a coach — coach-kind invites are
-        // redeemed through `redeem_coach_invite`, which `/group join`
-        // dispatches to based on `invite.kind`.
-        if invite.kind == GroupInviteKind::Coach {
-            return Err(AppError::invalid_input(
-                "This is a coach invite — redeem it from the coach flow, not group join",
-            ));
-        }
-
-        // Check member limit
-        let group = self
-            .open_group_for_invite(&invite.group_id.to_string(), tenant_id)
-            .await?;
-
-        let current_count = self
-            .repo
-            .count_members(&invite.group_id.to_string())
-            .await?;
-        if current_count >= i64::from(group.max_members) {
-            return Err(AppError::invalid_input("This group is full"));
-        }
-
-        // Check not already a member
-        let existing = self
-            .repo
-            .get_member(&invite.group_id.to_string(), user_id)
-            .await?;
-        if existing.is_some() {
-            return Err(AppError::invalid_input(
-                "You are already a member of this group",
-            ));
-        }
-
-        let member = GroupMember {
-            id: Uuid::new_v4(),
-            group_id: invite.group_id,
-            user_id,
-            tenant_id: tenant_id.to_string(),
-            role: GroupRole::Member,
-            peer_sharing_consent: false,
-            coach_sharing_consent: true,
-            coach_consents: CoachConsents::default(),
-            consent_given_at: chrono::Utc::now(),
-            joined_at: chrono::Utc::now(),
-            left_at: None,
-            display_name: None,
-        };
-
-        let created = self.repo.add_member(&member).await?;
-        self.repo
-            .increment_invite_use_count(&invite.id.to_string())
-            .await?;
-
-        // The invite's tenant is the *group's* tenant, which is what the
-        // caller passes in — athlete membership is cross-tenant by design, so
-        // the adoption metric must follow the group rather than the
-        // redeemer's home tenant.
-        info!(
-            target: "notify",
-            event = "group.joined",
-            user_id = %user_id,
-            tenant_id = %tenant_id,
-            group_id = %invite.group_id,
-            "user joined coaching group"
-        );
-        record_member_joined(self.repo.as_ref(), &created, group.owner_id).await;
-        Ok(created)
-    }
-
     /// Attach or clear the group's human coach directly (admin/owner action).
     /// Pass `None` to detach. `actor` is who changed it.
     ///
@@ -935,6 +848,7 @@ impl GroupService {
             max_uses,
             use_count: 0,
             is_active: true,
+            approves_signup: false,
             created_at: chrono::Utc::now(),
         };
 
@@ -1174,15 +1088,7 @@ fn group_uuid(group_id: &str) -> AppResult<Uuid> {
     Uuid::parse_str(group_id).map_err(|_| AppError::invalid_input("Invalid group id"))
 }
 
-/// Generate an 8-character alphanumeric invite code
+/// Generate an 8-character invite code
 fn generate_invite_code() -> String {
-    use rand::Rng;
-    const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut rng = rand::rng();
-    (0..8)
-        .map(|_| {
-            let idx = rng.random_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
+    unambiguous_code(8)
 }
