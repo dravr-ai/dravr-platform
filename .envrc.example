@@ -77,10 +77,11 @@ export POSTGRES_ACQUIRE_TIMEOUT="30"     # Default: 30 (prod), 30 (CI)
 # export POSTGRES_CONNECTION_RETRIES=""  # Default: from constants
 # export POSTGRES_INITIAL_RETRY_DELAY_MS=""  # Default: from constants
 # export POSTGRES_MAX_RETRY_DELAY_MS=""  # Default: from constants
+# export POSTGRES_BOOT_WAIT_SECS=""      # Default: 60 — boot key-store reads queue this long for a free connection
 
-# SQLX Connection Pool Configuration
-# export SQLX_IDLE_TIMEOUT_SECS=""       # Default: 10 min (PostgreSQL)
-# export SQLX_MAX_LIFETIME_SECS=""       # Default: 30 min
+# SQLX Connection Pool Configuration (PostgreSQL pool)
+# export SQLX_IDLE_TIMEOUT_SECS=""       # Default: 300 (5 min)
+# export SQLX_MAX_LIFETIME_SECS=""       # Default: 600 (10 min)
 export SQLX_TEST_BEFORE_ACQUIRE="true"
 # export SQLX_STATEMENT_CACHE_CAPACITY=""  # Default: 100
 

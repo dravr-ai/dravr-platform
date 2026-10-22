@@ -22,6 +22,7 @@ use pierre_core::constants::tool_execution::{
 use crate::admin_types::{boot_env, config_env, ConfigDataType, EnvBinding, ParameterRange};
 use crate::constants::strava_seat_reclaim as seat_reclaim;
 use crate::constants::usage_quotas::{DEFAULT_MAX_ACTIVE_CONVERSATIONS, UNLIMITED_CONVERSATIONS};
+use crate::database::PostgresPoolConfig;
 use crate::tid_cuts;
 
 /// Default configuration definitions with metadata.
@@ -761,18 +762,20 @@ pub fn register_tokio_runtime<S: BuildHasher>(defs: &mut HashMap<String, Paramet
 
 /// Register the `SQLx Connection Pool Configuration` catalog entries.
 pub fn register_sqlx_pool<S: BuildHasher>(defs: &mut HashMap<String, ParameterDefinition, S>) {
-    // SQLx Connection Pool Configuration
+    // SQLx Connection Pool Configuration: the defaults are the pool's own, so
+    // the console shows what an unset variable really runs with
+    let pool = PostgresPoolConfig::default();
     add_definition(
         defs,
         ParameterDefinition {
             key: "sqlx.idle_timeout_secs".to_owned(),
             display_name: "Idle Timeout".to_owned(),
             description:
-                "Maximum time a connection can sit idle before being closed. Default: 10 min"
+                "Maximum time a connection can sit idle before being closed. Default: 5 min"
                     .to_owned(),
             category: "sqlx_config".to_owned(),
             data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(null),
+            default_value: serde_json::json!(pool.idle_timeout_secs),
             valid_range: Some(ParameterRange {
                 min: serde_json::json!(30),
                 max: serde_json::json!(3600),
@@ -792,11 +795,11 @@ pub fn register_sqlx_pool<S: BuildHasher>(defs: &mut HashMap<String, ParameterDe
         ParameterDefinition {
             key: "sqlx.max_lifetime_secs".to_owned(),
             display_name: "Max Lifetime".to_owned(),
-            description: "Maximum lifetime of a connection before it is closed. Default: 30 min"
+            description: "Maximum lifetime of a connection before it is closed. Default: 10 min"
                 .to_owned(),
             category: "sqlx_config".to_owned(),
             data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(null),
+            default_value: serde_json::json!(pool.max_lifetime_secs),
             valid_range: Some(ParameterRange {
                 min: serde_json::json!(60),
                 max: serde_json::json!(7200),
@@ -819,7 +822,7 @@ pub fn register_sqlx_pool<S: BuildHasher>(defs: &mut HashMap<String, ParameterDe
             description: "Whether to test connections before acquiring from pool".to_owned(),
             category: "sqlx_config".to_owned(),
             data_type: ConfigDataType::Boolean,
-            default_value: serde_json::json!(true),
+            default_value: serde_json::json!(pool.test_before_acquire),
             valid_range: None,
             enum_options: None,
             units: None,
@@ -839,7 +842,7 @@ pub fn register_sqlx_pool<S: BuildHasher>(defs: &mut HashMap<String, ParameterDe
                 .to_owned(),
             category: "sqlx_config".to_owned(),
             data_type: ConfigDataType::Integer,
-            default_value: serde_json::json!(null),
+            default_value: serde_json::json!(pool.statement_cache_capacity),
             valid_range: Some(ParameterRange {
                 min: serde_json::json!(0),
                 max: serde_json::json!(1000),

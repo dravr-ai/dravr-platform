@@ -30,6 +30,7 @@ use pierre_core::billing::BillingProvider;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
+use pierre_database::backends::shared::key_material::KeyStoreQueue;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
@@ -260,7 +261,13 @@ async fn initialize_cache() -> Result<Cache> {
 async fn initialize_core_systems(config: &ServerConfig) -> Result<(Database, AuthManager, String)> {
     let (mut key_manager, database_encryption_key) = bootstrap_key_management()?;
     let mut database = initialize_database(config, database_encryption_key).await?;
-    key_manager.complete_initialization(&mut database).await?;
+    let mut queue = KeyStoreQueue::new(database.boot_deadline(), "dek");
+    loop {
+        match key_manager.complete_initialization(&mut database).await {
+            Err(e) if queue.wait_after(&e).await => {}
+            done => break done,
+        }
+    }?;
     info!("Two-tier key management system fully initialized");
 
     let repos = database.repositories();

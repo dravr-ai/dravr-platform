@@ -193,11 +193,12 @@ use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::{AppError, AppResult};
 use sha2::{Digest, Sha256};
 use sqlx::migrate::Migrator;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::str::FromStr;
+use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
@@ -254,9 +255,20 @@ pub struct PostgresDatabase {
     /// deterministic lookups survive DEK rotation — stored hashes cannot be
     /// recomputed (the plaintext token is never retained).
     blind_index_key: Vec<u8>,
+    /// Until when boot-time key-store reads keep queueing for a free
+    /// connection (`PostgresPoolConfig::boot_wait_secs` after the pool opened)
+    boot_deadline: Instant,
 }
 
 impl PostgresDatabase {
+    /// Until when boot-time key-store reads keep queueing for a free
+    /// connection; see
+    /// [`KeyStoreQueue`](crate::backends::shared::key_material::KeyStoreQueue)
+    #[must_use]
+    pub const fn boot_deadline(&self) -> Instant {
+        self.boot_deadline
+    }
+
     /// Get a reference to the `PostgreSQL` connection pool
     #[must_use]
     pub fn pool(&self) -> &Pool<Postgres> {
@@ -340,28 +352,19 @@ impl PostgresDatabase {
         encryption_key: Vec<u8>,
         pool_config: &PostgresPoolConfig,
     ) -> AppResult<Self> {
-        // Use pool configuration from ServerConfig (read once at startup)
-        let max_connections = pool_config.max_connections;
-        let min_connections = pool_config.min_connections;
-        let acquire_timeout_secs = pool_config.acquire_timeout_secs;
-
-        // Log connection pool configuration for debugging
         info!(
-            "PostgreSQL pool config: max_connections={max_connections}, min_connections={min_connections}, timeout={acquire_timeout_secs}s, retries={}",
-            pool_config.connection_retries
+            max_connections = pool_config.max_connections,
+            min_connections = pool_config.min_connections,
+            acquire_timeout_secs = pool_config.acquire_timeout_secs,
+            idle_timeout_secs = pool_config.idle_timeout_secs,
+            max_lifetime_secs = pool_config.max_lifetime_secs,
+            boot_wait_secs = pool_config.boot_wait_secs,
+            retries = pool_config.connection_retries,
+            "PostgreSQL pool config"
         );
 
-        // Attempt connection with exponential backoff retry
-        let pool = Self::connect_with_retry(
-            database_url,
-            max_connections,
-            min_connections,
-            acquire_timeout_secs,
-            pool_config.connection_retries,
-            pool_config.initial_retry_delay_ms,
-            pool_config.max_retry_delay_ms,
-        )
-        .await?;
+        let pool = Self::connect_with_retry(database_url, pool_config).await?;
+        let boot_deadline = Instant::now() + Duration::from_secs(pool_config.boot_wait_secs);
 
         let db = Self {
             pool,
@@ -369,6 +372,7 @@ impl PostgresDatabase {
             active_dek_version: shared::encryption::LEGACY_DEK_VERSION,
             prior_dek_versions: HashMap::new(),
             encryption_key,
+            boot_deadline,
         };
 
         // Run migrations
@@ -383,27 +387,29 @@ impl PostgresDatabase {
     /// by retrying with increasing delays between attempts.
     async fn connect_with_retry(
         database_url: &str,
-        max_connections: u32,
-        min_connections: u32,
-        acquire_timeout_secs: u64,
-        max_retries: u32,
-        initial_delay_ms: u64,
-        max_delay_ms: u64,
+        pool_config: &PostgresPoolConfig,
     ) -> AppResult<Pool<Postgres>> {
+        let connect_options = PgConnectOptions::from_str(database_url)
+            .map_err(|e| AppError::config(format!("Invalid PostgreSQL URL: {e}")))?
+            .statement_cache_capacity(pool_config.statement_cache_capacity);
         let pool_options = PgPoolOptions::new()
-            .max_connections(max_connections)
-            .min_connections(min_connections)
-            .acquire_timeout(Duration::from_secs(acquire_timeout_secs))
-            .idle_timeout(Some(Duration::from_mins(5)))
-            .max_lifetime(Some(Duration::from_mins(10)))
-            // Test connections before returning to caller to detect stale connections
-            .test_before_acquire(true);
+            .max_connections(pool_config.max_connections)
+            .min_connections(pool_config.min_connections)
+            .acquire_timeout(Duration::from_secs(pool_config.acquire_timeout_secs))
+            .idle_timeout(Some(Duration::from_secs(pool_config.idle_timeout_secs)))
+            .max_lifetime(Some(Duration::from_secs(pool_config.max_lifetime_secs)))
+            .test_before_acquire(pool_config.test_before_acquire);
+        let max_retries = pool_config.connection_retries;
 
         let mut last_error = None;
-        let mut delay_ms = initial_delay_ms;
+        let mut delay_ms = pool_config.initial_retry_delay_ms;
 
         for attempt in 0..=max_retries {
-            match pool_options.clone().connect(database_url).await {
+            match pool_options
+                .clone()
+                .connect_with(connect_options.clone())
+                .await
+            {
                 Ok(pool) => {
                     if attempt > 0 {
                         info!(
@@ -428,7 +434,7 @@ impl PostgresDatabase {
                         );
                         sleep(Duration::from_millis(delay_ms)).await;
                         // Exponential backoff with cap
-                        delay_ms = (delay_ms * 2).min(max_delay_ms);
+                        delay_ms = (delay_ms * 2).min(pool_config.max_retry_delay_ms);
                     }
                 }
             }

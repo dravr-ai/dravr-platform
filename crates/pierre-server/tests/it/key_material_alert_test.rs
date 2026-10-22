@@ -1,5 +1,5 @@
 // ABOUTME: Every key-material failure logs at ERROR under a key_material.* event, once per incident, never with a secret
-// ABOUTME: Covers stored-secret decrypt failures per kind, DEK read/unwrap failures, boots that refuse to mint a key over ciphertext, the alert filter, and a database too busy to serve a key read (capacity, not key loss)
+// ABOUTME: Covers stored-secret decrypt failures per kind, DEK read/unwrap failures, boots that refuse to mint a key over ciphertext, the alert filter, a database too busy to serve a key read (capacity, not key loss), and the pool settings that release and queue for slots
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -27,6 +27,8 @@ use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "postgresql")]
+use std::time::{Duration as StdDuration, Instant};
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -36,9 +38,13 @@ use pierre_auth::key_management::{
     DatabaseEncryptionKey, KekProvider, KeyManager, LocalKekProvider, MasterEncryptionKey,
 };
 use pierre_auth::tenant::llm_manager::{LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager};
+#[cfg(feature = "postgresql")]
+use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+#[cfg(feature = "postgresql")]
+use pierre_test_support::db::create_test_db_url;
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_test_support::server::create_test_user;
 use regex::Regex;
@@ -898,6 +904,51 @@ async fn signing_keypair_read_on_an_unavailable_database_refuses_without_paging_
     };
     assert_eq!(refused.code, ErrorCode::ResourceUnavailable);
     assert_capacity_not_key_loss(&captured);
+}
+
+/// The Postgres pool recycles connections as configured, so a revision that
+/// lost its traffic gives its slots back, and only Postgres opens a boot window
+/// for key-store reads to queue in (carnet#1129).
+#[tokio::test]
+async fn the_pool_follows_its_configured_recycling_and_boot_window() {
+    let database = create_test_db_with_key(WRITE_KEY.to_vec()).await.unwrap();
+    match database.backend() {
+        DatabaseBackend::SQLite(_) => assert!(database.boot_deadline().is_none()),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(_) => assert_postgres_pool_follows_its_configuration().await,
+    }
+}
+
+/// Open a Postgres database whose recycling and boot window differ from every
+/// default, so a pool that ignored its configuration fails here.
+#[cfg(feature = "postgresql")]
+async fn assert_postgres_pool_follows_its_configuration() {
+    let target = create_test_db_url().await.unwrap();
+    let configured = PostgresPoolConfig {
+        idle_timeout_secs: 45,
+        max_lifetime_secs: 90,
+        test_before_acquire: false,
+        boot_wait_secs: 120,
+        ..PostgresPoolConfig::default()
+    };
+    let boot_wait = StdDuration::from_secs(configured.boot_wait_secs);
+    let before_open = Instant::now();
+    let database = Database::new(&target.url, WRITE_KEY.to_vec(), &configured)
+        .await
+        .unwrap();
+    let after_open = Instant::now();
+    let DatabaseBackend::PostgreSQL(pg) = database.backend() else {
+        panic!("the Postgres test URL opened a non-Postgres backend");
+    };
+    let options = pg.pool().options();
+    assert_eq!(options.get_idle_timeout(), Some(StdDuration::from_secs(45)));
+    assert_eq!(options.get_max_lifetime(), Some(StdDuration::from_secs(90)));
+    assert!(!options.get_test_before_acquire());
+    let deadline = database.boot_deadline().unwrap();
+    assert!(
+        deadline >= before_open + boot_wait && deadline <= after_open + boot_wait,
+        "the boot window is {boot_wait:?} from when the pool opened"
+    );
 }
 
 /// Run one raw statement against whichever backend the factory opened.

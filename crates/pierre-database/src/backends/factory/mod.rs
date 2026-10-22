@@ -14,6 +14,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, info};
 
 use crate::RepositoryRegistry;
@@ -156,6 +157,19 @@ impl Database {
         match &self.backend {
             DatabaseBackend::SQLite(_) => None,
             DatabaseBackend::PostgreSQL(db) => Some(db.pool()),
+        }
+    }
+
+    /// Until when boot-time key-store reads queue for a free connection; see
+    /// [`KeyStoreQueue`](crate::backends::shared::key_material::KeyStoreQueue).
+    ///
+    /// `None` on `SQLite`, which has no connection slots to wait for.
+    #[must_use]
+    pub fn boot_deadline(&self) -> Option<Instant> {
+        match &self.backend {
+            DatabaseBackend::SQLite(_) => None,
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => Some(db.boot_deadline()),
         }
     }
 

@@ -208,62 +208,6 @@ impl BackupConfig {
     }
 }
 
-/// `SQLx` connection pool configuration for controlling database connections
-///
-/// These settings apply to both `SQLite` and `PostgreSQL` connection pools.
-/// Values of `None` use `SQLx` defaults.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SqlxConfig {
-    /// Maximum time a connection can sit idle before being closed (seconds)
-    /// Set via `SQLX_IDLE_TIMEOUT_SECS` environment variable
-    /// None = use `SQLx` default (10 minutes for `PostgreSQL`, none for `SQLite`)
-    pub idle_timeout_secs: Option<u64>,
-    /// Maximum lifetime of a connection before it's closed (seconds)
-    /// Set via `SQLX_MAX_LIFETIME_SECS` environment variable
-    /// None = use `SQLx` default (30 minutes)
-    pub max_lifetime_secs: Option<u64>,
-    /// Whether to test connections before acquiring from pool
-    /// Set via `SQLX_TEST_BEFORE_ACQUIRE` environment variable
-    pub test_before_acquire: bool,
-    /// Statement cache capacity per connection
-    /// Set via `SQLX_STATEMENT_CACHE_CAPACITY` environment variable
-    /// None = use `SQLx` default (100)
-    pub statement_cache_capacity: Option<usize>,
-}
-
-impl Default for SqlxConfig {
-    fn default() -> Self {
-        Self {
-            idle_timeout_secs: None,        // Use SQLx default
-            max_lifetime_secs: None,        // Use SQLx default
-            test_before_acquire: true,      // Enable by default for reliability
-            statement_cache_capacity: None, // Use SQLx default (100)
-        }
-    }
-}
-
-impl SqlxConfig {
-    /// Load from environment variables
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            idle_timeout_secs: env::var("SQLX_IDLE_TIMEOUT_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok()),
-            max_lifetime_secs: env::var("SQLX_MAX_LIFETIME_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok()),
-            test_before_acquire: env::var("SQLX_TEST_BEFORE_ACQUIRE")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(true),
-            statement_cache_capacity: env::var("SQLX_STATEMENT_CACHE_CAPACITY")
-                .ok()
-                .and_then(|s| s.parse().ok()),
-        }
-    }
-}
-
 /// Get environment variable or default value
 fn env_var_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())

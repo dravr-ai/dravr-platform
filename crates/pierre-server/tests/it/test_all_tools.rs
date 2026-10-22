@@ -211,7 +211,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,

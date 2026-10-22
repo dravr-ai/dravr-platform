@@ -30,9 +30,7 @@ pub use crate::api_providers::{
 pub use crate::cache::{CacheConfig, RedisConnectionConfig};
 pub use pierre_auth::config::RateLimitConfig;
 // Database
-pub use crate::database::{
-    BackupConfig, DatabaseConfig, DatabaseUrl, PostgresPoolConfig, SqlxConfig,
-};
+pub use crate::database::{BackupConfig, DatabaseConfig, DatabaseUrl, PostgresPoolConfig};
 // Goal management
 pub use crate::goal_management::GoalManagementConfig;
 // Guardian tool-dispatch policy overrides
@@ -126,8 +124,6 @@ pub struct ServerConfig {
     pub training_zones: TrainingZonesConfig,
     /// Tokio runtime configuration
     pub tokio_runtime: TokioRuntimeConfig,
-    /// `SQLx` connection pool configuration
-    pub sqlx: SqlxConfig,
     /// System monitoring configuration
     pub monitoring: MonitoringConfig,
     /// Resend API key for transactional emails (optional — emails are skipped
@@ -200,7 +196,6 @@ impl ServerConfig {
             goal_management: GoalManagementConfig::from_env(),
             training_zones: TrainingZonesConfig::from_env(),
             tokio_runtime: TokioRuntimeConfig::from_env(),
-            sqlx: SqlxConfig::from_env(),
             monitoring: MonitoringConfig::from_env(),
             resend_api_key: env::var("RESEND_API_KEY").ok().map(SecretString::from),
             resend_from_email: env::var("RESEND_FROM_EMAIL").ok(),

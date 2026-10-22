@@ -37,6 +37,7 @@ use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use tokio::time::sleep;
 use tracing::{error, warn};
 
 use super::encryption::{split_dek_version, HasEncryption};
@@ -121,6 +122,88 @@ pub(crate) fn key_store_query_error(context: &str, error: &sqlx::Error) -> AppEr
         AppError::resource_unavailable(format!("{context}: database unavailable: {error}"))
     } else {
         AppError::database(format!("{context}: {error}"))
+    }
+}
+
+/// The event a booting instance logs each time it queues a key-store read
+/// behind a database with no free connection; outside the `key_material.`
+/// namespace, like [`KEY_STORE_UNAVAILABLE`].
+pub const KEY_STORE_QUEUED: &str = "database.key_store_queued";
+
+/// First pause between two queued key-store reads; it doubles each time.
+const QUEUE_FIRST_PAUSE: Duration = Duration::from_millis(250);
+
+/// Longest pause between two queued key-store reads.
+const QUEUE_MAX_PAUSE: Duration = Duration::from_secs(5);
+
+/// Queues boot-time key-store reads while the database cannot serve them,
+/// until a deadline.
+///
+/// During a deploy, the outgoing revision can hold every connection slot for a
+/// few minutes. On 2026-10-21 the new instances gave up after one 30-second
+/// acquire timeout, restarted and gave up again, while the old revision kept
+/// the traffic (carnet#1129). The caller retries its read while
+/// [`KeyStoreQueue::wait_after`] says so:
+///
+/// ```text
+/// let mut queue = KeyStoreQueue::new(database.boot_deadline(), "dek");
+/// let loaded = loop {
+///     match read(&mut database).await {
+///         Err(e) if queue.wait_after(&e).await => {}
+///         done => break done,
+///     }
+/// };
+/// ```
+///
+/// Only [`ErrorCode::ResourceUnavailable`] is retried. Any other error,
+/// including a read the database answered with a wrong or missing key, ends
+/// the wait at once. The key-store reads refuse before they mint anything on
+/// every failed read, so a retry never mints a key over the stored one
+/// (carnet#696). A `None` deadline (`SQLite`) never queues.
+#[derive(Debug)]
+pub struct KeyStoreQueue {
+    deadline: Option<Instant>,
+    what: &'static str,
+    pause: Duration,
+    attempt: u32,
+}
+
+impl KeyStoreQueue {
+    /// A queue for the read named `what`, open until `deadline`
+    #[must_use]
+    pub const fn new(deadline: Option<Instant>, what: &'static str) -> Self {
+        Self {
+            deadline,
+            what,
+            pause: QUEUE_FIRST_PAUSE,
+            attempt: 1,
+        }
+    }
+
+    /// Whether the read that failed with `error` should run again. When it
+    /// should, this has already logged [`KEY_STORE_QUEUED`] and slept.
+    pub async fn wait_after(&mut self, error: &AppError) -> bool {
+        if error.code != ErrorCode::ResourceUnavailable {
+            return false;
+        }
+        let remaining = self.deadline.map_or(Duration::ZERO, |at| {
+            at.saturating_duration_since(Instant::now())
+        });
+        if remaining.is_zero() {
+            return false;
+        }
+        warn!(
+            event = KEY_STORE_QUEUED,
+            what = self.what,
+            attempt = self.attempt,
+            remaining_secs = remaining.as_secs(),
+            error = %error,
+            "Database has no free connection; queueing the boot key-store read"
+        );
+        sleep(self.pause.min(remaining)).await;
+        self.pause = self.pause.saturating_mul(2).min(QUEUE_MAX_PAUSE);
+        self.attempt = self.attempt.saturating_add(1);
+        true
     }
 }
 
@@ -552,5 +635,80 @@ mod tests {
             key_read_event(&AppError::not_found("System secret"), DEK_READ_FAILED),
             DEK_READ_FAILED
         );
+    }
+
+    fn unavailable() -> AppError {
+        AppError::resource_unavailable("database unavailable: pool timed out")
+    }
+
+    /// Drive `read` the way the boot sites do, counting the attempts.
+    async fn queued(
+        deadline: Option<Instant>,
+        mut read: impl FnMut(u32) -> AppResult<u32>,
+    ) -> (AppResult<u32>, u32) {
+        let mut queue = KeyStoreQueue::new(deadline, "dek");
+        let mut calls = 0;
+        let result = loop {
+            calls += 1;
+            match read(calls) {
+                Err(e) if queue.wait_after(&e).await => {}
+                done => break done,
+            }
+        };
+        (result, calls)
+    }
+
+    #[tokio::test]
+    async fn a_queued_read_succeeds_once_the_database_frees_a_slot() {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let (read, calls) = queued(Some(deadline), |call| {
+            if call < 3 {
+                Err(unavailable())
+            } else {
+                Ok(call)
+            }
+        })
+        .await;
+        assert_eq!(read.ok(), Some(3));
+        assert_eq!(calls, 3);
+    }
+
+    #[tokio::test]
+    async fn a_read_the_database_answered_is_never_retried() {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let (read, calls) = queued(Some(deadline), |_| {
+            Err(AppError::database("Database query failed: column missing"))
+        })
+        .await;
+        assert_eq!(read.map_err(|e| e.code), Err(ErrorCode::DatabaseError));
+        assert_eq!(calls, 1);
+    }
+
+    #[tokio::test]
+    async fn the_queue_gives_up_with_the_last_error_at_the_deadline() {
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(600);
+        let (read, calls) = queued(Some(deadline), |_| Err(unavailable())).await;
+        assert_eq!(
+            read.map_err(|e| e.code),
+            Err(ErrorCode::ResourceUnavailable)
+        );
+        assert!(calls >= 2, "queued at least once before giving up: {calls}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn without_a_boot_window_an_unavailable_database_is_not_queued() {
+        let (read, calls) = queued(None, |_| Err(unavailable())).await;
+        assert_eq!(
+            read.map_err(|e| e.code),
+            Err(ErrorCode::ResourceUnavailable)
+        );
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn the_queue_event_is_outside_the_key_material_namespace() {
+        assert!(!KEY_STORE_QUEUED.starts_with("key_material."));
     }
 }

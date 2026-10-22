@@ -134,7 +134,7 @@ resource "google_cloud_run_v2_service" "service" {
         }
         initial_delay_seconds = var.startup_probe_initial_delay
         period_seconds        = 5
-        failure_threshold     = 10
+        failure_threshold     = var.startup_probe_failure_threshold
         timeout_seconds       = 3
       }
 

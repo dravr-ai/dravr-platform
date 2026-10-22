@@ -155,8 +155,8 @@ use pierre_config::environment::{
     GarminApiConfig, GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig,
     MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
     ProtocolConfig, RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig,
-    ServerConfig, SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
-    TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
+    ServerConfig, SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -306,7 +306,6 @@ async fn test_oauth_flow_through_mcp() {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,
@@ -626,7 +625,6 @@ async fn test_oauth_callback_error_handling() {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,
@@ -941,7 +939,6 @@ async fn test_oauth_state_csrf_protection() {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,
@@ -1112,7 +1109,6 @@ async fn test_connection_status_tracking() {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,

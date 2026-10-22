@@ -154,7 +154,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::CoachingPersona;
@@ -312,7 +312,6 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,
@@ -815,7 +814,6 @@ async fn test_input_validation() -> Result<()> {
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),
         tokio_runtime: TokioRuntimeConfig::default(),
-        sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
         resend_api_key: None,

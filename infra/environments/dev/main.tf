@@ -627,6 +627,19 @@ module "backend" {
       # budget invariant max_instances(3) × 6 = 18 ≤ 22 (see terraform.tfvars).
       POSTGRES_MIN_CONNECTIONS = "0"
       POSTGRES_MAX_CONNECTIONS = "6"
+
+      # A deploy overlaps two revisions on those 22 slots (carnet#1129). On
+      # 2026-10-21 the outgoing revision held all 18 of its connections idle
+      # for five minutes while the new instances gave up after one 30 s wait
+      # and restarted. Three things share the slots instead of a bigger tier:
+      # the deploy waits for free slots before it rolls
+      # (scripts/ci/wait-cloud-run-service-ready.sh --db-headroom); an idle
+      # connection closes after 60 s, so a revision that lost its traffic
+      # gives its slots back within a minute; and a booting instance queues
+      # its key-store reads for up to 150 s instead of failing. 150 s plus one
+      # last 30 s acquire stays inside the 240 s startup probe below.
+      SQLX_IDLE_TIMEOUT_SECS  = "60"
+      POSTGRES_BOOT_WAIT_SECS = "150"
       } : {
       # Fallback to ephemeral SQLite when Cloud SQL is disabled
       DATABASE_URL = "sqlite:./data/users.db"
@@ -724,6 +737,9 @@ module "backend" {
 
   health_check_path           = "/health"
   startup_probe_initial_delay = 10
+  # 10 s + 46 × 5 s = 240 s: room for POSTGRES_BOOT_WAIT_SECS (150 s) plus
+  # one last acquire timeout (30 s) and the rest of the boot.
+  startup_probe_failure_threshold = 46
 
   labels = merge(var.labels, { component = "backend" })
 

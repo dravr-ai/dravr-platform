@@ -10,7 +10,7 @@
 use pierre_config::environment::{
     is_ephemeral_tunnel_base_url, log_effective_base_url, BackupConfig, DatabaseConfig,
     DatabaseUrl, Environment, LogLevel, OAuthConfig, OAuthProviderConfig, SecurityConfig,
-    ServerConfig, SqlxConfig, TokioRuntimeConfig,
+    ServerConfig, TokioRuntimeConfig,
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
@@ -228,96 +228,6 @@ fn test_tokio_runtime_config_clone_and_debug() {
     let debug_output = format!("{config:?}");
     assert!(debug_output.contains("TokioRuntimeConfig"));
     assert!(debug_output.contains("worker_threads"));
-}
-
-// Tests for SqlxConfig
-
-#[test]
-fn test_sqlx_config_default() {
-    let config = SqlxConfig::default();
-
-    assert!(
-        config.idle_timeout_secs.is_none(),
-        "idle_timeout_secs should be None by default"
-    );
-    assert!(
-        config.max_lifetime_secs.is_none(),
-        "max_lifetime_secs should be None by default"
-    );
-    assert!(
-        config.test_before_acquire,
-        "test_before_acquire should be true by default"
-    );
-    assert!(
-        config.statement_cache_capacity.is_none(),
-        "statement_cache_capacity should be None by default"
-    );
-}
-
-#[test]
-fn test_sqlx_config_from_env() {
-    // Test without environment variables set (should use defaults)
-    let config = SqlxConfig::from_env();
-
-    // Should have defaults for unset variables
-    assert!(config.test_before_acquire);
-    // Other fields depend on environment
-}
-
-#[test]
-fn test_sqlx_config_serialization() {
-    let config = SqlxConfig {
-        idle_timeout_secs: Some(300),
-        max_lifetime_secs: Some(1800),
-        test_before_acquire: true,
-        statement_cache_capacity: Some(200),
-    };
-
-    // Verify serialization works
-    let json = serde_json::to_string(&config).expect("serialization should succeed");
-    assert!(json.contains("idle_timeout_secs"));
-    assert!(json.contains("300"));
-
-    // Verify deserialization works
-    let deserialized: SqlxConfig =
-        serde_json::from_str(&json).expect("deserialization should succeed");
-    assert_eq!(deserialized.idle_timeout_secs, Some(300));
-    assert_eq!(deserialized.max_lifetime_secs, Some(1800));
-    assert!(deserialized.test_before_acquire);
-    assert_eq!(deserialized.statement_cache_capacity, Some(200));
-}
-
-#[test]
-fn test_sqlx_config_in_server_config() {
-    // Verify SqlxConfig is properly included in ServerConfig
-    let mut config = create_test_server_config();
-
-    // Modify SQLx settings
-    config.sqlx.idle_timeout_secs = Some(600);
-    config.sqlx.max_lifetime_secs = Some(3600);
-
-    assert_eq!(config.sqlx.idle_timeout_secs, Some(600));
-    assert_eq!(config.sqlx.max_lifetime_secs, Some(3600));
-}
-
-#[test]
-fn test_sqlx_config_clone_and_debug() {
-    let config = SqlxConfig {
-        idle_timeout_secs: Some(120),
-        max_lifetime_secs: Some(600),
-        test_before_acquire: false,
-        statement_cache_capacity: Some(50),
-    };
-
-    // Test Clone
-    let cloned = config.clone();
-    assert_eq!(cloned.idle_timeout_secs, config.idle_timeout_secs);
-    assert_eq!(cloned.test_before_acquire, config.test_before_acquire);
-
-    // Test Debug
-    let debug_output = format!("{config:?}");
-    assert!(debug_output.contains("SqlxConfig"));
-    assert!(debug_output.contains("idle_timeout_secs"));
 }
 
 // Tests for the outbound-email gate (ServerConfig::outbound_email_credentials).

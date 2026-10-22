@@ -154,6 +154,12 @@ variable "startup_probe_initial_delay" {
   default     = 5
 }
 
+variable "startup_probe_failure_threshold" {
+  description = "Failed startup probes (one every 5 s) before Cloud Run kills the booting instance"
+  type        = number
+  default     = 10
+}
+
 # -----------------------------------------------------------------------------
 # GCS Volume Mounts
 # -----------------------------------------------------------------------------

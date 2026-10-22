@@ -1,5 +1,5 @@
 // ABOUTME: Verifies the strict persona rewrite is re-checked against the contract it was asked to meet
-// ABOUTME: Captures logs; rebuilds tracing's callsite interest so a parallel test cannot hide them
+// ABOUTME: Captures logs through one global subscriber writing to a per-thread buffer, so a parallel test cannot hide them
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,8 +7,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::cell::RefCell;
 use std::io::{Result as IoResult, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Once};
 
 use async_trait::async_trait;
 use pierre_chat_pipeline::stages::persona_conformance::{
@@ -21,8 +22,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
 };
-use tracing::callsite::rebuild_interest_cache;
-use tracing::subscriber::set_default;
+use tracing::subscriber::set_global_default;
 use tracing_subscriber::fmt::MakeWriter;
 
 /// A rewrite inside the 20-word cap of [`strict_registry`].
@@ -103,13 +103,26 @@ fn a_violation() -> ContractViolation {
     }
 }
 
-/// In-memory sink for the log lines one test emits.
-#[derive(Clone, Default)]
-struct LogSink(Arc<Mutex<Vec<u8>>>);
+thread_local! {
+    /// What this thread's events wrote; each test reads only its own.
+    static CAPTURED: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
 
-impl Write for LogSink {
+/// Writes into the calling thread's [`CAPTURED`] buffer.
+///
+/// One global subscriber is installed once for the whole binary. A
+/// per-test `set_default` raced other tests registering and dropping their
+/// own subscribers over tracing's global interest and max-level caches, and
+/// on CI an event was sometimes filtered out before it reached the test's
+/// subscriber (the log came back empty). With one dispatcher that never
+/// changes, those caches never change either. `#[tokio::test]` runs each test
+/// on its own current-thread runtime, so the events of a repair are written
+/// on the test's own thread.
+struct ThreadSink;
+
+impl Write for ThreadSink {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-        self.0.lock().expect("sink lock").extend_from_slice(buf);
+        CAPTURED.with(|captured| captured.borrow_mut().extend_from_slice(buf));
         Ok(buf.len())
     }
     fn flush(&mut self) -> IoResult<()> {
@@ -117,11 +130,23 @@ impl Write for LogSink {
     }
 }
 
-impl<'a> MakeWriter<'a> for LogSink {
+impl<'a> MakeWriter<'a> for ThreadSink {
     type Writer = Self;
     fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
+        Self
     }
+}
+
+/// Install the capturing subscriber once for this binary.
+fn capture_logs() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(|| ThreadSink)
+            .with_ansi(false)
+            .finish();
+        set_global_default(subscriber).expect("no other global subscriber in this binary");
+    });
 }
 
 /// One strict repair: the contract, the reply and what it violated, the
@@ -150,15 +175,8 @@ async fn repair_log(rewrite: &str) -> String {
 }
 
 async fn run_repair(repair: Repair<'_>) -> String {
-    let sink = LogSink::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(sink.clone())
-        .with_ansi(false)
-        .finish();
-    let _guard = set_default(subscriber);
-    // A test on another thread can cache a callsite's interest while no
-    // subscriber wants it; rebuild so this subscriber sees every event.
-    rebuild_interest_cache();
+    capture_logs();
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
     let provider = Arc::new(ChatProvider::Custom(Arc::new(ScriptedEditor::new(
         repair.rewrite,
     ))));
@@ -181,7 +199,7 @@ async fn run_repair(repair: Repair<'_>) -> String {
         out, repair.rewrite,
         "the repair must have gone through the editor"
     );
-    let bytes = sink.0.lock().expect("sink lock").clone();
+    let bytes = CAPTURED.with(|captured| captured.borrow().clone());
     String::from_utf8(bytes).expect("utf-8 log")
 }
 

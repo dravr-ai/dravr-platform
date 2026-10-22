@@ -22,7 +22,7 @@ use pierre_config::environment::{
     GoalManagementConfig, HttpClientConfig, LogLevel, LoggingConfig, McpConfig, MonitoringConfig,
     OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig, ProtocolConfig,
     RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig, ServerConfig,
-    SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
+    SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
     TrainingZonesConfig, WeatherServiceConfig,
 };
 use pierre_core::models::User;
@@ -217,7 +217,6 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     training_zones: TrainingZonesConfig::default(),
                     firebase: FirebaseConfig::default(),
                     tokio_runtime: TokioRuntimeConfig::default(),
-                    sqlx: SqlxConfig::default(),
                     monitoring: MonitoringConfig::default(),
                     frontend_url: None,
                     resend_api_key: None,

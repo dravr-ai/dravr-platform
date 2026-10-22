@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# carnet#696. The first version of this harness ran one case and exited 0:
+# carnet#696, and carnet#1129 for the database gate. The first version of this harness ran one case and exited 0:
 # `(( TESTS_PASSED++ ))` evaluates to 0 on the first pass, which `set -e` treats
 # as a failure and aborts on, silently. So the counters here are plain
 # assignments, every failure case asserts the script's own error message (an
@@ -13,13 +13,14 @@
 # the run fails unless exactly EXPECTED_CASES cases ran and all passed.
 #
 # Usage: scripts/ci/wait-cloud-run-service-ready.test.sh — bash, jq, python3 (PyYAML); no network.
+# Cloud Monitoring is a stubbed curl as well.
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/wait-cloud-run-service-ready.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=28
+EXPECTED_CASES=45
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -27,12 +28,15 @@ CASES_FAILED=0
 REGION="northamerica-northeast1"
 PREFIX="dravr-mcp-server"
 ALL=(api frontend photograveur sciotte)
+PROJECT="dravr-dev"
 
 # ---------------------------------------------------------------------------
 # Stub gcloud. `run services describe <name>` answers from ${STUB_DIR}/<name>.N.json
 # on its Nth call (the last file repeats), or <name>.json every call. A
 # <name>.missing file makes it fail as gcloud does for an unknown service, and
-# <name>.empty makes it print nothing. Every call is logged. Builtins only, so
+# <name>.empty makes it print nothing. `config get-value project` prints the
+# content of ${STUB_DIR}/project (dravr-dev without one) and `auth
+# print-access-token` a fixed token. Every call is logged. Builtins only, so
 # it also runs under the trimmed PATH of the missing-tool cases.
 # ---------------------------------------------------------------------------
 BIN="${WORK}/bin"; mkdir -p "${BIN}"
@@ -41,6 +45,11 @@ cat > "${BIN}/gcloud" <<SH
 SH
 cat >> "${BIN}/gcloud" <<'SH'
 echo "$*" >> "${STUB_DIR}/calls.log"
+if [ "$1 $2 $3" = "config get-value project" ]; then
+  if [ -e "${STUB_DIR}/project" ]; then printf '%s\n' "$(<"${STUB_DIR}/project")"; else echo "dravr-dev"; fi
+  exit 0
+fi
+if [ "$1 $2" = "auth print-access-token" ]; then echo "stub-token"; exit 0; fi
 if [ "$1 $2 $3" != "run services describe" ]; then
   echo "stub gcloud: unexpected call: $*" >&2; exit 2
 fi
@@ -61,13 +70,48 @@ printf '%s\n' "$(<"${pick}")"
 SH
 chmod +x "${BIN}/gcloud"
 
+# Stub curl for the Cloud Monitoring query. Its Nth call answers the body of
+# ${STUB_DIR}/monitoring.N.json (the last file repeats) with the HTTP status in
+# monitoring.N.code (200 without one), written where -o points and the status
+# printed for -w. A monitoring.fail file makes it fail as curl does on a dead
+# network. Every call is logged as "curl <args>".
+cat > "${BIN}/curl" <<SH
+#!${BASH}
+SH
+cat >> "${BIN}/curl" <<'SH'
+echo "curl $*" >> "${STUB_DIR}/calls.log"
+if [ -e "${STUB_DIR}/monitoring.fail" ]; then
+  echo "curl: (6) Could not resolve host: monitoring.googleapis.com" >&2; exit 6
+fi
+out=""
+while [ $# -gt 0 ]; do
+  [ "$1" = "-o" ] && out="$2"
+  shift
+done
+[ -n "${out}" ] || { echo "stub curl: no -o" >&2; exit 2; }
+n=0; [ -e "${STUB_DIR}/monitoring.count" ] && n=$(<"${STUB_DIR}/monitoring.count")
+n=$(( n + 1 )); echo "${n}" > "${STUB_DIR}/monitoring.count"
+pick=""
+for (( i = n; i >= 1; i-- )); do
+  if [ -e "${STUB_DIR}/monitoring.${i}.json" ]; then pick="${i}"; break; fi
+done
+[ -n "${pick}" ] || { echo "stub curl: no monitoring state" >&2; exit 2; }
+printf '%s\n' "$(<"${STUB_DIR}/monitoring.${pick}.json")" > "${out}"
+code=200; [ -e "${STUB_DIR}/monitoring.${pick}.code" ] && code=$(<"${STUB_DIR}/monitoring.${pick}.code")
+printf '%s' "${code}"
+SH
+chmod +x "${BIN}/curl"
+
 # A PATH with every tool the script needs except the named one.
 trimmed_path() {
   local without="$1" dir="${WORK}/path-without-${1}" tool src
   mkdir -p "${dir}"
-  for tool in gcloud jq date sleep mktemp tr head rm; do
+  for tool in gcloud curl jq date sleep mktemp tr head rm; do
     [ "${tool}" = "${without}" ] && continue
-    if [ "${tool}" = "gcloud" ]; then src="${BIN}/gcloud"; else src=$(command -v "${tool}"); fi
+    case "${tool}" in
+      gcloud|curl) src="${BIN}/${tool}" ;;
+      *) src=$(command -v "${tool}") ;;
+    esac
     ln -sf "${src}" "${dir}/${tool}"
   done
   echo "${dir}"
@@ -86,6 +130,29 @@ svc_json() {
 
 settled() { svc_json "${STUB_DIR}/${PREFIX}-$1${2:-}.json" 3 3 "$1-00003" "$1-00003" True "$1-00003" 100; }
 rolling() { svc_json "${STUB_DIR}/${PREFIX}-$1${2:-}.json" 4 4 "$1-00004" "$1-00003" True "$1-00003" 100; }
+
+# backends <N> <age seconds> <database>=<count>... — the Nth Monitoring answer:
+# one num_backends series per database, its latest point <age> seconds old.
+backends() {
+  local n="$1" age="$2"; shift 2
+  jq -n --argjson age "${age}" --arg project "${PROJECT}" --arg instance "${PREFIX}-postgres" '
+    (now - $age | todate) as $t
+    | (now - $age - 60 | todate) as $before
+    | { timeSeries: [ $ARGS.positional[] | split("=") as [$db, $count]
+        | { metric: { type: "cloudsql.googleapis.com/database/postgresql/num_backends",
+                      labels: { database: $db } },
+            resource: { labels: { database_id: "\($project):\($instance)" } },
+            points: [ { interval: { startTime: $t, endTime: $t }, value: { int64Value: $count } },
+                      { interval: { startTime: $before, endTime: $before }, value: { int64Value: "0" } } ] } ] }' \
+    --args "$@" > "${STUB_DIR}/monitoring.${n}.json"
+}
+
+monitoring_calls() { grep -c "^curl " "${STUB_DIR}/calls.log" || true; }
+expect_monitoring_calls() {
+  local got; got=$(monitoring_calls)
+  test "${got}" "$1" "$2" && return 0
+  REASON="Monitoring queried ${got} times, expected $1 $2"; return 1
+}
 
 new_case() {
   STUB_DIR="${WORK}/state-${CASES_RUN}"
@@ -124,6 +191,7 @@ expect_calls() {
 }
 
 quiesce() { run_script quiesce --region "${REGION}" --prefix "${PREFIX}" "$@"; }
+gated() { quiesce --db-headroom 6 "$@"; }
 service() { run_script service --region "${REGION}" --prefix "${PREFIX}" "$@"; }
 
 # ---------------------------------------------------------------------------
@@ -329,6 +397,155 @@ case_fails_without_gcloud() {
   expect_code 1 && expect_out "::error::gcloud is not on PATH"
 }
 
+# ---------------------------------------------------------------------------
+# Database gate (carnet#1129)
+# ---------------------------------------------------------------------------
+case_db_passes_with_headroom() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 60 dravr=10 postgres=1 template1=0
+  gated --timeout-seconds 5
+  expect_code 0 && expect_out "Database headroom: 11 of 22 slots in use (dravr=10,postgres=1,template1=0), 11 free, need 6" \
+    && expect_out "${PROJECT}:${PREFIX}-postgres has 6 of its 22 connection slots free" \
+    && expect_monitoring_calls -eq 1 && expect_no_out "re-checking" || return 1
+  grep -qF "resource.labels.database_id=\"${PROJECT}:${PREFIX}-postgres\"" "${STUB_DIR}/calls.log" \
+    || { REASON="the query does not filter on ${PROJECT}:${PREFIX}-postgres"; return 1; }
+  grep -qF "monitoring.googleapis.com/v3/projects/${PROJECT}/timeSeries" "${STUB_DIR}/calls.log" \
+    || { REASON="the query does not read projects/${PROJECT}/timeSeries"; return 1; }
+}
+
+case_db_waits_while_saturated_then_passes() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 60 dravr=18 postgres=0; backends 2 60 dravr=12 postgres=0
+  gated --timeout-seconds 20
+  expect_code 0 && expect_out "db: 18 of 22 slots in use (dravr=18,postgres=0), 4 free, need 6" \
+    && expect_out "Quiescent after waiting; re-checking in" \
+    && expect_out "Database headroom: 12 of 22 slots in use" && expect_monitoring_calls -eq 3
+}
+
+# The jitter re-check reads the database again: slots another roll took while
+# this waiter slept send it back to waiting.
+case_db_rechecks_after_the_jitter() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 60 dravr=18; backends 2 60 dravr=6; backends 3 60 dravr=20; backends 4 60 dravr=6
+  gated --timeout-seconds 30
+  expect_code 0 && expect_out "db: 20 of 22 slots in use (dravr=20), 2 free, need 6" \
+    && expect_out "Database headroom: 6 of 22" && expect_monitoring_calls -eq 5
+}
+
+case_db_is_read_only_once_cloud_run_is_quiet() {
+  for s in api frontend photograveur; do settled "${s}"; done
+  rolling sciotte .1; settled sciotte .2
+  backends 1 60 dravr=6
+  gated --timeout-seconds 20
+  expect_code 0 && expect_calls "${PREFIX}-sciotte" -eq 3 && expect_monitoring_calls -eq 2
+}
+
+case_db_excludes_cloudsqladmin() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 60 dravr=16 cloudsqladmin=2 postgres=0
+  gated --timeout-seconds 5
+  expect_code 0 && expect_out "Database headroom: 16 of 22 slots in use (dravr=16,postgres=0), 6 free, need 6" \
+    && expect_no_out "cloudsqladmin"
+}
+
+case_db_waits_on_a_stale_point_then_times_out() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 900 dravr=2
+  gated --timeout-seconds 2
+  expect_code 1 && expect_out "db: latest num_backends point older than 300s (dravr 9" \
+    && expect_out "::error::dev Cloud Run did not reach quiescence with 6 free Cloud SQL slots within 2s" \
+    && expect_no_out "Quiescent:"
+}
+
+case_db_times_out_naming_the_count_and_the_headroom() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 60 dravr=18 postgres=1
+  gated --timeout-seconds 2
+  expect_code 1 && expect_out "::error::dev Cloud Run did not reach quiescence with 6 free Cloud SQL slots within 2s" \
+    && expect_out "db: 19 of 22 slots in use (dravr=18,postgres=1), 3 free, need 6;"
+}
+
+case_db_waits_on_no_series() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  echo '{}' > "${STUB_DIR}/monitoring.1.json"
+  backends 2 60 dravr=6
+  gated --timeout-seconds 20
+  expect_code 0 && expect_out "db: no num_backends series for ${PROJECT}:${PREFIX}-postgres" \
+    && expect_out "Database headroom: 6 of 22"
+}
+
+case_db_fails_at_once_on_403_naming_monitoring_viewer() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  echo '{"error":{"code":403,"message":"Permission monitoring.timeSeries.list denied"}}' > "${STUB_DIR}/monitoring.1.json"
+  echo 403 > "${STUB_DIR}/monitoring.1.code"
+  gated --timeout-seconds 30
+  expect_code 1 && expect_out "::error::Cloud Monitoring refused the num_backends query for ${PROJECT} (HTTP 403): the deployer service account needs roles/monitoring.viewer" \
+    && expect_out "Permission monitoring.timeSeries.list denied" && expect_monitoring_calls -eq 1
+}
+
+case_db_fails_at_once_on_an_http_error() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  echo '{"error":{"code":500}}' > "${STUB_DIR}/monitoring.1.json"
+  echo 500 > "${STUB_DIR}/monitoring.1.code"
+  gated --timeout-seconds 30
+  expect_code 1 && expect_out "::error::Cloud Monitoring answered HTTP 500" && expect_monitoring_calls -eq 1
+}
+
+case_db_fails_at_once_on_non_json() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  echo '<html>upstream connect error</html>' > "${STUB_DIR}/monitoring.1.json"
+  gated --timeout-seconds 30
+  expect_code 1 && expect_out "::error::Cloud Monitoring did not return a JSON object for the num_backends query: <html>upstream" \
+    && expect_monitoring_calls -eq 1
+}
+
+case_db_fails_at_once_when_curl_fails() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  touch "${STUB_DIR}/monitoring.fail"
+  gated --timeout-seconds 30
+  expect_code 1 && expect_out "::error::the Cloud Monitoring num_backends query for ${PROJECT}:${PREFIX}-postgres failed: curl: (6)" \
+    && expect_monitoring_calls -eq 1
+}
+
+case_db_fails_without_a_project() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  echo "(unset)" > "${STUB_DIR}/project"
+  gated --timeout-seconds 30
+  expect_code 1 && expect_out "::error::no gcloud project is set" && expect_monitoring_calls -eq 0 \
+    && expect_calls "${PREFIX}-api" -eq 0
+}
+
+case_db_fails_without_curl() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  run_with_path "$(trimmed_path curl)" quiesce --region "${REGION}" --prefix "${PREFIX}" --db-headroom 6
+  expect_code 1 && expect_out "::error::curl is not on PATH" && expect_calls "${PREFIX}-api" -eq 0
+}
+
+# Without the flag nothing about the database is touched: no project, no token,
+# no Monitoring call, and curl is not even required.
+case_db_ungated_quiesce_never_reads_the_database() {
+  for s in "${ALL[@]}"; do settled "${s}"; done
+  backends 1 60 dravr=22
+  run_with_path "$(trimmed_path curl)" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 5
+  expect_code 0 && expect_out "Quiescent: no dev Cloud Run" && expect_no_out "Database headroom" \
+    && expect_monitoring_calls -eq 0 || return 1
+  if grep -qE "^(config|auth) " "${STUB_DIR}/calls.log"; then
+    REASON="gcloud config/auth called without --db-headroom"; return 1
+  fi
+}
+
+case_db_rejects_headroom_in_service_mode() {
+  service --service api --db-headroom 6
+  expect_code 1 && expect_out "--db-headroom gates the next roll, so it belongs to quiesce mode"
+}
+
+case_db_rejects_headroom_beyond_the_slot_limit() {
+  quiesce --db-headroom 23
+  expect_code 1 && expect_out "--db-headroom 23 exceeds the 22 slots dev Cloud SQL has" || return 1
+  quiesce --db-headroom 0
+  expect_code 1 && expect_out "--db-headroom '0' is not a positive integer"
+}
+
 CASES=(
   case_quiesce_all_settled
   case_quiesce_reads_every_dev_service_in_the_given_region
@@ -358,6 +575,23 @@ CASES=(
   case_rejects_a_bad_jitter
   case_fails_without_jq
   case_fails_without_gcloud
+  case_db_passes_with_headroom
+  case_db_waits_while_saturated_then_passes
+  case_db_rechecks_after_the_jitter
+  case_db_is_read_only_once_cloud_run_is_quiet
+  case_db_excludes_cloudsqladmin
+  case_db_waits_on_a_stale_point_then_times_out
+  case_db_times_out_naming_the_count_and_the_headroom
+  case_db_waits_on_no_series
+  case_db_fails_at_once_on_403_naming_monitoring_viewer
+  case_db_fails_at_once_on_an_http_error
+  case_db_fails_at_once_on_non_json
+  case_db_fails_at_once_when_curl_fails
+  case_db_fails_without_a_project
+  case_db_fails_without_curl
+  case_db_ungated_quiesce_never_reads_the_database
+  case_db_rejects_headroom_in_service_mode
+  case_db_rejects_headroom_beyond_the_slot_limit
 )
 
 echo "wait-cloud-run-service-ready: script"
@@ -380,7 +614,9 @@ done
 # the previous roll of its job (or inline before it, for a multi-command step
 # like the satellite rollback) and a wait after it; every job that updates or
 # executes a dev Cloud Run job needs every roll job of its workflow; every wait
-# takes region and prefix from the dev vars; and checkout runs before auth
+# takes region and prefix from the dev vars; the quiesce before an API
+# deploy-cloudrun passes --db-headroom and the one before any other service's
+# does not (carnet#1129); and checkout runs before auth
 # (actions/checkout cleans the workspace, deleting the credentials file
 # google-github-actions/auth wrote). The scan then runs against broken copies
 # of the workflows and must fail on each, so a scan that checks nothing cannot
@@ -457,8 +693,18 @@ def scan(workflows):
                     # Before this roll and after the previous one: a quiesce
                     # step in between, or one inline ahead of the roll command.
                     inline_before = roll_at is not None and any(w.start() < roll_at for w in wait_re("quiesce").finditer(run))
-                    if not inline_before and not any(waits(steps[i], "quiesce") and prev < i < r for i in uses_wait):
+                    guards = [i for i in uses_wait if waits(steps[i], "quiesce") and prev < i < r]
+                    if not inline_before and not guards:
                         problems.append(f"{where}: no quiesce wait between the previous roll and '{steps[r].get('name')}'")
+                    # Only the API holds Cloud SQL connections, so only its roll
+                    # waits for free slots; a frontend redeploy never does.
+                    if guards and (steps[r].get("uses") or "").startswith("google-github-actions/deploy-cloudrun"):
+                        api = str((steps[r].get("with") or {}).get("service") or "").endswith("-api")
+                        gated = "--db-headroom" in (steps[guards[-1]].get("run") or "")
+                        if api and not gated:
+                            problems.append(f"{where}: the quiesce before '{steps[r].get('name')}' lacks --db-headroom; an API roll waits for Cloud SQL slots")
+                        if gated and not api:
+                            problems.append(f"{where}: the quiesce before '{steps[r].get('name')}' passes --db-headroom; only an API roll waits on Cloud SQL")
                     inline_after = roll_at is not None and run.rfind(WAIT) > roll_at
                     if not inline_after and not [i for i in uses_wait if i > r]:
                         problems.append(f"{where}: nothing waits for '{steps[r].get('name')}' to settle")
@@ -505,11 +751,17 @@ def strip_inline_quiesce(wf, job, name):
     step["run"] = "\n".join(l for l in run.splitlines() if not wait_re("quiesce").search(l))
     assert step["run"] != run, f"no inline quiesce in '{name}'"
 
+def edit_run(wf, job, name, old, new):
+    step = next(s for s in wf["jobs"][job]["steps"] if s.get("name") == name)
+    assert old in step["run"], f"no '{old}' in '{name}'"
+    step["run"] = step["run"].replace(old, new)
+
 def set_needs(wf, job, needs):
     assert job in wf["jobs"], f"no job {job}"
     wf["jobs"][job]["needs"] = needs
 
 BEFORE_FRONTEND = "Wait until no dev Cloud Run service is mid-rollout (before the frontend)"
+BEFORE_API = "Wait until no dev Cloud Run service is mid-rollout (before the API)"
 BROKEN = [
     ("publish-images.yml", "publish-images.yml:deploy-dev: no quiesce wait between the previous roll and 'Deploy frontend",
      lambda wf: drop_step(wf, "deploy-dev", BEFORE_FRONTEND)),
@@ -517,6 +769,10 @@ BROKEN = [
      lambda wf: drop_step(wf, "publish-and-deploy", BEFORE_FRONTEND)),
     ("deploy-satellite-cloud-run.yml", "deploy-satellite-cloud-run.yml:deploy: no quiesce wait between the previous roll and 'Roll back",
      lambda wf: strip_inline_quiesce(wf, "deploy", "Roll back to the previously serving digest")),
+    ("publish-images.yml", "publish-images.yml:deploy-dev: the quiesce before 'Deploy backend to Cloud Run (dev)' lacks --db-headroom",
+     lambda wf: edit_run(wf, "deploy-dev", BEFORE_API, " --db-headroom 6", "")),
+    ("fasttrack-deploy.yml", "fasttrack-deploy.yml:publish-and-deploy: the quiesce before 'Deploy frontend to Cloud Run (dev)' passes --db-headroom",
+     lambda wf: edit_run(wf, "publish-and-deploy", BEFORE_FRONTEND, " --timeout-seconds", " --db-headroom 6 --timeout-seconds")),
     ("deploy-gcp.yml", "deploy-gcp.yml:update-seed-jobs: runs Cloud Run jobs beside the roll of deploy-api deploy-frontend",
      lambda wf: set_needs(wf, "update-seed-jobs", "resolve-images")),
 ]

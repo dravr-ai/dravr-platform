@@ -74,7 +74,10 @@ backend_memory = "2Gi"
 # through the same status placeholder rather than apologised for.
 backend_min_instances = 0
 # Capped at 3 by the DB connection budget (see the concurrency block below):
-# max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. With
+# max_instances × POSTGRES_MAX_CONNECTIONS must stay ≤ 18 on db-f1-micro. That
+# budget is for ONE revision. A deploy briefly runs two, which is handled by
+# gating the roll, releasing idle connections and queueing boots, not by a
+# bigger tier (carnet#1129, see the pool block in main.tf). With
 # concurrency=80 a single pod absorbs a whole user's ~13-request dashboard load
 # (one user = one pod), so 3 pods is ample at dev scale — it caps concurrent
 # coaching turns (ACP-mutex-serialized, 1 per pod) at 3 (was 15, which combined

@@ -88,6 +88,7 @@ use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "client-notifications")]
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::backends::shared::key_material::KeyStoreQueue;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 #[cfg(feature = "tools-groups")]
@@ -1029,7 +1030,9 @@ impl ServerContext {
     }
 
     /// Load the persisted RSA keypairs, storing the first one when the table
-    /// is empty; see [`load_or_store_first_keypair`] (carnet#696).
+    /// is empty; see [`load_or_store_first_keypair`] (carnet#696). A database
+    /// with no free connection is waited out until the boot deadline
+    /// (carnet#1129).
     ///
     /// # Errors
     /// Returns an error if a database read or write, or key import, fails
@@ -1037,6 +1040,14 @@ impl ServerContext {
         database: &Database,
         rsa_key_size_bits: usize,
     ) -> AppResult<JwksManager> {
-        load_or_store_first_keypair(database.as_security_repository(), rsa_key_size_bits).await
+        let mut queue = KeyStoreQueue::new(database.boot_deadline(), "rsa_keypairs");
+        loop {
+            match load_or_store_first_keypair(database.as_security_repository(), rsa_key_size_bits)
+                .await
+            {
+                Err(e) if queue.wait_after(&e).await => {}
+                done => break done,
+            }
+        }
     }
 }

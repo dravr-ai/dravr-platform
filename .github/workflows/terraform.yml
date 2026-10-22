@@ -240,11 +240,13 @@ jobs:
         # revisions cold-starting together exhaust the shared Cloud SQL
         # instance's connection slots. So it waits, like every deploy, until no
         # dev service is mid-rollout, and afterwards until every service it may
-        # have rolled has settled. A timeout fails the job.
+        # have rolled has settled. A timeout fails the job. An apply can roll
+        # the API too, so it also waits for the database headroom an API roll
+        # needs (carnet#1129: room for 3 new instances to boot).
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
-        run: '"${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900'
+        run: '"${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900 --db-headroom 6'
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -var-file="terraform.tfvars"

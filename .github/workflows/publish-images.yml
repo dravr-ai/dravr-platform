@@ -855,10 +855,14 @@ jobs:
         # waits here until no dev service (the list lives in the script) is
         # mid-rollout, then waits for its own service to settle. A timeout fails
         # the job rather than deploying into a rollout.
+        # carnet#1129: the API roll also waits for 6 free Cloud SQL slots
+        # (room for the 3 new instances to boot beside the old revision; the boot
+        # reads are sequential, so each needs one), so the new revision
+        # does not boot into the slots the old one still holds.
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
-        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
+        run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --db-headroom 6 --timeout-seconds 900
 
       # The revision's `commit-sha` label is what resolve-sha reads back as the
       # commit dev is serving on the next workflow_run deploy. Left to the
