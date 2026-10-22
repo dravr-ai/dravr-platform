@@ -1,5 +1,5 @@
 // ABOUTME: Verifies the strict persona rewrite is re-checked against the contract it was asked to meet
-// ABOUTME: Own binary: it captures logs, and tracing caches callsite interest across parallel tests
+// ABOUTME: Captures logs; rebuilds tracing's callsite interest so a parallel test cannot hide them
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -155,6 +155,9 @@ async fn run_repair(repair: Repair<'_>) -> String {
         .with_ansi(false)
         .finish();
     let _guard = set_default(subscriber);
+    // A test on another thread can cache a callsite's interest while no
+    // subscriber wants it; rebuild so this subscriber sees every event.
+    tracing::callsite::rebuild_interest_cache();
     let provider = Arc::new(ChatProvider::Custom(Arc::new(ScriptedEditor::new(
         repair.rewrite,
     ))));
