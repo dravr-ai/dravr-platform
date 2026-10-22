@@ -5,7 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_cageux::nutrition_calculator::{
-    ExerciseEnergyExpenditure, Gender, HeartRateEnergyInputs, KeytelModel,
+    ExerciseEnergyExpenditure, Gender, HeartRateEnergyInputs, KeytelModel, TrainingDayCarbohydrate,
+    TrainingDayLoad,
 };
 use dravr_cageux::zones::{HrIntensity, HrZones};
 use pierre_config::constants::time_constants;
@@ -179,25 +180,30 @@ impl SessionEnergy {
 /// How hard the session was, or why it could not be graded
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SessionIntensity {
-    /// Below zone 3 on the athlete's zones
-    Low,
-    /// Zone 3 on the athlete's zones
-    Moderate,
-    /// Zone 4 and above on the athlete's zones
-    High,
+    /// The session's average heart rate read on the athlete's zones
+    Graded(HrIntensity),
     /// Not graded; the reason is said to the athlete
     Ungraded(&'static str),
 }
 
 impl SessionIntensity {
-    /// The grade's word, or the reason there is none
+    /// The grade's word (below zone 3 low, zone 3 moderate, zone 4 and above
+    /// high), or the reason there is none
     const fn grade(self) -> Result<&'static str, &'static str> {
         match self {
-            Self::Low => Ok("low"),
-            Self::Moderate => Ok("moderate"),
-            Self::High => Ok("high"),
+            Self::Graded(HrIntensity::Recovery | HrIntensity::Endurance) => Ok("low"),
+            Self::Graded(HrIntensity::Moderate) => Ok("moderate"),
+            Self::Graded(HrIntensity::Hard | HrIntensity::VeryHard) => Ok("high"),
             Self::Ungraded(reason) => Err(reason),
         }
+    }
+
+    /// Zone 4 and above
+    const fn is_high(self) -> bool {
+        matches!(
+            self,
+            Self::Graded(HrIntensity::Hard | HrIntensity::VeryHard)
+        )
     }
 
     /// The key-insight line that states the grade, or why there is none
@@ -219,19 +225,15 @@ impl SessionIntensity {
 /// Calculate activity nutrition metrics (duration, energy, intensity)
 ///
 /// The intensity reads the session's average heart rate on the athlete's
-/// zones: zone 4 and above is high, zone 3 moderate, below that low. Without
-/// the zones, or without a heart rate, it is not graded and says why: no
-/// published rule grades a session by its length.
+/// zones. Without the zones, or without a heart rate, it is not graded and
+/// says why: no published rule grades a session by its length.
 fn calculate_nutrition_metrics(
     activity: &Activity,
     hr_zones: Option<&HrZones>,
     athlete: &NutritionAthlete,
-) -> (f64, SessionEnergy, SessionIntensity) {
-    use time_constants;
-
+) -> (u32, SessionEnergy, SessionIntensity) {
     let duration_seconds =
         u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX))).unwrap_or(u32::MAX);
-    let duration_hours = f64::from(duration_seconds) / time_constants::SECONDS_PER_HOUR_F64;
     let energy = SessionEnergy::of(activity, athlete, duration_seconds);
 
     let intensity = match (hr_zones, activity.average_heart_rate()) {
@@ -240,15 +242,47 @@ fn calculate_nutrition_metrics(
         ),
         (Some(_), None) => SessionIntensity::Ungraded("the session recorded no heart rate"),
         (Some(zones), Some(avg_hr)) => {
-            match zones.intensity(u16::try_from(avg_hr).unwrap_or(u16::MAX)) {
-                HrIntensity::Hard | HrIntensity::VeryHard => SessionIntensity::High,
-                HrIntensity::Moderate => SessionIntensity::Moderate,
-                HrIntensity::Recovery | HrIntensity::Endurance => SessionIntensity::Low,
-            }
+            SessionIntensity::Graded(zones.intensity(u16::try_from(avg_hr).unwrap_or(u16::MAX)))
         }
     };
 
-    (duration_hours, energy, intensity)
+    (duration_seconds, energy, intensity)
+}
+
+/// The day's carbohydrate target for a day built around this session, by
+/// cageux's reading of the 2016 joint ACSM position table, or why there is
+/// none. Grams at a stored weight, per kilogram otherwise.
+fn daily_carbohydrate_line(
+    duration_seconds: u32,
+    intensity: SessionIntensity,
+    weight_kg: Option<f64>,
+) -> String {
+    let hr_intensity = match intensity {
+        SessionIntensity::Graded(hr_intensity) => hr_intensity,
+        SessionIntensity::Ungraded(reason) => {
+            return format!("Daily carbohydrate target not set: {reason}");
+        }
+    };
+    let target = TrainingDayCarbohydrate::of_training(duration_seconds, hr_intensity);
+    let day = match target.load {
+        TrainingDayLoad::Light => "a light training day (low intensity)",
+        TrainingDayLoad::Moderate => "a moderate training day (about 1 hour)",
+        TrainingDayLoad::High => {
+            "an endurance training day (1-3 hours at moderate to high intensity)"
+        }
+        TrainingDayLoad::VeryHigh => {
+            "a very high training day (4 hours or more at moderate to high intensity)"
+        }
+    };
+    let grams = weight_kg
+        .and_then(|kg| target.grams_per_day(kg).ok())
+        .map_or_else(String::new, |(low, high)| {
+            format!(" (about {low:.0}-{high:.0} g)")
+        });
+    format!(
+        "Across the day, {day} calls for {:.0}-{:.0} g of carbohydrate per kg of body weight{grams}, spread over meals and snacks as suits you",
+        target.g_per_kg_min, target.g_per_kg_max
+    )
 }
 
 /// The recovery-window targets at a stored body weight.
@@ -333,7 +367,7 @@ fn build_meal_suggestions(intensity: SessionIntensity) -> Vec<MealSuggestion> {
         },
     ];
 
-    if intensity == SessionIntensity::High {
+    if intensity.is_high() {
         suggestions.push(MealSuggestion {
             option: "Endurance Option".to_owned(),
             description: "Pasta with lean meat sauce and mixed salad".to_owned(),
@@ -357,10 +391,11 @@ pub fn generate_nutrition_recommendations(
     hr_zones: Option<&HrZones>,
     athlete: &NutritionAthlete,
 ) -> RecommendationsResult {
-    let (duration_hours, energy, intensity) =
+    let (duration_seconds, energy, intensity) =
         calculate_nutrition_metrics(activity, hr_zones, athlete);
+    let duration_hours = f64::from(duration_seconds) / time_constants::SECONDS_PER_HOUR_F64;
 
-    let mut key_insights = vec![
+    let key_insights = vec![
         energy.kcal.map_or_else(
             || {
                 format!(
@@ -372,11 +407,6 @@ pub fn generate_nutrition_recommendations(
         ),
         intensity.insight(),
     ];
-
-    if duration_hours > 1.5 {
-        key_insights
-            .push("Extended duration activity - prioritize carbohydrate replenishment".to_owned());
-    }
 
     let (recommendations, meal_suggestions, macronutrient_targets) =
         if athlete.figures_withheld.is_some() {
@@ -391,12 +421,11 @@ pub fn generate_nutrition_recommendations(
         } else {
             let targets = athlete.weight_kg.map(macronutrient_targets);
             let mut recommendations = recovery_recommendations(targets.as_ref());
-            if intensity == SessionIntensity::High || duration_hours > 1.0 {
-                recommendations.push(
-                    "After a long or hard session, make that a complete meal rather than a snack"
-                        .to_owned(),
-                );
-            }
+            recommendations.push(daily_carbohydrate_line(
+                duration_seconds,
+                intensity,
+                athlete.weight_kg,
+            ));
             (recommendations, build_meal_suggestions(intensity), targets)
         };
 
@@ -423,7 +452,7 @@ pub fn generate_nutrition_recommendations(
         }),
         ..base_recommendations(
             "nutrition",
-            if intensity == SessionIntensity::High {
+            if intensity.is_high() {
                 "high"
             } else {
                 "medium"

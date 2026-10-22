@@ -726,6 +726,111 @@ fn the_session_intensity_is_read_on_the_athletes_zones_and_absent_without_them()
     );
 }
 
+/// The day's carbohydrate comes from cageux's reading of the 2016 joint ACSM
+/// position table (Thomas, Erdman & Burke): duration and heart-rate intensity
+/// pick the row. No line keys a rule to the session's length alone.
+#[test]
+fn the_days_carbohydrate_target_follows_the_position_table() {
+    let zones = riders_zones();
+    let weighed = NutritionAthlete {
+        weight_kg: Some(70.0),
+        ..NutritionAthlete::default()
+    };
+    let carbohydrate_line = |recommendations: &[String]| {
+        recommendations
+            .iter()
+            .find(|line| {
+                line.starts_with("Across the day") || line.starts_with("Daily carbohydrate")
+            })
+            .cloned()
+            .unwrap_or_else(|| panic!("no daily carbohydrate line: {recommendations:?}"))
+    };
+
+    // Two hours in zone 4: the endurance row, 6-10 g/kg, 420-700 g at 70 kg.
+    let hard = generate_nutrition_recommendations(&hard_long_ride(), Some(&zones), &weighed);
+    let line = carbohydrate_line(&hard.recommendations);
+    assert!(line.contains("an endurance training day"), "{line}");
+    assert!(line.contains("6-10 g of carbohydrate per kg"), "{line}");
+    assert!(line.contains("about 420-700 g"), "{line}");
+
+    // No weight on file: the per-kg target only.
+    let unweighed = generate_nutrition_recommendations(
+        &hard_long_ride(),
+        Some(&zones),
+        &NutritionAthlete::default(),
+    );
+    let line = carbohydrate_line(&unweighed.recommendations);
+    assert!(line.contains("6-10 g of carbohydrate per kg"), "{line}");
+    assert!(!line.contains("about"), "{line}");
+
+    // A zone-2 hour is the table's low intensity: 3-5 g/kg.
+    let easy = ActivityBuilder::new(
+        "ride-2".to_owned(),
+        "Easy spin".to_owned(),
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 9, 29, 8, 0, 0).single().unwrap(),
+        3600,
+        "strava".to_owned(),
+    )
+    .average_heart_rate(u32::from(zones.zones()[1].upper_bpm))
+    .build();
+    let line = carbohydrate_line(
+        &generate_nutrition_recommendations(&easy, Some(&zones), &weighed).recommendations,
+    );
+    assert!(line.contains("a light training day"), "{line}");
+    assert!(line.contains("3-5 g of carbohydrate per kg"), "{line}");
+
+    // A zone-3 hour is the table's "~1 h/d" moderate row: 5-7 g/kg.
+    let steady = ActivityBuilder::new(
+        "ride-4".to_owned(),
+        "Tempo hour".to_owned(),
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 10, 1, 8, 0, 0).single().unwrap(),
+        3600,
+        "strava".to_owned(),
+    )
+    .average_heart_rate(u32::from(zones.zones()[2].upper_bpm))
+    .build();
+    let line = carbohydrate_line(
+        &generate_nutrition_recommendations(&steady, Some(&zones), &weighed).recommendations,
+    );
+    assert!(line.contains("a moderate training day"), "{line}");
+    assert!(line.contains("5-7 g of carbohydrate per kg"), "{line}");
+    assert!(line.contains("about 350-490 g"), "{line}");
+
+    // Four hours in zone 4 is the "> 4-5 h/d" row: 8-12 g/kg.
+    let epic = ActivityBuilder::new(
+        "ride-5".to_owned(),
+        "Epic ride".to_owned(),
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 10, 2, 8, 0, 0).single().unwrap(),
+        4 * 3600,
+        "strava".to_owned(),
+    )
+    .average_heart_rate(165)
+    .build();
+    let line = carbohydrate_line(
+        &generate_nutrition_recommendations(&epic, Some(&zones), &weighed).recommendations,
+    );
+    assert!(line.contains("a very high training day"), "{line}");
+    assert!(line.contains("8-12 g of carbohydrate per kg"), "{line}");
+    assert!(line.contains("about 560-840 g"), "{line}");
+
+    // Ungraded intensity: no row, and the reason.
+    let line = carbohydrate_line(
+        &generate_nutrition_recommendations(&hard_long_ride(), None, &weighed).recommendations,
+    );
+    assert_eq!(
+        line,
+        "Daily carbohydrate target not set: no saved resting and maximum heart rate to read the session's heart rate against"
+    );
+
+    // The two unsourced duration rules are gone.
+    let rendered = serde_json::to_string(&hard).unwrap();
+    assert!(!rendered.contains("Extended duration"), "{rendered}");
+    assert!(!rendered.contains("complete meal"), "{rendered}");
+}
+
 /// A ride whose device recorded heart rate but no calories.
 fn ride_without_calories() -> Activity {
     ActivityBuilder::new(
