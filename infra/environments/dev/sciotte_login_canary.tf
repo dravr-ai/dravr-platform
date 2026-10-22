@@ -130,6 +130,11 @@ resource "google_cloud_scheduler_job" "sciotte_login_canary" {
   time_zone        = "Etc/UTC"
   attempt_deadline = "320s"
 
+  # Paused 2026-10-22 by ChefFamille's call: the canary secrets hold a team
+  # member's own Garmin login, so every run was a real sign-in on their
+  # account. Resume only once the secrets name a dedicated canary account.
+  paused = true
+
   # No retry_config block: a retried trigger would be a second real login, and
   # one verdict per slot is the point. Zero retries is Scheduler's default, and
   # a block holding only `retry_count = 0` is an empty message the API does not
