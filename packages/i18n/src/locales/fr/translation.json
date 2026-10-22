@@ -898,7 +898,17 @@
     "thenConnectService": "Ensuite, connecte un service de fitness et rencontre ton agent",
     "verifyErrorBody": "Quelque chose s’est mal passé de notre côté. Demande un nouveau lien ci-dessous — si ça continue d’échouer, l’adresse est peut-être déjà confirmée.",
     "welcomeBackHint": "Content de te revoir. Connecte-toi pour reprendre la conversation.",
-    "whatHappensNext": "Qu’est-ce qui se passe ensuite ?"
+    "whatHappensNext": "Qu’est-ce qui se passe ensuite ?",
+    "haveSignupCode": "Tu as un code d'inscription ?",
+    "signupCodeLabel": "Code d'inscription",
+    "signupCodePlaceholder": "ex. BETA-ABCD-EFGH-JKLM",
+    "signupCodeHint": "Tu as un code d'inscription ? Entre-le pour éviter l'attente de validation.",
+    "signupCodeApply": "Utiliser le code",
+    "signupCodeApplying": "Vérification…",
+    "signupCodeAccepted": "Code accepté. Ton compte est prêt.",
+    "signupCodeAcceptedConfirmEmail": "Code accepté. Confirme ton adresse e-mail pour activer ton compte.",
+    "signupCodeJoinedGroup": "Tu as aussi rejoint le groupe associé à ce code.",
+    "signupCodeInvalid": "Ce code n'est pas valide. Vérifie-le et réessaie."
   },
   "chat": {
     "aboutThisClaim": "À propos de cette affirmation",
@@ -2016,7 +2026,10 @@
     "createCta": "Créer un groupe",
     "pickOne": "Choisis un groupe pour l’ouvrir.",
     "searchPlaceholder": "Rechercher un groupe",
-    "avgVolumeIn": "Vol. moy. ({{unit}})"
+    "avgVolumeIn": "Vol. moy. ({{unit}})",
+    "approvesSignupLabel": "Approuve aussi les nouveaux comptes",
+    "approvesSignupHint": "Quiconque s'inscrit avec ce code évite la validation et rejoint ce groupe. Jusqu'à 50 utilisations, pendant 30 jours au plus.",
+    "signupCodeBadge": "Code d'inscription"
   },
   "home": {
     "plan": {

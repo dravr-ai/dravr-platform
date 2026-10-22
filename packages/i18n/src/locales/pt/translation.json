@@ -898,7 +898,17 @@
     "thenConnectService": "Depois liga um serviço de fitness e conhece o teu agente",
     "verifyErrorBody": "Algo correu mal do nosso lado. Pede um novo link abaixo — se continuar a falhar, o endereço pode já estar confirmado.",
     "welcomeBackHint": "Que bom ver-te de novo. Entra para retomares a conversa.",
-    "whatHappensNext": "O que acontece a seguir?"
+    "whatHappensNext": "O que acontece a seguir?",
+    "haveSignupCode": "Tens um código de registo?",
+    "signupCodeLabel": "Código de registo",
+    "signupCodePlaceholder": "ex.: BETA-ABCD-EFGH-JKLM",
+    "signupCodeHint": "Tens um código de registo? Introduz-o para saltares a análise.",
+    "signupCodeApply": "Usar código",
+    "signupCodeApplying": "A verificar…",
+    "signupCodeAccepted": "Código aceite. A tua conta está pronta.",
+    "signupCodeAcceptedConfirmEmail": "Código aceite. Confirma o teu e-mail para ativares a tua conta.",
+    "signupCodeJoinedGroup": "Também entraste no grupo deste código.",
+    "signupCodeInvalid": "Este código não é válido. Verifica-o e tenta novamente."
   },
   "chat": {
     "aboutThisClaim": "Sobre esta afirmação",
@@ -2016,7 +2026,10 @@
     "createCta": "Criar um grupo",
     "pickOne": "Escolhe um grupo para o abrires.",
     "searchPlaceholder": "Pesquisar um grupo",
-    "avgVolumeIn": "Vol. médio ({{unit}})"
+    "avgVolumeIn": "Vol. médio ({{unit}})",
+    "approvesSignupLabel": "Também aprova novas contas",
+    "approvesSignupHint": "Quem se registar com este código salta a análise e entra neste grupo. Até 50 utilizações, durante 30 dias no máximo.",
+    "signupCodeBadge": "Código de registo"
   },
   "home": {
     "plan": {

@@ -898,7 +898,17 @@
     "thenConnectService": "Dann verbinde einen Fitness-Dienst und lerne deinen Agenten kennen",
     "verifyErrorBody": "Bei uns ist etwas schiefgelaufen. Fordere unten einen neuen Link an — wenn es weiter fehlschlägt, ist die Adresse vielleicht schon bestätigt.",
     "welcomeBackHint": "Schön, dass du wieder da bist. Melde dich an, um die Unterhaltung fortzusetzen.",
-    "whatHappensNext": "Wie geht es weiter?"
+    "whatHappensNext": "Wie geht es weiter?",
+    "haveSignupCode": "Hast du einen Anmeldecode?",
+    "signupCodeLabel": "Anmeldecode",
+    "signupCodePlaceholder": "z. B. BETA-ABCD-EFGH-JKLM",
+    "signupCodeHint": "Du hast einen Anmeldecode? Gib ihn ein, um die Prüfung zu überspringen.",
+    "signupCodeApply": "Code verwenden",
+    "signupCodeApplying": "Wird geprüft…",
+    "signupCodeAccepted": "Code akzeptiert. Dein Konto ist bereit.",
+    "signupCodeAcceptedConfirmEmail": "Code akzeptiert. Bestätige deine E-Mail-Adresse, um dein Konto zu aktivieren.",
+    "signupCodeJoinedGroup": "Du bist außerdem der Gruppe dieses Codes beigetreten.",
+    "signupCodeInvalid": "Dieser Code ist ungültig. Prüfe ihn und versuche es erneut."
   },
   "chat": {
     "aboutThisClaim": "Zu dieser Aussage",
@@ -2016,7 +2026,10 @@
     "createCta": "Gruppe erstellen",
     "pickOne": "Wähle eine Gruppe, um sie zu öffnen.",
     "searchPlaceholder": "Gruppe suchen",
-    "avgVolumeIn": "Ø Vol. ({{unit}})"
+    "avgVolumeIn": "Ø Vol. ({{unit}})",
+    "approvesSignupLabel": "Genehmigt auch neue Konten",
+    "approvesSignupHint": "Wer sich mit diesem Code anmeldet, überspringt die Prüfung und tritt dieser Gruppe bei. Bis zu 50 Nutzungen, höchstens 30 Tage lang.",
+    "signupCodeBadge": "Anmeldecode"
   },
   "home": {
     "plan": {

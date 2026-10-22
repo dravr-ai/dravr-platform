@@ -898,7 +898,17 @@
     "thenConnectService": "Then connect a fitness service and meet your agent",
     "verifyErrorBody": "Something went wrong on our side. Request a new link below — if it keeps failing, the address may already be confirmed.",
     "welcomeBackHint": "Welcome back. Sign in to pick up the conversation.",
-    "whatHappensNext": "What happens next?"
+    "whatHappensNext": "What happens next?",
+    "haveSignupCode": "Have a signup code?",
+    "signupCodeLabel": "Signup code",
+    "signupCodePlaceholder": "e.g. BETA-ABCD-EFGH-JKLM",
+    "signupCodeHint": "Got a signup code? Enter it to skip the review.",
+    "signupCodeApply": "Use code",
+    "signupCodeApplying": "Checking…",
+    "signupCodeAccepted": "Code accepted. Your account is ready.",
+    "signupCodeAcceptedConfirmEmail": "Code accepted. Confirm your email address to activate your account.",
+    "signupCodeJoinedGroup": "You've also joined the group this code came from.",
+    "signupCodeInvalid": "This code isn't valid. Check it and try again."
   },
   "chat": {
     "aboutThisClaim": "About this claim",
@@ -2016,7 +2026,10 @@
     "createCta": "Create a group",
     "pickOne": "Pick a group to open it.",
     "searchPlaceholder": "Search groups",
-    "avgVolumeIn": "Avg Vol ({{unit}})"
+    "avgVolumeIn": "Avg Vol ({{unit}})",
+    "approvesSignupLabel": "Also approves new accounts",
+    "approvesSignupHint": "Whoever signs up with this code skips the review and joins this group. Up to 50 uses, for 30 days at most.",
+    "signupCodeBadge": "Signup code"
   },
   "home": {
     "plan": {
