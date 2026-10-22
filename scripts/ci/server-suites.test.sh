@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Fixture test for server-suites.sh changed-targets — which server test targets a changed path selects,
-# ABOUTME: from the dependency closure cargo metadata reports, and that a failed metadata run selects every target.
+# ABOUTME: Fixture test for server-suites.sh — which server test targets a changed path selects, a failed metadata run selecting
+# ABOUTME: every target, and `run --binaries` execing pierre-server's prebuilt binaries as cargo would, failing on a missing one.
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -123,8 +123,83 @@ MODE=--edited-only expect_targets "--edited-only maps test sources" "$(printf '%
 FAIL=1 MODE=--edited-only expect_targets "--edited-only never runs cargo" "it" crates/pierre-server/tests/common.rs
 
 echo ""
+echo "server-suites.sh run --binaries fixture tests"
+
+# Prebuilt binaries record how they were run; the cargo stub fails any
+# `cargo test`, so a run that reached cargo instead of the map fails too.
+EXE="$WORK/exe"
+RUNLOG="$WORK/runlog"
+mkdir -p "$EXE"
+for name in it env_writer foreign; do
+    printf '#!/bin/sh\necho "%s cwd=$PWD home=$CARGO_HOME args=$*" >>"%s"\n' "$name" "$RUNLOG" >"$EXE/$name"
+done
+printf '#!/bin/sh\nexit 101\n' >"$EXE/red"
+chmod +x "$EXE"/*
+SERVER="$TREE/crates/pierre-server"
+MAP="$WORK/test-binaries.tsv"
+printf 'it\t%s\t%s\nenv_writer_test\t%s\t%s\nenv_writer_test\t%s\t%s\n' \
+    "$SERVER" "$EXE/it" "$SERVER" "$EXE/env_writer" "$TREE/crates/pierre-cli" "$EXE/foreign" >"$MAP"
+
+# $1 = label, $2 = expected exit (0 or nonzero), $3.. = run arguments.
+expect_run() {
+    local label="$1" want="$2" code=0
+    shift 2
+    : >"$RUNLOG"
+    env PATH="$WORK/bin:$PATH" SERVER_SUITES_ROOT="$TREE" CARGO_STUB_METADATA="$WORK/metadata.json" \
+        CARGO_HOME=/fixture/cargo-home "$UNDER_TEST" run "$@" >"$OUT" 2>"$ERR" || code=$?
+    if { [ "$want" = 0 ] && [ "$code" -eq 0 ]; } || { [ "$want" != 0 ] && [ "$code" -ne 0 ]; }; then
+        pass "$label"
+    else
+        fail "$label (exit $code)"
+        sed 's/^/      /' "$OUT" "$ERR"
+    fi
+}
+
+expect_run "a top-level suite and an it module run from the map" 0 --binaries "$MAP" env_writer_test goal_test
+# refresh-pg-shard-weights.sh times a suite from cargo's own `Running` line.
+if grep -qF "Running crates/pierre-server/tests/env_writer_test.rs (" "$OUT" \
+    && grep -qF "Running crates/pierre-server/tests/it/main.rs (" "$OUT"; then
+    pass "each run prints cargo's Running line for its source"
+else
+    fail "each run prints cargo's Running line for its source"
+    sed 's/^/      /' "$OUT"
+fi
+if grep -qxF "env_writer cwd=$SERVER home=/fixture/cargo-home args=--test-threads=4" "$RUNLOG"; then
+    pass "a top-level binary runs from pierre-server's directory with CARGO_HOME"
+else
+    fail "a top-level binary runs from pierre-server's directory with CARGO_HOME"
+    sed 's/^/      /' "$RUNLOG"
+fi
+if grep -qxF "it cwd=$SERVER home=/fixture/cargo-home args=--test-threads=4 goal_test::" "$RUNLOG"; then
+    pass "the it binary runs filtered to the named module"
+else
+    fail "the it binary runs filtered to the named module"
+    sed 's/^/      /' "$RUNLOG"
+fi
+if grep -q '^foreign ' "$RUNLOG"; then fail "another crate's binary of the same name stays unrun"; else
+    pass "another crate's binary of the same name stays unrun"
+fi
+expect_run "--threads reaches the binaries" 0 --binaries "$MAP" --threads 2 routes_test
+if grep -qxF "it cwd=$SERVER home=/fixture/cargo-home args=--test-threads=2 routes_test::" "$RUNLOG"; then
+    pass "the thread count is the one asked for"
+else
+    fail "the thread count is the one asked for"
+fi
+
+grep -v '^it	' "$MAP" >"$WORK/no-it.tsv"
+expect_run "an it module whose binary the map lacks fails" 1 --binaries "$WORK/no-it.tsv" goal_test
+if grep -qF "no binary for it in $SERVER" "$ERR"; then pass "the failure names the missing binary"; else
+    fail "the failure names the missing binary"
+    sed 's/^/      /' "$ERR"
+fi
+printf 'it\t%s\t%s\n' "$SERVER" "$EXE/red" >"$WORK/red.tsv"
+expect_run "a failing binary fails the run" 1 --binaries "$WORK/red.tsv" goal_test
+expect_run "cargo arguments with --binaries are refused" 1 --binaries "$MAP" goal_test -- --features postgresql
+expect_run "an empty map is refused" 1 --binaries "$WORK/empty.tsv" goal_test
+
+echo ""
 if [ "$failures" -gt 0 ]; then
     echo "❌ $failures case(s) failed"
     exit 1
 fi
-echo "✅ all server-suites.sh changed-targets cases passed"
+echo "✅ all server-suites.sh changed-targets and run --binaries cases passed"

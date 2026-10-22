@@ -178,6 +178,21 @@ async function startServer(config) {
 }
 
 /**
+ * The pierre-cli binary every helper runs: PIERRE_CLI_BINARY when set (CI hands
+ * over a prebuilt release CLI), else a local debug build, else a local release
+ * build. Null when none exists.
+ */
+function findPierreCli() {
+  const fs = require('fs');
+  const candidates = [
+    process.env.PIERRE_CLI_BINARY,
+    path.join(__dirname, '../../../target/debug/pierre-cli'),
+    path.join(__dirname, '../../../target/release/pierre-cli')
+  ].filter(Boolean);
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
+/**
  * Promote an already-registered user to a GLOBAL admin via pierre-cli.
  *
  * tools/list returns the complete tool catalog only for a global admin
@@ -199,13 +214,7 @@ async function promoteUserToGlobalAdmin(email, password, databaseUrl, encryption
     return false;
   }
 
-  const fs = require('fs');
-  const cliCandidates = [
-    process.env.PIERRE_CLI_BINARY,
-    path.join(__dirname, '../../../target/debug/pierre-cli'),
-    path.join(__dirname, '../../../target/release/pierre-cli')
-  ].filter(Boolean);
-  const cliPath = cliCandidates.find((p) => fs.existsSync(p));
+  const cliPath = findPierreCli();
   if (!cliPath) {
     throw new Error('pierre-cli binary not found. Please run: cargo build --bin pierre-cli');
   }
@@ -380,6 +389,7 @@ module.exports = {
   startServer,
   registerAndGetToken,
   issueApiKey,
+  findPierreCli,
   promoteUserToGlobalAdmin,
   waitForHealth,
   sleep

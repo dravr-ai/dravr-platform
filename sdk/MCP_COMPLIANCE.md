@@ -30,7 +30,10 @@ ours, and it is what the tests below assert:
 
 ## Automated gates
 
-### CI: MCP Protocol Compliance (`.github/workflows/mcp-compliance.yml`)
+Both run in `CI: Server E2E` (`.github/workflows/server-e2e.yml`), against the one
+thin-release server its build job shares with every lane there.
+
+### MCP Protocol Compliance
 
 Runs `scripts/ci/ensure-mcp-compliance.sh`: builds the bridge, starts a Pierre server, and
 drives the bridge over stdio with the protocol organisation's own inspector
@@ -44,7 +47,7 @@ Reproduce locally, from `sdk/`, with a server binary already built:
 PIERRE_SERVER_BINARY=../target/debug/pierre-mcp-server ../scripts/ci/ensure-mcp-compliance.sh
 ```
 
-### CI: TypeScript SDK (`.github/workflows/sdk-tests.yml`)
+### SDK Test Suite
 
 - `test/unit/mcp-http-client.test.js` — the wire contract of the Dravr leg, against a
   scripted endpoint

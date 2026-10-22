@@ -1,5 +1,5 @@
 # ABOUTME: The backend suite on real PostgreSQL 16 — full suite on main/schedule/dispatch/feature(s)/*/claude/* and on any push reaching the server's crates; *_postgresql_test.rs smoke otherwise.
-# ABOUTME: Runs when ANY crate (crates/**) or migration changes — broad on purpose so a newly-extracted crate can never silently skip the backend suite.
+# ABOUTME: One job builds every test binary; four shards download and run them. Runs when ANY crate or migration changes, so a newly-extracted crate can never silently skip the suite.
 name: "CI: Backend (PostgreSQL)"
 
 on:
@@ -28,6 +28,9 @@ on:
       # with no run at all.
       - '.github/ci-postgres-test-durations.tsv'
       - '.github/actions/rust-setup/**'
+      # The build packs and the shards run through these.
+      - 'scripts/ci/test-binaries.sh'
+      - 'scripts/ci/server-suites.sh'
   pull_request:
     branches: [ main ]
     paths:
@@ -46,6 +49,8 @@ on:
       # with no run at all.
       - '.github/ci-postgres-test-durations.tsv'
       - '.github/actions/rust-setup/**'
+      - 'scripts/ci/test-binaries.sh'
+      - 'scripts/ci/server-suites.sh'
   schedule:
     # Daily full PostgreSQL validation (2:30 AM UTC). Daily, not weekly, because
     # this run is the only one that saves the postgres-tests Rust cache
@@ -97,47 +102,25 @@ env:
   CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
-  postgres-tests:
-    name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
+  # One job compiles every test binary the lane runs, and the four shards
+  # download them (carnet#1115). Until then each shard ran its own
+  # `cargo test --no-run`: four runners compiling the same dependency tree and
+  # linking the same 415 MB `it` binary, 6-11 minutes apiece, before any test
+  # ran. A shard now holds no toolchain and compiles nothing.
+  #
+  # The April nextest-archive revert (549c42955) objected to a sequential wait,
+  # but that compile already sat on every shard's critical path; the wait it
+  # adds here is one download. The out-of-memory failure of e6db8f647 linked
+  # about 350 binaries in one invocation; this one links `it`, the top-level
+  # suites and pierre-database's crate tests, and test-binaries.sh reports the
+  # runner's peak memory on every run so the margin stays visible.
+  build-tests:
+    name: Build Test Binaries (PostgreSQL)
     runs-on: ubuntu-latest
-    # A backstop, not a performance budget. Successful runs land in 20-45 min;
-    # this only ever fires on a job that has stopped making progress.
-    #
-    # It exists because on main nothing ever displaces a hung job: each commit
-    # has its own concurrency group, so a hang holds its runner until something
-    # bounds it, and costs that commit its verdict and a runner, not the commits
-    # behind it. A branch's hung run is cancelled by the branch's next push, but
-    # only if one comes. On 2026-08-19, under a ref-only
-    # group, shard 3/4 hung 212 min in `Setup Rust environment` and three
-    # subsequent main pushes never got a PostgreSQL verdict at all.
-    #
-    # The existing `timeout-minutes: 75` further down guards only the test step,
-    # which is why it did not help: the job hung before ever reaching it. A job
-    # bound is the one that catches a hang wherever it happens, and it has to
-    # live here — composite actions cannot bound their own steps.
-    timeout-minutes: 90
-
-    strategy:
-      # One shard's failure must not cancel the others — we want every shard's
-      # verdict, and a real failure should not be masked by a sibling shard.
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: pierre
-          POSTGRES_PASSWORD: ci_test_password
-          POSTGRES_DB: pierre_mcp_server
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+    # A backstop: a cold build takes 6-7 minutes, a warm one less.
+    timeout-minutes: 60
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
 
     steps:
       - name: Checkout code
@@ -153,24 +136,29 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           free-disk-space: 'true'
+          # No service container runs here, but pruning the images costs time
+          # and reclaims space this job does not need (below).
           keep-docker: 'true'
           # Run 33884377634 instrumented this lane end to end: the runner starts
           # with 86 G free of 145 G, and this suite's peak footprint is a 22 G
           # target/ (109 G before the suite, 88 G after). The headroom is already
           # there, so removing the Android SDK (55.5s) and running the apt
-          # large-packages sweep (46.0s) spent 101.5s per shard, on four shards a
-          # run, reclaiming space nothing in this job touches. dotnet and haskell
-          # stay on: 9 G for 10.3s. The step below asserts the 86 G is still there,
-          # so a shrinking runner image fails loudly instead of running out of disk
-          # 60 minutes into the suite.
+          # large-packages sweep (46.0s) spent 101.5s per run reclaiming space
+          # nothing in this job touches. dotnet and haskell stay on: 9 G for
+          # 10.3s. The step below asserts the 86 G is still there, so a
+          # shrinking runner image fails loudly instead of running out of disk
+          # mid-build.
           reclaim-android: 'false'
           reclaim-large-packages: 'false'
+          # The cache this lane has always used; the shards that saved it under
+          # their job id no longer compile.
+          shared-key: postgres-tests
 
       - name: Choose the lane (full suite or PostgreSQL smoke)
         id: lane
         # The full-suite refs get the full suite. On a short-lived prefix the
         # smoke used to be unconditional, so a fix/* push changing a crate the
-        # server links ran no server suite at all: changed-server-tests runs
+        # server links ran no server suite at all: ci-backend.yml's dev-tests runs
         # only the test FILES a push touched, and a src change touches none.
         # `server-suites.sh changed-targets` answers with every target when a
         # changed path reaches pierre_mcp_server's dependency closure (or when
@@ -227,17 +215,329 @@ jobs:
             echo "PostgreSQL smoke: this push ($BEFORE..HEAD) reaches no server code beyond its own test files."
           fi
 
-      - name: Assert disk headroom for the suite
+      - name: Assert disk headroom for the build
         # 22 G measured peak, 86 G measured available, so 40 G is a floor with
         # room either side: it cannot fire on today's runner and it fires well
-        # before the suite can exhaust the disk. Costs one df.
+        # before the build can exhaust the disk. Costs one df.
         run: |
           AVAIL_G=$(df --output=avail -BG "$GITHUB_WORKSPACE" | tail -1 | tr -dc '0-9')
-          echo "Free disk on the workspace filesystem: ${AVAIL_G} G (suite peak: 22 G; measured at runner start: 86 G)"
+          echo "Free disk on the workspace filesystem: ${AVAIL_G} G (build peak: 22 G; measured at runner start: 86 G)"
           if [ "${AVAIL_G:-0}" -lt 40 ]; then
-            echo "::error::${AVAIL_G} G free before the suite, which needs 22 G for target/. Set reclaim-android and reclaim-large-packages back to 'true' on the rust-setup step above, or find what is consuming the runner image."
+            echo "::error::${AVAIL_G} G free before the build, which needs 22 G for target/. Set reclaim-android and reclaim-large-packages back to 'true' on the rust-setup step above, or find what is consuming the runner image."
             exit 1
           fi
+
+      - name: Select, pack and build the lane's test binaries
+        # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
+        # dispatch and feature/*, features/* or claude/* refs run EVERY test
+        # file. claude/* is the prefix Claude Code sessions push on, and those
+        # branches carry whole slices of work that squash onto main, so they
+        # get the same full verdict a feature branch does. The short-lived
+        # prefixes (fix/*, debug/*, copilot/*) run the full suite when the
+        # push reaches the server's dependency closure (the lane step above),
+        # and otherwise the `*_postgresql_test.rs` smoke — the files whose
+        # failure shape is PostgreSQL-only. A smoke run on those refs therefore
+        # means the push changed no server code beyond its own test files, which
+        # ci-backend.yml's dev-tests runs: name the branch feature(s)/* or claude/*,
+        # or dispatch this workflow, for a full verdict on any ref. Files named
+        # `*_sqlite_test.rs` test the SQLite backend itself and belong to the
+        # daily SQLite shards in ci-backend.yml, not here. An empty selection
+        # fails the job rather than reporting green over zero tests.
+        #
+        # This step decides which suite runs on which shard, once, and writes
+        # the answer into the pack the shards download, so there is one
+        # assignment rather than one computation per shard.
+        run: |
+          SHARDS=4
+          PACK="$RUNNER_TEMP/pg-pack"
+          mkdir -p "$PACK"
+          # Gate on list's exit status: `mapfile < <(...)` would discard it,
+          # and a listing cut short would pack fewer suites and report green.
+          if ! LISTING="$(scripts/ci/server-suites.sh list)" || [ -z "$LISTING" ]; then
+            echo "::error::server-suites.sh list failed or named no suites — refusing to report green."
+            exit 1
+          fi
+          if [ "${{ steps.lane.outputs.lane }}" = "full" ]; then
+            LANE="full suite"
+            mapfile -t ALL_TESTS < <(cut -f1 <<< "$LISTING" | grep -v '_sqlite_test$')
+          elif [ "${{ steps.lane.outputs.lane }}" = "smoke" ]; then
+            LANE="PostgreSQL-specific smoke"
+            mapfile -t ALL_TESTS < <(cut -f1 <<< "$LISTING" | grep '_postgresql_test$')
+          else
+            echo "::error::the lane step chose no lane ('${{ steps.lane.outputs.lane }}') — refusing to guess."
+            exit 1
+          fi
+          if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
+            echo "::error::PostgreSQL lane selected no test files ($LANE) — refusing to report green."
+            exit 1
+          fi
+          echo "$LANE" > "$PACK/lane"
+          # Longest-processing-time packing, not round-robin. The partition used
+          # to walk an alphabetical list, which is duration-blind: on run
+          # 33914305535 that produced shard run times of 490/801/718/802s, a
+          # 1.64x spread, because one shard drew oauth2_rate_limiting_e2e_test
+          # (121s) plus a heavy tail. A lane costs whatever its slowest shard
+          # costs, so the imbalance spent the savings the rest of this lane
+          # makes. LPT over the same files and the same measured weights packs
+          # every shard to 703s — a 1.00x spread, 99s off the critical path.
+          #
+          # The manifest supplies WEIGHTS ONLY. ALL_TESTS above is still the
+          # filesystem's answer, so a file the manifest does not name still runs;
+          # it is weighted at the manifest's p90 so a new test is never assumed
+          # free and never rides along on an already-full shard. A stale manifest
+          # costs balance, never coverage.
+          DURATIONS=.github/ci-postgres-test-durations.tsv
+          if [ ! -s "$DURATIONS" ]; then
+            echo "::error::$DURATIONS is missing or empty — refusing to pack shards on unknown weights."
+            exit 1
+          fi
+          # p90 is computed here rather than in the packing script: sorting an
+          # array needs gawk's asort, and the runner's awk is mawk, which does
+          # not have it. `sort -n` is portable and this runs once.
+          P90=$(
+            awk -F'\t' '!/^#/ && NF == 2 { print $2 }' "$DURATIONS" \
+              | sort -n \
+              | awk '{ v[NR] = $1 } END { if (NR == 0) { print 1 } else { i = int(0.9 * NR); if (i < 1) i = 1; print v[i] } }'
+          )
+          # Output is "<shard>\t<suite>". A suite weighs its run time alone:
+          # the shards no longer compile, so the per-binary build cost the
+          # packer used to add to a top-level suite (0.61s a file, fitted on
+          # run 33917276134) is gone with the build.
+          SHARDS="$SHARDS" DURATIONS="$DURATIONS" P90="$P90" awk '
+            function weight(n) { return (n in w) ? w[n] : p90 }
+            BEGIN {
+              shards = ENVIRON["SHARDS"] + 0
+              p90 = ENVIRON["P90"] + 0
+              while ((getline line < ENVIRON["DURATIONS"]) > 0) {
+                if (line ~ /^#/ || line == "") continue
+                split(line, f, "\t")
+                w[f[1]] = f[2] + 0
+              }
+            }
+            { name[NR] = $0 }
+            END {
+              # Heaviest first, ties broken by name, so the packing is
+              # deterministic: the same tree assigns the same files every run.
+              for (i = 1; i <= NR; i++) ord[i] = name[i]
+              for (i = 1; i <= NR; i++)
+                for (j = i + 1; j <= NR; j++) {
+                  wi = weight(ord[i]); wj = weight(ord[j])
+                  if (wj > wi || (wj == wi && ord[j] < ord[i])) { t = ord[i]; ord[i] = ord[j]; ord[j] = t }
+                }
+              for (b = 1; b <= shards; b++) load[b] = 0
+              for (i = 1; i <= NR; i++) {
+                best = 1
+                for (b = 2; b <= shards; b++) if (load[b] < load[best]) best = b
+                load[best] += weight(ord[i])
+                print best "\t" ord[i]
+              }
+            }
+          ' < <(printf '%s\n' "${ALL_TESTS[@]}") > "$PACK/assignments.tsv"
+          # Fail closed: every file must land on exactly one shard. A packing bug
+          # that dropped one would otherwise report green over a test that never
+          # ran, which is the failure mode this lane exists to prevent.
+          ASSIGNED=$(grep -c . "$PACK/assignments.tsv" || true)
+          if [ "$ASSIGNED" -ne "${#ALL_TESTS[@]}" ]; then
+            echo "::error::shard packing assigned $ASSIGNED of ${#ALL_TESTS[@]} suites — refusing to report green over a suite that would not run."
+            exit 1
+          fi
+          for shard in $(seq 1 "$SHARDS"); do
+            echo "Shard $shard/$SHARDS: $(awk -F'\t' -v s="$shard" '$1 == s' "$PACK/assignments.tsv" | grep -c . || true) suites"
+          done
+          # A top-level suite is its own binary, named by `--test`; every suite
+          # of the `it` binary is a module, built once as `--test it`.
+          IT_SUITES="$RUNNER_TEMP/it-suites.txt"
+          awk -F'\t' '$2 == "it" { print $1 }' <<< "$LISTING" > "$IT_SUITES"
+          SERVER_BINS=()
+          IT_MODULES=0
+          for suite in "${ALL_TESTS[@]}"; do
+            if grep -qxF "$suite" "$IT_SUITES"; then
+              IT_MODULES=$((IT_MODULES + 1))
+            else
+              SERVER_BINS+=("$suite")
+            fi
+          done
+          # pierre-database's own suite carries the test-database factory's
+          # contract test — the one that proves a PostgreSQL DATABASE_URL
+          # yields PostgreSQL. It is the only crate suite outside pierre-server
+          # that opens a database, so it rides on shard 1 rather than paying for
+          # a fifth service container, and it is built in this one invocation.
+          #
+          # A lone `-p pierre-database --features postgresql` resolves a
+          # narrower feature graph than the server build: 38 dependencies come
+          # out with fewer features — tokio without io-std/process/signal,
+          # reqwest without default-tls/h2/http2/stream, hyper without server,
+          # axum and tower-http bare, serde_json without preserve_order, uuid on
+          # v4 instead of v5, and pierre-core without billing/http-client/llm. A
+          # feature set is an input to a unit's -C metadata hash, so a separate
+          # invocation recompiled most of the tree (79 measured seconds). One
+          # package selection for everything resolves the features once.
+          #
+          # The selection names packages because a `--test` filter matches
+          # every selected package owning that target name. pierre-database's
+          # suites are modules of its own `it` binary, so `--test it` builds
+          # pierre-server's, pierre-database's and pierre-core's; the pack keeps
+          # the first two (`--keep`), since pierre-core's suites are not this
+          # lane's and run in leaf-crate-tests.
+          #
+          # A `--test` filter selects integration tests, so the crate's
+          # doctests run in ci-backend.yml's `cargo test --workspace --doc`
+          # job, which fires on every push and fails on a failed or an ignored
+          # doctest. No pierre-database doctest is gated on the postgresql
+          # feature, so that job covers the same set. pierre-database has no
+          # `#[cfg(test)]` in src/, so its lib target carries no unit tests.
+          PKGS=(-p pierre_mcp_server -p pierre-database -p pierre-core)
+          # That selection is only safe while no pierre-server test-file name
+          # is also owned by a crate outside it: cargo would build both copies
+          # with no -p, and this selection builds one, retiring the other copy
+          # from this lane with nothing going red. No name collides today; this
+          # asks the filesystem rather than trusting that. Another crate's own
+          # `it` binary is no collision: it sits at tests/it/main.rs, below this
+          # depth, and its suites run in leaf-crate-tests.
+          mapfile -t FOREIGN_NAMES < <(
+            find crates -maxdepth 3 -path '*/tests/*.rs' -printf '%p\n' \
+              | grep -v -E '^crates/(pierre-server|pierre-database|pierre-core)/' \
+              | sed 's|.*/||; s|\.rs$||' \
+              | sort -u
+          )
+          COLLIDING=()
+          for foreign_name in "${FOREIGN_NAMES[@]}"; do
+            case " ${SERVER_BINS[*]} it " in
+              *" $foreign_name "*) COLLIDING+=("$foreign_name") ;;
+            esac
+          done
+          if [ "${#COLLIDING[@]}" -ne 0 ]; then
+            printf '::error::%s is a pierre-server test name also owned by a crate outside the -p selection; that crate copy would stop running in this lane. Add its package to PKGS.\n' "${COLLIDING[@]}"
+            exit 1
+          fi
+          # pierre-database's suites are modules of tests/it/main.rs; a suite
+          # that writes the process environment would be a top-level file
+          # beside it, its own binary, listed for the shard in db-tests.txt.
+          if [ ! -f crates/pierre-database/tests/it/main.rs ]; then
+            echo "::error::pierre-database has no tests/it/main.rs — refusing to report green."
+            exit 1
+          fi
+          mapfile -t DB_TESTS < <(
+            find crates/pierre-database/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
+              | sed 's/\.rs$//' \
+              | sort
+          )
+          # No top-level file is an empty list, and a failed write fails the
+          # step rather than handing shard 1 a short one.
+          : > "$PACK/db-tests.txt"
+          if [ "${#DB_TESTS[@]}" -gt 0 ]; then
+            printf '%s\n' "${DB_TESTS[@]}" > "$PACK/db-tests.txt"
+          fi
+          # pierre-database's `it` runs on shard 1 whatever the lane picked.
+          TEST_ARGS=(--test it)
+          # A name in both crates' top-level suites is listed once; both
+          # crates' binaries are still built.
+          for name in $(printf '%s\n' "${SERVER_BINS[@]}" "${DB_TESTS[@]}" | sort -u); do
+            TEST_ARGS+=(--test "$name")
+          done
+          echo "=== Building $(( ${#TEST_ARGS[@]} / 2 )) test targets ($LANE): it for $IT_MODULES server modules and pierre-database, ${#SERVER_BINS[@]} top-level suites, ${#DB_TESTS[@]} top-level pierre-database files ==="
+          echo "::group::cargo test --no-run"
+          scripts/ci/test-binaries.sh build "$PACK" --keep crates/pierre-server --keep crates/pierre-database \
+            "${PKGS[@]}" --features postgresql "${TEST_ARGS[@]}"
+          echo "::endgroup::"
+          # Each selected file names a crate that must have produced a binary:
+          # pierre-server for its suites, pierre-database for its files. A name
+          # resolving to another crate's copy alone would otherwise report green
+          # over a file that never ran.
+          MAP="$PACK/test-binaries.tsv"
+          UNMAPPED=()
+          built_in() { awk -F'\t' -v t="$1" -v d="$PWD/crates/$2" '$1 == t && $2 == d { found = 1 } END { exit !found }' "$MAP"; }
+          for name in "${SERVER_BINS[@]}"; do
+            built_in "$name" pierre-server || UNMAPPED+=("crates/pierre-server/tests/${name}.rs")
+          done
+          if [ "$IT_MODULES" -gt 0 ] && ! built_in it pierre-server; then
+            UNMAPPED+=("crates/pierre-server/tests/it/main.rs")
+          fi
+          built_in it pierre-database || UNMAPPED+=("crates/pierre-database/tests/it/main.rs")
+          for name in "${DB_TESTS[@]}"; do
+            built_in "$name" pierre-database || UNMAPPED+=("crates/pierre-database/tests/${name}.rs")
+          done
+          if [ "${#UNMAPPED[@]}" -ne 0 ]; then
+            printf '::error::no test binary was built for %s — refusing to report green over a test file that would not run.\n' "${UNMAPPED[@]}"
+            exit 1
+          fi
+
+      - name: Upload the lane's test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-test-binaries
+          # zstd already compressed the archives; zipping them again only costs time.
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+          # A re-run attempt sees the first attempt's artifact of this name in
+          # the same run, and without this the upload fails on it (the same
+          # fix as ci-backend.yml's server-binaries). It replaces the same
+          # commit's binaries.
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/pg-pack/test-binaries.tsv
+            ${{ runner.temp }}/pg-pack/workspace
+            ${{ runner.temp }}/pg-pack/binaries.tar.zst
+            ${{ runner.temp }}/pg-pack/cargo-git.tar.zst
+            ${{ runner.temp }}/pg-pack/assignments.tsv
+            ${{ runner.temp }}/pg-pack/db-tests.txt
+            ${{ runner.temp }}/pg-pack/lane
+
+  postgres-tests:
+    name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    needs: build-tests
+    # A backstop, not a performance budget. A shard runs its tests in 8-11 min
+    # and compiles nothing; this only ever fires on a job that has stopped
+    # making progress.
+    #
+    # It exists because on main nothing ever displaces a hung job: each commit
+    # has its own concurrency group, so a hang holds its runner until something
+    # bounds it, and costs that commit its verdict and a runner, not the commits
+    # behind it. A branch's hung run is cancelled by the branch's next push, but
+    # only if one comes. On 2026-08-19, under a ref-only group, shard 3/4 hung
+    # 212 min in `Setup Rust environment` and three subsequent main pushes never
+    # got a PostgreSQL verdict at all. A job bound catches a hang wherever it
+    # happens, which the test step's own bound cannot.
+    timeout-minutes: 45
+
+    strategy:
+      # One shard's failure must not cancel the others — we want every shard's
+      # verdict, and a real failure should not be masked by a sibling shard.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pierre
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: pierre_mcp_server
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        # The source tree the binaries read at run time, at the paths they
+        # were compiled against.
+        uses: actions/checkout@v6
+
+      - name: Download the lane's test binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: pg-test-binaries
+          path: ${{ runner.temp }}/pg-pack
+
+      - name: Unpack the lane's test binaries
+        run: scripts/ci/test-binaries.sh unpack "$RUNNER_TEMP/pg-pack"
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v7
@@ -291,398 +591,67 @@ jobs:
         # quietly running the suite on the other backend. For fourteen months
         # this lane ran ~90% of its files on in-memory SQLite that way: the
         # test factories hardcoded `sqlite::memory:` and the `postgresql`
-        # feature only changed a constructor signature. Files named
-        # `*_sqlite_test.rs` test the SQLite backend itself and belong to the
-        # daily SQLite shards in ci-backend.yml, not here.
+        # feature only changed a constructor signature.
         #
-        # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
-        # dispatch and feature/*, features/* or claude/* refs run EVERY test
-        # file. claude/* is the prefix Claude Code sessions push on, and those
-        # branches carry whole slices of work that squash onto main, so they
-        # get the same full verdict a feature branch does. The short-lived
-        # prefixes (fix/*, debug/*, copilot/*) run the full suite when the
-        # push reaches the server's dependency closure (the lane step above),
-        # and otherwise the `*_postgresql_test.rs` smoke — the files whose
-        # failure shape is PostgreSQL-only. A smoke run on those refs therefore
-        # means the push changed no server code beyond its own test files, which
-        # changed-server-tests runs: name the branch feature(s)/* or claude/*,
-        # or dispatch this workflow, for a full verdict on any ref (~21-24 min). Files are
-        # partitioned round-robin across 4 shards; an empty selection fails
-        # the job rather than reporting green over zero tests.
-        #
-        # The shard's binaries are built in one `cargo test --no-run` and are
-        # then executed directly, one at a time: a monolithic `cargo test` over
-        # all ~500 binaries was OOM-killed on one runner (~11min, no output),
-        # while building only a shard's quarter and running one binary at a
-        # time keeps memory bounded.
-        #
-        # The build emits `--message-format=json-render-diagnostics`, which
-        # names the executable cargo produced for each test target while still
-        # rendering compile errors to stderr — plain `json` would bury them in
-        # the redirected artifact file. The run phase execs those
-        # paths rather than re-entering cargo once per file. Re-entry costs a
-        # measured 0.37s of resolver and lock work per invocation (n=139) —
-        # ~51s per shard, ~202s across the lane — to select a binary the build
-        # has already produced.
-        #
-        # Each binary runs from its package directory, because that is where
-        # cargo runs it and tests depend on it: `contremaitre_test` resolves
-        # `src/tools/implementations` and `../pierre-tool-runtime/src/implementations`
-        # against the working directory, and reads an empty tool set from
-        # anywhere else. CARGO_HOME is exported for the same reason — cargo
-        # injects it into the test process, `personas_endpoint_test` reads it
-        # to locate the dravr-contremaitre checkout, and an exec inherits only
-        # what this shell exports. `env!("CARGO_MANIFEST_DIR")`, which the rest
-        # of the path-sensitive tests use, is baked in at compile time and
-        # needs nothing.
-        #
-        # A target name is not unique across the workspace — every crate's
-        # integration tests are one binary named `it` — so binaries are keyed
-        # by package as well as by name. A top-level name runs every match: the
-        # same set `cargo test --test <name>` runs from this virtual workspace
-        # root. The `it` binary runs per package: pierre-server's through this
-        # shard's module filters, pierre-database's whole on shard 1.
-        # A selected file whose owning crate produced no binary fails the shard
-        # instead of reporting green over a test file that never ran.
+        # The shard runs what build-tests assigned it, from the binaries
+        # build-tests made, one binary at a time: a monolithic run over every
+        # binary was OOM-killed on one runner (~11min, no output). Both the
+        # server suites and pierre-database's go through
+        # `test-binaries.sh run`, which runs each binary from its package
+        # directory, because that is where cargo runs it and tests depend on
+        # it: `contremaitre_test` resolves `src/tools/implementations` and
+        # `../pierre-tool-runtime/src/implementations` against the working
+        # directory, and reads an empty tool set from anywhere else. It supplies
+        # CARGO_HOME for the same reason — cargo injects it into the test
+        # process, and `personas_endpoint_test` reads it to locate the
+        # dravr-contremaitre checkout the pack restored.
+        # `env!("CARGO_MANIFEST_DIR")`, which the rest of the path-sensitive
+        # tests use, is baked in at compile time and needs nothing.
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
         run: |
           SHARD=${{ matrix.shard }}
           SHARDS=4
-          if [ "${{ steps.lane.outputs.lane }}" = "full" ]; then
-            LANE="full suite"
-            mapfile -t ALL_TESTS < <(
-              scripts/ci/server-suites.sh list | cut -f1 | grep -v '_sqlite_test$'
-            )
-          elif [ "${{ steps.lane.outputs.lane }}" = "smoke" ]; then
-            LANE="PostgreSQL-specific smoke"
-            mapfile -t ALL_TESTS < <(
-              scripts/ci/server-suites.sh list | cut -f1 | grep '_postgresql_test$'
-            )
-          else
-            echo "::error::the lane step chose no lane ('${{ steps.lane.outputs.lane }}') — refusing to guess."
-            exit 1
-          fi
-          if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
-            echo "::error::PostgreSQL lane selected no test files ($LANE) — refusing to report green."
-            exit 1
-          fi
-          # Longest-processing-time packing, not round-robin. The partition used
-          # to walk an alphabetical list, which is duration-blind: on run
-          # 33914305535 that produced shard run times of 490/801/718/802s, a
-          # 1.64x spread, because one shard drew oauth2_rate_limiting_e2e_test
-          # (121s) plus a heavy tail. A lane costs whatever its slowest shard
-          # costs, so the imbalance spent the savings the rest of this step
-          # makes. LPT over the same files and the same measured weights packs
-          # every shard to 703s — a 1.00x spread, 99s off the critical path.
-          #
-          # The manifest supplies WEIGHTS ONLY. ALL_TESTS above is still the
-          # filesystem's answer, so a file the manifest does not name still runs;
-          # it is weighted at the manifest's p90 so a new test is never assumed
-          # free and never rides along on an already-full shard. A stale manifest
-          # costs balance, never coverage.
-          DURATIONS=.github/ci-postgres-test-durations.tsv
-          if [ ! -s "$DURATIONS" ]; then
-            echo "::error::$DURATIONS is missing or empty — refusing to pack shards on unknown weights."
-            exit 1
-          fi
-          # p90 is computed here rather than in the packing script: sorting an
-          # array needs gawk's asort, and the runner's awk is mawk, which does
-          # not have it. `sort -n` is portable and this runs once.
-          P90=$(
-            awk -F'\t' '!/^#/ && NF == 2 { print $2 }' "$DURATIONS" \
-              | sort -n \
-              | awk '{ v[NR] = $1 } END { if (NR == 0) { print 1 } else { i = int(0.9 * NR); if (i < 1) i = 1; print v[i] } }'
-          )
-          # Packed once, for every shard, so there is one implementation of the
-          # assignment rather than one per consumer. Output is "<shard>\t<file>".
-          # A suite of the shared `it` binary is a module, not a binary: it adds
-          # no build of its own, so only a top-level suite carries the per-file
-          # build cost below.
-          IT_SUITES="$RUNNER_TEMP/it-suites.txt"
-          scripts/ci/server-suites.sh list | awk -F'\t' '$2 == "it" { print $1 }' > "$IT_SUITES"
-          ASSIGNMENTS=$(
-            SHARDS="$SHARDS" DURATIONS="$DURATIONS" P90="$P90" IT_SUITES="$IT_SUITES" awk '
-              # A file costs its run time PLUS the build of its own binary. Packing
-              # on run time alone is what put 259 near-zero files on one shard in
-              # run 33917276134 and handed it 148s of extra compilation: fitting
-              # build(n) across the four shards of that run gives 212s + 0.608s per
-              # file, so every file carries a fixed 0.61s whatever it runs in.
-              function weight(n) { return ((n in w) ? w[n] : p90) + ((n in it) ? 0 : BUILD_PER_FILE) }
-              BEGIN {
-                shards = ENVIRON["SHARDS"] + 0
-                p90 = ENVIRON["P90"] + 0
-                BUILD_PER_FILE = 0.61
-                while ((getline line < ENVIRON["DURATIONS"]) > 0) {
-                  if (line ~ /^#/ || line == "") continue
-                  split(line, f, "\t")
-                  w[f[1]] = f[2] + 0
-                }
-                while ((getline line < ENVIRON["IT_SUITES"]) > 0) it[line] = 1
-              }
-              { name[NR] = $0 }
-              END {
-                # Heaviest first, ties broken by name, so the packing is
-                # deterministic: the same tree assigns the same files every run.
-                for (i = 1; i <= NR; i++) ord[i] = name[i]
-                for (i = 1; i <= NR; i++)
-                  for (j = i + 1; j <= NR; j++) {
-                    wi = weight(ord[i]); wj = weight(ord[j])
-                    if (wj > wi || (wj == wi && ord[j] < ord[i])) { t = ord[i]; ord[i] = ord[j]; ord[j] = t }
-                  }
-                for (b = 1; b <= shards; b++) load[b] = 0
-                for (i = 1; i <= NR; i++) {
-                  best = 1
-                  for (b = 2; b <= shards; b++) if (load[b] < load[best]) best = b
-                  load[best] += weight(ord[i])
-                  print best "\t" ord[i]
-                }
-              }
-            ' < <(printf '%s\n' "${ALL_TESTS[@]}")
-          )
-          # Fail closed: every file must land on exactly one shard. A packing bug
-          # that dropped one would otherwise report green over a test that never
-          # ran, which is the failure mode this lane exists to prevent.
-          ASSIGNED=$(printf '%s\n' "$ASSIGNMENTS" | grep -c . || true)
-          if [ "$ASSIGNED" -ne "${#ALL_TESTS[@]}" ]; then
-            echo "::error::shard packing assigned $ASSIGNED of ${#ALL_TESTS[@]} suites — refusing to report green over a suite that would not run."
-            exit 1
-          fi
-          mapfile -t SHARD_TESTS < <(printf '%s\n' "$ASSIGNMENTS" | awk -F'\t' -v s="$SHARD" '$1 == s { print $2 }' | sort)
-          echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of ${#ALL_TESTS[@]} suites ==="
+          PACK="$RUNNER_TEMP/pg-pack"
+          MAP="$PACK/test-binaries.tsv"
+          LANE="$(cat "$PACK/lane")"
+          TOTAL=$(grep -c . "$PACK/assignments.tsv" || true)
+          mapfile -t SHARD_TESTS < <(awk -F'\t' -v s="$SHARD" '$1 == s { print $2 }' "$PACK/assignments.tsv" | sort)
+          # refresh-pg-shard-weights.sh reads this header and the names after it.
+          echo "=== Shard $SHARD/$SHARDS ($LANE): ${#SHARD_TESTS[@]} of $TOTAL suites ==="
           if [ "${#SHARD_TESTS[@]}" -eq 0 ]; then
             echo "Fewer suites than shards; shard $SHARD has nothing to run."
             exit 0
           fi
           printf '  %s\n' "${SHARD_TESTS[@]}"
-          # A top-level suite is its own binary, named by `--test`; a suite of
-          # the `it` binary is a module, run through that one binary's filters.
-          SHARD_BINS=()
-          IT_MODULES=()
-          for suite in "${SHARD_TESTS[@]}"; do
-            if grep -qxF "$suite" "$IT_SUITES"; then
-              IT_MODULES+=("$suite")
-            else
-              SHARD_BINS+=("$suite")
-            fi
-          done
-          RUN_TESTS=("${SHARD_BINS[@]}")
-          # The shard's modules as libtest arguments: a `<module>::` filter each,
-          # and a --skip for every other module a filter would also match by
-          # substring, so a test runs on its own module's shard only.
-          IT_ARGS=()
-          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
-            # Gate on it-args' exit status: `mapfile < <(...)` would discard it.
-            if ! IT_ARG_LINES="$(scripts/ci/server-suites.sh it-args "${IT_MODULES[@]}")"; then
-              echo "::error::server-suites.sh it-args failed for ${IT_MODULES[*]}"
-              exit 1
-            fi
-            mapfile -t IT_ARGS <<< "$IT_ARG_LINES"
-            # Fewer arguments than modules would run the whole binary, or part
-            # of it, rather than this shard's share.
-            if [ "${#IT_ARGS[@]}" -lt "${#IT_MODULES[@]}" ]; then
-              echo "::error::server-suites.sh it-args returned ${#IT_ARGS[@]} arguments for ${#IT_MODULES[@]} modules — refusing to run the it binary unfiltered."
-              exit 1
-            fi
-          fi
-          DB_TESTS=()
-          DB_IT=0
-          PKGS=()
-          if [ "$SHARD" -eq 1 ]; then
-            # pierre-database's own suite carries the test-database factory's
-            # contract test — the one that proves a PostgreSQL DATABASE_URL
-            # yields PostgreSQL. It is the only crate suite outside
-            # pierre-server that opens a database, so it rides on shard 1
-            # rather than paying for a fifth service container — and it rides
-            # inside the shard's own build and run loop rather than in a
-            # `-p pierre-database` cargo invocation of its own.
-            #
-            # A lone `-p pierre-database --features postgresql` resolves a
-            # narrower feature graph than the shard build: 38 dependencies come
-            # out with fewer features — tokio without io-std/process/signal,
-            # reqwest without default-tls/h2/http2/stream, hyper without server,
-            # axum and tower-http bare, serde_json without preserve_order, uuid
-            # on v4 instead of v5, and pierre-core without billing/http-client/
-            # llm. A feature set is an input to a unit's -C metadata hash, so
-            # that invocation recompiled most of the tree into artifacts the
-            # shard build behind it could not reuse: 79 measured seconds on the
-            # shard that carries this lane's critical path. One shared package
-            # selection makes the two resolutions identical, so pierre-database's
-            # binaries link the artifacts the shard already needs.
-            #
-            # The selection names packages because a `--test` filter matches
-            # every selected package owning that target name, and smoke_test is
-            # owned by several crates. pierre-database's suites are modules of
-            # its own `it` binary, so `--test it` also builds pierre-server's
-            # and pierre-core's; the run below picks each by package, and
-            # pierre-core's suites are not this lane's, so its binary is built
-            # and never run. No top-level pierre-server suite name is owned by a
-            # crate outside these three, so the restriction drops no binary;
-            # the per-owner check below fails the shard if one ever does.
-            #
-            # A `--test` filter selects integration tests, so the crate's
-            # doctests run in ci-backend.yml's `cargo test --workspace --doc`
-            # job, which fires on every push and fails on a failed or an ignored
-            # doctest. No pierre-database doctest is gated on the postgresql
-            # feature, so that job covers the same set. pierre-database has no
-            # `#[cfg(test)]` in src/, so its lib target carries no unit tests.
-            PKGS=(-p pierre_mcp_server -p pierre-database -p pierre-core)
-            # That selection is only safe while no pierre-server test-file name
-            # is also owned by a crate outside it: such a name resolves to two
-            # binaries today and would resolve to one here, retiring the other
-            # copy from this lane with nothing going red. No name collides
-            # today; this asks the filesystem rather than trusting that. The
-            # pierre-database names are deliberately not checked — smoke_test is
-            # owned by several crates and resolving it to pierre-database's
-            # alone is the point of the selection.
-            mapfile -t FOREIGN_NAMES < <(
-              find crates -maxdepth 3 -path '*/tests/*.rs' -printf '%p\n' \
-                | grep -v -E '^crates/(pierre-server|pierre-database|pierre-core)/' \
-                | sed 's|.*/||; s|\.rs$||' \
-                | sort -u
-            )
-            COLLIDING=()
-            for foreign_name in "${FOREIGN_NAMES[@]}"; do
-              case " ${SHARD_BINS[*]} it " in
-                *" $foreign_name "*) COLLIDING+=("$foreign_name") ;;
-              esac
-            done
-            if [ "${#COLLIDING[@]}" -ne 0 ]; then
-              printf '::error::%s is a pierre-server test name also owned by a crate outside the -p selection; that crate copy would stop running on this shard. Add its package to PKGS.\n' "${COLLIDING[@]}"
-              exit 1
-            fi
-            # The crate's suites are modules of tests/it/main.rs; a suite that
-            # writes the process environment would be a top-level file beside it.
-            if [ ! -f crates/pierre-database/tests/it/main.rs ]; then
-              echo "::error::pierre-database has no tests/it/main.rs — refusing to report green."
-              exit 1
-            fi
-            DB_IT=1
-            mapfile -t DB_TESTS < <(
-              find crates/pierre-database/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
-                | sed 's/\.rs$//' \
-                | sort
-            )
-            echo "=== plus pierre-database: its it binary and ${#DB_TESTS[@]} top-level test files ==="
-            [ "${#DB_TESTS[@]}" -eq 0 ] || printf '  %s\n' "${DB_TESTS[@]}"
-            # A name in both crates' top-level suites would already be in
-            # SHARD_BINS. Listing it once keeps one --test flag per name; both
-            # crates' binaries are still built and both still run.
-            EXTRA_TESTS=()
-            for db_test in "${DB_TESTS[@]}"; do
-              case " ${SHARD_BINS[*]} " in
-                *" $db_test "*) ;;
-                *) EXTRA_TESTS+=("$db_test") ;;
-              esac
-            done
-            RUN_TESTS=("${EXTRA_TESTS[@]}" "${SHARD_BINS[@]}")
-          fi
-          echo "::group::build shard binaries"
-          TEST_ARGS=()
-          for test_file in "${RUN_TESTS[@]}"; do
-            TEST_ARGS+=(--test "$test_file")
-          done
-          if [ "${#IT_MODULES[@]}" -gt 0 ] || [ "$DB_IT" -eq 1 ]; then
-            TEST_ARGS+=(--test it)
-          fi
-          ARTIFACT_JSON="$RUNNER_TEMP/pg-shard-artifacts.json"
-          BINARY_MAP="$RUNNER_TEMP/pg-shard-binaries.tsv"
-          cargo test "${PKGS[@]}" --features postgresql --no-run \
-            --message-format=json-render-diagnostics "${TEST_ARGS[@]}" > "$ARTIFACT_JSON"
-          jq -R -r '
-            fromjson?
-            | select(.reason == "compiler-artifact" and .executable != null)
-            | select(.target.kind | index("test") != null)
-            | [.target.name, (.manifest_path | rtrimstr("/Cargo.toml")), .executable]
-            | @tsv
-          ' < "$ARTIFACT_JSON" > "$BINARY_MAP"
-          declare -A TEST_BINARIES=()
-          while IFS=$'\t' read -r target_name package_dir executable; do
-            TEST_BINARIES["$target_name"]+="${package_dir}"$'\t'"${executable}"$'\n'
-          done < "$BINARY_MAP"
-          echo "::endgroup::"
-          # Each selected file names a crate that must have produced a binary:
-          # the pierre-server files enumerated for this shard, and on shard 1 the
-          # pierre-database files enumerated above. A name resolving to the other
-          # crate's copy alone would otherwise report green over a file that
-          # never ran.
-          UNMAPPED=()
-          for test_file in "${SHARD_BINS[@]}"; do
-            case "${TEST_BINARIES[$test_file]:-}" in
-              *"/crates/pierre-server"$'\t'*) ;;
-              *) UNMAPPED+=("crates/pierre-server/tests/${test_file}.rs") ;;
-            esac
-          done
-          if [ "${#IT_MODULES[@]}" -gt 0 ]; then
-            case "${TEST_BINARIES[it]:-}" in
-              *"/crates/pierre-server"$'\t'*) ;;
-              *) UNMAPPED+=("crates/pierre-server/tests/it/main.rs") ;;
-            esac
-          fi
-          if [ "$DB_IT" -eq 1 ]; then
-            case "${TEST_BINARIES[it]:-}" in
-              *"/crates/pierre-database"$'\t'*) ;;
-              *) UNMAPPED+=("crates/pierre-database/tests/it/main.rs") ;;
-            esac
-          fi
-          for test_file in "${DB_TESTS[@]}"; do
-            case "${TEST_BINARIES[$test_file]:-}" in
-              *"/crates/pierre-database"$'\t'*) ;;
-              *) UNMAPPED+=("crates/pierre-database/tests/${test_file}.rs") ;;
-            esac
-          done
-          if [ "${#UNMAPPED[@]}" -ne 0 ]; then
-            printf '::error::no test binary was built for %s — refusing to report green over a test file that did not run.\n' "${UNMAPPED[@]}"
-            exit 1
-          fi
-          export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
           FAILED=0
-          for test_file in "${RUN_TESTS[@]}"; do
-            echo "::group::$test_file"
-            while IFS=$'\t' read -r package_dir executable; do
-              [ -n "$executable" ] || continue
-              echo "     Running ${package_dir#"$PWD"/}/tests/${test_file}.rs (${executable#"$PWD"/})"
-              if ! ( cd "$package_dir" && "$executable" --test-threads=4 ); then
-                echo "::error::PostgreSQL test file $test_file failed"
+          if [ "$SHARD" -eq 1 ]; then
+            mapfile -t DB_TESTS < "$PACK/db-tests.txt"
+            echo "=== plus pierre-database: its it binary and ${#DB_TESTS[@]} top-level test files ==="
+            # The crate's suites are modules of its own `it` binary, run whole:
+            # a server module filter would match none of them and exit 0.
+            echo "::group::pierre-database it"
+            if ! scripts/ci/test-binaries.sh run "$MAP" "$PWD/crates/pierre-database" it --test-threads=4; then
+              echo "::error::PostgreSQL suites in pierre-database's it binary failed or have no binary"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+            for test_file in "${DB_TESTS[@]}"; do
+              echo "::group::$test_file"
+              # Fails, naming the file, when the pack holds no pierre-database
+              # binary for it, rather than reporting green over a file that did
+              # not run.
+              if ! scripts/ci/test-binaries.sh run "$MAP" "$PWD/crates/pierre-database" "$test_file" --test-threads=4; then
+                echo "::error::PostgreSQL test file crates/pierre-database/tests/${test_file}.rs failed or has no binary"
                 FAILED=1
               fi
-            done <<< "${TEST_BINARIES[$test_file]}"
-            echo "::endgroup::"
-          done
-          # `--test it` built one `it` binary per selected package, so each row
-          # is run by its package: pierre-server's through this shard's module
-          # filters, pierre-database's whole. A filter never reaches another
-          # crate's binary, where matching nothing would exit 0 having run
-          # nothing. pierre-core's binary is built by the same `--test it` and
-          # is not this lane's to run.
-          if [ "${#IT_MODULES[@]}" -gt 0 ] || [ "$DB_IT" -eq 1 ]; then
-            while IFS=$'\t' read -r package_dir executable; do
-              [ -n "$executable" ] || continue
-              case "$package_dir" in
-                */crates/pierre-server)
-                  [ "${#IT_MODULES[@]}" -gt 0 ] || continue
-                  echo "::group::it (${#IT_MODULES[@]} suites)"
-                  echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
-                  if ! ( cd "$package_dir" && "$executable" --test-threads=4 "${IT_ARGS[@]}" ); then
-                    echo "::error::PostgreSQL suites in the it binary failed"
-                    FAILED=1
-                  fi
-                  echo "::endgroup::"
-                  ;;
-                */crates/pierre-database)
-                  [ "$DB_IT" -eq 1 ] || continue
-                  echo "::group::pierre-database it"
-                  echo "     Running ${package_dir#"$PWD"/}/tests/it/main.rs (${executable#"$PWD"/})"
-                  if ! ( cd "$package_dir" && "$executable" --test-threads=4 ); then
-                    echo "::error::PostgreSQL suites in pierre-database's it binary failed"
-                    FAILED=1
-                  fi
-                  echo "::endgroup::"
-                  ;;
-              esac
-            done <<< "${TEST_BINARIES[it]}"
+              echo "::endgroup::"
+            done
+          fi
+          if ! scripts/ci/server-suites.sh run --binaries "$MAP" "${SHARD_TESTS[@]}"; then
+            FAILED=1
           fi
           exit $FAILED
-        timeout-minutes: 75
+        timeout-minutes: 30
         env:
           DATABASE_URL: "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server"
           PIERRE_TEST_REQUIRE_POSTGRES: "1"

@@ -1,9 +1,16 @@
-# ABOUTME: Main backend CI pipeline — the fast gate (fmt + architecture) on every push; per-crate clippy, full clippy, audit and doc-tests on every push that touches a Rust input.
-# ABOUTME: SQLite shards (backend-tests) are cron-only; per-push DB coverage is ci-postgres.yml and per-push leaf-crate tests run here (leaf-crate-tests).
+# ABOUTME: Main backend CI pipeline — the fast gate (fmt + architecture) on every push; per-crate clippy, full clippy, audit and the dev-profile tests on every push that touches a Rust input.
+# ABOUTME: SQLite shards (backend-tests) run on the cron or a dispatch that asks for them; per-push DB coverage is ci-postgres.yml and per-push leaf-crate tests run here (leaf-crate-tests).
 name: "CI: Backend (Rust)"
 
 on:
   workflow_dispatch:
+    inputs:
+      # The bump gates dispatch this workflow with no inputs, so they never
+      # pay for the SQLite shards (carnet#1114); a person can still ask.
+      sqlite-shards:
+        description: Also run the SQLite shards (the daily cron runs them)
+        type: boolean
+        default: false
   push:
     branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
@@ -216,12 +223,13 @@ jobs:
   #   preflight-clippy     — per-crate clippy on changed leaf crates (~3-5 min)
   #   clippy               — full-workspace clippy (~10-12 min, gates release-binary)
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
-  #   doc-tests            — cargo test --doc + telemetry-feature tests (~5 min)
-  #   contremaitre-sync    — the 4 platform<->contremaitre coupling tests (~5 min)
+  #   dev-tests            — one dev-profile compile for the doctests + telemetry-feature tests,
+  #                          the 4 platform<->contremaitre coupling tests and the pierre-server
+  #                          test files THIS push touched (~10-12 min)
   #   feature-profiles     — the 2-profile server feature matrix: production clippy + no-default-features check (~5 min)
-  #   backend-tests        — SQLite shards, cron only
+  #   backend-test-binaries, backend-tests
+  #                        — SQLite shards, cron (or a dispatch asking for them): one build, four shards running its binaries
   #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir and unit tests, plus pierre-server's unit tests, per push
-  #   changed-server-tests — the pierre-server test files THIS push touched
   # PHASE 1: release-binary (depends on clippy; main, or a branch push that
   #          touches a link input; main pushes upload the binaries the image ships)
   #
@@ -414,7 +422,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -435,6 +443,7 @@ jobs:
           ./scripts/ci/tunnel-env-lib.test.sh
           ./scripts/ci/pre-push-validate.test.sh
           ./scripts/ci/server-suites.test.sh
+          ./scripts/ci/test-binaries.test.sh
           ./scripts/ci/ci-verdict.test.sh
           ./scripts/ci/sync-contremaitre-fallback.test.sh
           ./scripts/ci/check-deploy-ancestry.test.sh
@@ -764,9 +773,17 @@ jobs:
           fi
           ./scripts/ci/check-lockfile-duplicates.sh
 
-  doc-tests:
-    name: Doc Tests
-    timeout-minutes: 40  # compiles every crate's doc tests
+  # The three dev-profile test jobs, merged into one that compiles once
+  # (carnet#1115): the doctests, the platform<->contremaitre coupling suites
+  # and this push's server test files. They share the profile, the features
+  # and the restore-only test-dev cache, so as three jobs they compiled the
+  # same tree three times and held three runners; merged they take about as
+  # long as the slowest of them did, still under leaf-crate-tests, so the
+  # critical path does not move. Each test step runs whenever setup worked,
+  # so a red doctest still reports the coupling and changed-file verdicts.
+  dev-tests:
+    name: Dev Tests (doctests, coupling, this push's files)
+    timeout-minutes: 60  # the 45-min changed-files step plus build; the step bound cannot catch a hang before it
     runs-on: ubuntu-latest
     needs: [fast-gate, detect-changes]
     if: needs.detect-changes.outputs.rust == 'true'
@@ -774,14 +791,83 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 50
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      # The pierre-server test files THIS push added or edited, run at the end
+      # of this job. The full server suite runs per-push on main, feature(s)/*
+      # and claude/* (ci-postgres) and in coverage; a fix/debug/copilot push
+      # runs only the PG smoke besides this, and even on main a file broken at
+      # birth used to be reported an hour later. This closes the
+      # landed-already-red class (ffbd9889b: a reconnect test red from the
+      # moment it landed, every lane green): whatever server test files the
+      # push touches run here, on SQLite, within minutes. It cannot catch the
+      # OTHER class from 2026-08-30 — two individually green commits whose
+      # combination no run ever saw — that one is caught by validating against
+      # current main at land time, not by any per-push job.
+      #
+      # A push runs the test files it added or edited: resolve-push-base.sh in
+      # `before` mode, where a branch's first push (all-zero before-sha) means
+      # every test file the branch changed since it forked from main, and a
+      # failed fork-point lookup fails the step. A pull request's synchronize
+      # diffs from the event's before-sha; no usable base runs the tip
+      # commit's files, as suites, on SQLite.
+      #
+      # A push that changes server code instead (a crate in pierre_mcp_server's
+      # dependency closure, a migration, the lockfile) touches no test file, so
+      # this runs nothing for it; ci-postgres.yml's lane step reads
+      # `server-suites.sh changed-targets` and runs the full suite for such a
+      # push on every ref. The whole suite does not fit one runner's 45-minute
+      # step bound — the PostgreSQL lane packs it into four ~703s shards.
+      - name: Detect changed test files
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSHED_REF: ${{ github.ref }}
+        run: |
+          if [ "$EVENT_NAME" = push ]; then
+            code=0
+            BEFORE="$(./scripts/ci/resolve-push-base.sh before)" || code=$?
+            case "$code" in
+              0) ;;
+              1) BEFORE="" ;;
+              *) echo "::error::resolve-push-base.sh failed (exit $code)"; exit "$code" ;;
+            esac
+          fi
+          if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
+            BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
+          fi
+          if [ -z "$BEFORE" ]; then
+            echo "files=" >> "$GITHUB_OUTPUT"
+            echo "No base to diff against; nothing to run."
+            exit 0
+          fi
+          # Gate on git diff's exit status: piped into the greps, a failed diff
+          # would read as a push that touched no test file.
+          if ! DIFF="$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'crates/pierre-server/tests/*.rs' 'crates/pierre-server/tests/it/*.rs')"; then
+            echo "::error::git diff $BEFORE ${{ github.sha }} failed — refusing to run no test files on an unread diff"
+            exit 1
+          fi
+          FILES="$(printf '%s\n' "$DIFF" \
+            | grep -E '^crates/pierre-server/tests/(it/)?[^/]+\.rs$' \
+            | grep -v -E '/(common|main)\.rs$' || true)"
+          echo "Changed server test files:"
+          printf '  %s\n' $FILES
+          {
+            echo "files<<EOF"
+            echo "$FILES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Setup Rust environment
+        id: rust
         uses: ./.github/actions/rust-setup
         with:
-          # The dev-profile test cache backend-tests saves; restored only.
+          # The dev-profile test cache backend-test-binaries saves; restored only.
           shared-key: test-dev
           cache-save: 'false'
 
@@ -795,6 +881,7 @@ jobs:
       # doctests. It also lacked --workspace, so crates outside the default
       # members were never reached at all.
       - name: Doc tests
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         run: |
           echo "Running workspace doctests..."
           set +e
@@ -832,45 +919,71 @@ jobs:
       # feature-gated integration tests (traceparent injection on the shared
       # HTTP clients, OTLP pipeline activation contract) only execute here.
       - name: Telemetry feature tests
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         run: |
           cargo test -p pierre-core --features telemetry --test it trace_propagation_test::
           cargo test -p pierre-logging --features telemetry --test otel_pipeline_test
 
-  # The tests policing platform<->contremaitre coupling (tool list, notify
-  # catalogue, messaging locales) used to run ONLY in the full suite — cron
-  # SQLite shards, full-on-main ci-postgres, coverage. Since features merge by
-  # local squash with no PR, the branch never executed them: drift false-greened
-  # the branch and red main post-merge. Running the four suites on every push
-  # moves that verdict before the merge. Four suites filtered out of the one
-  # `it` binary, not the whole suite, and it runs alongside the ~10-12 min clippy job, so it costs no critical path.
-  contremaitre-sync:
-    name: Contremaitre Coupling Tests
-    timeout-minutes: 20  # four catalogue tests, ~5 min
-    runs-on: ubuntu-latest
-    needs: [fast-gate, detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
-        with:
-          # The dev-profile test cache backend-tests saves; restored only.
-          shared-key: test-dev
-          cache-save: 'false'
-
+      # The tests policing platform<->contremaitre coupling (tool list, notify
+      # catalogue, messaging locales) used to run ONLY in the full suite — cron
+      # SQLite shards, full-on-main ci-postgres, coverage. Since features merge
+      # by local squash with no PR, the branch never executed them: drift
+      # false-greened the branch and red main post-merge. Running the four
+      # suites on every push moves that verdict before the merge: four suites
+      # filtered out of the one `it` binary, not the whole suite.
       - name: Coupling tests (tool list, notify catalogue, locales)
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         run: |
           scripts/ci/server-suites.sh run \
             contremaitre_test \
             notify_catalogue_test \
             messaging_locale_test \
             configuration_mcp_integration_test
+        env:
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      - name: Setup Node.js (for SDK E2E tests runtime)
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' && steps.changed.outputs.files != '' }}
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun (for SDK build)
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' && steps.changed.outputs.files != '' }}
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Build MCP SDK (required for E2E tests)
+        id: sdk
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' && steps.changed.outputs.files != '' }}
+        working-directory: sdk
+        # --ignore-scripts: sdk/package.json's `prepare` runs this same build
+        # as the last phase of `bun install`, so without it the SDK builds
+        # twice per job (carnet#161). Full rationale in cross-platform.yml.
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run build
+
+      - name: Run this push's test files
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' }}
+        run: |
+          mapfile -t CHANGED < <(grep -v '^$' <<< "${{ steps.changed.outputs.files }}")
+          scripts/ci/server-suites.sh run "${CHANGED[@]}"
+        timeout-minutes: 45
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -965,22 +1078,24 @@ jobs:
         env:
           CARGO_BUILD_WARNINGS: deny
 
-  backend-tests:
-    name: Backend Tests (SQLite ${{ matrix.shard }}/4)
-    timeout-minutes: 90  # one SQLite shard of the full suite (cron only)
+  # The SQLite shards' binaries, built once and downloaded by all four, as in
+  # ci-postgres.yml (carnet#1115): each shard used to compile the whole tree
+  # itself. The same `cargo test --test ...` from the workspace root that
+  # `server-suites.sh run` used to run on every shard, so the features resolve
+  # as they did.
+  backend-test-binaries:
+    name: Build Test Binaries (SQLite)
+    timeout-minutes: 60  # a cold build takes 6-7 minutes
     runs-on: ubuntu-latest
     needs: fast-gate
-    # SQLite shards run on the daily cron (08:11 UTC) only. Per-push coverage
-    # comes from PostgreSQL via ci-postgres.yml, which is what production runs;
-    # SQLite is a compatibility check that doesn't need to gate a commit. A
-    # dispatch no longer runs them either: the contremaitre, satellite and
-    # tronc bump gates dispatch this workflow for every bump, and their shards
-    # cost 184 job-hours over Oct 7-20 against 31 for the cron (carnet#1114).
-    if: github.event_name == 'schedule'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
+    # SQLite shards run on the daily cron (08:11 UTC), never on a push.
+    # Per-push coverage comes from PostgreSQL via ci-postgres.yml, which is
+    # what production runs; SQLite is a compatibility check that doesn't need
+    # to gate a commit. A dispatch runs them only when asked
+    # (`sqlite-shards`): the contremaitre, satellite and tronc bump gates
+    # dispatch this workflow for every bump, and their shards cost 184
+    # job-hours over Oct 7-20 against 31 for the cron (carnet#1114).
+    if: github.event_name == 'schedule' || inputs.sqlite-shards
 
     steps:
       - name: Checkout code
@@ -993,12 +1108,77 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           free-disk-space: 'true'
-          # The one dev-profile test cache doc-tests, contremaitre-sync and
-          # changed-server-tests restore. Shard 1 of this daily run is its only
-          # producer: the shards build the same dependencies, and Swatinem keeps
-          # dependencies only, never the workspace's test binaries.
+          # The one dev-profile test cache dev-tests restores. This job is its
+          # only producer; Swatinem keeps dependencies only, never the
+          # workspace's test binaries.
           shared-key: test-dev
-          cache-save: ${{ matrix.shard == 1 && 'auto' || 'false' }}
+
+      - name: Build the suite's test binaries
+        run: |
+          # Gate on list's exit status: `mapfile < <(...)` would discard it.
+          if ! LISTING="$(scripts/ci/server-suites.sh list)"; then
+            echo "::error::server-suites.sh list failed"
+            exit 1
+          fi
+          mapfile -t ALL_TESTS < <(cut -f1 <<< "$LISTING" | grep -v 'database_plugins_postgresql_test')
+          if [ "${#ALL_TESTS[@]}" -eq 0 ]; then
+            echo "::error::no server suites listed — refusing to report green."
+            exit 1
+          fi
+          if ! TARGETS="$(scripts/ci/server-suites.sh targets "${ALL_TESTS[@]}")"; then
+            echo "::error::server-suites.sh targets failed"
+            exit 1
+          fi
+          TEST_ARGS=()
+          while IFS= read -r target; do
+            TEST_ARGS+=(--test "$target")
+          done <<< "$TARGETS"
+          # Every crate's suites are one binary named `it`, so `--test it` from
+          # the root builds them all; the shards run pierre-server's alone (the
+          # leaf crates' run in leaf-crate-tests), so only those are packed.
+          scripts/ci/test-binaries.sh build "$RUNNER_TEMP/sqlite-pack" --keep crates/pierre-server "${TEST_ARGS[@]}"
+
+      - name: Upload the suite's test binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-test-binaries
+          # zstd already compressed the archives; zipping them again only costs time.
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+          # A re-run attempt sees the first attempt's artifact of this name in
+          # the same run, and without this the upload fails on it, as the
+          # server-binaries upload below records. It replaces the same
+          # commit's binaries.
+          overwrite: true
+          path: |
+            ${{ runner.temp }}/sqlite-pack/test-binaries.tsv
+            ${{ runner.temp }}/sqlite-pack/workspace
+            ${{ runner.temp }}/sqlite-pack/binaries.tar.zst
+            ${{ runner.temp }}/sqlite-pack/cargo-git.tar.zst
+
+  backend-tests:
+    name: Backend Tests (SQLite ${{ matrix.shard }}/4)
+    timeout-minutes: 45  # one SQLite shard of the full suite, from prebuilt binaries
+    runs-on: ubuntu-latest
+    needs: backend-test-binaries
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Download the suite's test binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: sqlite-test-binaries
+          path: ${{ runner.temp }}/sqlite-pack
+
+      - name: Unpack the suite's test binaries
+        run: scripts/ci/test-binaries.sh unpack "$RUNNER_TEMP/sqlite-pack"
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v7
@@ -1045,7 +1225,7 @@ jobs:
           printf '  %s\n' "${SHARD_TESTS[@]}"
           echo ""
 
-          scripts/ci/server-suites.sh run "${SHARD_TESTS[@]}"
+          scripts/ci/server-suites.sh run --binaries "$RUNNER_TEMP/sqlite-pack/test-binaries.tsv" "${SHARD_TESTS[@]}"
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
@@ -1177,134 +1357,6 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_RSA_KEY_SIZE: "2048"
 
-  # The pierre-server test files THIS push added or edited, run immediately.
-  # The full server suite runs per-push on main, feature(s)/* and
-  # claude/* (ci-postgres) and in coverage; a fix/debug/copilot push runs only
-  # the PG smoke besides this job, and even on main a file broken at birth
-  # used to be reported an hour later. This job closes the
-  # landed-already-red class (ffbd9889b: a reconnect test red from the moment
-  # it landed, every lane green): whatever server test files the push touches
-  # run here, on SQLite, within minutes. A push touching none skips free.
-  # It cannot catch the OTHER class from 2026-08-30 — two individually green
-  # commits whose combination no run ever saw — that one is caught by
-  # validating against current main at land time, not by any per-push job.
-  changed-server-tests:
-    name: Changed Server Tests (this push's files)
-    timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
-    runs-on: ubuntu-latest
-    needs: [fast-gate, detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 50
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      # A push runs the test files it added or edited: resolve-push-base.sh in
-      # `before` mode, where a branch's first push (all-zero before-sha) means
-      # every test file the branch changed since it forked from main, and a
-      # failed fork-point lookup fails the step. A pull request's synchronize
-      # diffs from the event's before-sha; no usable base runs the tip
-      # commit's files, as suites, on SQLite.
-      #
-      # A push that changes server code instead (a crate in pierre_mcp_server's
-      # dependency closure, a migration, the lockfile) touches no test file, so
-      # this job runs nothing for it; ci-postgres.yml's lane step reads
-      # `server-suites.sh changed-targets` and runs the full suite for such a
-      # push on every ref. The whole suite does not fit one runner's 45-minute
-      # step bound — the PostgreSQL lane packs it into four ~703s shards.
-      - name: Detect changed test files
-        id: changed
-        env:
-          BEFORE: ${{ github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
-          PUSHED_REF: ${{ github.ref }}
-        run: |
-          if [ "$EVENT_NAME" = push ]; then
-            code=0
-            BEFORE="$(./scripts/ci/resolve-push-base.sh before)" || code=$?
-            case "$code" in
-              0) ;;
-              1) BEFORE="" ;;
-              *) echo "::error::resolve-push-base.sh failed (exit $code)"; exit "$code" ;;
-            esac
-          fi
-          if [ -z "$BEFORE" ] || ! git rev-parse --verify --quiet "$BEFORE^{commit}" >/dev/null 2>&1; then
-            BEFORE="$(git rev-parse HEAD~1 2>/dev/null || echo "")"
-          fi
-          if [ -z "$BEFORE" ]; then
-            echo "files=" >> "$GITHUB_OUTPUT"
-            echo "No base to diff against; nothing to run."
-            exit 0
-          fi
-          FILES="$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'crates/pierre-server/tests/*.rs' 'crates/pierre-server/tests/it/*.rs' \
-            | grep -E '^crates/pierre-server/tests/(it/)?[^/]+\.rs$' \
-            | grep -v -E '/(common|main)\.rs$' || true)"
-          echo "Changed server test files:"
-          printf '  %s\n' $FILES
-          {
-            echo "files<<EOF"
-            echo "$FILES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Setup Rust environment
-        if: steps.changed.outputs.files != ''
-        uses: ./.github/actions/rust-setup
-        with:
-          free-disk-space: 'true'
-          # The dev-profile test cache backend-tests saves; restored only.
-          shared-key: test-dev
-          cache-save: 'false'
-
-      - name: Setup Node.js (for SDK E2E tests runtime)
-        if: steps.changed.outputs.files != ''
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-
-      - name: Setup Bun (for SDK build)
-        if: steps.changed.outputs.files != ''
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.4"
-
-      - name: Build MCP SDK (required for E2E tests)
-        if: steps.changed.outputs.files != ''
-        working-directory: sdk
-        # --ignore-scripts: sdk/package.json's `prepare` runs this same build
-        # as the last phase of `bun install`, so without it the SDK builds
-        # twice per job (carnet#161). Full rationale in cross-platform.yml.
-        run: |
-          bun install --frozen-lockfile --ignore-scripts
-          bun run build
-
-      - name: Run this push's test files
-        if: steps.changed.outputs.files != ''
-        run: |
-          mapfile -t CHANGED < <(grep -v '^$' <<< "${{ steps.changed.outputs.files }}")
-          scripts/ci/server-suites.sh run "${CHANGED[@]}"
-        timeout-minutes: 45
-        env:
-          DATABASE_URL: "sqlite::memory:"
-          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-          PIERRE_RSA_KEY_SIZE: "2048"
-          STRAVA_CLIENT_ID: "test_client_id_ci"
-          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
-          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
-
   # ============================================================================
   # PHASE 2: Release binary — gates on clippy; on a main push, uploads the
   # binaries publish-images.yml ships
@@ -1317,7 +1369,7 @@ jobs:
     needs: [clippy, detect-changes]
     # Main builds it whenever a Rust input changed: it ships. A branch builds
     # it only when the push can change how it links (release-worthy in
-    # .github/actions/ci-backend-changes); integration-tests sizes the thin
+    # .github/actions/ci-backend-changes); server-e2e sizes the thin
     # binary on every other branch push. A push no Rust input touches skips it
     # on main too, and publish-images then builds the binaries itself.
     if: >-
@@ -1405,7 +1457,7 @@ jobs:
           # inside the band), and scripts/ci/architectural-validation.sh
           # fails on it instead.
           #
-          # integration-tests.yml checks the thin binary against this ceiling
+          # server-e2e.yml checks the thin binary against this ceiling
           # scaled to that build (139), so a branch push that skips this job
           # is still sized against it. Move both together.
           MAX_SIZE_MB=115

@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { findPierreCli } = require('./server');
 
 /**
  * Generate a valid JWT token for testing
@@ -68,12 +69,13 @@ async function createTestUser(options = {}) {
     const name = options.name || 'Test User';
 
     const projectRoot = path.join(__dirname, '../../..');
-    const binaryPath = path.join(projectRoot, 'target/debug/pierre-cli');
+    let binaryPath = findPierreCli();
 
-    // Check if binary exists, build if not
-    if (!fs.existsSync(binaryPath)) {
+    // Build one only when none exists
+    if (!binaryPath) {
         console.log('Building pierre-cli binary...');
         await runCommand('cargo', ['build', '--bin', 'pierre-cli'], { cwd: projectRoot });
+        binaryPath = path.join(projectRoot, 'target/debug/pierre-cli');
     }
 
     const env = {

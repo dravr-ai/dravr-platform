@@ -33,6 +33,14 @@
 #                                         run them: each top-level suite as its own
 #                                         binary, every `it` module in one `--test it`
 #                                         run filtered by `<module>::`
+#   server-suites.sh run --binaries <map> [--threads N] <suite>...
+#                                         the same runs, from binaries a build job
+#                                         already made: <map> is test-binaries.sh's
+#                                         "<target>\t<package dir>\t<executable>",
+#                                         and each suite execs pierre-server's binary
+#                                         of that target from pierre-server's
+#                                         directory, as cargo would. A suite with no
+#                                         such binary fails rather than passing unrun
 #
 # A suite may be given as a name or as a path to its file. An unknown suite is
 # an error: a caller that names a suite expects it to run.
@@ -67,7 +75,8 @@
 
 set -euo pipefail
 
-ROOT="${SERVER_SUITES_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${SERVER_SUITES_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 TESTS="$ROOT/crates/pierre-server/tests"
 
 die() {
@@ -281,17 +290,33 @@ for other in everyone:
 ' "${modules[@]}"
 }
 
+# Execs pierre-server's binaries of <target> from <map>, with the remaining
+# arguments, through the one runner test-binaries.sh keeps for every lane that
+# runs prebuilt binaries. From the workspace root, so its `Running` line names
+# the source as cargo does; <map> is absolute by then.
+run_prebuilt() {
+    local map="$1" target="$2"
+    shift 2
+    (cd "$ROOT" && "$SCRIPT_DIR/test-binaries.sh" run "$map" "$ROOT/crates/pierre-server" "$target" "$@")
+}
+
 run() {
-    local threads=4
+    local threads=4 binaries=""
     local suites=() cargo_args=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --threads) threads="$2"; shift 2 ;;
+            --binaries) binaries="$2"; shift 2 ;;
             --) shift; cargo_args=("$@"); break ;;
             *) suites+=("$1"); shift ;;
         esac
     done
     [ "${#suites[@]}" -gt 0 ] || die "run: no suites named"
+    if [ -n "$binaries" ]; then
+        [ -s "$binaries" ] || die "run: --binaries $binaries is missing or empty"
+        [ "${#cargo_args[@]}" -eq 0 ] || die "run: cargo arguments mean nothing to prebuilt binaries"
+        binaries="$(cd "$(dirname "$binaries")" && pwd)/$(basename "$binaries")"
+    fi
 
     local bins=() modules=() filters=() suite name
     for suite in "${suites[@]}"; do
@@ -306,7 +331,12 @@ run() {
     local failed=0
     for name in "${bins[@]+"${bins[@]}"}"; do
         group "$name"
-        if ! cargo test "${cargo_args[@]+"${cargo_args[@]}"}" --test "$name" -- --test-threads="$threads"; then
+        if [ -n "$binaries" ]; then
+            if ! run_prebuilt "$binaries" "$name" --test-threads="$threads"; then
+                report "suite $name failed"
+                failed=1
+            fi
+        elif ! cargo test "${cargo_args[@]+"${cargo_args[@]}"}" --test "$name" -- --test-threads="$threads"; then
             report "suite $name failed"
             failed=1
         fi
@@ -319,7 +349,12 @@ run() {
         filter_lines="$(it_args "${modules[@]}")" || die "it-args failed for: ${modules[*]}"
         mapfile -t filters <<< "$filter_lines"
         group "it (${#modules[@]} suites)"
-        if ! cargo test "${cargo_args[@]+"${cargo_args[@]}"}" --test it -- --test-threads="$threads" "${filters[@]}"; then
+        if [ -n "$binaries" ]; then
+            if ! run_prebuilt "$binaries" it --test-threads="$threads" "${filters[@]}"; then
+                report "a suite in the it binary failed: ${filters[*]}"
+                failed=1
+            fi
+        elif ! cargo test "${cargo_args[@]+"${cargo_args[@]}"}" --test it -- --test-threads="$threads" "${filters[@]}"; then
             report "a suite in the it binary failed: ${filters[*]}"
             failed=1
         fi
@@ -344,5 +379,5 @@ case "$command" in
     changed-targets) changed_targets "$@" ;;
     it-args) it_args "$@" ;;
     run) run "$@" ;;
-    *) die "usage: server-suites.sh list | targets <suite>... | changed-targets [--edited-only] < paths | it-args <module>... | run [--threads N] <suite>... [-- <cargo args>]" ;;
+    *) die "usage: server-suites.sh list | targets <suite>... | changed-targets [--edited-only] < paths | it-args <module>... | run [--binaries <map>] [--threads N] <suite>... [-- <cargo args>]" ;;
 esac

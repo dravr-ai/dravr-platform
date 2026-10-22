@@ -8,7 +8,7 @@
 # ---------------
 # The integration tests that police platform<->contremaitre coupling
 # (contremaitre_test, notify_catalogue_test, messaging_locale_test) live in
-# pierre-server/tests. They are also wired into the per-push `contremaitre-sync`
+# pierre-server/tests. They are also wired into the per-push `dev-tests`
 # job in ci-backend.yml, but that job costs a Rust compile; this script is the
 # grep-only pre-push tier that catches the same drift in seconds, before the
 # push, with no compile at all.
@@ -23,7 +23,7 @@
 #   3. MCP tool list — the tool names in src match all three of their mirrors:
 #      EXPECTED_TOOLS (contremaitre_test), the hardcoded count assertion
 #      (configuration_mcp_integration_test), and the generated TS SDK types
-#      (packages/mcp-types/src/tools.ts, whose staleness reds CI: TypeScript SDK).
+#      (packages/mcp-types/src/tools.ts, whose staleness reds CI: Server E2E's SDK Types Up-to-Date).
 #   4. Framing — the shipped tool descriptions and coach prompts carry no
 #      retired ACWR-as-injury-risk or absolute-TSB framing.
 #   5. Tool overlays — every tools/<name>.yaml in the pinned rev names a tool the
@@ -384,7 +384,7 @@ else
             TOOL_DRIFT=true
         fi
 
-        # 3c. generated TS SDK types — stale types red CI: TypeScript SDK
+        # 3c. generated TS SDK types — stale types red CI: Server E2E (SDK Types Up-to-Date)
         if [[ ! -f "$TS_FILE" ]]; then
             echo -e "${RED}❌ ${TS_FILE} not found — this check is stale.${NC}"
             TOOL_DRIFT=true

@@ -37,7 +37,7 @@
 # Exit 1, printing nothing, when the event names no base and HEAD and main
 # share no commit within 200 of either: an honest "no base". What to do then
 # is the caller's call: fast-gate fails, Merge-Risk skips, preflight-clippy and
-# changed-server-tests use the tip commit.
+# dev-tests use the tip commit.
 # Exit 3 when the fork point could not be looked for at all (a fetch failed,
 # the repository is broken). That is a crash, not an answer, so a caller that
 # skips on exit 1 must not skip on it. Exit 2 is a usage error.

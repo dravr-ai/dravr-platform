@@ -86,7 +86,7 @@ jobs:
     uses: dravr-ai/dravr-tronc/.github/workflows/consumer-bump.yml@main
     with:
       version: ${{ github.event.client_payload.version || inputs.version || '' }}
-      ci_workflows: "ci-backend.yml ci-postgres.yml integration-tests.yml"
+      ci_workflows: "ci-backend.yml ci-postgres.yml server-e2e.yml"
       # Run time once every gate has started, and a dispatched ci-backend's jobs
       # still queue inside it: on a busy fleet it ran 67 min wall-clock and went
       # green 88 s after a 45-min budget expired (run 38598939512, carnet#1016).

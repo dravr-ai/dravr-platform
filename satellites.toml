@@ -41,7 +41,7 @@
 #                     suppressed its drift, while nothing moved it at all.
 
 [gates]
-backend  = "ci-backend.yml ci-postgres.yml integration-tests.yml"
+backend  = "ci-backend.yml ci-postgres.yml server-e2e.yml"
 frontend = "frontend-tests.yml"
 
 # ---------------------------------------------------------------------------

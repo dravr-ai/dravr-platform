@@ -93,12 +93,16 @@ DEPENDENCY_SLACK_SECONDS = 3
 
 BACKEND = "CI: Backend (Rust)"
 # h.py: the workflows whose last completion is main's verdict on a push.
+# "CI: Server E2E" replaced Integration, TypeScript SDK and MCP Protocol
+# Compliance on 2026-10-21 (carnet#1115); the old names stay so a window that
+# spans the change still counts the runs made before it.
 VERDICT_CI = frozenset(
     {
         "CI: Backend (Rust)",
         "CI: Backend (PostgreSQL)",
         "CI: Integration (HTTP/MCP)",
         "CI: TypeScript SDK",
+        "CI: Server E2E",
         "CI: Web Frontend",
         "CI: Mobile Unit",
         "CI: Backend (Redis)",
@@ -116,6 +120,7 @@ WAIT_WORKFLOWS = (
     "CI: Web Frontend",
     "CI: TypeScript SDK",
     "CI: Integration (HTTP/MCP)",
+    "CI: Server E2E",
     "CI: Mobile E2E (Android)",
     "Deploy (sha)",
 )

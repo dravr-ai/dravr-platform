@@ -280,7 +280,7 @@ echo ""
 # ============================================================================
 # Makes the three platform<->contremaitre drifts (messaging locale completeness,
 # notify-event catalogue, MCP tool list) PREVENTIVE at pre-push. The same
-# coupling is tested for real by the contremaitre-sync CI job, but that costs a
+# coupling is tested for real by the dev-tests CI job, but that costs a
 # Rust compile; this tier is the seconds-long grep that runs before the push.
 # Also fires on packages/mcp-types changes, since the tool check reads the
 # generated SDK types, and on the string catalogue itself: a JSON-only push
@@ -847,10 +847,10 @@ echo ""
 #
 #   - preflight-clippy   — per-crate clippy on changed leaf crates (3–5 min)
 #   - clippy             — full-workspace clippy (10–12 min)
-#   - backend-tests      — SQLite shards (cron only)
+#   - backend-tests      — SQLite shards (cron, or a dispatch asking for them)
 #
 # CI now also runs PostgreSQL integration tests (ci-postgres.yml) and HTTP/MCP
-# integration tests (integration-tests.yml) on every push, so the previous
+# integration tests (server-e2e.yml) on every push, so the previous
 # "targeted tests" local gate is redundant.
 #
 # The Agent MUST monitor CI on every push and not consider work complete until

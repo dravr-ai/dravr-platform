@@ -1,0 +1,869 @@
+# ABOUTME: Every lane that drives a running server, from one thin-release build: Playwright integration and e2e-real, MCP compliance, the SDK suite and its type-drift check, the examples smoke.
+# ABOUTME: Each lane runs on its own path filter; a dispatch runs every push lane, the nightly cron runs MCP compliance and the examples smoke.
+name: "CI: Server E2E"
+
+# These lanes were four workflows until carnet#1115 — integration-tests.yml,
+# mcp-compliance.yml, sdk-tests.yml and examples-validation.yml's smoke job —
+# and between them they built the server five times a push: a thin release
+# twice, a debug build twice and one more release in the nightly smoke. One
+# job builds it here and the lanes download it. The SDK lanes ran a debug
+# build before, so debug assertions are off there now; that was accepted.
+#
+# The trigger is the union of the four old filters, so no lane lost a trigger,
+# and the `changes` job below holds each lane to its own filter. On a branch
+# push that filter reads the branch's changes since it left main, as
+# ci-backend-changes does, so a lane also runs on a later push of a branch that
+# touched its paths earlier.
+on:
+  push:
+    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
+    paths:
+      - 'crates/**'
+      - 'frontend/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'migrations/**'
+      - 'sdk/**'
+      - 'packages/mcp-types/**'
+      - 'packages/eslint-config-pierre/testing/**'
+      - 'scripts/ci/ensure-mcp-compliance.sh'
+      - '.github/workflows/server-e2e.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'crates/**'
+      - 'frontend/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'migrations/**'
+      - 'sdk/**'
+      - 'packages/mcp-types/**'
+      - 'packages/eslint-config-pierre/testing/**'
+      - 'scripts/ci/ensure-mcp-compliance.sh'
+      - '.github/workflows/server-e2e.yml'
+  # Nightly on main: MCP compliance and the examples smoke, the two lanes that
+  # had a cron of their own. It saves no cache: the build restores the one
+  # mobile-e2e-android.yml writes (carnet#1114).
+  schedule:
+    - cron: '30 4 * * *'
+  # The satellite and tronc bump gates dispatch this workflow for every bump
+  # (satellites.toml [gates], tronc-bump.yml), so a dispatch runs every push
+  # lane; the examples smoke builds two more crates and runs only when asked.
+  workflow_dispatch:
+    inputs:
+      examples-smoke:
+        description: Also run the examples smoke test against the server
+        type: boolean
+        default: false
+
+concurrency:
+  # On main the sha is part of the group, so every commit gets its own group
+  # and nothing can cancel another commit's verdict. Branches share a group per
+  # ref and keep cancelling, where fast feedback beats a stale result. The ref
+  # test lives in `group` rather than in `cancel-in-progress` because only the
+  # former is known to work here — see ci-backend.yml for the run that proved it.
+  # The event name is in the group because the nightly cron on main carries the
+  # tip's sha: without it the cron joins the tip's push-run group and cancels
+  # that verdict mid-flight (ci-backend.yml records the same collision).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: true
+
+# Security: Explicit permissions following principle of least privilege
+permissions:
+  contents: read
+
+env:
+  # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
+  # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
+  # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
+  COPILOT_SKIP_CLI_DOWNLOAD: "1"
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5  # path filtering only; no toolchain, no compile
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+      playwright: ${{ steps.decide.outputs.playwright }}
+      mcp: ${{ steps.decide.outputs.mcp }}
+      sdk: ${{ steps.decide.outputs.sdk }}
+      examples: ${{ steps.decide.outputs.examples }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      # Push and pull_request only: those name the range a filter judges.
+      - name: Detect file changes
+        id: filter
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            # The server and the web app Playwright drives against it.
+            playwright:
+              - 'crates/**'
+              - 'frontend/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/server-e2e.yml'
+            # The MCP path and the bridge the compliance run drives.
+            # pierre-mcp-transport is in scope even though it is a separate
+            # crate: it holds the MCP path's JWT validation and tenant
+            # resolution (tenant_isolation.rs), so a change there alters MCP
+            # behaviour without touching pierre-server/src/mcp/.
+            # packages/mcp-types is watched because the lane installs and runs
+            # the SDK, which compiles against it.
+            mcp:
+              - 'crates/pierre-server/src/mcp/**'
+              - 'crates/pierre-mcp-transport/**'
+              - 'sdk/**'
+              - 'packages/mcp-types/**'
+              - 'scripts/ci/ensure-mcp-compliance.sh'
+              - '.github/workflows/server-e2e.yml'
+            # The SDK and the server, with its migrations, that its integration
+            # and e2e tests start.
+            sdk:
+              - 'sdk/**'
+              - 'packages/mcp-types/**'
+              - 'packages/eslint-config-pierre/testing/**'
+              - 'crates/**'
+              - 'migrations/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/server-e2e.yml'
+
+      - name: Decide the lanes
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PLAYWRIGHT: ${{ steps.filter.outputs.playwright }}
+          MCP: ${{ steps.filter.outputs.mcp }}
+          SDK: ${{ steps.filter.outputs.sdk }}
+          EXAMPLES_INPUT: ${{ inputs.examples-smoke }}
+        run: |
+          case "$EVENT_NAME" in
+            push|pull_request)
+              playwright="$PLAYWRIGHT"; mcp="$MCP"; sdk="$SDK"; examples=false ;;
+            workflow_dispatch)
+              playwright=true; mcp=true; sdk=true; examples="${EXAMPLES_INPUT:-false}" ;;
+            schedule)
+              playwright=false; mcp=true; sdk=false; examples=true ;;
+            *)
+              echo "::error::no lane plan for event '$EVENT_NAME'"
+              exit 1 ;;
+          esac
+          build=false
+          for lane in "$playwright" "$mcp" "$sdk" "$examples"; do
+            [ "$lane" = true ] && build=true
+          done
+          {
+            echo "playwright=${playwright:-false}"
+            echo "mcp=${mcp:-false}"
+            echo "sdk=${sdk:-false}"
+            echo "examples=${examples:-false}"
+            echo "build=$build"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  build-server:
+    name: Build Server (thin release)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
+    timeout-minutes: 45  # a release build off the restored target/
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.99.1
+
+      # Restore only. The build below is the one mobile-e2e-android.yml's server
+      # job runs (`cargo build --release` of the whole workspace,
+      # CARGO_INCREMENTAL=0, the same env), so features unify the same way and
+      # this restores that lane's cache, which its nightly scheduled run on main
+      # writes. A cache of its own, saved on every branch and every Cargo.lock
+      # change, held up to 1.6 GB per branch of the repository's 10 GB quota.
+      # No bare `Linux-cargo-` fallback: it matched any family on any toolchain,
+      # downloaded a target/ this build cannot use, and by touching it kept the
+      # dead Rust 1.98.1 entry alive for a day after the toolchain bump. It
+      # cannot share ci-backend.yml's release cache: that build is release-lto
+      # linked with mold, this one is the plain release profile.
+      - name: Restore Rust build cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-mobile-server-1.99.1-
+
+      - name: Build Pierre server and CLI (thin release)
+        run: cargo build --release
+        env:
+          CARGO_INCREMENTAL: 0
+
+      # The branch half of the binary size gate. ci-backend.yml's fat-LTO
+      # Release Binary Validation sizes the binary that ships, but since
+      # carnet#1114 a branch builds it only when the push touches a link input,
+      # and 4 of its 5 failures in 60 days were this gate, not the build. This
+      # job builds on most crates pushes anyway, so it carries the check. The
+      # thin, default-feature binary is not the shipped one, so its ceiling is
+      # the shipped ceiling scaled by the two measured on main on 2026-10-21:
+      # fat 104 MB (ceiling 115), thin 126 MB (132,462,792 bytes, run
+      # 39589624107), so 126 x 115/104 = 139. Move both ceilings together.
+      - name: Check the server binary size (thin release)
+        run: |
+          BINARY_SIZE_MB=$(( $(stat -c %s target/release/pierre-mcp-server) / 1024 / 1024 ))
+          MAX_SIZE_MB=139
+          WARN_SIZE_MB=$(( MAX_SIZE_MB * 95 / 100 ))
+          echo "Thin release binary: ${BINARY_SIZE_MB}MB (ceiling ${MAX_SIZE_MB}MB)"
+          if [ "$BINARY_SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
+            echo "::error::Thin release binary (${BINARY_SIZE_MB}MB) exceeds ${MAX_SIZE_MB}MB, the shipped 115MB ceiling scaled to this build; the fat-LTO gate on main would fail this change. Check what it pulled in (cargo tree, feature flags)."
+            exit 1
+          fi
+          if [ "$BINARY_SIZE_MB" -ge "$WARN_SIZE_MB" ]; then
+            echo "::warning::Thin release binary ${BINARY_SIZE_MB}MB is within 5% of its ${MAX_SIZE_MB}MB ceiling."
+          fi
+
+      - name: Upload the server and CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-e2e-binaries
+          retention-days: 1
+          if-no-files-found: error
+          # A re-run attempt sees the first attempt's artifact of this name in
+          # the same run, and without this the upload fails on it (the same
+          # fix as ci-backend.yml's server-binaries). It replaces the same
+          # commit's binaries.
+          overwrite: true
+          path: |
+            target/release/pierre-mcp-server
+            target/release/pierre-cli
+
+  playwright:
+    name: Playwright Integration Tests (Real Server)
+    runs-on: ubuntu-latest
+    needs: [changes, build-server]
+    if: needs.changes.outputs.playwright == 'true'
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # The e2e-real seed clones the private dravr-contremaitre repo below.
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      # Where the integration config and its pierre-cli helper look first
+      # (frontend/integration/config, frontend/integration/helpers/db-setup.ts).
+      - name: Download the server and CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: server-e2e-binaries
+          path: target/release
+
+      # An artifact does not keep the executable bit.
+      - name: Mark the binaries executable
+        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: bunx playwright install --with-deps chromium
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Run integration tests
+        working-directory: frontend
+        run: bun run test:integration
+        env:
+          CI: true
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/integration-test.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          HTTP_PORT: "8081"
+          # The e2e control process registers each fresh account from this
+          # runner's one address; the per-address sign-up window (5 a minute)
+          # is pinned by the server's own tests, not by this lane.
+          SIGN_UP_RATE_LIMIT_RPM: "100000"
+          # The web app signs in through the hosted login page and receives its
+          # code at <FRONTEND_URL>/auth/callback, which the server accepts only
+          # on its configured web origin (carnet#787): the SPA Vite serves.
+          FRONTEND_URL: "http://localhost:5173"
+          RUST_LOG: "warn"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          # Sciotte backpressure limiter — mandatory env vars with no crate
+          # defaults. Test values are permissive so the integration server
+          # boots cleanly; production values live in Terraform.
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      # ---- Real-server e2e (frontend/e2e-real) ----
+      # The e2e-real suite has NO playwright webServer by design (locally it
+      # requires an already-running seeded stack); here CI seeds a fresh DB,
+      # boots the release binary + Vite dev server explicitly, runs the suite,
+      # and tears down. This is the only automated execution path for these
+      # specs — without it the register→approve gate is human-run only.
+      - name: Clone dravr-contremaitre (coach seed source)
+        run: git clone --depth 1 https://github.com/dravr-ai/dravr-contremaitre.git ../dravr-contremaitre
+
+      - name: Seed e2e-real database (admin + agents + demo + webtest)
+        # Order matters: `seed demo-data` creates webtest@pierre.dev (see
+        # crates/pierre-seeders/src/demo_data.rs), and webtest needs a
+        # provider connection (synthetic-activities) or the onboarding
+        # hard-gate hides the app UI the persona spec drives.
+        run: |
+          ./target/release/pierre-cli user create --email admin@example.com --password AdminPassword123 --super-admin --force
+          ./target/release/pierre-cli seed agents --agents-dir ../dravr-contremaitre/prompts/agents
+          ./target/release/pierre-cli seed demo-data --days 30
+          ./target/release/pierre-cli seed synthetic-activities --email webtest@pierre.dev --provider strava --count 30 --days 30
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/e2e-real.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+
+      - name: Start Pierre server for e2e-real
+        run: |
+          nohup ./target/release/pierre-mcp-server > e2e-real-server.log 2>&1 &
+          echo $! > e2e-real-server.pid
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/health > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8081/health
+        env:
+          DATABASE_URL: "sqlite:${{ github.workspace }}/data/e2e-real.db"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          HTTP_PORT: "8081"
+          # The e2e control process registers each fresh account from this
+          # runner's one address; the per-address sign-up window (5 a minute)
+          # is pinned by the server's own tests, not by this lane.
+          SIGN_UP_RATE_LIMIT_RPM: "100000"
+          # The web app signs in through the hosted login page and receives its
+          # code at <FRONTEND_URL>/auth/callback, which the server accepts only
+          # on its configured web origin (carnet#787): the SPA Vite serves.
+          FRONTEND_URL: "http://localhost:5173"
+          RUST_LOG: "warn"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+          # home-sync.real.spec.ts starts a scripted stand-in for the sciotte
+          # scraper on this port and connects its athlete's Strava through it.
+          DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
+          # The route request's own bound, shortened so the spec's hung-detail
+          # case answers in seconds; the spec reads the same value below.
+          PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
+
+      - name: Start Vite dev server for e2e-real
+        working-directory: frontend
+        run: |
+          nohup bun run dev > ../e2e-real-vite.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:5173 > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://localhost:5173 > /dev/null
+
+      - name: Run real-server e2e tests
+        working-directory: frontend
+        run: bun run test:e2e:real
+        env:
+          CI: true
+          PIERRE_URL: "http://127.0.0.1:8081"
+          FRONTEND_URL: "http://localhost:5173"
+          ADMIN_EMAIL: "admin@example.com"
+          ADMIN_PASSWORD: "AdminPassword123"
+          # home-sync.real.spec.ts moves an athlete's last sync into the past
+          # in the database the server above runs on.
+          E2E_REAL_DATABASE_PATH: "${{ github.workspace }}/data/e2e-real.db"
+          PIERRE_HOME_ROUTE_ANSWER_SECS: "5"
+
+      - name: Stop e2e-real servers
+        if: always()
+        run: |
+          kill "$(cat e2e-real-server.pid)" 2>/dev/null || true
+          pkill -f 'vite' 2>/dev/null || true
+
+      - name: Upload e2e-real server log
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-real-server-log
+          path: e2e-real-server.log
+          retention-days: 1
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: integration-test-report
+          path: frontend/playwright-report/
+          retention-days: 1
+
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: integration-test-screenshots
+          path: frontend/test-results/
+          retention-days: 1
+
+      - name: Upload test videos
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: integration-test-videos
+          path: frontend/test-results/
+          retention-days: 1
+
+  mcp-compliance:
+    name: MCP Protocol Compliance
+    runs-on: ubuntu-latest
+    needs: [changes, build-server]
+    if: needs.changes.outputs.mcp == 'true'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Download the server and CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: server-e2e-binaries
+          path: target/release
+
+      # An artifact does not keep the executable bit.
+      - name: Mark the binaries executable
+        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
+
+      - name: Install SDK dependencies
+        working-directory: sdk
+        run: bun install --frozen-lockfile
+
+      - name: Build bridge
+        working-directory: sdk
+        run: bun run build
+
+      - name: Validate SDK types exist
+        working-directory: sdk
+        run: |
+          echo "🔍 Validating SDK TypeScript types..."
+          if [ ! -f "src/types.ts" ]; then
+            echo "❌ ERROR: src/types.ts not found"
+            echo "📝 Run 'bun run generate-types' locally and commit the generated types"
+            exit 1
+          fi
+          if grep -q "PLACEHOLDER" "src/types.ts"; then
+            echo "⚠️  WARNING: types.ts contains placeholder content"
+            echo "📝 Run 'bun run generate-types' with a running server and commit the real types"
+            echo "   For CI: Types should be pre-generated and committed to the repository"
+            exit 1
+          fi
+          echo "✅ SDK types validated successfully"
+
+      - name: Run MCP compliance validation
+        run: ./scripts/ci/ensure-mcp-compliance.sh
+        env:
+          # The shared release binary; the script otherwise looks in target/debug
+          # first and cold-builds inline, which OOM-thrashed the runner (~90min+).
+          PIERRE_SERVER_BINARY: ${{ github.workspace }}/target/release/pierre-mcp-server
+          # CI detection variables for bridge
+          CI: "true"
+          GITHUB_ACTIONS: "true"
+          # Pierre server configuration
+          HTTP_PORT: 8080
+          DATABASE_URL: "sqlite::memory:"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_ALLOW_INTERACTIVE_OAUTH: "false"
+          PIERRE_RSA_KEY_SIZE: "2048"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      - name: Clean up validation artifacts
+        if: always()
+        run: |
+          rm -rf validator/reports/*.md 2>/dev/null || true
+          rm -rf /tmp/pierre-mcp-server-*.log 2>/dev/null || true
+
+  sdk-types-check:
+    name: SDK Types Up-to-Date
+    runs-on: ubuntu-latest
+    needs: [changes, build-server]
+    if: needs.changes.outputs.sdk == 'true'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Download the server and CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: server-e2e-binaries
+          path: target/release
+
+      # An artifact does not keep the executable bit.
+      - name: Mark the binaries executable
+        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
+
+      - name: Generate SDK types and check for drift
+        run: |
+          # Start server in background
+          ./target/release/pierre-mcp-server &
+          SERVER_PID=$!
+
+          # Wait for server to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:8081/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Server failed to start"
+              kill $SERVER_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # GET /mcp/tools is tiered exactly like JSON-RPC tools/list, so only a
+          # global admin sees the complete registry the generated types describe.
+          # The server has applied the migrations by now, so the CLI can write to
+          # the same on-disk database.
+          ./target/release/pierre-cli user create \
+            --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
+
+          # Sign in as the mobile app does: hosted login page, authorization
+          # code, PKCE (the password grant is gone, carnet#787).
+          PIERRE_ADMIN_TOKEN="$(printf '%s\n' "$ADMIN_PASSWORD" \
+            | scripts/auth/first-party-sign-in.sh http://localhost:8081 "$ADMIN_EMAIL" - \
+            | jq -r '.access_token // empty')"
+          if [ -z "$PIERRE_ADMIN_TOKEN" ]; then
+            echo "::error::Failed to mint an admin token for SDK type generation"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+          export PIERRE_ADMIN_TOKEN
+
+          # Generate types
+          cd packages/mcp-types && bun run generate
+          cd ../..
+
+          # Stop server
+          kill $SERVER_PID 2>/dev/null || true
+
+          # Check for changes in all generated type files
+          if ! git diff --exit-code packages/mcp-types/src/; then
+            echo ""
+            echo "::error::SDK types are out of sync with server schemas. Run 'bun run generate-types' in sdk/ and commit the result."
+            echo ""
+            exit 1
+          fi
+
+          echo "SDK types are up to date"
+        env:
+          # File-backed (not sqlite::memory:) so pierre-cli can create the admin
+          # user in the same database the running server reads.
+          DATABASE_URL: "sqlite:./sdk-types-ci.db?mode=rwc"
+          ADMIN_EMAIL: "sdk-types-ci@pierre.dev"
+          ADMIN_PASSWORD: "SdkTypesCi123!"
+          AUTO_APPROVE_USERS: "true"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          HTTP_PORT: "8081"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+  sdk-tests:
+    name: SDK Test Suite
+    runs-on: ubuntu-latest
+    needs: [changes, build-server]
+    if: needs.changes.outputs.sdk == 'true'
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        # Node-hosted tools (vitest, tsc, eslint, jest, Metro, Playwright) run
+        # on the repo's .nvmrc, not on whatever the runner image ships.
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Download the server and CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: server-e2e-binaries
+          path: target/release
+
+      # An artifact does not keep the executable bit.
+      - name: Mark the binaries executable
+        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
+
+      - name: Install SDK dependencies
+        working-directory: sdk
+        run: bun install --frozen-lockfile
+
+      - name: Lint SDK code
+        working-directory: sdk
+        run: bun run lint
+
+      - name: Type check SDK
+        working-directory: sdk
+        run: bun run type-check
+
+      - name: Build SDK bridge
+        working-directory: sdk
+        run: bun run build
+
+      - name: Run SDK unit tests
+        working-directory: sdk
+        run: bun run test:unit
+
+      # The helpers find the server and the CLI through these, the release
+      # build above, so no step here compiles anything.
+      - name: Run SDK integration tests
+        working-directory: sdk
+        run: bun run test:integration
+        env:
+          PIERRE_SERVER_BINARY: ${{ github.workspace }}/target/release/pierre-mcp-server
+          PIERRE_CLI_BINARY: ${{ github.workspace }}/target/release/pierre-cli
+          DATABASE_URL: "sqlite::memory:"
+          AUTO_APPROVE_USERS: "true"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      - name: Run SDK E2E tests
+        working-directory: sdk
+        run: bun run test:e2e
+        env:
+          PIERRE_SERVER_BINARY: ${{ github.workspace }}/target/release/pierre-mcp-server
+          PIERRE_CLI_BINARY: ${{ github.workspace }}/target/release/pierre-cli
+          DATABASE_URL: "sqlite::memory:"
+          AUTO_APPROVE_USERS: "true"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
+
+      - name: Upload SDK test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-test-results
+          path: sdk/test-results/
+          retention-days: 1
+          if-no-files-found: ignore
+
+  # The examples are standalone crates with their own lockfiles; this runs one
+  # of them against the server. Nightly, or on a dispatch that asks for it.
+  # examples-validation.yml still compiles and tests the examples on every
+  # examples/ push.
+  examples-smoke:
+    name: Integration Smoke Test (examples)
+    runs-on: ubuntu-latest
+    needs: [changes, build-server]
+    if: needs.changes.outputs.examples == 'true'
+    timeout-minutes: 30  # two example release builds and the smoke
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.99.1
+
+      - name: Download the server and CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: server-e2e-binaries
+          path: target/release
+
+      # An artifact does not keep the executable bit.
+      - name: Mark the binaries executable
+        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
+
+      - name: Build example binaries
+        run: |
+          cd examples/agents/agent_discovery && cargo build --release
+          cd ../task_manager && cargo build --release
+
+      - name: Start Pierre server
+        run: |
+          DATABASE_URL="sqlite::memory:" \
+          PIERRE_MASTER_ENCRYPTION_KEY="rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=" \
+          STRAVA_CLIENT_ID="test_ci" \
+          STRAVA_CLIENT_SECRET="test_ci" \
+          STRAVA_REDIRECT_URI="http://localhost:8080/callback" \
+          PIERRE_SCIOTTE_MAX_CONCURRENT="2" \
+          PIERRE_SCIOTTE_MAX_QUEUE="8" \
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS="10" \
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS="300" \
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS="15" \
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS="5" \
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS="60" \
+          ./target/release/pierre-mcp-server &
+          echo "Waiting for server startup..."
+          for i in 1 2 3 4 5; do
+            echo "Health check attempt $i/5..."
+            if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
+              echo "Server is healthy!"
+              break
+            fi
+            if [ "$i" -eq 5 ]; then
+              echo "Server failed to start after 5 attempts"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Run agent_discovery against live server
+        run: |
+          cd examples/agents/agent_discovery
+
+          # Read the example's exit status. GitHub's shell is `bash -e` WITHOUT
+          # pipefail, so the previous `… | tee output.log` reported *tee's*
+          # status and threw the binary's away. The grep that followed then
+          # accepted "Agent Discovery Demo" — a substring of the example's own
+          # FAILURE line, `❌ Agent Discovery Demo Failed: {e}` (main.rs:320) —
+          # so an example that connected to nothing and returned Err still
+          # passed this step. Same defect as the lockbud gate (carnet#399).
+          timeout 30 ./target/release/agent-discovery-example > output.log 2>&1 || {
+            status=$?
+            if [ "$status" -eq 124 ]; then
+              echo "::error::agent_discovery did not finish within 30s — killed by timeout:"
+            else
+              echo "::error::agent_discovery exited ${status}:"
+            fi
+            cat output.log
+            exit 1
+          }
+
+          # Assert the markers only the SUCCESS path can write, so a green step
+          # means the demo ran — not merely that it printed something. The first
+          # proves it reached the server and parsed the agent card
+          # (main.rs:133); the second that the negotiation ran to completion
+          # (main.rs:315), and unlike the old fallback it is not a substring of
+          # the failure line.
+          for marker in \
+            "Successfully fetched agent card" \
+            "Agent Discovery Demo Completed Successfully"
+          do
+            if ! grep -qF "$marker" output.log; then
+              echo "::error::agent_discovery exited 0 but never printed: ${marker}"
+              cat output.log
+              exit 1
+            fi
+          done
+          echo "agent_discovery smoke test passed"
+
+      - name: Cleanup
+        if: always()
+        run: pkill pierre-mcp-server || true

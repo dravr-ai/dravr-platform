@@ -65,7 +65,7 @@ runs:
           # builds it when `rust` is set: it ships, and publish-images reuses
           # it. A branch builds it only when the push can change how it links
           # (23 of 221 branch pushes on Oct 7-20); every other branch push gets
-          # the size check on integration-tests' thin binary instead. Over 60
+          # the size check on server-e2e's thin binary instead. Over 60
           # days fat LTO itself caused no failure; 4 of 5 were the size gate.
           release-worthy:
             - 'Cargo.toml'
