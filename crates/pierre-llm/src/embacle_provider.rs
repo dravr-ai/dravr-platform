@@ -486,7 +486,11 @@ impl EmbacleProvider {
     /// A Copilot turn provider, kept both as the runner and as the typed
     /// handle the headless tool loop converses through.
     ///
-    /// LIMITATION(registre#102): `from_turn_provider` cannot mark the system-prompt + tool-surface prefix cacheable — `cache_control` is settable only on a request the platform builds, and on a Copilot turn the runtime builds it.
+    /// A Copilot turn cannot mark the system-prompt + tool-surface prefix
+    /// cacheable: `cache_control` is settable only on a request the platform
+    /// builds, and on a Copilot turn the runtime builds it. This is a property
+    /// of the vendor protocol, not a gap here. Production serves from the
+    /// `anthropic` tier, which does mark the prefix; Copilot is a fallback.
     ///
     /// On both Copilot transports the runtime builds the upstream request, so
     /// there is no field to set: the ACP schema defines the two cache counts on
@@ -509,10 +513,9 @@ impl EmbacleProvider {
     /// - **SDK, within a turn** — the runtime does cache our prompt: the first
     ///   call of a measured turn wrote 17,889 tokens and the second read the
     ///   same 17,889 back (`cacheTtlSeconds: 300`).
-    /// - **SDK, across turns** — unmeasured. Production has run on `copilot_sdk`
-    ///   since 2026-09-21, and the ACP result above is not evidence for it. Port
-    ///   the probe to `CopilotSdkRunner` before reasoning about cross-turn
-    ///   caching on this transport either way.
+    /// - **SDK, across turns** — unmeasured, and the ACP result above is not
+    ///   evidence for it. Port the probe to `CopilotSdkRunner` before reasoning
+    ///   about cross-turn caching on this transport either way.
     ///
     /// The `anthropic` tier is the route where the platform builds the request,
     /// so the lever exists there: embacle breakpoints the tools, the system
