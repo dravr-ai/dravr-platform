@@ -672,6 +672,14 @@ impl User {
     pub fn update_last_active(&mut self) {
         self.last_active = Utc::now();
     }
+
+    /// Whether this account may take a super-admin's decisions now: a
+    /// super-admin that is neither deactivated nor suspended. Suspension
+    /// changes `user_status`, never `is_active`, so both are read.
+    #[must_use]
+    pub fn is_active_super_admin(&self) -> bool {
+        self.is_active && self.user_status == UserStatus::Active && self.role.is_super_admin()
+    }
 }
 
 /// Slope of Swain et al. 1994's regression of percent of maximum heart rate
@@ -1051,5 +1059,27 @@ mod tests {
             "mira.s",
             "never the whole address"
         );
+    }
+
+    fn with_role(role: UserRole) -> User {
+        let mut user = User::new("op@example.test".to_owned(), String::new(), None);
+        user.role = role;
+        user
+    }
+
+    #[test]
+    fn only_a_super_admin_in_good_standing_is_an_active_super_admin() {
+        assert!(with_role(UserRole::SuperAdmin).is_active_super_admin());
+        assert!(!with_role(UserRole::Admin).is_active_super_admin());
+        assert!(!with_role(UserRole::User).is_active_super_admin());
+
+        for status in [UserStatus::Pending, UserStatus::Suspended] {
+            let mut held = with_role(UserRole::SuperAdmin);
+            held.user_status = status;
+            assert!(!held.is_active_super_admin(), "{status:?}");
+        }
+        let mut deactivated = with_role(UserRole::SuperAdmin);
+        deactivated.is_active = false;
+        assert!(!deactivated.is_active_super_admin());
     }
 }

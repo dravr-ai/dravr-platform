@@ -26,19 +26,19 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+mod coach_access_tap;
+mod sign_up_tap;
+
 use super::webhooks;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::parse_choice;
-use crate::services::user_approval_notifier::ApprovalNotifier;
+use coach_access_tap::answer_coach_access_tap;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserStatus;
 use pierre_core::transport::Transport;
-use pierre_middleware::mask_email;
 use pierre_providers::ai_scope;
-use pierre_services::analytics::cache_user_email;
 use pierre_services::locale::resolve_channel_locale;
 use pierre_services::provider_notice::under_ai_consent;
-use pierre_services::tenant_admin as tenant_admin_service;
+use sign_up_tap::answer_sign_up_tap;
 
 /// Channel type key Slack channel links are stored under in
 /// `messaging_channel_links`, matching the webhook path segment the ingress
@@ -55,8 +55,8 @@ enum ActionRoute {
     /// suggestion postback, an agent's number on the onboarding proposal —
     /// ingested as the message it spells, into the athlete's turn.
     AthleteTurn,
-    /// Anything else: the ops channel's approve/reject, which refuses what it
-    /// cannot parse.
+    /// Anything else: an ops room's decision (approve/reject a sign-up,
+    /// grant/decline coach access), which refuses what it cannot parse.
     Ops,
 }
 
@@ -89,17 +89,20 @@ impl ActionRoute {
 ///   the messaging webhook path as the message the button spells, so it
 ///   reaches the athlete's turn under the tenant whose Slack config verifies
 ///   it — the same session, gates and turn a typed message gets.
-/// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from the
-///   buttons [`PendingApprovalActions`] posts under `user.pending_approval`,
-///   authorized by the ops channel they are tapped in.
+/// - **Ops actions**: the buttons [`OpsDecisionActions`] posts — approve or
+///   reject under `user.pending_approval`, grant or decline under
+///   `coach_access.requested` — each honoured only in the room its event's
+///   routing rule names.
 ///
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
-/// 3. Per-route authorization — the ops channel for approve/reject, the
-///    channel link and user-status gate for command postbacks and the
-///    athlete's taps. The signature proves the click came from Slack, never
-///    that the clicking Slack identity may act as a given Dravr user.
+/// 3. Per-route authorization — the event's room for approve/reject, the
+///    room plus an active super-admin behind the Slack identity's channel
+///    link for grant/decline, the channel link and user-status gate for
+///    command postbacks and the athlete's taps. The signature proves the
+///    click came from Slack, never that the clicking Slack identity may act
+///    as a given Dravr user.
 pub(crate) async fn handle_slack_action(
     resources: &Arc<ServerContext>,
     adapters: &dyn ChannelAdapterFactory,
@@ -124,62 +127,50 @@ pub(crate) async fn handle_slack_action(
         ActionRoute::Ops => {}
     }
 
-    // --- Ops actions below (approve/reject users) ---
+    // --- Ops actions below (approve/reject users, grant/decline coach access) ---
 
-    // Authorization: trust the ops channel. The approve/reject buttons are
-    // only ever posted to the configured ops users channel — a private
-    // channel whose membership IS the set of authorized operators. The HMAC
-    // signature (verified by the HTTP handler) proves the click is genuinely
-    // from Slack; we additionally require the action to originate from that
-    // channel so the buttons are honored nowhere else. No Pierre admin role
-    // is required: operators approve users without holding admin privileges.
-    verify_ops_channel(&action, NOTIFY_ROUTING_PROVIDER.as_ref())?;
+    let ops_action = parse_action_id(&action.action_id)?;
 
-    // Attribute the action to the Slack handle that clicked. The username
-    // rides in the interactive payload, so no `users.info` call or
-    // `users:read.email` scope is needed.
-    let approver = format!("@{}", action.slack_username);
+    // Authorization, first: trust the room. Each decision's buttons are only
+    // ever posted to the room its event's routing rule names — a private
+    // channel whose membership IS the set of operators. The HMAC signature
+    // (verified by the HTTP handler) proves the click is genuinely from
+    // Slack; we additionally require the action to originate from that room
+    // so the buttons are honored nowhere else.
+    verify_ops_channel(
+        &action,
+        ops_action.event(),
+        NOTIFY_ROUTING_PROVIDER.as_ref(),
+    )?;
 
-    // The bot token is still required to update the message in place.
-    let bot_token = env::var("SLACK_BOT_TOKEN")
-        .map_err(|_| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
+    match ops_action {
+        OpsAction::SignUp(action_type, user_uuid) => {
+            answer_sign_up_tap(resources, &action, action_type, user_uuid).await
+        }
+        OpsAction::CoachAccess(decision, request_id) => {
+            answer_coach_access_tap(resources, &action, decision, request_id).await
+        }
+    }
+}
 
-    // Parse the action to determine approve or reject
-    let (action_type, user_id_str) = parse_action_id(&action.action_id)?;
-    let user_uuid = Uuid::parse_str(user_id_str)
-        .map_err(|e| AppError::invalid_input(format!("Invalid user ID in action: {e}")))?;
-
-    // Execute the action
-    let result = match action_type {
-        ActionType::Approve => approve_user(resources, user_uuid, &approver).await,
-        ActionType::Reject => reject_user(resources, user_uuid, &approver).await,
+/// Redraw the card a tap came from as `blocks`.
+///
+/// Fire-and-forget through tronc's `SlackClient`, after the decision: the
+/// notify layer posts no buttons without `SLACK_BOT_TOKEN`, and a decision
+/// already taken stands whether or not its card can be redrawn.
+fn update_card(resources: &ServerContext, action: &SlackAction, blocks: &Value) {
+    let Ok(bot_token) = env::var("SLACK_BOT_TOKEN") else {
+        warn!(
+            channel_id = %action.channel_id,
+            "SLACK_BOT_TOKEN not configured; the Slack card was not updated"
+        );
+        return;
     };
-
-    // Update the Slack message to reflect the action result
-    let update_text = match &result {
-        Ok(email) => match action_type {
-            ActionType::Approve => format!("*{email}* approved by {approver}"),
-            ActionType::Reject => format!("*{email}* rejected (suspended) by {approver}"),
-        },
-        Err(e) => format!("Action failed: {e}"),
-    };
-
-    // Fire-and-forget message update via tronc SlackClient
-    let status_emoji = if result.is_ok() {
-        ":white_check_mark:"
-    } else {
-        ":x:"
-    };
-    let blocks = json!([{
-        "type": "section",
-        "text": { "type": "mrkdwn", "text": format!("{status_emoji} {update_text}") }
-    }]);
-
-    let slack_client = build_slack_client(&bot_token, resources);
-    slack_client.update_message(&action.channel_id, &action.message_ts, &blocks);
-
-    // Return 200 immediately (Slack expects a response within 3 seconds)
-    Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
+    build_slack_client(&bot_token, resources).update_message(
+        &action.channel_id,
+        &action.message_ts,
+        blocks,
+    );
 }
 
 /// Verify the Slack request signature with canot's v0 verifier
@@ -344,8 +335,8 @@ pub async fn execute_postback_command(
     Ok(response.text)
 }
 
-/// Authorize the Slack identity behind a command postback through the same
-/// gate every inbound messaging turn walks.
+/// Authorize the Slack identity behind a command postback, or a coach-access
+/// decision, through the same gate every inbound messaging turn walks.
 ///
 /// Resolves the Slack identity to the tenant that owns its channel link, then
 /// calls [`pierre_middleware::auth::McpAuthMiddleware::authenticate_channel`]
@@ -374,7 +365,7 @@ async fn authorize_postback(
         .ok_or_else(|| {
             warn!(
                 slack_user = %slack_user_id,
-                "Slack command postback from an unlinked Slack identity"
+                "Slack action from an unlinked Slack identity"
             );
             AppError::auth_invalid("This Slack account is not linked to a Dravr account")
         })?;
@@ -425,8 +416,8 @@ fn build_slack_client(bot_token: &str, resources: &ServerContext) -> SlackClient
 /// Parsed Slack interactive action
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlackAction {
-    /// The tapped button's `action_id`: a `/command` postback or an
-    /// `approve_user:` / `reject_user:` ops action
+    /// The tapped button's `action_id`: a `/command` postback, an athlete's
+    /// tap, or one of the ops actions [`OpsDecisionActions`] posts
     pub action_id: String,
     /// Slack user ID of the clicker
     pub slack_user_id: String,
@@ -440,12 +431,42 @@ pub struct SlackAction {
     pub channel_name: String,
     /// Timestamp of the card message, which addresses it for the update
     pub message_ts: String,
+    /// The card's blocks as Slack sent them back with the tap, so a refused
+    /// tap can redraw the card with its buttons kept; empty when the payload
+    /// carries none.
+    pub message_blocks: Vec<Value>,
+}
+
+/// What an ops button decides, read back from its `action_id`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpsAction {
+    /// Approve or reject the account waiting under `user.pending_approval`.
+    SignUp(ActionType, Uuid),
+    /// Grant or decline the request under `coach_access.requested`.
+    CoachAccess(CoachAccessDecision, Uuid),
+}
+
+impl OpsAction {
+    /// The notify event this action's buttons go out under; its routing rule
+    /// names the room the tap is honoured in.
+    const fn event(self) -> &'static str {
+        match self {
+            Self::SignUp(..) => PENDING_APPROVAL_EVENT,
+            Self::CoachAccess(..) => COACH_ACCESS_REQUESTED_EVENT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActionType {
     Approve,
     Reject,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoachAccessDecision {
+    Grant,
+    Decline,
 }
 
 /// Parse a Slack interactive request body into the action it carries
@@ -517,6 +538,12 @@ fn extract_action(payload: &Value) -> AppResult<SlackAction> {
         .and_then(Value::as_str)
         .ok_or_else(|| AppError::invalid_input("Missing message timestamp in payload"))?;
 
+    let message_blocks = payload
+        .pointer("/message/blocks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
     Ok(SlackAction {
         action_id: action_id.to_owned(),
         slack_user_id: slack_user_id.to_owned(),
@@ -524,6 +551,7 @@ fn extract_action(payload: &Value) -> AppResult<SlackAction> {
         channel_id: channel_id.to_owned(),
         channel_name: channel_name.to_owned(),
         message_ts: message_ts.to_owned(),
+        message_blocks,
     })
 }
 
@@ -533,75 +561,110 @@ const APPROVE_USER_PREFIX: &str = "approve_user:";
 /// `action_id` prefix of the Reject button; the account's id follows it.
 const REJECT_USER_PREFIX: &str = "reject_user:";
 
-/// Parse `action_id` format `approve_user:{uuid}` or `reject_user:{uuid}`
-fn parse_action_id(action_id: &str) -> AppResult<(ActionType, &str)> {
-    action_id
-        .strip_prefix(APPROVE_USER_PREFIX)
-        .map(|id| (ActionType::Approve, id))
-        .or_else(|| {
-            action_id
-                .strip_prefix(REJECT_USER_PREFIX)
-                .map(|id| (ActionType::Reject, id))
-        })
-        .ok_or_else(|| AppError::invalid_input(format!("Unknown action: {action_id}")))
+/// `action_id` prefix of the Grant button; the coach-access request's id
+/// follows it.
+const GRANT_COACH_ACCESS_PREFIX: &str = "grant_coach_access:";
+
+/// `action_id` prefix of the Decline button; the coach-access request's id
+/// follows it.
+const DECLINE_COACH_ACCESS_PREFIX: &str = "decline_coach_access:";
+
+/// Read an ops button's `action_id` back: one of the prefixes
+/// [`OpsDecisionActions`] posts, followed by the id the tap acts on.
+fn parse_action_id(action_id: &str) -> AppResult<OpsAction> {
+    let id = |raw: &str| {
+        Uuid::parse_str(raw)
+            .map_err(|e| AppError::invalid_input(format!("Invalid ID in action: {e}")))
+    };
+    if let Some(raw) = action_id.strip_prefix(APPROVE_USER_PREFIX) {
+        Ok(OpsAction::SignUp(ActionType::Approve, id(raw)?))
+    } else if let Some(raw) = action_id.strip_prefix(REJECT_USER_PREFIX) {
+        Ok(OpsAction::SignUp(ActionType::Reject, id(raw)?))
+    } else if let Some(raw) = action_id.strip_prefix(GRANT_COACH_ACCESS_PREFIX) {
+        Ok(OpsAction::CoachAccess(CoachAccessDecision::Grant, id(raw)?))
+    } else if let Some(raw) = action_id.strip_prefix(DECLINE_COACH_ACCESS_PREFIX) {
+        Ok(OpsAction::CoachAccess(
+            CoachAccessDecision::Decline,
+            id(raw)?,
+        ))
+    } else {
+        Err(AppError::invalid_input(format!(
+            "Unknown action: {action_id}"
+        )))
+    }
 }
 
 /// The notify event the Approve and Reject buttons go out under; its routing
 /// rule names the room they are honoured in.
 const PENDING_APPROVAL_EVENT: &str = "user.pending_approval";
 
-/// Posts the Approve and Reject buttons under `user.pending_approval`.
-///
-/// Registered once at startup via [`pierre_logging::set_notify_actions`]. The
-/// `NotifyLayer` calls it on the tracing thread, so it reads only the event's
-/// fields. Each button's `action_id` is a prefix [`parse_action_id`] reads
-/// followed by the waiting account's `user_id`; an event without one gets no
-/// buttons, since a tap could not say whom it acts on.
-pub struct PendingApprovalActions;
+/// The notify event the Grant and Decline buttons go out under; its routing
+/// rule names the room they are honoured in.
+const COACH_ACCESS_REQUESTED_EVENT: &str = "coach_access.requested";
 
-impl NotifyActions for PendingApprovalActions {
+/// Posts the buttons an operator decides from in Slack: Approve and Reject
+/// under `user.pending_approval`, Grant and Decline under
+/// `coach_access.requested`.
+///
+/// Registered once at startup via [`pierre_logging::set_notify_actions`],
+/// which takes a single provider, so every ops event's buttons are posted
+/// here. The `NotifyLayer` calls it on the tracing thread, so it reads only
+/// the event's fields. Each button's `action_id` is a prefix
+/// [`parse_action_id`] reads followed by the id the tap acts on — the waiting
+/// account's `user_id`, the coach-access `request_id`; an event without it
+/// gets no buttons, since a tap could not say what it acts on.
+pub struct OpsDecisionActions;
+
+impl NotifyActions for OpsDecisionActions {
     fn actions_for(&self, event: &str, fields: &HashMap<String, String>) -> Option<Vec<Value>> {
-        if event != PENDING_APPROVAL_EVENT {
-            return None;
-        }
-        let user_id = fields.get("user_id")?;
+        let (id_field, primary, danger) = match event {
+            PENDING_APPROVAL_EVENT => (
+                "user_id",
+                (APPROVE_USER_PREFIX, "Approve"),
+                (REJECT_USER_PREFIX, "Reject"),
+            ),
+            COACH_ACCESS_REQUESTED_EVENT => (
+                "request_id",
+                (GRANT_COACH_ACCESS_PREFIX, "Grant"),
+                (DECLINE_COACH_ACCESS_PREFIX, "Decline"),
+            ),
+            _ => return None,
+        };
+        let id = fields.get(id_field)?;
         Some(vec![
-            json!({
-                "type": "button",
-                "action_id": format!("{APPROVE_USER_PREFIX}{user_id}"),
-                "text": { "type": "plain_text", "text": "Approve" },
-                "style": "primary",
-            }),
-            json!({
-                "type": "button",
-                "action_id": format!("{REJECT_USER_PREFIX}{user_id}"),
-                "text": { "type": "plain_text", "text": "Reject" },
-                "style": "danger",
-            }),
+            decision_button(primary, id, "primary"),
+            decision_button(danger, id, "danger"),
         ])
     }
 }
 
-/// Authorize an ops action by trusting the approvals room.
+/// One ops button: `label`, styled `style`, whose `action_id` is `prefix`
+/// followed by `id`.
+fn decision_button((prefix, label): (&str, &str), id: &str, style: &str) -> Value {
+    json!({
+        "type": "button",
+        "action_id": format!("{prefix}{id}"),
+        "text": { "type": "plain_text", "text": label },
+        "style": style,
+    })
+}
+
+/// Authorize an ops action by trusting the room `event` is routed to.
 ///
-/// The room is the channel the contremaitre routing rule for
-/// `user.pending_approval` names, the same rule that delivers the ping a tap
-/// answers, so the room is configured in one place and a rerouted ping moves
-/// its approvals with it. The action is honoured only when it originates
-/// there. Fails closed (rejects) when the event has no rule of its own naming
-/// a channel (the routing's default room is never trusted) or the channel does
-/// not match.
+/// The room is the channel the contremaitre routing rule for `event` names,
+/// the same rule that delivers the ping a tap answers, so the room is
+/// configured in one place and a rerouted ping moves its decisions with it.
+/// The action is honoured only when it originates there. Fails closed
+/// (rejects) when the event has no rule of its own naming a channel (the
+/// routing's default room is never trusted) or the channel does not match.
 fn verify_ops_channel(
     action: &SlackAction,
+    event: &str,
     routing: &ContremaitreRoutingProvider,
 ) -> AppResult<()> {
-    let configured = routing
-        .event_channel(PENDING_APPROVAL_EVENT)
-        .ok_or_else(|| {
-            AppError::internal(format!(
-                "No notify routing rule names the room for {PENDING_APPROVAL_EVENT}"
-            ))
-        })?;
+    let configured = routing.event_channel(event).ok_or_else(|| {
+        AppError::internal(format!("No notify routing rule names the room for {event}"))
+    })?;
 
     if channel_matches(&action.channel_name, &action.channel_id, &configured) {
         return Ok(());
@@ -613,7 +676,7 @@ fn verify_ops_channel(
         "Slack ops action rejected: not from the ops channel"
     );
     Err(AppError::auth_invalid(
-        "Approvals are only accepted from the ops channel",
+        "This decision is only accepted from its ops channel",
     ))
 }
 
@@ -629,131 +692,6 @@ pub fn channel_matches(channel_name: &str, channel_id: &str, configured: &str) -
     !expected.is_empty() && (channel_name == expected || channel_id == expected)
 }
 
-/// Approve a user: set status to Active and create tenant if needed
-async fn approve_user(
-    resources: &ServerContext,
-    user_uuid: Uuid,
-    approved_by: &str,
-) -> AppResult<String> {
-    let user = resources
-        .common
-        .repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    if user.user_status == UserStatus::Active {
-        return Ok(user.email);
-    }
-
-    let updated_user = resources
-        .common
-        .repos
-        .users
-        .update_status(user_uuid, UserStatus::Active, None)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to approve user: {e}")))?;
-
-    // Create default tenant for the approved user if they don't have one
-    let has_tenants = !resources
-        .common
-        .repos
-        .tenants
-        .list_for_user(user_uuid)
-        .await
-        .unwrap_or_default()
-        .is_empty();
-
-    if !has_tenants {
-        tenant_admin_service::provision_tenant_for_approval(
-            &resources.common.repos,
-            user_uuid,
-            &updated_user.email,
-            updated_user.display_name.as_deref(),
-            None,
-            None,
-        )
-        .await?;
-    }
-
-    info!(
-        user_id = %user_uuid,
-        email = %mask_email(&updated_user.email),
-        approved_by,
-        "User approved via Slack action"
-    );
-
-    // Warm the identity cache first: the notify enricher resolves user_email
-    // from user_id, and without it the Slack message loses the subject.
-    cache_user_email(&user_uuid.to_string(), &updated_user.email);
-    info!(
-        target: "notify",
-        event = "user.approved",
-        user_id = %user_uuid,
-        approved_by = approved_by,
-        "user account approved"
-    );
-
-    // Notify the approved user: account email + a message on each linked channel.
-    ApprovalNotifier::from_context(resources)
-        .notify_user_approved(
-            user_uuid,
-            &updated_user.email,
-            updated_user.display_name.as_deref(),
-        )
-        .await;
-
-    Ok(updated_user.email)
-}
-
-/// Reject (suspend) a user
-async fn reject_user(
-    resources: &ServerContext,
-    user_uuid: Uuid,
-    rejected_by: &str,
-) -> AppResult<String> {
-    let user = resources
-        .common
-        .repos
-        .users
-        .get_global(user_uuid)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-    if user.user_status == UserStatus::Suspended {
-        return Ok(user.email);
-    }
-
-    let updated_user = resources
-        .common
-        .repos
-        .users
-        .update_status(user_uuid, UserStatus::Suspended, None)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to suspend user: {e}")))?;
-
-    info!(
-        user_id = %user_uuid,
-        email = %mask_email(&updated_user.email),
-        rejected_by,
-        "User rejected (suspended) via Slack action"
-    );
-
-    cache_user_email(&user_uuid.to_string(), &updated_user.email);
-    info!(
-        target: "notify",
-        event = "user.suspended",
-        user_id = %user_uuid,
-        suspended_by = rejected_by,
-        "user account suspended"
-    );
-
-    Ok(updated_user.email)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -766,15 +704,17 @@ mod tests {
 
     use dravr_contremaitre::config::NOTIFY_ROUTING_YAML;
     use dravr_tronc::notify::{NotifyActions, RoutingProvider};
+    use serde_json::{json, Value};
 
     use super::{
-        parse_action_id, verify_ops_channel, verify_slack_signature, ActionRoute, ActionType,
-        ContremaitreRoutingProvider, PendingApprovalActions, SlackAction, PENDING_APPROVAL_EVENT,
+        parse_action_id, parse_slack_action, verify_ops_channel, verify_slack_signature,
+        ActionRoute, ActionType, CoachAccessDecision, ContremaitreRoutingProvider, OpsAction,
+        OpsDecisionActions, SlackAction, COACH_ACCESS_REQUESTED_EVENT, PENDING_APPROVAL_EVENT,
     };
 
-    /// The `action_id`s of the buttons posted for an account waiting for approval.
+    /// The `action_id`s of the buttons posted under `event`.
     fn button_action_ids(event: &str, fields: &HashMap<String, String>) -> Option<Vec<String>> {
-        PendingApprovalActions
+        OpsDecisionActions
             .actions_for(event, fields)
             .map(|buttons| {
                 buttons
@@ -784,67 +724,128 @@ mod tests {
             })
     }
 
+    /// Each button posted under `event` as the action it parses back to, its
+    /// block type, style and label.
+    fn buttons_under(
+        event: &str,
+        fields: &HashMap<String, String>,
+    ) -> Vec<(OpsAction, String, String, String)> {
+        OpsDecisionActions
+            .actions_for(event, fields)
+            .unwrap()
+            .iter()
+            .map(|button| {
+                (
+                    parse_action_id(button["action_id"].as_str().unwrap()).unwrap(),
+                    button["type"].as_str().unwrap().to_owned(),
+                    button["style"].as_str().unwrap().to_owned(),
+                    button["text"]["text"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    fn owned(button: (OpsAction, &str, &str, &str)) -> (OpsAction, String, String, String) {
+        let (action, kind, style, label) = button;
+        (action, kind.to_owned(), style.to_owned(), label.to_owned())
+    }
+
     #[test]
-    fn the_pending_approval_buttons_parse_back_to_the_waiting_account() {
+    fn approve_and_reject_act_on_the_waiting_account_from_its_room() {
         let user_id = Uuid::new_v4();
         let fields = HashMap::from([("user_id".to_owned(), user_id.to_string())]);
-        let ids = button_action_ids(PENDING_APPROVAL_EVENT, &fields).unwrap();
-        assert_eq!(ids.len(), 2, "{ids:?}");
-
-        let parsed: Vec<(ActionType, Uuid)> = ids
-            .iter()
-            .map(|id| {
-                let (action, raw) = parse_action_id(id).unwrap();
-                (action, Uuid::parse_str(raw).unwrap())
-            })
-            .collect();
         assert_eq!(
-            parsed,
+            buttons_under(PENDING_APPROVAL_EVENT, &fields),
             [
-                (ActionType::Approve, user_id),
-                (ActionType::Reject, user_id)
+                (
+                    OpsAction::SignUp(ActionType::Approve, user_id),
+                    "button",
+                    "primary",
+                    "Approve"
+                ),
+                (
+                    OpsAction::SignUp(ActionType::Reject, user_id),
+                    "button",
+                    "danger",
+                    "Reject"
+                ),
             ]
+            .map(owned)
         );
-        for id in &ids {
-            assert_eq!(ActionRoute::of(id), ActionRoute::Ops, "{id}");
+        for id in button_action_ids(PENDING_APPROVAL_EVENT, &fields).unwrap() {
+            assert_eq!(ActionRoute::of(&id), ActionRoute::Ops, "{id}");
+            let action = parse_action_id(&id).unwrap();
+            assert_eq!(action.event(), PENDING_APPROVAL_EVENT, "{id}");
         }
     }
 
     #[test]
-    fn approve_is_the_primary_button_and_reject_the_danger_one() {
-        let fields = HashMap::from([("user_id".to_owned(), Uuid::new_v4().to_string())]);
-        let buttons = PendingApprovalActions
-            .actions_for(PENDING_APPROVAL_EVENT, &fields)
-            .unwrap();
-        let styles: Vec<(ActionType, &str, &str, &str)> = buttons
-            .iter()
-            .map(|button| {
-                let (action, _) = parse_action_id(button["action_id"].as_str().unwrap()).unwrap();
-                (
-                    action,
-                    button["type"].as_str().unwrap(),
-                    button["style"].as_str().unwrap(),
-                    button["text"]["text"].as_str().unwrap(),
-                )
-            })
-            .collect();
+    fn grant_and_decline_act_on_the_coach_access_request_not_its_requester() {
+        let request_id = Uuid::new_v4();
+        // The notice names the requester too; the buttons must not act on them.
+        let fields = HashMap::from([
+            ("request_id".to_owned(), request_id.to_string()),
+            ("user_id".to_owned(), Uuid::new_v4().to_string()),
+        ]);
         assert_eq!(
-            styles,
+            buttons_under(COACH_ACCESS_REQUESTED_EVENT, &fields),
             [
-                (ActionType::Approve, "button", "primary", "Approve"),
-                (ActionType::Reject, "button", "danger", "Reject"),
+                (
+                    OpsAction::CoachAccess(CoachAccessDecision::Grant, request_id),
+                    "button",
+                    "primary",
+                    "Grant"
+                ),
+                (
+                    OpsAction::CoachAccess(CoachAccessDecision::Decline, request_id),
+                    "button",
+                    "danger",
+                    "Decline"
+                ),
             ]
+            .map(owned)
         );
+        for id in button_action_ids(COACH_ACCESS_REQUESTED_EVENT, &fields).unwrap() {
+            assert_eq!(ActionRoute::of(&id), ActionRoute::Ops, "{id}");
+            let action = parse_action_id(&id).unwrap();
+            assert_eq!(action.event(), COACH_ACCESS_REQUESTED_EVENT, "{id}");
+        }
     }
 
     #[test]
-    fn no_buttons_for_another_event_or_an_event_naming_no_account() {
-        let fields = HashMap::from([("user_id".to_owned(), Uuid::new_v4().to_string())]);
-        assert_eq!(button_action_ids("user.signed_up", &fields), None);
+    fn no_buttons_for_another_event_or_an_event_naming_nothing_to_act_on() {
+        let fields = HashMap::from([
+            ("user_id".to_owned(), Uuid::new_v4().to_string()),
+            ("request_id".to_owned(), Uuid::new_v4().to_string()),
+        ]);
+        for other in [
+            "user.signed_up",
+            "coach_access.granted",
+            "coach_access.declined",
+        ] {
+            assert_eq!(button_action_ids(other, &fields), None, "{other}");
+        }
         assert_eq!(
             button_action_ids(PENDING_APPROVAL_EVENT, &HashMap::new()),
             None
         );
+        // A coach-access notice without its request names only the requester.
+        let requester_only = HashMap::from([("user_id".to_owned(), Uuid::new_v4().to_string())]);
+        assert_eq!(
+            button_action_ids(COACH_ACCESS_REQUESTED_EVENT, &requester_only),
+            None
+        );
+    }
+
+    #[test]
+    fn an_ops_action_naming_no_id_or_no_known_decision_is_refused() {
+        for unknown in [
+            "grant_coach_access:not-a-uuid",
+            "approve_user:",
+            "promote_user:6f1c2b9e-0000-4000-8000-000000000001",
+        ] {
+            assert!(parse_action_id(unknown).is_err(), "{unknown}");
+        }
     }
 
     #[test]
@@ -867,6 +868,8 @@ mod tests {
         for value in [
             "approve_user:6f1c2b9e-0000-4000-8000-000000000001",
             "reject_user:6f1c2b9e-0000-4000-8000-000000000001",
+            "grant_coach_access:6f1c2b9e-0000-4000-8000-000000000001",
+            "decline_coach_access:6f1c2b9e-0000-4000-8000-000000000001",
             "0",
             "ex:one:1",
             "uc:one:connect",
@@ -948,7 +951,97 @@ mod tests {
             channel_id: channel_id.to_owned(),
             channel_name: channel_name.to_owned(),
             message_ts: "1.0".to_owned(),
+            message_blocks: Vec::new(),
         }
+    }
+
+    #[test]
+    fn each_decision_is_honoured_only_in_the_room_its_own_event_is_routed_to() {
+        let routing = ContremaitreRoutingProvider::new_empty();
+        routing
+            .reload(
+                "version: 1\ndefaults:\n  channel: \"C0DEFAULT\"\nevents:\n  \
+                 user.pending_approval:\n    channel: \"C0SIGNUPS\"\n  \
+                 coach_access.requested:\n    channel: \"C0COACHES\"\n",
+            )
+            .expect("a two-room table parses");
+
+        let grant = OpsAction::CoachAccess(CoachAccessDecision::Grant, Uuid::new_v4()).event();
+        let approve = OpsAction::SignUp(ActionType::Approve, Uuid::new_v4()).event();
+        assert!(verify_ops_channel(&tap_in("C0COACHES", ""), grant, &routing).is_ok());
+        assert!(verify_ops_channel(&tap_in("C0SIGNUPS", ""), approve, &routing).is_ok());
+
+        // The sign-up room does not decide coach access, nor the reverse.
+        let err = verify_ops_channel(&tap_in("C0SIGNUPS", ""), grant, &routing)
+            .expect_err("a grant from the sign-up room is refused");
+        assert!(err.to_string().contains("ops channel"), "{err}");
+        assert!(verify_ops_channel(&tap_in("C0COACHES", ""), approve, &routing).is_err());
+
+        // A table naming only the sign-up room leaves coach access nowhere.
+        routing
+            .reload(
+                "version: 1\ndefaults:\n  channel: \"C0DEFAULT\"\nevents:\n  \
+                 user.pending_approval:\n    channel: \"C0SIGNUPS\"\n",
+            )
+            .expect("a one-room table parses");
+        let err = verify_ops_channel(&tap_in("C0SIGNUPS", ""), grant, &routing)
+            .expect_err("no rule of its own, no grants");
+        assert!(
+            err.to_string().contains(COACH_ACCESS_REQUESTED_EVENT),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_pinned_routing_names_a_room_of_its_own_for_coach_access_requests() {
+        let routing = ContremaitreRoutingProvider::new_empty();
+        routing
+            .reload(NOTIFY_ROUTING_YAML)
+            .expect("the pinned routing rules parse");
+        let room = routing
+            .event_channel(COACH_ACCESS_REQUESTED_EVENT)
+            .expect("the pinned routing names the coach-access room");
+        let firehose = RoutingProvider::route_for(&routing, "test.unrouted")
+            .expect("the pinned routing has a default room")
+            .channel;
+        assert_ne!(
+            room, firehose,
+            "coach access is decided in a room of its own"
+        );
+    }
+
+    #[test]
+    fn a_tap_carries_back_the_card_it_was_made_on() {
+        // A card as the notify layer posts it: the notice, then its buttons.
+        let card: Vec<Value> = vec![
+            json!({ "type": "section", "block_id": "notice",
+                    "text": { "type": "mrkdwn", "text": "coach access requested" } }),
+            json!({ "type": "actions", "block_id": "notify-actions-coach_access.requested",
+                    "elements": [{ "type": "button", "action_id": "grant_coach_access:1" }] }),
+        ];
+        let payload = json!({
+            "type": "block_actions",
+            "user": { "id": "U1", "username": "op" },
+            "channel": { "id": "C0COACHES", "name": "dravr-dev-users" },
+            "message": { "ts": "1.0", "blocks": card },
+            "actions": [{ "action_id": "grant_coach_access:1" }],
+        });
+        let body = format!("payload={}", urlencoding::encode(&payload.to_string()));
+        let action = parse_slack_action(body.as_bytes()).unwrap();
+        assert_eq!(action.message_blocks, card);
+
+        let without = json!({
+            "type": "block_actions",
+            "user": { "id": "U1" },
+            "channel": { "id": "C0COACHES" },
+            "message": { "ts": "1.0" },
+            "actions": [{ "action_id": "grant_coach_access:1" }],
+        });
+        let body = format!("payload={}", urlencoding::encode(&without.to_string()));
+        assert_eq!(
+            parse_slack_action(body.as_bytes()).unwrap().message_blocks,
+            Vec::<Value>::new()
+        );
     }
 
     #[test]
@@ -968,9 +1061,9 @@ mod tests {
             .channel;
         assert_ne!(room, firehose, "approvals have a room of their own");
 
-        assert!(verify_ops_channel(&tap_in(&room, ""), &routing).is_ok());
+        assert!(verify_ops_channel(&tap_in(&room, ""), PENDING_APPROVAL_EVENT, &routing).is_ok());
         // The default room carries other events, never an approval.
-        let err = verify_ops_channel(&tap_in(&firehose, ""), &routing)
+        let err = verify_ops_channel(&tap_in(&firehose, ""), PENDING_APPROVAL_EVENT, &routing)
             .expect_err("a tap outside the approvals room is refused");
         assert!(err.to_string().contains("ops channel"), "{err}");
     }
@@ -978,8 +1071,12 @@ mod tests {
     #[test]
     fn an_approval_is_refused_while_no_rule_of_its_own_names_the_room() {
         let routing = ContremaitreRoutingProvider::new_empty();
-        let err = verify_ops_channel(&tap_in("C0ANS7HU3CH", "dravr-dev-users"), &routing)
-            .expect_err("no routing rule, no approvals");
+        let err = verify_ops_channel(
+            &tap_in("C0ANS7HU3CH", "dravr-dev-users"),
+            PENDING_APPROVAL_EVENT,
+            &routing,
+        )
+        .expect_err("no routing rule, no approvals");
         assert!(err.to_string().contains("user.pending_approval"), "{err}");
 
         // A table without the event's rule still routes it to the default
@@ -987,8 +1084,12 @@ mod tests {
         routing
             .reload("version: 1\ndefaults:\n  channel: \"C0B3FRDDD25\"\nevents: {}\n")
             .expect("a defaults-only table parses");
-        let err = verify_ops_channel(&tap_in("C0B3FRDDD25", "dev-dravr-events"), &routing)
-            .expect_err("the default room is not the approvals room");
+        let err = verify_ops_channel(
+            &tap_in("C0B3FRDDD25", "dev-dravr-events"),
+            PENDING_APPROVAL_EVENT,
+            &routing,
+        )
+        .expect_err("the default room is not the approvals room");
         assert!(err.to_string().contains("user.pending_approval"), "{err}");
     }
 }

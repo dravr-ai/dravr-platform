@@ -35,7 +35,7 @@ use pierre_llm::config::LlmChain;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
 use pierre_mcp_server::cache::cache_from_env;
 #[cfg(feature = "client-messaging")]
-use pierre_mcp_server::routes::messaging::slack_actions::PendingApprovalActions;
+use pierre_mcp_server::routes::messaging::slack_actions::OpsDecisionActions;
 use pierre_mcp_server::services::turn_lifecycle::{
     run_to_exit, serve_until_drained, shutdown_signal,
 };
@@ -188,10 +188,11 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     pierre_logging::set_notify_enricher(Arc::new(PierreNotifyEnricher::new(
         config.frontend_url.as_deref(),
     )));
-    // Register the Approve/Reject buttons posted under user.pending_approval;
-    // the Slack interactivity route that answers them is a messaging route.
+    // Register the ops buttons: Approve/Reject under user.pending_approval,
+    // Grant/Decline under coach_access.requested; the Slack interactivity
+    // route that answers them is a messaging route.
     #[cfg(feature = "client-messaging")]
-    pierre_logging::set_notify_actions(Arc::new(PendingApprovalActions));
+    pierre_logging::set_notify_actions(Arc::new(OpsDecisionActions));
     pierre_logging::init_from_env()?;
     info!("Starting Dravr API - Production Mode");
     info!("{}", config.summary());

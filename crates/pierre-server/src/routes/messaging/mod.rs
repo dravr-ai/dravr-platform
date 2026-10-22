@@ -21,9 +21,11 @@ pub(crate) mod linking;
 pub use linking::{exchange_code_for_identity, oauth_endpoints};
 /// The request Cloud Tasks delivers to run one recorded turn (registre#126).
 pub mod internal_turns;
-/// Slack interactive action handlers: ops approve/reject postbacks and
-/// messaging command callbacks. Exposed for the ops-channel authorization
-/// unit tests.
+/// Slack interactive action handlers.
+///
+/// The ops rooms' decisions (approve or reject a sign-up, grant or decline
+/// coach access), messaging command callbacks and the athlete's taps.
+/// Exposed for the ops-channel authorization unit tests.
 pub mod slack_actions;
 mod templates;
 /// Inbound webhook ingress (signature verification, tenant resolution, dispatch)

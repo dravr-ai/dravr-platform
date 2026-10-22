@@ -13,8 +13,7 @@
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{User, UserStatus};
-use pierre_core::permissions::UserRole;
+use pierre_core::models::User;
 use pierre_database::repositories::UserRepository;
 use pierre_email::ResendEmailService;
 use pierre_middleware::mask_email;
@@ -27,9 +26,8 @@ pub fn console_users_url(frontend_url: &str) -> String {
     format!("{}/#users", frontend_url.trim_end_matches('/'))
 }
 
-/// The addresses of every active super-admin. A suspended one is left out:
-/// suspension changes `user_status`, never `is_active`, and the mail names the
-/// applicant.
+/// The addresses of every active super-admin ([`User::is_active_super_admin`]):
+/// a suspended one is left out, since the mail names the applicant.
 ///
 /// # Errors
 ///
@@ -39,11 +37,7 @@ pub async fn super_admin_emails(users: &dyn UserRepository) -> AppResult<Vec<Str
         .list_admins()
         .await?
         .into_iter()
-        .filter(|a| {
-            a.is_active
-                && a.user_status == UserStatus::Active
-                && matches!(a.role, UserRole::SuperAdmin)
-        })
+        .filter(User::is_active_super_admin)
         .map(|a| a.email)
         .collect())
 }
@@ -113,6 +107,8 @@ fn log_outcome(to: &str, applicant: &User, sent: Result<(), AppError>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::models::UserStatus;
+    use pierre_core::permissions::UserRole;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::{create_test_admin_user, create_test_user};
 
