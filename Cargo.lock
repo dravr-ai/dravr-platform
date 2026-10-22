@@ -1512,8 +1512,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-meteo"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.8.0#7c159fea0daeaacebe7f9235c7b82d9a25d58e33"
+version = "0.8.1"
+source = "git+https://github.com/dravr-ai/dravr-meteo.git?tag=v0.8.1#a647e3aef16d560be60156bfb46eaf58ba171945"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2518,7 +2518,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4935,7 +4935,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4973,7 +4973,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
