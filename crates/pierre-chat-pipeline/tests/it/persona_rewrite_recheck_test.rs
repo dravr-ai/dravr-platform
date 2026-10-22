@@ -21,6 +21,7 @@ use pierre_core::models::CoachingPersona;
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
 };
+use tracing::callsite::rebuild_interest_cache;
 use tracing::subscriber::set_default;
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -157,7 +158,7 @@ async fn run_repair(repair: Repair<'_>) -> String {
     let _guard = set_default(subscriber);
     // A test on another thread can cache a callsite's interest while no
     // subscriber wants it; rebuild so this subscriber sees every event.
-    tracing::callsite::rebuild_interest_cache();
+    rebuild_interest_cache();
     let provider = Arc::new(ChatProvider::Custom(Arc::new(ScriptedEditor::new(
         repair.rewrite,
     ))));
