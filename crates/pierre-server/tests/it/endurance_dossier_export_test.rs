@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::NaiveDate;
+use dravr_cageux::zones::{HrZones, PowerZones};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
@@ -44,14 +45,19 @@ fn make_profile(user_id: Uuid) -> UserPhysiologicalProfile {
         training_experience_years: Some(10),
         ftp_watts: Some(280),
         threshold_pace_sec_per_km: Some(225.0),
-        hr_zones: Some(HrZoneSet::new(120, 140, 160, 180, 200).unwrap()),
-        power_zones: Some(PowerZoneSet::new(150, 200, 240, 280, 320).unwrap()),
+        hr_zones: Some(HrZoneSet::from_zones(
+            &HrZones::karvonen_tiered(52.0, 50, 190).unwrap(),
+        )),
+        power_zones: Some(PowerZoneSet::from_zones(
+            &PowerZones::coggan(280.0).unwrap(),
+        )),
         critical_power_watts: None,
         w_prime_joules: None,
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
+        sex: None,
     }
 }
 
@@ -98,8 +104,10 @@ async fn dossier_pulls_physiology_and_zones_when_present() {
         dossier.physiology.as_ref().and_then(|p| p.ftp_watts),
         Some(280)
     );
-    assert!(dossier.hr_zones.is_some());
-    assert!(dossier.power_zones.is_some());
+    let stored = make_profile(user_id);
+    assert_eq!(dossier.hr_zones, stored.hr_zones);
+    assert_eq!(dossier.power_zones, stored.power_zones);
+    assert_eq!(dossier.hr_zones.and_then(|z| z.z6_max), Some(190));
 }
 
 #[tokio::test]

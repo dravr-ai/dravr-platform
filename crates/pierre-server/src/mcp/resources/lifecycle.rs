@@ -73,10 +73,6 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 #[cfg(feature = "client-messaging")]
 type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static str>);
 
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
@@ -269,9 +265,6 @@ impl ServerContext {
             )
             .await,
         );
-
-        // Create activity intelligence once for shared use
-        let activity_intelligence = Self::create_default_intelligence();
 
         // Create A2A services for agent-to-agent communication
         #[cfg(feature = "protocol-a2a")]
@@ -622,7 +615,6 @@ impl ServerContext {
 
         let fitness = super::slices::FitnessSlice {
             provider_registry,
-            activity_intelligence,
             #[cfg(feature = "health-sync")]
             sync_orchestrator: Some(sync_orchestrator),
             #[cfg(feature = "health-sync")]
@@ -988,34 +980,6 @@ impl ServerContext {
         if let Err(e) = sync_tool_catalog(tool_registry, repos.tool_selection.as_ref()).await {
             tracing::warn!(error = %e, "Tool catalog sync failed, catalog may be incomplete");
         }
-    }
-
-    /// Create default activity intelligence for MCP server
-    fn create_default_intelligence() -> Arc<ActivityIntelligence> {
-        Arc::new(ActivityIntelligence::new(
-            "MCP Intelligence".into(),
-            vec![],
-            PerformanceMetrics {
-                relative_effort: Some(7.5),
-                zone_distribution: None,
-                personal_records: vec![],
-                efficiency_score: Some(85.0),
-                trend_indicators: TrendIndicators {
-                    pace_trend: TrendDirection::Improving,
-                    effort_trend: TrendDirection::Stable,
-                    distance_trend: TrendDirection::Improving,
-                    consistency_score: 8.2,
-                },
-            },
-            ContextualFactors {
-                weather: None,
-                location: None,
-                time_of_day: TimeOfDay::Morning,
-                days_since_last_activity: Some(1),
-                weekly_load: None,
-                seasonal_context: None,
-            },
-        ))
     }
 
     /// Initialize admin config service from the active database backend

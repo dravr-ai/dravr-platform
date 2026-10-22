@@ -10,8 +10,28 @@
 use chrono::{Duration, Utc};
 use dravr_cageux::models::activity::{Activity, ActivityBuilder, TimeSeriesData};
 use dravr_cageux::models::sport::SportType;
-use pierre_core::models::zones::HrZoneSet;
+use dravr_cageux::zones::HrZones;
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_fitness_compute::latest_snapshot::{build_latest_snapshot, MAX_WINDOW_DAYS};
+
+/// What an athlete with no saved heart rates has instead of zones.
+static NO_PROFILE: HrZonesUnavailable = HrZonesUnavailable::NoProfile;
+
+fn no_zones() -> Result<&'static HrZones, &'static HrZonesUnavailable> {
+    Err(&NO_PROFILE)
+}
+
+/// An intermediate athlete's zones (`VO2max` 45, resting 50, max 200): five
+/// zones and no zone 6.
+fn intermediate_zones() -> HrZones {
+    HrZones::karvonen_tiered(45.0, 50, 200).unwrap()
+}
+
+/// A heart rate inside zone `zone` of `zones`, one beat above its floor.
+fn bpm_in_zone(zones: &HrZones, zone: u8) -> u32 {
+    let band = zones.zones().iter().find(|b| b.zone == zone).unwrap();
+    u32::from(band.lower_bpm) + 1
+}
 
 struct SyntheticActivity<'a> {
     id: &'a str,
@@ -102,7 +122,7 @@ fn flat_hr_stream(seconds: usize, bpm: u32) -> TimeSeriesData {
 
 #[test]
 fn empty_input_yields_empty_snapshot_with_clamped_window() {
-    let snap = build_latest_snapshot(&[], 9999, None, None);
+    let snap = build_latest_snapshot(&[], 9999, None, no_zones());
     assert_eq!(snap.activity_count, 0);
     assert_eq!(snap.activities.len(), 0);
     assert!(snap.avg_intensity_factor.is_none());
@@ -114,7 +134,7 @@ fn empty_input_yields_empty_snapshot_with_clamped_window() {
 #[test]
 fn intensity_factor_uses_normalized_power_over_ftp() {
     let activity = typical_run("a1", 1, Some(200));
-    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), no_zones());
     assert_eq!(snap.activity_count, 1);
     let metrics = snap.activities[0].metrics;
     let intensity = metrics.intensity_factor.expect("intensity factor present");
@@ -136,7 +156,7 @@ fn variability_index_is_normalized_over_average_power() {
         normalized_power: Some(200),
         streams: None,
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let snap = build_latest_snapshot(&[activity], 7, None, no_zones());
     let vi = snap.activities[0]
         .metrics
         .variability_index
@@ -150,7 +170,7 @@ fn variability_index_is_normalized_over_average_power() {
 #[test]
 fn efficiency_factor_uses_avg_hr() {
     let activity = typical_run("ef-1", 1, Some(200));
-    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let snap = build_latest_snapshot(&[activity], 7, None, no_zones());
     let ef = snap.activities[0]
         .metrics
         .efficiency_factor
@@ -164,7 +184,7 @@ fn efficiency_factor_uses_avg_hr() {
 #[test]
 fn missing_ftp_skips_intensity_factor_and_does_not_substitute() {
     let activity = typical_run("no-ftp", 1, Some(200));
-    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let snap = build_latest_snapshot(&[activity], 7, None, no_zones());
     assert!(
         snap.activities[0].metrics.intensity_factor.is_none(),
         "no FTP must not produce a virtual IF"
@@ -184,7 +204,7 @@ fn missing_power_stream_skips_normalized_power_metrics() {
         normalized_power: None,
         streams: None,
     });
-    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), no_zones());
     let metrics = snap.activities[0].metrics;
     assert!(metrics.intensity_factor.is_none());
     assert!(metrics.efficiency_factor.is_none());
@@ -193,27 +213,91 @@ fn missing_power_stream_skips_normalized_power_metrics() {
 
 #[test]
 fn zone_distribution_buckets_against_user_zones() {
-    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
+    let zones = intermediate_zones();
+    let bpm = bpm_in_zone(&zones, 2);
     let activity = synthetic_activity(SyntheticActivity {
         id: "zone-test",
         days_ago: 0,
         duration_seconds: 300,
         distance_meters: 2_000.0,
-        avg_hr: Some(135),
+        avg_hr: Some(bpm),
         avg_power: None,
         normalized_power: None,
-        streams: Some(flat_hr_stream(300, 135)),
+        streams: Some(flat_hr_stream(300, bpm)),
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, Some(zones));
+    let snap = build_latest_snapshot(&[activity], 7, None, Ok(&zones));
     let zd = snap.activities[0]
         .zone_distribution
         .expect("zone distribution present");
-    // 300 samples × 1s gap = 300 seconds, all of them in Z2 (121..=140).
+    // 300 samples × 1s gap = 300 seconds, all of them in Z2.
     assert_eq!(zd.z2_seconds, 300);
     assert_eq!(zd.z1_seconds, 0);
     assert_eq!(zd.z3_seconds, 0);
+    assert_eq!(zd.z6_seconds, 0);
     assert_eq!(zd.above_max_seconds, 0);
     assert_eq!(snap.aggregated_zone_distribution.unwrap().z2_seconds, 300);
+    assert!(snap.zone_distribution_unavailable.is_none());
+}
+
+#[test]
+fn zone_6_time_is_counted_for_an_athlete_whose_tier_has_one() {
+    // An advanced athlete (VO2max 55, resting 50, max 200) has a zone 6 above
+    // zone 5 that ends at their maximum; a reading past the maximum is kept
+    // apart from it.
+    let zones = HrZones::karvonen_tiered(55.0, 50, 200).unwrap();
+    let z6 = zones.zones().iter().find(|b| b.zone == 6).expect("zone 6");
+    assert_eq!(z6.upper_bpm, 200);
+    let in_zone_6 = synthetic_activity(SyntheticActivity {
+        id: "zone-6",
+        days_ago: 0,
+        duration_seconds: 120,
+        distance_meters: 1_000.0,
+        avg_hr: Some(u32::from(z6.upper_bpm)),
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(flat_hr_stream(120, u32::from(z6.upper_bpm))),
+    });
+    let past_max = synthetic_activity(SyntheticActivity {
+        id: "past-max",
+        days_ago: 0,
+        duration_seconds: 60,
+        distance_meters: 500.0,
+        avg_hr: Some(205),
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(flat_hr_stream(60, 205)),
+    });
+    let snap = build_latest_snapshot(&[in_zone_6, past_max], 7, None, Ok(&zones));
+    let aggregate = snap.aggregated_zone_distribution.expect("aggregate");
+    assert_eq!(aggregate.z6_seconds, 120);
+    assert_eq!(aggregate.z5_seconds, 0);
+    assert_eq!(aggregate.above_max_seconds, 60);
+    assert_eq!(aggregate.total_seconds(), 180);
+}
+
+#[test]
+fn without_the_athletes_zones_there_is_no_distribution_and_the_reason_says_why() {
+    let activity = synthetic_activity(SyntheticActivity {
+        id: "no-zones",
+        days_ago: 0,
+        duration_seconds: 300,
+        distance_meters: 2_000.0,
+        avg_hr: Some(150),
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(flat_hr_stream(300, 150)),
+    });
+    let missing = HrZonesUnavailable::MissingHeartRates {
+        resting_hr: true,
+        max_hr: false,
+    };
+    let snap = build_latest_snapshot(&[activity], 7, None, Err(&missing));
+    assert!(snap.activities[0].zone_distribution.is_none());
+    assert!(snap.aggregated_zone_distribution.is_none());
+    assert_eq!(
+        snap.zone_distribution_unavailable.as_deref(),
+        Some(missing.reason().as_str())
+    );
 }
 
 /// `stream` with every `every`-th heart-rate and power sample turned into a gap.
@@ -233,21 +317,22 @@ fn with_gaps(mut stream: TimeSeriesData, every: usize) -> TimeSeriesData {
 
 #[test]
 fn zone_distribution_credits_no_zone_for_a_heart_rate_gap() {
-    // 300 s at 135 bpm (Z2) with every tenth sample lost: the 30 gaps are
-    // time with no reading, so Z2 holds the 270 recorded seconds and Z1 —
-    // where a dropout read as 0 bpm would land — holds nothing.
-    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
+    // 300 s in Z2 with every tenth sample lost: the 30 gaps are time with
+    // no reading, so Z2 holds the 270 recorded seconds and Z1 — where a
+    // dropout read as 0 bpm would land — holds nothing.
+    let zones = intermediate_zones();
+    let bpm = bpm_in_zone(&zones, 2);
     let activity = synthetic_activity(SyntheticActivity {
         id: "zone-gaps",
         days_ago: 0,
         duration_seconds: 300,
         distance_meters: 2_000.0,
-        avg_hr: Some(135),
+        avg_hr: Some(bpm),
         avg_power: None,
         normalized_power: None,
-        streams: Some(with_gaps(flat_hr_stream(300, 135), 10)),
+        streams: Some(with_gaps(flat_hr_stream(300, bpm), 10)),
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, Some(zones));
+    let snap = build_latest_snapshot(&[activity], 7, None, Ok(&zones));
     let zd = snap.activities[0]
         .zone_distribution
         .expect("zone distribution present");
@@ -259,7 +344,7 @@ fn zone_distribution_credits_no_zone_for_a_heart_rate_gap() {
 
 #[test]
 fn a_stream_of_only_gaps_has_no_zone_distribution() {
-    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
+    let zones = intermediate_zones();
     let activity = synthetic_activity(SyntheticActivity {
         id: "zone-all-gaps",
         days_ago: 0,
@@ -270,7 +355,7 @@ fn a_stream_of_only_gaps_has_no_zone_distribution() {
         normalized_power: None,
         streams: Some(with_gaps(flat_hr_stream(60, 135), 1)),
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, Some(zones));
+    let snap = build_latest_snapshot(&[activity], 7, None, Ok(&zones));
     assert!(snap.activities[0].zone_distribution.is_none());
 }
 
@@ -289,7 +374,7 @@ fn stream_normalized_power_excludes_power_gaps() {
         normalized_power: None,
         streams: Some(with_gaps(flat_power_stream(1800, 200), 4)),
     });
-    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), no_zones());
     let metrics = snap.activities[0].metrics;
     let intensity = metrics.intensity_factor.expect("intensity factor present");
     assert!((intensity - 0.8).abs() < 1e-9, "IF {intensity}");
@@ -332,7 +417,7 @@ fn decoupling_excludes_heart_rate_gaps() {
         normalized_power: None,
         streams: Some(streams),
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let snap = build_latest_snapshot(&[activity], 7, None, no_zones());
     let decoupling = snap.activities[0]
         .metrics
         .decoupling_pct
@@ -354,7 +439,7 @@ fn normalized_power_falls_back_to_stream_when_field_absent() {
         normalized_power: None,
         streams: Some(stream),
     });
-    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), no_zones());
     let metrics = snap.activities[0].metrics;
     let intensity = metrics.intensity_factor.expect("intensity factor present");
     assert!(
@@ -367,7 +452,7 @@ fn normalized_power_falls_back_to_stream_when_field_absent() {
 fn activities_outside_window_are_excluded() {
     let recent = typical_run("recent", 1, Some(200));
     let stale = typical_run("stale", 30, Some(200));
-    let snap = build_latest_snapshot(&[recent, stale], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[recent, stale], 7, Some(250), no_zones());
     assert_eq!(snap.activity_count, 1);
     assert_eq!(snap.activities[0].activity_id, "recent");
 }
@@ -394,7 +479,7 @@ fn aggregate_means_use_only_contributing_activities() {
         normalized_power: None,
         streams: None,
     });
-    let snap = build_latest_snapshot(&[with_ftp, no_power], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[with_ftp, no_power], 7, Some(250), no_zones());
     assert_eq!(snap.activity_count, 2);
     let avg_if = snap.avg_intensity_factor.expect("at least one contributor");
     assert!((avg_if - 0.88).abs() < 1e-9, "got {avg_if}");
@@ -404,7 +489,7 @@ fn aggregate_means_use_only_contributing_activities() {
 fn ftp_zero_does_not_produce_nan_intensity_factor() {
     // ftp=0 must be rejected, not divide normalized power by zero.
     let activity = typical_run("zero-ftp", 1, Some(200));
-    let snap = build_latest_snapshot(&[activity], 7, Some(0), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(0), no_zones());
     assert!(snap.activities[0].metrics.intensity_factor.is_none());
     assert!(snap.avg_intensity_factor.is_none());
 }
@@ -421,7 +506,7 @@ fn zero_avg_hr_does_not_produce_nan_efficiency_factor() {
         normalized_power: Some(200),
         streams: None,
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let snap = build_latest_snapshot(&[activity], 7, None, no_zones());
     assert!(snap.activities[0].metrics.efficiency_factor.is_none());
 }
 
@@ -437,7 +522,7 @@ fn zero_avg_power_does_not_produce_nan_variability_index() {
         normalized_power: Some(200),
         streams: None,
     });
-    let snap = build_latest_snapshot(&[activity], 7, None, None);
+    let snap = build_latest_snapshot(&[activity], 7, None, no_zones());
     assert!(snap.activities[0].metrics.variability_index.is_none());
 }
 
@@ -459,7 +544,7 @@ fn nonfinite_distance_does_not_poison_window_total() {
     .average_power(180)
     .normalized_power(200)
     .build();
-    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), no_zones());
     assert!(
         snap.total_distance_meters.is_finite(),
         "NaN distance must be discarded, not propagated into the window total — got {}",
@@ -486,7 +571,7 @@ fn snapshot_window_total_stays_finite_for_degenerate_activity() {
         normalized_power: None,
         streams: None,
     });
-    let snap = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snap = build_latest_snapshot(&[activity], 7, Some(250), no_zones());
     let row = &snap.activities[0];
     assert!(row.metrics.intensity_factor.is_none());
     assert!(row.metrics.efficiency_factor.is_none());

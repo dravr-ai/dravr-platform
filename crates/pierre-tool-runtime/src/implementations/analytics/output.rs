@@ -20,6 +20,7 @@
 //! is what makes the arms distinguishable in practice — schemars emits
 //! `anyOf` for an untagged enum, so the schema does not assert that for you.
 
+use dravr_cageux::zones::HeartRateReading;
 use pierre_core::models::{FormBand, FormInterpretation};
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use serde::{Deserialize, Serialize};
@@ -171,6 +172,10 @@ pub struct HardEasyPatternResult {
     pub insights: Vec<String>,
     /// `medium` when a pattern was detected, `low` when not.
     pub confidence: String,
+    /// Why heart rate did not decide which sessions were hard: the athlete's
+    /// heart-rate zones are unknown, so only duration and speed did. Null
+    /// when the sessions were read against their zones.
+    pub hr_zones_unavailable: Option<String>,
 }
 
 /// The hard/easy split of a training block.
@@ -226,6 +231,10 @@ pub struct OvertrainingResult {
     pub confidence: String,
     /// What to do about it, graded by risk level.
     pub recommendations: Vec<String>,
+    /// Why heart rate did not decide which sessions counted as hard for the
+    /// recovery signal: the athlete's heart-rate zones are unknown. Null when
+    /// the sessions were read against their zones.
+    pub hr_zones_unavailable: Option<String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -240,15 +249,29 @@ pub struct ActivityMetricsResult {
     pub pace: f64,
     /// Kilometres per hour.
     pub speed: f64,
-    /// Effort relative to the athlete's maximum heart rate.
-    pub intensity_score: f64,
-    /// Distance covered per unit of effort.
-    pub efficiency_score: f64,
-    /// The maximum heart rate the intensity score was computed against.
-    pub max_hr_used: f64,
-    /// Where that maximum came from — given by the athlete, estimated from
-    /// age, or a default — so the athlete can judge the number.
+    /// Metres covered per metre climbed, capped by cageux: a description of
+    /// the route (hillier scores lower), not a physiological efficiency, and
+    /// no published scale grades it. Null when the activity recorded no
+    /// distance or no climb.
+    pub distance_per_climb_score: Option<f64>,
+    /// Why `distance_per_climb_score` is null. Null when there is a score.
+    pub distance_per_climb_unavailable: Option<String>,
+    /// The maximum heart rate the athlete's zones were cut to; null when none
+    /// is known.
+    pub max_hr_used: Option<f64>,
+    /// Where that maximum came from — `provided` in this call, the saved
+    /// `profile`, `estimated_from_age_<age>_<algorithm>` by the configured
+    /// max-HR estimator, or `unknown` — so the athlete can judge the number.
     pub max_hr_source: String,
+    /// The average heart rate read on the athlete's own zones (cageux's
+    /// `VO2max`-tiered Karvonen model): its zone, the zone's name, the
+    /// intensity it stands for and its fraction of heart-rate reserve. Null
+    /// when there is no heart rate or no zones to read it on.
+    pub heart_rate_reading: Option<HeartRateReading>,
+    /// Why `heart_rate_reading` is null: no heart rate on the activity, or the
+    /// zones lack a resting or maximum heart rate. Null when there is a
+    /// reading.
+    pub heart_rate_unavailable: Option<String>,
     /// The inputs, echoed in the units the metrics were computed in.
     pub metrics_summary: MetricsInputSummary,
 }
@@ -755,6 +778,10 @@ pub struct ActivityIntelligence {
     /// it, `mcp_sampling` when the client's model did. An athlete should be
     /// able to tell which, and so should a support engineer reading a trace.
     pub source: String,
+    /// Why the session's heart rate was not read for intensity: the athlete's
+    /// heart-rate zones are unknown. Null when it was read against their
+    /// zones (or the session carried no heart rate).
+    pub hr_zones_unavailable: Option<String>,
 }
 
 /// What `get_activity_intelligence` answers with.

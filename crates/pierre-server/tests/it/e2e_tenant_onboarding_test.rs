@@ -17,10 +17,6 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_auth::{
     auth::AuthManager,
     tenant::oauth_manager::{
@@ -185,31 +181,6 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         .await?;
 
     // Step 6: Create Universal Tool Executor with tenant OAuth support
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "E2E Test Intelligence".to_owned(),
-        vec![], // No initial insights
-        PerformanceMetrics {
-            relative_effort: Some(85.0),
-            zone_distribution: None,
-            personal_records: Vec::new(),
-            efficiency_score: Some(90.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Improving,
-                effort_trend: TrendDirection::Stable,
-                distance_trend: TrendDirection::Improving,
-                consistency_score: 85.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: None,
-            seasonal_context: None,
-        },
-    ));
-
     let config = Arc::new(create_test_server_config());
 
     // Create ServerContext for the test

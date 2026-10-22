@@ -36,7 +36,8 @@ pub struct LactateThresholdsResult {
     pub band_table: Vec<BandRow>,
     /// The cubic that was fitted, and how well it fitted.
     pub curve_fit: CurveFit,
-    /// Zones anchored on the modified-Dmax LT2, when the stages were watts.
+    /// Coggan's seven power levels anchored on the modified-Dmax LT2, when
+    /// the stages were watts.
     pub power_zones: LactatePowerZones,
     /// What the athlete's profile already holds, so the reply can be compared
     /// against it rather than silently replacing it.
@@ -134,7 +135,7 @@ pub struct CurveFit {
     pub r_squared: f64,
 }
 
-/// Zones derived from the modified-Dmax LT2, or why there are none.
+/// Coggan's power levels cut from the modified-Dmax LT2, or why there are none.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct LactatePowerZones {
     /// Always `lt2_modified_dmax` — named so a client cannot mistake these
@@ -142,8 +143,7 @@ pub struct LactatePowerZones {
     pub anchor: String,
     /// Whether zones were derived. Read this before `zones`.
     pub available: bool,
-    /// Why not: the stages were paces, the anchor could not be located, or
-    /// the configured percentages do not increase at this threshold.
+    /// Why not: the stages were paces, or the anchor could not be located.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     /// The threshold the zones were built on.

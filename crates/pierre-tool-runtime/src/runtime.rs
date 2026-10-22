@@ -32,7 +32,6 @@ use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
-use dravr_cageux::types::ActivityIntelligence;
 use pierre_cache::Cache;
 use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -175,9 +174,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// `TidCuts::default()`. Returns an owned `Arc` because the concrete
     /// service in `pierre-server` is not stored as a trait object.
     fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>>;
-
-    /// Activity intelligence engine.
-    fn activity_intelligence(&self) -> &Arc<ActivityIntelligence>;
 
     /// Tool registry (for discovery / introspection from inside tools).
     fn tool_registry(&self) -> &Arc<ToolRegistry>;

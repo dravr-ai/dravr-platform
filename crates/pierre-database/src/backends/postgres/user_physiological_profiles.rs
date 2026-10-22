@@ -15,9 +15,11 @@ use super::PostgresDatabase;
 use crate::dossier_facts::{group_facts, FACT_BUNDLE_LIMIT};
 use crate::repositories::user_physiological_profiles::{
     impl_user_physiological_profile_repository, profile_binds, profile_from_row, DossierRepository,
-    UserPhysiologicalProfileRepository, GET_PHYSIOLOGICAL_PROFILE_SQL,
+    UserPhysiologicalProfileRepository, GET_PHYSIOLOGICAL_PROFILE_SQL, LIST_PROFILE_USER_IDS_SQL,
     UPSERT_PHYSIOLOGICAL_PROFILE_SQL,
 };
 use crate::repositories::{HarnessMemoryRepository, ProfileRepository};
+use pierre_core::models::PhysiologicalSex;
+use sqlx::Row;
 
 impl_user_physiological_profile_repository!(PostgresDatabase);

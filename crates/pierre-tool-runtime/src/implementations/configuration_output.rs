@@ -14,8 +14,10 @@
 
 use std::collections::BTreeMap;
 
+use dravr_cageux::zones::{HrZoneTier, Vo2maxSource};
 use pierre_config::catalog::ConfigCatalog;
 use pierre_core::config::profiles::ConfigProfile;
+use pierre_core::models::zones::HrZoneModel;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -149,34 +151,47 @@ pub struct ZoneInputProfile {
     /// Lactate threshold as a fraction of `VO2max` — what places threshold
     /// pace in the pace zones.
     pub lactate_threshold: f64,
-    /// Sport efficiency factor used in the pace and power formulas.
+    /// Sport efficiency factor used in the pace zones.
     pub sport_efficiency: f64,
 }
 
 /// One heart-rate zone.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct HeartRateZone {
-    /// What the zone is called, so a client need not map numbers to names.
+    /// What the zone is called (cageux's zone names), so a client need not
+    /// map numbers to names.
     pub name: String,
-    /// Lower bound in bpm, inclusive.
+    /// Lower bound in bpm: inclusive for zone 1, exclusive above it (each
+    /// zone opens where the one below it closes).
     pub min_hr: u64,
     /// Upper bound in bpm, inclusive.
     pub max_hr: u64,
 }
 
-/// The five heart-rate zones.
+/// The athlete's heart-rate zones under cageux's `VO2max`-tiered Karvonen
+/// model: five zones, and a sixth for an athlete whose tier carries one.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct HeartRateZones {
-    /// Active recovery.
+    /// Recovery.
     pub zone_1: HeartRateZone,
-    /// Aerobic base.
+    /// Endurance.
     pub zone_2: HeartRateZone,
-    /// Aerobic threshold.
+    /// Tempo.
     pub zone_3: HeartRateZone,
-    /// Lactate threshold.
+    /// Threshold.
     pub zone_4: HeartRateZone,
-    /// VO2 max.
+    /// `VO2max`.
     pub zone_5: HeartRateZone,
+    /// Anaerobic, up to the maximum heart rate. Null when the athlete's
+    /// tier has no zone 6 (`VO2max` below 50) or their zone 5 already ends at
+    /// their maximum.
+    pub zone_6: Option<HeartRateZone>,
+    /// The `VO2max` tier that chose the zone fractions.
+    pub tier: HrZoneTier,
+    /// Whether the `VO2max` that chose the tier was supplied (`provided`) or
+    /// estimated from the maximum and resting heart rate
+    /// (`heart_rate_ratio`, Uth 2004).
+    pub vo2_max_source: Vo2maxSource,
 }
 
 /// One pace zone, as `m:ss` per kilometre.
@@ -207,16 +222,20 @@ pub struct PaceZones {
     pub zone_5_neuromuscular_max_pace: String,
 }
 
-/// One power zone, in watts.
+/// One power level, in watts.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PowerZoneBand {
-    /// Lower bound in watts, inclusive.
-    pub min_watts: u32,
-    /// Upper bound in watts, inclusive.
-    pub max_watts: u32,
+    /// The level's name (cageux's Coggan level names).
+    pub name: String,
+    /// Lower bound in watts: 0 for level 1, exclusive above it (each level
+    /// opens where the one below it closes).
+    pub min_watts: f64,
+    /// Upper bound in watts, inclusive. Null for level 7, which Coggan
+    /// leaves open-ended.
+    pub max_watts: Option<f64>,
 }
 
-/// The five power zones.
+/// Coggan's seven power levels, as fractions of FTP.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct PowerZones {
     /// Active recovery.
@@ -225,10 +244,14 @@ pub struct PowerZones {
     pub zone_2: PowerZoneBand,
     /// Tempo.
     pub zone_3: PowerZoneBand,
-    /// Threshold.
+    /// Lactate threshold.
     pub zone_4: PowerZoneBand,
-    /// VO2 max.
+    /// `VO2max`.
     pub zone_5: PowerZoneBand,
+    /// Anaerobic capacity.
+    pub zone_6: PowerZoneBand,
+    /// Neuromuscular power, open-ended.
+    pub zone_7: PowerZoneBand,
 }
 
 /// The zones that could be derived from what the athlete supplied.
@@ -248,24 +271,26 @@ pub struct PersonalizedZones {
     pub ftp: Option<u32>,
 }
 
-/// How the zones were derived, and the two threshold heart rates.
+/// How the heart-rate zones were derived, and the two threshold heart rates.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct ZoneCalculations {
-    /// Always `heart_rate_reserve` — the Karvonen method.
-    pub method: String,
-    /// The lactate threshold heart rate the heart-rate-reserve model places
-    /// (85% of the reserve), in bpm — the reference of these zones. Training
-    /// load scores against the athlete's own `threshold_hr`, saved with
-    /// `set_physiology`.
+    /// Always `karvonen_vo2max_tiered`: cageux's heart-rate-reserve zones with
+    /// fractions chosen by the athlete's `VO2max` tier.
+    pub method: HrZoneModel,
+    /// The `VO2max` tier that chose the fractions.
+    pub tier: HrZoneTier,
+    /// The `VO2max` (ml/kg/min) that chose the tier.
+    pub vo2_max: f64,
+    /// Whether that `VO2max` was supplied or estimated from the heart rates.
+    pub vo2_max_source: Vo2maxSource,
+    /// The lactate threshold heart rate the model places (85 % of the
+    /// reserve), in bpm — the reference of these zones. Training load scores
+    /// against the athlete's own `threshold_hr`, saved with `set_physiology`.
     pub lactate_threshold_hr: u64,
-    /// Aerobic threshold heart rate in bpm.
+    /// Aerobic threshold heart rate (75 % of the reserve), in bpm.
     pub aerobic_threshold_hr: u64,
-    /// The efficiency factor the pace and power formulas used.
+    /// The efficiency factor the pace zones used.
     pub sport_efficiency_factor: f64,
-    /// The pace formula, stated so the number is auditable.
-    pub pace_formula: String,
-    /// The power formula, likewise.
-    pub power_estimation: String,
 }
 
 /// What `calculate_personalized_zones` answers with.
@@ -274,8 +299,11 @@ pub struct PersonalizedZonesResult {
     /// The inputs, as resolved.
     pub user_profile: ZoneInputProfile,
     /// Where each input came from, keyed by field name: `provided`, `profile`,
-    /// or `estimated_from_age` for the one documented estimator. An athlete
-    /// should be able to tell a measured number from an estimated one.
+    /// `estimated_from_age` for a maximum heart rate estimated by the
+    /// configured max-HR algorithm (named under `max_hr_algorithm`), or
+    /// `heart_rate_ratio` for a `VO2max` estimated from the heart rates to
+    /// choose the zone tier. An athlete should be able to tell a measured
+    /// number from an estimated one.
     pub input_sources: Value,
     /// The zones that could be derived.
     pub personalized_zones: PersonalizedZones,

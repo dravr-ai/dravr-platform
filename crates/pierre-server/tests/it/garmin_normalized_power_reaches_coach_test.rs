@@ -23,6 +23,7 @@
 use crate::common;
 use axum::{routing::get, Json, Router};
 use chrono::Utc;
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
 use pierre_mcp_server::constants::init_server_config;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
@@ -129,7 +130,12 @@ async fn a_garmin_rides_np_populates_if_ef_and_vi() {
         .await
         .expect("the detail read succeeds");
 
-    let snapshot = build_latest_snapshot(&[activity], 7, Some(250), None);
+    let snapshot = build_latest_snapshot(
+        &[activity],
+        7,
+        Some(250),
+        Err(&HrZonesUnavailable::NoProfile),
+    );
 
     let metrics = snapshot.activities.first().expect("one row").metrics;
     let close = |actual: Option<f64>, expected: f64| {

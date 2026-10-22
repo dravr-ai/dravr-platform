@@ -751,6 +751,7 @@ impl FitnessProvider for GarminProvider {
             lastname: None,
             profile_picture: None,
             provider: oauth_providers::GARMIN.to_owned(),
+            sex: None,
         })
     }
 

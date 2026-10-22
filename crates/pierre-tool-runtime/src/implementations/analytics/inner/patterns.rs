@@ -8,6 +8,7 @@ use crate::implementations::analytics::output::{
     DayFrequency, HardEasyPatternResult, InsufficientPatternData, IntensityDistribution,
     OvertrainingResult, PatternsResult, VolumeProgressionResult, WeeklySchedulePatternResult,
 };
+use crate::implementations::stored_physiology::stored_hr_zones;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -18,7 +19,9 @@ use dravr_cageux::pattern_detection::{
 };
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::RiskLevel;
+use dravr_cageux::zones::HrZones;
 use pierre_core::civil_time::resolve_zone;
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
@@ -45,6 +48,7 @@ const PATTERN_TYPES: [&str; 4] = [
 /// * `provider` - Configured fitness provider
 /// * `pattern_type` - Type of pattern to detect (e.g., "`weekly_schedule`", "overtraining")
 /// * `user_uuid` - User UUID for response metadata
+/// * `hr_zones` - The athlete's heart-rate zones, or why they are unknown
 ///
 /// # Returns
 /// `UniversalResponse` with pattern analysis or error
@@ -53,6 +57,7 @@ async fn fetch_and_detect_patterns(
     pattern_type: &str,
     user_uuid: uuid::Uuid,
     user_timezone: Option<&str>,
+    hr_zones: Result<&HrZones, &HrZonesUnavailable>,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
@@ -66,7 +71,8 @@ async fn fetch_and_detect_patterns(
             // synthetic activity-density signals from re-uploaded GPS files.
             let (activities, _fragment_report) =
                 merge_duplicates(raw_activities, &DedupConfig::default());
-            let analysis = detect_activity_patterns(&activities, pattern_type, user_timezone);
+            let analysis =
+                detect_activity_patterns(&activities, pattern_type, user_timezone, hr_zones);
 
             apply_format_typed(
                 UniversalResponse {
@@ -96,12 +102,20 @@ async fn fetch_and_detect_patterns(
 }
 
 /// Detect patterns in activity data based on pattern type
+///
+/// The hard/easy and overtraining detectors read a session's heart rate
+/// against the athlete's own zones; without them heart rate decides nothing,
+/// only duration and speed do, and the result says why.
 fn detect_activity_patterns(
     activities: &[Activity],
     pattern_type: &str,
     user_timezone: Option<&str>,
+    hr_zones: Result<&HrZones, &HrZonesUnavailable>,
 ) -> PatternsResult {
     use PatternDetector;
+
+    let zones = hr_zones.ok();
+    let zones_unavailable = hr_zones.err().map(HrZonesUnavailable::reason);
 
     if activities.len() < 3 {
         return PatternsResult::Insufficient(InsufficientPatternData {
@@ -114,15 +128,17 @@ fn detect_activity_patterns(
     }
 
     match pattern_type {
-        "training_blocks" => {
-            format_hard_easy_pattern(&PatternDetector::detect_hard_easy_pattern(activities))
-        }
+        "training_blocks" => format_hard_easy_pattern(
+            &PatternDetector::detect_hard_easy_pattern(activities, zones),
+            zones_unavailable,
+        ),
         "progression" => {
             format_volume_progression(&PatternDetector::detect_volume_progression(activities))
         }
-        "overtraining" => {
-            format_overtraining_signals(&PatternDetector::detect_overtraining_signals(activities))
-        }
+        "overtraining" => format_overtraining_signals(
+            &PatternDetector::detect_overtraining_signals(activities, zones),
+            zones_unavailable,
+        ),
         // The weekday and hour histograms are counted on the athlete's civil
         // clock. Read in UTC, a 21:00 America/Toronto session was counted on
         // the following weekday and reported as a 01:00 habit (registre#252).
@@ -199,7 +215,10 @@ fn format_weekly_schedule(pattern: &WeeklySchedulePattern) -> PatternsResult {
 }
 
 /// Format hard/easy pattern results for JSON response
-fn format_hard_easy_pattern(pattern: &HardEasyPattern) -> PatternsResult {
+fn format_hard_easy_pattern(
+    pattern: &HardEasyPattern,
+    hr_zones_unavailable: Option<String>,
+) -> PatternsResult {
     let mut insights = vec![pattern.pattern_description.clone()];
 
     if !pattern.adequate_recovery {
@@ -227,6 +246,7 @@ fn format_hard_easy_pattern(pattern: &HardEasyPattern) -> PatternsResult {
         },
         insights,
         confidence: confidence.to_owned(),
+        hr_zones_unavailable,
     }))
 }
 
@@ -276,7 +296,10 @@ fn format_volume_progression(pattern: &VolumeProgressionPattern) -> PatternsResu
 }
 
 /// Format overtraining signals results for JSON response
-fn format_overtraining_signals(signals: &OvertrainingSignals) -> PatternsResult {
+fn format_overtraining_signals(
+    signals: &OvertrainingSignals,
+    hr_zones_unavailable: Option<String>,
+) -> PatternsResult {
     use RiskLevel;
 
     let mut warning_signs = Vec::new();
@@ -340,6 +363,7 @@ fn format_overtraining_signals(signals: &OvertrainingSignals) -> PatternsResult 
         insufficient_recovery: signals.insufficient_recovery,
         confidence: "medium".to_owned(),
         recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),
+        hr_zones_unavailable,
     }))
 }
 
@@ -401,12 +425,23 @@ pub fn handle_detect_patterns(
                     .ok()
                     .flatten()
                     .and_then(|user| user.timezone);
+                // The athlete's heart-rate zones, which decide which sessions
+                // were hard.
+                let hr_zones =
+                    stored_hr_zones(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+                        .await
+                        .map_err(|e| {
+                            ProtocolError::InternalError(format!(
+                                "detect_patterns: reading the athlete's zones failed: {e}"
+                            ))
+                        })?;
 
                 let result = fetch_and_detect_patterns(
                     provider,
                     pattern_type,
                     user_uuid,
                     user_timezone.as_deref(),
+                    hr_zones.as_ref(),
                     output_format,
                 )
                 .await?;

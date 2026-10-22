@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::ServerContext;
-use dravr_cageux::types::ActivityIntelligence;
 #[cfg(feature = "health-sync")]
 use dravr_enforme::SyncOrchestrator;
 use pierre_cache::Cache;
@@ -69,10 +68,6 @@ impl ToolRuntime for ServerContext {
 
     fn guardian(&self) -> Arc<Guardian> {
         self.fitness.guardian_config_registry.current_guardian()
-    }
-
-    fn activity_intelligence(&self) -> &Arc<ActivityIntelligence> {
-        &self.fitness.activity_intelligence
     }
 
     fn tool_registry(&self) -> &Arc<ToolRegistry> {

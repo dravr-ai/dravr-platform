@@ -10,7 +10,9 @@
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::zones::{HrZoneTier, HrZones, PowerZones, Vo2maxSource};
 use pierre_core::models::activity::ActivityBuilder;
+use pierre_core::models::zones::{HrZoneModel, HrZoneSet, PowerZoneModel, PowerZoneSet};
 use pierre_core::models::{Activity, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::training_history_compute::{compute_training_history, AthleteInputs};
@@ -421,23 +423,27 @@ async fn saving_ftp_stores_power_zones_with_real_watt_boundaries() -> Result<()>
         .power_zones
         .expect("saving FTP must populate power_zones");
 
-    // Real watts, not placeholders: strictly increasing, and the threshold
-    // zone bracketing the FTP that produced them.
-    assert!(
-        zones.z1_max < zones.z2_max
-            && zones.z2_max < zones.z3_max
-            && zones.z3_max < zones.z4_max
-            && zones.z4_max < zones.z5_max,
-        "power zones must be strictly increasing, got {zones:?}"
+    // Coggan's seven levels at 250 W, cut by cageux: 55 / 75 / 90 / 105 /
+    // 120 / 150 % of FTP rounded to the watt, level 7 open above 375 W.
+    assert_eq!(
+        zones,
+        PowerZoneSet::from_zones(&PowerZones::coggan(250.0).unwrap())
     );
-    assert!(
-        zones.z1_max > 0,
-        "zone 1 must have a real upper bound, got {}",
-        zones.z1_max
+    assert_eq!(
+        [
+            zones.z1_max,
+            zones.z2_max,
+            zones.z3_max,
+            zones.z4_max,
+            zones.z5_max
+        ],
+        [138, 188, 225, 263, 300]
     );
+    assert_eq!(zones.z6_max, Some(375));
+    assert_eq!(zones.model, PowerZoneModel::Coggan);
     assert!(
         zones.z3_max < 250 && zones.z4_max >= 250,
-        "the threshold zone should bracket the 250 W FTP, got z3={} z4={}",
+        "the threshold level should bracket the 250 W FTP, got z3={} z4={}",
         zones.z3_max,
         zones.z4_max
     );
@@ -470,6 +476,13 @@ async fn saving_both_heart_rates_stores_hr_zones_between_them() -> Result<()> {
         .hr_zones
         .expect("saving both heart rates must populate hr_zones");
 
+    // No VO2max saved: cageux estimates one from the heart rates (Uth:
+    // 15.3 x 192 / 48 = 61.2, the elite tier) and cuts its zones from it.
+    let expected = HrZones::for_athlete(None, 48, 192).unwrap();
+    assert_eq!(zones, HrZoneSet::from_zones(&expected));
+    assert_eq!(zones.tier, Some(HrZoneTier::Elite));
+    assert_eq!(zones.vo2_max_source, Some(Vo2maxSource::HeartRateRatio));
+    assert_eq!(zones.model, HrZoneModel::KarvonenVo2maxTiered);
     assert!(
         zones.z1_max < zones.z2_max
             && zones.z2_max < zones.z3_max
@@ -478,14 +491,15 @@ async fn saving_both_heart_rates_stores_hr_zones_between_them() -> Result<()> {
         "HR zones must be strictly increasing, got {zones:?}"
     );
     assert!(
-        zones.z1_max > 48,
-        "zone 1 must sit above the resting rate, got {}",
-        zones.z1_max
+        zones.z1_min.is_some_and(|floor| floor > 48),
+        "zone 1 must sit above the resting rate, got {zones:?}"
     );
     assert_eq!(
-        zones.z5_max, 192,
-        "zone 5 tops out at the maximum heart rate"
+        zones.z6_max,
+        Some(192),
+        "the elite tier's zone 6 tops out at the maximum heart rate"
     );
+    assert!(zones.z5_max < 192, "zone 5 stops short of the maximum");
     Ok(())
 }
 

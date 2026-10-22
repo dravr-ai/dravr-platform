@@ -36,6 +36,10 @@ pub(crate) struct StravaAthleteResponse {
     pub(crate) firstname: Option<String>,
     pub(crate) lastname: Option<String>,
     pub(crate) profile_medium: Option<String>,
+    /// The athlete's sex as Strava's athlete profile states it: `M`, `F`, or
+    /// absent when they gave none.
+    #[serde(default)]
+    pub(crate) sex: Option<String>,
 }
 
 /// Strava map data in API responses
@@ -290,4 +294,32 @@ pub struct StravaStreamSet {
     pub distance: Option<StravaStream<f64>>,
     /// GPS positions as `[lat, lng]`.
     pub latlng: Option<StravaStream<[f64; 2]>>,
+}
+
+#[cfg(test)]
+mod athlete_sex_tests {
+    use super::StravaAthleteResponse;
+    use pierre_core::models::PhysiologicalSex;
+
+    fn sex_of(body: &str) -> Option<PhysiologicalSex> {
+        serde_json::from_str::<StravaAthleteResponse>(body)
+            .ok()
+            .and_then(|athlete| athlete.sex)
+            .as_deref()
+            .and_then(PhysiologicalSex::from_provider_code)
+    }
+
+    #[test]
+    fn strava_reports_sex_as_m_or_f_and_may_omit_it() {
+        assert_eq!(
+            sex_of(r#"{"id":1,"sex":"F"}"#),
+            Some(PhysiologicalSex::Female)
+        );
+        assert_eq!(
+            sex_of(r#"{"id":1,"sex":"M"}"#),
+            Some(PhysiologicalSex::Male)
+        );
+        assert_eq!(sex_of(r#"{"id":1,"sex":null}"#), None);
+        assert_eq!(sex_of(r#"{"id":1}"#), None);
+    }
 }

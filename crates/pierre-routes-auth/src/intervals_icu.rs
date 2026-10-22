@@ -28,7 +28,11 @@ use axum::Json;
 use chrono::Utc;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
-use pierre_core::models::{Athlete, ConnectionType, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE};
+use pierre_core::models::{
+    Athlete, ConnectionType, PhysiologicalSex, SportType, TenantId, UserOAuthToken,
+    UserPhysiologicalProfile, API_KEY_TOKEN_TYPE,
+};
+use pierre_database::RepositoryRegistry;
 use pierre_providers::{CredentialKind, OAuth2Credentials};
 use pierre_services::coach_access::email_super_admins;
 use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
@@ -272,6 +276,10 @@ pub async fn link_intervals_icu_account(
 
     info!(user_id = %user_id, "Intervals.icu account linked");
 
+    // The athlete profile just read carries the athlete's sex when they
+    // state one on Intervals.icu.
+    record_reported_sex(&resources.repos, tenant, user_id, athlete.sex).await;
+
     // The wellness feed syncs like any health source; read its last month now
     // rather than at the next scheduled pass.
     #[cfg(feature = "health-sync")]
@@ -279,6 +287,47 @@ pub async fn link_intervals_icu_account(
     spawn_coach_access_probe(resources, user_id, tenant);
 
     Ok(athlete)
+}
+
+/// Record the sex the linked Intervals.icu profile reports on the athlete's
+/// physiological profile in `tenant`, only when that profile holds none
+/// ([`UserPhysiologicalProfile::fill_reported_sex`]): a sex the athlete
+/// stated is never replaced, and nothing is inferred.
+///
+/// Best-effort: a failed read or write costs the sex, never the link.
+async fn record_reported_sex(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+    reported: Option<PhysiologicalSex>,
+) {
+    if reported.is_none() {
+        return;
+    }
+    let profiles = repos.user_physiological_profile.as_ref();
+    let existing = match profiles
+        .get_user_physiological_profile(tenant, user_id)
+        .await
+    {
+        Ok(existing) => existing,
+        Err(e) => {
+            warn!(user_id = %user_id, error = %e, "linked Intervals.icu: profile read failed; no sex recorded");
+            return;
+        }
+    };
+    // A first write has no stored sport to keep: `Run` is the column's own
+    // default, as for set_physiology's first save.
+    let mut profile =
+        existing.unwrap_or_else(|| UserPhysiologicalProfile::new(user_id, SportType::Run));
+    if !profile.fill_reported_sex(reported) {
+        return;
+    }
+    if let Err(e) = profiles
+        .upsert_user_physiological_profile(tenant, user_id, &profile)
+        .await
+    {
+        warn!(user_id = %user_id, error = %e, "linked Intervals.icu: recording the reported sex failed");
+    }
 }
 
 /// After a key is linked, read its roster off the request and file the

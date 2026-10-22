@@ -20,12 +20,6 @@ use std::{collections::HashMap, env, error::Error, path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
 // Import necessary modules from the main crate
-use dravr_cageux::insights::{Insight, InsightType};
-use dravr_cageux::types::ContextualWeeklyLoad;
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_config::environment::*;
 use pierre_core::models::{
@@ -88,41 +82,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     let database = Arc::new(create_test_db_with_key(encryption_key).await?);
 
     // Create ActivityIntelligence with proper constructor
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "Test intelligence analysis".to_owned(),
-        vec![Insight {
-            insight_type: InsightType::Achievement,
-            message: "Test insight".to_owned(),
-            confidence: 90.0,
-            data: None,
-        }],
-        PerformanceMetrics {
-            relative_effort: Some(85.0),
-            zone_distribution: None,
-            personal_records: vec![],
-            efficiency_score: Some(82.5),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Improving,
-                effort_trend: TrendDirection::Stable,
-                distance_trend: TrendDirection::Improving,
-                consistency_score: 90.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: Some(ContextualWeeklyLoad {
-                total_distance_km: 50.0,
-                total_duration_hours: 5.0,
-                activity_count: 3,
-                load_trend: TrendDirection::Stable,
-            }),
-            seasonal_context: None,
-        },
-    ));
-
     // Create test config with correct structure
     let config = Arc::new(ServerConfig {
         http_port: 4000,

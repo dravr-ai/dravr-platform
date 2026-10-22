@@ -17,5 +17,4 @@ mod latest_snapshot_test;
 mod polyline_test;
 mod route_privacy_test;
 mod route_track_test;
-mod threshold_estimation_test;
 mod training_history_compute_test;

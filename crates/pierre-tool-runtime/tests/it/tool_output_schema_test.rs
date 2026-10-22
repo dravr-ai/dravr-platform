@@ -2603,6 +2603,7 @@ fn every_detect_patterns_shape_matches_exactly_one_arm() {
                 patterns_detected: vec!["Hard days follow easy days".to_owned()],
                 insights: vec!["Hard days follow easy days".to_owned()],
                 confidence: "medium".to_owned(),
+                hr_zones_unavailable: None,
             })),
         ),
         (
@@ -2631,6 +2632,11 @@ fn every_detect_patterns_shape_matches_exactly_one_arm() {
                 insufficient_recovery: false,
                 confidence: "medium".to_owned(),
                 recommendations: vec!["Monitor recovery closely".to_owned()],
+                hr_zones_unavailable: Some(
+                    "heart-rate zones need the athlete's resting heart rate, which is not saved \
+                     (set_physiology)"
+                        .to_owned(),
+                ),
             })),
         ),
     ];
@@ -2655,14 +2661,17 @@ fn every_detect_patterns_shape_matches_exactly_one_arm() {
 #[test]
 fn calculate_metrics_declares_a_schema_that_accepts_its_payload() {
     // An activity with no heart rate is ordinary — a bike computer without a
-    // strap — and the summary reports it absent rather than zero.
+    // strap — and the summary reports it absent rather than zero, as it does
+    // the intensity score read off it.
     let sample = Formatted::Json(ActivityMetricsResult {
         pace: 5.24,
         speed: 11.45,
-        intensity_score: 0.0,
-        efficiency_score: 68.2,
-        max_hr_used: 187.0,
-        max_hr_source: "estimated from age".to_owned(),
+        distance_per_climb_score: Some(86.7),
+        distance_per_climb_unavailable: None,
+        max_hr_used: Some(187.0),
+        max_hr_source: "estimated_from_age_30_tanaka".to_owned(),
+        heart_rate_reading: None,
+        heart_rate_unavailable: Some("the activity carried no heart rate".to_owned()),
         metrics_summary: MetricsInputSummary {
             distance_km: 12.4,
             duration_minutes: 65,
@@ -4738,6 +4747,7 @@ fn an_almost_empty_physiology_profile_still_validates() {
             fitness_level: FitnessLevel::Intermediate,
             primary_sport: SportType::Run,
             training_experience_years: None,
+            sex: None,
             hr_zones: None,
             power_zones: None,
             critical_power_watts: None,
@@ -4791,6 +4801,7 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
             fitness_level: FitnessLevel::Intermediate,
             primary_sport: SportType::Ride,
             training_experience_years: None,
+            sex: None,
             hr_zones: None,
             power_zones: None,
             critical_power_watts: Some(ProvenancedValue::new(312, estimated)),
@@ -4854,6 +4865,7 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                 reason: "the two models are not interchangeable".to_owned(),
             },
         },
+        sex_recorded: false,
         profile: Some(PhysiologyProfile {
             ftp_watts: Some(285),
             threshold_pace_sec_per_km: None,
@@ -4867,6 +4879,7 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
             fitness_level: FitnessLevel::Intermediate,
             primary_sport: SportType::Ride,
             training_experience_years: None,
+            sex: None,
             hr_zones: None,
             power_zones: None,
             critical_power_watts: None,
@@ -5330,6 +5343,7 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
             insights: vec!["Heart rate stayed in zone 2".to_owned()],
             recommendations: vec!["Repeat this next week".to_owned()],
             source: "deterministic".to_owned(),
+            hr_zones_unavailable: None,
         },
         performance_metrics: ActivityPerformanceMetrics {
             distance_km: Some(12.1),
@@ -5359,6 +5373,11 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
             insights: Vec::new(),
             recommendations: Vec::new(),
             source: "deterministic".to_owned(),
+            hr_zones_unavailable: Some(
+                "heart-rate zones need the athlete's resting and maximum heart rate; neither is \
+                 saved (set_physiology)"
+                    .to_owned(),
+            ),
         },
         performance_metrics: ActivityPerformanceMetrics {
             distance_km: None,

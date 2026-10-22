@@ -12,10 +12,6 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::*;
 use pierre_core::errors::protocol::ProtocolError;
@@ -133,31 +129,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
     common::init_server_config();
     let database = common::create_test_database().await?;
 
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "Test intelligence".to_owned(),
-        vec![],
-        PerformanceMetrics {
-            relative_effort: Some(75.0),
-            zone_distribution: None,
-            personal_records: vec![],
-            efficiency_score: Some(80.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Stable,
-                effort_trend: TrendDirection::Stable,
-                distance_trend: TrendDirection::Stable,
-                consistency_score: 85.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: None,
-            seasonal_context: None,
-        },
-    ));
-
     let config = create_test_config();
     // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
@@ -189,31 +160,6 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
 async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
     common::init_server_config();
     let database = common::create_test_database().await?;
-
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "Test intelligence".to_owned(),
-        vec![],
-        PerformanceMetrics {
-            relative_effort: Some(75.0),
-            zone_distribution: None,
-            personal_records: vec![],
-            efficiency_score: Some(80.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Stable,
-                effort_trend: TrendDirection::Stable,
-                distance_trend: TrendDirection::Stable,
-                consistency_score: 85.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: None,
-            seasonal_context: None,
-        },
-    ));
 
     // Create config without OAuth credentials
     let config = create_test_config_no_oauth();

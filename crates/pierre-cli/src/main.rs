@@ -151,6 +151,12 @@ enum Command {
         action: commands::key::KeyCommand,
     },
 
+    /// Physiological zone operator commands (re-cut stored zones)
+    Zones {
+        #[command(subcommand)]
+        action: commands::zones::ZonesCommand,
+    },
+
     /// Coaching harness operator commands (claim verdict backfill, etc.)
     #[cfg(feature = "tools-verification")]
     Harness {
@@ -1101,6 +1107,9 @@ async fn main() -> Result<()> {
                 commands::token::stats(&repos, token_id, days).await?;
             }
         },
+        Command::Zones { action } => {
+            commands::zones::dispatch(action, &repos).await?;
+        }
         #[cfg(feature = "tools-verification")]
         Command::Harness { action } => {
             commands::harness::dispatch(action, &repos, &database).await?;

@@ -33,6 +33,8 @@
 //! own; the real provider's mapping is pinned by its inline tests.
 
 use crate::common;
+use dravr_cageux::zones::HrZones;
+use pierre_core::models::zones::HrZoneSet;
 use secrecy::SecretString;
 
 use std::collections::HashMap;
@@ -453,8 +455,11 @@ async fn zones_are_derived_by_dravr_exactly_as_a_save_derives_them() {
     assert!(from_import.hr_zones.is_some());
     assert_eq!(from_import.power_zones, from_save.power_zones);
     assert_eq!(from_import.hr_zones, from_save.hr_zones);
-    // Intervals.icu's own zone arrays are not what was stored.
-    assert_eq!(from_import.hr_zones.unwrap().z5_max, 186);
+    // Intervals.icu's own zone arrays are not what was stored: cageux's zones
+    // for resting 48 / maximum 186 are, with zone 6 ending at the maximum.
+    let expected = HrZoneSet::from_zones(&HrZones::for_athlete(None, 48, 186).unwrap());
+    assert_eq!(from_import.hr_zones, Some(expected));
+    assert_eq!(expected.z6_max, Some(186));
 }
 
 #[tokio::test]

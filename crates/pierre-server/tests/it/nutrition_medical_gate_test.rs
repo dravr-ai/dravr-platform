@@ -20,9 +20,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use chrono::{Duration, TimeZone, Utc};
+use dravr_cageux::nutrition_calculator::{
+    ExerciseEnergyExpenditure, Gender, HeartRateEnergyInputs,
+};
 use dravr_cageux::training_load::FormBand;
+use dravr_cageux::zones::HrZones;
 use pierre_core::models::{
-    Activity, ActivityBuilder, SportType, TenantId, UserPhysiologicalProfile,
+    Activity, ActivityBuilder, PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::UpsertUserFactParams;
@@ -527,13 +531,22 @@ fn hard_long_ride() -> Activity {
     .build()
 }
 
+/// The zones of the athlete riding it (resting 50, maximum 190, no `VO2max`
+/// saved): 165 bpm sits in their zone 4, a hard session.
+fn riders_zones() -> HrZones {
+    HrZones::for_athlete(None, 50, 190).unwrap()
+}
+
 #[test]
 fn nutrition_recommendations_scale_recovery_protein_to_stored_weight() {
+    let zones = riders_zones();
+    assert_eq!(zones.classify(165).zone, 4);
     let answer = generate_nutrition_recommendations(
         &hard_long_ride(),
+        Some(&zones),
         &NutritionAthlete {
             weight_kg: Some(70.0),
-            figures_withheld: None,
+            ..NutritionAthlete::default()
         },
     );
     let targets = answer
@@ -577,8 +590,12 @@ fn nutrition_recommendations_scale_recovery_protein_to_stored_weight() {
 
 #[test]
 fn nutrition_recommendations_state_the_per_kg_dose_without_a_weight() {
-    let answer =
-        generate_nutrition_recommendations(&hard_long_ride(), &NutritionAthlete::default());
+    let zones = riders_zones();
+    let answer = generate_nutrition_recommendations(
+        &hard_long_ride(),
+        Some(&zones),
+        &NutritionAthlete::default(),
+    );
     assert!(
         answer.macronutrient_targets.is_none(),
         "no weight on file, no gram targets invented"
@@ -591,11 +608,14 @@ fn nutrition_recommendations_state_the_per_kg_dose_without_a_weight() {
 
 #[test]
 fn nutrition_recommendations_withhold_figures_for_a_flagged_athlete() {
+    let zones = riders_zones();
     let answer = generate_nutrition_recommendations(
         &hard_long_ride(),
+        Some(&zones),
         &NutritionAthlete {
             weight_kg: Some(70.0),
             figures_withheld: Some(FiguresWithheld::medical_flag()),
+            ..NutritionAthlete::default()
         },
     );
     assert_eq!(
@@ -627,6 +647,155 @@ fn nutrition_recommendations_withhold_figures_for_a_flagged_athlete() {
     assert_eq!(value["activity_summary"]["calories"], 1400.0);
 }
 
+#[test]
+fn the_session_intensity_is_read_on_the_athletes_zones_and_not_without_them() {
+    let athlete = NutritionAthlete::default();
+    let zones = riders_zones();
+    let with_zones = generate_nutrition_recommendations(&hard_long_ride(), Some(&zones), &athlete);
+    assert!(
+        with_zones
+            .key_insights
+            .iter()
+            .any(|line| line.contains("Workout intensity: high")),
+        "{:?}",
+        with_zones.key_insights
+    );
+    assert_eq!(with_zones.meal_suggestions.len(), 4);
+
+    // The same ride for an athlete with no saved heart rates: 165 bpm is
+    // graded by nobody's zones, so the two-hour length decides.
+    let without = generate_nutrition_recommendations(&hard_long_ride(), None, &athlete);
+    assert!(
+        without
+            .key_insights
+            .iter()
+            .any(|line| line.contains("Workout intensity: moderate")),
+        "{:?}",
+        without.key_insights
+    );
+    assert_eq!(without.meal_suggestions.len(), 3);
+
+    // A zone-2 heart rate on the same athlete's zones is a low session.
+    let easy_bpm = zones.zones()[1].upper_bpm;
+    let easy = ActivityBuilder::new(
+        "ride-2".to_owned(),
+        "Easy spin".to_owned(),
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 9, 29, 8, 0, 0).single().unwrap(),
+        3600,
+        "strava".to_owned(),
+    )
+    .average_heart_rate(u32::from(easy_bpm))
+    .calories(500)
+    .build();
+    let low = generate_nutrition_recommendations(&easy, Some(&zones), &athlete);
+    assert!(
+        low.key_insights
+            .iter()
+            .any(|line| line.contains("Workout intensity: low")),
+        "{:?}",
+        low.key_insights
+    );
+}
+
+/// A ride whose device recorded heart rate but no calories.
+fn ride_without_calories() -> Activity {
+    ActivityBuilder::new(
+        "ride-3".to_owned(),
+        "Steady ride".to_owned(),
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 9, 30, 8, 0, 0).single().unwrap(),
+        3600,
+        "strava".to_owned(),
+    )
+    .average_heart_rate(150)
+    .distance_meters(30_000.0)
+    .build()
+}
+
+#[test]
+fn without_device_calories_the_session_is_estimated_by_keytel_or_not_at_all() {
+    let zones = riders_zones();
+    let complete = NutritionAthlete {
+        weight_kg: Some(70.0),
+        age_years: Some(35),
+        vo2_max: Some(50.0),
+        sex: Some(Gender::Male),
+        ..NutritionAthlete::default()
+    };
+    let estimated =
+        generate_nutrition_recommendations(&ride_without_calories(), Some(&zones), &complete);
+    let expected = ExerciseEnergyExpenditure::from_heart_rate(&HeartRateEnergyInputs {
+        heart_rate_bpm: 150.0,
+        body_mass_kg: 70.0,
+        age_years: 35.0,
+        gender: Gender::Male,
+        vo2_max: Some(50.0),
+    })
+    .unwrap()
+    .kcal_over(3600);
+    let summary = estimated.activity_summary.as_ref().unwrap();
+    assert_eq!(summary.calories, Some(expected.round()));
+    assert_eq!(
+        summary.calories_source.as_deref(),
+        Some("keytel_with_vo2max")
+    );
+    assert!(summary.calories_unavailable.is_none());
+    assert!(estimated.key_insights[0].contains(&format!("{expected:.0} calories")));
+
+    // Without a VO2max the fitness-free equation is used.
+    let no_vo2 = NutritionAthlete {
+        vo2_max: None,
+        ..complete.clone()
+    };
+    let fitness_free =
+        generate_nutrition_recommendations(&ride_without_calories(), Some(&zones), &no_vo2);
+    assert_eq!(
+        fitness_free
+            .activity_summary
+            .as_ref()
+            .unwrap()
+            .calories_source
+            .as_deref(),
+        Some("keytel_without_vo2max")
+    );
+
+    // Missing the athlete's sex (none saved), there is no figure and the
+    // reply says why — never a per-minute constant.
+    let unknown_sex = NutritionAthlete {
+        sex: None,
+        ..complete.clone()
+    };
+    let absent =
+        generate_nutrition_recommendations(&ride_without_calories(), Some(&zones), &unknown_sex);
+    let summary = absent.activity_summary.as_ref().unwrap();
+    assert_eq!(summary.calories, None);
+    assert!(summary.calories_source.is_none());
+    assert!(
+        summary
+            .calories_unavailable
+            .as_deref()
+            .is_some_and(|reason| reason.contains("sex")),
+        "{summary:?}"
+    );
+    assert!(absent.key_insights[0].starts_with("Calories not estimated:"));
+
+    // An age outside Keytel's 18-45 sample is refused, not extrapolated.
+    let older = NutritionAthlete {
+        age_years: Some(60),
+        ..complete
+    };
+    let refused =
+        generate_nutrition_recommendations(&ride_without_calories(), Some(&zones), &older);
+    assert_eq!(refused.activity_summary.as_ref().unwrap().calories, None);
+
+    // A device figure always wins.
+    let device = generate_nutrition_recommendations(&hard_long_ride(), Some(&zones), &unknown_sex);
+    let summary = device.activity_summary.as_ref().unwrap();
+    assert_eq!(summary.calories, Some(1400.0));
+    assert_eq!(summary.calories_source.as_deref(), Some("device"));
+}
+
 #[tokio::test]
 async fn the_nutrition_mode_reads_the_flag_and_the_stored_weight() -> Result<()> {
     let resources = resources().await?;
@@ -643,6 +812,9 @@ async fn the_nutrition_mode_reads_the_flag_and_the_stored_weight() -> Result<()>
 
     let mut profile = UserPhysiologicalProfile::new(clear.user_id, SportType::Ride);
     profile.weight = Some(68.0);
+    profile.age = Some(34);
+    profile.vo2_max = Some(52.0);
+    profile.sex = Some(PhysiologicalSex::Female);
     repos
         .user_physiological_profile
         .upsert_user_physiological_profile(clear.tenant, clear.user_id, &profile)
@@ -652,6 +824,10 @@ async fn the_nutrition_mode_reads_the_flag_and_the_stored_weight() -> Result<()>
         NutritionAthlete {
             weight_kg: Some(68.0),
             figures_withheld: None,
+            age_years: Some(34),
+            vo2_max: Some(52.0),
+            // The saved sex selects Keytel's equation.
+            sex: Some(Gender::Female),
         }
     );
 

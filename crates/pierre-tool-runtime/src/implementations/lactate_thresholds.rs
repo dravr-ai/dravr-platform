@@ -9,10 +9,10 @@
 //! The agent hears "200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol" and
 //! needs LT1, LT2, the zones and the pace table. cageux's
 //! [`LactateStepTest`] does the arithmetic by four named constructs; this
-//! tool parses the stages, keeps the constructs apart in the reply, derives
-//! power zones from the modified-Dmax LT2 through the same function
-//! `set_physiology` persists an FTP with, and names the profile field to
-//! save. It never writes — `set_physiology` stays the profile's only writer.
+//! tool parses the stages, keeps the constructs apart in the reply, cuts
+//! Coggan's seven power levels from the modified-Dmax LT2 through cageux's
+//! one power zone model, the same one `set_physiology` persists an FTP's
+//! zones with, and names the profile field to save. It never writes — `set_physiology` stays the profile's only writer.
 
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
@@ -24,7 +24,7 @@ use tracing::info;
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
-use crate::implementations::configuration::{derive_power_zone_set, power_zones_payload};
+use crate::implementations::configuration::render_power_zones;
 use crate::implementations::data_helpers::read_only_annotations;
 use crate::implementations::lactate_thresholds_output::{
     BandRow, CurveFit, DeterminedThreshold, LactatePowerZones, LactateThresholdsResult,
@@ -36,9 +36,9 @@ use dravr_cageux::algorithms::lactate::{
     LactateIntensityUnit, LactateStage, LactateStepTest, LactateThresholdMethod, LactateThresholds,
     ThresholdOutcome, MAX_STAGES,
 };
+use dravr_cageux::zones::PowerZones;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
@@ -222,12 +222,10 @@ impl EstimateLactateThresholdsTool {
         }
     }
 
-    /// Power zones anchored on the modified-Dmax LT2 when the stages are in
-    /// watts — the same derivation `set_physiology` persists for an FTP.
-    fn power_zones(
-        thresholds: &LactateThresholds,
-        config: &TrainingZonesConfig,
-    ) -> LactatePowerZones {
+    /// Coggan's power levels anchored on the modified-Dmax LT2 when the
+    /// stages are in watts — the same model `set_physiology` persists for an
+    /// FTP.
+    fn power_zones(thresholds: &LactateThresholds) -> LactatePowerZones {
         const ANCHOR: &str = "lt2_modified_dmax";
         let unavailable = |reason: &str| LactatePowerZones {
             anchor: ANCHOR.to_owned(),
@@ -248,22 +246,20 @@ impl EstimateLactateThresholdsTool {
         // is positive and far inside u32.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let ftp_watts = point.intensity.round() as u32;
-        derive_power_zone_set(ftp_watts, config).map_or_else(
-            || {
-                unavailable(
-                    "the configured zone percentages do not produce increasing boundaries at this threshold",
-                )
-            },
-            |zones| {
-                LactatePowerZones {
+        PowerZones::coggan(f64::from(ftp_watts))
+            .ok()
+            .as_ref()
+            .and_then(render_power_zones)
+            .map_or_else(
+                || unavailable("Coggan's levels could not be cut at this threshold"),
+                |zones| LactatePowerZones {
                     anchor: ANCHOR.to_owned(),
                     available: true,
                     reason: None,
                     ftp_watts: Some(ftp_watts),
-                    zones: Some(power_zones_payload(&zones)),
-                }
-            },
-        )
+                    zones: Some(zones),
+                },
+            )
     }
 
     /// The constructs are independent, so nothing in the arithmetic forces
@@ -313,7 +309,6 @@ impl EstimateLactateThresholdsTool {
     fn payload(
         thresholds: &LactateThresholds,
         profile: Option<&UserPhysiologicalProfile>,
-        config: &TrainingZonesConfig,
     ) -> LactateThresholdsResult {
         LactateThresholdsResult {
             unit: thresholds.unit.as_str().to_owned(),
@@ -346,7 +341,7 @@ impl EstimateLactateThresholdsTool {
                     .collect(),
                 r_squared: round_to(thresholds.curve.r_squared, 4),
             },
-            power_zones: Self::power_zones(thresholds, config),
+            power_zones: Self::power_zones(thresholds),
             stored_profile: StoredThresholds {
                 ftp_watts: profile.and_then(|p| p.ftp_watts),
                 threshold_pace_sec_per_km: profile.and_then(|p| p.threshold_pace_sec_per_km),
@@ -419,8 +414,6 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
                 // A profile written from first-party-only data is withheld from an
                 // external caller (carnet#769).
                 .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
-            let zones_config = &context.resources.config().training_zones;
-
             info!(
                 user_id = %user_id,
                 tenant_id = %tenant_id,
@@ -436,7 +429,7 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
 
             ok_typed(
                 "estimate_lactate_thresholds",
-                Self::payload(&thresholds, profile.as_ref(), zones_config),
+                Self::payload(&thresholds, profile.as_ref()),
             )
         }
         .await;

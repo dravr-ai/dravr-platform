@@ -56,6 +56,7 @@ fn create_sample_athlete() -> Athlete {
         lastname: Some("Doe".into()),
         profile_picture: Some("https://example.com/avatar.jpg".into()),
         provider: "strava".into(),
+        sex: None,
     }
 }
 

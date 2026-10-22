@@ -31,6 +31,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_cageux::zones::{AerobicThresholdPace, HrZones};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
@@ -156,6 +157,15 @@ async fn seed_physiology(
     tenant: &str,
     user_id: Uuid,
 ) -> Result<()> {
+    seed_physiology_with_pace(executor, tenant, user_id, Some(225.0)).await
+}
+
+async fn seed_physiology_with_pace(
+    executor: &UniversalToolExecutor,
+    tenant: &str,
+    user_id: Uuid,
+    threshold_pace_sec_per_km: Option<f64>,
+) -> Result<()> {
     let profile = UserPhysiologicalProfile {
         user_id,
         vo2_max: Some(52.0),
@@ -169,7 +179,7 @@ async fn seed_physiology(
         primary_sport: SportType::Run,
         training_experience_years: Some(10),
         ftp_watts: Some(280),
-        threshold_pace_sec_per_km: Some(225.0),
+        threshold_pace_sec_per_km,
         hr_zones: None,
         power_zones: None,
         critical_power_watts: None,
@@ -178,6 +188,7 @@ async fn seed_physiology(
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
+        sex: None,
     };
     let tenant_id = TenantId::parse_str(tenant).expect("valid tenant id");
     executor
@@ -287,6 +298,54 @@ async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
         Some(210.0),
         "LT1 power should be 0.75 * FTP (Coggan)"
     );
+    // LT1 pace from the 225 s/km threshold pace by Esteve-Lanao et al. (2026),
+    // the pooled ratio since no profile stores the athlete's sex.
+    let lt1 = AerobicThresholdPace::from_threshold_pace(225.0, None).unwrap();
+    let pace = &estimate["lt1_pace"];
+    assert_eq!(pace["pace_sec_per_km"].as_f64(), Some(lt1.pace_sec_per_km));
+    assert_eq!(
+        pace["faster_bound_sec_per_km"].as_f64(),
+        Some(lt1.faster_bound_sec_per_km)
+    );
+    assert_eq!(
+        pace["slower_bound_sec_per_km"].as_f64(),
+        Some(lt1.slower_bound_sec_per_km)
+    );
+    assert_eq!(pace["cohort"], json!("pooled"));
+    assert!(
+        lt1.pace_sec_per_km > 225.0,
+        "LT1 is slower than threshold pace"
+    );
+    // Heart-rate anchors: the LTHR from the lactate threshold (Swain), LT1 at
+    // 75 % of the reserve.
+    let zones = HrZones::for_athlete(Some(52.0), 50, 190).unwrap();
+    assert_eq!(
+        estimate["lt1_hr"].as_f64(),
+        Some(f64::from(zones.aerobic_threshold_bpm))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_dossier_has_no_lt1_pace_without_a_usable_threshold_pace() -> Result<()> {
+    let executor = create_endurance_test_executor().await?;
+    for pace in [None, Some(700.0)] {
+        let (user_id, tenant) = create_connected_test_user(&executor).await?;
+        seed_physiology_with_pace(&executor, &tenant, user_id, pace).await?;
+        let resp = executor
+            .execute_tool(make_request(
+                "export_dossier",
+                json!({}),
+                user_id,
+                Some(&tenant),
+            ))
+            .await?;
+        assert!(resp.success);
+        let estimate = &resp.result.unwrap()["threshold_estimate"];
+        assert!(estimate.get("lt1_pace").is_none(), "{pace:?}: {estimate}");
+        // The other anchors are untouched.
+        assert_eq!(estimate["lt2_power_watts"].as_f64(), Some(280.0));
+    }
     Ok(())
 }
 

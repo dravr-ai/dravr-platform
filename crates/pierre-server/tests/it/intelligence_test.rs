@@ -8,10 +8,7 @@
 #![allow(missing_docs)]
 
 use dravr_cageux::types::ZoneDistribution;
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
+use dravr_cageux::types::{ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay};
 
 #[test]
 fn test_activity_intelligence_creation() {
@@ -23,12 +20,6 @@ fn test_activity_intelligence_creation() {
             zone_distribution: None,
             personal_records: vec![],
             efficiency_score: Some(85.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Improving,
-                effort_trend: TrendDirection::Stable,
-                distance_trend: TrendDirection::Stable,
-                consistency_score: 90.0,
-            },
         },
         ContextualFactors {
             weather: None,
@@ -55,6 +46,8 @@ fn test_zone_distribution() {
         zone3_tempo: 20.0,
         zone4_threshold: 5.0,
         zone5_vo2max: 0.0,
+        zone6_anaerobic: None,
+        estimated: false,
     };
 
     assert!((zones.zone2_endurance - 65.0).abs() < f32::EPSILON);

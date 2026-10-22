@@ -109,6 +109,14 @@ pub struct RecommendationsResult {
     /// depends on the mode — see each field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<RecommendationMetrics>,
+
+    /// Why heart rate did not decide which sessions were hard (`recovery`,
+    /// `intensity`, `all`) or how hard the last session was (`nutrition`):
+    /// the athlete's heart-rate zones are unknown, so duration and speed
+    /// decided instead. Absent when the sessions were read against their
+    /// zones, and in the modes that do not read heart rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hr_zones_unavailable: Option<String>,
 }
 
 /// A week's training shape.
@@ -194,8 +202,14 @@ pub struct ActivitySummary {
     pub duration_minutes: u64,
     /// Distance in kilometres, rounded, when the activity carried one.
     pub distance_km: Option<f64>,
-    /// Calories burned, rounded.
-    pub calories: f64,
+    /// Calories burned, rounded: the device's figure, else the Keytel
+    /// heart-rate estimate. Null when neither is available.
+    pub calories: Option<f64>,
+    /// Where `calories` came from: `device`, `keytel_with_vo2max` or
+    /// `keytel_without_vo2max`. Null when there is no figure.
+    pub calories_source: Option<String>,
+    /// Why there is no calorie figure. Null when there is one.
+    pub calories_unavailable: Option<String>,
 }
 
 /// The training picture behind a comprehensive read.

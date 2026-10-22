@@ -10,8 +10,8 @@ use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
-    Dossier, MeasurementKind, MetricProvenance, ProvenancedValue, SportType, TenantId,
-    ThresholdProvenance, UserPhysiologicalProfile,
+    Dossier, MeasurementKind, MetricProvenance, PhysiologicalSex, ProvenancedValue, SportType,
+    TenantId, ThresholdProvenance, UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
@@ -48,6 +48,12 @@ pub trait UserPhysiologicalProfileRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
     ) -> AppResult<Option<UserPhysiologicalProfile>>;
+
+    /// The users holding a profile row in `tenant_id`, in user-id order.
+    ///
+    /// The zone backfill walks a tenant's profiles with it; nothing else
+    /// needs a tenant's whole roster of profiles.
+    async fn list_profile_user_ids(&self, tenant_id: TenantId) -> AppResult<Vec<Uuid>>;
 }
 
 /// Read-time composer for the Endurance [`Dossier`] aggregate.
@@ -110,12 +116,13 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 ftp_watts_kind, ftp_watts_origin, ftp_watts_as_of,
                 threshold_hr_kind, threshold_hr_origin, threshold_hr_as_of,
                 max_hr_kind, max_hr_origin, max_hr_as_of,
-                threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of
+                threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of,
+                sex
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
                     $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33,
-                    $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45)
+                    $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -160,7 +167,8 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 max_hr_as_of = EXCLUDED.max_hr_as_of,
                 threshold_pace_sec_per_km_kind = EXCLUDED.threshold_pace_sec_per_km_kind,
                 threshold_pace_sec_per_km_origin = EXCLUDED.threshold_pace_sec_per_km_origin,
-                threshold_pace_sec_per_km_as_of = EXCLUDED.threshold_pace_sec_per_km_as_of
+                threshold_pace_sec_per_km_as_of = EXCLUDED.threshold_pace_sec_per_km_as_of,
+                sex = EXCLUDED.sex
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -178,10 +186,19 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    ftp_watts_kind, ftp_watts_origin, ftp_watts_as_of,
                    threshold_hr_kind, threshold_hr_origin, threshold_hr_as_of,
                    max_hr_kind, max_hr_origin, max_hr_as_of,
-                   threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of
+                   threshold_pace_sec_per_km_kind, threshold_pace_sec_per_km_origin, threshold_pace_sec_per_km_as_of,
+                   sex
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
+            ";
+
+/// The users holding a profile row in one tenant.
+pub(crate) const LIST_PROFILE_USER_IDS_SQL: &str = r"
+            SELECT user_id
+            FROM user_physiological_profiles
+            WHERE tenant_id = $1
+            ORDER BY user_id
             ";
 
 /// The column values the upsert binds, converted from the typed profile.
@@ -444,6 +461,15 @@ where
         critical_speed_mps: provenanced_from_row(row, "critical_speed_mps", Some::<f64>)?,
         d_prime_meters: provenanced_from_row(row, "d_prime_meters", Some::<f64>)?,
         threshold_provenance,
+        sex: row
+            .try_get::<Option<String>, _>("sex")
+            .map_err(|e| AppError::database(format!("read sex: {e}")))?
+            .map(|stored| {
+                PhysiologicalSex::parse(&stored).ok_or_else(|| {
+                    AppError::database(format!("sex is stored as {stored:?}, not male or female"))
+                })
+            })
+            .transpose()?,
         transport_policy: TransportPolicy::from_first_party_only(
             row.try_get("first_party_only")
                 .map_err(|e| AppError::database(format!("read first_party_only: {e}")))?,
@@ -624,6 +650,7 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.threshold_pace_provenance.kind)
                     .bind(binds.threshold_pace_provenance.origin)
                     .bind(binds.threshold_pace_provenance.as_of)
+                    .bind(profile.sex.map(PhysiologicalSex::as_str))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -646,6 +673,21 @@ macro_rules! impl_user_physiological_profile_repository {
                         AppError::database(format!("get_user_physiological_profile: {e}"))
                     })?;
                 row.map(|r| profile_from_row(&r, user_id)).transpose()
+            }
+
+            async fn list_profile_user_ids(&self, tenant_id: TenantId) -> AppResult<Vec<Uuid>> {
+                let rows = sqlx::query(LIST_PROFILE_USER_IDS_SQL)
+                    .bind(tenant_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list_profile_user_ids: {e}")))?;
+                rows.iter()
+                    .map(|row| {
+                        row.try_get::<UserId, _>("user_id")
+                            .map(|id| id.as_uuid())
+                            .map_err(|e| AppError::database(format!("read user_id: {e}")))
+                    })
+                    .collect()
             }
         }
 

@@ -1,5 +1,5 @@
-// ABOUTME: The athlete's saved thresholds that every training-load computation reads
-// ABOUTME: One reader for every tool and snapshot that scores sessions into CTL, ATL and TSB
+// ABOUTME: The athlete's saved thresholds and zones that training-load and intensity readings use
+// ABOUTME: One reader for every tool and snapshot that scores sessions or reads heart rate against zones
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,8 +23,10 @@
 use pierre_providers::ai_scope;
 use std::sync::Arc;
 
+use dravr_cageux::zones::HrZones;
 use pierre_core::errors::AppResult;
-use pierre_core::models::TenantId;
+use pierre_core::models::zones::{athlete_hr_zones, HrZonesUnavailable};
+use pierre_core::models::{TenantId, UserPhysiologicalProfile};
 use pierre_fitness_compute::AthleteInputs;
 use uuid::Uuid;
 
@@ -45,18 +47,49 @@ pub async fn stored_athlete_inputs(
     tenant_id: Option<&str>,
     user_id: Uuid,
 ) -> AppResult<AthleteInputs> {
+    let profile = stored_profile(runtime, tenant_id, user_id).await?;
+    Ok(AthleteInputs::from_profile(profile.as_ref()))
+}
+
+/// The athlete's heart-rate zones, cut by cageux from the physiological
+/// profile saved in this tenant ([`athlete_hr_zones`]).
+///
+/// The inner `Err` says why there are none — no profile (or no tenant to
+/// read one under), or a resting or maximum heart rate missing — so the
+/// reading that needed them is reported absent with that reason rather than
+/// computed against a default physiology.
+///
+/// # Errors
+/// Returns the repository's error when the profile cannot be read.
+pub async fn stored_hr_zones(
+    runtime: &Arc<dyn ToolRuntime>,
+    tenant_id: Option<&str>,
+    user_id: Uuid,
+) -> AppResult<Result<HrZones, HrZonesUnavailable>> {
+    let profile = stored_profile(runtime, tenant_id, user_id).await?;
+    Ok(athlete_hr_zones(profile.as_ref()))
+}
+
+/// The athlete's profile in this tenant as an AI-facing reader may see it.
+///
+/// # Errors
+/// Returns the repository's error when the profile cannot be read.
+pub async fn stored_profile(
+    runtime: &Arc<dyn ToolRuntime>,
+    tenant_id: Option<&str>,
+    user_id: Uuid,
+) -> AppResult<Option<UserPhysiologicalProfile>> {
     let Some(tenant) = tenant_id.and_then(|t| TenantId::parse_str(t).ok()) else {
-        return Ok(AthleteInputs::default());
+        return Ok(None);
     };
-    let profile = runtime
+    Ok(runtime
         .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant, user_id)
         .await?
         // A profile written from first-party-only data is withheld from an
         // external caller (carnet#769).
-        .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
-    Ok(AthleteInputs::from_profile(profile.as_ref()))
+        .filter(|profile| ai_scope::admit_derived(profile.transport_policy)))
 }
 
 /// The thresholds of a group member, read from the first of `tenants` whose

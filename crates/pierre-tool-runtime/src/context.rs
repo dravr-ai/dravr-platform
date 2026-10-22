@@ -27,7 +27,6 @@ use uuid::Uuid;
 
 use crate::runtime::ToolRuntime;
 use crate::tool_selection::ToolSelectionService;
-use dravr_cageux::types::ActivityIntelligence;
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
@@ -387,12 +386,6 @@ impl ToolExecutionContext {
     #[must_use]
     pub fn provider_registry(&self) -> &ProviderRegistry {
         self.resources.provider_registry()
-    }
-
-    /// Get a reference to the activity intelligence engine
-    #[must_use]
-    pub fn activity_intelligence(&self) -> &ActivityIntelligence {
-        self.resources.activity_intelligence()
     }
 
     /// Return a cheap clone of the current cageux intelligence config

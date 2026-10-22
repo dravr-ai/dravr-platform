@@ -115,6 +115,7 @@ async fn fixture() -> Fixture {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
+        sex: None,
     };
     resources
         .common

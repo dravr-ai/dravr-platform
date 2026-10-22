@@ -1,19 +1,22 @@
-// ABOUTME: Handler for calculate_metrics tool computing pace, speed, intensity, efficiency
+// ABOUTME: Handler for calculate_metrics tool computing pace, speed, distance per climb and the HR reading
 // ABOUTME: Supports both inline activity parameters and provider-fetched activity_id paths
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsInputSummary};
+use crate::implementations::configuration::configured_max_hr_algorithm;
+use crate::implementations::stored_physiology::stored_profile;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use dravr_cageux::physiological_constants::efficiency_defaults::{
-    DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
-};
-use dravr_cageux::physiological_constants::heart_rate::AGE_BASED_MAX_HR_CONSTANT;
+use dravr_cageux::metrics::distance_per_climb_score;
+use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::unit_conversions::MS_TO_KMH_FACTOR;
+use dravr_cageux::zones::{HeartRateReading, HrZones};
 use pierre_config::constants::limits::{self, METERS_PER_KILOMETER};
+use pierre_core::models::zones::HrZonesUnavailable;
+use pierre_core::models::UserPhysiologicalProfile;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use std::collections::HashMap;
@@ -34,8 +37,14 @@ struct ActivityParameters {
 struct CalculatedMetrics {
     pace: f64,
     speed: f64,
-    intensity_score: f64,
-    efficiency_score: f64,
+    /// Metres covered per metre climbed (cageux), or why there is none.
+    distance_per_climb: Result<f64, String>,
+}
+
+/// The maximum heart rate the zones are cut to, and where it came from.
+struct MaxHeartRate {
+    bpm: f64,
+    source: String,
 }
 
 /// Parse activity parameters from request
@@ -101,46 +110,48 @@ fn parse_activity_parameters(
 
 /// Determine maximum heart rate
 ///
-/// Determines max HR using priority: 1) explicit value, 2) Fox formula from age
-/// (220 - age), 3) default assumed constant. Returns both the calculated value
-/// and a source descriptor for transparency.
-///
-/// # Arguments
-/// * `max_hr_provided` - Explicitly provided max HR (highest priority)
-/// * `user_age` - User age for Fox formula calculation
-///
-/// # Returns
-/// Tuple of (`max_hr_value`, `source_description`)
-fn determine_max_heart_rate(max_hr_provided: Option<f64>, user_age: Option<u32>) -> (f64, String) {
-    // Last resort, reached only when the athlete has given neither a measured
-    // max HR nor an age. It is the Fox estimate at 40 — a median adult age —
-    // and the tuple's source field says `default_assumed` so a caller can tell
-    // this apart from a real measurement rather than reading it as one.
-    const ASSUMED_MAX_HR: f64 = 180.0;
-
-    match (max_hr_provided, user_age) {
-        (Some(hr), _) => (hr, "provided".to_owned()),
-        (None, Some(age)) => {
-            let max_hr = f64::from(AGE_BASED_MAX_HR_CONSTANT.saturating_sub(age));
-            (max_hr, format!("calculated_from_age_{age}"))
-        }
-        (None, None) => (ASSUMED_MAX_HR, "default_assumed".to_owned()),
+/// This call's `max_hr` first, then the saved maximum, else cageux's estimate
+/// from the age (this call's, else the saved one) by `algorithm`, the
+/// deployment's configured max-HR estimator; else none, and the heart-rate
+/// reading is absent rather than read against a stranger's maximum.
+fn determine_max_heart_rate(
+    max_hr_provided: Option<f64>,
+    user_age: Option<u32>,
+    profile: Option<&UserPhysiologicalProfile>,
+    algorithm: MaxHrAlgorithm,
+) -> Option<MaxHeartRate> {
+    if let Some(bpm) = max_hr_provided {
+        return Some(MaxHeartRate {
+            bpm,
+            source: "provided".to_owned(),
+        });
     }
+    if let Some(bpm) = profile.and_then(|p| p.max_hr) {
+        return Some(MaxHeartRate {
+            bpm: f64::from(bpm),
+            source: "profile".to_owned(),
+        });
+    }
+    let age = user_age.or_else(|| profile.and_then(|p| p.age).map(u32::from))?;
+    let bpm = algorithm.estimate(age, None).ok()?;
+    Some(MaxHeartRate {
+        bpm,
+        source: format!("estimated_from_age_{age}_{}", algorithm.name()),
+    })
 }
 
 /// Calculate activity metrics from parameters
 ///
-/// Computes pace (min/km), speed (km/h), intensity score (% of max HR),
-/// and efficiency score (distance/elevation ratio). Uses defensive checks
-/// to avoid division by zero.
+/// Computes pace (min/km), speed (km/h) and cageux's distance-per-climb
+/// score, which is absent with its reason when the distance or the climb is
+/// unrecorded. Uses defensive checks to avoid division by zero.
 ///
 /// # Arguments
 /// * `params` - Activity parameters (distance, duration, elevation, HR)
-/// * `max_hr` - Maximum heart rate for intensity calculation
 ///
 /// # Returns
 /// Calculated metrics structure
-fn calculate_activity_metrics(params: &ActivityParameters, max_hr: f64) -> CalculatedMetrics {
+fn calculate_activity_metrics(params: &ActivityParameters) -> CalculatedMetrics {
     let duration_f64 =
         f64::from(u32::try_from(params.duration.min(u64::from(u32::MAX))).unwrap_or(u32::MAX));
 
@@ -156,26 +167,46 @@ fn calculate_activity_metrics(params: &ActivityParameters, max_hr: f64) -> Calcu
         0.0
     };
 
-    let intensity_score = if max_hr > 0.0 {
-        params.heart_rate.map_or(DEFAULT_EFFICIENCY_SCORE, |hr| {
-            (f64::from(hr) / max_hr) * limits::PERCENTAGE_MULTIPLIER
-        })
-    } else {
-        DEFAULT_EFFICIENCY_SCORE
-    };
-
-    let efficiency_score = if params.distance > 0.0 && params.elevation_gain > 0.0 {
-        (params.distance / params.elevation_gain).min(100.0)
-    } else {
-        DEFAULT_EFFICIENCY_WITH_DISTANCE
-    };
+    let distance_per_climb =
+        distance_per_climb_score(Some(params.distance), Some(params.elevation_gain))
+            .map_err(|reason| reason.to_string());
 
     CalculatedMetrics {
         pace,
         speed,
-        intensity_score,
-        efficiency_score,
+        distance_per_climb,
     }
+}
+
+/// The activity's average heart rate read on the athlete's zones, or why it
+/// cannot be.
+///
+/// The zones are cageux's [`HrZones::for_athlete`] from the saved resting
+/// heart rate and `VO2max` and the maximum [`determine_max_heart_rate`]
+/// resolved.
+fn heart_rate_reading(
+    heart_rate: Option<u32>,
+    profile: Option<&UserPhysiologicalProfile>,
+    max_hr: Option<&MaxHeartRate>,
+) -> Result<HeartRateReading, String> {
+    let heart_rate = heart_rate.ok_or_else(|| "the activity carried no heart rate".to_owned())?;
+    let resting_hr = profile.and_then(|p| p.resting_hr);
+    let max_bpm = max_hr.and_then(|max| {
+        // Safe: a maximum heart rate is a few hundred bpm at most.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let bpm = max.bpm.round() as u16;
+        (max.bpm.is_finite() && max.bpm > 0.0).then_some(bpm)
+    });
+    let (Some(resting_hr), Some(max_hr)) = (resting_hr, max_bpm) else {
+        return Err(HrZonesUnavailable::MissingHeartRates {
+            resting_hr: resting_hr.is_none(),
+            max_hr: max_bpm.is_none(),
+        }
+        .reason());
+    };
+    let zones = HrZones::for_athlete(profile.and_then(|p| p.vo2_max), resting_hr, max_hr)
+        .map_err(|e| HrZonesUnavailable::Rejected(e.to_string()).reason())?;
+    Ok(zones.reading(u16::try_from(heart_rate).unwrap_or(u16::MAX)))
 }
 
 /// Build metrics calculation response
@@ -185,17 +216,16 @@ fn calculate_activity_metrics(params: &ActivityParameters, max_hr: f64) -> Calcu
 ///
 /// # Arguments
 /// * `params` - Original activity parameters
-/// * `metrics` - Calculated metrics (pace, speed, intensity, efficiency)
-/// * `max_hr` - Determined maximum heart rate
-/// * `max_hr_source` - Source description for max HR
+/// * `metrics` - Calculated metrics (pace, speed, distance per climb)
+/// * `max_hr` - Determined maximum heart rate and its source, when known
 ///
 /// # Returns
 /// Complete `UniversalResponse` with results and metadata
 fn build_metrics_response(
     params: &ActivityParameters,
     metrics: &CalculatedMetrics,
-    max_hr: f64,
-    max_hr_source: &str,
+    max_hr: Option<&MaxHeartRate>,
+    reading: Result<HeartRateReading, String>,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     use limits;
@@ -203,10 +233,12 @@ fn build_metrics_response(
     let payload = ActivityMetricsResult {
         pace: metrics.pace,
         speed: metrics.speed,
-        intensity_score: metrics.intensity_score,
-        efficiency_score: metrics.efficiency_score,
-        max_hr_used: max_hr,
-        max_hr_source: max_hr_source.to_owned(),
+        distance_per_climb_score: metrics.distance_per_climb.as_ref().ok().copied(),
+        distance_per_climb_unavailable: metrics.distance_per_climb.as_ref().err().cloned(),
+        max_hr_used: max_hr.map(|max| max.bpm),
+        max_hr_source: max_hr.map_or_else(|| "unknown".to_owned(), |max| max.source.clone()),
+        heart_rate_unavailable: reading.as_ref().err().cloned(),
+        heart_rate_reading: reading.ok(),
         metrics_summary: MetricsInputSummary {
             distance_km: params.distance / METERS_PER_KILOMETER,
             duration_minutes: params.duration / limits::SECONDS_PER_MINUTE,
@@ -287,10 +319,31 @@ async fn fetch_and_calculate_metrics(
 
     // Parse parameters from converted activity
     let params = parse_activity_parameters(&request_with_activity)?;
-    let (max_hr, max_hr_source) = determine_max_heart_rate(params.max_hr_provided, params.user_age);
-    let metrics = calculate_activity_metrics(&params, max_hr);
+    let algorithm =
+        configured_max_hr_algorithm(&executor.resources, user_uuid, request.tenant_id.as_deref())
+            .await
+            .map_err(|e| {
+                ProtocolError::InternalError(format!(
+                    "calculate_metrics: reading the configured max-HR algorithm failed: {e}"
+                ))
+            })?;
+    let profile = stored_profile(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+        .await
+        .map_err(|e| {
+            ProtocolError::InternalError(format!(
+                "calculate_metrics: reading the athlete's physiology failed: {e}"
+            ))
+        })?;
+    let max_hr = determine_max_heart_rate(
+        params.max_hr_provided,
+        params.user_age,
+        profile.as_ref(),
+        algorithm,
+    );
+    let metrics = calculate_activity_metrics(&params);
+    let reading = heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref());
 
-    build_metrics_response(&params, &metrics, max_hr, &max_hr_source, output_format)
+    build_metrics_response(&params, &metrics, max_hr.as_ref(), reading, output_format)
 }
 
 /// Handle `calculate_metrics` tool - calculate custom fitness metrics (async)
@@ -342,4 +395,104 @@ pub fn handle_calculate_metrics(
         )
         .await
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use dravr_cageux::zones::HrIntensity;
+    use pierre_core::models::SportType;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn profile(resting_hr: Option<u16>, max_hr: Option<u16>) -> UserPhysiologicalProfile {
+        let mut profile = UserPhysiologicalProfile::new(Uuid::new_v4(), SportType::Run);
+        profile.resting_hr = resting_hr;
+        profile.max_hr = max_hr;
+        profile
+    }
+
+    #[test]
+    fn the_heart_rate_is_read_on_the_athletes_zones() -> Result<(), Box<dyn Error>> {
+        let athlete = profile(Some(50), Some(190));
+        let max = determine_max_heart_rate(None, None, Some(&athlete), MaxHrAlgorithm::Tanaka)
+            .ok_or("the saved maximum")?;
+        assert_eq!(max.source, "profile");
+        let reading = heart_rate_reading(Some(165), Some(&athlete), Some(&max))?;
+        // cageux's zones for resting 50 / max 190 (no VO2max: Uth's ratio).
+        let expected = HrZones::for_athlete(None, 50, 190)?.reading(165);
+        assert_eq!(reading, expected);
+        assert_eq!(reading.zone, 4);
+        assert_eq!(reading.intensity, HrIntensity::Hard);
+        assert!((reading.reserve_fraction - 115.0 / 140.0).abs() < 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn a_maximum_given_or_estimated_from_age_cuts_the_zones() -> Result<(), Box<dyn Error>> {
+        let athlete = profile(Some(50), None);
+        let given =
+            determine_max_heart_rate(Some(200.0), None, Some(&athlete), MaxHrAlgorithm::Tanaka)
+                .ok_or("given")?;
+        assert_eq!(given.source, "provided");
+        let aged = determine_max_heart_rate(None, Some(40), Some(&athlete), MaxHrAlgorithm::Tanaka)
+            .ok_or("estimated")?;
+        // Tanaka: 208 - 0.7 x 40 = 180.
+        assert!((aged.bpm - 180.0).abs() < 1e-9);
+        assert_eq!(aged.source, "estimated_from_age_40_tanaka");
+        let reading = heart_rate_reading(Some(150), Some(&athlete), Some(&aged))?;
+        assert_eq!(reading, HrZones::for_athlete(None, 50, 180)?.reading(150));
+        Ok(())
+    }
+
+    fn parameters(distance: f64, elevation_gain: f64) -> ActivityParameters {
+        ActivityParameters {
+            distance,
+            duration: 3600,
+            elevation_gain,
+            heart_rate: None,
+            max_hr_provided: None,
+            user_age: None,
+        }
+    }
+
+    #[test]
+    fn the_climb_score_is_cageuxs_or_absent_with_its_reason() -> Result<(), Box<dyn Error>> {
+        let hilly = calculate_activity_metrics(&parameters(10_000.0, 250.0));
+        assert_eq!(
+            hilly.distance_per_climb,
+            Ok(distance_per_climb_score(Some(10_000.0), Some(250.0))?)
+        );
+        // A flat activity records no climb: no score, never a fixed value.
+        let flat = calculate_activity_metrics(&parameters(10_000.0, 0.0));
+        assert_eq!(
+            flat.distance_per_climb,
+            Err("the activity records no elevation gain".to_owned())
+        );
+        let stationary = calculate_activity_metrics(&parameters(0.0, 100.0));
+        assert_eq!(
+            stationary.distance_per_climb,
+            Err("the activity records no distance".to_owned())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn without_zones_there_is_no_reading_and_the_reason_says_why() {
+        let no_resting = profile(None, Some(190));
+        let max = determine_max_heart_rate(None, None, Some(&no_resting), MaxHrAlgorithm::Tanaka);
+        let reason = heart_rate_reading(Some(150), Some(&no_resting), max.as_ref()).unwrap_err();
+        assert!(reason.contains("resting heart rate"), "{reason}");
+
+        let nobody = determine_max_heart_rate(None, None, None, MaxHrAlgorithm::Tanaka);
+        assert!(nobody.is_none(), "no maximum is invented");
+        let reason = heart_rate_reading(Some(150), None, None).unwrap_err();
+        assert!(reason.contains("resting and maximum"), "{reason}");
+
+        let reason =
+            heart_rate_reading(None, Some(&profile(Some(50), Some(190))), None).unwrap_err();
+        assert_eq!(reason, "the activity carried no heart rate");
+    }
 }

@@ -74,6 +74,7 @@ fn profile(user_id: Uuid) -> UserPhysiologicalProfile {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
+        sex: None,
     }
 }
 

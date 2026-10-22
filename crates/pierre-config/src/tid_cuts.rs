@@ -123,7 +123,7 @@ pub const SLOTS: [TidCutsSlot; 5] = [
         label: "FTP",
         scale: "percent of functional threshold power",
         units: "% FTP",
-        basis: "Coggan power levels (Z2 56-75, Z4 91-105, Z5 106-120 % FTP)",
+        basis: "Coggan power levels (Z2 55-75, Z4 90-105, Z5 105-120 % FTP)",
         read: TidCuts::ftp,
     },
     TidCutsSlot {

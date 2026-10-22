@@ -601,13 +601,6 @@ export FITNESS_EFFORT_MODERATE_MAX="5.0"
 export FITNESS_EFFORT_HARD_MAX="7.0"
 # > 7.0 = very_high
 
-# Heart Rate Zone Thresholds (percentage of max HR)
-export FITNESS_ZONE_RECOVERY_MAX="60.0"
-export FITNESS_ZONE_ENDURANCE_MAX="70.0"
-export FITNESS_ZONE_TEMPO_MAX="80.0"
-export FITNESS_ZONE_THRESHOLD_MAX="90.0"
-# > 90.0 = vo2max
-
 # Weather Integration Settings
 export FITNESS_WEATHER_WIND_THRESHOLD="15.0"
 export FITNESS_WEATHER_ENABLED="true"
@@ -671,13 +664,6 @@ export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"
 # export TRAINING_ZONES_VDOT_THRESHOLD_PERCENT=""
 # export TRAINING_ZONES_VDOT_INTERVAL_PERCENT=""
 # export TRAINING_ZONES_VDOT_REPETITION_PERCENT=""
-
-# Training Zones - FTP (percentage of FTP)
-# export TRAINING_ZONES_FTP_ZONE1_PERCENT=""   # Active Recovery
-# export TRAINING_ZONES_FTP_ZONE2_PERCENT=""   # Endurance
-# export TRAINING_ZONES_FTP_ZONE3_PERCENT=""   # Tempo
-# export TRAINING_ZONES_FTP_ZONE4_PERCENT=""   # Lactate Threshold
-# export TRAINING_ZONES_FTP_ZONE5_PERCENT=""   # VO2 Max
 
 # Safe Limits (max items returned in responses)
 # export SAFE_LIMIT_TOON_SUMMARY="200"

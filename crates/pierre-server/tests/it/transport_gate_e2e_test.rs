@@ -174,6 +174,7 @@ impl FitnessProvider for Relay {
             lastname: Some("Rider".to_owned()),
             profile_picture: None,
             provider: RELAY.to_owned(),
+            sex: None,
         })
     }
 
@@ -795,6 +796,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 d_prime_meters: None,
                 threshold_provenance: ThresholdProvenance::default(),
                 transport_policy: TransportPolicy::AnyTransport,
+                sex: None,
             },
         )
         .await

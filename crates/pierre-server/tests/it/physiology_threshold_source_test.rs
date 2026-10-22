@@ -21,11 +21,12 @@
 
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use dravr_cageux::algorithms::lthr::max_hr_fraction_at_vo2max_fraction;
 use dravr_cageux::training_load::TrainingLoadCalculator;
 use pierre_core::models::activity::ActivityBuilder;
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{
-    max_hr_fraction_at_vo2max_fraction, Activity, ConnectionType, SportType, TenantId,
-    UserPhysiologicalProfile,
+    Activity, ConnectionType, SportType, TenantId, UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_fitness_compute::AthleteInputs;
@@ -149,9 +150,27 @@ fn profile_with(
 #[test]
 fn swain_places_a_fraction_of_vo2max_on_the_max_hr_scale() {
     // %HRmax = 0.6463 x %VO2max + 37.182 (Swain et al. 1994).
-    assert!((max_hr_fraction_at_vo2max_fraction(0.85) - 0.921_175).abs() < 1e-9);
-    assert!((max_hr_fraction_at_vo2max_fraction(0.65) - 0.791_915).abs() < 1e-9);
-    assert!((max_hr_fraction_at_vo2max_fraction(0.50) - 0.694_97).abs() < 1e-9);
+    assert!((max_hr_fraction_at_vo2max_fraction(0.85).unwrap() - 0.921_175).abs() < 1e-9);
+    assert!((max_hr_fraction_at_vo2max_fraction(0.65).unwrap() - 0.791_915).abs() < 1e-9);
+    assert!((max_hr_fraction_at_vo2max_fraction(0.50).unwrap() - 0.694_97).abs() < 1e-9);
+}
+
+#[test]
+fn a_lactate_threshold_outside_the_regression_gives_no_lthr_estimate() {
+    // Swain's line was fitted from 40 to 95 % of VO2max; cageux refuses a
+    // fraction outside it, and the profile then has no estimated LTHR rather
+    // than an extrapolated one.
+    assert!(profile_with(Some(0.30), Some(190), None)
+        .estimated_lactate_threshold_hr()
+        .is_none());
+    assert!(profile_with(Some(0.85), None, None)
+        .estimated_lactate_threshold_hr()
+        .is_none());
+    let lthr = profile_with(Some(0.95), Some(190), None)
+        .estimated_lactate_threshold_hr()
+        .unwrap();
+    let expected = 190.0 * max_hr_fraction_at_vo2max_fraction(0.95).unwrap();
+    assert!((lthr - expected).abs() < 1e-9);
 }
 
 #[test]
@@ -556,6 +575,7 @@ async fn the_recovery_recommendations_read_the_threshold_heart_rate_saved_with_s
             &rides,
             "recovery",
             inputs,
+            Err(&HrZonesUnavailable::NoProfile),
             config,
             None,
             &NutritionAthlete::default(),

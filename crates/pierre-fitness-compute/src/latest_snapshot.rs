@@ -11,10 +11,11 @@
 //! For each activity inside the window we derive the four Endurance
 //! per-activity metrics — intensity factor, efficiency factor,
 //! variability index, decoupling — using the cageux visitors
-//! `NormalizedPowerCalculator` and `DecouplingDetector`. Zone time comes
-//! from `pierre_core`'s `HrZoneSet`/`ZoneDistribution`, which is the
-//! LTHR-based model production uses. We then aggregate to a single
-//! snapshot record that the endpoint serialises to JSON.
+//! `NormalizedPowerCalculator` and `DecouplingDetector`. Zone time is
+//! counted against the athlete's own heart-rate zones, cageux's
+//! [`HrZones`] (the one zone model, zone 6 included when their tier has
+//! one), into `pierre_core`'s [`ZoneDistribution`]. We then aggregate to a
+//! single snapshot record that the endpoint serialises to JSON.
 //!
 //! All metric outputs are `Option`-wrapped: a metric that cannot be
 //! computed because the underlying sensor stream was missing comes back
@@ -24,7 +25,8 @@
 use chrono::{DateTime, Duration, Utc};
 use dravr_cageux::models::activity::Activity;
 use dravr_cageux::visitor::{DecouplingDetector, NormalizedPowerCalculator, TimeSeriesExt};
-use pierre_core::models::zones::{HrZoneSet, ZoneDistribution};
+use dravr_cageux::zones::HrZones;
+use pierre_core::models::zones::{HrZonesUnavailable, ZoneDistribution};
 use serde::{Deserialize, Serialize};
 
 /// Default analysis window when the caller does not supply one.
@@ -77,8 +79,9 @@ pub struct LatestSnapshotActivityRow {
     /// Endurance derived metrics.
     pub metrics: ActivitySection11Metrics,
     /// Time-in-zone distribution computed from the HR stream against the
-    /// user's [`HrZoneSet`]. `None` when no HR stream is present or no
-    /// user zones are configured.
+    /// athlete's [`HrZones`]. `None` when no HR stream is present or the
+    /// athlete's zones are unknown (see
+    /// [`LatestSnapshot::zone_distribution_unavailable`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zone_distribution: Option<ZoneDistribution>,
 }
@@ -118,6 +121,11 @@ pub struct LatestSnapshot {
     /// Aggregated time-in-zone distribution across the window.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregated_zone_distribution: Option<ZoneDistribution>,
+    /// Why the zone distributions are absent when the athlete's heart-rate
+    /// zones are unknown: they are cut from a saved resting and maximum
+    /// heart rate, never from a default. `None` when the zones were known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_distribution_unavailable: Option<String>,
     /// Per-activity rows in chronological order (oldest first).
     pub activities: Vec<LatestSnapshotActivityRow>,
 }
@@ -127,9 +135,10 @@ pub struct LatestSnapshot {
 /// Activities outside the `window_days` window (relative to the most
 /// recent activity, falling back to "now" when no activities are
 /// supplied) are filtered out before aggregation. The optional
-/// `hr_zones` lets the caller supply per-user zone boundaries that
-/// override anything cageux derives — when `None` the snapshot omits
-/// the per-activity zone distribution and the aggregate.
+/// `hr_zones` are the athlete's zones, cut by cageux from their saved
+/// physiology; when they are unavailable the snapshot omits the
+/// per-activity zone distribution and the aggregate, and says why in
+/// [`LatestSnapshot::zone_distribution_unavailable`].
 ///
 /// `ftp_watts` is the user's Functional Threshold Power; `None` skips
 /// intensity-factor computation for every activity.
@@ -138,7 +147,7 @@ pub fn build_latest_snapshot(
     activities: &[Activity],
     window_days: u32,
     ftp_watts: Option<u32>,
-    hr_zones: Option<HrZoneSet>,
+    hr_zones: Result<&HrZones, &HrZonesUnavailable>,
 ) -> LatestSnapshot {
     let window_days = window_days.clamp(1, MAX_WINDOW_DAYS);
     let now = Utc::now();
@@ -172,7 +181,9 @@ pub fn build_latest_snapshot(
 
     for activity in filtered {
         let metrics = compute_activity_metrics(activity, ftp_watts);
-        let zone_distribution = hr_zones.and_then(|z| compute_zone_distribution(activity, z));
+        let zone_distribution = hr_zones
+            .ok()
+            .and_then(|zones| compute_zone_distribution(activity, zones));
 
         if let Some(value) = metrics.intensity_factor {
             intensity_sum += value;
@@ -229,6 +240,7 @@ pub fn build_latest_snapshot(
         avg_variability_index: mean(variability_sum, variability_count),
         avg_decoupling_pct: mean(decoupling_sum, decoupling_count),
         aggregated_zone_distribution: any_zones.then_some(aggregated_zones),
+        zone_distribution_unavailable: hr_zones.err().map(HrZonesUnavailable::reason),
         activities: rows,
     }
 }
@@ -260,6 +272,7 @@ fn sum_zone_distributions(a: &ZoneDistribution, b: &ZoneDistribution) -> ZoneDis
         z3_seconds: a.z3_seconds.saturating_add(b.z3_seconds),
         z4_seconds: a.z4_seconds.saturating_add(b.z4_seconds),
         z5_seconds: a.z5_seconds.saturating_add(b.z5_seconds),
+        z6_seconds: a.z6_seconds.saturating_add(b.z6_seconds),
         above_max_seconds: a.above_max_seconds.saturating_add(b.above_max_seconds),
     }
 }
@@ -324,7 +337,7 @@ fn compute_decoupling(activity: &Activity) -> Option<f64> {
 /// interval is time with no reading, never a reading of 0 bpm (which would
 /// fall in no zone or the lowest one) and never folded into the next
 /// sample's interval.
-fn compute_zone_distribution(activity: &Activity, zones: HrZoneSet) -> Option<ZoneDistribution> {
+fn compute_zone_distribution(activity: &Activity, zones: &HrZones) -> Option<ZoneDistribution> {
     let stream = activity.time_series_data()?;
     let hr_samples = stream.heart_rate.as_ref()?;
     if hr_samples.is_empty() {
@@ -338,14 +351,22 @@ fn compute_zone_distribution(activity: &Activity, zones: HrZoneSet) -> Option<Zo
         };
         let delta = sample_delta_seconds(timestamps, idx);
         let bpm_u16 = u16::try_from(bpm).unwrap_or(u16::MAX);
-        match zones.classify(bpm_u16) {
-            Some(1) => zd.z1_seconds = zd.z1_seconds.saturating_add(delta),
-            Some(2) => zd.z2_seconds = zd.z2_seconds.saturating_add(delta),
-            Some(3) => zd.z3_seconds = zd.z3_seconds.saturating_add(delta),
-            Some(4) => zd.z4_seconds = zd.z4_seconds.saturating_add(delta),
-            Some(5) => zd.z5_seconds = zd.z5_seconds.saturating_add(delta),
-            _ => zd.above_max_seconds = zd.above_max_seconds.saturating_add(delta),
-        }
+        // cageux folds a reading above the maximum into the highest zone;
+        // the distribution keeps it apart, since it is past the athlete's
+        // recorded ceiling rather than inside a zone.
+        let bucket = if bpm_u16 > zones.max_hr {
+            &mut zd.above_max_seconds
+        } else {
+            match zones.classify(bpm_u16).zone {
+                1 => &mut zd.z1_seconds,
+                2 => &mut zd.z2_seconds,
+                3 => &mut zd.z3_seconds,
+                4 => &mut zd.z4_seconds,
+                5 => &mut zd.z5_seconds,
+                _ => &mut zd.z6_seconds,
+            }
+        };
+        *bucket = bucket.saturating_add(delta);
     }
     if zd.total_seconds() == 0 {
         None

@@ -7,6 +7,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use dravr_cageux::zones::PowerZones;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -368,20 +369,22 @@ async fn power_zones_anchor_on_modified_dmax_for_watts() -> Result<()> {
         .unwrap()
         .round();
     approx(zones["ftp_watts"].as_f64().unwrap(), anchor_watts, 0.0);
-    let bounds: Vec<u64> = (1..=5)
-        .map(|z| {
-            zones["zones"][format!("zone_{z}")]["max_watts"]
-                .as_u64()
-                .unwrap()
-        })
-        .collect();
+    // Coggan's seven levels from cageux, cut at that LT2: level 7 has no ceiling.
+    let ftp = zones["ftp_watts"].as_f64().unwrap();
+    let levels = PowerZones::coggan(ftp).unwrap();
+    assert_eq!(levels.zones().len(), 7);
+    for band in levels.zones() {
+        let level = &zones["zones"][format!("zone_{}", band.zone)];
+        approx(level["min_watts"].as_f64().unwrap(), band.lower_watts, 1e-9);
+        match band.upper_watts {
+            Some(upper) => approx(level["max_watts"].as_f64().unwrap(), upper, 1e-9),
+            None => assert!(level["max_watts"].is_null(), "level 7 is open: {level}"),
+        }
+        assert_eq!(level["name"], json!(band.name));
+    }
     assert!(
-        bounds.windows(2).all(|w| w[0] < w[1]),
-        "zone ceilings increase: {bounds:?}"
-    );
-    assert!(
-        bounds[3] >= zones["ftp_watts"].as_u64().unwrap(),
-        "zone 4 reaches the threshold itself: {bounds:?}"
+        zones["zones"]["zone_4"]["max_watts"].as_f64().unwrap() >= ftp,
+        "level 4 reaches the threshold itself"
     );
     Ok(())
 }

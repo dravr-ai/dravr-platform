@@ -98,6 +98,7 @@ async fn athlete(resources: &Arc<ServerContext>, connected: bool) -> Athlete {
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
+        sex: None,
     };
     resources
         .common

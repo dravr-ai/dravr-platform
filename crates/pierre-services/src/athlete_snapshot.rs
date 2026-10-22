@@ -36,6 +36,9 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
+use dravr_cageux::physiological_constants::physiological_defaults::{
+    DEFAULT_LACTATE_THRESHOLD, DEFAULT_SPORT_EFFICIENCY,
+};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
@@ -62,15 +65,6 @@ const ACTIVITY_LOOKBACK_DAYS: i64 = 180;
 const TSB_COMPUTE_DAYS: i64 = 90;
 /// Cap on activities loaded for the snapshot.
 const ACTIVITY_READ_LIMIT: i64 = 500;
-/// Resting-HR anchor for the pace math when the profile omits it.
-const DEFAULT_RESTING_HR: u16 = 60;
-/// Max-HR anchor for the pace math when the profile omits it.
-const DEFAULT_MAX_HR: u16 = 190;
-/// Lactate threshold, as a fraction of `VO2max`, when the profile omits it —
-/// the pace-zone default cageux states.
-const DEFAULT_LACTATE_THRESHOLD: f64 = 0.85;
-/// Sport-efficiency factor (1.0 = running baseline).
-const DEFAULT_SPORT_EFFICIENCY: f64 = 1.0;
 /// Days read before the overnight-readings window, so a night that began the
 /// evening before its first day is still read.
 const NIGHTS_READ_MARGIN_DAYS: i64 = 2;
@@ -148,10 +142,13 @@ pub async fn build_athlete_metrics(
         metrics.d_prime_meters = p.d_prime_meters.as_ref().map(|v| stored_metric(v, v.value));
 
         if let Some(vo2) = p.vo2_max {
+            // Pace zones read only VO2max and the lactate threshold (cageux's
+            // pace-zone default when the profile omits it); the calculator's
+            // heart-rate fields are not read by them.
             let calculator = VO2MaxCalculator::new(
                 vo2,
-                p.resting_hr.unwrap_or(DEFAULT_RESTING_HR),
-                p.max_hr.unwrap_or(DEFAULT_MAX_HR),
+                0,
+                0,
                 p.lactate_threshold_percentage
                     .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
                 DEFAULT_SPORT_EFFICIENCY,

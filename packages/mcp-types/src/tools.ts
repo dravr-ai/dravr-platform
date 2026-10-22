@@ -381,20 +381,20 @@ export interface CalculateFitnessScoreParams {
 
 
 /**
- * Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)
+ * Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones
  */
 export interface CalculateMetricsParams {
 
   /** ID of the activity to calculate metrics for */
   activity_id: string;
 
-  /** User age (optional, used to estimate max HR via Fox formula if max_hr not provided) */
+  /** Age in years (optional; else the saved one), used to estimate the maximum heart rate by the configured max-HR algorithm (algorithm.maxhr) when none is given or saved */
   age?: number;
 
   /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
   format?: string;
 
-  /** Maximum heart rate (optional, used for intensity calculation) */
+  /** Maximum heart rate in bpm (optional; else the saved one, else estimated from age). With the saved resting heart rate it cuts the athlete's zones the average heart rate is read on. */
   max_hr?: number;
 
   /** Fitness provider name */
@@ -413,7 +413,7 @@ export interface CalculatePersonalizedZonesParams {
   /** Lactate threshold as a fraction of VO2 max (typically 0.65-0.95), used for pace zones. Omit to use the athlete's saved value, else 0.85. */
   lactate_threshold?: number;
 
-  /** Maximum heart rate in bpm. Omit to use the athlete's saved value, or the Tanaka estimate from their saved age. */
+  /** Maximum heart rate in bpm. Omit to use the athlete's saved value, or the estimate from their saved age by the configured max-HR algorithm (algorithm.maxhr). */
   max_hr?: number;
 
   /** Resting heart rate in bpm. Omit to use the athlete's saved value. */
@@ -780,7 +780,7 @@ export interface ForgetPlaybookParams {
 
 
 /**
- * Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described, calories burned included.
+ * Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described. Calories burned are the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex; without either, `calories` is null and `calories_unavailable` says why.
  */
 export interface GenerateRecommendationsParams {
 
@@ -1224,7 +1224,7 @@ export interface HideAgentParams {
 
 
 /**
- * Import the athlete's training thresholds — FTP, lactate threshold heart rate, max heart rate and threshold pace — from their Intervals.icu sport settings, read through their own Intervals.icu connection or the link through their human coach they confirmed. A threshold is filled only when the profile has none, or refreshed when it holds Intervals.icu's earlier value. A value the athlete set is never replaced: it comes back as kept_yours with both numbers, and adopting Intervals.icu's is the athlete's call, saved with set_physiology. A value outside the ranges every saved value is checked against is skipped with the reason. W′ is never imported: Intervals.icu's W′ belongs to its FTP-anchored model, not the critical-power model the profile's W′ is. An imported value is Intervals.icu's estimate: quote it with its origin ('intervals.icu has your FTP at 285 W'), never as a measurement. Zones are re-derived and the stored training history recomputed. Call it when the athlete asks to bring their thresholds over from Intervals.icu; report only what the result contains.
+ * Import the athlete's training thresholds — FTP, lactate threshold heart rate, max heart rate and threshold pace — from their Intervals.icu sport settings, read through their own Intervals.icu connection or the link through their human coach they confirmed. A threshold is filled only when the profile has none, or refreshed when it holds Intervals.icu's earlier value. A value the athlete set is never replaced: it comes back as kept_yours with both numbers, and adopting Intervals.icu's is the athlete's call, saved with set_physiology. A value outside the ranges every saved value is checked against is skipped with the reason. W′ is never imported: Intervals.icu's W′ belongs to its FTP-anchored model, not the critical-power model the profile's W′ is. An imported value is Intervals.icu's estimate: quote it with its origin ('intervals.icu has your FTP at 285 W'), never as a measurement. Zones are re-derived and the stored training history recomputed. The athlete's sex is recorded from their Intervals.icu profile only when it reports one and the profile holds none (sex_recorded); a sex the athlete stated is never replaced. Call it when the athlete asks to bring their thresholds over from Intervals.icu; report only what the result contains.
  */
 export interface ImportProviderThresholdsParams {}
 
@@ -2059,7 +2059,7 @@ export interface SetGoalParams {
 
 
 /**
- * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
+ * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.
  */
 export interface SetPhysiologyParams {
 
@@ -2101,6 +2101,9 @@ export interface SetPhysiologyParams {
 
   /** Resting heart rate in bpm. */
   resting_hr?: number;
+
+  /** Physiological sex, only as the athlete states it: one of male, female. It selects the published equations that take one (Keytel's energy estimate, the sex-specific LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said. */
+  sex?: string;
 
   /** Lactate threshold heart rate (LTHR) in bpm, from a 30-minute field test, a ramp test or a lab report. Heart-rate-based training load is scored against it. */
   threshold_hr?: number;

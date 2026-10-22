@@ -8,7 +8,7 @@ use crate::implementations::analytics::recommendations_output::{
     CorePrinciples, RacePredictionSummary, RecommendationMetrics, RecommendationsResult,
     TrainingSummary, WeekStructure,
 };
-use crate::implementations::stored_physiology::stored_athlete_inputs;
+use crate::implementations::stored_physiology::{stored_athlete_inputs, stored_hr_zones};
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -19,9 +19,11 @@ use dravr_cageux::pattern_detection::PatternDetector;
 use dravr_cageux::performance_prediction::PerformancePredictor;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoad;
-use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator};
+use dravr_cageux::training_load::{FormBand, RiskLevel, TrainingLoadCalculator, TrainingLoadLevel};
+use dravr_cageux::zones::HrZones;
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::civil_time::resolve_zone;
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
@@ -95,6 +97,7 @@ pub(super) fn base_recommendations(
         training_summary: None,
         core_principles: None,
         metrics: None,
+        hr_zones_unavailable: None,
     }
 }
 
@@ -103,13 +106,17 @@ pub(super) fn base_recommendations(
 /// The `training_plan`, `recovery` and `all` modes read CTL, ATL and TSB off
 /// `athlete`, the thresholds saved with `set_physiology`, so the form they
 /// advise on is the form `analyze_training_load` reports for the same
-/// sessions. Public so the metrics each mode reports have content coverage;
+/// sessions. The `recovery`, `intensity`, `nutrition` and `all` modes read a
+/// session's heart rate against `hr_zones`, the athlete's own zones; without
+/// them heart rate decides nothing and the result's `hr_zones_unavailable`
+/// says why. Public so the metrics each mode reports have content coverage;
 /// the production caller is [`handle_generate_recommendations`].
 #[must_use]
 pub fn generate_training_recommendations(
     activities: &[Activity],
     recommendation_type: &str,
     athlete: &AthleteInputs,
+    hr_zones: Result<&HrZones, &HrZonesUnavailable>,
     algorithm_config: &AlgorithmConfig,
     user_timezone: Option<&str>,
     nutrition_athlete: &NutritionAthlete,
@@ -143,25 +150,36 @@ pub fn generate_training_recommendations(
         );
     };
 
-    match recommendation_type {
-        "training_plan" => generate_training_plan_recommendations(
-            &recent_activities,
-            athlete,
-            algorithm_config,
-            user_timezone,
-        ),
-        "recovery" => {
-            generate_recovery_recommendations(&recent_activities, athlete, algorithm_config)
+    let zones = hr_zones.ok();
+    let mut result = match recommendation_type {
+        "training_plan" => {
+            return generate_training_plan_recommendations(
+                &recent_activities,
+                athlete,
+                algorithm_config,
+                user_timezone,
+            )
         }
-        "intensity" => generate_intensity_recommendations(&recent_activities),
         "goal_specific" => {
-            generate_goal_specific_recommendations(&recent_activities, algorithm_config)
+            return generate_goal_specific_recommendations(&recent_activities, algorithm_config)
         }
-        "nutrition" => generate_nutrition_recommendations(latest, nutrition_athlete),
+        "recovery" => {
+            generate_recovery_recommendations(&recent_activities, athlete, zones, algorithm_config)
+        }
+        "intensity" => generate_intensity_recommendations(&recent_activities, zones),
+        "nutrition" => generate_nutrition_recommendations(latest, zones, nutrition_athlete),
         // `all`: the handler refuses any type outside `RECOMMENDATION_TYPES`
         // before a provider is read, so nothing else reaches this arm.
-        _ => generate_comprehensive_recommendations(&recent_activities, athlete, algorithm_config),
-    }
+        _ => generate_comprehensive_recommendations(
+            &recent_activities,
+            athlete,
+            zones,
+            algorithm_config,
+        ),
+    };
+    // Every mode left here read heart rate against the athlete's zones.
+    result.hr_zones_unavailable = hr_zones.err().map(HrZonesUnavailable::reason);
+    result
 }
 
 /// Generate weekly training plan recommendations using training load analysis
@@ -400,6 +418,7 @@ pub const fn recovery_actions_for(band: FormBand) -> &'static [&'static str] {
 fn generate_recovery_recommendations(
     activities: &[Activity],
     athlete: &AthleteInputs,
+    hr_zones: Option<&HrZones>,
     algorithm_config: &AlgorithmConfig,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
@@ -412,7 +431,7 @@ fn generate_recovery_recommendations(
     let training_load = athlete.training_load(&calculator, &sorted).ok();
 
     // Detect overtraining signals
-    let overtraining_signals = PatternDetector::detect_overtraining_signals(activities);
+    let overtraining_signals = PatternDetector::detect_overtraining_signals(activities, hr_zones);
 
     let mut recommendations = Vec::new();
     let mut priority = "medium";
@@ -482,11 +501,14 @@ fn generate_recovery_recommendations(
 }
 
 /// Generate intensity recommendations using hard/easy pattern detection
-fn generate_intensity_recommendations(activities: &[Activity]) -> RecommendationsResult {
+fn generate_intensity_recommendations(
+    activities: &[Activity],
+    hr_zones: Option<&HrZones>,
+) -> RecommendationsResult {
     use PatternDetector;
 
-    // Detect hard/easy pattern
-    let pattern = PatternDetector::detect_hard_easy_pattern(activities);
+    // Detect hard/easy pattern, a session's heart rate read on the athlete's zones
+    let pattern = PatternDetector::detect_hard_easy_pattern(activities, hr_zones);
 
     let mut recommendations = Vec::new();
     let mut priority = "medium";
@@ -689,6 +711,7 @@ fn generate_goal_specific_recommendations(
 fn generate_comprehensive_recommendations(
     activities: &[Activity],
     athlete: &AthleteInputs,
+    hr_zones: Option<&HrZones>,
     algorithm_config: &AlgorithmConfig,
 ) -> RecommendationsResult {
     // Sort oldest-first — EMA calculation requires chronological order
@@ -701,8 +724,8 @@ fn generate_comprehensive_recommendations(
     let training_load = athlete.training_load(&calculator, &sorted).ok();
 
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
-    let intensity_pattern = PatternDetector::detect_hard_easy_pattern(activities);
-    let overtraining = PatternDetector::detect_overtraining_signals(activities);
+    let intensity_pattern = PatternDetector::detect_hard_easy_pattern(activities, hr_zones);
+    let overtraining = PatternDetector::detect_overtraining_signals(activities, hr_zones);
 
     let mut recommendations = Vec::new();
     let mut priority = "medium";
@@ -730,10 +753,15 @@ fn generate_comprehensive_recommendations(
             _ => {}
         }
 
-        if load.ctl > 80.0 {
-            key_insights.push(format!("Strong fitness base (CTL: {:.1})", load.ctl));
-        } else if load.ctl < 40.0 {
-            key_insights.push("Building fitness - continue gradual progression".to_owned());
+        // The chronic base is placed in cageux's CTL bands.
+        match TrainingLoadLevel::from_ctl(load.ctl) {
+            TrainingLoadLevel::Elite | TrainingLoadLevel::VeryHigh => {
+                key_insights.push(format!("Strong fitness base (CTL: {:.1})", load.ctl));
+            }
+            TrainingLoadLevel::Beginner | TrainingLoadLevel::Intermediate => {
+                key_insights.push("Building fitness - continue gradual progression".to_owned());
+            }
+            TrainingLoadLevel::Advanced => {}
         }
     }
 
@@ -882,6 +910,15 @@ pub fn handle_generate_recommendations(
                         "generate_recommendations: reading the saved thresholds failed: {e}"
                     ))
                 })?;
+        // The athlete's heart-rate zones, which decide how hard a session was.
+        let hr_zones =
+            stored_hr_zones(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "generate_recommendations: reading the athlete's zones failed: {e}"
+                    ))
+                })?;
 
         match executor
             .auth_service
@@ -916,6 +953,7 @@ pub fn handle_generate_recommendations(
                             &activities,
                             recommendation_type,
                             &athlete,
+                            hr_zones.as_ref(),
                             &executor.cageux_config().algorithms,
                             user_timezone.as_deref(),
                             &nutrition_athlete,

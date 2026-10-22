@@ -25,8 +25,8 @@
 //!
 //! Derived zones are persisted in the same write: supplying FTP populates
 //! `power_zones`, and supplying both resting and max HR populates `hr_zones`.
-//! `calculate_personalized_zones` derives the identical boundaries for display
-//! from the same functions in [`super::configuration`].
+//! Both are cut by dravr-cageux's one zone model, which
+//! `calculate_personalized_zones` renders for display too.
 //!
 //! Every value this tool writes is the athlete's own: saving FTP, threshold
 //! HR, max HR or threshold pace clears any provenance a provider import
@@ -47,8 +47,7 @@ use uuid::Uuid;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::implementations::configuration::{
-    derive_hr_zone_set, derive_power_zone_set, validate_parameter_ranges,
-    validate_parameter_relationships,
+    validate_parameter_ranges, validate_parameter_relationships,
 };
 use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
 use crate::implementations::physiology_import::ImportProviderThresholdsTool;
@@ -62,8 +61,8 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    HrZoneSet, MeasurementKind, MetricProvenance, PowerZoneSet, ProvenancedValue, SportType,
-    TenantId, ThresholdProvenance, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
+    HrZoneSet, MeasurementKind, MetricProvenance, PhysiologicalSex, PowerZoneSet, ProvenancedValue,
+    SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
@@ -209,6 +208,13 @@ fn parse_fitness_level(raw: &str) -> AppResult<FitnessLevel> {
     }
 }
 
+/// Parse `sex`. Strict: only the two values the published equations take.
+fn parse_sex(raw: &str) -> AppResult<PhysiologicalSex> {
+    PhysiologicalSex::parse(raw.trim().to_ascii_lowercase().as_str()).ok_or_else(|| {
+        AppError::invalid_input(format!("sex must be one of male, female; got '{raw}'"))
+    })
+}
+
 /// Parse `measurement_kind`. Strict: a kind the tool cannot read must not be
 /// guessed into a measurement.
 fn parse_measurement_kind(raw: &str) -> AppResult<MeasurementKind> {
@@ -290,6 +296,7 @@ struct PhysiologyUpdate {
     fitness_level: Option<FitnessLevel>,
     primary_sport: Option<SportType>,
     training_experience_years: Option<u8>,
+    sex: Option<PhysiologicalSex>,
     critical_power_watts: Option<u32>,
     w_prime_joules: Option<u32>,
     critical_speed_mps: Option<f64>,
@@ -360,6 +367,12 @@ impl PhysiologyUpdate {
             .and_then(Value::as_str)
             .map(|s| SportType::from_provider_string(s, None));
 
+        let sex = args
+            .get("sex")
+            .and_then(Value::as_str)
+            .map(parse_sex)
+            .transpose()?;
+
         let critical_power_watts = optional_whole_number(args, "critical_power_watts")?
             .map(|v| {
                 u32::try_from(v).map_err(|_| {
@@ -412,6 +425,7 @@ impl PhysiologyUpdate {
             fitness_level,
             primary_sport,
             training_experience_years,
+            sex,
             critical_power_watts,
             w_prime_joules,
             critical_speed_mps,
@@ -461,6 +475,9 @@ impl PhysiologyUpdate {
         }
         if self.training_experience_years.is_some() {
             names.push("training_experience_years");
+        }
+        if self.sex.is_some() {
+            names.push("sex");
         }
         if self.critical_power_watts.is_some() {
             names.push("critical_power_watts");
@@ -521,6 +538,11 @@ impl PhysiologyUpdate {
         }
         if let Some(v) = self.training_experience_years {
             profile.training_experience_years = Some(v);
+        }
+        // The athlete's own statement, which a provider's report never
+        // replaces.
+        if let Some(v) = self.sex {
+            profile.sex = Some(v);
         }
         // `from_args` guarantees a provenance whenever one of these is set.
         if let Some(ref provenance) = self.provenance {
@@ -730,8 +752,9 @@ pub(crate) async fn profile_for_write(
 ///
 /// The profile is stamped with what this turn served (carnet#769): a value the
 /// agent read off first-party-only data keeps the profile there. Its zones are
-/// derived here rather than at read time, so the stored row carries the
-/// boundaries every reader expects in `hr_zones_json` / `power_zones_json`.
+/// cut here by cageux's one zone model ([`UserPhysiologicalProfile::refresh_zones`])
+/// rather than at read time, so the stored row carries the boundaries every
+/// reader expects in `hr_zones_json` / `power_zones_json`.
 /// The response describes the stored row, not the intent, so an agent cannot
 /// confirm a save that did not land. The stored daily rollup was scored
 /// against the thresholds it was computed with, so a save that moved one from
@@ -752,17 +775,7 @@ pub(crate) async fn store_profile(
     profile.transport_policy = profile
         .transport_policy
         .strictest(ai_scope::derived_policy());
-    let zones_config = &context.resources.config().training_zones;
-    if let Some(ftp) = profile.ftp_watts {
-        if let Some(zones) = derive_power_zone_set(ftp, zones_config) {
-            profile.power_zones = Some(zones);
-        }
-    }
-    if let (Some(resting_hr), Some(max_hr)) = (profile.resting_hr, profile.max_hr) {
-        if let Some(zones) = derive_hr_zone_set(resting_hr, max_hr) {
-            profile.hr_zones = Some(zones);
-        }
-    }
+    profile.refresh_zones();
 
     let repos = context.resources.repos();
     repos
@@ -800,6 +813,7 @@ pub(crate) fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyP
         fitness_level: profile.fitness_level,
         primary_sport: profile.primary_sport.clone(),
         training_experience_years: profile.training_experience_years,
+        sex: profile.sex,
         hr_zones: profile.hr_zones,
         power_zones: profile.power_zones,
         critical_power_watts: profile.critical_power_watts.clone(),
@@ -848,11 +862,17 @@ pub struct PhysiologyProfile {
     pub primary_sport: SportType,
     /// Years of structured training.
     pub training_experience_years: Option<u8>,
-    /// Heart-rate zone boundaries. Absent until both a resting and a maximum
-    /// heart rate are on the profile, because they are derived from the pair.
+    /// Physiological sex, as the athlete stated it or a provider reported it;
+    /// absent when neither did. It selects the published equations that take
+    /// one.
+    pub sex: Option<PhysiologicalSex>,
+    /// Heart-rate zone boundaries, cageux's `VO2max`-tiered Karvonen zones
+    /// (zone 6 when the tier has one). Absent until both a resting and a
+    /// maximum heart rate are on the profile, because they are cut from the
+    /// reserve between the pair.
     pub hr_zones: Option<HrZoneSet>,
-    /// Power zone boundaries. Absent for an athlete with no power meter or
-    /// saved FTP.
+    /// Power zone boundaries, Coggan's seven levels from the FTP (zone 7 is
+    /// everything above `z6_max`). Absent for an athlete with no saved FTP.
     pub power_zones: Option<PowerZoneSet>,
     /// Critical power, in watts, with whether it was measured or estimated
     /// and by whom. Quote an estimated value as an estimate, attributed to
@@ -954,6 +974,11 @@ impl SetPhysiologyTool {
                 "Years of structured training experience.",
             ),
             (
+                "sex",
+                "string",
+                "Physiological sex, only as the athlete states it: one of male, female. It selects the published equations that take one (Keytel's energy estimate, the sex-specific LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said.",
+            ),
+            (
                 "critical_power_watts",
                 "integer",
                 "Critical power (CP) in watts: the asymptote of the power-duration curve. Needs measurement_kind.",
@@ -1025,7 +1050,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         };
         answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
-            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
+            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
             schema,
             Some(write_annotations()),
         ))

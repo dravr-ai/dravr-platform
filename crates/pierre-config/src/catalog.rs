@@ -45,7 +45,7 @@ pub struct ConfigModule {
 /// Configuration parameter definition
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConfigParameter {
-    /// Parameter key (e.g., `heart_rate.anaerobic_threshold`)
+    /// Parameter key (e.g., `lactate.threshold_percentage`)
     pub key: String,
     /// Human-readable description
     pub description: String,
@@ -112,88 +112,11 @@ impl CatalogBuilder {
             description: "Heart rate zones, lactate thresholds, and VO2 max calculations"
                 .to_owned(),
             modules: vec![
-                Self::build_heart_rate_module(),
                 Self::build_lactate_module(),
                 Self::build_fitness_levels_module(),
-                Self::build_heart_rate_zones_module(),
                 Self::build_vo2_calculations_module(),
                 Self::build_pace_zones_module(),
                 Self::build_ftp_calculation_module(),
-            ],
-        }
-    }
-
-    /// Build heart rate module configuration
-    fn build_heart_rate_module() -> ConfigModule {
-        ConfigModule {
-            name: "heart_rate".into(),
-            description: "Heart rate zone thresholds and calculations".into(),
-            parameters: vec![
-                ConfigParameter {
-                    key: "heart_rate.anaerobic_threshold".into(),
-                    description: "Anaerobic threshold as percentage of max HR".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(85.0),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 70.0,
-                        max: 95.0,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Seiler 2010, Laursen 2002".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "heart_rate.vo2_max_zone".into(),
-                    description: "VO2 max zone as percentage of max HR".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(95.0),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 85.0,
-                        max: 100.0,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Buchheit & Laursen 2013".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "heart_rate.tempo_zone".into(),
-                    description: "Tempo/threshold zone as percentage of max HR".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(80.0),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 70.0,
-                        max: 90.0,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Coggan & Allen 2006".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "heart_rate.endurance_zone".into(),
-                    description: "Aerobic endurance zone as percentage of max HR".to_owned(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(70.0),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 60.0,
-                        max: 80.0,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Maffetone Method".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "heart_rate.recovery_zone".into(),
-                    description: "Active recovery zone as percentage of max HR".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(60.0),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 50.0,
-                        max: 70.0,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Polarized Training Model".into()),
-                    requires_vo2_max: false,
-                },
             ],
         }
     }
@@ -391,76 +314,6 @@ impl CatalogBuilder {
                 requires_vo2_max: false,
             },
         ]
-    }
-
-    /// Build heart rate zones module configuration
-    fn build_heart_rate_zones_module() -> ConfigModule {
-        ConfigModule {
-            name: "heart_rate_zones".into(),
-            description: "Heart rate zone percentages for different fitness levels".to_owned(),
-            parameters: vec![
-                ConfigParameter {
-                    key: "hr_zones.elite_zone6_threshold".into(),
-                    description: "VO2 max threshold for zone 6 availability (elite athletes)"
-                        .to_owned(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(50.0),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 45.0,
-                        max: 60.0,
-                    }),
-                    units: Some("ml/kg/min".into()),
-                    scientific_basis: Some("Elite training zone research".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "hr_zones.lactate_threshold_min".into(),
-                    description: "Minimum lactate threshold percentage".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(0.65),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 0.60,
-                        max: 0.70,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Lactate threshold research".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "hr_zones.lactate_threshold_max".into(),
-                    description: "Maximum lactate threshold percentage".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(0.95),
-                    valid_range: Some(ConfigValue::FloatRange {
-                        min: 0.90,
-                        max: 1.00,
-                    }),
-                    units: Some("percentage".into()),
-                    scientific_basis: Some("Lactate threshold research".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "hr_zones.sport_efficiency_min".into(),
-                    description: "Minimum sport efficiency factor".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(0.5),
-                    valid_range: Some(ConfigValue::FloatRange { min: 0.3, max: 0.7 }),
-                    units: None,
-                    scientific_basis: Some("Sport efficiency research".into()),
-                    requires_vo2_max: false,
-                },
-                ConfigParameter {
-                    key: "hr_zones.sport_efficiency_max".into(),
-                    description: "Maximum sport efficiency factor".into(),
-                    data_type: ParameterType::Float,
-                    default_value: ConfigValue::Float(1.5),
-                    valid_range: Some(ConfigValue::FloatRange { min: 1.0, max: 2.0 }),
-                    units: None,
-                    scientific_basis: Some("Sport efficiency research".into()),
-                    requires_vo2_max: false,
-                },
-            ],
-        }
     }
 
     /// Build VO2 calculations module configuration

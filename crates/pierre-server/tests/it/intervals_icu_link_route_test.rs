@@ -28,7 +28,7 @@ use helpers::axum_test::AxumTestRequest;
 use axum::http::StatusCode;
 use axum::Router;
 use pierre_core::constants::oauth::INTERVALS_ICU;
-use pierre_core::models::TenantId;
+use pierre_core::models::{PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
@@ -277,4 +277,68 @@ async fn disconnect_removes_a_linked_api_key_and_its_connection() {
         connections.iter().all(|c| c.provider != INTERVALS_ICU),
         "the Manual connection is removed"
     );
+}
+
+#[tokio::test]
+async fn linking_records_the_sex_the_profile_reports_only_when_none_is_held() {
+    // The link reads the athlete's Intervals.icu profile anyway; the sex it
+    // reports fills an empty profile.
+    let (base_url, stub) = stub_once(
+        "HTTP/1.1 200 OK",
+        r#"{"id":"i123456","name":"Test Athlete","sex":"F"}"#,
+    )
+    .await;
+    let linked = setup_linked_user(base_url).await;
+    let response = AxumTestRequest::post("/api/providers/intervals_icu/link-credentials")
+        .header("authorization", &linked.auth)
+        .json(&json!({ "athlete_id": "i123456", "api_key": "good-key" }))
+        .send(linked.router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    stub.await.expect("stub task joins");
+    let profiles = linked
+        .resources
+        .common
+        .repos
+        .user_physiological_profile
+        .as_ref();
+    let stored = profiles
+        .get_user_physiological_profile(linked.tenant_id, linked.user_id)
+        .await
+        .unwrap()
+        .expect("the reported sex created the profile");
+    assert_eq!(stored.sex, Some(PhysiologicalSex::Female));
+
+    // A sex the athlete stated is never replaced by a relink.
+    let (base_url, stub) = stub_once(
+        "HTTP/1.1 200 OK",
+        r#"{"id":"i123456","name":"Test Athlete","sex":"F"}"#,
+    )
+    .await;
+    let other = setup_linked_user(base_url).await;
+    let mut own = UserPhysiologicalProfile::new(other.user_id, SportType::Run);
+    own.sex = Some(PhysiologicalSex::Male);
+    let profiles = other
+        .resources
+        .common
+        .repos
+        .user_physiological_profile
+        .as_ref();
+    profiles
+        .upsert_user_physiological_profile(other.tenant_id, other.user_id, &own)
+        .await
+        .unwrap();
+    let response = AxumTestRequest::post("/api/providers/intervals_icu/link-credentials")
+        .header("authorization", &other.auth)
+        .json(&json!({ "athlete_id": "i123456", "api_key": "good-key" }))
+        .send(other.router)
+        .await;
+    assert_eq!(response.status_code(), StatusCode::OK);
+    stub.await.expect("stub task joins");
+    let stored = profiles
+        .get_user_physiological_profile(other.tenant_id, other.user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.sex, Some(PhysiologicalSex::Male));
 }

@@ -221,41 +221,6 @@ fn test_invalid_weights_validation() {
 }
 
 #[test]
-fn test_invalid_heart_rate_zones_validation() {
-    let mut config = IntelligenceConfig::default();
-    // Set invalid HR zones (not in ascending order)
-    config
-        .activity_analyzer
-        .analysis
-        .heart_rate_zones
-        .zone1_max_percentage = 80.0;
-    config
-        .activity_analyzer
-        .analysis
-        .heart_rate_zones
-        .zone2_max_percentage = 70.0; // Invalid: zone2 < zone1
-
-    // Verify the values were set (validation would be done internally)
-    assert_eq!(
-        config
-            .activity_analyzer
-            .analysis
-            .heart_rate_zones
-            .zone1_max_percentage,
-        80.0
-    );
-    assert_eq!(
-        config
-            .activity_analyzer
-            .analysis
-            .heart_rate_zones
-            .zone2_max_percentage,
-        70.0
-    );
-    // In a real system, this would trigger validation errors
-}
-
-#[test]
 fn test_conservative_strategy() {
     let strategy = ConservativeStrategy::new();
     let thresholds = strategy.recommendation_thresholds();
@@ -461,22 +426,6 @@ fn test_weather_config_temperature_thresholds() {
     assert!(temp_config.ideal_min_celsius < temp_config.ideal_max_celsius);
     assert!(temp_config.ideal_max_celsius < temp_config.hot_threshold_celsius);
     assert!(temp_config.hot_threshold_celsius < temp_config.extreme_hot_celsius);
-}
-
-#[test]
-fn test_activity_analyzer_config_heart_rate_zones() {
-    let config = IntelligenceConfig::default();
-    let hr_zones = &config.activity_analyzer.analysis.heart_rate_zones;
-
-    // Test HR zone ordering
-    assert!(hr_zones.zone1_max_percentage < hr_zones.zone2_max_percentage);
-    assert!(hr_zones.zone2_max_percentage < hr_zones.zone3_max_percentage);
-    assert!(hr_zones.zone3_max_percentage < hr_zones.zone4_max_percentage);
-    assert!(hr_zones.zone4_max_percentage < hr_zones.zone5_max_percentage);
-
-    // Test reasonable values
-    assert!(hr_zones.zone1_max_percentage > 50.0);
-    assert!(hr_zones.zone5_max_percentage <= 100.0);
 }
 
 #[test]

@@ -27,19 +27,11 @@ use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use chrono::{Duration, Utc};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
-use dravr_cageux::physiological_constants::business_thresholds::{
-    DEFAULT_HR_EFFORT_SCORE, DISTANCE_SCORE_DIVISOR, DURATION_SCORE_FACTOR, MAX_SCORE,
-    MIN_VALID_DISTANCE,
-};
-use dravr_cageux::physiological_constants::efficiency_defaults::{
-    DEFAULT_EFFICIENCY_SCORE, DEFAULT_EFFICIENCY_WITH_DISTANCE,
-};
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
-use pierre_config::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -68,99 +60,6 @@ struct ProviderGate<'a> {
     requested: Option<&'a str>,
 }
 
-/// Intelligence service interface for analysis operations
-/// Provides abstraction layer for future intelligence module integration
-pub struct IntelligenceService;
-
-impl IntelligenceService {
-    /// Creates a new intelligence service instance
-    #[must_use]
-    pub fn new(_resources: Arc<dyn ToolRuntime>) -> Self {
-        Self
-    }
-
-    /// Analyze activity data with intelligence engine
-    ///
-    /// # Errors
-    /// Returns error if intelligence analysis fails
-    pub fn analyze_activity(&self, activity: &Activity) -> Result<serde_json::Value, String> {
-        // Calculate basic efficiency score
-        let efficiency_score =
-            activity
-                .distance_meters()
-                .map_or(DEFAULT_EFFICIENCY_WITH_DISTANCE, |distance| {
-                    if activity.duration_seconds() > 0 && distance > f64::from(MIN_VALID_DISTANCE) {
-                        let duration_f64 = f64::from(
-                            u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX)))
-                                .unwrap_or(u32::MAX),
-                        );
-                        let speed_ms = distance / duration_f64;
-                        (speed_ms * f64::from(MAX_SCORE)).min(f64::from(MAX_SCORE))
-                    } else {
-                        DEFAULT_EFFICIENCY_SCORE
-                    }
-                });
-
-        // Calculate effort score based on duration and distance
-        let effort_score = if activity.duration_seconds() > 0 {
-            let duration_hours = f64::from(
-                u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX)))
-                    .unwrap_or(u32::MAX),
-            ) / SECONDS_PER_HOUR_F64;
-            let base_effort = duration_hours * f64::from(DURATION_SCORE_FACTOR);
-
-            // Add distance component if available
-            activity.distance_meters().map_or(base_effort, |d| {
-                let distance_km = d / 1000.0;
-                base_effort + (distance_km / f64::from(DISTANCE_SCORE_DIVISOR))
-            })
-        } else {
-            f64::from(DEFAULT_HR_EFFORT_SCORE)
-        };
-
-        Ok(serde_json::json!({
-            "activity_id": activity.id(),
-            "analysis_type": "intelligence_engine",
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "efficiency_score": efficiency_score,
-            "effort_score": effort_score.min(f64::from(MAX_SCORE)),
-            "performance_insights": {
-                "efficiency_rating": if efficiency_score > 75.0 { "excellent" } else if efficiency_score > 50.0 { "good" } else { "needs_improvement" },
-                "effort_level": if effort_score > 80.0 { "high" } else if effort_score > 40.0 { "moderate" } else { "low" }
-            },
-            "recommendations": Self::generate_activity_recommendations(activity, efficiency_score, effort_score)
-        }))
-    }
-
-    /// Generate recommendations based on activity analysis
-    fn generate_activity_recommendations(
-        activity: &Activity,
-        efficiency_score: f64,
-        effort_score: f64,
-    ) -> Vec<String> {
-        let mut recommendations = Vec::new();
-
-        if efficiency_score < 50.0 {
-            recommendations
-                .push("Consider focusing on pacing strategy for improved efficiency".to_owned());
-        }
-
-        if effort_score > 80.0 {
-            recommendations.push("High effort detected - ensure adequate recovery time".to_owned());
-        }
-
-        if activity.distance_meters().is_none() {
-            recommendations.push("Track distance for more comprehensive analysis".to_owned());
-        }
-
-        if recommendations.is_empty() {
-            recommendations.push("Great activity! Keep up the consistent training".to_owned());
-        }
-
-        recommendations
-    }
-}
-
 /// Thin dispatcher that adapts a [`UniversalRequest`] onto the shared
 /// [`crate::tools::registry::ToolRegistry`].
 ///
@@ -168,13 +67,11 @@ impl IntelligenceService {
 /// handlers, no `ToolId` enum. Tool lookup is by name against
 /// `resources.tool_registry()`, and execution goes straight through
 /// `McpTool::execute`. `UniversalExecutor` exists now only to host the
-/// `auth_service` / `intelligence_service` lifecycles that the chat /
+/// `auth_service` lifecycle that the chat /
 /// A2A / SSE callers share.
 pub struct UniversalExecutor {
     /// Authentication service for handling OAuth and token validation
     pub auth_service: AuthService,
-    /// Intelligence service for activity analysis and insights
-    pub intelligence_service: IntelligenceService,
     /// Shared server resources (database, weather service, etc.)
     pub resources: Arc<dyn ToolRuntime>,
     /// Originating Pierre conversation id when this executor was built for a
@@ -249,11 +146,9 @@ impl UniversalExecutor {
     #[must_use]
     pub fn new(resources: Arc<dyn ToolRuntime>) -> Self {
         let auth_service = AuthService::new(resources.clone());
-        let intelligence_service = IntelligenceService::new(resources.clone());
 
         Self {
             auth_service,
-            intelligence_service,
             resources,
             conversation_id: None,
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),

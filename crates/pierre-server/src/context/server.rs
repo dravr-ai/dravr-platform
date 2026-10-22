@@ -42,7 +42,6 @@ impl ServerContext {
             self.common.repos.clone(),
             self.common.cache.clone(),
             self.fitness.provider_registry.clone(),
-            self.fitness.activity_intelligence.clone(),
         )
     }
 

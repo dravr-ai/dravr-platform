@@ -28,8 +28,6 @@ pub struct FitnessConfig {
 pub struct IntelligenceConfig {
     /// Effort level threshold values
     pub effort_thresholds: EffortThresholds,
-    /// Heart rate zone threshold percentages
-    pub zone_thresholds: ZoneThresholds,
     /// Weather detection keyword mappings
     pub weather_mapping: WeatherMapping,
     /// Personal record detection settings
@@ -46,20 +44,6 @@ pub struct EffortThresholds {
     /// Maximum heart rate percentage for hard effort (0-1.0, above this is very high)
     pub hard_max: f32,
     // > hard_max = very_high
-}
-
-/// Heart rate zone thresholds (as percentage of max HR)
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ZoneThresholds {
-    /// Maximum percentage for recovery zone (Zone 1)
-    pub recovery_max: f32,
-    /// Maximum percentage for endurance zone (Zone 2)
-    pub endurance_max: f32,
-    /// Maximum percentage for tempo zone (Zone 3)
-    pub tempo_max: f32,
-    /// Maximum percentage for threshold zone (Zone 4, above this is VO2 max)
-    pub threshold_max: f32,
-    // > threshold_max = vo2max
 }
 
 /// Weather detection and mapping configuration
@@ -181,7 +165,6 @@ impl FitnessConfig {
     /// Apply environment variable overrides to the configuration
     fn apply_environment_overrides(config: &mut Self) {
         Self::apply_effort_threshold_overrides(&mut config.intelligence.effort_thresholds);
-        Self::apply_zone_threshold_overrides(&mut config.intelligence.zone_thresholds);
         Self::apply_weather_mapping_overrides(&mut config.intelligence.weather_mapping);
         Self::apply_personal_record_overrides(&mut config.intelligence.personal_records);
         Self::apply_weather_api_overrides(&mut config.weather_api);
@@ -195,23 +178,6 @@ impl FitnessConfig {
             &mut effort_thresholds.moderate_max,
         );
         Self::parse_env_f32("FITNESS_EFFORT_HARD_MAX", &mut effort_thresholds.hard_max);
-    }
-
-    /// Apply environment variable overrides for zone thresholds
-    fn apply_zone_threshold_overrides(zone_thresholds: &mut ZoneThresholds) {
-        Self::parse_env_f32(
-            "FITNESS_ZONE_RECOVERY_MAX",
-            &mut zone_thresholds.recovery_max,
-        );
-        Self::parse_env_f32(
-            "FITNESS_ZONE_ENDURANCE_MAX",
-            &mut zone_thresholds.endurance_max,
-        );
-        Self::parse_env_f32("FITNESS_ZONE_TEMPO_MAX", &mut zone_thresholds.tempo_max);
-        Self::parse_env_f32(
-            "FITNESS_ZONE_THRESHOLD_MAX",
-            &mut zone_thresholds.threshold_max,
-        );
     }
 
     /// Apply environment variable overrides for weather mapping
@@ -348,17 +314,6 @@ impl Default for EffortThresholds {
             light_max: 3.0,
             moderate_max: 5.0,
             hard_max: 7.0,
-        }
-    }
-}
-
-impl Default for ZoneThresholds {
-    fn default() -> Self {
-        Self {
-            recovery_max: 60.0,
-            endurance_max: 70.0,
-            tempo_max: 80.0,
-            threshold_max: 90.0,
         }
     }
 }

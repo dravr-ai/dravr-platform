@@ -22,8 +22,6 @@ pub enum ConfigProfile {
     Research {
         /// Multiplier for sensitivity in analysis (1.0 = normal, >1.0 = more sensitive)
         sensitivity_multiplier: f64,
-        /// Level of zone granularity
-        zone_granularity: ZoneGranularity,
         /// Statistical confidence level for analysis
         statistical_confidence: f64,
     },
@@ -149,7 +147,6 @@ impl ConfigProfile {
                 ..
             } => {
                 adjustments.insert("threshold_multiplier".into(), *threshold_reduction);
-                adjustments.insert("zone_buffer".into(), 1.1); // 10% buffer between zones
                 adjustments.insert("achievement_sensitivity".into(), 1.2); // More achievements
             }
 
@@ -185,17 +182,6 @@ impl ConfigProfile {
 
         adjustments
     }
-}
-
-/// Zone analysis granularity
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-pub enum ZoneGranularity {
-    /// Standard 5-zone model
-    Standard,
-    /// Fine 7-zone model
-    Fine,
-    /// Ultra-fine 10-zone model for research
-    UltraFine,
 }
 
 /// Athlete fitness level
@@ -287,7 +273,6 @@ impl ProfileTemplates {
                 "Research".into(),
                 ConfigProfile::Research {
                     sensitivity_multiplier: 1.5,
-                    zone_granularity: ZoneGranularity::Fine,
                     statistical_confidence: 0.95,
                 },
             ),

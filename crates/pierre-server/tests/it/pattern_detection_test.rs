@@ -11,6 +11,7 @@ use chrono::{Duration, TimeZone, Utc};
 use chrono_tz::UTC;
 use dravr_cageux::pattern_detection::PatternDetector;
 use dravr_cageux::training_load::RiskLevel;
+use dravr_cageux::zones::HrZones;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 
 fn create_test_activity(days_ago: i64, distance_km: f64, avg_hr: Option<u32>) -> Activity {
@@ -71,10 +72,20 @@ fn test_hard_easy_pattern_detection() {
         activities.push(create_test_activity(i, 10.0, Some(hr)));
     }
 
-    let pattern = PatternDetector::detect_hard_easy_pattern(&activities);
+    // Resting 50, maximum 190: 170 bpm is zone 4 (hard), 130 bpm zone 1.
+    let zones = HrZones::for_athlete(None, 50, 190).unwrap();
+    assert_eq!(zones.classify(170).zone, 4);
+    assert_eq!(zones.classify(130).zone, 1);
+    let pattern = PatternDetector::detect_hard_easy_pattern(&activities, Some(&zones));
 
     assert!(pattern.pattern_detected);
     assert!(pattern.hard_percentage > 40.0 && pattern.hard_percentage < 60.0);
+
+    // Without the athlete's zones heart rate decides nothing: these
+    // 50-minute, 3.3 m/s runs are all easy by duration and speed.
+    let blind = PatternDetector::detect_hard_easy_pattern(&activities, None);
+    assert!(!blind.pattern_detected);
+    assert!(blind.hard_percentage.abs() < f64::EPSILON);
 }
 
 #[test]
@@ -87,7 +98,8 @@ fn test_hr_drift_detection() {
         activities.push(create_test_activity(i64::from(i), 10.0, Some(hr as u32)));
     }
 
-    let signals = PatternDetector::detect_overtraining_signals(&activities);
+    let zones = HrZones::for_athlete(None, 50, 190).unwrap();
+    let signals = PatternDetector::detect_overtraining_signals(&activities, Some(&zones));
 
     assert!(signals.hr_drift_detected);
     assert_ne!(signals.risk_level, RiskLevel::Low);

@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::{Duration, Utc};
+use dravr_cageux::zones::HrZones;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZoneSet;
@@ -20,6 +21,11 @@ use pierre_database::DatabaseProvider;
 use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
 use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;
+
+/// The zones cageux cuts for the profile below (`VO2max` 50, resting 48, max 192).
+fn athlete_zones() -> HrZones {
+    HrZones::karvonen_tiered(50.0, 48, 192).unwrap()
+}
 
 async fn make_test_db() -> Database {
     let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
@@ -73,6 +79,7 @@ fn make_profile(
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
+        sex: None,
     }
 }
 
@@ -82,8 +89,8 @@ async fn latest_snapshot_returns_endurance_conformant_json() {
         synthetic_run("a1", 1, 200, 150),
         synthetic_run("a2", 2, 210, 155),
     ];
-    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
-    let snap = build_latest_snapshot(&acts, 7, Some(250), Some(zones));
+    let zones = athlete_zones();
+    let snap = build_latest_snapshot(&acts, 7, Some(250), Ok(&zones));
     let json = serde_json::to_value(&snap).expect("serialize snapshot");
 
     // Endurance JSON shape — these keys are the contract surface.
@@ -118,8 +125,8 @@ async fn latest_snapshot_returns_endurance_conformant_json() {
 
 #[tokio::test]
 async fn empty_window_returns_200_with_zero_activities() {
-    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
-    let snap = build_latest_snapshot(&[], 7, Some(250), Some(zones));
+    let zones = athlete_zones();
+    let snap = build_latest_snapshot(&[], 7, Some(250), Ok(&zones));
     assert_eq!(snap.activity_count, 0);
     assert!(snap.activities.is_empty());
     assert!(snap.avg_intensity_factor.is_none());
@@ -198,7 +205,7 @@ async fn profile_round_trips_endurance_fields() {
     let db = make_test_db().await;
     let tenant_id = TenantId::generate();
     let user_id = Uuid::new_v4();
-    let zones = HrZoneSet::new(120, 140, 160, 180, 200).unwrap();
+    let zones = HrZoneSet::from_zones(&athlete_zones());
     let profile = make_profile(user_id, Some(275), Some(zones));
     let repos = db.repositories();
     repos
@@ -219,7 +226,7 @@ async fn profile_round_trips_endurance_fields() {
 
 #[tokio::test]
 async fn snapshot_with_zero_activities_does_not_panic_when_zones_supplied() {
-    let zones = HrZoneSet::new(110, 130, 150, 170, 190).unwrap();
-    let snap = build_latest_snapshot(&[], 7, Some(250), Some(zones));
+    let zones = HrZones::karvonen_tiered(42.0, 55, 190).unwrap();
+    let snap = build_latest_snapshot(&[], 7, Some(250), Ok(&zones));
     assert!(snap.aggregated_zone_distribution.is_none());
 }

@@ -4,9 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_cageux::nutrition_calculator::{
+    ExerciseEnergyExpenditure, Gender, HeartRateEnergyInputs, KeytelModel,
+};
+use dravr_cageux::zones::{HrIntensity, HrZones};
 use pierre_config::constants::time_constants;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, PhysiologicalSex, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
@@ -42,6 +46,15 @@ pub struct NutritionAthlete {
     /// Set when a medical flag is on file: the arm then answers without any
     /// amount, because the athlete's clinician sets them.
     pub figures_withheld: Option<FiguresWithheld>,
+    /// Stored age in years, one of the inputs of the heart-rate energy
+    /// estimate.
+    pub age_years: Option<u16>,
+    /// Stored `VO2max` (ml/kg/min), which selects Keytel's fitness model.
+    pub vo2_max: Option<f64>,
+    /// The athlete's physiological sex, which selects Keytel's equation. A
+    /// session without device calories gets no estimate while it is unset,
+    /// and the reply says so.
+    pub sex: Option<Gender>,
 }
 
 /// Read what [`generate_nutrition_recommendations`] needs about the athlete:
@@ -59,62 +72,138 @@ pub async fn load_nutrition_athlete(
     let tenants = athlete_tenants(repos, tenant_id, user_id).await?;
     if medical_flag_on_file(repos, &tenants, user_id).await? {
         return Ok(NutritionAthlete {
-            weight_kg: None,
             figures_withheld: Some(FiguresWithheld::medical_flag()),
+            ..NutritionAthlete::default()
         });
     }
     for tenant in tenants {
-        let weight = repos
+        let Some(profile) = repos
             .user_physiological_profile
             .get_user_physiological_profile(tenant, user_id)
             .await?
             // A profile written from first-party-only data is withheld from an
             // external caller (carnet#769).
             .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
-            .and_then(|profile| profile.weight)
-            .filter(|kg| kg.is_finite() && *kg > 0.0);
+        else {
+            continue;
+        };
+        let weight = profile.weight.filter(|kg| kg.is_finite() && *kg > 0.0);
         if weight.is_some() {
             return Ok(NutritionAthlete {
                 weight_kg: weight,
                 figures_withheld: None,
+                age_years: profile.age,
+                vo2_max: profile.vo2_max,
+                sex: profile.sex.map(PhysiologicalSex::for_equations),
             });
         }
     }
     Ok(NutritionAthlete::default())
 }
 
-/// Calculate activity nutrition metrics (duration, calories, intensity)
-fn calculate_nutrition_metrics(activity: &Activity) -> (f64, f64, &'static str) {
+/// The energy a session cost: what the device recorded, else cageux's
+/// Keytel et al. (2005) heart-rate estimate, else why there is none.
+struct SessionEnergy {
+    /// Kilocalories, when known or estimable.
+    kcal: Option<f64>,
+    /// `device`, `keytel_with_vo2max` or `keytel_without_vo2max`.
+    source: Option<&'static str>,
+    /// Why no figure, when there is none.
+    unavailable: Option<String>,
+}
+
+impl SessionEnergy {
+    fn of(activity: &Activity, athlete: &NutritionAthlete, duration_seconds: u32) -> Self {
+        if let Some(kcal) = activity.calories() {
+            return Self {
+                kcal: Some(f64::from(kcal)),
+                source: Some("device"),
+                unavailable: None,
+            };
+        }
+        match Self::estimate(activity, athlete, duration_seconds) {
+            Ok((kcal, model)) => Self {
+                kcal: Some(kcal),
+                source: Some(match model {
+                    KeytelModel::WithVo2Max => "keytel_with_vo2max",
+                    KeytelModel::WithoutVo2Max => "keytel_without_vo2max",
+                }),
+                unavailable: None,
+            },
+            Err(reason) => Self {
+                kcal: None,
+                source: None,
+                unavailable: Some(reason),
+            },
+        }
+    }
+
+    /// Keytel's estimate over the session, or what it is missing.
+    fn estimate(
+        activity: &Activity,
+        athlete: &NutritionAthlete,
+        duration_seconds: u32,
+    ) -> Result<(f64, KeytelModel), String> {
+        let missing = |what: &str| {
+            format!(
+                "the device recorded no calories, and the heart-rate estimate (Keytel 2005) \
+                 needs {what}"
+            )
+        };
+        let heart_rate = activity
+            .average_heart_rate()
+            .ok_or_else(|| missing("an average heart rate, which the session lacks"))?;
+        let body_mass_kg = athlete
+            .weight_kg
+            .ok_or_else(|| missing("the athlete's weight, which is not saved"))?;
+        let age_years = athlete
+            .age_years
+            .ok_or_else(|| missing("the athlete's age, which is not saved"))?;
+        let gender = athlete
+            .sex
+            .ok_or_else(|| missing("the athlete's sex, which is not saved (set_physiology)"))?;
+        let energy = ExerciseEnergyExpenditure::from_heart_rate(&HeartRateEnergyInputs {
+            heart_rate_bpm: f64::from(heart_rate),
+            body_mass_kg,
+            age_years: f64::from(age_years),
+            gender,
+            vo2_max: athlete.vo2_max,
+        })
+        .map_err(|e| {
+            format!("the device recorded no calories, and the heart-rate estimate refused: {e}")
+        })?;
+        Ok((energy.kcal_over(duration_seconds), energy.model))
+    }
+}
+
+/// Calculate activity nutrition metrics (duration, energy, intensity)
+///
+/// The intensity reads the session's average heart rate on the athlete's
+/// zones: zone 4 and above is high, zone 3 moderate, below that low. Without
+/// the zones, or without a heart rate, the session's length decides.
+fn calculate_nutrition_metrics(
+    activity: &Activity,
+    hr_zones: Option<&HrZones>,
+    athlete: &NutritionAthlete,
+) -> (f64, SessionEnergy, &'static str) {
     use time_constants;
 
-    let duration_hours = f64::from(
-        u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX))).unwrap_or(u32::MAX),
-    ) / time_constants::SECONDS_PER_HOUR_F64;
+    let duration_seconds =
+        u32::try_from(activity.duration_seconds().min(u64::from(u32::MAX))).unwrap_or(u32::MAX);
+    let duration_hours = f64::from(duration_seconds) / time_constants::SECONDS_PER_HOUR_F64;
+    let energy = SessionEnergy::of(activity, athlete, duration_seconds);
 
-    let calories_burned = f64::from(activity.calories().unwrap_or_else(|| {
-        let duration_mins = u32::try_from(activity.duration_seconds() / 60).unwrap_or(u32::MAX);
-        duration_mins * 10
-    }));
+    let heart_rate_intensity = hr_zones
+        .zip(activity.average_heart_rate())
+        .map(|(zones, avg_hr)| zones.intensity(u16::try_from(avg_hr).unwrap_or(u16::MAX)));
+    let intensity = match heart_rate_intensity {
+        Some(HrIntensity::Hard | HrIntensity::VeryHard) => "high",
+        Some(HrIntensity::Moderate) => "moderate",
+        None if duration_hours > 1.5 => "moderate",
+        Some(HrIntensity::Recovery | HrIntensity::Endurance) | None => "low",
+    };
 
-    let intensity = activity.average_heart_rate().map_or(
-        if duration_hours > 1.5 {
-            "moderate"
-        } else {
-            "low"
-        },
-        |avg_hr| {
-            let avg_hr_f64 = f64::from(avg_hr);
-            if avg_hr_f64 > 160.0 {
-                "high"
-            } else if avg_hr_f64 > 130.0 {
-                "moderate"
-            } else {
-                "low"
-            }
-        },
-    );
-
-    (duration_hours, calories_burned, intensity)
+    (duration_hours, energy, intensity)
 }
 
 /// The recovery-window targets at a stored body weight.
@@ -220,14 +309,21 @@ fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
 #[must_use]
 pub fn generate_nutrition_recommendations(
     activity: &Activity,
+    hr_zones: Option<&HrZones>,
     athlete: &NutritionAthlete,
 ) -> RecommendationsResult {
-    let (duration_hours, calories_burned, intensity) = calculate_nutrition_metrics(activity);
+    let (duration_hours, energy, intensity) =
+        calculate_nutrition_metrics(activity, hr_zones, athlete);
 
     let mut key_insights = vec![
-        format!(
-            "Activity burned approximately {:.0} calories",
-            calories_burned
+        energy.kcal.map_or_else(
+            || {
+                format!(
+                    "Calories not estimated: {}",
+                    energy.unavailable.as_deref().unwrap_or_default()
+                )
+            },
+            |kcal| format!("Activity burned approximately {kcal:.0} calories"),
         ),
         format!("Workout intensity: {intensity} - adjust nutrition accordingly"),
     ];
@@ -276,7 +372,9 @@ pub fn generate_nutrition_recommendations(
             sport: sport_name(activity),
             duration_minutes: activity.duration_seconds() / 60,
             distance_km: activity.distance_meters().map(|d| (d / 1000.0).round()),
-            calories: calories_burned.round(),
+            calories: energy.kcal.map(f64::round),
+            calories_source: energy.source.map(str::to_owned),
+            calories_unavailable: energy.unavailable.clone(),
         }),
         ..base_recommendations(
             "nutrition",
@@ -285,11 +383,21 @@ pub fn generate_nutrition_recommendations(
             } else {
                 "medium"
             },
-            format!(
-                "Based on {:.1} hour {intensity} intensity {} with {:.0} calories burned",
-                duration_hours,
-                sport_name(activity),
-                calories_burned
+            energy.kcal.map_or_else(
+                || {
+                    format!(
+                        "Based on {:.1} hour {intensity} intensity {}",
+                        duration_hours,
+                        sport_name(activity)
+                    )
+                },
+                |kcal| {
+                    format!(
+                        "Based on {:.1} hour {intensity} intensity {} with {kcal:.0} calories burned",
+                        duration_hours,
+                        sport_name(activity)
+                    )
+                },
             ),
             recommendations,
         )

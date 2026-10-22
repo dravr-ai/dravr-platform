@@ -18,6 +18,8 @@ use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::warn;
@@ -30,29 +32,28 @@ use crate::implementations::configuration_document::{configuration_payload, upda
 use crate::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
     HeartRateZone, HeartRateZones, PaceZone, PaceZones, PersonalizedZones, PersonalizedZonesResult,
-    PowerZoneBand, PowerZones, UpdateUserConfigurationResult, UserConfigurationResult,
-    ValidateConfigurationResult, ZoneCalculations, ZoneInputProfile,
+    PowerZoneBand, PowerZones as PowerZonesPayload, UpdateUserConfigurationResult,
+    UserConfigurationResult, ValidateConfigurationResult, ZoneCalculations, ZoneInputProfile,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_cageux::config::intelligence::VO2MaxCalculator;
+use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::configuration_validation;
-use dravr_cageux::physiological_constants::heart_rate_zones::{
-    AEROBIC_THRESHOLD_PERMILLE, LACTATE_THRESHOLD_PERMILLE, PERMILLE_DIVISOR, ZONE_1_MAX_PERMILLE,
-    ZONE_1_MIN_PERMILLE, ZONE_2_MAX_PERMILLE, ZONE_3_MAX_PERMILLE, ZONE_4_MAX_PERMILLE,
-};
 use dravr_cageux::physiological_constants::physiological_defaults::{
     DEFAULT_LACTATE_THRESHOLD, DEFAULT_SPORT_EFFICIENCY,
 };
+use dravr_cageux::zones::{HrZoneBand, HrZones, PowerZones};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::catalog::CatalogBuilder;
 use pierre_config::environment::TrainingZonesConfig;
 use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
+use pierre_core::models::zones::HrZoneModel;
 use pierre_core::models::{TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_runtime_context::ConfigLookupScope;
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -61,11 +62,9 @@ use pierre_tools_core::ToolResult;
 
 /// Zone calculation inputs, each carrying whether it is actually known.
 ///
-/// The athlete-specific measurements are `Option` on purpose. They used to
-/// fall back to `DEFAULT_ESTIMATED_FTP` / `DEFAULT_MAX_HR` / `DEFAULT_RESTING_HR`,
-/// so an athlete who had supplied nothing still received zone boundaries
-/// derived from house numbers and labelled as their own. A zone family whose
-/// inputs are unknown is now omitted with a reason instead.
+/// The athlete-specific measurements are `Option` on purpose: a zone family
+/// whose inputs are unknown is omitted with a reason, never cut from house
+/// numbers and labelled as the athlete's own.
 struct ZoneParams {
     vo2_max: Option<f64>,
     resting_hr: Option<u16>,
@@ -75,7 +74,8 @@ struct ZoneParams {
     sport_efficiency: f64,
     /// Where each athlete-specific input came from, keyed by field name:
     /// `provided` (this call's arguments), `profile` (the saved physiology),
-    /// or `estimated_from_age` for the one documented estimator.
+    /// or `estimated_from_age` for a maximum heart rate cageux's configured
+    /// max-HR algorithm estimated from the saved age.
     sources: serde_json::Map<String, Value>,
 }
 
@@ -83,9 +83,10 @@ struct ZoneParams {
 /// the athlete's saved physiology.
 ///
 /// Precedence is argument, then stored profile, then unknown. The single
-/// exception is maximum heart rate, which falls back to the Tanaka estimate
-/// from a stored age — a named, documented estimator whose use is reported in
-/// `sources`, not an undisclosed constant.
+/// exception is maximum heart rate, which falls back to cageux's estimate
+/// from a stored age by the deployment's configured max-HR algorithm — a
+/// named estimator whose use is reported in `sources`, not an undisclosed
+/// constant.
 fn resolve_f64_input(
     args: &Value,
     key: &str,
@@ -120,7 +121,11 @@ fn resolve_u64_input(
     None
 }
 
-fn extract_zone_parameters(args: &Value, stored: Option<&UserPhysiologicalProfile>) -> ZoneParams {
+fn extract_zone_parameters(
+    args: &Value,
+    stored: Option<&UserPhysiologicalProfile>,
+    max_hr_algorithm: MaxHrAlgorithm,
+) -> ZoneParams {
     let mut sources = serde_json::Map::new();
 
     let vo2_max = resolve_f64_input(
@@ -156,8 +161,12 @@ fn extract_zone_parameters(args: &Value, stored: Option<&UserPhysiologicalProfil
     if max_hr.is_none() {
         // `estimated_max_hr` returns the stored max HR when there is one, so
         // reaching here means it can only come from age.
-        if let Some(estimated) = stored.and_then(UserPhysiologicalProfile::estimated_max_hr) {
+        if let Some(estimated) = stored.and_then(|p| p.estimated_max_hr(max_hr_algorithm)) {
             sources.insert("max_hr".to_owned(), json!("estimated_from_age"));
+            sources.insert(
+                "max_hr_algorithm".to_owned(),
+                json!(max_hr_algorithm.name()),
+            );
             max_hr = Some(u64::from(estimated));
         }
     }
@@ -190,83 +199,44 @@ fn create_user_profile(params: &ZoneParams) -> ZoneInputProfile {
     }
 }
 
-fn calculate_zone_offset(hr_range: u64, percentage: u32) -> u64 {
-    hr_range.saturating_mul(u64::from(percentage)) / PERMILLE_DIVISOR
-}
-
-/// Derive typed heart-rate zone boundaries by the heart-rate-reserve method.
-///
-/// The single source of the platform's HR-zone math: `set_physiology` persists
-/// what this returns and [`heart_rate_zones_payload`] renders the same values
-/// for display. `None` when the boundaries do not come out strictly
-/// increasing, which [`HrZoneSet::new`] rejects — a resting rate at or above
-/// the maximum collapses every zone onto one number.
-pub(crate) fn derive_hr_zone_set(resting_hr: u16, max_hr: u16) -> Option<HrZoneSet> {
-    let hr_range = u64::from(max_hr).saturating_sub(u64::from(resting_hr));
-    let bound = |permille: u32| -> u16 {
-        let value = u64::from(resting_hr) + calculate_zone_offset(hr_range, permille);
-        u16::try_from(value).unwrap_or(u16::MAX)
-    };
-    let zones = HrZoneSet::new(
-        bound(ZONE_1_MAX_PERMILLE),
-        bound(ZONE_2_MAX_PERMILLE),
-        bound(ZONE_3_MAX_PERMILLE),
-        bound(ZONE_4_MAX_PERMILLE),
-        max_hr,
-    );
-    match zones {
-        Ok(zones) => Some(zones),
-        Err(reason) => {
-            warn!(
-                resting_hr = resting_hr,
-                max_hr = max_hr,
-                reason = reason,
-                "heart-rate zones not derivable from these bounds"
-            );
-            None
-        }
+/// One heart-rate zone of cageux's for a tool payload.
+fn heart_rate_zone(band: &HrZoneBand) -> HeartRateZone {
+    HeartRateZone {
+        name: band.name.clone(),
+        min_hr: u64::from(band.lower_bpm),
+        max_hr: u64::from(band.upper_bpm),
     }
 }
 
-/// Render heart-rate zones for a tool payload from the typed boundaries.
+/// Render cageux's heart-rate zones for a tool payload.
 ///
-/// Zone 1 opens above the recovery floor rather than at the resting rate, so
-/// its minimum is derived here rather than read off the zone set.
-fn heart_rate_zones_payload(resting_hr: u16, max_hr: u16, zones: &HrZoneSet) -> HeartRateZones {
-    let hr_range = u64::from(max_hr).saturating_sub(u64::from(resting_hr));
-    let zone_1_min = u64::from(resting_hr) + calculate_zone_offset(hr_range, ZONE_1_MIN_PERMILLE);
-    let band = |name: &str, min: u64, max: u16| HeartRateZone {
-        name: name.to_owned(),
-        min_hr: min,
-        max_hr: u64::from(max),
-    };
-    HeartRateZones {
-        zone_1: band("Active Recovery", zone_1_min, zones.z1_max),
-        zone_2: band("Aerobic Base", u64::from(zones.z1_max), zones.z2_max),
-        zone_3: band("Aerobic Threshold", u64::from(zones.z2_max), zones.z3_max),
-        zone_4: band("Lactate Threshold", u64::from(zones.z3_max), zones.z4_max),
-        zone_5: band("VO2 Max", u64::from(zones.z4_max), zones.z5_max),
-    }
+/// `None` when cageux handed back fewer than five zones, which its
+/// constructors never do.
+fn render_hr_zones(zones: &HrZones) -> Option<HeartRateZones> {
+    let bands = zones.zones();
+    let band = |index: usize| bands.get(index).map(heart_rate_zone);
+    Some(HeartRateZones {
+        zone_1: band(0)?,
+        zone_2: band(1)?,
+        zone_3: band(2)?,
+        zone_4: band(3)?,
+        zone_5: band(4)?,
+        zone_6: band(5),
+        tier: zones.tier,
+        vo2_max_source: zones.vo2_max_source,
+    })
 }
 
-/// Describe how the zones were derived, plus the two threshold heart rates.
-fn zone_calculations_payload(
-    params: &ZoneParams,
-    resting_hr: u16,
-    max_hr: u16,
-) -> ZoneCalculations {
-    let hr_range = u64::from(max_hr).saturating_sub(u64::from(resting_hr));
-    let lactate_threshold_hr =
-        u64::from(resting_hr) + calculate_zone_offset(hr_range, LACTATE_THRESHOLD_PERMILLE);
-    let aerobic_threshold_hr =
-        u64::from(resting_hr) + calculate_zone_offset(hr_range, AEROBIC_THRESHOLD_PERMILLE);
+/// How cageux cut the heart-rate zones, plus its two threshold heart rates.
+fn render_zone_calculations(zones: &HrZones, sport_efficiency: f64) -> ZoneCalculations {
     ZoneCalculations {
-        method: "heart_rate_reserve".to_owned(),
-        lactate_threshold_hr,
-        aerobic_threshold_hr,
-        sport_efficiency_factor: params.sport_efficiency,
-        pace_formula: "Pace = 3.5 / (VO2 / body_weight)".to_owned(),
-        power_estimation: "Power = 0.98 * body_weight * VO2_max".to_owned(),
+        method: HrZoneModel::KarvonenVo2maxTiered,
+        tier: zones.tier,
+        vo2_max: zones.vo2_max,
+        vo2_max_source: zones.vo2_max_source,
+        lactate_threshold_hr: u64::from(zones.lactate_threshold_bpm),
+        aerobic_threshold_hr: u64::from(zones.aerobic_threshold_bpm),
+        sport_efficiency_factor: sport_efficiency,
     }
 }
 
@@ -319,56 +289,66 @@ fn calculate_pace_zones_from_vo2max(
     }
 }
 
-/// Derive typed power-zone boundaries from FTP.
+/// Render Coggan's seven power levels from cageux for a tool payload.
 ///
-/// The single source of the platform's power-zone math: `set_physiology`
-/// persists what this returns and [`power_zones_payload`] renders the same
-/// values for display. `None` when the configured percentages do not produce
-/// strictly increasing boundaries, which [`PowerZoneSet::new`] rejects.
-pub(crate) fn derive_power_zone_set(
-    ftp: u32,
-    config: &TrainingZonesConfig,
-) -> Option<PowerZoneSet> {
-    let bound = |percent: u32| -> u32 {
-        u32::try_from(u64::from(ftp) * u64::from(percent) / 100).unwrap_or_else(|e| {
-            warn!(ftp = ftp, percent = percent, error = %e, "power zone bound overflowed, using u32::MAX");
-            u32::MAX
+/// `None` when cageux handed back fewer than seven levels, which
+/// [`PowerZones::coggan`] never does.
+pub(crate) fn render_power_zones(zones: &PowerZones) -> Option<PowerZonesPayload> {
+    let levels = zones.zones();
+    let level = |index: usize| {
+        levels.get(index).map(|band| PowerZoneBand {
+            name: band.name.clone(),
+            min_watts: band.lower_watts,
+            max_watts: band.upper_watts,
         })
     };
-    let zones = PowerZoneSet::new(
-        bound(config.ftp_zone1_percent),
-        bound(config.ftp_zone2_percent),
-        bound(config.ftp_zone3_percent),
-        bound(config.ftp_zone4_percent),
-        bound(config.ftp_zone5_percent),
-    );
-    match zones {
-        Ok(zones) => Some(zones),
-        Err(reason) => {
-            warn!(
-                ftp = ftp,
-                reason = reason,
-                "power zones not derivable from the configured percentages"
-            );
-            None
-        }
-    }
+    Some(PowerZonesPayload {
+        zone_1: level(0)?,
+        zone_2: level(1)?,
+        zone_3: level(2)?,
+        zone_4: level(3)?,
+        zone_5: level(4)?,
+        zone_6: level(5)?,
+        zone_7: level(6)?,
+    })
 }
 
-/// Render power zones for a tool payload from the typed boundaries.
-pub(crate) fn power_zones_payload(zones: &PowerZoneSet) -> PowerZones {
-    let band = |min: u32, max: u32| PowerZoneBand {
-        min_watts: min,
-        max_watts: max,
-    };
-    PowerZones {
-        zone_1: band(0, zones.z1_max),
-        zone_2: band(zones.z1_max, zones.z2_max),
-        zone_3: band(zones.z2_max, zones.z3_max),
-        zone_4: band(zones.z3_max, zones.z4_max),
-        zone_5: band(zones.z4_max, zones.z5_max),
+/// The max-HR estimator an athlete is read with: the operator's
+/// `algorithm.maxhr` override for the user, tenant or fleet when one is set,
+/// else the algorithm cageux's configuration selects.
+///
+/// # Errors
+///
+/// Returns the repository error when the override cannot be read, and an
+/// invalid-input error when a stored override names no algorithm cageux has.
+pub(crate) async fn configured_max_hr_algorithm(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: Option<&str>,
+) -> AppResult<MaxHrAlgorithm> {
+    if let Some(config) = runtime.admin_config() {
+        let user = user_id.to_string();
+        let scope = ConfigLookupScope {
+            user_id: Some(&user),
+            tenant_id,
+        };
+        if let Some(value) = config
+            .get_override_value(MAX_HR_ALGORITHM_KEY, scope)
+            .await?
+        {
+            let name = value.as_str().ok_or_else(|| {
+                AppError::invalid_input(format!("{MAX_HR_ALGORITHM_KEY} must be a string"))
+            })?;
+            return name
+                .parse::<MaxHrAlgorithm>()
+                .map_err(|e| AppError::invalid_input(format!("{MAX_HR_ALGORITHM_KEY}: {e}")));
+        }
     }
+    Ok(runtime.cageux_config().algorithms.maxhr_algorithm())
 }
+
+/// The admin key that selects the max-HR estimator.
+const MAX_HR_ALGORITHM_KEY: &str = "algorithm.maxhr";
 
 pub(crate) fn validate_parameter_ranges(
     obj: &serde_json::Map<String, Value>,
@@ -803,7 +783,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Maximum heart rate in bpm. Omit to use the athlete's saved value, or the Tanaka estimate from their saved age.".to_owned(),
+                    "Maximum heart rate in bpm. Omit to use the athlete's saved value, or the estimate from their saved age by the configured max-HR algorithm (algorithm.maxhr).".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -894,7 +874,11 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                 None => None,
             };
 
-            let params = extract_zone_parameters(&args, stored.as_ref());
+            let tenant = ctx.tenant_id.map(|tenant| tenant.to_string());
+            let max_hr_algorithm =
+                configured_max_hr_algorithm(&ctx.resources, ctx.user_id, tenant.as_deref())
+                    .await?;
+            let mut params = extract_zone_parameters(&args, stored.as_ref(), max_hr_algorithm);
             let user_profile = create_user_profile(&params);
             let zones_config = &ctx.resources.config().training_zones;
 
@@ -903,23 +887,33 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             // instead of being handed boundaries built from house numbers.
             let mut unavailable = serde_json::Map::new();
 
-            let (heart_rate_zones, zone_calculations) =
-                match (params.resting_hr, params.max_hr) {
-                    (Some(resting_hr), Some(max_hr)) => derive_hr_zone_set(resting_hr, max_hr)
-                        .map_or((None, None), |set| {
-                            (
-                                Some(heart_rate_zones_payload(resting_hr, max_hr, &set)),
-                                Some(zone_calculations_payload(&params, resting_hr, max_hr)),
-                            )
-                        }),
-                    _ => (None, None),
-                };
-            if heart_rate_zones.is_none() {
-                unavailable.insert(
-                    "heart_rate_zones".to_owned(),
-                    json!("needs both resting_hr and max_hr — supply them here or save them with set_physiology"),
-                );
-            }
+            let hr_zones = match (params.resting_hr, params.max_hr) {
+                (Some(resting_hr), Some(max_hr)) => {
+                    HrZones::for_athlete(params.vo2_max, resting_hr, max_hr).map_err(|e| {
+                        format!("heart-rate zones could not be cut from these heart rates: {e}")
+                    })
+                }
+                _ => Err("needs both resting_hr and max_hr — supply them here or save them with set_physiology".to_owned()),
+            };
+            let (heart_rate_zones, zone_calculations) = match &hr_zones {
+                Ok(zones) => {
+                    if params.vo2_max.is_none() {
+                        // The tier's VO2max was estimated from the heart
+                        // rates; the zones say so, and so does the source map.
+                        params
+                            .sources
+                            .insert("vo2_max".to_owned(), json!("heart_rate_ratio"));
+                    }
+                    (
+                        render_hr_zones(zones),
+                        Some(render_zone_calculations(zones, params.sport_efficiency)),
+                    )
+                }
+                Err(reason) => {
+                    unavailable.insert("heart_rate_zones".to_owned(), json!(reason));
+                    (None, None)
+                }
+            };
 
             let pace_zones = params
                 .vo2_max
@@ -934,15 +928,15 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             if pace_zones.is_none() {
                 unavailable.insert(
                     "pace_zones".to_owned(),
-                    json!("needs vo2_max — supply it here or save it with set_physiology"),
+                    json!("needs a measured vo2_max — supply it here or save it with set_physiology; the heart-rate-ratio estimate only chooses the heart-rate zone tier"),
                 );
             }
 
             let power_zones = params
                 .ftp_watts
-                .and_then(|ftp| derive_power_zone_set(ftp, zones_config))
+                .and_then(|ftp| PowerZones::coggan(f64::from(ftp)).ok())
                 .as_ref()
-                .map(power_zones_payload);
+                .and_then(render_power_zones);
             if power_zones.is_none() {
                 unavailable.insert(
                     "power_zones".to_owned(),

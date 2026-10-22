@@ -10,6 +10,7 @@ use crate::implementations::analytics::output::{
     AutoSelectedActivity,
 };
 use crate::implementations::last_known::{self, LiveRead};
+use crate::implementations::stored_physiology::stored_hr_zones;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{
@@ -19,9 +20,10 @@ use crate::protocols::ProtocolError;
 use dravr_cageux::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
-use dravr_cageux::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
+use dravr_cageux::zones::{HrIntensity, HrZones};
 use pierre_config::constants::limits::METERS_PER_KILOMETER;
 use pierre_core::errors::ErrorCode;
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -35,8 +37,19 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
+/// The athlete's heart-rate zones as this tool reads them: the zones, or why
+/// there are none.
+type AthleteHrZones = Result<HrZones, HrZonesUnavailable>;
+
 /// Generate insights and recommendations from activity data
-fn generate_activity_insights(activity: &Activity) -> (Vec<String>, Vec<&'static str>) {
+///
+/// The session's average heart rate is read against the athlete's own zones:
+/// zone 4 or above is a high-intensity effort. Without the zones the heart
+/// rate is reported but not graded.
+fn generate_activity_insights(
+    activity: &Activity,
+    hr_zones: Option<&HrZones>,
+) -> (Vec<String>, Vec<&'static str>) {
     let mut insights = Vec::new();
     let mut recommendations = Vec::new();
 
@@ -60,7 +73,8 @@ fn generate_activity_insights(activity: &Activity) -> (Vec<String>, Vec<&'static
     // Analyze heart rate
     if let Some(avg_hr) = activity.average_heart_rate() {
         insights.push(format!("Average heart rate: {avg_hr} bpm"));
-        if avg_hr > HIGH_INTENSITY_HR_THRESHOLD {
+        let bpm = u16::try_from(avg_hr).unwrap_or(u16::MAX);
+        if hr_zones.is_some_and(|zones| zones.intensity(bpm) >= HrIntensity::Hard) {
             recommendations.push("High-intensity effort detected - monitor recovery");
         }
     }
@@ -116,11 +130,17 @@ fn create_intelligence_response(
     activity_id: &str,
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
+    hr_zones: &AthleteHrZones,
 ) -> (
     ActivityIntelligenceResult,
     HashMap<String, serde_json::Value>,
 ) {
-    let (insights, recommendations) = generate_activity_insights(activity);
+    let (insights, recommendations) = generate_activity_insights(activity, hr_zones.as_ref().ok());
+    // The reason is carried only when there was a heart rate to grade.
+    let hr_zones_unavailable = activity
+        .average_heart_rate()
+        .and_then(|_| hr_zones.as_ref().err())
+        .map(HrZonesUnavailable::reason);
 
     let summary = format!(
         "{:?} activity completed. {} insights generated.",
@@ -137,6 +157,7 @@ fn create_intelligence_response(
         insights,
         recommendations: recommendations.into_iter().map(ToOwned::to_owned).collect(),
         source: "deterministic".to_owned(),
+        hr_zones_unavailable,
     };
 
     let analysis = ActivityIntelligenceResult {
@@ -179,12 +200,18 @@ async fn fetch_and_analyze_activity(
     activity_id: &str,
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
+    hr_zones: &AthleteHrZones,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
     match provider.get_activity(activity_id).await {
         Ok(activity) => {
-            let (analysis, metadata) =
-                create_intelligence_response(&activity, activity_id, user_uuid, tenant_id);
+            let (analysis, metadata) = create_intelligence_response(
+                &activity,
+                activity_id,
+                user_uuid,
+                tenant_id,
+                hr_zones,
+            );
             apply_format_typed(
                 UniversalResponse {
                     success: true,
@@ -223,6 +250,7 @@ async fn fetch_and_analyze_activity(
                             most_recent.id(),
                             user_uuid,
                             tenant_id,
+                            hr_zones,
                         );
 
                         // Say so on the payload rather than beside it: a client
@@ -316,6 +344,16 @@ pub fn handle_get_activity_intelligence(
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
+        // The athlete's heart-rate zones, which grade the session's intensity.
+        let hr_zones =
+            stored_hr_zones(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+                .await
+                .map_err(|e| {
+                    ProtocolError::InternalError(format!(
+                        "get_activity_intelligence: reading the athlete's zones failed: {e}"
+                    ))
+                })?;
+
         match executor
             .auth_service
             .create_authenticated_provider(&provider_name, user_uuid, request.tenant_id.as_deref())
@@ -326,10 +364,18 @@ pub fn handle_get_activity_intelligence(
                 // activity's cached row answers, with a caveat.
                 let read = {
                     let (id, tenant) = (activity_id.to_owned(), request.tenant_id.clone());
+                    let zones = hr_zones.clone();
                     async move {
-                        fetch_and_analyze_activity(provider, &id, user_uuid, tenant, output_format)
-                            .await
-                            .unwrap_or_else(|e| last_known::failed_read(&e))
+                        fetch_and_analyze_activity(
+                            provider,
+                            &id,
+                            user_uuid,
+                            tenant,
+                            &zones,
+                            output_format,
+                        )
+                        .await
+                        .unwrap_or_else(|e| last_known::failed_read(&e))
                     }
                 };
                 match last_known::read_within_budget(&executor.resources.config().timeouts, read)
@@ -345,6 +391,7 @@ pub fn handle_get_activity_intelligence(
                             activity_id,
                             user_uuid,
                             tenant_id: request.tenant_id,
+                            hr_zones: &hr_zones,
                             output_format,
                         };
                         Ok(cached.serve(executor, reason).await?.unwrap_or(failed))
@@ -375,6 +422,7 @@ struct CachedRead<'a> {
     activity_id: &'a str,
     user_uuid: Uuid,
     tenant_id: Option<String>,
+    hr_zones: &'a AthleteHrZones,
     output_format: OutputFormat,
 }
 
@@ -430,6 +478,7 @@ impl CachedRead<'_> {
             self.activity_id,
             self.user_uuid,
             self.tenant_id,
+            self.hr_zones,
         );
         let mut served = apply_format_typed(
             UniversalResponse {
@@ -502,4 +551,65 @@ pub async fn process_activity_analysis(
         error: analysis_response.error,
         metadata,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use chrono::Utc;
+    use pierre_core::models::activity::ActivityBuilder;
+    use pierre_core::models::SportType;
+
+    use super::*;
+
+    fn run_at(avg_hr: u32) -> Activity {
+        ActivityBuilder::new("run-1", "Run", SportType::Run, Utc::now(), 3600, "test")
+            .average_heart_rate(avg_hr)
+            .build()
+    }
+
+    const HIGH_INTENSITY: &str = "High-intensity effort detected - monitor recovery";
+
+    #[test]
+    fn a_heart_rate_is_graded_on_the_athletes_zones() -> Result<(), Box<dyn Error>> {
+        // Resting 50, maximum 190: 165 bpm is zone 4, 140 bpm zone 2.
+        let zones = HrZones::for_athlete(None, 50, 190)?;
+        let (_, hard) = generate_activity_insights(&run_at(165), Some(&zones));
+        assert!(hard.contains(&HIGH_INTENSITY), "{hard:?}");
+        let (_, easy) = generate_activity_insights(&run_at(140), Some(&zones));
+        assert!(!easy.contains(&HIGH_INTENSITY), "{easy:?}");
+
+        // The same 165 bpm on an athlete with a higher ceiling (resting 40,
+        // maximum 205) is only zone 3: no fixed bpm decides it.
+        let fitter = HrZones::for_athlete(None, 40, 205)?;
+        let (_, moderate) = generate_activity_insights(&run_at(165), Some(&fitter));
+        assert!(!moderate.contains(&HIGH_INTENSITY), "{moderate:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn without_zones_the_heart_rate_is_reported_and_the_reason_given() {
+        let (insights, recommendations) = generate_activity_insights(&run_at(185), None);
+        assert!(insights
+            .iter()
+            .any(|line| line == "Average heart rate: 185 bpm"));
+        assert!(!recommendations.contains(&HIGH_INTENSITY));
+
+        let missing = HrZonesUnavailable::MissingHeartRates {
+            resting_hr: true,
+            max_hr: false,
+        };
+        let (analysis, _) = create_intelligence_response(
+            &run_at(185),
+            "run-1",
+            Uuid::new_v4(),
+            None,
+            &Err(missing.clone()),
+        );
+        assert_eq!(
+            analysis.intelligence.hr_zones_unavailable,
+            Some(missing.reason())
+        );
+    }
 }

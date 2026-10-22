@@ -60,10 +60,6 @@ pub use route_track::{
 /// `route_ref` a drawable public line is stored and named by.
 pub mod route_compose;
 
-/// Endurance Phase 3 LT1 / LT2 threshold estimators.
-pub mod threshold_estimation;
-pub use threshold_estimation::{ThresholdEstimate, ThresholdInputs};
-
 /// The one place-name geocoder (dravr-meteo's Open-Meteo gazetteer behind its cache).
 pub mod geocoding;
 /// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).

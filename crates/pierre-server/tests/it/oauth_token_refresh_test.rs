@@ -150,10 +150,6 @@ use crate::common;
 
 use axum::http::HeaderMap;
 use axum::{routing::post, Form, Json, Router};
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_auth::auth::AuthManager;
 use pierre_config::environment::{
     AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -421,31 +417,6 @@ async fn create_test_executor_with(
             .unwrap(),
     );
 
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "Test Intelligence".to_owned(),
-        vec![],
-        PerformanceMetrics {
-            relative_effort: Some(7.5),
-            zone_distribution: None,
-            personal_records: vec![],
-            efficiency_score: Some(85.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Stable,
-                effort_trend: TrendDirection::Improving,
-                distance_trend: TrendDirection::Stable,
-                consistency_score: 88.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: None,
-            seasonal_context: None,
-        },
-    ));
-
     // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
     let cache = common::create_test_cache().await.unwrap();
@@ -483,31 +454,6 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
             .await
             .unwrap(),
     );
-
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "Test Intelligence".to_owned(),
-        vec![],
-        PerformanceMetrics {
-            relative_effort: Some(7.5),
-            zone_distribution: None,
-            personal_records: vec![],
-            efficiency_score: Some(85.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Stable,
-                effort_trend: TrendDirection::Improving,
-                distance_trend: TrendDirection::Stable,
-                consistency_score: 88.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: None,
-            seasonal_context: None,
-        },
-    ));
 
     // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);

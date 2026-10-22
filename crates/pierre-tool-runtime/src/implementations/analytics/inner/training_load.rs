@@ -20,7 +20,7 @@ use crate::runtime::ToolRuntime;
 use chrono::Utc;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::sleep_analysis::SleepAnalyzer;
-use dravr_cageux::training_load::{TrainingLoadCalculator, TssDataPoint};
+use dravr_cageux::training_load::{TrainingLoadCalculator, TrainingLoadLevel, TssDataPoint};
 use pierre_core::models::Activity;
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
@@ -188,7 +188,7 @@ pub fn analyze_detailed_training_load(
         form_assessment: band.label().to_owned(),
         taper_status: taper_recommendation.to_owned(),
         periodization_suggestions,
-        training_zones: classify_training_load(ctl),
+        training_zones: training_load_level(ctl),
         recommendations: generate_load_recommendations(ctl, band, form_pct),
         activities_analyzed: training_load.tss_history.len(),
         // The one shared key, so this surface and `get_training_history` cannot
@@ -250,25 +250,13 @@ const fn taper_status(band: FormBand) -> &'static str {
     }
 }
 
-/// Classify training load level
-fn classify_training_load(ctl: f64) -> TrainingZone {
-    // Both halves come out of one comparison. Deriving the range by matching
-    // on the level string again let the two drift apart silently.
-    let (level, ctl_range) = if ctl < 25.0 {
-        ("Beginner", "< 25")
-    } else if ctl < 45.0 {
-        ("Intermediate", "25-45")
-    } else if ctl < 70.0 {
-        ("Advanced", "45-70")
-    } else if ctl < 100.0 {
-        ("Elite", "70-100")
-    } else {
-        ("Very High", "> 100")
-    };
-
+/// Place a chronic load in cageux's [`TrainingLoadLevel`] bands; the level
+/// and its CTL span come from the same band, so they cannot disagree.
+fn training_load_level(ctl: f64) -> TrainingZone {
+    let level = TrainingLoadLevel::from_ctl(ctl);
     TrainingZone {
-        level: level.to_owned(),
-        ctl_range: ctl_range.to_owned(),
+        level: level.label().to_owned(),
+        ctl_range: level.ctl_range().to_owned(),
     }
 }
 

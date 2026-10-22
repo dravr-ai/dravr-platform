@@ -598,14 +598,6 @@ pub mod network_config {
     pub const SSE_MAX_CONNECTIONS_PER_USER: usize = 5;
 }
 
-/// Physiology constants
-pub mod physiology {
-    /// Default resting heart rate
-    pub const DEFAULT_RESTING_HR: u16 = 60;
-    /// Default maximum heart rate
-    pub const DEFAULT_MAX_HR: u16 = 190;
-}
-
 /// HTTP status codes
 pub mod http_status {
     /// HTTP 200 OK (success range minimum)

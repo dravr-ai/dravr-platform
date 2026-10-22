@@ -128,6 +128,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
         location: None,
         recent_activities: None,
         previous_best_efforts: None,
+        hr_zones: None,
     };
     let intelligence = analyzer.analyze_activity(&activity, Some(&context))?;
 
@@ -180,6 +181,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
         location: None,
         recent_activities: None,
         previous_best_efforts: None,
+        hr_zones: None,
     };
     let analysis_result = analyzer.analyze_activity(&activity, Some(&context2))?;
 
@@ -295,6 +297,7 @@ async fn test_recommendation_engine_integration() -> Result<()> {
         location: None,
         recent_activities: None,
         previous_best_efforts: None,
+        hr_zones: None,
     };
     let intelligence = analyzer.analyze_activity(&activity, Some(&context))?;
 
@@ -394,6 +397,7 @@ async fn test_goal_tracking_integration() -> Result<()> {
         location: None,
         recent_activities: None,
         previous_best_efforts: None,
+        hr_zones: None,
     };
     let intelligence = analyzer.analyze_activity(&activities[0], Some(&context))?;
 

@@ -188,6 +188,8 @@ pub mod memory_dedup;
 /// Folding an athlete's already-stored duplicate facts into their anchors.
 pub mod memory_dedup_backfill;
 pub mod memory_facts;
+/// Re-cutting a tenant's stored zone copies with cageux's one zone model.
+pub mod zone_backfill;
 
 /// OKF bundle rendering — the per-user Dossier projected to markdown for the prompt
 pub mod okf;

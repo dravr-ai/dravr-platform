@@ -66,6 +66,7 @@
 //!   `API_KEY:<api key>`: Intervals.icu rejects an athlete id in the username
 //!   position with 401 on every endpoint.
 
+use pierre_core::models::PhysiologicalSex;
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -321,6 +322,10 @@ struct IntervalsIcuAthlete {
     email: Option<String>,
     #[serde(default)]
     profile_medium: Option<String>,
+    /// The athlete's sex as their Intervals.icu settings state it: `M`, `F`,
+    /// or absent.
+    #[serde(default)]
+    sex: Option<String>,
 }
 
 /// What a provider built for a coached athlete writes of theirs.
@@ -942,6 +947,10 @@ impl FitnessProvider for IntervalsIcuProvider {
             lastname: None,
             profile_picture: raw.profile_medium,
             provider: "intervals_icu".to_owned(),
+            sex: raw
+                .sex
+                .as_deref()
+                .and_then(PhysiologicalSex::from_provider_code),
         })
     }
 

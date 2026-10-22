@@ -9,7 +9,7 @@
 //! This module provides tools for fitness analytics:
 //! - `AnalyzeActivityTool` - Deep analysis of individual activities
 //! - `GetActivityIntelligenceTool` - AI-powered activity insights
-//! - `CalculateMetricsTool` - Calculate pace, speed, intensity, efficiency
+//! - `CalculateMetricsTool` - Calculate pace, speed, distance per climb, HR reading
 //! - `AnalyzePerformanceTrendsTool` - Track metric trends over time
 //! - `CompareActivitiesTool` - Compare activities against similar/PRs
 //! - `AnalyzeTrainingLoadTool` - Calculate CTL/ATL/TSB training metrics
@@ -742,7 +742,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
 }
 
 // ============================================================================
-// CalculateMetricsTool - Calculate pace, speed, intensity, efficiency
+// CalculateMetricsTool - Calculate pace, speed, distance per climb, HR reading
 // ============================================================================
 
 /// Tool for calculating custom fitness metrics from activity data.
@@ -773,7 +773,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "Maximum heart rate (optional, used for intensity calculation)".to_owned(),
+                    "Maximum heart rate in bpm (optional; else the saved one, else estimated from age). With the saved resting heart rate it cuts the athlete's zones the average heart rate is read on.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -783,7 +783,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "User age (optional, used to estimate max HR via Fox formula if max_hr not provided)"
+                    "Age in years (optional; else the saved one), used to estimate the maximum heart rate by the configured max-HR algorithm (algorithm.maxhr) when none is given or saved"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -795,7 +795,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
         );
         answers_with::<Formatted<ActivityMetricsResult>>(task_capable(tool_definition(
             "calculate_metrics",
-            "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)",
+            "Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones",
             schema,
             Some(analytics_annotations()),
         )))
@@ -1025,7 +1025,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RecommendationsResult>>(task_capable(tool_definition(
             "generate_recommendations",
-            "Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described, calories burned included.",
+            "Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described. Calories burned are the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex; without either, `calories` is null and `calories_unavailable` says why.",
             schema,
             Some(analytics_annotations()),
         )))

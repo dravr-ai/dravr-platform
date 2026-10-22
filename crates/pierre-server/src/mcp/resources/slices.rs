@@ -60,7 +60,6 @@ use crate::config::admin::AdminConfigService;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
-use dravr_cageux::types::ActivityIntelligence;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
@@ -246,8 +245,6 @@ pub struct AgentSlice {
 pub struct FitnessSlice {
     /// Registry of fitness data providers (Strava, Garmin, WHOOP, Terra).
     pub provider_registry: Arc<ProviderRegistry>,
-    /// AI-powered fitness activity analysis engine.
-    pub activity_intelligence: Arc<ActivityIntelligence>,
     /// Health data sync orchestrator for wearable provider synchronization.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,

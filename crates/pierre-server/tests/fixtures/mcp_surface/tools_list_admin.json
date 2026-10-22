@@ -1041,6 +1041,13 @@
           "ActivityIntelligence": {
             "description": "The analysis itself — the part a language model may write.\n\n`Deserialize` because it is parsed back OUT of a model's reply: the client\nLLM is asked for this shape, and an answer that does not fit is wrapped\nrather than passed through. Before that, whatever the model emitted became\nthe tool's answer unchecked, which is a contract no schema could state.",
             "properties": {
+              "hr_zones_unavailable": {
+                "description": "Why the session's heart rate was not read for intensity: the athlete's\nheart-rate zones are unknown. Null when it was read against their\nzones (or the session carried no heart rate).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "insights": {
                 "description": "What stood out, one per entry.",
                 "items": {
@@ -1068,7 +1075,8 @@
               "summary",
               "insights",
               "recommendations",
-              "source"
+              "source",
+              "hr_zones_unavailable"
             ],
             "type": "object"
           },
@@ -3523,7 +3531,7 @@
     },
     {
       "name": "calculate_metrics",
-      "description": "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)",
+      "description": "Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones",
       "inputSchema": {
         "properties": {
           "activity_id": {
@@ -3531,7 +3539,7 @@
             "type": "string"
           },
           "age": {
-            "description": "User age (optional, used to estimate max HR via Fox formula if max_hr not provided)",
+            "description": "Age in years (optional; else the saved one), used to estimate the maximum heart rate by the configured max-HR algorithm (algorithm.maxhr) when none is given or saved",
             "type": "integer"
           },
           "format": {
@@ -3539,7 +3547,7 @@
             "type": "string"
           },
           "max_hr": {
-            "description": "Maximum heart rate (optional, used for intensity calculation)",
+            "description": "Maximum heart rate in bpm (optional; else the saved one, else estimated from age). With the saved resting heart rate it cuts the athlete's zones the average heart rate is read on.",
             "type": "number"
           },
           "provider": {
@@ -3558,24 +3566,50 @@
           "ActivityMetricsResult": {
             "description": "What `calculate_metrics` answers with.",
             "properties": {
-              "efficiency_score": {
-                "description": "Distance covered per unit of effort.",
+              "distance_per_climb_score": {
+                "description": "Metres covered per metre climbed, capped by cageux: a description of\nthe route (hillier scores lower), not a physiological efficiency, and\nno published scale grades it. Null when the activity recorded no\ndistance or no climb.",
                 "format": "double",
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
-              "intensity_score": {
-                "description": "Effort relative to the athlete's maximum heart rate.",
-                "format": "double",
-                "type": "number"
+              "distance_per_climb_unavailable": {
+                "description": "Why `distance_per_climb_score` is null. Null when there is a score.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "heart_rate_reading": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HeartRateReading"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The average heart rate read on the athlete's own zones (cageux's\n`VO2max`-tiered Karvonen model): its zone, the zone's name, the\nintensity it stands for and its fraction of heart-rate reserve. Null\nwhen there is no heart rate or no zones to read it on."
+              },
+              "heart_rate_unavailable": {
+                "description": "Why `heart_rate_reading` is null: no heart rate on the activity, or the\nzones lack a resting or maximum heart rate. Null when there is a\nreading.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "max_hr_source": {
-                "description": "Where that maximum came from — given by the athlete, estimated from\nage, or a default — so the athlete can judge the number.",
+                "description": "Where that maximum came from — `provided` in this call, the saved\n`profile`, `estimated_from_age_<age>_<algorithm>` by the configured\nmax-HR estimator, or `unknown` — so the athlete can judge the number.",
                 "type": "string"
               },
               "max_hr_used": {
-                "description": "The maximum heart rate the intensity score was computed against.",
+                "description": "The maximum heart rate the athlete's zones were cut to; null when none\nis known.",
                 "format": "double",
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "metrics_summary": {
                 "$ref": "#/$defs/MetricsInputSummary",
@@ -3595,13 +3629,85 @@
             "required": [
               "pace",
               "speed",
-              "intensity_score",
-              "efficiency_score",
+              "distance_per_climb_score",
+              "distance_per_climb_unavailable",
               "max_hr_used",
               "max_hr_source",
+              "heart_rate_reading",
+              "heart_rate_unavailable",
               "metrics_summary"
             ],
             "type": "object"
+          },
+          "HeartRateReading": {
+            "description": "One heart rate read on an athlete's zones\n\nEverything a caller needs to say how hard a heart rate was for this\nathlete, from their own zones: never from a fixed beats-per-minute table\nor a bare share of maximum heart rate.",
+            "properties": {
+              "heart_rate": {
+                "description": "The heart rate read (bpm)",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "intensity": {
+                "$ref": "#/$defs/HrIntensity",
+                "description": "How hard that zone is ([`HrZones::intensity`])"
+              },
+              "reserve_fraction": {
+                "description": "Fraction of heart-rate reserve, `(hr - resting) / (max - resting)`\n([`HrZones::reserve_fraction`]); unclamped, so below resting it is\nnegative and above maximum it exceeds 1",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "Zone number, 1 to 6 ([`HrZones::classify`])",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "zone_name": {
+                "description": "Zone name from [`HR_ZONE_NAMES`]",
+                "type": "string"
+              }
+            },
+            "required": [
+              "heart_rate",
+              "zone",
+              "zone_name",
+              "intensity",
+              "reserve_fraction"
+            ],
+            "type": "object"
+          },
+          "HrIntensity": {
+            "description": "How hard a heart rate is for this athlete, read off their zone\n\nThe one intensity vocabulary every heart-rate reading in the crate uses:\nzone 1 is recovery, zone 2 endurance, zone 3 moderate (tempo), zone 4 hard\n(threshold), zones 5 and 6 very hard. Ordered, so `>= HrIntensity::Hard`\nmeans zone 4 or above.",
+            "oneOf": [
+              {
+                "const": "recovery",
+                "description": "Zone 1",
+                "type": "string"
+              },
+              {
+                "const": "endurance",
+                "description": "Zone 2",
+                "type": "string"
+              },
+              {
+                "const": "moderate",
+                "description": "Zone 3",
+                "type": "string"
+              },
+              {
+                "const": "hard",
+                "description": "Zone 4",
+                "type": "string"
+              },
+              {
+                "const": "very_hard",
+                "description": "Zones 5 and 6",
+                "type": "string"
+              }
+            ]
           },
           "MetricsInputSummary": {
             "description": "The activity the metrics were computed from.",
@@ -3722,7 +3828,7 @@
             "type": "number"
           },
           "max_hr": {
-            "description": "Maximum heart rate in bpm. Omit to use the athlete's saved value, or the Tanaka estimate from their saved age.",
+            "description": "Maximum heart rate in bpm. Omit to use the athlete's saved value, or the estimate from their saved age by the configured max-HR algorithm (algorithm.maxhr).",
             "type": "integer"
           },
           "resting_hr": {
@@ -3752,13 +3858,13 @@
                 "type": "integer"
               },
               "min_hr": {
-                "description": "Lower bound in bpm, inclusive.",
+                "description": "Lower bound in bpm: inclusive for zone 1, exclusive above it (each\nzone opens where the one below it closes).",
                 "format": "uint64",
                 "minimum": 0,
                 "type": "integer"
               },
               "name": {
-                "description": "What the zone is called, so a client need not map numbers to names.",
+                "description": "What the zone is called (cageux's zone names), so a client need not\nmap numbers to names.",
                 "type": "string"
               }
             },
@@ -3770,27 +3876,46 @@
             "type": "object"
           },
           "HeartRateZones": {
-            "description": "The five heart-rate zones.",
+            "description": "The athlete's heart-rate zones under cageux's `VO2max`-tiered Karvonen\nmodel: five zones, and a sixth for an athlete whose tier carries one.",
             "properties": {
+              "tier": {
+                "$ref": "#/$defs/HrZoneTier",
+                "description": "The `VO2max` tier that chose the zone fractions."
+              },
+              "vo2_max_source": {
+                "$ref": "#/$defs/Vo2maxSource",
+                "description": "Whether the `VO2max` that chose the tier was supplied (`provided`) or\nestimated from the maximum and resting heart rate\n(`heart_rate_ratio`, Uth 2004)."
+              },
               "zone_1": {
                 "$ref": "#/$defs/HeartRateZone",
-                "description": "Active recovery."
+                "description": "Recovery."
               },
               "zone_2": {
                 "$ref": "#/$defs/HeartRateZone",
-                "description": "Aerobic base."
+                "description": "Endurance."
               },
               "zone_3": {
                 "$ref": "#/$defs/HeartRateZone",
-                "description": "Aerobic threshold."
+                "description": "Tempo."
               },
               "zone_4": {
                 "$ref": "#/$defs/HeartRateZone",
-                "description": "Lactate threshold."
+                "description": "Threshold."
               },
               "zone_5": {
                 "$ref": "#/$defs/HeartRateZone",
-                "description": "VO2 max."
+                "description": "`VO2max`."
+              },
+              "zone_6": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HeartRateZone"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Anaerobic, up to the maximum heart rate. Null when the athlete's\ntier has no zone 6 (`VO2max` below 50) or their zone 5 already ends at\ntheir maximum."
               }
             },
             "required": [
@@ -3798,9 +3923,52 @@
               "zone_2",
               "zone_3",
               "zone_4",
-              "zone_5"
+              "zone_5",
+              "zone_6",
+              "tier",
+              "vo2_max_source"
             ],
             "type": "object"
+          },
+          "HrZoneModel": {
+            "description": "Which model cut a stored set of heart-rate zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at fixed fractions of heart-rate reserve, written before\nthe zones moved to cageux. Only ever read from an old row; nothing\nwrites it.",
+                "type": "string"
+              },
+              {
+                "const": "karvonen_vo2max_tiered",
+                "description": "cageux's `VO2max`-tiered Karvonen zones ([`HrZones`]).",
+                "type": "string"
+              }
+            ]
+          },
+          "HrZoneTier": {
+            "description": "An athlete's `VO2max` tier, which selects the heart-rate reserve fractions\ntheir zones are cut at\n\nThis is a cut on measured or estimated `VO2max`, not the athlete's declared\nexperience ([`crate::models::FitnessLevel`]): a self-described beginner\nwith a `VO2max` of 55 gets the advanced tier's zones.",
+            "oneOf": [
+              {
+                "const": "beginner",
+                "description": "`VO2max` below 40 ml/kg/min: the widest bands",
+                "type": "string"
+              },
+              {
+                "const": "intermediate",
+                "description": "`VO2max` from 40 up to 50 ml/kg/min",
+                "type": "string"
+              },
+              {
+                "const": "advanced",
+                "description": "`VO2max` from 50 up to 60 ml/kg/min: zone 6 becomes available",
+                "type": "string"
+              },
+              {
+                "const": "elite",
+                "description": "`VO2max` of 60 ml/kg/min or more: the narrowest bands",
+                "type": "string"
+              }
+            ]
           },
           "PaceZone": {
             "description": "One pace zone, as `m:ss` per kilometre.\n\nStrings rather than seconds: these are for an athlete to read off, and the\nnumbers they are derived from are already in `zone_calculations`.",
@@ -3908,29 +4076,35 @@
             "type": "object"
           },
           "PowerZoneBand": {
-            "description": "One power zone, in watts.",
+            "description": "One power level, in watts.",
             "properties": {
               "max_watts": {
-                "description": "Upper bound in watts, inclusive.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
+                "description": "Upper bound in watts, inclusive. Null for level 7, which Coggan\nleaves open-ended.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "min_watts": {
-                "description": "Lower bound in watts, inclusive.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
+                "description": "Lower bound in watts: 0 for level 1, exclusive above it (each level\nopens where the one below it closes).",
+                "format": "double",
+                "type": "number"
+              },
+              "name": {
+                "description": "The level's name (cageux's Coggan level names).",
+                "type": "string"
               }
             },
             "required": [
+              "name",
               "min_watts",
               "max_watts"
             ],
             "type": "object"
           },
           "PowerZones": {
-            "description": "The five power zones.",
+            "description": "Coggan's seven power levels, as fractions of FTP.",
             "properties": {
               "zone_1": {
                 "$ref": "#/$defs/PowerZoneBand",
@@ -3946,11 +4120,19 @@
               },
               "zone_4": {
                 "$ref": "#/$defs/PowerZoneBand",
-                "description": "Threshold."
+                "description": "Lactate threshold."
               },
               "zone_5": {
                 "$ref": "#/$defs/PowerZoneBand",
-                "description": "VO2 max."
+                "description": "`VO2max`."
+              },
+              "zone_6": {
+                "$ref": "#/$defs/PowerZoneBand",
+                "description": "Anaerobic capacity."
+              },
+              "zone_7": {
+                "$ref": "#/$defs/PowerZoneBand",
+                "description": "Neuromuscular power, open-ended."
               }
             },
             "required": [
@@ -3958,50 +4140,73 @@
               "zone_2",
               "zone_3",
               "zone_4",
-              "zone_5"
+              "zone_5",
+              "zone_6",
+              "zone_7"
             ],
             "type": "object"
           },
+          "Vo2maxSource": {
+            "description": "Where the `VO2max` that chose an athlete's tier came from",
+            "oneOf": [
+              {
+                "const": "provided",
+                "description": "The caller supplied it (a lab test, a field test, a device estimate)",
+                "type": "string"
+              },
+              {
+                "const": "heart_rate_ratio",
+                "description": "Estimated from maximum and resting heart rate (Uth et al. 2004)",
+                "type": "string"
+              }
+            ]
+          },
           "ZoneCalculations": {
-            "description": "How the zones were derived, and the two threshold heart rates.",
+            "description": "How the heart-rate zones were derived, and the two threshold heart rates.",
             "properties": {
               "aerobic_threshold_hr": {
-                "description": "Aerobic threshold heart rate in bpm.",
+                "description": "Aerobic threshold heart rate (75 % of the reserve), in bpm.",
                 "format": "uint64",
                 "minimum": 0,
                 "type": "integer"
               },
               "lactate_threshold_hr": {
-                "description": "The lactate threshold heart rate the heart-rate-reserve model places\n(85% of the reserve), in bpm — the reference of these zones. Training\nload scores against the athlete's own `threshold_hr`, saved with\n`set_physiology`.",
+                "description": "The lactate threshold heart rate the model places (85 % of the\nreserve), in bpm — the reference of these zones. Training load scores\nagainst the athlete's own `threshold_hr`, saved with `set_physiology`.",
                 "format": "uint64",
                 "minimum": 0,
                 "type": "integer"
               },
               "method": {
-                "description": "Always `heart_rate_reserve` — the Karvonen method.",
-                "type": "string"
-              },
-              "pace_formula": {
-                "description": "The pace formula, stated so the number is auditable.",
-                "type": "string"
-              },
-              "power_estimation": {
-                "description": "The power formula, likewise.",
-                "type": "string"
+                "$ref": "#/$defs/HrZoneModel",
+                "description": "Always `karvonen_vo2max_tiered`: cageux's heart-rate-reserve zones with\nfractions chosen by the athlete's `VO2max` tier."
               },
               "sport_efficiency_factor": {
-                "description": "The efficiency factor the pace and power formulas used.",
+                "description": "The efficiency factor the pace zones used.",
                 "format": "double",
                 "type": "number"
+              },
+              "tier": {
+                "$ref": "#/$defs/HrZoneTier",
+                "description": "The `VO2max` tier that chose the fractions."
+              },
+              "vo2_max": {
+                "description": "The `VO2max` (ml/kg/min) that chose the tier.",
+                "format": "double",
+                "type": "number"
+              },
+              "vo2_max_source": {
+                "$ref": "#/$defs/Vo2maxSource",
+                "description": "Whether that `VO2max` was supplied or estimated from the heart rates."
               }
             },
             "required": [
               "method",
+              "tier",
+              "vo2_max",
+              "vo2_max_source",
               "lactate_threshold_hr",
               "aerobic_threshold_hr",
-              "sport_efficiency_factor",
-              "pace_formula",
-              "power_estimation"
+              "sport_efficiency_factor"
             ],
             "type": "object"
           },
@@ -4043,7 +4248,7 @@
                 ]
               },
               "sport_efficiency": {
-                "description": "Sport efficiency factor used in the pace and power formulas.",
+                "description": "Sport efficiency factor used in the pace zones.",
                 "format": "double",
                 "type": "number"
               },
@@ -4071,7 +4276,7 @@
         "description": "What `calculate_personalized_zones` answers with.",
         "properties": {
           "input_sources": {
-            "description": "Where each input came from, keyed by field name: `provided`, `profile`,\nor `estimated_from_age` for the one documented estimator. An athlete\nshould be able to tell a measured number from an estimated one."
+            "description": "Where each input came from, keyed by field name: `provided`, `profile`,\n`estimated_from_age` for a maximum heart rate estimated by the\nconfigured max-HR algorithm (named under `max_hr_algorithm`), or\n`heart_rate_ratio` for a `VO2max` estimated from the heart rates to\nchoose the zone tier. An athlete should be able to tell a measured\nnumber from an estimated one."
           },
           "personalized_zones": {
             "$ref": "#/$defs/PersonalizedZones",
@@ -5457,6 +5662,13 @@
                 "description": "`medium` when a pattern was detected, `low` when not.",
                 "type": "string"
               },
+              "hr_zones_unavailable": {
+                "description": "Why heart rate did not decide which sessions were hard: the athlete's\nheart-rate zones are unknown, so only duration and speed did. Null\nwhen the sessions were read against their zones.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "insights": {
                 "description": "Plain-language readings, always at least one.",
                 "items": {
@@ -5491,7 +5703,8 @@
               "adequate_recovery",
               "patterns_detected",
               "insights",
-              "confidence"
+              "confidence",
+              "hr_zones_unavailable"
             ],
             "type": "object"
           },
@@ -5567,6 +5780,13 @@
                 "description": "Whether heart rate climbed for the same effort.",
                 "type": "boolean"
               },
+              "hr_zones_unavailable": {
+                "description": "Why heart rate did not decide which sessions counted as hard for the\nrecovery signal: the athlete's heart-rate zones are unknown. Null when\nthe sessions were read against their zones.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "insights": {
                 "description": "The warning signs, or a note that none were found.",
                 "items": {
@@ -5614,7 +5834,8 @@
               "performance_decline",
               "insufficient_recovery",
               "confidence",
-              "recommendations"
+              "recommendations",
+              "hr_zones_unavailable"
             ],
             "type": "object"
           },
@@ -6249,7 +6470,7 @@
             "type": "object"
           },
           "LactatePowerZones": {
-            "description": "Zones derived from the modified-Dmax LT2, or why there are none.",
+            "description": "Coggan's power levels cut from the modified-Dmax LT2, or why there are none.",
             "properties": {
               "anchor": {
                 "description": "Always `lt2_modified_dmax` — named so a client cannot mistake these\nfor zones anchored on a different construct.",
@@ -6269,7 +6490,7 @@
                 ]
               },
               "reason": {
-                "description": "Why not: the stages were paces, the anchor could not be located, or\nthe configured percentages do not increase at this threshold.",
+                "description": "Why not: the stages were paces, or the anchor could not be located.",
                 "type": [
                   "string",
                   "null"
@@ -6294,29 +6515,35 @@
             "type": "object"
           },
           "PowerZoneBand": {
-            "description": "One power zone, in watts.",
+            "description": "One power level, in watts.",
             "properties": {
               "max_watts": {
-                "description": "Upper bound in watts, inclusive.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
+                "description": "Upper bound in watts, inclusive. Null for level 7, which Coggan\nleaves open-ended.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "min_watts": {
-                "description": "Lower bound in watts, inclusive.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
+                "description": "Lower bound in watts: 0 for level 1, exclusive above it (each level\nopens where the one below it closes).",
+                "format": "double",
+                "type": "number"
+              },
+              "name": {
+                "description": "The level's name (cageux's Coggan level names).",
+                "type": "string"
               }
             },
             "required": [
+              "name",
               "min_watts",
               "max_watts"
             ],
             "type": "object"
           },
           "PowerZones": {
-            "description": "The five power zones.",
+            "description": "Coggan's seven power levels, as fractions of FTP.",
             "properties": {
               "zone_1": {
                 "$ref": "#/$defs/PowerZoneBand",
@@ -6332,11 +6559,19 @@
               },
               "zone_4": {
                 "$ref": "#/$defs/PowerZoneBand",
-                "description": "Threshold."
+                "description": "Lactate threshold."
               },
               "zone_5": {
                 "$ref": "#/$defs/PowerZoneBand",
-                "description": "VO2 max."
+                "description": "`VO2max`."
+              },
+              "zone_6": {
+                "$ref": "#/$defs/PowerZoneBand",
+                "description": "Anaerobic capacity."
+              },
+              "zone_7": {
+                "$ref": "#/$defs/PowerZoneBand",
+                "description": "Neuromuscular power, open-ended."
               }
             },
             "required": [
@@ -6344,7 +6579,9 @@
               "zone_2",
               "zone_3",
               "zone_4",
-              "zone_5"
+              "zone_5",
+              "zone_6",
+              "zone_7"
             ],
             "type": "object"
           },
@@ -6482,7 +6719,7 @@
           },
           "power_zones": {
             "$ref": "#/$defs/LactatePowerZones",
-            "description": "Zones anchored on the modified-Dmax LT2, when the stages were watts."
+            "description": "Coggan's seven power levels anchored on the modified-Dmax LT2, when\nthe stages were watts."
           },
           "saved": {
             "description": "Always false: this tool estimates and never writes. The athlete\nconfirms a number and `set_physiology` stores it.",
@@ -6663,6 +6900,49 @@
       },
       "outputSchema": {
         "$defs": {
+          "AerobicThresholdPace": {
+            "description": "An athlete's aerobic-threshold (LT1) running pace, estimated from their\nthreshold (LT2) pace\n\nEsteve-Lanao et al. (2026) measured both ventilatory thresholds in 1,411\ntrained runners (819 men, 592 women, mean age about 37, at least a year of\nstructured training and three sessions a week) on a treadmill at 1 % grade,\nspeed rising 0.3 km/h every 30 s to exhaustion, gas exchange by Cosmed K5,\nVT1 and VT2 by the Davis criteria read by three evaluators. Speed at VT1\nwas 84.4 ± 4.7 % of speed at VT2 (men 84.1 ± 4.5, women 84.8 ± 4.9), with\nlittle change across fitness levels.\n\nThe ratio is of *speeds*, so the pace is divided by it:\n`lt1_pace = threshold_pace / ratio`. A 240 s/km threshold gives\n240 / 0.844 = 284.4 s/km.\n\n# Limits\n\n- A descriptive group mean, not a regression: one athlete's ratio spreads\n  about ±4.7 points around it, which is ±14 s/km at a 4:00/km threshold.\n  [`Self::faster_bound_sec_per_km`] and [`Self::slower_bound_sec_per_km`]\n  carry that ±1 SD range.\n- VT2 (the respiratory compensation point) from a 30-second-step ramp is\n  not identical to the athlete's stored threshold pace, which is usually a\n  roughly one-hour race pace or a lactate-threshold field test; the two sit\n  close but VT2 can be slightly faster, which would put this estimate a\n  little fast.\n- Trained runners on a treadmill only: the ratio is for running pace, not\n  for cycling power or other sports.",
+            "properties": {
+              "cohort": {
+                "$ref": "#/$defs/ThresholdRatioCohort",
+                "description": "The group the ratio came from"
+              },
+              "faster_bound_sec_per_km": {
+                "description": "LT1 pace at the ratio's mean plus one SD: the faster end (s/km)",
+                "format": "double",
+                "type": "number"
+              },
+              "pace_sec_per_km": {
+                "description": "Estimated aerobic-threshold (LT1) pace (s/km)",
+                "format": "double",
+                "type": "number"
+              },
+              "slower_bound_sec_per_km": {
+                "description": "LT1 pace at the ratio's mean minus one SD: the slower end (s/km)",
+                "format": "double",
+                "type": "number"
+              },
+              "speed_ratio": {
+                "description": "The VT1/VT2 speed ratio used",
+                "format": "double",
+                "type": "number"
+              },
+              "threshold_pace_sec_per_km": {
+                "description": "The threshold (LT2) pace the estimate starts from (s/km)",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "threshold_pace_sec_per_km",
+              "pace_sec_per_km",
+              "faster_bound_sec_per_km",
+              "slower_bound_sec_per_km",
+              "speed_ratio",
+              "cohort"
+            ],
+            "type": "object"
+          },
           "DossierFact": {
             "description": "A single pillar-context fact projected onto the dossier.\n\nThis is a read-time projection of a `pierre_memory::UserFact` — the subset\nthe per-user OKF bundle needs to render, plus a computed freshness flag.\n`kind` and `source` are carried as their stable string slugs to keep this\ntype free of a `pierre-memory` dependency. The `object` field is\nuser-authored free text and must be treated as untrusted at render time.",
             "properties": {
@@ -6752,18 +7032,73 @@
               }
             ]
           },
+          "HrZoneModel": {
+            "description": "Which model cut a stored set of heart-rate zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at fixed fractions of heart-rate reserve, written before\nthe zones moved to cageux. Only ever read from an old row; nothing\nwrites it.",
+                "type": "string"
+              },
+              {
+                "const": "karvonen_vo2max_tiered",
+                "description": "cageux's `VO2max`-tiered Karvonen zones ([`HrZones`]).",
+                "type": "string"
+              }
+            ]
+          },
           "HrZoneSet": {
-            "description": "Five-zone heart-rate boundaries for a single user.\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in beats per minute.\nThe lower bound of zone `N+1` is `zN_max + 1`. A zone above `z5_max` is\nimplicitly \"above max\" and not counted in distribution analytics.\n\nThis is distinct from\n[`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries\nper-activity time-in-zone counts. `HrZoneSet` is the per-user definition;\n`HeartRateZone` is the per-activity occupancy.",
+            "description": "Heart-rate zone boundaries for a single user.\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in beats per\nminute; zone `N+1` starts above it. `z6_max` is present when the athlete's\ntier carries a zone 6 (`VO2max` of 50 or more and a zone 5 that stops\nshort of their maximum), and is then their maximum heart rate.\n\nThis is distinct from\n[`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries\nper-activity time-in-zone counts. `HrZoneSet` is the per-user definition;\n`HeartRateZone` is the per-activity occupancy.",
             "properties": {
+              "model": {
+                "$ref": "#/$defs/HrZoneModel",
+                "default": "legacy",
+                "description": "Which model cut these boundaries. A row written before this field\nexisted reads as [`HrZoneModel::Legacy`]."
+              },
+              "tier": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HrZoneTier"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "The `VO2max` tier that chose the zone fractions; absent on a legacy row."
+              },
+              "vo2_max_source": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Vo2maxSource"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Whether the `VO2max` that chose the tier was the athlete's own or\nestimated from their heart rates; absent on a legacy row."
+              },
               "z1_max": {
-                "description": "Upper bound of Zone 1 (active recovery / very easy) in bpm.",
+                "description": "Upper bound of Zone 1 (recovery) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
               },
+              "z1_min": {
+                "default": null,
+                "description": "Lower bound of Zone 1 (recovery) in bpm, inclusive: the zone's floor\non the athlete's reserve. Absent on a legacy row.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "z2_max": {
-                "description": "Upper bound of Zone 2 (aerobic base / endurance) in bpm.",
+                "description": "Upper bound of Zone 2 (endurance) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
@@ -6777,28 +7112,69 @@
                 "type": "integer"
               },
               "z4_max": {
-                "description": "Upper bound of Zone 4 (threshold / lactate threshold) in bpm.",
+                "description": "Upper bound of Zone 4 (threshold) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
               },
               "z5_max": {
-                "description": "Upper bound of Zone 5 (`VO2max` / anaerobic) in bpm.",
+                "description": "Upper bound of Zone 5 (`VO2max`) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_max": {
+                "default": null,
+                "description": "Upper bound of Zone 6 (anaerobic) in bpm, the athlete's maximum heart\nrate; absent when their zones have no zone 6, and on a legacy row.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
+              "z1_min",
               "z1_max",
               "z2_max",
               "z3_max",
               "z4_max",
-              "z5_max"
+              "z5_max",
+              "z6_max",
+              "tier",
+              "vo2_max_source",
+              "model"
             ],
             "type": "object"
+          },
+          "HrZoneTier": {
+            "description": "An athlete's `VO2max` tier, which selects the heart-rate reserve fractions\ntheir zones are cut at\n\nThis is a cut on measured or estimated `VO2max`, not the athlete's declared\nexperience ([`crate::models::FitnessLevel`]): a self-described beginner\nwith a `VO2max` of 55 gets the advanced tier's zones.",
+            "oneOf": [
+              {
+                "const": "beginner",
+                "description": "`VO2max` below 40 ml/kg/min: the widest bands",
+                "type": "string"
+              },
+              {
+                "const": "intermediate",
+                "description": "`VO2max` from 40 up to 50 ml/kg/min",
+                "type": "string"
+              },
+              {
+                "const": "advanced",
+                "description": "`VO2max` from 50 up to 60 ml/kg/min: zone 6 becomes available",
+                "type": "string"
+              },
+              {
+                "const": "elite",
+                "description": "`VO2max` of 60 ml/kg/min or more: the narrowest bands",
+                "type": "string"
+              }
+            ]
           },
           "MeasurementKind": {
             "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
@@ -6843,9 +7219,44 @@
             ],
             "type": "object"
           },
+          "PhysiologicalSex": {
+            "description": "An athlete's physiological sex, as the published equations use it.\n\nKeytel et al. (2005) take it for exercise energy expenditure, and\nEsteve-Lanao et al. (2026) give sex-specific VT1/VT2 speed ratios for the\naerobic-threshold pace.\n\nIt selects an equation's coefficients and nothing else. It is recorded\nonly when the athlete states it or a provider reports it, never inferred\nfrom a name or anything else; absent, every reader falls back to the\npooled or sex-free form, or reports that it needs it.",
+            "oneOf": [
+              {
+                "const": "male",
+                "description": "Male.",
+                "type": "string"
+              },
+              {
+                "const": "female",
+                "description": "Female.",
+                "type": "string"
+              }
+            ]
+          },
+          "PowerZoneModel": {
+            "description": "Which model cut a stored set of power zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at configurable FTP percentages, written before the zones\nmoved to cageux. Only ever read from an old row; nothing writes it.",
+                "type": "string"
+              },
+              {
+                "const": "coggan",
+                "description": "Coggan's seven power levels ([`PowerZones`]).",
+                "type": "string"
+              }
+            ]
+          },
           "PowerZoneSet": {
-            "description": "Five-zone power boundaries for a single user (cycling / running power).\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in watts. Same\nmonotonicity invariant as [`HrZoneSet`].",
+            "description": "Power zone boundaries for a single user (cycling / running power).\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in watts, rounded\nto the watt. Zone 7 is everything above `z6_max` and has no upper bound;\na legacy row holds only five zones and no `z6_max`.",
             "properties": {
+              "model": {
+                "$ref": "#/$defs/PowerZoneModel",
+                "default": "legacy",
+                "description": "Which model cut these boundaries. A row written before this field\nexisted reads as [`PowerZoneModel::Legacy`]."
+              },
               "z1_max": {
                 "description": "Upper bound of Zone 1 (active recovery) in watts.",
                 "format": "uint32",
@@ -6865,7 +7276,7 @@
                 "type": "integer"
               },
               "z4_max": {
-                "description": "Upper bound of Zone 4 (threshold / FTP) in watts.",
+                "description": "Upper bound of Zone 4 (lactate threshold) in watts.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
@@ -6875,6 +7286,16 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_max": {
+                "default": null,
+                "description": "Upper bound of Zone 6 (anaerobic capacity) in watts; zone 7\n(neuromuscular power) is everything above it. Absent on a legacy row.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -6882,7 +7303,9 @@
               "z2_max",
               "z3_max",
               "z4_max",
-              "z5_max"
+              "z5_max",
+              "z6_max",
+              "model"
             ],
             "type": "object"
           },
@@ -7149,26 +7572,29 @@
             ]
           },
           "ThresholdEstimate": {
-            "description": "Per-modality LT1 / LT2 estimates.",
+            "description": "The dossier's LT1 / LT2 anchors, each read from where it lives rather\nthan re-derived here.\n\n- **LT1** (aerobic threshold) heart rate is cageux's\n  [`HrZones::aerobic_threshold_bpm`], 75 % of the athlete's heart-rate\n  reserve; LT1 power is the top of Coggan's endurance level\n  ([`PowerZones::coggan`], 75 % of FTP).\n- **LT2** (lactate threshold) heart rate is the athlete's LTHR (measured,\n  else estimated from their lactate threshold), else cageux's\n  [`HrZones::lactate_threshold_bpm`], 85 % of reserve; LT2 power is the\n  FTP and LT2 pace the saved threshold pace.\n- **LT1 pace** is cageux's [`AerobicThresholdPace`] from the saved\n  (running) threshold pace: the VT1/VT2 speed ratio of Esteve-Lanao et al.\n  (2026), with its one-SD bounds and the cohort the ratio came from: the\n  men's or women's ratio when the athlete's sex is saved, the pooled one\n  otherwise.\n\nAn anchor whose inputs are missing is absent: the heart-rate anchors need\nthe athlete's zones (a saved resting and maximum heart rate), the power\nanchors an FTP, the pace anchor a threshold pace.",
             "properties": {
               "lt1_hr": {
-                "description": "Aerobic threshold heart rate in bpm.",
+                "description": "Aerobic threshold heart rate in bpm: 75 % of the athlete's heart-rate\nreserve.",
                 "format": "double",
                 "type": [
                   "number",
                   "null"
                 ]
               },
-              "lt1_pace_sec_per_km": {
-                "description": "LT1 pace (sec/km) — slower than LT2 pace by a Seiler-style factor.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
+              "lt1_pace": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AerobicThresholdPace"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "LT1 pace estimated from that threshold pace (Esteve-Lanao et al.\n2026), with the faster and slower bound one SD of the ratio either\nside and the cohort. Absent without a saved threshold pace, or when it\nlies outside the 120-600 s/km running range the estimate covers."
               },
               "lt1_power_watts": {
-                "description": "LT1 power (watts) — `0.75 * FTP` (Coggan).",
+                "description": "LT1 power (watts): the top of Coggan's endurance level, 75 % of FTP.",
                 "format": "double",
                 "type": [
                   "number",
@@ -7176,7 +7602,7 @@
                 ]
               },
               "lt2_hr": {
-                "description": "Lactate threshold heart rate in bpm.",
+                "description": "Lactate threshold heart rate in bpm: the athlete's LTHR, else 85 % of\ntheir heart-rate reserve.",
                 "format": "double",
                 "type": [
                   "number",
@@ -7184,7 +7610,7 @@
                 ]
               },
               "lt2_pace_sec_per_km": {
-                "description": "LT2 pace (sec/km) — defaults to threshold pace when supplied.",
+                "description": "LT2 pace (sec/km): the saved threshold pace.",
                 "format": "double",
                 "type": [
                   "number",
@@ -7192,7 +7618,7 @@
                 ]
               },
               "lt2_power_watts": {
-                "description": "LT2 power (watts) — defaults to FTP when supplied.",
+                "description": "LT2 power (watts): the FTP.",
                 "format": "double",
                 "type": [
                   "number",
@@ -7251,6 +7677,26 @@
               }
             },
             "type": "object"
+          },
+          "ThresholdRatioCohort": {
+            "description": "Which of the study's groups the VT1/VT2 ratio was taken from",
+            "oneOf": [
+              {
+                "const": "pooled",
+                "description": "All 1,411 runners, used when the athlete's sex is unknown",
+                "type": "string"
+              },
+              {
+                "const": "men",
+                "description": "The 819 men",
+                "type": "string"
+              },
+              {
+                "const": "women",
+                "description": "The 592 women",
+                "type": "string"
+              }
+            ]
           },
           "UserPhysiologicalProfile": {
             "description": "User physiological profile for personalized analysis\n\nContains physiological data used for calculating personalized heart rate zones,\npace zones, and other performance thresholds based on individual fitness metrics.",
@@ -7365,6 +7811,17 @@
                   "null"
                 ]
               },
+              "sex": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PhysiologicalSex"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Physiological sex, for the published equations that take one\n([`PhysiologicalSex`]). Set by the athlete with `set_physiology`, or\nfilled once from a provider that reports it when none is set; a value\nthe athlete set is never replaced by a provider's."
+              },
               "threshold_hr": {
                 "description": "Lactate threshold heart rate (LTHR) in bpm, as measured — a 30-minute\nfield test, a ramp test or a lab report. Heart-rate-based training\nstress is scored against it.",
                 "format": "uint16",
@@ -7443,6 +7900,21 @@
               "training_experience_years"
             ],
             "type": "object"
+          },
+          "Vo2maxSource": {
+            "description": "Where the `VO2max` that chose an athlete's tier came from",
+            "oneOf": [
+              {
+                "const": "provided",
+                "description": "The caller supplied it (a lab test, a field test, a device estimate)",
+                "type": "string"
+              },
+              {
+                "const": "heart_rate_ratio",
+                "description": "Estimated from maximum and resting heart rate (Uth et al. 2004)",
+                "type": "string"
+              }
+            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7520,7 +7992,7 @@
           },
           "threshold_estimate": {
             "$ref": "#/$defs/ThresholdEstimate",
-            "description": "LT1/LT2 heart rate, power and pace derived from the profile — Coggan\nfor power, Seiler-style anchors for pace. Gives the dossier training\nzone anchors even when the athlete has measured none directly."
+            "description": "LT1/LT2 heart rate, power and pace read off the profile — heart rate\nat 75 % / 85 % of the athlete's reserve unless an LTHR is saved,\nCoggan's levels for power, the saved threshold pace for pace. Gives the\ndossier training zone anchors even when the athlete has measured none\ndirectly."
           },
           "user_id": {
             "description": "User this dossier belongs to.",
@@ -7821,7 +8293,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Time-in-zone distribution computed from the HR stream against the\nuser's [`HrZoneSet`]. `None` when no HR stream is present or no\nuser zones are configured."
+                "description": "Time-in-zone distribution computed from the HR stream against the\nathlete's [`HrZones`]. `None` when no HR stream is present or the\nathlete's zones are unknown (see\n[`LatestSnapshot::zone_distribution_unavailable`])."
               }
             },
             "required": [
@@ -7834,22 +8306,22 @@
             "type": "object"
           },
           "ZoneDistribution": {
-            "description": "Time-in-zone distribution computed across one or more activities.\n\nValues are absolute seconds spent in each zone. Sum across all zones plus\n`above_max_seconds` equals total samples in the analyzed window. Used by\nthe Endurance `latest.json` payload to surface polarized-distribution\nstats (Z1+Z2 share vs Z3 share vs Z4+Z5 share) to agents.",
+            "description": "Time-in-zone distribution computed across one or more activities.\n\nValues are absolute seconds spent in each of the athlete's heart-rate\nzones. Sum across all zones plus `above_max_seconds` equals total samples\nin the analyzed window. Used by the Endurance `latest.json` payload to\nsurface polarized-distribution stats (Z1+Z2 share vs Z3 share vs Z4 and up)\nto agents.",
             "properties": {
               "above_max_seconds": {
-                "description": "Seconds with intensity above `z5_max` — sprints, neuromuscular peaks.",
+                "description": "Seconds with a heart rate above the athlete's maximum.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
               },
               "z1_seconds": {
-                "description": "Seconds spent in zone 1 (active recovery / very easy).",
+                "description": "Seconds spent in zone 1 (recovery).",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
               },
               "z2_seconds": {
-                "description": "Seconds spent in zone 2 (aerobic base / endurance).",
+                "description": "Seconds spent in zone 2 (endurance).",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
@@ -7871,6 +8343,13 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_seconds": {
+                "default": 0,
+                "description": "Seconds spent in zone 6 (anaerobic); zero for an athlete whose zones\nhave no zone 6.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -7879,6 +8358,7 @@
               "z3_seconds",
               "z4_seconds",
               "z5_seconds",
+              "z6_seconds",
               "above_max_seconds"
             ],
             "type": "object"
@@ -7969,6 +8449,13 @@
             "description": "Inclusive start of the window (UTC).",
             "format": "date-time",
             "type": "string"
+          },
+          "zone_distribution_unavailable": {
+            "description": "Why the zone distributions are absent when the athlete's heart-rate\nzones are unknown: they are cut from a saved resting and maximum\nheart rate, never from a default. `None` when the zones were known.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -8416,7 +8903,7 @@
     },
     {
       "name": "generate_recommendations",
-      "description": "Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described, calories burned included.",
+      "description": "Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described. Calories burned are the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex; without either, `calories` is null and `calories_unavailable` says why.",
       "inputSchema": {
         "properties": {
           "format": {
@@ -8440,9 +8927,26 @@
             "description": "The session the nutrition advice is about.",
             "properties": {
               "calories": {
-                "description": "Calories burned, rounded.",
+                "description": "Calories burned, rounded: the device's figure, else the Keytel\nheart-rate estimate. Null when neither is available.",
                 "format": "double",
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "calories_source": {
+                "description": "Where `calories` came from: `device`, `keytel_with_vo2max` or\n`keytel_without_vo2max`. Null when there is no figure.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "calories_unavailable": {
+                "description": "Why there is no calorie figure. Null when there is one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "distance_km": {
                 "description": "Distance in kilometres, rounded, when the activity carried one.",
@@ -8472,7 +8976,9 @@
               "type",
               "duration_minutes",
               "distance_km",
-              "calories"
+              "calories",
+              "calories_source",
+              "calories_unavailable"
             ],
             "type": "object"
           },
@@ -8779,6 +9285,13 @@
                   }
                 ],
                 "description": "Present when the athlete has a medical flag on file: the `nutrition`\nmode then answers without `macronutrient_targets`, `meal_suggestions`\nor any amount in `recommendations`, because their clinician sets those."
+              },
+              "hr_zones_unavailable": {
+                "description": "Why heart rate did not decide which sessions were hard (`recovery`,\n`intensity`, `all`) or how hard the last session was (`nutrition`):\nthe athlete's heart-rate zones are unknown, so duration and speed\ndecided instead. Absent when the sessions were read against their\nzones, and in the modes that do not read heart rate.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "intensity_guidance": {
                 "description": "How to distribute hard and easy work, when the mode is `intensity`.",
@@ -9784,6 +10297,13 @@
           "ActivityIntelligence": {
             "description": "The analysis itself — the part a language model may write.\n\n`Deserialize` because it is parsed back OUT of a model's reply: the client\nLLM is asked for this shape, and an answer that does not fit is wrapped\nrather than passed through. Before that, whatever the model emitted became\nthe tool's answer unchecked, which is a contract no schema could state.",
             "properties": {
+              "hr_zones_unavailable": {
+                "description": "Why the session's heart rate was not read for intensity: the athlete's\nheart-rate zones are unknown. Null when it was read against their\nzones (or the session carried no heart rate).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "insights": {
                 "description": "What stood out, one per entry.",
                 "items": {
@@ -9811,7 +10331,8 @@
               "summary",
               "insights",
               "recommendations",
-              "source"
+              "source",
+              "hr_zones_unavailable"
             ],
             "type": "object"
           },
@@ -10193,7 +10714,7 @@
       "outputSchema": {
         "$defs": {
           "Athlete": {
-            "description": "Represents an athlete/user profile from any provider\n\nContains the essential profile information that's commonly available\nacross fitness platforms.\n\n# Examples\n\n```rust\nuse pierre_core::models::Athlete;\n\nlet athlete = Athlete {\n    id: \"12345\".into(),\n    username: \"runner123\".into(),\n    firstname: Some(\"John\".into()),\n    lastname: Some(\"Doe\".into()),\n    profile_picture: Some(\"https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg\".into()),\n    provider: \"strava\".into(),\n};\n```",
+            "description": "Represents an athlete/user profile from any provider\n\nContains the essential profile information that's commonly available\nacross fitness platforms.\n\n# Examples\n\n```rust\nuse pierre_core::models::Athlete;\n\nlet athlete = Athlete {\n    id: \"12345\".into(),\n    username: \"runner123\".into(),\n    firstname: Some(\"John\".into()),\n    lastname: Some(\"Doe\".into()),\n    profile_picture: Some(\"https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg\".into()),\n    provider: \"strava\".into(),\n    sex: None,\n};\n```",
             "properties": {
               "firstname": {
                 "description": "First name (may not be public on some providers)",
@@ -10224,6 +10745,17 @@
                 "description": "Source provider of this athlete data",
                 "type": "string"
               },
+              "sex": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PhysiologicalSex"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Physiological sex, when the provider reports one (Strava's and\nintervals.icu's athlete `sex`). Never inferred."
+              },
               "username": {
                 "description": "Public username/handle",
                 "type": "string"
@@ -10248,6 +10780,21 @@
               "athlete"
             ],
             "type": "object"
+          },
+          "PhysiologicalSex": {
+            "description": "An athlete's physiological sex, as the published equations use it.\n\nKeytel et al. (2005) take it for exercise energy expenditure, and\nEsteve-Lanao et al. (2026) give sex-specific VT1/VT2 speed ratios for the\naerobic-threshold pace.\n\nIt selects an equation's coefficients and nothing else. It is recorded\nonly when the athlete states it or a provider reports it, never inferred\nfrom a name or anything else; absent, every reader falls back to the\npooled or sex-free form, or reports that it needs it.",
+            "oneOf": [
+              {
+                "const": "male",
+                "description": "Male.",
+                "type": "string"
+              },
+              {
+                "const": "female",
+                "description": "Female.",
+                "type": "string"
+              }
+            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10421,7 +10968,7 @@
                 "type": "string"
               },
               "key": {
-                "description": "Parameter key (e.g., `heart_rate.anaerobic_threshold`)",
+                "description": "Parameter key (e.g., `lactate.threshold_percentage`)",
                 "type": "string"
               },
               "requires_vo2_max": {
@@ -10689,16 +11236,11 @@
                   "type": {
                     "const": "Research",
                     "type": "string"
-                  },
-                  "zone_granularity": {
-                    "$ref": "#/$defs/ZoneGranularity",
-                    "description": "Level of zone granularity"
                   }
                 },
                 "required": [
                   "type",
                   "sensitivity_multiplier",
-                  "zone_granularity",
                   "statistical_confidence"
                 ],
                 "type": "object"
@@ -10890,26 +11432,6 @@
               "description"
             ],
             "type": "object"
-          },
-          "ZoneGranularity": {
-            "description": "Zone analysis granularity",
-            "oneOf": [
-              {
-                "const": "Standard",
-                "description": "Standard 5-zone model",
-                "type": "string"
-              },
-              {
-                "const": "Fine",
-                "description": "Fine 7-zone model",
-                "type": "string"
-              },
-              {
-                "const": "UltraFine",
-                "description": "Ultra-fine 10-zone model for research",
-                "type": "string"
-              }
-            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -11307,15 +11829,10 @@
               "weather_mapping": {
                 "$ref": "#/$defs/WeatherMapping",
                 "description": "Weather detection keyword mappings"
-              },
-              "zone_thresholds": {
-                "$ref": "#/$defs/ZoneThresholds",
-                "description": "Heart rate zone threshold percentages"
               }
             },
             "required": [
               "effort_thresholds",
-              "zone_thresholds",
               "weather_mapping",
               "personal_records"
             ],
@@ -11422,38 +11939,6 @@
               "rain_keywords",
               "snow_keywords",
               "wind_threshold"
-            ],
-            "type": "object"
-          },
-          "ZoneThresholds": {
-            "description": "Heart rate zone thresholds (as percentage of max HR)",
-            "properties": {
-              "endurance_max": {
-                "description": "Maximum percentage for endurance zone (Zone 2)",
-                "format": "float",
-                "type": "number"
-              },
-              "recovery_max": {
-                "description": "Maximum percentage for recovery zone (Zone 1)",
-                "format": "float",
-                "type": "number"
-              },
-              "tempo_max": {
-                "description": "Maximum percentage for tempo zone (Zone 3)",
-                "format": "float",
-                "type": "number"
-              },
-              "threshold_max": {
-                "description": "Maximum percentage for threshold zone (Zone 4, above this is VO2 max)",
-                "format": "float",
-                "type": "number"
-              }
-            },
-            "required": [
-              "recovery_max",
-              "endurance_max",
-              "tempo_max",
-              "threshold_max"
             ],
             "type": "object"
           }
@@ -18037,16 +18522,11 @@
                   "type": {
                     "const": "Research",
                     "type": "string"
-                  },
-                  "zone_granularity": {
-                    "$ref": "#/$defs/ZoneGranularity",
-                    "description": "Level of zone granularity"
                   }
                 },
                 "required": [
                   "type",
                   "sensitivity_multiplier",
-                  "zone_granularity",
                   "statistical_confidence"
                 ],
                 "type": "object"
@@ -18254,26 +18734,6 @@
               "last_modified"
             ],
             "type": "object"
-          },
-          "ZoneGranularity": {
-            "description": "Zone analysis granularity",
-            "oneOf": [
-              {
-                "const": "Standard",
-                "description": "Standard 5-zone model",
-                "type": "string"
-              },
-              {
-                "const": "Fine",
-                "description": "Fine 7-zone model",
-                "type": "string"
-              },
-              {
-                "const": "UltraFine",
-                "description": "Ultra-fine 10-zone model for research",
-                "type": "string"
-              }
-            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -18747,7 +19207,7 @@
     },
     {
       "name": "import_provider_thresholds",
-      "description": "Import the athlete's training thresholds — FTP, lactate threshold heart rate, max heart rate and threshold pace — from their Intervals.icu sport settings, read through their own Intervals.icu connection or the link through their human coach they confirmed. A threshold is filled only when the profile has none, or refreshed when it holds Intervals.icu's earlier value. A value the athlete set is never replaced: it comes back as kept_yours with both numbers, and adopting Intervals.icu's is the athlete's call, saved with set_physiology. A value outside the ranges every saved value is checked against is skipped with the reason. W′ is never imported: Intervals.icu's W′ belongs to its FTP-anchored model, not the critical-power model the profile's W′ is. An imported value is Intervals.icu's estimate: quote it with its origin ('intervals.icu has your FTP at 285 W'), never as a measurement. Zones are re-derived and the stored training history recomputed. Call it when the athlete asks to bring their thresholds over from Intervals.icu; report only what the result contains.",
+      "description": "Import the athlete's training thresholds — FTP, lactate threshold heart rate, max heart rate and threshold pace — from their Intervals.icu sport settings, read through their own Intervals.icu connection or the link through their human coach they confirmed. A threshold is filled only when the profile has none, or refreshed when it holds Intervals.icu's earlier value. A value the athlete set is never replaced: it comes back as kept_yours with both numbers, and adopting Intervals.icu's is the athlete's call, saved with set_physiology. A value outside the ranges every saved value is checked against is skipped with the reason. W′ is never imported: Intervals.icu's W′ belongs to its FTP-anchored model, not the critical-power model the profile's W′ is. An imported value is Intervals.icu's estimate: quote it with its origin ('intervals.icu has your FTP at 285 W'), never as a measurement. Zones are re-derived and the stored training history recomputed. The athlete's sex is recorded from their Intervals.icu profile only when it reports one and the profile holds none (sex_recorded); a sex the athlete stated is never replaced. Call it when the athlete asks to bring their thresholds over from Intervals.icu; report only what the result contains.",
       "inputSchema": {
         "properties": {},
         "type": "object"
@@ -18868,18 +19328,73 @@
               }
             ]
           },
+          "HrZoneModel": {
+            "description": "Which model cut a stored set of heart-rate zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at fixed fractions of heart-rate reserve, written before\nthe zones moved to cageux. Only ever read from an old row; nothing\nwrites it.",
+                "type": "string"
+              },
+              {
+                "const": "karvonen_vo2max_tiered",
+                "description": "cageux's `VO2max`-tiered Karvonen zones ([`HrZones`]).",
+                "type": "string"
+              }
+            ]
+          },
           "HrZoneSet": {
-            "description": "Five-zone heart-rate boundaries for a single user.\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in beats per minute.\nThe lower bound of zone `N+1` is `zN_max + 1`. A zone above `z5_max` is\nimplicitly \"above max\" and not counted in distribution analytics.\n\nThis is distinct from\n[`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries\nper-activity time-in-zone counts. `HrZoneSet` is the per-user definition;\n`HeartRateZone` is the per-activity occupancy.",
+            "description": "Heart-rate zone boundaries for a single user.\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in beats per\nminute; zone `N+1` starts above it. `z6_max` is present when the athlete's\ntier carries a zone 6 (`VO2max` of 50 or more and a zone 5 that stops\nshort of their maximum), and is then their maximum heart rate.\n\nThis is distinct from\n[`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries\nper-activity time-in-zone counts. `HrZoneSet` is the per-user definition;\n`HeartRateZone` is the per-activity occupancy.",
             "properties": {
+              "model": {
+                "$ref": "#/$defs/HrZoneModel",
+                "default": "legacy",
+                "description": "Which model cut these boundaries. A row written before this field\nexisted reads as [`HrZoneModel::Legacy`]."
+              },
+              "tier": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HrZoneTier"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "The `VO2max` tier that chose the zone fractions; absent on a legacy row."
+              },
+              "vo2_max_source": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Vo2maxSource"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Whether the `VO2max` that chose the tier was the athlete's own or\nestimated from their heart rates; absent on a legacy row."
+              },
               "z1_max": {
-                "description": "Upper bound of Zone 1 (active recovery / very easy) in bpm.",
+                "description": "Upper bound of Zone 1 (recovery) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
               },
+              "z1_min": {
+                "default": null,
+                "description": "Lower bound of Zone 1 (recovery) in bpm, inclusive: the zone's floor\non the athlete's reserve. Absent on a legacy row.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "z2_max": {
-                "description": "Upper bound of Zone 2 (aerobic base / endurance) in bpm.",
+                "description": "Upper bound of Zone 2 (endurance) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
@@ -18893,28 +19408,69 @@
                 "type": "integer"
               },
               "z4_max": {
-                "description": "Upper bound of Zone 4 (threshold / lactate threshold) in bpm.",
+                "description": "Upper bound of Zone 4 (threshold) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
               },
               "z5_max": {
-                "description": "Upper bound of Zone 5 (`VO2max` / anaerobic) in bpm.",
+                "description": "Upper bound of Zone 5 (`VO2max`) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_max": {
+                "default": null,
+                "description": "Upper bound of Zone 6 (anaerobic) in bpm, the athlete's maximum heart\nrate; absent when their zones have no zone 6, and on a legacy row.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
+              "z1_min",
               "z1_max",
               "z2_max",
               "z3_max",
               "z4_max",
-              "z5_max"
+              "z5_max",
+              "z6_max",
+              "tier",
+              "vo2_max_source",
+              "model"
             ],
             "type": "object"
+          },
+          "HrZoneTier": {
+            "description": "An athlete's `VO2max` tier, which selects the heart-rate reserve fractions\ntheir zones are cut at\n\nThis is a cut on measured or estimated `VO2max`, not the athlete's declared\nexperience ([`crate::models::FitnessLevel`]): a self-described beginner\nwith a `VO2max` of 55 gets the advanced tier's zones.",
+            "oneOf": [
+              {
+                "const": "beginner",
+                "description": "`VO2max` below 40 ml/kg/min: the widest bands",
+                "type": "string"
+              },
+              {
+                "const": "intermediate",
+                "description": "`VO2max` from 40 up to 50 ml/kg/min",
+                "type": "string"
+              },
+              {
+                "const": "advanced",
+                "description": "`VO2max` from 50 up to 60 ml/kg/min: zone 6 becomes available",
+                "type": "string"
+              },
+              {
+                "const": "elite",
+                "description": "`VO2max` of 60 ml/kg/min or more: the narrowest bands",
+                "type": "string"
+              }
+            ]
           },
           "MeasurementKind": {
             "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
@@ -18958,6 +19514,21 @@
               "kind"
             ],
             "type": "object"
+          },
+          "PhysiologicalSex": {
+            "description": "An athlete's physiological sex, as the published equations use it.\n\nKeytel et al. (2005) take it for exercise energy expenditure, and\nEsteve-Lanao et al. (2026) give sex-specific VT1/VT2 speed ratios for the\naerobic-threshold pace.\n\nIt selects an equation's coefficients and nothing else. It is recorded\nonly when the athlete states it or a provider reports it, never inferred\nfrom a name or anything else; absent, every reader falls back to the\npooled or sex-free form, or reports that it needs it.",
+            "oneOf": [
+              {
+                "const": "male",
+                "description": "Male.",
+                "type": "string"
+              },
+              {
+                "const": "female",
+                "description": "Female.",
+                "type": "string"
+              }
+            ]
           },
           "PhysiologyProfile": {
             "description": "The athlete's physiological profile as the tools echo it back.\n\nEvery measurement is optional: a profile is built up over time, and an\nathlete who has only ever given a resting heart rate has a profile with\none field set. Reporting the absent ones as absent rather than as zero is\nwhat keeps an agent from reasoning off a fabricated number.\n\n`fitness_level` and `primary_sport` are NOT optional — they carry their\nown defaults — which is why they are the enums rather than strings.",
@@ -19027,7 +19598,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Heart-rate zone boundaries. Absent until both a resting and a maximum\nheart rate are on the profile, because they are derived from the pair."
+                "description": "Heart-rate zone boundaries, cageux's `VO2max`-tiered Karvonen zones\n(zone 6 when the tier has one). Absent until both a resting and a\nmaximum heart rate are on the profile, because they are cut from the\nreserve between the pair."
               },
               "lactate_threshold_percentage": {
                 "description": "Lactate threshold as a fraction of `VO2max`. Sets threshold pace, and\nestimates the LTHR when none is measured.",
@@ -19056,7 +19627,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Power zone boundaries. Absent for an athlete with no power meter or\nsaved FTP."
+                "description": "Power zone boundaries, Coggan's seven levels from the FTP (zone 7 is\neverything above `z6_max`). Absent for an athlete with no saved FTP."
               },
               "primary_sport": {
                 "$ref": "#/$defs/SportType",
@@ -19071,6 +19642,17 @@
                   "integer",
                   "null"
                 ]
+              },
+              "sex": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PhysiologicalSex"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Physiological sex, as the athlete stated it or a provider reported it;\nabsent when neither did. It selects the published equations that take\none."
               },
               "threshold_hr": {
                 "description": "Measured lactate threshold heart rate, in bpm — what heart-rate\ntraining stress is scored against.",
@@ -19145,6 +19727,7 @@
               "fitness_level",
               "primary_sport",
               "training_experience_years",
+              "sex",
               "hr_zones",
               "power_zones",
               "critical_power_watts",
@@ -19154,9 +19737,29 @@
             ],
             "type": "object"
           },
+          "PowerZoneModel": {
+            "description": "Which model cut a stored set of power zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at configurable FTP percentages, written before the zones\nmoved to cageux. Only ever read from an old row; nothing writes it.",
+                "type": "string"
+              },
+              {
+                "const": "coggan",
+                "description": "Coggan's seven power levels ([`PowerZones`]).",
+                "type": "string"
+              }
+            ]
+          },
           "PowerZoneSet": {
-            "description": "Five-zone power boundaries for a single user (cycling / running power).\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in watts. Same\nmonotonicity invariant as [`HrZoneSet`].",
+            "description": "Power zone boundaries for a single user (cycling / running power).\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in watts, rounded\nto the watt. Zone 7 is everything above `z6_max` and has no upper bound;\na legacy row holds only five zones and no `z6_max`.",
             "properties": {
+              "model": {
+                "$ref": "#/$defs/PowerZoneModel",
+                "default": "legacy",
+                "description": "Which model cut these boundaries. A row written before this field\nexisted reads as [`PowerZoneModel::Legacy`]."
+              },
               "z1_max": {
                 "description": "Upper bound of Zone 1 (active recovery) in watts.",
                 "format": "uint32",
@@ -19176,7 +19779,7 @@
                 "type": "integer"
               },
               "z4_max": {
-                "description": "Upper bound of Zone 4 (threshold / FTP) in watts.",
+                "description": "Upper bound of Zone 4 (lactate threshold) in watts.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
@@ -19186,6 +19789,16 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_max": {
+                "default": null,
+                "description": "Upper bound of Zone 6 (anaerobic capacity) in watts; zone 7\n(neuromuscular power) is everything above it. Absent on a legacy row.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -19193,7 +19806,9 @@
               "z2_max",
               "z3_max",
               "z4_max",
-              "z5_max"
+              "z5_max",
+              "z6_max",
+              "model"
             ],
             "type": "object"
           },
@@ -19953,6 +20568,21 @@
             },
             "type": "object"
           },
+          "Vo2maxSource": {
+            "description": "Where the `VO2max` that chose an athlete's tier came from",
+            "oneOf": [
+              {
+                "const": "provided",
+                "description": "The caller supplied it (a lab test, a field test, a device estimate)",
+                "type": "string"
+              },
+              {
+                "const": "heart_rate_ratio",
+                "description": "Estimated from maximum and resting heart rate (Uth et al. 2004)",
+                "type": "string"
+              }
+            ]
+          },
           "WPrimeImport": {
             "description": "What an import does with W′.",
             "oneOf": [
@@ -19996,7 +20626,11 @@
             "type": "string"
           },
           "saved": {
-            "description": "Whether the profile was written: an import that only kept or skipped\nvalues writes nothing.",
+            "description": "Whether the profile was written: an import that only kept or skipped\nvalues, and recorded no sex, writes nothing.",
+            "type": "boolean"
+          },
+          "sex_recorded": {
+            "description": "Whether the athlete's physiological sex was recorded from the\nprovider's athlete profile: only when the provider reports one and the\nprofile held none. A sex the athlete stated is never replaced.",
             "type": "boolean"
           },
           "thresholds": {
@@ -20012,6 +20646,7 @@
           "provider",
           "saved",
           "thresholds",
+          "sex_recorded",
           "profile",
           "training_history"
         ],
@@ -27121,7 +27756,7 @@
     },
     {
       "name": "set_physiology",
-      "description": "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
+      "description": "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
       "inputSchema": {
         "properties": {
           "age": {
@@ -27175,6 +27810,10 @@
           "resting_hr": {
             "description": "Resting heart rate in bpm.",
             "type": "integer"
+          },
+          "sex": {
+            "description": "Physiological sex, only as the athlete states it: one of male, female. It selects the published equations that take one (Keytel's energy estimate, the sex-specific LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said.",
+            "type": "string"
           },
           "threshold_hr": {
             "description": "Lactate threshold heart rate (LTHR) in bpm, from a 30-minute field test, a ramp test or a lab report. Heart-rate-based training load is scored against it.",
@@ -27319,18 +27958,73 @@
               }
             ]
           },
+          "HrZoneModel": {
+            "description": "Which model cut a stored set of heart-rate zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at fixed fractions of heart-rate reserve, written before\nthe zones moved to cageux. Only ever read from an old row; nothing\nwrites it.",
+                "type": "string"
+              },
+              {
+                "const": "karvonen_vo2max_tiered",
+                "description": "cageux's `VO2max`-tiered Karvonen zones ([`HrZones`]).",
+                "type": "string"
+              }
+            ]
+          },
           "HrZoneSet": {
-            "description": "Five-zone heart-rate boundaries for a single user.\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in beats per minute.\nThe lower bound of zone `N+1` is `zN_max + 1`. A zone above `z5_max` is\nimplicitly \"above max\" and not counted in distribution analytics.\n\nThis is distinct from\n[`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries\nper-activity time-in-zone counts. `HrZoneSet` is the per-user definition;\n`HeartRateZone` is the per-activity occupancy.",
+            "description": "Heart-rate zone boundaries for a single user.\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in beats per\nminute; zone `N+1` starts above it. `z6_max` is present when the athlete's\ntier carries a zone 6 (`VO2max` of 50 or more and a zone 5 that stops\nshort of their maximum), and is then their maximum heart rate.\n\nThis is distinct from\n[`pierre_core::models::HeartRateZone`](super::HeartRateZone), which carries\nper-activity time-in-zone counts. `HrZoneSet` is the per-user definition;\n`HeartRateZone` is the per-activity occupancy.",
             "properties": {
+              "model": {
+                "$ref": "#/$defs/HrZoneModel",
+                "default": "legacy",
+                "description": "Which model cut these boundaries. A row written before this field\nexisted reads as [`HrZoneModel::Legacy`]."
+              },
+              "tier": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HrZoneTier"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "The `VO2max` tier that chose the zone fractions; absent on a legacy row."
+              },
+              "vo2_max_source": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Vo2maxSource"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Whether the `VO2max` that chose the tier was the athlete's own or\nestimated from their heart rates; absent on a legacy row."
+              },
               "z1_max": {
-                "description": "Upper bound of Zone 1 (active recovery / very easy) in bpm.",
+                "description": "Upper bound of Zone 1 (recovery) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
               },
+              "z1_min": {
+                "default": null,
+                "description": "Lower bound of Zone 1 (recovery) in bpm, inclusive: the zone's floor\non the athlete's reserve. Absent on a legacy row.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "z2_max": {
-                "description": "Upper bound of Zone 2 (aerobic base / endurance) in bpm.",
+                "description": "Upper bound of Zone 2 (endurance) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
@@ -27344,28 +28038,69 @@
                 "type": "integer"
               },
               "z4_max": {
-                "description": "Upper bound of Zone 4 (threshold / lactate threshold) in bpm.",
+                "description": "Upper bound of Zone 4 (threshold) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
               },
               "z5_max": {
-                "description": "Upper bound of Zone 5 (`VO2max` / anaerobic) in bpm.",
+                "description": "Upper bound of Zone 5 (`VO2max`) in bpm.",
                 "format": "uint16",
                 "maximum": 65535,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_max": {
+                "default": null,
+                "description": "Upper bound of Zone 6 (anaerobic) in bpm, the athlete's maximum heart\nrate; absent when their zones have no zone 6, and on a legacy row.",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
+              "z1_min",
               "z1_max",
               "z2_max",
               "z3_max",
               "z4_max",
-              "z5_max"
+              "z5_max",
+              "z6_max",
+              "tier",
+              "vo2_max_source",
+              "model"
             ],
             "type": "object"
+          },
+          "HrZoneTier": {
+            "description": "An athlete's `VO2max` tier, which selects the heart-rate reserve fractions\ntheir zones are cut at\n\nThis is a cut on measured or estimated `VO2max`, not the athlete's declared\nexperience ([`crate::models::FitnessLevel`]): a self-described beginner\nwith a `VO2max` of 55 gets the advanced tier's zones.",
+            "oneOf": [
+              {
+                "const": "beginner",
+                "description": "`VO2max` below 40 ml/kg/min: the widest bands",
+                "type": "string"
+              },
+              {
+                "const": "intermediate",
+                "description": "`VO2max` from 40 up to 50 ml/kg/min",
+                "type": "string"
+              },
+              {
+                "const": "advanced",
+                "description": "`VO2max` from 50 up to 60 ml/kg/min: zone 6 becomes available",
+                "type": "string"
+              },
+              {
+                "const": "elite",
+                "description": "`VO2max` of 60 ml/kg/min or more: the narrowest bands",
+                "type": "string"
+              }
+            ]
           },
           "MeasurementKind": {
             "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
@@ -27409,6 +28144,21 @@
               "kind"
             ],
             "type": "object"
+          },
+          "PhysiologicalSex": {
+            "description": "An athlete's physiological sex, as the published equations use it.\n\nKeytel et al. (2005) take it for exercise energy expenditure, and\nEsteve-Lanao et al. (2026) give sex-specific VT1/VT2 speed ratios for the\naerobic-threshold pace.\n\nIt selects an equation's coefficients and nothing else. It is recorded\nonly when the athlete states it or a provider reports it, never inferred\nfrom a name or anything else; absent, every reader falls back to the\npooled or sex-free form, or reports that it needs it.",
+            "oneOf": [
+              {
+                "const": "male",
+                "description": "Male.",
+                "type": "string"
+              },
+              {
+                "const": "female",
+                "description": "Female.",
+                "type": "string"
+              }
+            ]
           },
           "PhysiologyProfile": {
             "description": "The athlete's physiological profile as the tools echo it back.\n\nEvery measurement is optional: a profile is built up over time, and an\nathlete who has only ever given a resting heart rate has a profile with\none field set. Reporting the absent ones as absent rather than as zero is\nwhat keeps an agent from reasoning off a fabricated number.\n\n`fitness_level` and `primary_sport` are NOT optional — they carry their\nown defaults — which is why they are the enums rather than strings.",
@@ -27478,7 +28228,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Heart-rate zone boundaries. Absent until both a resting and a maximum\nheart rate are on the profile, because they are derived from the pair."
+                "description": "Heart-rate zone boundaries, cageux's `VO2max`-tiered Karvonen zones\n(zone 6 when the tier has one). Absent until both a resting and a\nmaximum heart rate are on the profile, because they are cut from the\nreserve between the pair."
               },
               "lactate_threshold_percentage": {
                 "description": "Lactate threshold as a fraction of `VO2max`. Sets threshold pace, and\nestimates the LTHR when none is measured.",
@@ -27507,7 +28257,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Power zone boundaries. Absent for an athlete with no power meter or\nsaved FTP."
+                "description": "Power zone boundaries, Coggan's seven levels from the FTP (zone 7 is\neverything above `z6_max`). Absent for an athlete with no saved FTP."
               },
               "primary_sport": {
                 "$ref": "#/$defs/SportType",
@@ -27522,6 +28272,17 @@
                   "integer",
                   "null"
                 ]
+              },
+              "sex": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/PhysiologicalSex"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Physiological sex, as the athlete stated it or a provider reported it;\nabsent when neither did. It selects the published equations that take\none."
               },
               "threshold_hr": {
                 "description": "Measured lactate threshold heart rate, in bpm — what heart-rate\ntraining stress is scored against.",
@@ -27596,6 +28357,7 @@
               "fitness_level",
               "primary_sport",
               "training_experience_years",
+              "sex",
               "hr_zones",
               "power_zones",
               "critical_power_watts",
@@ -27605,9 +28367,29 @@
             ],
             "type": "object"
           },
+          "PowerZoneModel": {
+            "description": "Which model cut a stored set of power zones.",
+            "oneOf": [
+              {
+                "const": "legacy",
+                "description": "Five zones at configurable FTP percentages, written before the zones\nmoved to cageux. Only ever read from an old row; nothing writes it.",
+                "type": "string"
+              },
+              {
+                "const": "coggan",
+                "description": "Coggan's seven power levels ([`PowerZones`]).",
+                "type": "string"
+              }
+            ]
+          },
           "PowerZoneSet": {
-            "description": "Five-zone power boundaries for a single user (cycling / running power).\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in watts. Same\nmonotonicity invariant as [`HrZoneSet`].",
+            "description": "Power zone boundaries for a single user (cycling / running power).\n\nEach `zN_max` is the upper bound (inclusive) of zone `N` in watts, rounded\nto the watt. Zone 7 is everything above `z6_max` and has no upper bound;\na legacy row holds only five zones and no `z6_max`.",
             "properties": {
+              "model": {
+                "$ref": "#/$defs/PowerZoneModel",
+                "default": "legacy",
+                "description": "Which model cut these boundaries. A row written before this field\nexisted reads as [`PowerZoneModel::Legacy`]."
+              },
               "z1_max": {
                 "description": "Upper bound of Zone 1 (active recovery) in watts.",
                 "format": "uint32",
@@ -27627,7 +28409,7 @@
                 "type": "integer"
               },
               "z4_max": {
-                "description": "Upper bound of Zone 4 (threshold / FTP) in watts.",
+                "description": "Upper bound of Zone 4 (lactate threshold) in watts.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
@@ -27637,6 +28419,16 @@
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "z6_max": {
+                "default": null,
+                "description": "Upper bound of Zone 6 (anaerobic capacity) in watts; zone 7\n(neuromuscular power) is everything above it. Absent on a legacy row.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -27644,7 +28436,9 @@
               "z2_max",
               "z3_max",
               "z4_max",
-              "z5_max"
+              "z5_max",
+              "z6_max",
+              "model"
             ],
             "type": "object"
           },
@@ -27959,6 +28753,21 @@
               }
             },
             "type": "object"
+          },
+          "Vo2maxSource": {
+            "description": "Where the `VO2max` that chose an athlete's tier came from",
+            "oneOf": [
+              {
+                "const": "provided",
+                "description": "The caller supplied it (a lab test, a field test, a device estimate)",
+                "type": "string"
+              },
+              {
+                "const": "heart_rate_ratio",
+                "description": "Estimated from maximum and resting heart rate (Uth et al. 2004)",
+                "type": "string"
+              }
+            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",

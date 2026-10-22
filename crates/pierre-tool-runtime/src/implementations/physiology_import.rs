@@ -50,8 +50,8 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    MeasurementKind, MetricProvenance, ProviderThreshold, ProviderThresholds, SportType, TenantId,
-    ThresholdProvenance, UserPhysiologicalProfile,
+    MeasurementKind, MetricProvenance, PhysiologicalSex, ProviderThreshold, ProviderThresholds,
+    SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile,
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, ToolAnnotations};
@@ -183,10 +183,14 @@ pub struct ImportProviderThresholdsResult {
     /// knows it.
     pub provider: String,
     /// Whether the profile was written: an import that only kept or skipped
-    /// values writes nothing.
+    /// values, and recorded no sex, writes nothing.
     pub saved: bool,
     /// How each threshold fared.
     pub thresholds: ThresholdImports,
+    /// Whether the athlete's physiological sex was recorded from the
+    /// provider's athlete profile: only when the provider reports one and the
+    /// profile held none. A sex the athlete stated is never replaced.
+    pub sex_recorded: bool,
     /// The profile as it now stands, re-read from storage after a write;
     /// absent when the athlete has none and nothing was imported. Its
     /// `threshold_provenance` names every value a provider supplied.
@@ -334,10 +338,13 @@ fn thresholds_of(
     )
 }
 
-/// How the provider read ended: the thresholds, or the answer the tool
-/// relays instead.
+/// How the provider read ended: the thresholds and the sex the athlete's
+/// provider profile reports, or the answer the tool relays instead.
 enum ProviderRead {
-    Thresholds(ProviderThresholds),
+    Thresholds {
+        offered: ProviderThresholds,
+        reported_sex: Option<PhysiologicalSex>,
+    },
     Refused(ToolResult),
 }
 
@@ -383,7 +390,26 @@ async fn read_provider_thresholds(
         }
     };
     match provider.read_thresholds(Some(primary_sport)).await {
-        Ok(thresholds) => Ok(ProviderRead::Thresholds(thresholds)),
+        Ok(offered) => {
+            // The athlete profile is a second read; a failed one costs only
+            // the sex, never the thresholds already in hand.
+            let reported_sex = match provider.get_athlete().await {
+                Ok(athlete) => athlete.sex,
+                Err(e) => {
+                    warn!(
+                        user_id = %context.user_id,
+                        provider = brand,
+                        error = %e.internal_details(),
+                        "threshold import: athlete profile read failed; no sex recorded"
+                    );
+                    None
+                }
+            };
+            Ok(ProviderRead::Thresholds {
+                offered,
+                reported_sex,
+            })
+        }
         // Never a reaction: the athlete still shares their training, and the
         // link must survive the settings it does not cover.
         Err(e) if is_settings_not_shared(&e) => Ok(ProviderRead::Refused(ToolResult::error(
@@ -442,7 +468,9 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
              critical-power model the profile's W′ is. An imported value is Intervals.icu's \
              estimate: quote it with its origin ('intervals.icu has your FTP at 285 W'), never \
              as a measurement. Zones are re-derived and the stored training history \
-             recomputed. Call it when the athlete asks to bring their thresholds over from \
+             recomputed. The athlete's sex is recorded from their Intervals.icu profile only \
+             when it reports one and the profile holds none (sex_recorded); a sex the athlete \
+             stated is never replaced. Call it when the athlete asks to bring their thresholds over from \
              Intervals.icu; report only what the result contains.",
             schema,
             Some(ToolAnnotations {
@@ -493,17 +521,22 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
                 // later import of unchanged settings reads them from the same
                 // settings object instead of trading one sport's pair for
                 // another's.
-                let offered =
+                let (offered, reported_sex) =
                     match read_provider_thresholds(&context, tenant_id, &profile.primary_sport)
                         .await?
                     {
-                        ProviderRead::Thresholds(offered) => offered,
+                        ProviderRead::Thresholds {
+                            offered,
+                            reported_sex,
+                        } => (offered, reported_sex),
                         ProviderRead::Refused(answer) => return Ok(answer),
                     };
 
                 let before = thresholds_of(&profile);
                 let thresholds = merge(&mut profile, &offered);
-                let saved = thresholds_of(&profile) != before;
+                // The provider's sex only fills a gap; never inferred.
+                let sex_recorded = profile.fill_reported_sex(reported_sex);
+                let saved = thresholds_of(&profile) != before || sex_recorded;
 
                 let (shown, training_history) = if saved {
                     let (stored, history) =
@@ -522,6 +555,7 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
                     threshold_hr = thresholds.threshold_hr.label(),
                     max_hr = thresholds.max_hr.label(),
                     threshold_pace = thresholds.threshold_pace_sec_per_km.label(),
+                    sex_recorded = sex_recorded,
                     "imported athlete thresholds from a provider"
                 );
 
@@ -531,6 +565,7 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
                         provider: user_facing_name(INTERVALS_ICU).to_owned(),
                         saved,
                         thresholds,
+                        sex_recorded,
                         profile: shown.as_ref().map(profile_payload),
                         training_history,
                     },

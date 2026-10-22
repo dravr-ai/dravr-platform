@@ -17,6 +17,8 @@ use crate::constants::tiers;
 use crate::errors::AppError;
 use crate::intelligence::algorithms::maxhr::MaxHrAlgorithm;
 use crate::permissions::UserRole;
+use dravr_cageux::algorithms::lthr::LthrAlgorithm;
+use dravr_cageux::nutrition_calculator::Gender;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
 use super::{EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance};
@@ -682,23 +684,64 @@ impl User {
     }
 }
 
-/// Slope of Swain et al. 1994's regression of percent of maximum heart rate
-/// on percent of `VO2max` (Med Sci Sports Exerc 26:112-116):
-/// `%HRmax = 0.6463 × %VO2max + 37.182`.
-pub const SWAIN_HRMAX_PER_VO2MAX_SLOPE: f64 = 0.6463;
-
-/// Intercept of the same regression, in percent of maximum heart rate.
-pub const SWAIN_HRMAX_INTERCEPT_PERCENT: f64 = 37.182;
-
-/// The fraction of maximum heart rate reached at a fraction of `VO2max`, by
-/// Swain et al. 1994. At 0.85 of `VO2max` that is 0.921 of maximum heart rate;
-/// at 0.65, 0.792.
+/// An athlete's physiological sex, as the published equations use it.
 ///
-/// A population regression: an individual's measured LTHR beats it, which is
-/// why [`UserPhysiologicalProfile::threshold_hr`] takes precedence.
-#[must_use]
-pub fn max_hr_fraction_at_vo2max_fraction(vo2max_fraction: f64) -> f64 {
-    SWAIN_HRMAX_PER_VO2MAX_SLOPE.mul_add(vo2max_fraction, SWAIN_HRMAX_INTERCEPT_PERCENT / 100.0)
+/// Keytel et al. (2005) take it for exercise energy expenditure, and
+/// Esteve-Lanao et al. (2026) give sex-specific VT1/VT2 speed ratios for the
+/// aerobic-threshold pace.
+///
+/// It selects an equation's coefficients and nothing else. It is recorded
+/// only when the athlete states it or a provider reports it, never inferred
+/// from a name or anything else; absent, every reader falls back to the
+/// pooled or sex-free form, or reports that it needs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PhysiologicalSex {
+    /// Male.
+    Male,
+    /// Female.
+    Female,
+}
+
+impl PhysiologicalSex {
+    /// The value stored in the `sex` column.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Male => "male",
+            Self::Female => "female",
+        }
+    }
+
+    /// Parse a stored `sex` column value; `None` for anything else.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "male" => Some(Self::Male),
+            "female" => Some(Self::Female),
+            _ => None,
+        }
+    }
+
+    /// The sex a provider reports as `M` / `F` (Strava's and intervals.icu's
+    /// athlete `sex`); `None` for anything else, including no answer.
+    #[must_use]
+    pub fn from_provider_code(code: &str) -> Option<Self> {
+        match code.trim() {
+            "M" | "m" => Some(Self::Male),
+            "F" | "f" => Some(Self::Female),
+            _ => None,
+        }
+    }
+
+    /// The same sex in cageux's equations' vocabulary.
+    #[must_use]
+    pub const fn for_equations(self) -> Gender {
+        match self {
+            Self::Male => Gender::Male,
+            Self::Female => Gender::Female,
+        }
+    }
 }
 
 /// User physiological profile for personalized analysis
@@ -792,6 +835,12 @@ pub struct UserPhysiologicalProfile {
     /// touched reads exactly as before.
     #[serde(default, skip_serializing_if = "ThresholdProvenance::is_empty")]
     pub threshold_provenance: ThresholdProvenance,
+    /// Physiological sex, for the published equations that take one
+    /// ([`PhysiologicalSex`]). Set by the athlete with `set_physiology`, or
+    /// filled once from a provider that reports it when none is set; a value
+    /// the athlete set is never replaced by a provider's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sex: Option<PhysiologicalSex>,
     /// Where this profile may be served (carnet#769): first-party-only when the
     /// turn that wrote it served data whose terms keep it on Dravr's own
     /// surfaces. Profiles written before the stamp read as unstamped.
@@ -825,23 +874,39 @@ impl UserPhysiologicalProfile {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::NONE,
+            sex: None,
             transport_policy: TransportPolicy::AnyTransport,
         }
     }
 
-    /// Estimate max heart rate from age if not provided using Tanaka formula
+    /// Record the sex a provider `reported`, only when the profile holds
+    /// none: a sex the athlete stated, or one recorded earlier, is never
+    /// replaced, and no report records nothing. Returns whether it was
+    /// recorded.
+    pub fn fill_reported_sex(&mut self, reported: Option<PhysiologicalSex>) -> bool {
+        match (self.sex, reported) {
+            (None, Some(sex)) => {
+                self.sex = Some(sex);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The saved maximum heart rate, else cageux's estimate from the saved
+    /// age by `algorithm` — the max-HR estimator the deployment configures
+    /// (`AlgorithmConfig::maxhr_algorithm`, admin key `algorithm.maxhr`).
+    /// `None` with neither a maximum nor an age, or when the estimator
+    /// refuses the age.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)] // Safe: HR is constrained to 0-220 range
-    #[allow(clippy::cast_sign_loss)] // Safe: HR is always positive from algorithm
-    pub fn estimated_max_hr(&self) -> Option<u16> {
+    pub fn estimated_max_hr(&self, algorithm: MaxHrAlgorithm) -> Option<u16> {
         self.max_hr.or_else(|| {
-            self.age.map(|age| {
-                // Use Tanaka formula via enum (gold standard: 208 - 0.7xage)
-                MaxHrAlgorithm::Tanaka
-                    .estimate(u32::from(age), None)
-                    .ok()
-                    .map_or_else(|| 220_u16.saturating_sub(age), |hr| hr.round() as u16)
-            })
+            let age = self.age?;
+            let estimate = algorithm.estimate(u32::from(age), None).ok()?;
+            // Safe: every estimator returns a heart rate inside 0-220 bpm.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let bpm = estimate.round() as u16;
+            Some(bpm)
         })
     }
 
@@ -859,17 +924,22 @@ impl UserPhysiologicalProfile {
             .or_else(|| self.estimated_lactate_threshold_hr())
     }
 
-    /// The LTHR the stored lactate threshold implies, in bpm: the measured
-    /// maximum heart rate times the share of it the athlete reaches at that
-    /// fraction of `VO2max` ([`max_hr_fraction_at_vo2max_fraction`]).
+    /// The LTHR the stored lactate threshold implies, in bpm: cageux's
+    /// [`LthrAlgorithm::FromVo2maxFraction`], the measured maximum heart rate
+    /// times the share of it reached at that fraction of `VO2max` (Swain et
+    /// al. 1994).
     ///
     /// Needs a measured `max_hr`; an age-predicted one would stack a second
-    /// population estimate on the first.
+    /// population estimate on the first. `None` when cageux refuses the
+    /// inputs (a fraction outside the regression's 0.40-0.95).
     #[must_use]
     pub fn estimated_lactate_threshold_hr(&self) -> Option<f64> {
-        let fraction = self.lactate_threshold_percentage?;
-        let max_hr = self.max_hr?;
-        Some(f64::from(max_hr) * max_hr_fraction_at_vo2max_fraction(fraction))
+        LthrAlgorithm::FromVo2maxFraction {
+            max_hr: f64::from(self.max_hr?),
+            vo2max_fraction: self.lactate_threshold_percentage?,
+        }
+        .estimate_lthr()
+        .ok()
     }
 }
 

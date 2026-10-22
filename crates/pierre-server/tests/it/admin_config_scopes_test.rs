@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::time::Duration as StdDuration;
 
 use pierre_config::admin_definitions::{
-    register_heart_rate_zones, register_usage_quotas, ParameterDefinition,
+    register_feature_flags, register_usage_quotas, ParameterDefinition,
 };
 use pierre_config::admin_env::EnvConfigPins;
 use pierre_config::admin_types::{ConfigDataType, ConfigScope};
@@ -238,14 +238,14 @@ fn env_pin_rejects_unparseable_and_out_of_range_values() {
 
 #[test]
 fn boot_loader_owned_variables_are_not_read_by_the_config_layer() {
-    // FITNESS_ZONE_* and friends are loaded into their own structs before a
-    // database exists. A second reader here would produce two values for one
-    // variable that silently disagree.
+    // WEATHER_SERVICE_ENABLED and friends are loaded into their own structs
+    // before a database exists. A second reader here would produce two values
+    // for one variable that silently disagree.
     let mut defs = HashMap::new();
-    register_heart_rate_zones(&mut defs);
+    register_feature_flags(&mut defs);
 
     let (pins, errors) = EnvConfigPins::capture_from(&defs, |name| {
-        (name == "FITNESS_ZONE_RECOVERY_MAX").then(|| "55.0".to_owned())
+        (name == "WEATHER_SERVICE_ENABLED").then(|| "false".to_owned())
     });
 
     assert_eq!(errors, []);

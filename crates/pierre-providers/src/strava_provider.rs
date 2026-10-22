@@ -34,6 +34,7 @@ use crate::strava_types::{
 use crate::utils;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_core::models::PhysiologicalSex;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use std::fmt::Write;
@@ -688,6 +689,10 @@ impl FitnessProvider for StravaProvider {
             lastname: strava_athlete.lastname,
             profile_picture: strava_athlete.profile_medium,
             provider: oauth_providers::STRAVA.to_owned(),
+            sex: strava_athlete
+                .sex
+                .as_deref()
+                .and_then(PhysiologicalSex::from_provider_code),
         })
     }
 

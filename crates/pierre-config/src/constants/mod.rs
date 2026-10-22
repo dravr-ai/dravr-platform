@@ -147,7 +147,7 @@ pub use pierre_core::constants::tools::*;
 pub use pierre_core::constants::{
     api_provider_limits, cache, cache_config, configuration_system, database, defaults,
     error_messages, errors, goal_management, http_status, json_fields, key_prefixes, limits,
-    mcp_transport, oauth, oauth_config, oauth_rate_limiting, physiology, ports, project, protocols,
+    mcp_transport, oauth, oauth_config, oauth_rate_limiting, ports, project, protocols,
     rate_limits, redis, routes, security, service_names, sleep_recovery, status, system_config,
     system_monitoring, tiers, time, time_constants, timeouts, tools, units,
 };

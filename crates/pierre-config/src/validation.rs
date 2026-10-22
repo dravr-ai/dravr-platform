@@ -12,15 +12,12 @@ use serde::{Deserialize, Serialize};
 
 use super::catalog::{CatalogBuilder, ParameterType};
 use super::runtime::ConfigValue;
-use pierre_core::intelligence::algorithms::maxhr::MaxHrAlgorithm;
-use pierre_core::models::{max_hr_fraction_at_vo2max_fraction, UserPhysiologicalProfile};
+use pierre_core::models::UserPhysiologicalProfile;
 
 /// Configuration validator
 pub struct ConfigValidator {
     /// Safety constraints
     safety_rules: Vec<SafetyRule>,
-    /// Physiological relationship rules
-    relationship_rules: Vec<RelationshipRule>,
 }
 
 /// Validation result
@@ -72,24 +69,12 @@ pub struct SafetyRule {
     pub validator: fn(&str, &ConfigValue, Option<&UserPhysiologicalProfile>) -> Result<(), String>,
 }
 
-/// Physiological relationship rule
-#[derive(Debug, Clone)]
-pub struct RelationshipRule {
-    /// Rule name
-    pub name: String,
-    /// Parameters this rule applies to
-    pub parameters: Vec<String>,
-    /// Validation function
-    pub validator: fn(&HashMap<String, ConfigValue>) -> Result<(), String>,
-}
-
 impl ConfigValidator {
     /// Create a new configuration validator
     #[must_use]
     pub fn new() -> Self {
         Self {
             safety_rules: Self::build_safety_rules(),
-            relationship_rules: Self::build_relationship_rules(),
         }
     }
 
@@ -109,22 +94,7 @@ impl ConfigValidator {
             }
         }
 
-        // 2. Validate physiological relationships
-        for rule in &self.relationship_rules {
-            let relevant_params: HashMap<String, ConfigValue> = changes
-                .iter()
-                .filter(|(key, _)| rule.parameters.contains(key))
-                .map(|(k, v)| (k.clone(), v.clone())) // Safe: String ownership for filtered config map
-                .collect();
-
-            if !relevant_params.is_empty() {
-                if let Err(error) = (rule.validator)(&relevant_params) {
-                    result.add_error(format!("{}: {}", rule.name, error));
-                }
-            }
-        }
-
-        // 3. Perform impact analysis
+        // 2. Perform impact analysis
         result.impact_analysis = Some(Self::analyze_impact(changes));
 
         result
@@ -234,11 +204,6 @@ impl ConfigValidator {
 
         // Identify affected components
         for key in changes.keys() {
-            if key.starts_with("heart_rate") {
-                impact
-                    .affected_components
-                    .push("Heart Rate Analysis".into());
-            }
             if key.starts_with("performance") {
                 impact.affected_components.push("Effort Scoring".into());
             }
@@ -273,44 +238,6 @@ impl ConfigValidator {
     fn build_safety_rules() -> Vec<SafetyRule> {
         vec![
             SafetyRule {
-                name: "Heart Rate Safety".into(),
-                description: "Ensure heart rate thresholds are physiologically safe".into(),
-                validator: |key, value, profile| {
-                    if key.contains("heart_rate") && key.contains("percentage") {
-                        if let ConfigValue::Float(percentage) = value {
-                            if *percentage > 100.0 {
-                                return Err("Heart rate percentage cannot exceed 100%".into());
-                            }
-                            if *percentage < 30.0 {
-                                return Err(
-                                    "Heart rate percentage too low for meaningful training"
-                                        .to_owned(),
-                                );
-                            }
-
-                            // Age-based safety checks
-                            if let Some(profile) = profile {
-                                if let Some(age) = profile.age {
-                                    // Use Fox formula via enum for conservative safety check
-                                    let estimated_max_hr = MaxHrAlgorithm::Fox
-                                        .estimate(u32::from(age), None)
-                                        .map_err(|e| format!("Failed to estimate max HR: {e}"))?;
-                                    let actual_hr = estimated_max_hr * percentage / 100.0;
-
-                                    if age > 65 && actual_hr > 160.0 {
-                                        return Err(
-                                            "Heart rate target may be too high for age group"
-                                                .to_owned(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Ok(())
-                },
-            },
-            SafetyRule {
                 name: "Intensity Limits".into(),
                 description: "Prevent dangerously high intensity settings".into(),
                 validator: |key, value, _profile| {
@@ -341,86 +268,6 @@ impl ConfigValidator {
                             if *divisor > 1000.0 {
                                 return Err("Divisor value unreasonably high".into());
                             }
-                        }
-                    }
-                    Ok(())
-                },
-            },
-        ]
-    }
-
-    /// Build physiological relationship rules
-    fn build_relationship_rules() -> Vec<RelationshipRule> {
-        vec![
-            RelationshipRule {
-                name: "Heart Rate Zone Order".into(),
-                parameters: vec![
-                    "heart_rate.recovery_zone".into(),
-                    "heart_rate.endurance_zone".into(),
-                    "heart_rate.tempo_zone".into(),
-                    "heart_rate.anaerobic_threshold".into(),
-                    "heart_rate.vo2_max_zone".into(),
-                ],
-                validator: |params| {
-                    let zones = [
-                        (
-                            "heart_rate.recovery_zone",
-                            params.get("heart_rate.recovery_zone"),
-                        ),
-                        (
-                            "heart_rate.endurance_zone",
-                            params.get("heart_rate.endurance_zone"),
-                        ),
-                        ("heart_rate.tempo_zone", params.get("heart_rate.tempo_zone")),
-                        (
-                            "heart_rate.anaerobic_threshold",
-                            params.get("heart_rate.anaerobic_threshold"),
-                        ),
-                        (
-                            "heart_rate.vo2_max_zone",
-                            params.get("heart_rate.vo2_max_zone"),
-                        ),
-                    ];
-
-                    let mut prev_value = 0.0;
-                    for (name, value_opt) in zones {
-                        if let Some(ConfigValue::Float(value)) = value_opt {
-                            if *value <= prev_value {
-                                return Err(format!("{name} must be higher than previous zone"));
-                            }
-                            prev_value = *value;
-                        }
-                    }
-
-                    Ok(())
-                },
-            },
-            RelationshipRule {
-                name: "Lactate Threshold Consistency".into(),
-                parameters: vec![
-                    "lactate.threshold_percentage".into(),
-                    "heart_rate.anaerobic_threshold".into(),
-                ],
-                validator: |params| {
-                    if let (
-                        Some(ConfigValue::Float(lactate_pct)),
-                        Some(ConfigValue::Float(hr_pct)),
-                    ) = (
-                        params.get("lactate.threshold_percentage"),
-                        params.get("heart_rate.anaerobic_threshold"),
-                    ) {
-                        // The lactate threshold is a percentage of VO2max and the
-                        // anaerobic threshold a percentage of max HR, so the first
-                        // is read on the second's scale (Swain et al. 1994) before
-                        // the two are compared.
-                        let lactate_pct_of_max_hr =
-                            max_hr_fraction_at_vo2max_fraction(lactate_pct / 100.0) * 100.0;
-                        if (lactate_pct_of_max_hr - hr_pct).abs() > 10.0 {
-                            return Err(format!(
-                                "Lactate threshold ({lactate_pct:.0}% of VO2max, about \
-                                 {lactate_pct_of_max_hr:.0}% of max HR) and HR anaerobic \
-                                 threshold ({hr_pct:.0}% of max HR) should be within 10 points"
-                            ));
                         }
                     }
                     Ok(())

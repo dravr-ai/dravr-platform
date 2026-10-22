@@ -9,8 +9,8 @@ use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParam
 use chrono::Utc;
 use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_feature_flags,
-    register_garmin_provider, register_group_permissions, register_heart_rate_zones,
-    register_llm_pricing, register_llm_provider_config, register_mcp_network, register_monitoring,
+    register_garmin_provider, register_group_permissions, register_llm_pricing,
+    register_llm_provider_config, register_mcp_network, register_monitoring,
     register_recommendation_engine, register_sleep_recovery, register_sqlx_pool,
     register_strava_provider, register_strava_seat_reclaim, register_tokio_runtime,
     register_tool_execution, register_usage_quotas, register_weather_analysis, ParameterDefinition,
@@ -209,9 +209,6 @@ impl AdminConfigService {
 
         // LLM Provider Configuration — see config::admin::definitions::register_llm_provider_config
         register_llm_provider_config(&mut defs);
-
-        // Heart Rate Zones — see config::admin::definitions::register_heart_rate_zones
-        register_heart_rate_zones(&mut defs);
 
         // Algorithm Selection — see config::admin::definitions::register_algorithm_selection
         register_algorithm_selection(&mut defs);

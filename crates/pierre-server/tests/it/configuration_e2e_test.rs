@@ -13,10 +13,6 @@
 
 use crate::common;
 
-use dravr_cageux::types::{
-    ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
-    TrendIndicators,
-};
 use pierre_auth::auth::AuthManager;
 use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig};
@@ -47,31 +43,6 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
         .expect("Failed to create test database");
 
     // Create test intelligence
-    let _intelligence = Arc::new(ActivityIntelligence::new(
-        "Test Intelligence".to_owned(),
-        vec![],
-        PerformanceMetrics {
-            relative_effort: Some(7.5),
-            zone_distribution: None,
-            personal_records: vec![],
-            efficiency_score: Some(85.0),
-            trend_indicators: TrendIndicators {
-                pace_trend: TrendDirection::Stable,
-                effort_trend: TrendDirection::Improving,
-                distance_trend: TrendDirection::Stable,
-                consistency_score: 88.0,
-            },
-        },
-        ContextualFactors {
-            weather: None,
-            location: None,
-            time_of_day: TimeOfDay::Morning,
-            days_since_last_activity: Some(1),
-            weekly_load: None,
-            seasonal_context: None,
-        },
-    ));
-
     // Create minimal config for testing
     let config = Arc::new(ServerConfig::from_env().unwrap_or_else(|_| create_test_config()));
 
@@ -332,9 +303,9 @@ async fn test_calculate_personalized_zones_e2e() {
 
     // Verify zone calculations metadata
     let calculations = &result["zone_calculations"];
-    assert!(calculations["method"].is_string());
-    assert!(calculations["pace_formula"].is_string());
-    assert!(calculations["power_estimation"].is_string());
+    assert_eq!(calculations["method"], "karvonen_vo2max_tiered");
+    assert!(calculations["tier"].is_string());
+    assert_eq!(calculations["vo2_max_source"], "provided");
 
     println!("calculate_personalized_zones E2E test passed");
 }

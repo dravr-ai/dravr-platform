@@ -10,13 +10,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_cageux::zones::{AerobicThresholdPace, HrZones, PowerZones};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::{Activity, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::zones::athlete_hr_zones;
+use pierre_core::models::{Activity, PhysiologicalSex, TenantId, UserPhysiologicalProfile};
 use pierre_fitness_compute::latest_snapshot::{
     build_latest_snapshot, DEFAULT_WINDOW_DAYS, MAX_WINDOW_DAYS,
 };
-use pierre_fitness_compute::threshold_estimation::{ThresholdEstimate, ThresholdInputs};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -50,9 +51,11 @@ pub struct DossierExport {
     /// Physiology, zones, goals and the durable facts, as composed.
     #[serde(flatten)]
     pub dossier: Dossier,
-    /// LT1/LT2 heart rate, power and pace derived from the profile — Coggan
-    /// for power, Seiler-style anchors for pace. Gives the dossier training
-    /// zone anchors even when the athlete has measured none directly.
+    /// LT1/LT2 heart rate, power and pace read off the profile — heart rate
+    /// at 75 % / 85 % of the athlete's reserve unless an LTHR is saved,
+    /// Coggan's levels for power, the saved threshold pace for pace. Gives the
+    /// dossier training zone anchors even when the athlete has measured none
+    /// directly.
     pub threshold_estimate: ThresholdEstimate,
 }
 
@@ -207,8 +210,8 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
                 // external caller (carnet#769).
                 .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
             let ftp_watts = physiology.as_ref().and_then(|p| p.ftp_watts);
-            let hr_zones = physiology.as_ref().and_then(|p| p.hr_zones);
-            let snapshot = build_latest_snapshot(&activities, window, ftp_watts, hr_zones);
+            let hr_zones = athlete_hr_zones(physiology.as_ref());
+            let snapshot = build_latest_snapshot(&activities, window, ftp_watts, hr_zones.as_ref());
 
             let payload = serde_json::to_value(&snapshot)
                 .map_err(|e| AppError::internal(format!("serialize latest snapshot: {e}")))?;
@@ -286,13 +289,13 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                 .await?;
             let dossier = dossier;
 
-            // Surface estimated lactate thresholds (LT1/LT2 heart rate, power, and
-            // pace) derived from the athlete's physiological profile — Coggan
-            // (LT1 power = 0.75 * FTP) and Seiler-style pace anchors. This gives the
-            // dossier training-zone anchors even when the athlete hasn't measured
-            // them directly. Missing profile fields stay `None`; the estimate block
-            // is always present (empty when nothing is known) to keep the shape
-            // stable, matching the dossier's "empty slots, not 404" contract.
+            // Surface the lactate threshold anchors (LT1/LT2 heart rate, power and
+            // pace) read off the athlete's physiological profile through cageux's
+            // zone model. This gives the dossier training-zone anchors even when
+            // the athlete hasn't measured them directly. Missing profile fields
+            // stay `None`; the estimate block is always present (empty when
+            // nothing is known) to keep the shape stable, matching the dossier's
+            // "empty slots, not 404" contract.
             let physiology = context
                 .resources
                 .repos()
@@ -300,8 +303,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                 .get_user_physiological_profile(tenant_id, user_id)
                 .await?
                 .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
-            let estimate =
-                ThresholdEstimate::from_inputs(threshold_inputs_from_profile(physiology.as_ref()));
+            let estimate = ThresholdEstimate::from_profile(physiology.as_ref());
 
             ok_typed(
                 "export_dossier",
@@ -316,19 +318,90 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
     }
 }
 
-/// Map a stored [`UserPhysiologicalProfile`] into [`ThresholdInputs`] for LT1/LT2
-/// estimation. Unset fields stay `None` so the estimator derives only what the
-/// athlete's known physiology supports (e.g. LT2 HR from max HR).
-fn threshold_inputs_from_profile(profile: Option<&UserPhysiologicalProfile>) -> ThresholdInputs {
-    ThresholdInputs {
-        max_hr: profile.and_then(|p| p.max_hr).map(f64::from),
-        resting_hr: profile.and_then(|p| p.resting_hr).map(f64::from),
+/// Coggan's endurance level, whose upper edge is the aerobic threshold power.
+const ENDURANCE_LEVEL: u8 = 2;
+
+/// The dossier's LT1 / LT2 anchors, each read from where it lives rather
+/// than re-derived here.
+///
+/// - **LT1** (aerobic threshold) heart rate is cageux's
+///   [`HrZones::aerobic_threshold_bpm`], 75 % of the athlete's heart-rate
+///   reserve; LT1 power is the top of Coggan's endurance level
+///   ([`PowerZones::coggan`], 75 % of FTP).
+/// - **LT2** (lactate threshold) heart rate is the athlete's LTHR (measured,
+///   else estimated from their lactate threshold), else cageux's
+///   [`HrZones::lactate_threshold_bpm`], 85 % of reserve; LT2 power is the
+///   FTP and LT2 pace the saved threshold pace.
+/// - **LT1 pace** is cageux's [`AerobicThresholdPace`] from the saved
+///   (running) threshold pace: the VT1/VT2 speed ratio of Esteve-Lanao et al.
+///   (2026), with its one-SD bounds and the cohort the ratio came from: the
+///   men's or women's ratio when the athlete's sex is saved, the pooled one
+///   otherwise.
+///
+/// An anchor whose inputs are missing is absent: the heart-rate anchors need
+/// the athlete's zones (a saved resting and maximum heart rate), the power
+/// anchors an FTP, the pace anchor a threshold pace.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ThresholdEstimate {
+    /// Aerobic threshold heart rate in bpm: 75 % of the athlete's heart-rate
+    /// reserve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt1_hr: Option<f64>,
+    /// Lactate threshold heart rate in bpm: the athlete's LTHR, else 85 % of
+    /// their heart-rate reserve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt2_hr: Option<f64>,
+    /// LT1 power (watts): the top of Coggan's endurance level, 75 % of FTP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt1_power_watts: Option<f64>,
+    /// LT2 power (watts): the FTP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt2_power_watts: Option<f64>,
+    /// LT2 pace (sec/km): the saved threshold pace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt2_pace_sec_per_km: Option<f64>,
+    /// LT1 pace estimated from that threshold pace (Esteve-Lanao et al.
+    /// 2026), with the faster and slower bound one SD of the ratio either
+    /// side and the cohort. Absent without a saved threshold pace, or when it
+    /// lies outside the 120-600 s/km running range the estimate covers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lt1_pace: Option<AerobicThresholdPace>,
+}
+
+impl ThresholdEstimate {
+    /// Read the anchors off a stored [`UserPhysiologicalProfile`].
+    fn from_profile(profile: Option<&UserPhysiologicalProfile>) -> Self {
+        let zones: Option<HrZones> = athlete_hr_zones(profile).ok();
+        let ftp_watts = profile.and_then(|p| p.ftp_watts).map(f64::from);
+        let threshold_pace = profile.and_then(|p| p.threshold_pace_sec_per_km);
         // LT2 heart rate is the LTHR training load scores against — the
         // measured one, else the estimate from the lactate threshold and max
         // HR — so the dossier and the load cannot name two thresholds.
-        lthr: profile.and_then(UserPhysiologicalProfile::lactate_threshold_hr),
-        ftp_watts: profile.and_then(|p| p.ftp_watts).map(f64::from),
-        threshold_pace_sec_per_km: profile.and_then(|p| p.threshold_pace_sec_per_km),
+        let lt2_hr = profile
+            .and_then(UserPhysiologicalProfile::lactate_threshold_hr)
+            .or_else(|| zones.as_ref().map(|z| f64::from(z.lactate_threshold_bpm)));
+        let lt1_power_watts = ftp_watts
+            .and_then(|ftp| PowerZones::coggan(ftp).ok())
+            .and_then(|levels| {
+                levels
+                    .zones()
+                    .iter()
+                    .find(|band| band.zone == ENDURANCE_LEVEL)
+                    .and_then(|band| band.upper_watts)
+            });
+        Self {
+            lt1_hr: zones.as_ref().map(|z| f64::from(z.aerobic_threshold_bpm)),
+            lt2_hr,
+            lt1_power_watts,
+            lt2_power_watts: ftp_watts,
+            lt2_pace_sec_per_km: threshold_pace,
+            lt1_pace: threshold_pace.and_then(|pace| {
+                let sex = profile
+                    .and_then(|p| p.sex)
+                    .map(PhysiologicalSex::for_equations);
+                AerobicThresholdPace::from_threshold_pace(pace, sex).ok()
+            }),
+        }
     }
 }
 

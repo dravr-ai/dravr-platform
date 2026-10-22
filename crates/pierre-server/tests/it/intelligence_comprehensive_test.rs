@@ -24,7 +24,7 @@ use dravr_cageux::types::{
 };
 use dravr_cageux::types::{
     ActivityIntelligence, Confidence, ContextualFactors, Goal, PerformanceMetrics, TimeOfDay,
-    TrendAnalysis, TrendDataPoint, TrendDirection, TrendIndicators,
+    TrendAnalysis, TrendDataPoint, TrendDirection,
 };
 use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
@@ -43,6 +43,8 @@ fn test_activity_intelligence_creation() {
             zone3_tempo: 20.0,
             zone4_threshold: 8.0,
             zone5_vo2max: 2.0,
+            zone6_anaerobic: None,
+            estimated: false,
         }),
         personal_records: vec![PersonalRecord {
             record_type: "fastest_5k".to_owned(),
@@ -52,12 +54,6 @@ fn test_activity_intelligence_creation() {
             improvement_percentage: Some(3.3),
         }],
         efficiency_score: Some(88.5),
-        trend_indicators: TrendIndicators {
-            pace_trend: TrendDirection::Improving,
-            effort_trend: TrendDirection::Stable,
-            distance_trend: TrendDirection::Improving,
-            consistency_score: 85.0,
-        },
     };
 
     let context = ContextualFactors {
@@ -123,6 +119,8 @@ fn test_zone_distribution_calculations() {
         zone3_tempo: 20.0,
         zone4_threshold: 8.0,
         zone5_vo2max: 2.0,
+        zone6_anaerobic: None,
+        estimated: false,
     };
 
     // Test individual zones
@@ -139,21 +137,6 @@ fn test_zone_distribution_calculations() {
         + zones.zone4_threshold
         + zones.zone5_vo2max;
     assert!((total - 100.0).abs() < f32::EPSILON);
-}
-
-#[test]
-fn test_trend_indicators() {
-    let trends = TrendIndicators {
-        pace_trend: TrendDirection::Improving,
-        effort_trend: TrendDirection::Declining,
-        distance_trend: TrendDirection::Stable,
-        consistency_score: 75.5,
-    };
-
-    assert_eq!(trends.pace_trend, TrendDirection::Improving);
-    assert_eq!(trends.effort_trend, TrendDirection::Declining);
-    assert_eq!(trends.distance_trend, TrendDirection::Stable);
-    assert!((trends.consistency_score - 75.5).abs() < f32::EPSILON);
 }
 
 #[test]

@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::Activity;
+use super::{Activity, PhysiologicalSex};
 
 /// Represents an athlete/user profile from any provider
 ///
@@ -26,6 +26,7 @@ use super::Activity;
 ///     lastname: Some("Doe".into()),
 ///     profile_picture: Some("https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg".into()),
 ///     provider: "strava".into(),
+///     sex: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -45,6 +46,10 @@ pub struct Athlete {
     pub profile_picture: Option<String>,
     /// Source provider of this athlete data
     pub provider: String,
+    /// Physiological sex, when the provider reports one (Strava's and
+    /// intervals.icu's athlete `sex`). Never inferred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sex: Option<PhysiologicalSex>,
 }
 
 /// Aggregated fitness statistics for an athlete

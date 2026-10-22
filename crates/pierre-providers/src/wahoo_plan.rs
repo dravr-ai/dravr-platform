@@ -33,10 +33,7 @@
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use chrono::{DateTime, NaiveDate, Utc};
-use dravr_cageux::physiological_constants::zone_percentages::{
-    POWER_ZONE1_UPPER_LIMIT, POWER_ZONE2_UPPER_LIMIT, POWER_ZONE3_UPPER_LIMIT,
-    POWER_ZONE4_UPPER_LIMIT,
-};
+use dravr_cageux::zones::COGGAN_POWER_ZONE_UPPER_FRACTIONS;
 use ring::digest::{digest, SHA256};
 use serde_json::{json, Value};
 
@@ -61,20 +58,13 @@ const PLAN_JSON_VERSION: &str = "1.0.0";
 /// UTC−12 through UTC+11.
 const SCHEDULED_HOUR_UTC: &str = "12:00:00.000Z";
 
-/// Coggan's zone 5 (`VO2max`) upper bound, as a fraction of FTP.
+/// The ceiling of Coggan's zone 7 (neuromuscular) as a fraction of FTP.
 ///
-/// Zones 1–4 come from the shipped `zone_percentages`; the step grammar names
-/// seven zones (`anaerobic` is 6, `neuromuscular` 7), so the upper three
-/// follow the same model. Coggan, A. & Allen, H. (2010). *Training and Racing
-/// with a Power Meter* (2nd ed.). `VeloPress`.
-const POWER_ZONE5_UPPER_LIMIT: f64 = 1.20;
-
-/// Coggan's zone 6 (anaerobic capacity) upper bound, as a fraction of FTP.
-const POWER_ZONE6_UPPER_LIMIT: f64 = 1.50;
-
-/// The ceiling of zone 7 (neuromuscular), which Coggan leaves open: the step
-/// grammar's own highest percentage (300 %).
-const POWER_ZONE7_UPPER_LIMIT: f64 = 3.00;
+/// Coggan leaves level 7 open-ended ([`COGGAN_POWER_ZONE_UPPER_FRACTIONS`]
+/// stops at level 6), but a `plan.json` FTP target needs a high edge, so a
+/// zone-7 step is capped at the step grammar's own highest percentage, the
+/// 300 % that `RelativeIntensity` accepts as the top of a percent band.
+const POWER_ZONE7_CEILING: f64 = 3.00;
 
 /// Sweet spot, as the step grammar defines it: 88–94 % FTP.
 const SWEET_SPOT: (f64, f64) = (0.88, 0.94);
@@ -363,17 +353,10 @@ impl IntensityType {
     /// as a label, never as a target).
     fn of_percent(low: u16, high: u16) -> Self {
         let mid = f64::from(low + high) / 200.0;
-        let zone = [
-            POWER_ZONE1_UPPER_LIMIT,
-            POWER_ZONE2_UPPER_LIMIT,
-            POWER_ZONE3_UPPER_LIMIT,
-            POWER_ZONE4_UPPER_LIMIT,
-            POWER_ZONE5_UPPER_LIMIT,
-            POWER_ZONE6_UPPER_LIMIT,
-        ]
-        .iter()
-        .position(|upper| mid < *upper)
-        .map_or(7, |index| index + 1);
+        let zone = COGGAN_POWER_ZONE_UPPER_FRACTIONS
+            .iter()
+            .position(|upper| mid < *upper)
+            .map_or(7, |index| index + 1);
         Self::of_zone(u8::try_from(zone).unwrap_or(7))
     }
 
@@ -418,17 +401,18 @@ impl IntensityType {
     }
 }
 
-/// The FTP band of a power zone 1–7, as fractions of FTP.
+/// The FTP band of a power zone 1–7, as fractions of FTP: Coggan's levels
+/// from cageux, with level 7 capped at [`POWER_ZONE7_CEILING`].
 fn zone_ftp_band(zone: u8) -> (f64, f64) {
-    match zone {
-        0 | 1 => (0.0, POWER_ZONE1_UPPER_LIMIT),
-        2 => (POWER_ZONE1_UPPER_LIMIT, POWER_ZONE2_UPPER_LIMIT),
-        3 => (POWER_ZONE2_UPPER_LIMIT, POWER_ZONE3_UPPER_LIMIT),
-        4 => (POWER_ZONE3_UPPER_LIMIT, POWER_ZONE4_UPPER_LIMIT),
-        5 => (POWER_ZONE4_UPPER_LIMIT, POWER_ZONE5_UPPER_LIMIT),
-        6 => (POWER_ZONE5_UPPER_LIMIT, POWER_ZONE6_UPPER_LIMIT),
-        _ => (POWER_ZONE6_UPPER_LIMIT, POWER_ZONE7_UPPER_LIMIT),
-    }
+    let edges = COGGAN_POWER_ZONE_UPPER_FRACTIONS;
+    let level = usize::from(zone.clamp(1, 7));
+    let low = level
+        .checked_sub(2)
+        .and_then(|index| edges.get(index))
+        .copied()
+        .unwrap_or(0.0);
+    let high = edges.get(level - 1).copied().unwrap_or(POWER_ZONE7_CEILING);
+    (low, high)
 }
 
 /// Round a fraction to the two decimals `plan.json`'s examples use.
