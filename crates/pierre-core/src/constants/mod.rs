@@ -651,6 +651,15 @@ pub mod oauth_rate_limiting {
     /// Refused password sign-ins naming one account per window, from any
     /// address: guessing one athlete's password from many addresses stops here
     pub const PASSWORD_LOGIN_ACCOUNT_RPM: u32 = 10;
+    /// Refused password sign-ins one known device may make per window.
+    ///
+    /// A known device is a browser holding a known-device cookie for the
+    /// account. Past this many in [`KNOWN_DEVICE_WINDOW_SECS`] it is metered
+    /// like a stranger, in the account window (carnet#1088): a stolen cookie
+    /// buys this many guesses a day, no more
+    pub const KNOWN_DEVICE_FAILURES: u32 = 10;
+    /// The known-device window's length: one day
+    pub const KNOWN_DEVICE_WINDOW_SECS: u64 = 24 * 60 * 60;
     /// Self-serve sign-ups and verification resends per client address per window.
     ///
     /// A script minting accounts from one address stops here (carnet#1063);

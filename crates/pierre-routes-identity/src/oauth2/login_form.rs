@@ -10,11 +10,14 @@ use std::collections::HashMap;
 use axum::{
     extract::{Form, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{AppendHeaders, IntoResponse, Response},
 };
 use pierre_auth::dto::auth::LoginRequest;
 use pierre_auth::oauth2_server::models::OAuth2Error;
-use pierre_auth::oauth2_server::SignInAttempt;
+use pierre_auth::oauth2_server::{
+    known_device_cookie_name, known_device_set_cookie, SignInAttempt,
+};
+use pierre_auth::security::cookies::get_cookie_value;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::redaction::mask_email;
 use pierre_middleware::PeerAddress;
@@ -42,9 +45,14 @@ impl OAuth2Routes {
         };
 
         // The attempt is counted in the sign-in windows before the password
-        // is checked (carnet#804, carnet#908)
+        // is checked (carnet#804, carnet#908); a browser that signed in to
+        // this account before is metered on its own (carnet#1088)
         let limiter = &context.rate_limiter;
         let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
+        let known_device = get_cookie_value(
+            &headers,
+            &known_device_cookie_name(Self::cookies_secure(&context)),
+        );
         let text = LoginText::for_request(
             &context.strings,
             &headers,
@@ -53,7 +61,9 @@ impl OAuth2Routes {
         let render = |error: &OAuth2Error| {
             Self::login_failure_response(&form, &text, &text.refusal(error), error.http_status())
         };
-        let attempt = match sign_in_page_admission(limiter, client, email, render).await {
+        let admission =
+            sign_in_page_admission(limiter, client, email, known_device.as_deref(), render).await;
+        let attempt = match admission {
             Ok(attempt) => attempt,
             Err(refused) => return *refused,
         };
@@ -114,7 +124,8 @@ impl OAuth2Routes {
 
     /// The redirect a signed-in hosted form continues to: the authorization
     /// flow with the OAuth parameters the form carried (PKCE and the RFC 8707
-    /// resource included), carrying the authorization server's session.
+    /// resource included), carrying the authorization server's session and a
+    /// fresh known-device cookie for the account (carnet#1088).
     fn continue_to_authorize(
         context: &OAuth2Context,
         form: &HashMap<String, String>,
@@ -128,12 +139,16 @@ impl OAuth2Routes {
             mask_email(email)
         );
 
+        let secure = Self::cookies_secure(context);
+        let known_device =
+            known_device_set_cookie(context.rate_limiter.issue_known_device(email), secure);
         (
             StatusCode::FOUND,
-            [
-                (header::LOCATION, auth_url),
+            [(header::LOCATION, auth_url)],
+            AppendHeaders([
                 (header::SET_COOKIE, Self::session_cookie(context, token)),
-            ],
+                (header::SET_COOKIE, known_device),
+            ]),
         )
             .into_response()
     }

@@ -91,10 +91,15 @@ async fn admitted_sign_in(
     client: Option<IpAddr>,
     email: &str,
 ) -> Result<SignInAttempt, String> {
-    let attempt = limiter.begin_sign_in(client, email).await.map_err(|e| {
-        error!(error = %e, "Link page sign-in limiter could not count the attempt");
-        SIGN_IN_FAULT.to_owned()
-    })?;
+    // This page issues no known-device cookie, so it has none to present:
+    // its sign-in is metered in the account window (carnet#1088)
+    let attempt = limiter
+        .begin_sign_in(client, email, None)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Link page sign-in limiter could not count the attempt");
+            SIGN_IN_FAULT.to_owned()
+        })?;
     let Some(retry_after) = attempt.retry_after() else {
         return Ok(attempt);
     };

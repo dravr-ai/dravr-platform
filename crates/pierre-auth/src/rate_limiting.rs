@@ -21,6 +21,7 @@ use serde::Serialize;
 
 use crate::api_keys::{ApiKey, ApiKeyTier};
 use crate::config::rate_limit::RateLimitConfig;
+use pierre_core::constants::oauth_rate_limiting::KNOWN_DEVICE_FAILURES;
 use pierre_core::models::{A2AClient, JwtMonthlyUsage, User, WindowUsage};
 use pierre_database::repositories::analytics::next_utc_month_start;
 
@@ -207,6 +208,10 @@ pub enum OAuth2Endpoint {
     /// A refused password sign-in, metered per account named rather than per
     /// address
     PasswordLoginAccount,
+    /// A refused password sign-in from a browser that signed in to the
+    /// account before, metered per known device instead of in the account
+    /// window (carnet#1088)
+    PasswordLoginKnownDevice,
     /// A self-serve account sign-up (`POST /api/auth/register`, the messaging
     /// link page's register form) or a verification-mail resend, metered per
     /// client address
@@ -224,6 +229,7 @@ impl OAuth2Endpoint {
             Self::PasswordConfirm => "password_confirm",
             Self::PasswordLogin => "password_login",
             Self::PasswordLoginAccount => "password_login_account",
+            Self::PasswordLoginKnownDevice => "password_login_known_device",
             Self::SignUp => "sign_up",
         }
     }
@@ -310,6 +316,7 @@ impl OAuth2RateLimitConfig {
             OAuth2Endpoint::PasswordConfirm => self.password_confirm_rpm,
             OAuth2Endpoint::PasswordLogin => self.password_login_rpm,
             OAuth2Endpoint::PasswordLoginAccount => self.password_login_account_rpm,
+            OAuth2Endpoint::PasswordLoginKnownDevice => KNOWN_DEVICE_FAILURES,
             OAuth2Endpoint::SignUp => self.sign_up_rpm,
         }
     }

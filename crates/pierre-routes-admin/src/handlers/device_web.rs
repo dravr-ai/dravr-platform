@@ -22,7 +22,7 @@ use secrecy::SecretString;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
-use axum::http::header::RETRY_AFTER;
+use axum::http::header::{RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::Form;
@@ -30,8 +30,11 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use pierre_auth::oauth2_server::SignInAttempt;
+use pierre_auth::oauth2_server::{
+    known_device_cookie_name, known_device_set_cookie, SignInAttempt,
+};
 use pierre_auth::password::verify_password;
+use pierre_auth::security::cookies::get_cookie_value;
 use pierre_core::html::{escape_html_attribute, HOSTED_PAGE_CSS};
 use pierre_core::models::User;
 use pierre_middleware::PeerAddress;
@@ -121,10 +124,16 @@ pub async fn handle_device_approve_web(
 
     // The attempt is counted in the sign-in windows before the password is
     // checked (carnet#804, carnet#908): this page signs in a super-admin, the
-    // account most worth guessing.
+    // account most worth guessing. A browser that signed in to the account
+    // before is metered on its own, out of strangers' reach (carnet#1088).
     let limiter = &context.sign_in_limiter;
     let client = peer.0.map(|peer| limiter.client_address(peer, &headers));
-    let attempt = match limiter.begin_sign_in(client, &form.email).await {
+    let secure = context.base_url.starts_with("https://");
+    let known_device = get_cookie_value(&headers, &known_device_cookie_name(secure));
+    let attempt = match limiter
+        .begin_sign_in(client, &form.email, known_device.as_deref())
+        .await
+    {
         Ok(attempt) => attempt,
         Err(e) => {
             error!(error = %e, "Device approval sign-in limiter could not count the attempt");
@@ -154,25 +163,27 @@ pub async fn handle_device_approve_web(
                 .into_response();
         }
     }
-    resolve_approval(&context, attempt, &user_code, &form)
-        .await
-        .into_response()
+    let Some(user) = authenticate(&context, attempt, &form.email, &form.password).await else {
+        let page = render_form(
+            &user_code,
+            Some("That email or password was not recognized."),
+        );
+        return Html(page).into_response();
+    };
+    // The password verified, so this browser is known to the account from now
+    let known_device = known_device_set_cookie(limiter.issue_known_device(&form.email), secure);
+    let page = resolve_approval(&context, &user, &user_code, &form).await;
+    ([(SET_COOKIE, known_device)], page).into_response()
 }
 
-/// Sign the operator in and approve or deny `user_code`, once the sign-in
-/// was admitted by its windows.
+/// Approve or deny `user_code` for the operator `user`, whose password
+/// verified.
 async fn resolve_approval(
     context: &AdminApiContext,
-    attempt: SignInAttempt,
+    user: &User,
     user_code: &str,
     form: &DeviceApproveForm,
 ) -> Html<String> {
-    let Some(user) = authenticate(context, attempt, &form.email, &form.password).await else {
-        return Html(render_form(
-            user_code,
-            Some("That email or password was not recognized."),
-        ));
-    };
     if !user.role.is_super_admin() {
         return Html(render_form(
             user_code,

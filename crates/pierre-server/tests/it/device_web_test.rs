@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use axum::body::to_bytes;
 use axum::extract::{Query, State};
-use axum::http::header::RETRY_AFTER;
+use axum::http::header::{COOKIE, RETRY_AFTER, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::{Form, Json};
@@ -304,4 +304,53 @@ async fn guesses_past_the_window_are_refused_with_429() {
     assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(refused.headers().get(RETRY_AFTER).is_some());
     assert_eq!(status_of(&context).await, "pending");
+}
+
+/// Strangers filling the super-admin's account window do not lock out the
+/// browser that admin signed in from before: it presents its known-device
+/// cookie and approves the pending login (carnet#1088).
+#[tokio::test]
+async fn a_browser_that_signed_in_before_approves_while_strangers_fill_the_window() {
+    let context = build_context().await;
+    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+
+    // An earlier sign-in, before any login is pending, earns the cookie.
+    let earlier = approve_web(
+        &context,
+        approve_form("admin@dravr.ai", TEST_PASSWORD, "approve"),
+    )
+    .await;
+    let cookie = earlier
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.contains("known_device="))
+        .and_then(|value| value.split(';').next())
+        .expect("a verified password sets the known-device cookie")
+        .to_owned();
+
+    create_pending(&context).await;
+    for attempt in 0..PASSWORD_LOGIN_ACCOUNT_RPM {
+        let guess = format!("guess-{attempt}");
+        approve_web_html(&context, approve_form("admin@dravr.ai", &guess, "approve")).await;
+    }
+    let stranger = approve_web(
+        &context,
+        approve_form("admin@dravr.ai", TEST_PASSWORD, "approve"),
+    )
+    .await;
+    assert_eq!(stranger.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(COOKIE, cookie.parse().unwrap());
+    let approved = handle_device_approve_web(
+        State(Arc::clone(&context)),
+        PeerAddress(Some([198, 51, 100, 4].into())),
+        headers,
+        approve_form("admin@dravr.ai", TEST_PASSWORD, "approve"),
+    )
+    .await;
+    assert_eq!(approved.status(), StatusCode::OK);
+    assert_eq!(status_of(&context).await, "approved");
 }

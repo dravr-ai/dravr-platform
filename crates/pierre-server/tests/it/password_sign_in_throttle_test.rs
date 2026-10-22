@@ -1,5 +1,5 @@
 // ABOUTME: Refused passwords are counted per client address and per account named; full windows refuse before the check
-// ABOUTME: Past either window the hosted login form answers 429 with Retry-After; successes never count; the password grant is gone
+// ABOUTME: Past either window the hosted form answers 429; successes never count; a known browser skips the account window
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -65,6 +65,58 @@ impl Setup {
         )
         .await
     }
+
+    /// The hosted login form posted by a browser holding `cookie` (a
+    /// `name=value` pair), from `peer`.
+    async fn sign_in_from_browser(
+        &self,
+        peer: [u8; 4],
+        email: &str,
+        password: &str,
+        cookie: &str,
+    ) -> AxumTestResponse {
+        let client = FirstPartyClient::Web;
+        let pkce = Pkce::generate();
+        let state = fresh_state();
+        let redirect_uri = client.redirect_uri(&self.resources.common.config.oauth2_server);
+        AxumTestRequest::post("/oauth2/login")
+            .header("accept-language", "en")
+            .header("cookie", cookie)
+            .form(&[
+                ("response_type", "code"),
+                ("client_id", client.client_id()),
+                ("redirect_uri", redirect_uri.as_str()),
+                ("code_challenge", pkce.challenge.as_str()),
+                ("code_challenge_method", "S256"),
+                ("state", state.as_str()),
+                ("email", email),
+                ("password", password),
+            ])
+            .send(first_party_router(&self.resources, peer))
+            .await
+    }
+
+    /// Fill `email`'s account window with wrong passwords from strangers'
+    /// addresses, as the remote lockout of carnet#1088 does.
+    async fn fill_account_window(&self, email: &str) {
+        for attempt in 0..PASSWORD_LOGIN_ACCOUNT_RPM {
+            let peer = [203, 0, 113, u8::try_from(attempt).unwrap()];
+            let wrong = self.sign_in(peer, email, &format!("guess-{attempt}")).await;
+            assert_checked_and_refused(&wrong, attempt);
+        }
+    }
+}
+
+/// The known-device cookie a signed-in response set, as the `name=value`
+/// pair the browser sends back.
+fn known_device_cookie(response: &AxumTestResponse) -> String {
+    response
+        .header_all("set-cookie")
+        .into_iter()
+        .find(|cookie| cookie.contains("known_device="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("a signed-in response sets the known-device cookie")
+        .to_owned()
 }
 
 /// A password the form checked and refused: the generic page, no session.
@@ -262,4 +314,52 @@ async fn the_password_grant_is_gone_and_spends_no_window() {
     }
 
     assert_signed_in(&setup.sign_in(peer, &email, PASSWORD).await, 0);
+}
+
+/// A stranger who knows an athlete's email fills the account window, which
+/// refuses every new browser; the browser the athlete signed in from before
+/// still signs in, and its wrong passwords are still checked (carnet#1088).
+#[tokio::test]
+async fn a_browser_that_signed_in_before_is_not_locked_out_by_strangers() {
+    let setup = Setup::new().await;
+    let email = setup.athlete().await;
+    let home = [192, 0, 2, 20];
+
+    let first = setup.sign_in(home, &email, PASSWORD).await;
+    assert_signed_in(&first, 0);
+    let cookie = known_device_cookie(&first);
+
+    setup.fill_account_window(&email).await;
+    assert_throttled(&setup.sign_in([198, 51, 100, 4], &email, PASSWORD).await);
+
+    let typo = setup
+        .sign_in_from_browser(home, &email, "a-typo", &cookie)
+        .await;
+    assert_checked_and_refused(&typo, 0);
+    let back = setup
+        .sign_in_from_browser(home, &email, PASSWORD, &cookie)
+        .await;
+    assert_signed_in(&back, 1);
+    assert_ne!(known_device_cookie(&back), cookie, "each sign-in renews it");
+}
+
+/// The cookie is bound to the account it was earned on: an attacker who
+/// signs in to their own account cannot use it to reach another's.
+#[tokio::test]
+async fn a_cookie_earned_on_another_account_does_not_skip_the_window() {
+    let setup = Setup::new().await;
+    let victim = setup.athlete().await;
+    let attacker = setup.athlete().await;
+    let peer = [192, 0, 2, 21];
+
+    let own = setup.sign_in(peer, &attacker, PASSWORD).await;
+    assert_signed_in(&own, 0);
+    let cookie = known_device_cookie(&own);
+
+    setup.fill_account_window(&victim).await;
+    assert_throttled(
+        &setup
+            .sign_in_from_browser(peer, &victim, "guess", &cookie)
+            .await,
+    );
 }

@@ -29,6 +29,7 @@ use pierre_auth::human_check::{HumanCheck, TurnstileCheck};
 use pierre_auth::oauth2_server::first_party::MOBILE_PLAY_PACKAGE_NAME;
 use pierre_auth::oauth2_server::play_integrity_decoder::GooglePlayIntegrityDecoder;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
+use pierre_auth::oauth2_server::KnownDeviceKey;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_cache::Cache;
 #[cfg(feature = "client-messaging")]
@@ -308,13 +309,16 @@ impl ServerContext {
 
         // On Redis every replica counts into the same OAuth2 window; an
         // in-process cache is not shared, so the limiter keeps its own store
-        let oauth2_rate_limiter = Arc::new(OAuth2RateLimiter::new(
-            cache_arc
-                .is_shared_across_processes()
-                .then(|| cache_arc.clone()),
-            OAuth2RateLimiter::local_window_store(),
-            &config.rate_limiting,
-        ));
+        let oauth2_rate_limiter = Arc::new(
+            OAuth2RateLimiter::new(
+                cache_arc
+                    .is_shared_across_processes()
+                    .then(|| cache_arc.clone()),
+                OAuth2RateLimiter::local_window_store(),
+                &config.rate_limiting,
+            )
+            .with_known_device_key(KnownDeviceKey::from_jwt_secret(admin_jwt_secret)),
+        );
 
         // Create stateless CSRF token manager (HMAC-signed, derived from admin JWT secret)
         let csrf_manager = Arc::new(CsrfTokenManager::from_jwt_secret(admin_jwt_secret));

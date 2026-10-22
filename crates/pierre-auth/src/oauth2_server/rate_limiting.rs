@@ -11,12 +11,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use http::HeaderMap;
 use pierre_cache::memory::InMemoryCache;
 use pierre_cache::{Cache, CacheConfig, CacheKey, CacheProvider, CacheResource, WindowCount};
+use pierre_core::constants::oauth_rate_limiting::KNOWN_DEVICE_WINDOW_SECS;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use sha2::{Digest, Sha256};
 use tracing::warn;
 use uuid::Uuid;
 
+use super::known_device::KnownDeviceKey;
 use crate::client_address::{metering_key, TrustedProxies};
 use crate::config::rate_limit::RateLimitConfig;
 use crate::rate_limiting::{OAuth2Endpoint, OAuth2RateLimitConfig, OAuth2RateLimitStatus};
@@ -89,6 +91,10 @@ pub struct OAuth2RateLimiter {
     limits: OAuth2RateLimitConfig,
     /// How long a window lasts from its first request
     window: Duration,
+    /// Signs and checks the known-device cookies whose sign-ins skip the
+    /// account window (carnet#1088); an `Arc` so every clone of the limiter
+    /// handed to a route signs with the one key
+    known_devices: Arc<KnownDeviceKey>,
 }
 
 impl OAuth2RateLimiter {
@@ -112,7 +118,28 @@ impl OAuth2RateLimiter {
             trusted_proxies: config.trusted_proxies.clone(),
             limits: OAuth2RateLimitConfig::from_rate_limit_config(config),
             window: Duration::from_secs(config.rate_limit_window_secs),
+            known_devices: Arc::new(KnownDeviceKey::ephemeral()),
         }
+    }
+
+    /// This limiter, honouring the known-device cookies `key` signs.
+    ///
+    /// Without it the limiter signs with a key of its own process, so its
+    /// cookies lapse at a restart and are not honoured by another replica;
+    /// the composition root hands every limiter the key derived from the
+    /// server's JWT secret.
+    #[must_use]
+    pub fn with_known_device_key(mut self, key: KnownDeviceKey) -> Self {
+        self.known_devices = Arc::new(key);
+        self
+    }
+
+    /// A known-device cookie value for the account `email` names, for the
+    /// browser whose password for it just verified: its next sign-ins to that
+    /// account skip the account window (see [`Self::begin_sign_in`]).
+    #[must_use]
+    pub fn issue_known_device(&self, email: &str) -> String {
+        self.known_devices.issue(&email_digest(email))
     }
 
     /// The client a request from TCP peer `peer` carrying `headers` came from
@@ -171,6 +198,15 @@ impl OAuth2RateLimiter {
     /// its window. `client` is `None` only on a router served without
     /// `ConnectInfo`; the account's window still applies.
     ///
+    /// `known_device` is the browser's known-device cookie, when it sent one.
+    /// A cookie [`Self::issue_known_device`] issued for this email is counted
+    /// in its device's own window instead of the account's (carnet#1088), so
+    /// a stranger filling the account window does not lock out a browser the
+    /// athlete signed in from before. A device's window admits
+    /// `KNOWN_DEVICE_FAILURES` refused passwords a day; past that, or with no
+    /// valid cookie, the attempt is metered in the account window like any
+    /// other.
+    ///
     /// # Errors
     ///
     /// Returns an error when neither store can count the attempt in a window:
@@ -179,22 +215,60 @@ impl OAuth2RateLimiter {
         &self,
         client: Option<IpAddr>,
         email: &str,
+        known_device: Option<&str>,
     ) -> AppResult<SignInAttempt> {
+        let digest = email_digest(email);
         let mut attempt = SignInAttempt {
-            counted: Vec::with_capacity(2),
+            counted: Vec::with_capacity(3),
             retry_after: None,
         };
-        for (endpoint, key) in Self::sign_in_windows(client, email) {
-            let (counted, store) = self.count_in(endpoint, &key).await?;
-            if counted.hits > u64::from(self.limits.get_limit(endpoint)) {
-                let wait = u32::try_from(counted.resets_in.as_secs())
-                    .unwrap_or(u32::MAX)
-                    .max(1);
-                attempt.retry_after = Some(attempt.retry_after.map_or(wait, |w| w.max(wait)));
-            }
-            attempt.counted.push((endpoint, key, store));
+        if let Some(client) = client {
+            let endpoint = OAuth2Endpoint::PasswordLogin;
+            let key = Self::window_key(endpoint, &metering_key(client).to_string());
+            self.count_attempt(&mut attempt, endpoint, key, self.window)
+                .await?;
         }
+        let device = known_device.and_then(|cookie| self.known_devices.device(cookie, &digest));
+        if let Some(device) = device {
+            let endpoint = OAuth2Endpoint::PasswordLoginKnownDevice;
+            let key = Self::window_key(endpoint, &format!("device:{device}"));
+            let (counted, store) = self
+                .count_in(
+                    endpoint,
+                    &key,
+                    Duration::from_secs(KNOWN_DEVICE_WINDOW_SECS),
+                )
+                .await?;
+            attempt.counted.push((endpoint, key, store));
+            if counted.hits <= u64::from(self.limits.get_limit(endpoint)) {
+                return Ok(attempt);
+            }
+        }
+        let endpoint = OAuth2Endpoint::PasswordLoginAccount;
+        let key = Self::window_key(endpoint, &format!("email:{digest}"));
+        self.count_attempt(&mut attempt, endpoint, key, self.window)
+            .await?;
         Ok(attempt)
+    }
+
+    /// Count `attempt` in `endpoint`'s window at `key`, lasting `window`, and
+    /// raise its wait when that window is full.
+    async fn count_attempt(
+        &self,
+        attempt: &mut SignInAttempt,
+        endpoint: OAuth2Endpoint,
+        key: CacheKey,
+        window: Duration,
+    ) -> AppResult<()> {
+        let (counted, store) = self.count_in(endpoint, &key, window).await?;
+        if counted.hits > u64::from(self.limits.get_limit(endpoint)) {
+            let wait = u32::try_from(counted.resets_in.as_secs())
+                .unwrap_or(u32::MAX)
+                .max(1);
+            attempt.retry_after = Some(attempt.retry_after.map_or(wait, |w| w.max(wait)));
+        }
+        attempt.counted.push((endpoint, key, store));
+        Ok(())
     }
 
     /// Give back the hits [`Self::begin_sign_in`] counted for `attempt`, in
@@ -220,26 +294,6 @@ impl OAuth2RateLimiter {
                 );
             }
         }
-    }
-
-    /// The windows a password sign-in is metered in: the client address's,
-    /// when there is one, and the account's, keyed by a digest of the
-    /// normalised email so an address with no account is metered exactly like
-    /// one with an account and no email lands in the store.
-    fn sign_in_windows(client: Option<IpAddr>, email: &str) -> Vec<(OAuth2Endpoint, CacheKey)> {
-        let by_account = OAuth2Endpoint::PasswordLoginAccount;
-        let account_key = Self::window_key(by_account, &format!("email:{}", email_digest(email)));
-        let by_address = client.map(|client| {
-            let endpoint = OAuth2Endpoint::PasswordLogin;
-            (
-                endpoint,
-                Self::window_key(endpoint, &metering_key(client).to_string()),
-            )
-        });
-        by_address
-            .into_iter()
-            .chain([(by_account, account_key)])
-            .collect()
     }
 
     /// Count one hit in `endpoint`'s window at `key` and report the window.
@@ -272,17 +326,20 @@ impl OAuth2RateLimiter {
     /// Count one hit at `key`: in the shared store when there is one and it
     /// answers, else in this process's.
     async fn count(&self, endpoint: OAuth2Endpoint, key: &CacheKey) -> AppResult<WindowCount> {
-        Ok(self.count_in(endpoint, key).await?.0)
+        Ok(self.count_in(endpoint, key, self.window).await?.0)
     }
 
-    /// [`Self::count`], naming the store that counted the hit.
+    /// Count one hit at `key` in a window lasting `window`, naming the store
+    /// that counted it: the shared store when there is one and it answers,
+    /// else this process's.
     async fn count_in(
         &self,
         endpoint: OAuth2Endpoint,
         key: &CacheKey,
+        window: Duration,
     ) -> AppResult<(WindowCount, CountedIn)> {
         if let Some(shared) = &self.shared {
-            match shared.count_in_window(key, self.window).await {
+            match shared.count_in_window(key, window).await {
                 Ok(counted) => return Ok((counted, CountedIn::Shared)),
                 Err(failure) => warn!(
                     endpoint = endpoint.as_str(),
@@ -293,14 +350,14 @@ impl OAuth2RateLimiter {
             }
         }
         Ok((
-            self.local.count_in_window(key, self.window).await?,
+            self.local.count_in_window(key, window).await?,
             CountedIn::Local,
         ))
     }
 
     /// The cache key of `endpoint`'s window for `subject` (a metered client
-    /// address, `user:<id>` for an account's own window, or `email:<digest>`
-    /// for the account a sign-in names)
+    /// address, `user:<id>` for an account's own window, `email:<digest>`
+    /// for the account a sign-in names, or `device:<id>` for a known device)
     fn window_key(endpoint: OAuth2Endpoint, subject: &str) -> CacheKey {
         CacheKey::new(
             TenantId::nil(),
@@ -361,7 +418,7 @@ mod tests {
                 let verified = Arc::clone(&verified);
                 tokio::spawn(async move {
                     let attempt = limiter
-                        .begin_sign_in(Some(address(n)), "victim@example.com")
+                        .begin_sign_in(Some(address(n)), "victim@example.com", None)
                         .await
                         .unwrap();
                     let wait = attempt.retry_after();
@@ -396,7 +453,7 @@ mod tests {
         let limiter = limiter(20, 1_000);
         for n in 0..25 {
             let attempt = limiter
-                .begin_sign_in(Some(address(1)), &format!("athlete-{n}@example.com"))
+                .begin_sign_in(Some(address(1)), &format!("athlete-{n}@example.com"), None)
                 .await
                 .unwrap();
             assert_eq!(attempt.retry_after(), None, "success {n} is admitted");
@@ -405,15 +462,114 @@ mod tests {
 
         for n in 0..20 {
             let guess = limiter
-                .begin_sign_in(Some(address(1)), &format!("guess-{n}@example.com"))
+                .begin_sign_in(Some(address(1)), &format!("guess-{n}@example.com"), None)
                 .await
                 .unwrap();
             assert_eq!(guess.retry_after(), None, "guess {n} fits the empty window");
         }
         let over = limiter
-            .begin_sign_in(Some(address(1)), "one-more@example.com")
+            .begin_sign_in(Some(address(1)), "one-more@example.com", None)
             .await
             .unwrap();
         assert!(over.retry_after().is_some(), "the 21st guess is refused");
+    }
+
+    /// Fill the account window of `email` from strangers' addresses, as the
+    /// remote lockout does.
+    async fn flood_account(limiter: &OAuth2RateLimiter, email: &str) {
+        for n in 0..12_u8 {
+            let guess = limiter
+                .begin_sign_in(Some(address(100 + n)), email, None)
+                .await
+                .unwrap();
+            drop(guess);
+        }
+        let stranger = limiter
+            .begin_sign_in(Some(address(99)), email, None)
+            .await
+            .unwrap();
+        assert!(
+            stranger.retry_after().is_some(),
+            "the account window is full"
+        );
+    }
+
+    /// A stranger filling an athlete's account window does not lock out the
+    /// browser the athlete signed in from before (carnet#1088).
+    #[tokio::test]
+    async fn a_known_device_signs_in_while_strangers_fill_the_account_window() {
+        let limiter = limiter(1_000, 10);
+        let cookie = limiter.issue_known_device("Victim@Example.com ");
+        flood_account(&limiter, "victim@example.com").await;
+
+        let athlete = limiter
+            .begin_sign_in(Some(address(1)), "victim@example.com", Some(&cookie))
+            .await
+            .unwrap();
+        assert_eq!(athlete.retry_after(), None);
+        limiter.refund_sign_in(athlete).await;
+    }
+
+    /// A cookie earned on one account does not skip another account's window.
+    #[tokio::test]
+    async fn a_cookie_for_another_account_is_metered_like_a_stranger() {
+        let limiter = limiter(1_000, 10);
+        let own = limiter.issue_known_device("attacker@example.com");
+        flood_account(&limiter, "victim@example.com").await;
+
+        for cookie in [own.as_str(), "v1.9999999999.forged.sig"] {
+            let attempt = limiter
+                .begin_sign_in(Some(address(2)), "victim@example.com", Some(cookie))
+                .await
+                .unwrap();
+            assert!(attempt.retry_after().is_some(), "{cookie}");
+        }
+    }
+
+    /// A known device's refused passwords are capped: past the day's
+    /// allowance it is metered in the account window again, so a stolen
+    /// cookie buys only that many guesses.
+    #[tokio::test]
+    async fn a_known_device_that_keeps_guessing_falls_back_to_the_account_window() {
+        let limiter = limiter(1_000, 10);
+        let cookie = limiter.issue_known_device("victim@example.com");
+        for n in 0..10 {
+            let guess = limiter
+                .begin_sign_in(Some(address(3)), "victim@example.com", Some(&cookie))
+                .await
+                .unwrap();
+            assert_eq!(
+                guess.retry_after(),
+                None,
+                "guess {n} on the device's own window"
+            );
+        }
+        flood_account(&limiter, "victim@example.com").await;
+
+        let over = limiter
+            .begin_sign_in(Some(address(3)), "victim@example.com", Some(&cookie))
+            .await
+            .unwrap();
+        assert!(
+            over.retry_after().is_some(),
+            "the 11th guess meets the full account window"
+        );
+    }
+
+    /// A successful sign-in on a known device gives its hit back, so typing
+    /// one's password right never spends the device's allowance.
+    #[tokio::test]
+    async fn successful_known_device_sign_ins_leave_its_window_empty() {
+        let limiter = limiter(1_000, 10);
+        let cookie = limiter.issue_known_device("victim@example.com");
+        flood_account(&limiter, "victim@example.com").await;
+        for n in 0..25 {
+            let attempt = limiter
+                .begin_sign_in(Some(address(4)), "victim@example.com", Some(&cookie))
+                .await
+                .unwrap();
+            assert_eq!(attempt.retry_after(), None, "sign-in {n} is admitted");
+            limiter.refund_sign_in(attempt).await;
+        }
     }
 }

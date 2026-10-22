@@ -118,8 +118,9 @@ pub async fn page_refusal(
 }
 
 /// Count a password sign-in on the hosted login form, from `client` naming
-/// `email`, in its windows before the password is checked (carnet#804,
-/// carnet#908): `Ok` admits it, with the attempt to refund once the password
+/// `email` and presenting the browser's `known_device` cookie if it has one,
+/// in its windows before the password is checked (carnet#804, carnet#908,
+/// carnet#1088): `Ok` admits it, with the attempt to refund once the password
 /// verifies; `Err` is the page `render` draws — `too_many_requests` with its
 /// `Retry-After` when the address's or the account's window is full,
 /// `temporarily_unavailable` when the limiter could not count the attempt.
@@ -131,9 +132,10 @@ pub async fn sign_in_page_admission(
     limiter: &OAuth2RateLimiter,
     client: Option<IpAddr>,
     email: &str,
+    known_device: Option<&str>,
     render: impl FnOnce(&OAuth2Error) -> Response,
 ) -> Result<SignInAttempt, Box<Response>> {
-    let attempt = match limiter.begin_sign_in(client, email).await {
+    let attempt = match limiter.begin_sign_in(client, email, known_device).await {
         Ok(attempt) => attempt,
         Err(failure) => {
             error!(error = %failure, "Hosted sign-in limiter could not count the attempt");

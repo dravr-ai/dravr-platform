@@ -12,6 +12,8 @@ pub mod client_registration;
 pub mod endpoints;
 /// Dravr's own web and mobile apps as clients of this server
 pub mod first_party;
+/// The known-device cookie that lets a browser skip the account sign-in window
+pub mod known_device;
 /// The mobile app's attestation evidence on its code exchange
 pub mod mobile_attestation;
 /// OAuth 2.0 data models and types
@@ -63,6 +65,7 @@ pub use models::TokenRequest;
 pub use models::TokenResponse;
 
 // OAuth 2.0 rate limiting
+pub use known_device::{known_device_cookie_name, known_device_set_cookie, KnownDeviceKey};
 pub use rate_limiting::{OAuth2RateLimiter, SignInAttempt};
 
 // OAuth 2.0 typestate pattern for compile-time flow safety
