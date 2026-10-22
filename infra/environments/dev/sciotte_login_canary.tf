@@ -15,6 +15,10 @@
 # dravr-mcp-server-job-failures alert counts: the job name ends in `-job` so
 # the alert's filter (monitoring.tf) already covers it.
 #
+# The scheduler is paused (see `paused` below) until the secrets name a
+# dedicated canary account; the ledger entry is sciotte-garmin-login-canary
+# in feature-phases.yaml.
+#
 # Every run is one real Garmin login from prod's egress on one account, so
 # the cadence stays at 6 h: a faster canary would itself feed Garmin's risk
 # score.
@@ -133,6 +137,9 @@ resource "google_cloud_scheduler_job" "sciotte_login_canary" {
   # Paused 2026-10-22 by ChefFamille's call: the canary secrets hold a team
   # member's own Garmin login, so every run was a real sign-in on their
   # account. Resume only once the secrets name a dedicated canary account.
+  # While paused nothing runs, so nothing logs at ERROR and the job-failures
+  # alert stays quiet: a Garmin sign-in breakage is again visible only as
+  # athletes failing to connect.
   paused = true
 
   # No retry_config block: a retried trigger would be a second real login, and

@@ -13,9 +13,8 @@
 //! `Activity` into the two places the coach reads it: the `ActivitySummary`
 //! the activity tools serialize, and the endurance snapshot's derived factors.
 //!
-//! `normalizedPower` is the key `GarminSummary` reads; it is unconfirmed
-//! against a live Garmin Connect capture (LIMITATION(registre#105) on that
-//! field), so this pins the mapping from that key, not Garmin's spelling.
+//! `normalizedPower` is the key public Garmin Connect clients read; no live
+//! capture confirms it (LIMITATION(registre#105) on that field).
 #![cfg(feature = "provider-garmin")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]

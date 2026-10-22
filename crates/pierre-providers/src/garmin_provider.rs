@@ -34,221 +34,12 @@ use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument};
 
-/// Garmin's `GET user/id` answer: the user id the access token belongs to,
-/// which is all the Health API says about the user.
-#[derive(Debug, Deserialize)]
-struct GarminUserIdResponse {
-    #[serde(rename = "userId")]
-    user_id: String,
-}
+mod wire;
 
-/// Garmin Connect API activity-type DTO. Returned at multiple nesting depths
-/// (`activityTypeDTO` on detail; `activityType` on list rows).
-#[derive(Debug, Deserialize, Default)]
-#[serde(default)]
-struct GarminActivityType {
-    #[serde(rename = "typeKey")]
-    type_key: Option<String>,
-    #[serde(rename = "parentTypeId")]
-    parent_type_id: Option<u32>,
-    #[serde(rename = "typeId")]
-    type_id: Option<u32>,
-    /// The broader family (`cycling` for `road_biking`); list rows fall back to it
-    /// when `typeKey` is absent.
-    #[serde(rename = "parentTypeKey")]
-    parent_type_key: Option<String>,
-}
-
-/// One row of `activitylist-service/activities/search/activities`.
-///
-/// List rows are FLAT: the type is `activityType` (not `activityTypeDTO`), the
-/// metrics sit at the top level (not under `summaryDTO`), and the start time is
-/// `startTimeGMT`. The key set is the one dravr-sciotte's `providers/garmin.toml`
-/// list extractor reads against live Garmin Connect traffic, so a key listed here
-/// is one a real response was seen to carry.
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct GarminListRow {
-    activity_id: u64,
-    activity_name: Option<String>,
-    activity_type: GarminActivityType,
-    #[serde(rename = "startTimeGMT")]
-    start_time_gmt: Option<String>,
-    distance: Option<f64>,
-    duration: Option<f64>,
-    elevation_gain: Option<f64>,
-    average_speed: Option<f64>,
-    max_speed: Option<f64>,
-    #[serde(rename = "averageHR")]
-    average_hr: Option<f32>,
-    #[serde(rename = "maxHR")]
-    max_hr: Option<f32>,
-    calories: Option<f64>,
-    average_running_cadence_in_steps_per_minute: Option<f32>,
-    average_biking_cadence_in_rev_per_minute: Option<f32>,
-    /// Garmin has sent the average power under both names.
-    avg_power: Option<f32>,
-    average_power: Option<f32>,
-}
-
-/// Garmin's `summaryDTO` — top-level summary fields nested inside the
-/// detail response. Numeric durations are seconds (f64); HR/cadence values
-/// are f32 because Garmin's API emits floating-point HR for partial-second
-/// averages.
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct GarminSummary {
-    distance: Option<f64>,
-    duration: Option<f64>,
-    moving_duration: Option<f64>,
-    elapsed_duration: Option<f64>,
-    elevation_gain: Option<f64>,
-    elevation_loss: Option<f64>,
-    average_speed: Option<f64>,
-    max_speed: Option<f64>,
-    average_moving_speed: Option<f64>,
-    #[serde(rename = "averageHR")]
-    average_hr: Option<f32>,
-    #[serde(rename = "maxHR")]
-    max_hr: Option<f32>,
-    #[serde(rename = "minHR")]
-    min_hr: Option<f32>,
-    average_run_cadence: Option<f32>,
-    average_biking_cadence: Option<f32>,
-    average_power: Option<f32>,
-    max_power: Option<f32>,
-    /// LIMITATION(registre#105): the `normalizedPower` key name, and the list-row NP and max-power
-    /// key names (`GarminListRow` maps neither), are unconfirmed: no live Garmin Connect capture
-    /// with a power-meter ride exists, and the live `sciotte_garmin` path still drops NP.
-    normalized_power: Option<f32>,
-    calories: Option<f64>,
-    bmr_calories: Option<f64>,
-    average_temperature: Option<f64>,
-    max_temperature: Option<f64>,
-    min_temperature: Option<f64>,
-    avg_elevation: Option<f64>,
-    min_elevation: Option<f64>,
-    max_elevation: Option<f64>,
-    start_latitude: Option<f64>,
-    start_longitude: Option<f64>,
-    end_latitude: Option<f64>,
-    end_longitude: Option<f64>,
-    #[serde(rename = "startTimeGMT")]
-    start_time_gmt: Option<String>,
-    start_time_local: Option<String>,
-    training_effect: Option<f32>,
-    anaerobic_training_effect: Option<f32>,
-    activity_training_load: Option<f32>,
-}
-
-/// One lap from Garmin's `/activity-service/activity/{id}/laps` endpoint.
-/// Field names are camelCase in the source JSON; `serde(rename_all)` maps
-/// them. All metric fields are `Option` because Garmin omits them when the
-/// recording device didn't capture the corresponding sensor.
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct GarminLap {
-    lap_index: Option<u32>,
-    message_index: Option<u32>,
-    start_time_gmt: Option<String>,
-    distance: Option<f64>,
-    duration: Option<f64>,
-    elapsed_duration: Option<f64>,
-    moving_duration: Option<f64>,
-    elevation_gain: Option<f64>,
-    elevation_loss: Option<f64>,
-    max_elevation: Option<f64>,
-    min_elevation: Option<f64>,
-    average_speed: Option<f64>,
-    max_speed: Option<f64>,
-    average_moving_speed: Option<f64>,
-    max_vertical_speed: Option<f64>,
-    #[serde(rename = "averageHR")]
-    average_hr: Option<f32>,
-    #[serde(rename = "maxHR")]
-    max_hr: Option<f32>,
-    average_running_cadence_in_steps_per_minute: Option<f32>,
-    average_biking_cadence_in_rev_per_minute: Option<f32>,
-    average_power: Option<f32>,
-    max_power: Option<f32>,
-    calories: Option<f64>,
-    bmr_calories: Option<f64>,
-    average_temperature: Option<f64>,
-    max_temperature: Option<f64>,
-    min_temperature: Option<f64>,
-    start_latitude: Option<f64>,
-    start_longitude: Option<f64>,
-    end_latitude: Option<f64>,
-    end_longitude: Option<f64>,
-}
-
-/// Wrapper for the `/activity/{id}/laps` endpoint response.
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct GarminLapsResponse {
-    activity_id: Option<u64>,
-    #[serde(rename = "lapDTOs")]
-    lap_dtos: Vec<GarminLap>,
-}
-
-/// One split from `/activity/{id}/splits` (typically per-km or per-mile slices).
-#[derive(Debug, Deserialize, Default, Clone)]
-#[serde(default, rename_all = "camelCase")]
-struct GarminSplit {
-    message_index: Option<u32>,
-    start_time_gmt: Option<String>,
-    distance: Option<f64>,
-    duration: Option<f64>,
-    moving_duration: Option<f64>,
-    elevation_gain: Option<f64>,
-    elevation_loss: Option<f64>,
-    average_speed: Option<f64>,
-    max_speed: Option<f64>,
-    #[serde(rename = "averageHR")]
-    average_hr: Option<f32>,
-    #[serde(rename = "maxHR")]
-    max_hr: Option<f32>,
-    average_power: Option<f32>,
-    calories: Option<f64>,
-    start_latitude: Option<f64>,
-    start_longitude: Option<f64>,
-}
-
-/// Wrapper for the `/activity/{id}/splits` endpoint response. Garmin returns
-/// a top-level `lapDTOs` array (sic — they reuse the field name) for splits.
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct GarminSplitsResponse {
-    #[serde(rename = "lapDTOs")]
-    splits: Vec<GarminSplit>,
-}
-
-/// Top-level Garmin API response for `/activity-service/activity/{id}`.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GarminActivityResponse {
-    #[serde(rename = "activityId")]
-    activity_id: u64,
-    #[serde(default, rename = "activityName")]
-    activity_name: Option<String>,
-    #[serde(default, rename = "activityTypeDTO")]
-    activity_type_dto: GarminActivityType,
-    #[serde(default, rename = "summaryDTO")]
-    summary_dto: GarminSummary,
-}
-
-/// Garmin API response for summary stats
-#[derive(Debug, Deserialize)]
-struct GarminStatsResponse {
-    #[serde(rename = "totalActivities")]
-    activities_count: Option<u64>,
-    #[serde(rename = "totalDistance")]
-    distance: Option<f64>,
-    #[serde(rename = "totalDuration")]
-    duration: Option<f64>,
-    #[serde(rename = "totalElevationGain")]
-    elevation_gain: Option<f64>,
-}
+use wire::{
+    GarminActivityResponse, GarminLap, GarminLapsResponse, GarminListRow, GarminSplit,
+    GarminSplitsResponse, GarminStatsResponse, GarminUserIdResponse,
+};
 
 /// Garmin Connect provider implementation
 pub struct GarminProvider {
@@ -547,6 +338,8 @@ impl GarminProvider {
                 .or(row.average_power)
                 .map(utils::conversions::f32_to_u32),
         )
+        .max_power_opt(row.max_power.map(utils::conversions::f32_to_u32))
+        .normalized_power_opt(row.norm_power.map(utils::conversions::f32_to_u32))
         .calories_opt(row.calories.map(utils::conversions::f64_to_u32))
         .build())
     }
@@ -1084,6 +877,9 @@ mod tests {
     /// `providers/garmin.toml` list extractor reads from live traffic: the type
     /// under `activityType`, the metrics at the top level, `startTimeGMT` in
     /// Garmin's SQL-style spelling, and the average power as `avgPower`.
+    /// `maxPower` and `normPower` are the names public Garmin Connect clients
+    /// read, not ones live traffic was seen to carry (LIMITATION on
+    /// `GarminSummary::normalized_power`).
     fn list_row() -> serde_json::Value {
         json!({
             "activityId": 20_260_427_001_u64,
@@ -1100,7 +896,9 @@ mod tests {
             "maxHR": 176.0,
             "calories": 980.0,
             "averageBikingCadenceInRevPerMinute": 88.0,
-            "avgPower": 214.0
+            "avgPower": 214.0,
+            "maxPower": 640.0,
+            "normPower": 231.0
         })
     }
 
@@ -1120,6 +918,23 @@ mod tests {
         assert_eq!(activity.average_heart_rate(), Some(148));
         assert_eq!(activity.average_cadence(), Some(88));
         assert_eq!(activity.average_power(), Some(214));
+        assert_eq!(activity.max_power(), Some(640));
+        assert_eq!(activity.normalized_power(), Some(231));
+    }
+
+    #[test]
+    fn a_list_row_without_a_power_meter_states_no_power() {
+        let mut value = list_row();
+        let row_map = value.as_object_mut().unwrap();
+        for key in ["avgPower", "maxPower", "normPower"] {
+            row_map.remove(key);
+        }
+        let row: GarminListRow = serde_json::from_value(value).unwrap();
+        let activity = GarminProvider::convert_garmin_list_row(row).unwrap();
+
+        assert_eq!(activity.average_power(), None);
+        assert_eq!(activity.max_power(), None);
+        assert_eq!(activity.normalized_power(), None);
     }
 
     #[test]
@@ -1149,9 +964,8 @@ mod tests {
     /// `rename_all = "camelCase"` alone expects `startTimeGmt`, which Garmin
     /// never sends, so every detail conversion used to fail.
     ///
-    /// `normalizedPower` is the key `GarminSummary` reads; it is unconfirmed
-    /// against a live capture (see the LIMITATION on the field), so this pins the
-    /// mapping from that key, not Garmin's spelling of it.
+    /// `normalizedPower` is the key public Garmin Connect clients read; no live
+    /// capture confirms it (see the LIMITATION on the field).
     fn detail() -> serde_json::Value {
         json!({
             "activityId": 20_260_427_001_u64,
