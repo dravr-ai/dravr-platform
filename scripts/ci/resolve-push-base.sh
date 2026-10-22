@@ -15,7 +15,10 @@
 # Modes (argument 1):
 #   before  The commits this push added: a pull request's base, else the push's
 #           before-sha. A branch's first push (all-zero before-sha) and a
-#           schedule or dispatch run (none) use the fork point from main.
+#           schedule or dispatch run (none) use the fork point from main, and
+#           so does a branch force-pushed after a rebase: its before-sha is no
+#           ancestor of HEAD, every commit since the fork is new, and a gate
+#           handed the rewritten tip finds no common ancestor and refuses.
 #   fork    Everything since the branch forked from main: a pull request's
 #           base, else the fork point for a branch push, else as `before`.
 #           On main the fork point is HEAD itself, so a main push still diffs
@@ -90,13 +93,39 @@ use_fork_point() {
   esac
 }
 
+# Whether $1 is an ancestor of HEAD, fetching it first when the checkout lacks
+# it: 0 yes, 1 no, 3 when git could not answer. A shallow checkout can answer
+# no for a deep ancestor, and a sha origin no longer serves is answered no; the
+# fork point either one falls back to covers every commit $1 did, so a gate
+# judges more, never less. Main is never asked: it is not force-pushed.
+is_ancestor() {
+  local code=0
+  if ! git cat-file -e "${1}^{commit}" 2>/dev/null; then
+    git fetch -q --no-tags --depth=1 origin "$1" >&2 || return 1
+  fi
+  git merge-base --is-ancestor "$1" HEAD || code=$?
+  case "$code" in
+    0 | 1) return "$code" ;;
+    *) return 3 ;;
+  esac
+}
+
 base=""
 if [ -n "$pr_base" ]; then
   base="$pr_base"
 elif [ "$mode" = fork ] && [ "$event" = push ] && [ "$ref" != refs/heads/main ]; then
   use_fork_point
 elif [ -n "$before" ]; then
-  base="$before"
+  ancestry=0
+  [ "$ref" = refs/heads/main ] || is_ancestor "$before" || ancestry=$?
+  case "$ancestry" in
+    0) base="$before" ;;
+    1) use_fork_point ;;
+    *)
+      echo "resolve-push-base: could not tell whether $before is an ancestor of HEAD (merge-base failed)" >&2
+      exit 3
+      ;;
+  esac
 else
   use_fork_point
 fi

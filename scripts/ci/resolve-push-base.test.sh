@@ -32,7 +32,8 @@ expect() { # $1 = label, $2 = actual, $3 = expected
 }
 
 # The origin: main has six commits; features/x forks at main~3 and adds two
-# pushes; features/orphan shares no history with main.
+# pushes; features/rebased held one commit on main~3, then was rebased onto
+# main and force-pushed; features/orphan shares no history with main.
 WORK="$ROOT/work"
 ORIGIN="$ROOT/origin.git"
 git init -q --bare "$ORIGIN"
@@ -55,12 +56,20 @@ commit "$WORK" "b1"
 FEAT_BEFORE="$(git -C "$WORK" rev-parse HEAD)"
 commit "$WORK" "b2"
 FEAT="$(git -C "$WORK" rev-parse HEAD)"
+git -C "$WORK" checkout -qb features/rebased "$FORK"
+commit "$WORK" "r1"
+REBASED_BEFORE="$(git -C "$WORK" rev-parse HEAD)"
+git -C "$WORK" reset -q --hard "$MAIN"
+commit "$WORK" "r1-rebased"
+REBASED="$(git -C "$WORK" rev-parse HEAD)"
 git -C "$WORK" checkout -q --orphan features/orphan
 git -C "$WORK" rm -rq --cached . && git -C "$WORK" clean -fdq
 commit "$WORK" "o1"
 ORPHAN="$(git -C "$WORK" rev-parse HEAD)"
 git -C "$WORK" remote add origin "file://$ORIGIN"
-git -C "$WORK" push -q origin main features/x features/orphan
+git -C "$WORK" push -q origin main features/x features/rebased features/orphan
+# The pre-rebase tip stays fetchable by sha, as GitHub keeps it after a force-push
+git -C "$WORK" push -q origin "$REBASED_BEFORE:refs/keep/rebased-before"
 
 # $1 = branch, $2 = sha, $3 = depth. Mirrors actions/checkout: the pushed sha
 # alone, as refs/remotes/origin/<branch>, detached.
@@ -96,7 +105,38 @@ expect "before: the commits this push added" \
 expect "fork: everything since the branch forked" \
   "$(resolve fork push refs/heads/features/x "$FEAT_BEFORE" "")" "$FORK"
 
+echo "a force-push after a rebase: the before-sha is not an ancestor"
+checkout features/rebased "$REBASED" 50
+expect "before: the fork point, not the rewritten tip" \
+  "$(resolve before push refs/heads/features/rebased "$REBASED_BEFORE" "")" "$MAIN"
+expect "fork: the fork point" \
+  "$(resolve fork push refs/heads/features/rebased "$REBASED_BEFORE" "")" "$MAIN"
+expect "before: a before-sha origin no longer serves falls back to the fork point" \
+  "$(resolve before push refs/heads/features/rebased deadbeefdeadbeefdeadbeefdeadbeefdeadbeef "")" "$MAIN"
+
+echo "the ancestry check itself crashes"
+# A git shim, test-only: merge-base --is-ancestor dies with git's fatal 128,
+# which no real fixture state reaches once cat-file has found the commit (a
+# missing parent object makes it answer 1, not 128). Every other call is real.
+SHIM="$ROOT/shim"
+mkdir -p "$SHIM"
+REAL_GIT="$(command -v git)"
+cat >"$SHIM/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do [ "\$arg" = --is-ancestor ] && exit 128; done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SHIM/git"
+crashed="$(PATH="$SHIM:$PATH" resolve before push refs/heads/features/rebased "$REBASED_BEFORE" "")"
+expect "before: a crash is exit 3, never a fork point or the before-sha" "$crashed" "exit 3"
+if grep -q "could not tell whether" "$ERR"; then
+  expect "the crash says what failed" yes yes
+else
+  expect "the crash says what failed" "$(cat "$ERR")" "could not tell whether"
+fi
+
 echo "a branch's first push (all-zero before-sha)"
+checkout features/x "$FEAT" 50
 for mode in before fork; do
   expect "$mode: the fork point" \
     "$(resolve "$mode" push refs/heads/features/x "$ZERO" "")" "$FORK"
