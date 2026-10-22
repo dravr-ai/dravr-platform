@@ -418,26 +418,26 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
 /// kilometre.
 ///
 /// Read off cageux's [`VO2MaxCalculator::calculate_pace_zones`], the function
-/// the pace zones are cut by: threshold pace is the pace the athlete's lactate
-/// threshold (`lactate_threshold`, a fraction of `VO2max`) puts them at on
-/// Daniels' curve, and the threshold zone's slow edge is a configured multiple
-/// of it. So a pace offered here and a pace drawn in the zones cannot
-/// disagree. `None` when the pace is not usable — an estimate that low
-/// describes no running pace, and inventing one would be worse than saying
-/// nothing.
+/// the pace zones are cut by: threshold pace is the speed whose oxygen cost on
+/// Daniels' curve is the athlete's lactate threshold (`lactate_threshold`, a
+/// fraction of `VO2max`; Daniels' 0.88 when none is saved), and the threshold
+/// zone is cut around it. So a pace offered here and a pace drawn in the
+/// zones cannot disagree. `None` when the pace is not usable — an estimate
+/// that low describes no running pace, and inventing one would be worse than
+/// saying nothing.
 fn implied_threshold_pace(
     vo2max: f64,
     lactate_threshold: f64,
     zones: &TrainingZonesConfig,
 ) -> Option<f64> {
-    if !vo2max.is_finite() || vo2max <= 0.0 || zones.vdot_threshold_zone_slow_factor <= 0.0 {
+    if !vo2max.is_finite() || vo2max <= 0.0 {
         return None;
     }
     // Pace zones read only VO2max and the lactate threshold; the calculator's
-    // heart-rate fields and sport efficiency feed nothing asked for here.
-    let paces =
-        VO2MaxCalculator::new(vo2max, 0, 0, lactate_threshold, 1.0).calculate_pace_zones(zones);
-    let pace = paces.threshold_pace_range.0 / zones.vdot_threshold_zone_slow_factor;
+    // heart-rate fields feed nothing asked for here.
+    let pace = VO2MaxCalculator::new(vo2max, 0, 0, lactate_threshold)
+        .calculate_pace_zones(zones)
+        .threshold_pace_sec_per_km;
     (pace.is_finite() && pace > 0.0).then(|| (pace * 10.0).round() / 10.0)
 }
 

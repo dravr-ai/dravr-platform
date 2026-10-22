@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dravr_cageux::zones::{AerobicThresholdPace, HrZones, PowerZones};
+use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::zones::athlete_hr_zones;
 use pierre_core::models::{Activity, PhysiologicalSex, TenantId, UserPhysiologicalProfile};
@@ -52,10 +52,10 @@ pub struct DossierExport {
     #[serde(flatten)]
     pub dossier: Dossier,
     /// LT1/LT2 heart rate, power and pace read off the profile — heart rate
-    /// at 75 % / 85 % of the athlete's reserve unless an LTHR is saved,
-    /// Coggan's levels for power, the saved threshold pace for pace. Gives the
-    /// dossier training zone anchors even when the athlete has measured none
-    /// directly.
+    /// at 75 % / 85 % of the athlete's reserve unless an LTHR is saved, FTP
+    /// and two published LT1 power estimates for power, the saved threshold
+    /// pace and its LT1 estimate for pace. Gives the dossier training zone
+    /// anchors even when the athlete has measured none directly.
     pub threshold_estimate: ThresholdEstimate,
 }
 
@@ -318,16 +318,13 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
     }
 }
 
-/// Coggan's endurance level, whose upper edge is the aerobic threshold power.
-const ENDURANCE_LEVEL: u8 = 2;
-
 /// The dossier's LT1 / LT2 anchors, each read from where it lives rather
 /// than re-derived here.
 ///
 /// - **LT1** (aerobic threshold) heart rate is cageux's
 ///   [`HrZones::aerobic_threshold_bpm`], 75 % of the athlete's heart-rate
-///   reserve; LT1 power is the top of Coggan's endurance level
-///   ([`PowerZones::coggan`], 75 % of FTP).
+///   reserve; LT1 power is cageux's [`AerobicThresholdPower::estimates`]
+///   from the FTP, one per published VT1/VT2 power ratio, each with its note.
 /// - **LT2** (lactate threshold) heart rate is the athlete's LTHR (measured,
 ///   else estimated from their lactate threshold), else cageux's
 ///   [`HrZones::lactate_threshold_bpm`], 85 % of reserve; LT2 power is the
@@ -351,9 +348,14 @@ pub struct ThresholdEstimate {
     /// their heart-rate reserve.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lt2_hr: Option<f64>,
-    /// LT1 power (watts): the top of Coggan's endurance level, 75 % of FTP.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lt1_power_watts: Option<f64>,
+    /// LT1 power estimated from the FTP, one entry per published VT1/VT2
+    /// power ratio (Pallarés et al. 2016, then Benítez-Muñoz et al. 2025).
+    /// Each carries its watts, the ratio, the study's range when it reports
+    /// one, and a `note` on what it rests on: quote LT1 power as these
+    /// estimates with their notes, never as one measured number. Absent
+    /// without a saved FTP.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lt1_power: Vec<AerobicThresholdPower>,
     /// LT2 power (watts): the FTP.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lt2_power_watts: Option<f64>,
@@ -380,19 +382,13 @@ impl ThresholdEstimate {
         let lt2_hr = profile
             .and_then(UserPhysiologicalProfile::lactate_threshold_hr)
             .or_else(|| zones.as_ref().map(|z| f64::from(z.lactate_threshold_bpm)));
-        let lt1_power_watts = ftp_watts
-            .and_then(|ftp| PowerZones::coggan(ftp).ok())
-            .and_then(|levels| {
-                levels
-                    .zones()
-                    .iter()
-                    .find(|band| band.zone == ENDURANCE_LEVEL)
-                    .and_then(|band| band.upper_watts)
-            });
+        let lt1_power = ftp_watts
+            .and_then(|ftp| AerobicThresholdPower::estimates(ftp).ok())
+            .unwrap_or_default();
         Self {
             lt1_hr: zones.as_ref().map(|z| f64::from(z.aerobic_threshold_bpm)),
             lt2_hr,
-            lt1_power_watts,
+            lt1_power,
             lt2_power_watts: ftp_watts,
             lt2_pace_sec_per_km: threshold_pace,
             lt1_pace: threshold_pace.and_then(|pace| {

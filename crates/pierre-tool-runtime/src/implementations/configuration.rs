@@ -41,7 +41,7 @@ use dravr_cageux::config::intelligence::VO2MaxCalculator;
 use dravr_cageux::models::maxhr::MaxHrAlgorithm;
 use dravr_cageux::physiological_constants::configuration_validation;
 use dravr_cageux::physiological_constants::physiological_defaults::{
-    DEFAULT_LACTATE_THRESHOLD, DEFAULT_SPORT_EFFICIENCY,
+    DEFAULT_LACTATE_THRESHOLD, LACTATE_THRESHOLD_MAX, LACTATE_THRESHOLD_MIN,
 };
 use dravr_cageux::zones::{HrZoneBand, HrZones, PowerZones};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -71,11 +71,11 @@ struct ZoneParams {
     max_hr: Option<u16>,
     ftp_watts: Option<u32>,
     lactate_threshold: f64,
-    sport_efficiency: f64,
     /// Where each athlete-specific input came from, keyed by field name:
     /// `provided` (this call's arguments), `profile` (the saved physiology),
-    /// or `estimated_from_age` for a maximum heart rate cageux's configured
-    /// max-HR algorithm estimated from the saved age.
+    /// `estimated_from_age` for a maximum heart rate cageux's configured
+    /// max-HR algorithm estimated from the saved age, or `daniels_default`
+    /// for a lactate threshold neither supplied nor saved.
     sources: serde_json::Map<String, Value>,
 }
 
@@ -140,11 +140,11 @@ fn extract_zone_parameters(
         stored.and_then(|p| p.lactate_threshold_percentage),
         &mut sources,
     )
-    .unwrap_or(DEFAULT_LACTATE_THRESHOLD);
-    let sport_efficiency = args
-        .get("sport_efficiency")
-        .and_then(Value::as_f64)
-        .unwrap_or(DEFAULT_SPORT_EFFICIENCY);
+    .unwrap_or_else(|| {
+        // None measured: Daniels' threshold intensity, named in the sources.
+        sources.insert("lactate_threshold".to_owned(), json!("daniels_default"));
+        DEFAULT_LACTATE_THRESHOLD
+    });
 
     let resting_hr = resolve_u64_input(
         args,
@@ -183,7 +183,6 @@ fn extract_zone_parameters(
         max_hr: max_hr.and_then(|v| u16::try_from(v).ok()),
         ftp_watts: ftp_watts.and_then(|v| u32::try_from(v).ok()),
         lactate_threshold,
-        sport_efficiency,
         sources,
     }
 }
@@ -195,7 +194,6 @@ fn create_user_profile(params: &ZoneParams) -> ZoneInputProfile {
         max_hr: params.max_hr,
         ftp: params.ftp_watts,
         lactate_threshold: params.lactate_threshold,
-        sport_efficiency: params.sport_efficiency,
     }
 }
 
@@ -228,7 +226,7 @@ fn render_hr_zones(zones: &HrZones) -> Option<HeartRateZones> {
 }
 
 /// How cageux cut the heart-rate zones, plus its two threshold heart rates.
-fn render_zone_calculations(zones: &HrZones, sport_efficiency: f64) -> ZoneCalculations {
+fn render_zone_calculations(zones: &HrZones) -> ZoneCalculations {
     ZoneCalculations {
         method: HrZoneModel::KarvonenVo2maxTiered,
         tier: zones.tier,
@@ -236,7 +234,6 @@ fn render_zone_calculations(zones: &HrZones, sport_efficiency: f64) -> ZoneCalcu
         vo2_max_source: zones.vo2_max_source,
         lactate_threshold_hr: u64::from(zones.lactate_threshold_bpm),
         aerobic_threshold_hr: u64::from(zones.aerobic_threshold_bpm),
-        sport_efficiency_factor: sport_efficiency,
     }
 }
 
@@ -250,14 +247,13 @@ fn render_zone_calculations(zones: &HrZones, sport_efficiency: f64) -> ZoneCalcu
 fn calculate_pace_zones_from_vo2max(
     vo2_max: f64,
     lactate_threshold: f64,
-    sport_efficiency: f64,
     config: &TrainingZonesConfig,
 ) -> PaceZones {
     // Pace zones read only VO2max and the lactate threshold; the heart-rate
     // fields of the calculator feed its heart-rate zones, which this does not
     // ask for.
-    let paces = VO2MaxCalculator::new(vo2_max, 0, 0, lactate_threshold, sport_efficiency)
-        .calculate_pace_zones(config);
+    let paces =
+        VO2MaxCalculator::new(vo2_max, 0, 0, lactate_threshold).calculate_pace_zones(config);
 
     let format_pace = |seconds_per_km: f64| -> String {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -793,19 +789,10 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(format!(
-                    "Lactate threshold as a fraction of VO2 max (typically 0.65-0.95), used for \
-                     pace zones. Omit to use the athlete's saved value, else \
-                     {DEFAULT_LACTATE_THRESHOLD}."
-                )),
-                ..Default::default()
-            },
-        );
-        properties.insert(
-            "sport_efficiency".to_owned(),
-            PropertySchema {
-                property_type: "number".to_owned(),
-                description: Some(format!(
-                    "Sport efficiency factor for pace zones. Default {DEFAULT_SPORT_EFFICIENCY:.1}."
+                    "Lactate threshold as a fraction of VO2 max (0.65-0.95), used for pace \
+                     zones: threshold pace runs at the speed whose oxygen cost is that share of \
+                     VO2 max. Omit to use the athlete's saved value, else Daniels' threshold \
+                     intensity, {DEFAULT_LACTATE_THRESHOLD} (named in `input_sources`)."
                 )),
                 ..Default::default()
             },
@@ -878,6 +865,16 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             let max_hr_algorithm =
                 configured_max_hr_algorithm(&ctx.resources, ctx.user_id, tenant.as_deref())
                     .await?;
+            // The pace zones accept a lactate threshold only inside cageux's
+            // range; one outside it is refused rather than silently clamped.
+            if let Some(lt) = args.get("lactate_threshold").and_then(Value::as_f64) {
+                if !(LACTATE_THRESHOLD_MIN..=LACTATE_THRESHOLD_MAX).contains(&lt) {
+                    return Err(AppError::invalid_input(format!(
+                        "lactate_threshold must be between {LACTATE_THRESHOLD_MIN} and \
+                         {LACTATE_THRESHOLD_MAX} (fraction of VO2max), got {lt}"
+                    )));
+                }
+            }
             let mut params = extract_zone_parameters(&args, stored.as_ref(), max_hr_algorithm);
             let user_profile = create_user_profile(&params);
             let zones_config = &ctx.resources.config().training_zones;
@@ -906,7 +903,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                     }
                     (
                         render_hr_zones(zones),
-                        Some(render_zone_calculations(zones, params.sport_efficiency)),
+                        Some(render_zone_calculations(zones)),
                     )
                 }
                 Err(reason) => {
@@ -921,7 +918,6 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
                     calculate_pace_zones_from_vo2max(
                         vo2_max,
                         params.lactate_threshold,
-                        params.sport_efficiency,
                         zones_config,
                     )
                 });

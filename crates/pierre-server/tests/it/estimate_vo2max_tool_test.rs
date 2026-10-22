@@ -504,9 +504,10 @@ async fn every_method_offers_the_threshold_pace_its_estimate_implies() -> Result
         );
     }
 
-    // VDOT 50 holds 260.77 m/min at VO2max on Daniels' curve; at the default
-    // lactate threshold of 0.85 threshold pace is 0.90 of that, 255.7 s/km —
-    // the pace cageux cuts the threshold zone around, so the two agree.
+    // With no lactate threshold saved, threshold pace is Daniels' T pace: the
+    // speed whose oxygen cost is 88 % of VDOT, 255.2 s/km (4:15/km) at VDOT
+    // 50 as his tables print — the pace cageux cuts the threshold zone
+    // around, so the two agree.
     let result = estimate(
         &executor,
         user_id,
@@ -516,7 +517,7 @@ async fn every_method_offers_the_threshold_pace_its_estimate_implies() -> Result
     .await?;
     assert_eq!(
         result["implied_threshold_pace_sec_per_km"],
-        json!(255.7),
+        json!(255.2),
         "VDOT 50 threshold pace: {result}"
     );
     Ok(())

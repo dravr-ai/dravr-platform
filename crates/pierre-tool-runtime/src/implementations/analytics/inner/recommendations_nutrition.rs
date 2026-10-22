@@ -176,16 +176,57 @@ impl SessionEnergy {
     }
 }
 
+/// How hard the session was, or why it could not be graded
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionIntensity {
+    /// Below zone 3 on the athlete's zones
+    Low,
+    /// Zone 3 on the athlete's zones
+    Moderate,
+    /// Zone 4 and above on the athlete's zones
+    High,
+    /// Not graded; the reason is said to the athlete
+    Ungraded(&'static str),
+}
+
+impl SessionIntensity {
+    /// The grade's word, or the reason there is none
+    const fn grade(self) -> Result<&'static str, &'static str> {
+        match self {
+            Self::Low => Ok("low"),
+            Self::Moderate => Ok("moderate"),
+            Self::High => Ok("high"),
+            Self::Ungraded(reason) => Err(reason),
+        }
+    }
+
+    /// The key-insight line that states the grade, or why there is none
+    fn insight(self) -> String {
+        match self.grade() {
+            Ok(level) => format!("Workout intensity: {level} - adjust nutrition accordingly"),
+            Err(reason) => format!("Workout intensity not graded: {reason}"),
+        }
+    }
+
+    /// The grade as the summary's adjective, with its trailing space; empty
+    /// when ungraded
+    fn adjective(self) -> String {
+        self.grade()
+            .map_or_else(|_| String::new(), |level| format!("{level} intensity "))
+    }
+}
+
 /// Calculate activity nutrition metrics (duration, energy, intensity)
 ///
 /// The intensity reads the session's average heart rate on the athlete's
 /// zones: zone 4 and above is high, zone 3 moderate, below that low. Without
-/// the zones, or without a heart rate, the session's length decides.
+/// the zones, or without a heart rate, it is not graded and says why: no
+/// published rule grades a session by its length.
 fn calculate_nutrition_metrics(
     activity: &Activity,
     hr_zones: Option<&HrZones>,
     athlete: &NutritionAthlete,
-) -> (f64, SessionEnergy, &'static str) {
+) -> (f64, SessionEnergy, SessionIntensity) {
     use time_constants;
 
     let duration_seconds =
@@ -193,14 +234,18 @@ fn calculate_nutrition_metrics(
     let duration_hours = f64::from(duration_seconds) / time_constants::SECONDS_PER_HOUR_F64;
     let energy = SessionEnergy::of(activity, athlete, duration_seconds);
 
-    let heart_rate_intensity = hr_zones
-        .zip(activity.average_heart_rate())
-        .map(|(zones, avg_hr)| zones.intensity(u16::try_from(avg_hr).unwrap_or(u16::MAX)));
-    let intensity = match heart_rate_intensity {
-        Some(HrIntensity::Hard | HrIntensity::VeryHard) => "high",
-        Some(HrIntensity::Moderate) => "moderate",
-        None if duration_hours > 1.5 => "moderate",
-        Some(HrIntensity::Recovery | HrIntensity::Endurance) | None => "low",
+    let intensity = match (hr_zones, activity.average_heart_rate()) {
+        (None, _) => SessionIntensity::Ungraded(
+            "no saved resting and maximum heart rate to read the session's heart rate against",
+        ),
+        (Some(_), None) => SessionIntensity::Ungraded("the session recorded no heart rate"),
+        (Some(zones), Some(avg_hr)) => {
+            match zones.intensity(u16::try_from(avg_hr).unwrap_or(u16::MAX)) {
+                HrIntensity::Hard | HrIntensity::VeryHard => SessionIntensity::High,
+                HrIntensity::Moderate => SessionIntensity::Moderate,
+                HrIntensity::Recovery | HrIntensity::Endurance => SessionIntensity::Low,
+            }
+        }
     };
 
     (duration_hours, energy, intensity)
@@ -263,7 +308,7 @@ const WITHHELD_RECOVERY_GUIDANCE: &[&str] = &[
 /// the same window: protein from immediately to 2 h after the session
 /// stimulates muscle protein synthesis robustly (Kerksick et al. 2017), and
 /// the urgency of a narrower one is not supported (Aragon & Schoenfeld 2013).
-fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
+fn build_meal_suggestions(intensity: SessionIntensity) -> Vec<MealSuggestion> {
     let mut suggestions = vec![
         MealSuggestion {
             option: "Quick Recovery Shake".to_owned(),
@@ -288,7 +333,7 @@ fn build_meal_suggestions(intensity: &str) -> Vec<MealSuggestion> {
         },
     ];
 
-    if intensity == "high" {
+    if intensity == SessionIntensity::High {
         suggestions.push(MealSuggestion {
             option: "Endurance Option".to_owned(),
             description: "Pasta with lean meat sauce and mixed salad".to_owned(),
@@ -325,7 +370,7 @@ pub fn generate_nutrition_recommendations(
             },
             |kcal| format!("Activity burned approximately {kcal:.0} calories"),
         ),
-        format!("Workout intensity: {intensity} - adjust nutrition accordingly"),
+        intensity.insight(),
     ];
 
     if duration_hours > 1.5 {
@@ -346,7 +391,7 @@ pub fn generate_nutrition_recommendations(
         } else {
             let targets = athlete.weight_kg.map(macronutrient_targets);
             let mut recommendations = recovery_recommendations(targets.as_ref());
-            if intensity == "high" || duration_hours > 1.0 {
+            if intensity == SessionIntensity::High || duration_hours > 1.0 {
                 recommendations.push(
                     "After a long or hard session, make that a complete meal rather than a snack"
                         .to_owned(),
@@ -378,7 +423,7 @@ pub fn generate_nutrition_recommendations(
         }),
         ..base_recommendations(
             "nutrition",
-            if intensity == "high" {
+            if intensity == SessionIntensity::High {
                 "high"
             } else {
                 "medium"
@@ -386,15 +431,17 @@ pub fn generate_nutrition_recommendations(
             energy.kcal.map_or_else(
                 || {
                     format!(
-                        "Based on {:.1} hour {intensity} intensity {}",
+                        "Based on {:.1} hour {}{}",
                         duration_hours,
+                        intensity.adjective(),
                         sport_name(activity)
                     )
                 },
                 |kcal| {
                     format!(
-                        "Based on {:.1} hour {intensity} intensity {} with {kcal:.0} calories burned",
+                        "Based on {:.1} hour {}{} with {kcal:.0} calories burned",
                         duration_hours,
+                        intensity.adjective(),
                         sport_name(activity)
                     )
                 },

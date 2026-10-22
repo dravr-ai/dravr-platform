@@ -149,10 +149,9 @@ pub struct ZoneInputProfile {
     /// Functional threshold power in watts — what the power zones need.
     pub ftp: Option<u32>,
     /// Lactate threshold as a fraction of `VO2max` — what places threshold
-    /// pace in the pace zones.
+    /// pace in the pace zones. Daniels' 0.88 when none is measured, which
+    /// `input_sources` then names `daniels_default`.
     pub lactate_threshold: f64,
-    /// Sport efficiency factor used in the pace zones.
-    pub sport_efficiency: f64,
 }
 
 /// One heart-rate zone.
@@ -289,8 +288,6 @@ pub struct ZoneCalculations {
     pub lactate_threshold_hr: u64,
     /// Aerobic threshold heart rate (75 % of the reserve), in bpm.
     pub aerobic_threshold_hr: u64,
-    /// The efficiency factor the pace zones used.
-    pub sport_efficiency_factor: f64,
 }
 
 /// What `calculate_personalized_zones` answers with.
@@ -302,7 +299,8 @@ pub struct PersonalizedZonesResult {
     /// `estimated_from_age` for a maximum heart rate estimated by the
     /// configured max-HR algorithm (named under `max_hr_algorithm`), or
     /// `heart_rate_ratio` for a `VO2max` estimated from the heart rates to
-    /// choose the zone tier. An athlete should be able to tell a measured
+    /// choose the zone tier, or `daniels_default` for a lactate threshold
+    /// none was measured for. An athlete should be able to tell a measured
     /// number from an estimated one.
     pub input_sources: Value,
     /// The zones that could be derived.

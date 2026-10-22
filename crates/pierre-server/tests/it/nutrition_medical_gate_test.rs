@@ -648,7 +648,7 @@ fn nutrition_recommendations_withhold_figures_for_a_flagged_athlete() {
 }
 
 #[test]
-fn the_session_intensity_is_read_on_the_athletes_zones_and_not_without_them() {
+fn the_session_intensity_is_read_on_the_athletes_zones_and_absent_without_them() {
     let athlete = NutritionAthlete::default();
     let zones = riders_zones();
     let with_zones = generate_nutrition_recommendations(&hard_long_ride(), Some(&zones), &athlete);
@@ -663,17 +663,45 @@ fn the_session_intensity_is_read_on_the_athletes_zones_and_not_without_them() {
     assert_eq!(with_zones.meal_suggestions.len(), 4);
 
     // The same ride for an athlete with no saved heart rates: 165 bpm is
-    // graded by nobody's zones, so the two-hour length decides.
+    // graded by nobody's zones, and no published rule grades a session by its
+    // length, so the intensity is absent and says why.
     let without = generate_nutrition_recommendations(&hard_long_ride(), None, &athlete);
     assert!(
-        without
+        without.key_insights.iter().any(|line| line
+            == "Workout intensity not graded: no saved resting and maximum heart rate to read the session's heart rate against"),
+        "{:?}",
+        without.key_insights
+    );
+    assert!(
+        !without
             .key_insights
             .iter()
-            .any(|line| line.contains("Workout intensity: moderate")),
+            .any(|line| line.starts_with("Workout intensity:")),
         "{:?}",
         without.key_insights
     );
     assert_eq!(without.meal_suggestions.len(), 3);
+
+    // Zones but no heart rate on the session: absent, with that reason.
+    let no_strap = ActivityBuilder::new(
+        "ride-3".to_owned(),
+        "Ride without a strap".to_owned(),
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 9, 30, 8, 0, 0).single().unwrap(),
+        7200,
+        "strava".to_owned(),
+    )
+    .calories(1400)
+    .build();
+    let unstrapped = generate_nutrition_recommendations(&no_strap, Some(&zones), &athlete);
+    assert!(
+        unstrapped
+            .key_insights
+            .iter()
+            .any(|line| line == "Workout intensity not graded: the session recorded no heart rate"),
+        "{:?}",
+        unstrapped.key_insights
+    );
 
     // A zone-2 heart rate on the same athlete's zones is a low session.
     let easy_bpm = zones.zones()[1].upper_bpm;

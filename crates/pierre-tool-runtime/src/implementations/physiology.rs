@@ -39,6 +39,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
+use dravr_cageux::physiological_constants::physiological_defaults::{
+    LACTATE_THRESHOLD_MAX, LACTATE_THRESHOLD_MIN,
+};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::info;
@@ -95,15 +98,6 @@ const THRESHOLD_PACE_SEC_PER_KM_MIN: f64 = 120.0;
 /// Slowest threshold pace accepted, in seconds per kilometre. 15:00/km is
 /// slower than a walk, which is no longer a threshold effort.
 const THRESHOLD_PACE_SEC_PER_KM_MAX: f64 = 900.0;
-
-/// Lowest lactate threshold accepted, as a fraction of `VO2max`. Matches the
-/// 0.65-0.95 range documented on
-/// [`UserPhysiologicalProfile::lactate_threshold_percentage`] and the clamp
-/// cageux's pace-zone calculator applies.
-const LACTATE_THRESHOLD_PCT_MIN: f64 = 0.65;
-
-/// Highest lactate threshold accepted, as a fraction of `VO2max`.
-const LACTATE_THRESHOLD_PCT_MAX: f64 = 0.95;
 
 /// Lowest critical power accepted, in watts. Below FTP's 50 W floor on
 /// purpose: patients with COPD measure 46 ± 22 W (Tiller 2023), and a
@@ -610,9 +604,9 @@ fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Ve
         }
     }
     if let Some(pct) = profile.lactate_threshold_percentage {
-        if !(LACTATE_THRESHOLD_PCT_MIN..=LACTATE_THRESHOLD_PCT_MAX).contains(&pct) {
+        if !(LACTATE_THRESHOLD_MIN..=LACTATE_THRESHOLD_MAX).contains(&pct) {
             errors.push(format!(
-                "lactate_threshold_percentage must be between {LACTATE_THRESHOLD_PCT_MIN} and {LACTATE_THRESHOLD_PCT_MAX} (fraction of VO2max), got {pct:.2}"
+                "lactate_threshold_percentage must be between {LACTATE_THRESHOLD_MIN} and {LACTATE_THRESHOLD_MAX} (fraction of VO2max), got {pct:.2}"
             ));
         }
     }

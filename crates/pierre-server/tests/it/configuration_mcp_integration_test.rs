@@ -105,7 +105,8 @@ fn test_configuration_tool_schemas() {
         assert!(properties.contains_key("resting_hr"));
         assert!(properties.contains_key("max_hr"));
         assert!(properties.contains_key("lactate_threshold"));
-        assert!(properties.contains_key("sport_efficiency"));
+        // No formula reads a sport efficiency, so the tool takes none.
+        assert!(!properties.contains_key("sport_efficiency"));
     } else {
         panic!("calculate_personalized_zones should have input properties");
     }

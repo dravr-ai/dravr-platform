@@ -3824,7 +3824,7 @@
             "type": "integer"
           },
           "lactate_threshold": {
-            "description": "Lactate threshold as a fraction of VO2 max (typically 0.65-0.95), used for pace zones. Omit to use the athlete's saved value, else 0.85.",
+            "description": "Lactate threshold as a fraction of VO2 max (0.65-0.95), used for pace zones: threshold pace runs at the speed whose oxygen cost is that share of VO2 max. Omit to use the athlete's saved value, else Daniels' threshold intensity, 0.88 (named in `input_sources`).",
             "type": "number"
           },
           "max_hr": {
@@ -3834,10 +3834,6 @@
           "resting_hr": {
             "description": "Resting heart rate in bpm. Omit to use the athlete's saved value.",
             "type": "integer"
-          },
-          "sport_efficiency": {
-            "description": "Sport efficiency factor for pace zones. Default 1.0.",
-            "type": "number"
           },
           "vo2_max": {
             "description": "VO2 max in ml/kg/min. Omit to use the athlete's saved value; pace zones are omitted when neither exists.",
@@ -4180,11 +4176,6 @@
                 "$ref": "#/$defs/HrZoneModel",
                 "description": "Always `karvonen_vo2max_tiered`: cageux's heart-rate-reserve zones with\nfractions chosen by the athlete's `VO2max` tier."
               },
-              "sport_efficiency_factor": {
-                "description": "The efficiency factor the pace zones used.",
-                "format": "double",
-                "type": "number"
-              },
               "tier": {
                 "$ref": "#/$defs/HrZoneTier",
                 "description": "The `VO2max` tier that chose the fractions."
@@ -4205,8 +4196,7 @@
               "vo2_max",
               "vo2_max_source",
               "lactate_threshold_hr",
-              "aerobic_threshold_hr",
-              "sport_efficiency_factor"
+              "aerobic_threshold_hr"
             ],
             "type": "object"
           },
@@ -4223,7 +4213,7 @@
                 ]
               },
               "lactate_threshold": {
-                "description": "Lactate threshold as a fraction of `VO2max` — what places threshold\npace in the pace zones.",
+                "description": "Lactate threshold as a fraction of `VO2max` — what places threshold\npace in the pace zones. Daniels' 0.88 when none is measured, which\n`input_sources` then names `daniels_default`.",
                 "format": "double",
                 "type": "number"
               },
@@ -4247,11 +4237,6 @@
                   "null"
                 ]
               },
-              "sport_efficiency": {
-                "description": "Sport efficiency factor used in the pace zones.",
-                "format": "double",
-                "type": "number"
-              },
               "vo2_max": {
                 "description": "`VO2max` in ml/kg/min — what the pace zones need.",
                 "format": "double",
@@ -4266,8 +4251,7 @@
               "resting_hr",
               "max_hr",
               "ftp",
-              "lactate_threshold",
-              "sport_efficiency"
+              "lactate_threshold"
             ],
             "type": "object"
           }
@@ -4276,7 +4260,7 @@
         "description": "What `calculate_personalized_zones` answers with.",
         "properties": {
           "input_sources": {
-            "description": "Where each input came from, keyed by field name: `provided`, `profile`,\n`estimated_from_age` for a maximum heart rate estimated by the\nconfigured max-HR algorithm (named under `max_hr_algorithm`), or\n`heart_rate_ratio` for a `VO2max` estimated from the heart rates to\nchoose the zone tier. An athlete should be able to tell a measured\nnumber from an estimated one."
+            "description": "Where each input came from, keyed by field name: `provided`, `profile`,\n`estimated_from_age` for a maximum heart rate estimated by the\nconfigured max-HR algorithm (named under `max_hr_algorithm`), or\n`heart_rate_ratio` for a `VO2max` estimated from the heart rates to\nchoose the zone tier, or `daniels_default` for a lactate threshold\nnone was measured for. An athlete should be able to tell a measured\nnumber from an estimated one."
           },
           "personalized_zones": {
             "$ref": "#/$defs/PersonalizedZones",
@@ -6943,6 +6927,75 @@
             ],
             "type": "object"
           },
+          "AerobicThresholdPower": {
+            "description": "An athlete's aerobic-threshold (LT1) cycling power, estimated from FTP\n\n`watts = ftp_watts x power_ratio`, the study's VT1/VT2 power ratio. A\n250 W FTP gives 164 W by Pallarés et al. (2016) and 149 W by Benítez-Muñoz\net al. (2025), against the 188 W the top of Coggan's endurance level\n(75 % of FTP) would claim.\n\n# Limits\n\n- FTP stands in for the second threshold. Jeffries et al. (2021) found FTP\n  level with the 4 mmol/L lactate power in trained cyclists but with wide\n  limits of agreement, so the estimate inherits that spread.\n- Each ratio is of group means, not a per-rider regression; `note` says so\n  for each.\n\n# Scientific References\n\n- Pallarés, J.G., Morán-Navarro, R., Ortega, J.F., Fernández-Elías, V.E. &\n  Mora-Rodriguez, R. (2016). \"Validity and Reliability of Ventilatory and\n  Blood Lactate Thresholds in Well-Trained Cyclists.\" *`PLoS` One*, 11(9),\n  e0163389. doi:10.1371/journal.pone.0163389\n- Benítez-Muñoz, J.A., Alcocer-Ayuga, M., Cupeiro, R. et al. (2025).\n  \"Ventilatory Thresholds Differences According to Aerobic Fitness Level in\n  1450 Males and 241 Females on Cycle-Ergometer: A Cross-Sectional Study.\"\n  *Eur J Sport Sci*, 25(7), e12323. doi:10.1002/ejsc.12323\n- Jeffries, O., Simmons, R., Patterson, S.D. & Waldron, M. (2021).\n  \"Functional Threshold Power Is Not Equivalent to Lactate Parameters in\n  Trained Cyclists.\" *J Strength Cond Res*, 35(10), 2790-2794.",
+            "properties": {
+              "ftp_watts": {
+                "description": "The FTP the estimate starts from (watts)",
+                "format": "double",
+                "type": "number"
+              },
+              "lower_watts": {
+                "description": "LT1 power at the study's lowest group ratio (watts), when it reports\nmore than one group",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "$ref": "#/$defs/AerobicThresholdPowerMethod",
+                "description": "The study whose ratio was applied"
+              },
+              "note": {
+                "description": "What the estimate rests on ([`AerobicThresholdPowerMethod::note`])",
+                "type": "string"
+              },
+              "power_ratio": {
+                "description": "The VT1/VT2 power ratio applied",
+                "format": "double",
+                "type": "number"
+              },
+              "upper_watts": {
+                "description": "LT1 power at the study's highest group ratio (watts), when it reports\nmore than one group",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "watts": {
+                "description": "Estimated aerobic-threshold (LT1) power (watts)",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "method",
+              "ftp_watts",
+              "watts",
+              "power_ratio",
+              "lower_watts",
+              "upper_watts",
+              "note"
+            ],
+            "type": "object"
+          },
+          "AerobicThresholdPowerMethod": {
+            "description": "The published cycling ratio an aerobic-threshold (LT1) power estimate uses\n\nBoth are VT1/VT2 power ratios from graded cycle tests, applied to FTP on\nthe assumption that FTP sits at the second threshold. Neither study\nmeasured FTP; no study found measures LT1 power beside FTP in the same\nriders (Jeffries et al. 2021 and Valenzuela et al. 2018 compare FTP with\nsecond-threshold markers only).",
+            "oneOf": [
+              {
+                "const": "pallares2016",
+                "description": "Pallarés et al. (2016): VT1 200 ± 36 W, VT2 304 ± 39 W in 14 well-trained men",
+                "type": "string"
+              },
+              {
+                "const": "benitez_munoz2025",
+                "description": "Benítez-Muñoz et al. (2025): VT1 and VT2 power in 1,450 men and 241 women",
+                "type": "string"
+              }
+            ]
+          },
           "DossierFact": {
             "description": "A single pillar-context fact projected onto the dossier.\n\nThis is a read-time projection of a `pierre_memory::UserFact` — the subset\nthe per-user OKF bundle needs to render, plus a computed freshness flag.\n`kind` and `source` are carried as their stable string slugs to keep this\ntype free of a `pierre-memory` dependency. The `object` field is\nuser-authored free text and must be treated as untrusted at render time.",
             "properties": {
@@ -7572,7 +7625,7 @@
             ]
           },
           "ThresholdEstimate": {
-            "description": "The dossier's LT1 / LT2 anchors, each read from where it lives rather\nthan re-derived here.\n\n- **LT1** (aerobic threshold) heart rate is cageux's\n  [`HrZones::aerobic_threshold_bpm`], 75 % of the athlete's heart-rate\n  reserve; LT1 power is the top of Coggan's endurance level\n  ([`PowerZones::coggan`], 75 % of FTP).\n- **LT2** (lactate threshold) heart rate is the athlete's LTHR (measured,\n  else estimated from their lactate threshold), else cageux's\n  [`HrZones::lactate_threshold_bpm`], 85 % of reserve; LT2 power is the\n  FTP and LT2 pace the saved threshold pace.\n- **LT1 pace** is cageux's [`AerobicThresholdPace`] from the saved\n  (running) threshold pace: the VT1/VT2 speed ratio of Esteve-Lanao et al.\n  (2026), with its one-SD bounds and the cohort the ratio came from: the\n  men's or women's ratio when the athlete's sex is saved, the pooled one\n  otherwise.\n\nAn anchor whose inputs are missing is absent: the heart-rate anchors need\nthe athlete's zones (a saved resting and maximum heart rate), the power\nanchors an FTP, the pace anchor a threshold pace.",
+            "description": "The dossier's LT1 / LT2 anchors, each read from where it lives rather\nthan re-derived here.\n\n- **LT1** (aerobic threshold) heart rate is cageux's\n  [`HrZones::aerobic_threshold_bpm`], 75 % of the athlete's heart-rate\n  reserve; LT1 power is cageux's [`AerobicThresholdPower::estimates`]\n  from the FTP, one per published VT1/VT2 power ratio, each with its note.\n- **LT2** (lactate threshold) heart rate is the athlete's LTHR (measured,\n  else estimated from their lactate threshold), else cageux's\n  [`HrZones::lactate_threshold_bpm`], 85 % of reserve; LT2 power is the\n  FTP and LT2 pace the saved threshold pace.\n- **LT1 pace** is cageux's [`AerobicThresholdPace`] from the saved\n  (running) threshold pace: the VT1/VT2 speed ratio of Esteve-Lanao et al.\n  (2026), with its one-SD bounds and the cohort the ratio came from: the\n  men's or women's ratio when the athlete's sex is saved, the pooled one\n  otherwise.\n\nAn anchor whose inputs are missing is absent: the heart-rate anchors need\nthe athlete's zones (a saved resting and maximum heart rate), the power\nanchors an FTP, the pace anchor a threshold pace.",
             "properties": {
               "lt1_hr": {
                 "description": "Aerobic threshold heart rate in bpm: 75 % of the athlete's heart-rate\nreserve.",
@@ -7593,13 +7646,12 @@
                 ],
                 "description": "LT1 pace estimated from that threshold pace (Esteve-Lanao et al.\n2026), with the faster and slower bound one SD of the ratio either\nside and the cohort. Absent without a saved threshold pace, or when it\nlies outside the 120-600 s/km running range the estimate covers."
               },
-              "lt1_power_watts": {
-                "description": "LT1 power (watts): the top of Coggan's endurance level, 75 % of FTP.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
+              "lt1_power": {
+                "description": "LT1 power estimated from the FTP, one entry per published VT1/VT2\npower ratio (Pallarés et al. 2016, then Benítez-Muñoz et al. 2025).\nEach carries its watts, the ratio, the study's range when it reports\none, and a `note` on what it rests on: quote LT1 power as these\nestimates with their notes, never as one measured number. Absent\nwithout a saved FTP.",
+                "items": {
+                  "$ref": "#/$defs/AerobicThresholdPower"
+                },
+                "type": "array"
               },
               "lt2_hr": {
                 "description": "Lactate threshold heart rate in bpm: the athlete's LTHR, else 85 % of\ntheir heart-rate reserve.",
@@ -7992,7 +8044,7 @@
           },
           "threshold_estimate": {
             "$ref": "#/$defs/ThresholdEstimate",
-            "description": "LT1/LT2 heart rate, power and pace read off the profile — heart rate\nat 75 % / 85 % of the athlete's reserve unless an LTHR is saved,\nCoggan's levels for power, the saved threshold pace for pace. Gives the\ndossier training zone anchors even when the athlete has measured none\ndirectly."
+            "description": "LT1/LT2 heart rate, power and pace read off the profile — heart rate\nat 75 % / 85 % of the athlete's reserve unless an LTHR is saved, FTP\nand two published LT1 power estimates for power, the saved threshold\npace and its LT1 estimate for pace. Gives the dossier training zone\nanchors even when the athlete has measured none directly."
           },
           "user_id": {
             "description": "User this dossier belongs to.",

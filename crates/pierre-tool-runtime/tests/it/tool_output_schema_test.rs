@@ -5205,9 +5205,9 @@ fn a_zone_family_with_missing_inputs_is_null_and_says_what_is_missing() {
     let nothing_known = json!({
         "user_profile": {
             "vo2_max": null, "resting_hr": null, "max_hr": null, "ftp": null,
-            "lactate_threshold": 0.85, "sport_efficiency": 1.0
+            "lactate_threshold": 0.88
         },
-        "input_sources": {},
+        "input_sources": {"lactate_threshold": "daniels_default"},
         "personalized_zones": {
             "heart_rate_zones": null, "pace_zones": null, "power_zones": null, "ftp": null
         },

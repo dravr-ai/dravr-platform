@@ -36,9 +36,7 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use chrono_tz::Tz;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
-use dravr_cageux::physiological_constants::physiological_defaults::{
-    DEFAULT_LACTATE_THRESHOLD, DEFAULT_SPORT_EFFICIENCY,
-};
+use dravr_cageux::physiological_constants::physiological_defaults::DEFAULT_LACTATE_THRESHOLD;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
@@ -151,7 +149,6 @@ pub async fn build_athlete_metrics(
                 0,
                 p.lactate_threshold_percentage
                     .unwrap_or(DEFAULT_LACTATE_THRESHOLD),
-                DEFAULT_SPORT_EFFICIENCY,
             );
             let paces = calculator.calculate_pace_zones(training_zones);
             metrics.easy_pace_range = Some(paces.easy_pace_range);

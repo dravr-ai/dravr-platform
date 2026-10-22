@@ -228,8 +228,7 @@ async fn test_calculate_personalized_zones_e2e() {
             "vo2_max": 55.0,
             "resting_hr": 60,
             "max_hr": 190,
-            "lactate_threshold": 0.85,
-            "sport_efficiency": 1.0
+            "lactate_threshold": 0.85
         }),
         protocol: "mcp".to_owned(),
         tenant_id: None,
@@ -268,15 +267,16 @@ async fn test_calculate_personalized_zones_e2e() {
     let easy = &zones["pace_zones"]["zone_1_easy"];
     assert_eq!(easy["min_pace"], "4:48", "easy zone was {easy:?}");
     assert_eq!(easy["max_pace"], "6:01", "easy zone was {easy:?}");
-    // Threshold pace at a lactate threshold of 0.85 is 0.90 of 281.7 m/min,
-    // 236.6 s/km; the threshold zone is 98–102 % of it.
+    // Threshold pace at a lactate threshold of 0.85 is the speed whose oxygen
+    // cost is 0.85 x 55 ml/kg/min on Daniels' curve, 243.0 s/km; the
+    // threshold zone is 98–102 % of it.
     let threshold = &zones["pace_zones"]["zone_3_threshold"];
     assert_eq!(
-        threshold["min_pace"], "3:52",
+        threshold["min_pace"], "3:58",
         "threshold zone was {threshold:?}"
     );
     assert_eq!(
-        threshold["max_pace"], "4:01",
+        threshold["max_pace"], "4:08",
         "threshold zone was {threshold:?}"
     );
     assert_eq!(
@@ -544,4 +544,31 @@ async fn test_configuration_system_error_handling() {
     assert_eq!(result["validation_passed"], false); // But validation should fail
 
     println!("Configuration system error handling works correctly");
+}
+
+#[tokio::test]
+async fn a_lactate_threshold_outside_the_pace_zone_range_is_refused() {
+    let executor = create_test_tool_executor().await;
+    // cageux's pace zones accept 0.65-0.95 of VO2max; a value outside it is
+    // refused with the range, never clamped into zones it did not ask for.
+    for lactate_threshold in [0.5, 1.2] {
+        let request = UniversalRequest {
+            user_id: Uuid::new_v4().to_string(),
+            tool_name: "calculate_personalized_zones".to_owned(),
+            parameters: json!({ "vo2_max": 55.0, "lactate_threshold": lactate_threshold }),
+            protocol: "mcp".to_owned(),
+            tenant_id: None,
+        };
+        let message = match executor.execute_tool(request).await {
+            Err(error) => error.to_string(),
+            Ok(response) => {
+                assert!(!response.success, "{lactate_threshold} was accepted");
+                response.error.unwrap_or_default()
+            }
+        };
+        assert!(
+            message.contains("lactate_threshold must be between 0.65 and 0.95"),
+            "{lactate_threshold}: {message}"
+        );
+    }
 }

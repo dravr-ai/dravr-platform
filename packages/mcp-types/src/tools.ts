@@ -410,7 +410,7 @@ export interface CalculatePersonalizedZonesParams {
   /** Functional Threshold Power in watts. Omit to use the athlete's saved value; power zones are omitted when neither exists. */
   ftp?: number;
 
-  /** Lactate threshold as a fraction of VO2 max (typically 0.65-0.95), used for pace zones. Omit to use the athlete's saved value, else 0.85. */
+  /** Lactate threshold as a fraction of VO2 max (0.65-0.95), used for pace zones: threshold pace runs at the speed whose oxygen cost is that share of VO2 max. Omit to use the athlete's saved value, else Daniels' threshold intensity, 0.88 (named in `input_sources`). */
   lactate_threshold?: number;
 
   /** Maximum heart rate in bpm. Omit to use the athlete's saved value, or the estimate from their saved age by the configured max-HR algorithm (algorithm.maxhr). */
@@ -418,9 +418,6 @@ export interface CalculatePersonalizedZonesParams {
 
   /** Resting heart rate in bpm. Omit to use the athlete's saved value. */
   resting_hr?: number;
-
-  /** Sport efficiency factor for pace zones. Default 1.0. */
-  sport_efficiency?: number;
 
   /** VO2 max in ml/kg/min. Omit to use the athlete's saved value; pace zones are omitted when neither exists. */
   vo2_max?: number;

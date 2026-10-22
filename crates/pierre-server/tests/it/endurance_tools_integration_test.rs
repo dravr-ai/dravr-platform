@@ -31,7 +31,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use dravr_cageux::zones::{AerobicThresholdPace, HrZones};
+use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
@@ -285,19 +285,24 @@ async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
         "seeded vo2_max=52 must appear in dossier payload"
     );
     // LT1/LT2 threshold estimation is wired into the dossier: the seeded FTP
-    // (280W) yields LT2 power = 280 and LT1 power = 0.75 * 280 = 210 (Coggan),
-    // surfaced under `threshold_estimate`.
+    // (280W) yields LT2 power = 280 and one LT1 power estimate per published
+    // VT1/VT2 power ratio, each with its note, under `threshold_estimate`.
     let estimate = &result["threshold_estimate"];
     assert_eq!(
         estimate["lt2_power_watts"].as_f64(),
         Some(280.0),
         "LT2 power should equal the seeded FTP"
     );
-    assert_eq!(
-        estimate["lt1_power_watts"].as_f64(),
-        Some(210.0),
-        "LT1 power should be 0.75 * FTP (Coggan)"
-    );
+    let expected = AerobicThresholdPower::estimates(280.0).unwrap();
+    let lt1_power = estimate["lt1_power"].as_array().expect("lt1_power array");
+    assert_eq!(lt1_power.len(), expected.len());
+    for (wire, cageux) in lt1_power.iter().zip(&expected) {
+        assert_eq!(wire["watts"].as_f64(), Some(cageux.watts));
+        assert_eq!(wire["note"].as_str(), Some(cageux.note.as_str()));
+        assert_eq!(wire["method"], serde_json::to_value(cageux.method)?);
+    }
+    assert_eq!(lt1_power[0]["method"], json!("pallares2016"));
+    assert_eq!(lt1_power[1]["method"], json!("benitez_munoz2025"));
     // LT1 pace from the 225 s/km threshold pace by Esteve-Lanao et al. (2026),
     // the pooled ratio since no profile stores the athlete's sex.
     let lt1 = AerobicThresholdPace::from_threshold_pace(225.0, None).unwrap();
