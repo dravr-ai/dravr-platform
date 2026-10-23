@@ -387,7 +387,10 @@ pub fn render_training_plan_block(
         let week = selected.week;
         let label = selected.label();
         // `position` is 0-based; the renderer's original numbering was 1-based.
-        debug_assert!(position < ACTIVE_WEEKS);
+        debug_assert!(
+            position < ACTIVE_WEEKS,
+            "select_active_weeks returned more than ACTIVE_WEEKS weeks: bug in the selector"
+        );
         let focus = if week.focus.is_empty() {
             String::new()
         } else {

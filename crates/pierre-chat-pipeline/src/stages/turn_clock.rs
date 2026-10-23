@@ -80,7 +80,10 @@ const NOW_QUANTUM_SECS: i64 = 300;
 
 // Divides `now`; a zero quantum would panic. Const-asserted rather than guarded
 // at runtime, because the value is compile-time.
-const _: () = assert!(NOW_QUANTUM_SECS > 0);
+const _: () = assert!(
+    NOW_QUANTUM_SECS > 0,
+    "NOW_QUANTUM_SECS divides the clock and must be positive: bug in this constant"
+);
 
 /// The turn's clock: local date and time plus the epoch table the model copies.
 ///
