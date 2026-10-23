@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use pierre_contremaitre::harness_config_document::{
     HarnessConfigDocument, HARNESS_CONFIG_SETTING_KEY,
@@ -33,7 +34,7 @@ async fn from_database_with_no_row_returns_compiled_in_defaults() {
     let db = fresh_database().await;
     let registry = HarnessConfigRegistry::from_database(&db).await;
 
-    let snapshot: HarnessConfigSnapshot = registry.current();
+    let snapshot: Arc<HarnessConfigSnapshot> = registry.current();
     assert_eq!(snapshot.source, HarnessConfigSource::Defaults);
     assert_eq!(snapshot.compaction.window_tokens, 1_000_000);
     assert!((snapshot.compaction.warn_threshold - 0.0896).abs() < f32::EPSILON);

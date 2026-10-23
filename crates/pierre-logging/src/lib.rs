@@ -20,11 +20,15 @@ pub mod span_fields;
 #[cfg(feature = "telemetry")]
 pub mod otel;
 
+/// Per-callsite throttle for repeated log lines
+mod throttle;
+
 /// Re-export tenant logging utilities
 pub use tenant::{record_performance_metrics, record_request_context, record_tenant_context};
 
 use gcp::GcpFormatter;
 use span_fields::SpanFieldStorage;
+use throttle::{CallsiteThrottle, DEFAULT_THROTTLE_BURST, THROTTLE_WINDOW};
 
 use dravr_sciotte::log_targets::{BROWSER_DRIVER_LOG_CEILING, BROWSER_DRIVER_LOG_TARGET};
 use dravr_tronc::notifications::{
@@ -285,6 +289,9 @@ pub struct LogFeatures {
     pub telemetry: bool,
     /// Truncate long MCP request/response logs for readability
     pub truncate_mcp: bool,
+    /// Events one callsite may write per throttle window before the rest are
+    /// dropped and counted; `0` turns the throttle off (`LOG_THROTTLE_BURST`)
+    pub throttle_burst: u64,
 }
 
 /// Logging configuration
@@ -366,6 +373,7 @@ impl Default for LoggingConfig {
             features: LogFeatures {
                 telemetry: telemetry_enabled(),
                 truncate_mcp: true, // Default to readable logs
+                throttle_burst: DEFAULT_THROTTLE_BURST,
             },
             request_id_header: "x-request-id".into(),
         }
@@ -418,6 +426,10 @@ impl LoggingConfig {
                 telemetry: telemetry_enabled(),
                 truncate_mcp: env::var("MCP_LOG_TRUNCATE")
                     .map_or(true, |v| v != "false" && v != "0"), // Default to true (truncated) unless explicitly disabled
+                throttle_burst: env::var("LOG_THROTTLE_BURST")
+                    .ok()
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(DEFAULT_THROTTLE_BURST),
             },
             request_id_header: env::var("REQUEST_ID_HEADER")
                 .unwrap_or_else(|_| "x-request-id".into()),
@@ -547,6 +559,10 @@ impl LoggingConfig {
         #[cfg(feature = "telemetry")]
         let otel_tracer = self.init_telemetry();
 
+        // Drops a callsite's lines past its per-window budget on the formatter
+        // only: the Slack, notify and OpenTelemetry layers see every event.
+        let throttle = CallsiteThrottle::new(self.features.throttle_burst, THROTTLE_WINDOW);
+
         // Per-layer filter that suppresses chromiumoxide's expected
         // post-close WS-reset error events during the short teardown
         // window sciotte advertises. Built fresh per sink so both the
@@ -568,7 +584,8 @@ impl LoggingConfig {
                         FmtSpan::NONE
                     })
                     .json()
-                    .with_filter(chromiumoxide_teardown_filter());
+                    .with_filter(chromiumoxide_teardown_filter())
+                    .with_filter(throttle.clone());
 
                 let r = registry.with(json_layer).with(
                     error_layer
@@ -593,7 +610,8 @@ impl LoggingConfig {
                     } else {
                         FmtSpan::NONE
                     })
-                    .with_filter(chromiumoxide_teardown_filter());
+                    .with_filter(chromiumoxide_teardown_filter())
+                    .with_filter(throttle.clone());
 
                 let r = registry.with(pretty_layer).with(
                     error_layer
@@ -615,7 +633,8 @@ impl LoggingConfig {
                     .with_target(false)
                     .with_writer(RedactingMakeWriter::new(io::stdout))
                     .with_span_events(FmtSpan::NONE)
-                    .with_filter(chromiumoxide_teardown_filter());
+                    .with_filter(chromiumoxide_teardown_filter())
+                    .with_filter(throttle.clone());
 
                 let r = registry.with(compact_layer).with(
                     error_layer
@@ -636,7 +655,8 @@ impl LoggingConfig {
                         &self.environment,
                         self.output.location,
                     ))
-                    .with_filter(chromiumoxide_teardown_filter());
+                    .with_filter(chromiumoxide_teardown_filter())
+                    .with_filter(throttle.clone());
 
                 let r = registry.with(gcp_layer).with(
                     error_layer
@@ -647,6 +667,12 @@ impl LoggingConfig {
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
                 r.init();
+            }
+        }
+
+        if self.features.throttle_burst > 0 {
+            if let Err(e) = throttle.reporter().spawn() {
+                tracing::warn!(error = %e, "log throttle reporter did not start; throttled lines go unreported");
             }
         }
 
@@ -831,6 +857,7 @@ impl LoggingConfig {
                 // OTEL_EXPORTER_OTLP_ENDPOINT is configured on the revision.
                 telemetry: telemetry_enabled(),
                 truncate_mcp: false, // Production wants full logs
+                throttle_burst: DEFAULT_THROTTLE_BURST,
             },
             request_id_header: "x-request-id".into(),
         }

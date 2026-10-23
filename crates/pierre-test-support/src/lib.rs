@@ -45,6 +45,8 @@ pub mod account;
 pub mod db;
 /// Coaching-group rows a coach's delegated link rests on.
 pub mod delegation;
+/// A loopback TCP relay that injects network faults: refuse, blackhole, latency, sever.
+pub mod fault_proxy;
 /// Small, valid FIT activity files written for tests.
 pub mod fit;
 /// `User` fixtures in a consistent default shape.

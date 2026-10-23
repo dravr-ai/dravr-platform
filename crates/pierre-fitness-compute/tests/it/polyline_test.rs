@@ -88,3 +88,49 @@ fn a_value_longer_than_any_coordinate_is_refused() {
     // precision-5 delta can need.
     assert!(decode_polyline("~~~~~~~~?").is_none());
 }
+
+/// Property tests: arbitrary input never panics, and the codec round-trips
+/// (carnet#1143).
+mod properties {
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+
+    use pierre_fitness_compute::{decode_polyline, encode_polyline};
+
+    /// A point on the globe at the encoding's precision.
+    fn point() -> impl Strategy<Value = (f64, f64)> {
+        (-9_000_000_i64..=9_000_000, -18_000_000_i64..=18_000_000)
+            .prop_map(|(lat, lng)| (lat as f64 / 100_000.0, lng as f64 / 100_000.0))
+    }
+
+    proptest! {
+        #[test]
+        fn any_string_decodes_without_panicking(input in any::<String>()) {
+            let _ = decode_polyline(&input);
+        }
+
+        #[test]
+        fn polyline_alphabet_noise_decodes_without_panicking(input in "[?-~]{0,64}") {
+            let _ = decode_polyline(&input);
+        }
+
+        #[test]
+        fn encoded_points_decode_to_the_same_points(points in vec(point(), 0..40)) {
+            let decoded = decode_polyline(&encode_polyline(&points));
+            prop_assert!(decoded.is_some(), "an encoded route always decodes");
+            let decoded = decoded.unwrap_or_default();
+            prop_assert_eq!(decoded.len(), points.len());
+            for (got, want) in decoded.iter().zip(&points) {
+                prop_assert!((got.0 - want.0).abs() < 1e-9 && (got.1 - want.1).abs() < 1e-9,
+                    "{got:?} != {want:?}");
+            }
+        }
+
+        #[test]
+        fn a_decoded_polyline_is_stable_through_a_re_encode(input in "[?-~]{0,64}") {
+            if let Some(points) = decode_polyline(&input) {
+                prop_assert_eq!(decode_polyline(&encode_polyline(&points)), Some(points));
+            }
+        }
+    }
+}

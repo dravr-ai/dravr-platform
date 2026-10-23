@@ -924,6 +924,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "core_detect"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+
+[[package]]
 name = "counter"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3877,6 +3883,7 @@ dependencies = [
 name = "pierre-contremaitre"
 version = "0.3.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "base64 0.22.1",
  "chrono",
@@ -3904,6 +3911,7 @@ dependencies = [
 name = "pierre-core"
 version = "0.3.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -3921,6 +3929,8 @@ dependencies = [
  "http",
  "opentelemetry",
  "opentelemetry_sdk",
+ "percent-encoding",
+ "proptest",
  "rand 0.9.4",
  "reqwest 0.12.28",
  "reqwest-middleware",
@@ -4033,6 +4043,7 @@ dependencies = [
  "hex",
  "pierre-core",
  "pierre-database",
+ "proptest",
  "reqwest 0.12.28",
  "schemars 1.2.1",
  "serde",
@@ -4152,11 +4163,13 @@ dependencies = [
  "http",
  "jsonwebtoken",
  "opentelemetry",
+ "percent-encoding",
  "pierre-auth",
  "pierre-cache",
  "pierre-core",
  "pierre-database",
  "pierre-runtime-context",
+ "proptest",
  "regex",
  "serde",
  "tokio",
@@ -4203,6 +4216,7 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-test-support",
+ "proptest",
  "reqwest 0.12.28",
  "ring",
  "secrecy",
@@ -4506,6 +4520,7 @@ dependencies = [
  "pierre-providers",
  "pierre-runtime-context",
  "pierre-test-support",
+ "proptest",
  "rand 0.9.4",
  "reqwest 0.12.28",
  "schemars 1.2.1",
@@ -4558,6 +4573,7 @@ dependencies = [
 name = "pierre-tool-runtime"
 version = "0.3.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "bitflags 2.11.1",
  "chrono",
@@ -4692,6 +4708,7 @@ dependencies = [
  "pierre-tool-runtime",
  "pierre-tools-core",
  "pprof",
+ "proptest",
  "qrcode",
  "rand 0.9.4",
  "rand_chacha 0.9.0",
@@ -4881,6 +4898,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proptest"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8530004ccb15eae51c7e40009fbe317f341f804db54dc033eec1c50be28cfa0"
+dependencies = [
+ "bitflags 2.11.1",
+ "chacha20",
+ "core_detect",
+ "num-traits",
+ "rand 0.10.2",
+ "rand_xorshift",
+ "regex-syntax",
+ "unarray",
 ]
 
 [[package]]
@@ -5079,6 +5112,15 @@ name = "rand_pcg"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
+dependencies = [
+ "rand_core 0.10.1",
+]
+
+[[package]]
+name = "rand_xorshift"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60aa6af80be32871323012e02e6e65f8a7cc7890931ae421d217ad8fe0df2ccf"
 dependencies = [
  "rand_core 0.10.1",
 ]
@@ -6872,6 +6914,12 @@ name = "typenum"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
+
+[[package]]
+name = "unarray"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicase"

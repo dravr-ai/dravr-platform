@@ -18,8 +18,7 @@
 //! - **YAML** lives in contremaitre — purely data, no Rust thresholds
 //! - **[`PersonaContract`]** — per-persona ruleset parsed from the YAML
 //! - **[`PersonaContractRegistry`]** — thread-safe in-memory snapshot,
-//!   replaced atomically on every successful sync; `RwLock` guards the
-//!   pointer swap
+//!   replaced atomically on every successful sync through an `ArcSwap`
 //! - **`persona_conformance` chat-pipeline stage** (separate module) —
 //!   runs each rule against the LLM reply post-dispatch, logs `warn!`
 //!   per violation
@@ -30,8 +29,9 @@
 //! fallback" applies here too: missing contract = least-restrictive.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use pierre_core::models::CoachingPersona;
 use serde::{Deserialize, Serialize};
@@ -292,7 +292,7 @@ impl PersonaContractsSnapshot {
 /// the old snapshot or the new one, never a half-applied set.
 #[derive(Debug)]
 pub struct PersonaContractRegistry {
-    snapshot: RwLock<Arc<PersonaContractsSnapshot>>,
+    snapshot: ArcSwap<PersonaContractsSnapshot>,
 }
 
 impl Default for PersonaContractRegistry {
@@ -308,17 +308,16 @@ impl PersonaContractRegistry {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            snapshot: RwLock::new(Arc::new(PersonaContractsSnapshot::default())),
+            snapshot: ArcSwap::from_pointee(PersonaContractsSnapshot::default()),
         }
     }
 
     /// Return the currently installed snapshot. Cheap (`Arc::clone`).
     /// Hold the returned `Arc` for the duration of one chat turn rather
-    /// than calling repeatedly — the snapshot is immutable, so reads
-    /// are lock-free in practice.
+    /// than calling repeatedly, so one turn reads one snapshot. Lock-free.
     #[must_use]
     pub fn snapshot(&self) -> Arc<PersonaContractsSnapshot> {
-        Arc::clone(&self.read())
+        self.snapshot.load_full()
     }
 
     /// SHA-256 of the YAML source the current snapshot was built from,
@@ -326,7 +325,7 @@ impl PersonaContractRegistry {
     /// to skip re-parsing when the manifest hash already matches.
     #[must_use]
     pub fn current_overlay_sha256(&self) -> Option<String> {
-        self.read().source_sha256.clone()
+        self.snapshot.load().source_sha256.clone()
     }
 
     /// Parse a YAML body and atomically install it as the active
@@ -358,18 +357,8 @@ impl PersonaContractRegistry {
             source_sha256: Some(super::manifest::compute_sha256(yaml.as_bytes())),
             loaded_at: Some(Utc::now()),
         };
-        *self.write() = Arc::new(snapshot);
+        self.snapshot.store(Arc::new(snapshot));
         Ok(())
-    }
-
-    fn read(&self) -> RwLockReadGuard<'_, Arc<PersonaContractsSnapshot>> {
-        self.snapshot.read().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn write(&self) -> RwLockWriteGuard<'_, Arc<PersonaContractsSnapshot>> {
-        self.snapshot
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 

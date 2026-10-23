@@ -75,6 +75,8 @@ all-errors = ["database-errors", "provider-errors", "crypto-errors"]
 all-database = ["database-errors", "sqlx-types"]
 
 [dependencies]
+arc-swap = "1.9"
+percent-encoding = "2"
 thiserror = "2.0"
 # Constant-time comparison behind `constant_time::secrets_equal`.
 subtle = "2.6"
@@ -156,6 +158,9 @@ rand = { version = "0.9", optional = true }
 bcrypt = { version = "0.16", optional = true }
 
 [dev-dependencies]
+# Property tests for the parsers and redactors that take untrusted input
+# (carnet#1143). Without default features: no fork or timeout support.
+proptest = { version = "1", default-features = false, features = ["std"] }
 # Used by the DummyProvider tests in tests/it/billing_dummy_test.rs.
 tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
 hex = "0.4"

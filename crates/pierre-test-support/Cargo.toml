@@ -21,8 +21,9 @@ pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default-features = false }
-# "sync" backs the OnceCell holding the migrated SQLite image.
-tokio = { version = "1.50", features = ["sync"] }
+# "sync" backs the OnceCell holding the migrated SQLite image; "net", "io-util",
+# "rt", "time" and "macros" back the fault proxy's relay.
+tokio = { version = "1.50", features = ["sync", "net", "io-util", "rt", "time", "macros"] }
 uuid = { version = "1.22", features = ["v4"] }
 
 [lints]

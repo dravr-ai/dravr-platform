@@ -193,6 +193,59 @@ unpack() {
     echo "Unpacked $count test binaries built at $built"
 }
 
+# Runs one test binary from <dir> with the remaining arguments, stopping it
+# once <deadline> seconds pass. Its output streams through unchanged and is
+# kept, so a stopped run can name the tests libtest saw hang. The exit status
+# is the binary's, or 124 when the deadline stopped it.
+run_with_deadline() {
+    local deadline="$1" target="$2" dir="$3" exe="$4"
+    shift 4
+    local log expired pid watchdog status=0
+    log="$(mktemp)"
+    expired="$log.expired"
+    # exec, so the background job's pid is the test binary itself.
+    (cd "$dir" && CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" exec "$exe" "$@") > >(tee "$log") 2>&1 &
+    pid=$!
+    (
+        trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+        sleep "$deadline" &
+        nap=$!
+        wait "$nap"
+        : >"$expired"
+        kill -TERM "$pid" 2>/dev/null || exit 0
+        sleep 10
+        kill -KILL "$pid" 2>/dev/null || true
+    ) &
+    watchdog=$!
+    wait "$pid" || status=$?
+    kill -TERM "$watchdog" 2>/dev/null || true
+    wait "$watchdog" 2>/dev/null || true
+    # tee drains after the binary exits; let it finish before reading the log.
+    wait 2>/dev/null || true
+    if [ -f "$expired" ]; then
+        status=124
+        report_hung "$target" "$deadline" "$log"
+    fi
+    rm -f "$log" "$expired"
+    return "$status"
+}
+
+# Names the tests libtest flagged with "has been running for over 60 seconds"
+# that never printed a result line: the ones still running when the deadline hit.
+report_hung() {
+    local target="$1" deadline="$2" log="$3" slow hung=""
+    while IFS= read -r slow; do
+        grep -qE "^test $(printf '%s' "$slow" | sed 's/[][\.*^$/]/\\&/g') \.\.\. " "$log" || hung="$hung $slow"
+    done < <(sed -nE 's/^test (.+) has been running for over 60 seconds$/\1/p' "$log" | sort -u)
+    local message="test binary $target ran past its ${deadline}s deadline and was stopped"
+    if [ -n "$hung" ]; then
+        message="$message; still running:$hung"
+    else
+        message="$message; no test had run for over 60 seconds, so the binary itself hung"
+    fi
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::error::$message"; else echo "test-binaries.sh: $message" >&2; fi
+}
+
 # Execs every binary <map> lists for <target> in <package dir>, from that
 # directory, with the remaining arguments. cargo runs a test from its package
 # directory and hands it CARGO_HOME, and tests read both (contremaitre_test
@@ -201,17 +254,27 @@ unpack() {
 # inherits it. The `Running` line is cargo's own, relative to the workspace
 # root this runs from, which refresh-pg-shard-weights.sh reads a suite's start
 # from.
+#
+# Each binary runs under a deadline, TEST_BINARY_DEADLINE_SECS (1200 s by
+# default; a PostgreSQL shard's `it` binary takes about 680 s, and the step
+# that runs it allows 30 minutes). Without it a hung test holds its binary
+# until the job's step timeout, which ends the run `cancelled` and names
+# nothing. Past the deadline the binary is stopped, the run fails, and the
+# error names every test libtest flagged as running for over 60 seconds that
+# never reported a result: the hung ones.
 run() {
     local map="$1" package_dir="$2" target="$3"
     shift 3
     [ -s "$map" ] || die "run: $map is missing or empty"
+    local deadline="${TEST_BINARY_DEADLINE_SECS:-1200}"
+    case "$deadline" in '' | *[!0-9]* | 0) die "run: TEST_BINARY_DEADLINE_SECS must be a positive whole number of seconds, got '$deadline'" ;; esac
     local source="tests/$target.rs" ran=0 failed=0 name dir exe
     if [ -f "$package_dir/tests/$target/main.rs" ]; then source="tests/$target/main.rs"; fi
     while IFS=$'\t' read -r name dir exe; do
         [ "$name" = "$target" ] && [ "$dir" = "$package_dir" ] || continue
         ran=1
         echo "     Running ${dir#"$PWD"/}/$source (${exe#"$PWD"/})"
-        if ! (cd "$dir" && CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" "$exe" "$@" </dev/null); then
+        if ! run_with_deadline "$deadline" "$target" "$dir" "$exe" "$@" </dev/null; then
             failed=1
         fi
     done <"$map"

@@ -96,6 +96,8 @@ urlencoding = "2.1"
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 [dev-dependencies]
+# Property tests for the OAuth redirect allowlist (carnet#1143).
+proptest = { version = "1", default-features = false, features = ["std"] }
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # The header type dravr-enforme's SyncProvider::validate_webhook takes, for

@@ -24,6 +24,7 @@ mod harness_memory_repository_test;
 mod home_preferences_test;
 mod impersonation_test;
 mod oauth2_server_repository_test;
+mod pool_fault_test;
 mod provider_connections_repository_test;
 mod repository_registry_identity_test;
 mod seeder_repository_test;

@@ -169,6 +169,47 @@ printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/red" >"$WO
 expect "a run whose binary fails fails" 1 "$TREE" run "$WORK/red-map.tsv" "$TREE/crates/pierre-database" smoke_test
 expect "a run over an empty map is refused" 1 "$TREE" run "$WORK/empty-map.tsv" "$TREE/crates/pierre-database" smoke_test
 
+# A binary libtest says has a test past 60 s, which then never reports it.
+cat >"$RUNBIN/hung" <<'HUNG'
+#!/bin/sh
+echo "running 2 tests"
+echo "test slow::finishes has been running for over 60 seconds"
+echo "test slow::hangs has been running for over 60 seconds"
+echo "test slow::finishes ... ok"
+exec sleep 30
+HUNG
+printf '#!/bin/sh\nexec sleep 30\n' >"$RUNBIN/silent"
+chmod +x "$RUNBIN/hung" "$RUNBIN/silent"
+printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/hung" >"$WORK/hung-map.tsv"
+printf 'smoke_test\t%s\t%s\n' "$TREE/crates/pierre-database" "$RUNBIN/silent" >"$WORK/silent-map.tsv"
+started=$SECONDS
+TEST_BINARY_DEADLINE_SECS=2 expect "a run whose binary passes its deadline fails" 1 "$TREE" \
+    run "$WORK/hung-map.tsv" "$TREE/crates/pierre-database" smoke_test
+if [ $((SECONDS - started)) -lt 20 ]; then pass "the deadline stops the binary instead of waiting it out"; else
+    fail "the deadline stops the binary instead of waiting it out ($((SECONDS - started))s)"
+fi
+if grep -qF "ran past its 2s deadline and was stopped; still running: slow::hangs" "$OUT" \
+    && ! grep -qF "still running: slow::finishes" "$OUT" && ! grep -qF " slow::hangs slow::finishes" "$OUT"; then
+    pass "the failure names the test that never finished, and only it"
+else
+    fail "the failure names the test that never finished, and only it"
+    sed 's/^/      /' "$OUT"
+fi
+if grep -qF "test slow::finishes ... ok" "$OUT"; then pass "the binary's own output still streams through"; else
+    fail "the binary's own output still streams through"
+    sed 's/^/      /' "$OUT"
+fi
+TEST_BINARY_DEADLINE_SECS=1 expect "a binary that hangs outside any test fails" 1 "$TREE" \
+    run "$WORK/silent-map.tsv" "$TREE/crates/pierre-database" smoke_test
+if grep -qF "no test had run for over 60 seconds, so the binary itself hung" "$OUT"; then
+    pass "a hang with no slow test says the binary hung"
+else
+    fail "a hang with no slow test says the binary hung"
+    sed 's/^/      /' "$OUT"
+fi
+TEST_BINARY_DEADLINE_SECS=soon expect "a deadline that is not a number of seconds is refused" 1 "$TREE" \
+    run "$RUNMAP" "$TREE/crates/pierre-database" smoke_test
+
 mkdir -p "$WORK/elsewhere"
 expect "an unpack in another workspace path is refused" 1 "$WORK/elsewhere" unpack "$PACK"
 if grep -q "were built in $TREE" "$OUT"; then pass "the refusal names the build's workspace"; else

@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, LazyLock};
+
+use arc_swap::ArcSwap;
 
 use super::fold::fold_separators;
 
@@ -76,19 +78,19 @@ pub(super) struct NarrationVocabSnapshot {
 /// Mirrors the `GLOBAL_PRICING_REGISTRY` / `NOTIFY_ROUTING_PROVIDER` house
 /// pattern: the static lives in the leaf crate beside its consumers (the
 /// matchers below), the writer is the contremaitre sync engine in a higher
-/// crate. Swap is atomic (`Arc` behind an `RwLock`); a failed apply leaves
+/// crate. Swap is atomic (an `ArcSwap`); a failed apply leaves
 /// the previous snapshot untouched (last-good-wins, like every other
 /// contremaitre overlay).
 pub struct NarrationVocabRegistry {
-    /// Current overlay generation. `Arc<RwLock>`-free: the registry itself
-    /// is a process-wide static, so the lock alone suffices.
-    snapshot: RwLock<Arc<NarrationVocabSnapshot>>,
+    /// Current overlay generation. No outer `Arc`: the registry itself is a
+    /// process-wide static.
+    snapshot: ArcSwap<NarrationVocabSnapshot>,
 }
 
 impl NarrationVocabRegistry {
     fn new() -> Self {
         Self {
-            snapshot: RwLock::new(Arc::new(NarrationVocabSnapshot::default())),
+            snapshot: ArcSwap::from_pointee(NarrationVocabSnapshot::default()),
         }
     }
 
@@ -115,19 +117,13 @@ impl NarrationVocabRegistry {
             internal_narration: internal.len(),
             identity: identity.len(),
         };
-        let next = Arc::new(NarrationVocabSnapshot {
+        self.snapshot.store(Arc::new(NarrationVocabSnapshot {
             capability,
             internal,
             identity,
             sha256: Some(sha256),
-        });
-        self.snapshot.write().map_or_else(
-            |_| Err("narration vocabulary lock poisoned; overlay not installed".to_owned()),
-            |mut guard| {
-                *guard = next;
-                Ok(counts)
-            },
-        )
+        }));
+        Ok(counts)
     }
 
     /// SHA-256 of the currently installed overlay file, or `None` before the
@@ -135,22 +131,21 @@ impl NarrationVocabRegistry {
     /// manifest entry to skip an unchanged file.
     #[must_use]
     pub fn current_overlay_sha256(&self) -> Option<String> {
-        self.snapshot.read().ok().and_then(|s| s.sha256.clone())
+        self.snapshot.load().sha256.clone()
     }
 
     /// Whether the already-folded sentence matches an overlay entry of the
-    /// given class. Read-lock per call: the scrub walks sentences through
-    /// `fn`-pointer matchers, so there is no seam to thread a snapshot
-    /// through — and an uncontended read lock is nanoseconds against the
-    /// milliseconds a chat turn costs.
+    /// given class. One lock-free load per call: the scrub walks sentences
+    /// through `fn`-pointer matchers, so there is no seam to thread a
+    /// snapshot through.
     pub(super) fn matches(
         &self,
         folded: &str,
         class: impl Fn(&NarrationVocabSnapshot) -> &[String],
     ) -> bool {
-        self.snapshot
-            .read()
-            .is_ok_and(|s| class(&s).iter().any(|p| folded.contains(p.as_str())))
+        class(&self.snapshot.load())
+            .iter()
+            .any(|p| folded.contains(p.as_str()))
     }
 }
 

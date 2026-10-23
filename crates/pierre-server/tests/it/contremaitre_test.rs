@@ -1305,3 +1305,69 @@ fn fetched(tool_name: String, overlay: ToolDescriptionOverlay, sha256: String) -
         sha256,
     }
 }
+
+/// Property tests for the webhook signature check (carnet#1143): only the
+/// HMAC of the exact body under a set secret is accepted.
+mod signature_properties {
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+    use ring::hmac;
+
+    use pierre_mcp_server::routes::contremaitre_webhook::verify_github_signature;
+
+    fn sign(secret: &str, body: &[u8]) -> String {
+        let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
+        format!("sha256={}", hex::encode(hmac::sign(&key, body).as_ref()))
+    }
+
+    proptest! {
+        #[test]
+        fn any_header_is_judged_without_panicking(
+            secret in any::<String>(),
+            signature in any::<String>(),
+            body in vec(any::<u8>(), 0..256),
+        ) {
+            let _ = verify_github_signature(&secret, &signature, &body);
+        }
+
+        #[test]
+        fn the_body_signed_under_a_set_secret_is_accepted(
+            secret in "[!-~]{1,40}",
+            body in vec(any::<u8>(), 0..256),
+        ) {
+            prop_assert!(verify_github_signature(&secret, &sign(&secret, &body), &body).is_ok());
+        }
+
+        #[test]
+        fn a_changed_body_is_refused(
+            secret in "[!-~]{1,40}",
+            body in vec(any::<u8>(), 1..256),
+            at in any::<usize>(),
+            flip in 1_u8..=255,
+        ) {
+            let signature = sign(&secret, &body);
+            let mut tampered = body;
+            let index = at % tampered.len();
+            tampered[index] ^= flip;
+            prop_assert!(verify_github_signature(&secret, &signature, &tampered).is_err());
+        }
+
+        #[test]
+        fn a_signature_under_another_secret_is_refused(
+            secret in "[!-~]{1,40}",
+            other in "[!-~]{1,40}",
+            body in vec(any::<u8>(), 0..256),
+        ) {
+            prop_assume!(secret != other);
+            prop_assert!(verify_github_signature(&secret, &sign(&other, &body), &body).is_err());
+        }
+
+        #[test]
+        fn a_blank_secret_accepts_nothing(
+            secret in "[ \t\r\n]{0,4}",
+            body in vec(any::<u8>(), 0..64),
+        ) {
+            prop_assert!(verify_github_signature(&secret, &sign(&secret, &body), &body).is_err());
+        }
+    }
+}

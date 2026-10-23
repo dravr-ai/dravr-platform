@@ -43,6 +43,7 @@ tools-sleep = []           # sleep_quality, recovery_score, rest_day
 tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification"]  # verify_claim claim-verification tool
 
 [dependencies]
+arc-swap = "1.9"
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }

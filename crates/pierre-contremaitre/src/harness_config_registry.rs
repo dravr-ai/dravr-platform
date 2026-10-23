@@ -19,8 +19,9 @@
 //! `Arc<TextGuardrails>`) so per-turn reads are an `Arc` clone, not a
 //! `Vec<String>` clone.
 
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 
+use arc_swap::{ArcSwap, Guard};
 use chrono::{DateTime, Utc};
 use pierre_database::backends::factory::Database;
 use serde_json::from_str;
@@ -69,12 +70,12 @@ pub struct HarnessConfigSnapshot {
 
 /// Thread-safe registry holding the current harness config snapshot.
 ///
-/// Reads (`current`, `current_compaction`, `current_guardrails`) take a
-/// short read-lock and return an `Arc` clone or a `Copy` value, so they
-/// are safe to call from the hot chat-turn path. Writes (`install`) are
+/// Reads (`current`, `current_compaction`, `current_guardrails`) are
+/// lock-free and return an `Arc` clone or a `Copy` value, so they are safe
+/// to call from the hot chat-turn path. Writes (`install`) are
 /// expected only on admin PUT — a couple per day at most.
 pub struct HarnessConfigRegistry {
-    snapshot: RwLock<HarnessConfigSnapshot>,
+    snapshot: ArcSwap<HarnessConfigSnapshot>,
 }
 
 impl HarnessConfigRegistry {
@@ -140,7 +141,7 @@ impl HarnessConfigRegistry {
     fn new_with(document: HarnessConfigDocument, source: HarnessConfigSource) -> Self {
         let snapshot = build_snapshot(document, source);
         Self {
-            snapshot: RwLock::new(snapshot),
+            snapshot: ArcSwap::from_pointee(snapshot),
         }
     }
 
@@ -148,8 +149,8 @@ impl HarnessConfigRegistry {
     ///
     /// Useful for diagnostic endpoints that want all three views at once.
     #[must_use]
-    pub fn current(&self) -> HarnessConfigSnapshot {
-        self.read().clone()
+    pub fn current(&self) -> Arc<HarnessConfigSnapshot> {
+        self.snapshot.load_full()
     }
 
     /// Compaction config for the current snapshot. Returned by value
@@ -187,19 +188,12 @@ impl HarnessConfigRegistry {
     /// and `TextGuardrails` projections so subsequent chat turns dispatch
     /// against the new values.
     pub fn install(&self, document: HarnessConfigDocument, source: HarnessConfigSource) {
-        let next = build_snapshot(document, source);
-        let mut guard = self.write();
-        *guard = next;
-    }
-
-    fn read(&self) -> RwLockReadGuard<'_, HarnessConfigSnapshot> {
-        self.snapshot.read().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn write(&self) -> RwLockWriteGuard<'_, HarnessConfigSnapshot> {
         self.snapshot
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
+            .store(Arc::new(build_snapshot(document, source)));
+    }
+
+    fn read(&self) -> Guard<Arc<HarnessConfigSnapshot>> {
+        self.snapshot.load()
     }
 }
 

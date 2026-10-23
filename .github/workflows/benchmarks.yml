@@ -1,15 +1,15 @@
-# ABOUTME: Criterion benchmark CI — runs nightly on main and on dispatch, compares against the main baseline, reports regressions.
-# ABOUTME: Baseline lives in the actions cache (updated by the nightly main run); on-demand flamegraph job via workflow_dispatch.
+# ABOUTME: Criterion benchmark CI — nightly on main and on dispatch, benches a base commit and the head on one runner, fails a regression.
+# ABOUTME: Nightly measures main against main a day earlier, a dispatch measures a branch against its merge-base; on-demand flamegraph job.
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# Nightly, not per push: the regression check is advisory (see below), so a
-# per-push run gated nothing while it held a runner for 31-51 minutes on every
-# backend push and rewrote the bench Rust cache on every Cargo.lock change. The
-# nightly run on main compares against the previous night's baseline, then
-# overwrites it. To measure a branch, dispatch this workflow on it: it compares
-# against main's baseline without touching it.
+# Nightly, not per push: a run holds a runner for over an hour, benching two
+# commits, and a per-push run would rewrite the bench Rust cache on every
+# Cargo.lock change. The nightly run on main measures main against main as it was a day earlier. To
+# measure a branch, dispatch this workflow on it: it measures the branch
+# against its merge-base with main. Either way both sides run on the same
+# runner (scripts/ci/bench-ab.sh), so the gate can block.
 
 name: "CI: Benchmarks"
 
@@ -38,7 +38,7 @@ concurrency:
   # former is known to work here — see ci-backend.yml for the run that proved it.
   # The event name is in the group because a dispatch on main at the tip carries
   # the nightly run's sha: without it the dispatch would join the nightly's group
-  # and cancel it between benching and the baseline cache save. Branch runs are
+  # and cancel its verdict before it lands. Branch runs are
   # safe to supersede.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
@@ -61,19 +61,24 @@ jobs:
     name: Run Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || inputs.flamegraph != true
-    # A backstop, not a performance budget. Successful runs land in 31-51 min.
+    # A backstop, not a performance budget. One side alone landed in 31-51 min;
+    # the base and the head share a target directory, so the second build
+    # reuses every dependency the first compiled.
     #
     # On main every run has its own concurrency group (see above), so nothing
-    # can cancel a run between benching and the baseline save. The cost of that
-    # is a hung job nothing can displace — on 2026-08-19 this job sat 316 min
+    # can cancel a nightly verdict. The cost of that is a hung job nothing can
+    # displace — on 2026-08-19 this job sat 316 min
     # in `Setup Rust environment` and every later run queued behind it. The
     # bound lives on the job because composite actions cannot bound their own
     # steps.
-    timeout-minutes: 75
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          # The base commit is in main's history: a merge-base, or main a day ago.
+          fetch-depth: 0
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
@@ -84,65 +89,57 @@ jobs:
           shared-key: bench
           cache-save: auto
 
-      - name: Restore criterion baseline
-        uses: actions/cache/restore@v6
-        with:
-          path: target/criterion
-          key: criterion-baseline-main-${{ github.sha }}
-          restore-keys: |
-            criterion-baseline-main-
-
-      - name: Prune stale comparison data
-        # The restored baseline carries main's own change/ comparison dirs;
-        # left in place they surface as phantom results for suites this run
-        # does not execute.
+      - name: Align functions for stable timings
+        # Where the linker happens to place a hot function shifts its timing by
+        # several percent between two builds of the same code. Aligning every
+        # function to 64 bytes removes that from the comparison. A cfg(all())
+        # target entry, because cargo joins every target.*.rustflags entry,
+        # while RUSTFLAGS would replace the mold flag rust-setup wrote.
         run: |
-          if [ -d target/criterion ]; then
-            find target/criterion -type d -name change -prune -exec rm -rf {} +
+          {
+            echo "[target.'cfg(all())']"
+            echo 'rustflags = ["-C", "llvm-args=-align-all-functions=6"]'
+          } >> .cargo/config.toml
+          cat .cargo/config.toml
+
+      - name: Pick the base commit
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Main as it was a day ago: what the last nightly run measured.
+            base="$(git rev-list -1 --first-parent --before='24 hours ago' HEAD)"
+          else
+            git fetch --no-tags --quiet origin main
+            base="$(git merge-base origin/main HEAD)"
+          fi
+          if [ -z "$base" ]; then
+            echo "::error::found no base commit to measure ${{ github.sha }} against"
+            exit 1
+          fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+          if [ "$base" = "$(git rev-parse HEAD)" ]; then
+            echo "same=true" >> "$GITHUB_OUTPUT"
+            echo "Head is the base commit $base: no code to compare" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "same=false" >> "$GITHUB_OUTPUT"
+            echo "Measuring $(git rev-parse --short HEAD) against base $(git rev-parse --short "$base")" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Run benchmarks
-        run: |
-          SUITE="${{ inputs.benchmark_suite }}"
-          if [ -n "$SUITE" ]; then
-            TARGET="--bench $SUITE"
-          else
-            # Scope to pierre_mcp_server — the only crate with Criterion benches.
-            # Running workspace-wide would hit non-Criterion crates that reject Criterion flags.
-            TARGET="--benches"
-          fi
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "schedule" ]; then
-            # Compares against the previous main baseline, then becomes it.
-            cargo bench -p pierre_mcp_server $TARGET -- --save-baseline main
-          else
-            # Compares against main's baseline; lenient = silently skip when absent.
-            cargo bench -p pierre_mcp_server $TARGET -- --baseline-lenient main
-          fi
+        if: steps.base.outputs.same == 'false'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          SUITE: ${{ inputs.benchmark_suite }}
+        run: scripts/ci/bench-ab.sh "$BASE_SHA" ${SUITE:+"$SUITE"}
 
-      - name: Save criterion baseline (main only)
-        # Placed before the regression gate: the baseline must track what main
-        # actually is, even when the gate fails the job.
-        if: github.ref == 'refs/heads/main' && github.event_name == 'schedule'
-        uses: actions/cache/save@v6
-        with:
-          path: target/criterion
-          key: criterion-baseline-main-${{ github.sha }}
-
-      # --advisory: the comparison is cross-machine, so the delta it measures is
-      # partly the runner. A branch benches on whatever runner it draws and
-      # compares against a baseline recorded on the runner that last ran main, and
-      # the observed spread between runners reaches the fail threshold on its own —
-      # 2026-08-04 produced three reds whose worst offenders were benchmarks no
-      # commit in the range could reach (`json_value/value_array_indexing` indexes
-      # a serde_json Value and nothing else). Regressions still print and still
-      # land in the job summary; they no longer block on evidence that cannot
-      # separate a slower machine from slower code.
-      #
-      # Removing --advisory is correct once the job benches the merge-base and the
-      # head in the same run on the same machine, which is the only comparison
-      # that isolates the code.
+      # Blocking: both sides ran on this runner, alternating one suite at a
+      # time, so a delta here is the code's. A baseline another runner recorded
+      # cannot gate: the spread between runners reaches the fail threshold on
+      # its own (2026-08-04, three reds on benchmarks no commit in range could
+      # reach).
       - name: Check for regressions
-        run: python3 scripts/ci/bench-regression-check.py --criterion-dir target/criterion --warn-pct 10 --fail-pct 50 --advisory
+        if: steps.base.outputs.same == 'false'
+        run: python3 scripts/ci/bench-regression-check.py --criterion-dir target/criterion --warn-pct 10 --fail-pct 50
 
       - name: Upload benchmark results
         if: ${{ !cancelled() }}
@@ -183,7 +180,9 @@ jobs:
 
       - name: Profile dispatch benches
         # --profile-time activates the pprof hook; no analysis, no baselines touched.
-        run: cargo bench -p pierre_mcp_server --bench tool_dispatch_bench -- --profile-time 10
+        # The flamegraph profile keeps symbols and debug info the stripped
+        # bench profile drops (see [profile.flamegraph] in Cargo.toml).
+        run: cargo bench --profile flamegraph -p pierre_mcp_server --bench tool_dispatch_bench -- --profile-time 10
 
       - name: Upload flamegraphs
         uses: actions/upload-artifact@v4

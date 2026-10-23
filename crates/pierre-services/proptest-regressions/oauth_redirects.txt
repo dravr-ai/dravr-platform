@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 33923de52ed6cf992959d1c442b931aa3e7e11009b3295c1805ff829b1c64686 # shrinks to url = "https://api.dravr.aievil.com"

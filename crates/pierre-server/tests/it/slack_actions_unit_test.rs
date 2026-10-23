@@ -328,3 +328,44 @@ mod command_postback_authorization {
         );
     }
 }
+
+/// Property tests: an interactive payload from the internet is parsed or
+/// refused, never a panic (carnet#1143).
+mod parse_properties {
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+
+    use pierre_mcp_server::routes::messaging::slack_actions::parse_slack_action;
+
+    proptest! {
+        #[test]
+        fn any_body_is_parsed_without_panicking(body in vec(any::<u8>(), 0..512)) {
+            let _ = parse_slack_action(&body);
+        }
+
+        #[test]
+        fn any_form_encoded_payload_is_parsed_without_panicking(payload in any::<String>()) {
+            let body = format!("payload={}", urlencoding::encode(&payload));
+            let _ = parse_slack_action(body.as_bytes());
+        }
+
+        #[test]
+        fn a_block_actions_shape_with_odd_fields_is_parsed_without_panicking(
+            action_id in prop_oneof![Just(String::new()), any::<String>()],
+            user in any::<String>(),
+            channel in any::<String>(),
+            ts in any::<String>(),
+        ) {
+            let payload = serde_json::json!({
+                "type": "block_actions",
+                "actions": [{ "action_id": action_id, "value": user }],
+                "user": { "id": user },
+                "channel": { "id": channel },
+                "message": { "ts": ts },
+                "container": { "message_ts": ts },
+            });
+            let body = format!("payload={}", urlencoding::encode(&payload.to_string()));
+            let _ = parse_slack_action(body.as_bytes());
+        }
+    }
+}

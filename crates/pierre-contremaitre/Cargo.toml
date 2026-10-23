@@ -11,6 +11,7 @@ repository = "https://github.com/dravr-ai/scriptcurator-platform"
 publish = false
 
 [dependencies]
+arc-swap = "1.9"
 # `http-client` carries the shared `api_client` plus the GCP `TokenProvider`
 # the GCS store authenticates with.
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }

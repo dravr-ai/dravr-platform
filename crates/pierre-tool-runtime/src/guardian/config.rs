@@ -25,8 +25,9 @@
 //! harness config registry). The dev deployment is single-instance; a
 //! multi-instance fleet pins posture via the env overrides instead.
 
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
@@ -202,12 +203,12 @@ pub struct GuardianConfigSnapshot {
 
 /// Thread-safe registry holding the current Guardian config snapshot.
 ///
-/// Reads take a short read-lock and return an `Arc` clone, so they are safe
-/// on the hot dispatch path. Writes ([`Self::install`]) happen only on admin
+/// Reads are lock-free and return an `Arc` clone, so they are safe on the
+/// hot dispatch path. Writes ([`Self::install`]) happen only on admin
 /// PUT — a couple per day at most.
 pub struct GuardianConfigRegistry {
     env: GuardianEnvOverrides,
-    snapshot: RwLock<GuardianConfigSnapshot>,
+    snapshot: ArcSwap<GuardianConfigSnapshot>,
 }
 
 impl GuardianConfigRegistry {
@@ -241,7 +242,7 @@ impl GuardianConfigRegistry {
         let snapshot = build_snapshot(&env, document, source);
         Self {
             env,
-            snapshot: RwLock::new(snapshot),
+            snapshot: ArcSwap::from_pointee(snapshot),
         }
     }
 
@@ -291,15 +292,15 @@ impl GuardianConfigRegistry {
 
     /// Cheap clone of the entire current snapshot (admin GET / diagnostics).
     #[must_use]
-    pub fn current(&self) -> GuardianConfigSnapshot {
-        self.read().clone()
+    pub fn current(&self) -> Arc<GuardianConfigSnapshot> {
+        self.snapshot.load_full()
     }
 
     /// The effective guard for the current snapshot. One atomic `Arc` clone —
     /// this is the per-dispatch read behind `ToolRuntime::guardian()`.
     #[must_use]
     pub fn current_guardian(&self) -> Arc<Guardian> {
-        Arc::clone(&self.read().guardian)
+        Arc::clone(&self.snapshot.load().guardian)
     }
 
     /// Replace the current snapshot with a fresh document.
@@ -309,19 +310,8 @@ impl GuardianConfigRegistry {
     /// failure leaves both stores on the previous values). Re-resolves the
     /// effective policy against the captured env overrides.
     pub fn install(&self, document: GuardianConfigDocument, source: GuardianConfigSource) {
-        let next = build_snapshot(&self.env, document, source);
-        let mut guard = self.write();
-        *guard = next;
-    }
-
-    fn read(&self) -> RwLockReadGuard<'_, GuardianConfigSnapshot> {
-        self.snapshot.read().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn write(&self) -> RwLockWriteGuard<'_, GuardianConfigSnapshot> {
         self.snapshot
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
+            .store(Arc::new(build_snapshot(&self.env, document, source)));
     }
 }
 

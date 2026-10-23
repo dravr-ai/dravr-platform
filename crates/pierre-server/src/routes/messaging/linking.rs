@@ -9,6 +9,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{Duration, Utc};
+use pierre_auth::http::oauth_client;
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::TenantId;
@@ -798,7 +799,9 @@ pub async fn exchange_code_for_identity(
     redirect_uri: &str,
     channel: &str,
 ) -> Result<String, AppError> {
-    let client = reqwest::Client::new();
+    // The bounded OAuth client: a provider that stalls must not hold the
+    // athlete's link request open with no end.
+    let client = oauth_client()?;
     let token_response = client
         .post(token_url)
         .form(&[

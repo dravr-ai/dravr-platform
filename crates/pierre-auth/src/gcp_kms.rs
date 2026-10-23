@@ -17,6 +17,7 @@
 //! caches it, so a wrap/unwrap burst costs one token mint per token lifetime.
 
 use std::env;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as Base64Standard;
@@ -29,6 +30,13 @@ use crate::key_management::KekProvider;
 
 /// Cloud KMS REST base URL.
 const KMS_BASE_URL: &str = "https://cloudkms.googleapis.com/v1";
+
+/// Ceiling on one KMS call. A wrap or unwrap answers in milliseconds; without
+/// a ceiling, a stalled connection would hold key unwrap, and so boot, forever.
+const KMS_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Ceiling on opening the connection to KMS.
+const KMS_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// KEK provider backed by GCP Cloud KMS.
 pub struct GcpKmsKekProvider {
@@ -54,13 +62,21 @@ struct DecryptResponse {
 
 impl GcpKmsKekProvider {
     /// Build a provider for the given KMS crypto-key resource name.
-    #[must_use]
-    pub fn new(key_resource: impl Into<String>) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be built (no TLS backend).
+    pub fn new(key_resource: impl Into<String>) -> AppResult<Self> {
+        let http = reqwest::Client::builder()
+            .timeout(KMS_REQUEST_TIMEOUT)
+            .connect_timeout(KMS_CONNECT_TIMEOUT)
+            .build()
+            .map_err(|e| AppError::internal(format!("Failed to build the KMS HTTP client: {e}")))?;
+        Ok(Self {
             key_resource: key_resource.into(),
-            http: reqwest::Client::new(),
+            http,
             token_provider: Box::new(MetadataTokenProvider::default()),
-        }
+        })
     }
 
     /// Build from the `PIERRE_KMS_KEY_RESOURCE` environment variable.
@@ -75,7 +91,7 @@ impl GcpKmsKekProvider {
                  (projects/.../locations/.../keyRings/.../cryptoKeys/...)",
             )
         })?;
-        Ok(Self::new(key_resource))
+        Self::new(key_resource)
     }
 }
 

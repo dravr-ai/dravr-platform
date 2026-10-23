@@ -234,4 +234,90 @@ mod tests {
         assert!(!url.contains("tombstone_id"), "{url}");
         assert!(!url.contains("deleted_at"), "{url}");
     }
+
+    /// Property tests: no URL the allowlist accepts leaves the app, this
+    /// machine or an allowed origin (carnet#1143).
+    mod properties {
+        use proptest::prelude::*;
+        use url::Url;
+
+        use super::super::is_allowed_redirect_url;
+
+        const BASE_URL: &str = "https://api.dravr.ai";
+        const EXTRA: &str = "https://tunnel.example.dev";
+
+        /// Whether `url` lands somewhere the policy allows.
+        fn lands_safely(url: &str) -> bool {
+            let Ok(parsed) = Url::parse(url) else {
+                return false;
+            };
+            let origin = parsed.origin().ascii_serialization();
+            parsed.username().is_empty()
+                && parsed.password().is_none()
+                && match parsed.scheme() {
+                    "dravr" | "exp" => true,
+                    "http" => matches!(parsed.host_str(), Some("localhost" | "127.0.0.1")),
+                    "https" => origin == BASE_URL || origin == EXTRA,
+                    _ => false,
+                }
+        }
+
+        /// A URL glued from an allowed-looking prefix, a separator that has
+        /// fooled prefix and first-colon checks, and an attacker host.
+        fn adversarial_url() -> impl Strategy<Value = String> {
+            let prefix = prop_oneof![
+                Just("https://api.dravr.ai"),
+                Just("https://tunnel.example.dev"),
+                Just("http://localhost"),
+                Just("http://127.0.0.1"),
+                Just("dravr://"),
+                Just("https://"),
+                Just("http://"),
+                Just("//"),
+                Just("javascript:"),
+            ];
+            let separator = prop_oneof![
+                Just(""),
+                Just("."),
+                Just("@"),
+                Just(":@"),
+                Just(":443@"),
+                Just(":8080"),
+                Just("/"),
+                Just("\\"),
+                Just("%2e"),
+                Just("%40"),
+                Just("#"),
+                Just("?"),
+                Just("\t"),
+            ];
+            let host = prop_oneof![Just("evil.com"), Just("api.dravr.ai.evil.com"), Just("")];
+            (prefix, separator, host, "(/[a-z@:.]{0,6}){0,2}")
+                .prop_map(|(p, s, h, path)| format!("{p}{s}{h}{path}"))
+        }
+
+        proptest! {
+            #[test]
+            fn any_input_is_judged_without_panicking(url in any::<String>()) {
+                let _ = is_allowed_redirect_url(&url, BASE_URL, &[EXTRA.to_owned()]);
+            }
+
+            #[test]
+            fn an_accepted_url_always_lands_safely(url in adversarial_url()) {
+                if is_allowed_redirect_url(&url, BASE_URL, &[EXTRA.to_owned()]) {
+                    prop_assert!(lands_safely(&url), "accepted an open redirect: {url}");
+                }
+            }
+
+            #[test]
+            fn an_allowed_origin_with_any_path_is_accepted(
+                origin in prop_oneof![Just(BASE_URL), Just(EXTRA), Just("http://localhost:8082"), Just("dravr://oauth-callback")],
+                path in "(/[a-z0-9-]{1,8}){0,3}",
+                query in "(\\?[a-z]{1,5}=[a-z0-9]{0,5})?",
+            ) {
+                let url = format!("{origin}{path}{query}");
+                prop_assert!(is_allowed_redirect_url(&url, BASE_URL, &[EXTRA.to_owned()]), "{url}");
+            }
+        }
+    }
 }

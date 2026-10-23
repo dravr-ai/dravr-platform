@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c0fd939552c5a313eac543d6061fa0bab5f8359700b955598a31641e0afc2487 # shrinks to name = "hint", (address, local) = ("aaa%40aaa.com", "aaa")
+cc e5b3260a531b8bfcafb20ed2d4d1732e2728c483c39f453c554f0c893c1d1c60 # shrinks to name = "id%5Ftoken", value = "XYZZYa0AA0A00aA00", before = "", after = ""

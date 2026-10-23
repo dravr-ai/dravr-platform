@@ -166,6 +166,22 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 
+# What the benchmarks flamegraph job profiles (`cargo bench --profile flamegraph`).
+#
+# `cargo bench` uses the bench profile, which inherits `release`, so it is
+# stripped: pprof then has no symbol table to name the frames it samples. This
+# profile keeps release optimisation and adds what a profiler reads: full debug
+# info for file and line, no stripping, and no LTO, so frames stay attributed to
+# the function that wrote them instead of whatever LTO inlined them into. It is
+# never shipped and never measured for timings, so its numbers are not
+# comparable with the bench baseline.
+[profile.flamegraph]
+inherits = "release"
+debug = true
+strip = false
+lto = false
+codegen-units = 16
+
 # ============================================================================
 # Workspace Lint Configuration
 # ============================================================================

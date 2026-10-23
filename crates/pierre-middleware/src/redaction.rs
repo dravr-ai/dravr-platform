@@ -34,6 +34,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use bitflags::bitflags;
 use http::Uri;
+use percent_encoding::percent_decode_str;
 use regex::Regex;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::{self, Display, Formatter};
@@ -184,7 +185,9 @@ where
 
 /// Mask email addresses for PII protection
 ///
-/// Masks email addresses by showing only first characters of local and domain parts
+/// Masks email addresses by showing only first characters of local and domain parts.
+/// An address whose `@` is percent-encoded as `%40`, as a browser writes it in
+/// a query value, is masked the same way.
 ///
 /// # Arguments
 ///
@@ -201,11 +204,11 @@ pub fn mask_email(email: &str) -> String {
             regex
                 .replace_all(email, |caps: &regex::Captures| {
                     let full_match = &caps[0];
-                    full_match.find('@').map_or_else(
+                    at_sign(full_match).map_or_else(
                         || full_match.to_owned(),
-                        |at_pos| {
-                            let (local, domain_with_at) = full_match.split_at(at_pos);
-                            let domain = &domain_with_at[1..]; // Skip '@'
+                        |(at_pos, at)| {
+                            let local = &full_match[..at_pos];
+                            let domain = &full_match[at_pos + at.len()..];
 
                             let masked_local = if local.len() > 1 {
                                 format!("{}***", &local[0..1])
@@ -225,7 +228,7 @@ pub fn mask_email(email: &str) -> String {
                                 },
                             );
 
-                            format!("{masked_local}@{masked_domain}")
+                            format!("{masked_local}{at}{masked_domain}")
                         },
                     )
                 })
@@ -378,6 +381,15 @@ impl Display for BoundedUserLabel {
     }
 }
 
+/// Where an address's at-sign starts and how it is written: `@`, or `%40`
+/// when percent-encoded.
+fn at_sign(address: &str) -> Option<(usize, &'static str)> {
+    address
+        .find('@')
+        .map(|at| (at, "@"))
+        .or_else(|| address.find("%40").map(|at| (at, "%40")))
+}
+
 /// Get compiled email regex (cached)
 ///
 /// Returns None if regex compilation fails (should never happen with hardcoded pattern)
@@ -386,7 +398,7 @@ fn email_regex() -> Option<&'static Regex> {
     EMAIL_REGEX
         .get_or_init(|| {
             // Hardcoded regex pattern - should always compile
-            Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").ok()
+            Regex::new(r"[a-zA-Z0-9._%+-]+(?:@|%40)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").ok()
         })
         .as_ref()
 }
@@ -395,7 +407,9 @@ fn email_regex() -> Option<&'static Regex> {
 ///
 /// Parameter *names* survive — an operator needs to know a callback carried a
 /// `code` — while the value of any name in [`SENSITIVE_QUERY_PARAMS`] becomes
-/// the configured placeholder. Every other value still passes through
+/// the configured placeholder. A name is compared percent-decoded, so
+/// `access%5Ftoken` is the `access_token` the server reads. Every other value
+/// still passes through
 /// [`mask_email`], so an address handed to an unlisted parameter is masked
 /// rather than logged whole.
 ///
@@ -422,7 +436,7 @@ pub fn redact_query(query: &str, config: &RedactionConfig) -> String {
             let Some((name, value)) = pair.split_once('=') else {
                 return mask_email(pair);
             };
-            if SENSITIVE_QUERY_PARAMS.contains(&name.to_lowercase().as_str()) {
+            if is_sensitive_query_param(name) {
                 format!("{name}={}", config.redaction_placeholder)
             } else {
                 format!("{name}={}", mask_email(value))
@@ -430,6 +444,15 @@ pub fn redact_query(query: &str, config: &RedactionConfig) -> String {
         })
         .collect::<Vec<_>>()
         .join("&")
+}
+
+/// Whether a raw query-parameter name, once percent-decoded, is one of
+/// [`SENSITIVE_QUERY_PARAMS`].
+fn is_sensitive_query_param(raw_name: &str) -> bool {
+    let name = percent_decode_str(raw_name)
+        .decode_utf8_lossy()
+        .to_lowercase();
+    SENSITIVE_QUERY_PARAMS.contains(&name.as_str())
 }
 
 /// Build the log-safe request line for a URI: path plus redacted query.
@@ -486,4 +509,90 @@ pub async fn redaction_middleware(
     let line = redacted_request_line(req.uri(), &config);
     req.extensions_mut().insert(RedactedRequestLine(line));
     next.run(req).await
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    use proptest::sample::select;
+
+    use super::{mask_email, redact_query, RedactionConfig, SENSITIVE_QUERY_PARAMS};
+
+    /// A value no generated name or filler can contain, so finding it in the
+    /// output can only mean it leaked.
+    fn secret() -> impl Strategy<Value = String> {
+        "[A-Za-z0-9]{12}".prop_map(|s| format!("XYZZY{s}"))
+    }
+
+    /// A sensitive parameter name in any case, raw or with its `_` written
+    /// as `%5F`, which a server decodes to the same name.
+    fn sensitive_name() -> impl Strategy<Value = String> {
+        (select(SENSITIVE_QUERY_PARAMS), any::<bool>(), any::<bool>()).prop_map(
+            |(name, upper, encoded)| {
+                let name = if upper {
+                    name.to_ascii_uppercase()
+                } else {
+                    name.to_owned()
+                };
+                if encoded {
+                    name.replace('_', "%5F")
+                } else {
+                    name
+                }
+            },
+        )
+    }
+
+    /// An email address whose local part is long enough to be masked, with
+    /// its `@` raw or percent-encoded the way a browser writes it in a query.
+    fn email() -> impl Strategy<Value = (String, String)> {
+        ("[a-z]{3,10}", "[a-z]{3,10}", "(com|org|ca)", any::<bool>()).prop_map(
+            |(local, domain, tld, encoded)| {
+                let at = if encoded { "%40" } else { "@" };
+                (format!("{local}{at}{domain}.{tld}"), local)
+            },
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn any_query_is_handled_without_panicking(query in any::<String>()) {
+            let _ = redact_query(&query, &RedactionConfig::default());
+        }
+
+        #[test]
+        fn any_text_is_masked_without_panicking(text in any::<String>()) {
+            let _ = mask_email(&text);
+        }
+
+        #[test]
+        fn a_sensitive_value_never_survives(
+            name in sensitive_name(),
+            value in secret(),
+            before in "([a-z]{1,6}=[a-z0-9]{0,6}&){0,3}",
+            after in "(&[a-z]{1,6}=[a-z0-9]{0,6}){0,3}",
+        ) {
+            let query = format!("{before}{name}={value}{after}");
+            let out = redact_query(&query, &RedactionConfig::default());
+            prop_assert!(!out.contains("XYZZY"), "{query} -> {out}");
+        }
+
+        #[test]
+        fn an_email_in_any_value_never_survives_whole(
+            name in "(hint|next|redirect|q)",
+            (address, local) in email(),
+        ) {
+            let query = format!("{name}={address}");
+            let out = redact_query(&query, &RedactionConfig::default());
+            prop_assert!(!out.contains(&address), "{query} -> {out}");
+            prop_assert!(!out.contains(&local), "the local part is masked: {query} -> {out}");
+        }
+
+        #[test]
+        fn a_query_without_secrets_is_unchanged(
+            query in "(page|limit|sort|provider)=[a-z0-9]{0,6}(&(page|limit|sort|provider)=[a-z0-9]{0,6}){0,3}",
+        ) {
+            prop_assert_eq!(redact_query(&query, &RedactionConfig::default()), query);
+        }
+    }
 }

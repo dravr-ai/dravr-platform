@@ -22,8 +22,9 @@
 //! resulting snapshot. Webhook push events run the same path again without
 //! restarting the process.
 
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::Arc;
 
+use arc_swap::{ArcSwap, Guard};
 use chrono::{DateTime, Utc};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use sha2::{Digest, Sha256};
@@ -66,7 +67,7 @@ pub struct CageuxConfigSnapshot {
 /// replaces it with a `Contremaitre`-sourced snapshot once the overlay YAML
 /// has been fetched and validated.
 pub struct CageuxConfigRegistry {
-    snapshot: RwLock<CageuxConfigSnapshot>,
+    snapshot: ArcSwap<CageuxConfigSnapshot>,
 }
 
 impl CageuxConfigRegistry {
@@ -107,7 +108,7 @@ impl CageuxConfigRegistry {
         source: CageuxConfigSource,
     ) -> Self {
         Self {
-            snapshot: RwLock::new(CageuxConfigSnapshot {
+            snapshot: ArcSwap::from_pointee(CageuxConfigSnapshot {
                 config: Arc::new(config),
                 overlay_sha256,
                 source,
@@ -138,8 +139,8 @@ impl CageuxConfigRegistry {
 
     /// Metadata snapshot for diagnostics / admin endpoints.
     #[must_use]
-    pub fn snapshot(&self) -> CageuxConfigSnapshot {
-        self.read().clone()
+    pub fn snapshot(&self) -> Arc<CageuxConfigSnapshot> {
+        self.snapshot.load_full()
     }
 
     /// Apply a YAML overlay on top of the layered stack and install the
@@ -173,23 +174,16 @@ impl CageuxConfigRegistry {
         overlay_sha256: Option<String>,
         source: CageuxConfigSource,
     ) {
-        let mut guard = self.write();
-        *guard = CageuxConfigSnapshot {
+        self.snapshot.store(Arc::new(CageuxConfigSnapshot {
             config: Arc::new(config),
             overlay_sha256,
             source,
             loaded_at: Utc::now(),
-        };
+        }));
     }
 
-    fn read(&self) -> RwLockReadGuard<'_, CageuxConfigSnapshot> {
-        self.snapshot.read().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn write(&self) -> RwLockWriteGuard<'_, CageuxConfigSnapshot> {
-        self.snapshot
-            .write()
-            .unwrap_or_else(PoisonError::into_inner)
+    fn read(&self) -> Guard<Arc<CageuxConfigSnapshot>> {
+        self.snapshot.load()
     }
 }
 

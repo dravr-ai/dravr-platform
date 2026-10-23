@@ -20,6 +20,9 @@ use tracing::{info, warn};
 
 use crate::tool_loop_io::ToolLoopParams;
 
+/// Log target of the wire-shape line, which a log-based metric selects on.
+const WIRE_SHAPE_LOG_TARGET: &str = "pierre_tool_runtime::tool_execution";
+
 /// Name of the provider to attribute a completed call to.
 ///
 /// The tier the chain observer reported, or — when nothing was reported,
@@ -94,7 +97,12 @@ pub fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage])
         }
     }
 
+    // The target is spelled out because the `dravr-wire-shape-multi-system`
+    // log metric (infra/environments/dev/wire_shape_monitoring.tf) selects on
+    // it: the default target is this module's path, which moves whenever the
+    // function does and leaves the alert matching nothing.
     info!(
+        target: WIRE_SHAPE_LOG_TARGET,
         dispatch_path,
         system_message_count,
         user_message_count,

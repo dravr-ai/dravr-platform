@@ -89,3 +89,35 @@ fn mask_recipient_handles_multibyte_without_panicking() {
     // walks Unicode scalar values, so the last 4 characters survive intact.
     assert_eq!(mask_recipient("abcé123"), "***é123");
 }
+
+/// Property tests: a delivery-status webhook body from the internet is read
+/// or ignored, never a panic (carnet#1143).
+mod parse_properties {
+    use proptest::collection::vec;
+    use proptest::prelude::*;
+
+    use pierre_mcp_server::routes::messaging::webhooks::parse_whatsapp_delivery_statuses;
+
+    proptest! {
+        #[test]
+        fn any_body_is_read_without_panicking(body in vec(any::<u8>(), 0..512)) {
+            let _ = parse_whatsapp_delivery_statuses(&body);
+        }
+
+        #[test]
+        fn a_status_shape_with_odd_fields_is_read_without_panicking(
+            id in any::<String>(),
+            status in any::<String>(),
+            recipient in any::<String>(),
+            timestamp in any::<String>(),
+        ) {
+            let body = serde_json::json!({
+                "entry": [{ "changes": [{ "value": { "statuses": [{
+                    "id": id, "status": status, "recipient_id": recipient, "timestamp": timestamp,
+                    "errors": [{ "code": 131_026, "title": status }],
+                }]}}]}],
+            });
+            let _ = parse_whatsapp_delivery_statuses(body.to_string().as_bytes());
+        }
+    }
+}

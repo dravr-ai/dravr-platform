@@ -20,7 +20,7 @@
 //! - **[`RoutingTable`]** — parsed snapshot: one `defaults` rule plus a
 //!   map of partial overrides keyed by event name.
 //! - **[`ContremaitreRoutingProvider`]** — thread-safe registry holding an
-//!   `Arc<RoutingTable>` behind an `RwLock`. The `RoutingProvider` impl
+//!   `Arc<RoutingTable>` in an `ArcSwap`. The `RoutingProvider` impl
 //!   merges overrides on top of defaults to produce the [`RoutingRule`] the
 //!   layer applies. Boot-time state is `defaults: enabled=false` so the
 //!   layer drops every event until the first sync installs real rules,
@@ -28,9 +28,10 @@
 //!   loaded" invariant.
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use dravr_tronc::notify::{BatchRule, DedupRule, RoutingProvider, RoutingRule};
 use serde::Deserialize;
 
@@ -111,7 +112,7 @@ impl Default for RoutingTable {
 /// the registry's `defaults.enabled` is `false`, so the layer drops every
 /// emit — consistent with cageux / persona-contracts bootstrap behaviour.
 pub struct ContremaitreRoutingProvider {
-    table: RwLock<Arc<RoutingTable>>,
+    table: ArcSwap<RoutingTable>,
 }
 
 impl Default for ContremaitreRoutingProvider {
@@ -128,7 +129,7 @@ impl ContremaitreRoutingProvider {
     #[must_use]
     pub fn new_empty() -> Self {
         Self {
-            table: RwLock::new(Arc::new(RoutingTable::default())),
+            table: ArcSwap::from_pointee(RoutingTable::default()),
         }
     }
 
@@ -174,8 +175,7 @@ impl ContremaitreRoutingProvider {
 
         let mut table = build_routing_table(document)?;
         table.overlay_sha256 = sha256;
-        let mut guard = self.write();
-        *guard = Arc::new(table);
+        self.table.store(Arc::new(table));
         Ok(())
     }
 
@@ -184,7 +184,7 @@ impl ContremaitreRoutingProvider {
     /// to skip reload when the manifest entry hash matches.
     #[must_use]
     pub fn current_sha256(&self) -> Option<String> {
-        self.read().overlay_sha256.clone()
+        self.table.load().overlay_sha256.clone()
     }
 
     /// The channel `event`'s own rule names, or `None` when the routing has no
@@ -202,19 +202,11 @@ impl ContremaitreRoutingProvider {
             .and_then(|rule| rule.channel.clone())
     }
 
-    fn read(&self) -> RwLockReadGuard<'_, Arc<RoutingTable>> {
-        self.table.read().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn write(&self) -> RwLockWriteGuard<'_, Arc<RoutingTable>> {
-        self.table.write().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// Current snapshot for tests and admin diagnostics. Cloning the `Arc`
     /// is cheap.
     #[must_use]
     fn snapshot(&self) -> Arc<RoutingTable> {
-        Arc::clone(&self.read())
+        self.table.load_full()
     }
 }
 

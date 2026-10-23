@@ -51,6 +51,27 @@ const DEGREES_PER_SEMICIRCLE: f64 = 180.0 / 2_147_483_648.0;
 /// holds.
 pub(crate) const MAX_DECODED_FIELDS: usize = 2_000_000;
 
+/// The shortest header FIT defines: the 12-byte header without its CRC.
+const MIN_FIT_HEADER_LEN: usize = 12;
+
+/// Refuses bytes too short to hold the header they start with.
+///
+/// fitparser 0.11 computes how many bytes a short header still needs as the
+/// declared header size minus the bytes present, which underflows when fewer
+/// bytes than that size arrived: a panic wherever overflow checks are on, and
+/// a nonsense count where they are not. Refusing such a header here keeps
+/// every truncated upload a [`FitFileError::NotFit`].
+fn header_fits(bytes: &[u8]) -> Result<(), FitFileError> {
+    let declared = bytes.first().map_or(0, |size| usize::from(*size));
+    if bytes.len() < MIN_FIT_HEADER_LEN || bytes.len() < declared {
+        return Err(FitFileError::NotFit(format!(
+            "truncated FIT header: {} bytes, the header declares {declared}",
+            bytes.len()
+        )));
+    }
+    Ok(())
+}
+
 /// Why a file is not an activity this decoder can read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FitFileError {
@@ -381,11 +402,20 @@ impl FitActivityFile {
         processor.add_option(DecodeOption::DropUnknownMessages);
         let mut records = Vec::new();
         let mut declared_fields = 0_usize;
+        let mut at_header = true;
         // The loop `fitparser::from_bytes_with_options` runs, with the budget.
         while !bytes.is_empty() {
+            if at_header {
+                header_fits(bytes)?;
+                at_header = false;
+            }
             let (rest, object) = processor.deserialize_next(bytes).map_err(not_fit)?;
             match object {
-                FitObject::Crc(..) => processor.reset(),
+                // A CRC ends one file; chained files start again at a header.
+                FitObject::Crc(..) => {
+                    processor.reset();
+                    at_header = true;
+                }
                 FitObject::DataMessage(message) => {
                     declared_fields = declared_fields
                         .saturating_add(message.fields().len())
@@ -819,5 +849,92 @@ mod tests {
     #[test]
     fn the_device_file_still_decodes_to_exactly_one_session() {
         assert_eq!(ride().session_count(), 1);
+    }
+
+    /// Property tests: a corrupted upload is refused or read, never a panic
+    /// (carnet#1143). The mutations land in the data section and both
+    /// checksums are recomputed, so each case reaches the decoder rather than
+    /// stopping at a CRC mismatch.
+    mod properties {
+        use proptest::collection::vec;
+        use proptest::prelude::*;
+
+        use pierre_test_support::fit::fit_crc;
+
+        use super::{FitActivityFile, Position, FENIX_RIDE};
+
+        /// The ride with `edits` written over its data section, checksums fixed.
+        fn corrupted(edits: &[(usize, u8)]) -> Vec<u8> {
+            let mut bytes = FENIX_RIDE.to_vec();
+            let header = usize::from(bytes[0]);
+            let data_end = bytes.len() - 2;
+            for &(at, value) in edits {
+                bytes[header + at % (data_end - header)] = value;
+            }
+            let header_crc = fit_crc(&bytes[..header - 2]).to_le_bytes();
+            bytes[header - 2..header].copy_from_slice(&header_crc);
+            let file_crc = fit_crc(&bytes[..data_end]).to_le_bytes();
+            bytes[data_end..].copy_from_slice(&file_crc);
+            bytes
+        }
+
+        /// Everything an upload is read for, on a file that decoded.
+        fn read_everything(file: &FitActivityFile) {
+            let _ = file.activities(|i| format!("a-{i}"), "upload");
+            let _ = file.time_series(Position::Read);
+            for index in 0..file.session_count() {
+                let _ = file.session_series(index, Position::Read);
+            }
+        }
+
+        /// fitparser 0.11 underflows on a header shorter than it declares.
+        #[test]
+        fn a_file_shorter_than_its_header_is_refused_not_a_panic() {
+            for bytes in [
+                &[0_u8, 0][..],
+                &[14, 0x10, 0, 0, 0, 0, 0][..],
+                &FENIX_RIDE[..13],
+            ] {
+                assert!(
+                    matches!(
+                        FitActivityFile::decode(bytes),
+                        Err(super::FitFileError::NotFit(_))
+                    ),
+                    "{bytes:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn rewriting_the_checksums_keeps_an_untouched_file_readable() {
+            assert!(FitActivityFile::parse(&corrupted(&[])).is_ok());
+        }
+
+        proptest! {
+            #[test]
+            fn arbitrary_bytes_are_refused_without_panicking(bytes in vec(any::<u8>(), 0..512)) {
+                if let Ok(file) = FitActivityFile::parse(&bytes) {
+                    read_everything(&file);
+                }
+            }
+
+            #[test]
+            fn a_corrupted_device_file_is_refused_or_read_without_panicking(
+                edits in vec((any::<usize>(), any::<u8>()), 1..12),
+            ) {
+                let bytes = corrupted(&edits);
+                if let Ok(file) = FitActivityFile::parse(&bytes) {
+                    read_everything(&file);
+                }
+                let _ = FitActivityFile::decode(&bytes);
+            }
+
+            #[test]
+            fn a_truncated_device_file_is_refused_without_panicking(len in 0..FENIX_RIDE.len()) {
+                if let Ok(file) = FitActivityFile::parse(&FENIX_RIDE[..len]) {
+                    read_everything(&file);
+                }
+            }
+        }
     }
 }
