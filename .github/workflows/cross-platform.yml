@@ -2,8 +2,12 @@ name: "CI: Cross-Platform Build"
 
 on:
   schedule:
-    # Run Sunday 11:51 PM EDT (Monday 03:51 UTC) — macOS/Windows runners are expensive
-    - cron: '51 3 * * 1'
+    # Once a week, Sunday night Eastern — macOS/Windows runners are expensive.
+    # Scheduled for Sunday 21:17 UTC (17:17 EDT / 16:17 EST) because GitHub's
+    # scheduler starts this lane 5-6 hours late: the old Monday 03:51 UTC slot
+    # ran Monday 08:38-10:29 UTC every week from 09-21 to 10-19. With that lag
+    # it starts Sunday ~22:00-23:30 EDT; on time, it still runs Sunday.
+    - cron: '17 21 * * 0'
   workflow_dispatch: # Allow manual trigger when needed
 
 concurrency:
