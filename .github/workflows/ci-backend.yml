@@ -64,7 +64,6 @@ on:
       # this file and deploy-satellite-cloud-run.yml (carnet#137).
       - '.github/workflows/publish-images.yml'
       - '.github/workflows/deploy-gcp.yml'
-      - '.github/workflows/fasttrack-deploy.yml'
       - '.github/workflows/terraform.yml'
       # terraform-drift.test.sh checks the drift monitor plans every root a
       # workflow can apply (terraform.yml above, terraform-artifacts.yml), as
@@ -147,7 +146,6 @@ on:
       # this file and deploy-satellite-cloud-run.yml (carnet#137).
       - '.github/workflows/publish-images.yml'
       - '.github/workflows/deploy-gcp.yml'
-      - '.github/workflows/fasttrack-deploy.yml'
       - '.github/workflows/terraform.yml'
       # terraform-drift.test.sh checks the drift monitor plans every root a
       # workflow can apply (terraform.yml above, terraform-artifacts.yml), as

@@ -8,13 +8,14 @@
 # of Artifact Registry to a GitHub-hosted runner, which is billed internet
 # egress because the runners sit outside GCP (carnet#333). What a build reads
 # from the registry now depends on the image:
-#   * A server build (publish-images, fasttrack-deploy) pulls no cached layer
+#   * A server build (publish-images) pulls no cached layer
 #     when warm: the binaries are compiled on the runner against the
 #     GitHub-hosted rust-cache, and nothing after the runtime stage's last
 #     `COPY --link` reads the cached rootfs. A publish-images build then reads
 #     back the layers its Trivy scan has not analysed: the new binary layers
 #     (~0.1 GiB before compression), or the whole ~1 GiB image after its
-#     runtime layers are rebuilt. fasttrack-deploy runs no scan.
+#     runtime layers are rebuilt. A hotfix is a publish-images dispatch, so
+#     it scans the same way.
 #   * A sciotte or photograveur build still builds its own repository's
 #     Dockerfile against a mode=max buildcache, and pulls the cached layers
 #     that build needs: ~0.67 GB for the 2026-10-04 sciotte build whose

@@ -1,5 +1,5 @@
 # ABOUTME: Builds the web SPA (frontend/dist) on the runner for the frontend image's prebuilt-dist context
-# ABOUTME: Single source for publish-images.yml and fasttrack-deploy.yml, so the image never runs bun itself
+# ABOUTME: Used by publish-images.yml, so the frontend image never runs bun itself
 
 name: Frontend Dist
 description: >-

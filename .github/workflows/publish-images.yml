@@ -1,5 +1,5 @@
 # ABOUTME: Builds and publishes Docker images to the central Artifact Registry, then deploys to Cloud Run
-# ABOUTME: Builds and deploys once Backend CI on main is green, or on a manual dispatch; nothing deploys on a bare push
+# ABOUTME: Builds and deploys once Backend CI on main is green, or on a manual dispatch (the hotfix path, no CI wait)
 
 name: "Deploy: Build & Ship (dev)"
 
@@ -25,14 +25,32 @@ name: "Deploy: Build & Ship (dev)"
 run-name: "Deploy ${{ github.event.workflow_run.head_sha || inputs.sha || github.sha }}"
 
 on:
+  # A dispatch is also the hotfix path (it replaced fasttrack-deploy.yml,
+  # carnet#1118): it waits for no CI verdict and needs no CI artifact, since
+  # publish-server compiles the binaries when CI built none. It keeps what a
+  # workflow_run deploy has: the Trivy gates, the deploy concurrency group, the
+  # DB-headroom wait before the API roll, the deployed- tags and the job
+  # timeouts. The bump lanes rely on the no-wait half: they dispatch on a main
+  # tip pushed with GITHUB_TOKEN, which has no CI run at all.
   workflow_dispatch:
     inputs:
       # Redeploys a chosen commit by hand (a rollback, or a commit whose deploy
       # was superseded). Empty builds the tip of the ref the run was started on.
       sha:
-        description: 'Commit on main to build and deploy (default: the tip)'
+        description: 'Commit to build and deploy (default: the tip of the dispatched ref)'
         required: false
         type: string
+      # Which images to build and roll. Empty on a workflow_run, which builds
+      # both; a dispatch that omits it (the bump lanes') gets the default.
+      component:
+        description: 'What to build and deploy'
+        required: false
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - server
+          - frontend
   # The images are built only once Backend CI on main has gone green, so a red
   # commit costs nothing: no build, no Artifact Registry egress, no runner. The
   # gate is the `conclusion == 'success'` test in resolve-sha's `if:` and in the
@@ -84,10 +102,11 @@ permissions:
 # 33270799943, every job skipped, cancelled run 33270484029 seven minutes into
 # building fc9f52542 with its frontend image already pushed; that commit never
 # reached dev. The condition mirrors the resolve-sha gate exactly, so a run is
-# either in the deploy group or does nothing. Tags group on their own ref, so a
-# release build never waits on main.
+# either in the deploy group or does nothing. Every run that deploys, a
+# dispatch from any branch or tag included, joins the one group: they all roll
+# the same dev services, so none may race another (carnet#1118).
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.event != 'push' || github.event.workflow_run.conclusion != 'success')) && format('deploy-noop-{0}', github.run_id) || format('deploy-dev-{0}', github.event.workflow_run.head_branch || github.ref_name) }}
+  group: ${{ (github.event_name == 'workflow_run' && (github.event.workflow_run.event != 'push' || github.event.workflow_run.conclusion != 'success')) && format('deploy-noop-{0}', github.run_id) || 'deploy-dev-main' }}
   cancel-in-progress: false
 
 # docker/build-push-action uploads a build record (`*.dockerbuild`) for every
@@ -229,8 +248,11 @@ jobs:
       #
       # The steps sit in this job, before publish-server compiles anything or
       # reads the registry, so a refused deploy costs a few seconds and no
-      # egress. workflow_run only: a workflow_dispatch is a person asking for
-      # exactly this commit — a deliberate rollback stays possible.
+      # egress. workflow_run only: a workflow_dispatch (a hotfix, a rollback, a
+      # bump lane's ship, a VITE_* variable change) is a request for exactly
+      # this commit, and the out-of-order CI completions this guard exists for
+      # do not apply to it. A deliberate rollback, or a rebuild of the commit
+      # dev serves, stays possible.
       #
       # The verdict is fail-open: the label read swallows its own failures,
       # and the script treats an absent, malformed or unknown live commit as
@@ -317,9 +339,10 @@ jobs:
       # Fail-open like the rollback guard: only a readable label, a linear
       # history (compare status ahead or identical) and a complete file list
       # (under the compare API's 300-file cap) with no frontend input in it
-      # skip the build. workflow_dispatch always builds, so a change to a VITE_*
-      # repository variable reaches the frontend through a dispatch (a variable
-      # is not in git, so no diff can see it).
+      # skip the build. workflow_dispatch builds unless its component input is
+      # `server`, so a change to a VITE_* repository variable reaches the
+      # frontend through a dispatch (a variable is not in git, so no diff can
+      # see it).
       # -----------------------------------------------------------------------
       - name: Read the commit the dev frontend serves
         id: live-frontend
@@ -343,9 +366,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESOLVED: ${{ steps.sha.outputs.sha }}
           LIVE_FRONTEND: ${{ steps.live-frontend.outputs.sha }}
+          COMPONENT: ${{ inputs.component }}
         run: |
           changed=true
-          if [[ "$LIVE_FRONTEND" =~ ^[0-9a-f]{40}$ ]] \
+          if [ "$COMPONENT" = "server" ]; then
+            changed=false
+            echo "::notice title=Frontend not requested::dispatched with component=server; the dev frontend keeps serving its revision"
+          elif [[ "$LIVE_FRONTEND" =~ ^[0-9a-f]{40}$ ]] \
              && FILES="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${LIVE_FRONTEND}...${RESOLVED}" --jq '
                   if (.status == "ahead" or .status == "identical") and (.files | length) < 300
                   then [.files[] | .filename, (.previous_filename // empty)] | .[]
@@ -367,10 +394,15 @@ jobs:
     timeout-minutes: 60  # binaries, image and Trivy, p90 29 min
     needs: resolve-sha
     # The rollback verdict is honoured here and in publish-frontend only. deploy-dev
-    # requires this job's success in its `if:`, and tag-deployed-dev, sdk-smoke-dev
-    # and seed-dev require deploy-dev's, so skipping this job skips all four with
-    # it — the same path a missing GCP secret already takes.
-    if: needs.resolve-sha.outputs.gcp_configured == 'true' && needs.resolve-sha.outputs.rollback != 'true'
+    # requires this job's success in its `if:` (the one exception is a
+    # component=frontend dispatch, which builds no server image), and
+    # tag-deployed-dev, sdk-smoke-dev and seed-dev require deploy-dev's, so
+    # skipping this job for a rollback or a missing GCP secret skips all four
+    # with it.
+    if: >-
+      needs.resolve-sha.outputs.gcp_configured == 'true' &&
+      needs.resolve-sha.outputs.rollback != 'true' &&
+      inputs.component != 'frontend'
 
     # ci-backend.yml's workflow-level cargo env, which a fallback compile
     # needs before rust-setup: rust-cache hashes the CARGO_* variables into
@@ -826,11 +858,13 @@ jobs:
     needs: [resolve-sha, publish-server, publish-frontend]
     # publish-frontend is skipped when the frontend did not change (resolve-sha),
     # and a skipped need would skip this job too; the status check below lets a
-    # skipped frontend through and nothing else.
+    # skipped frontend through and nothing else. publish-server may be skipped
+    # only on a component=frontend dispatch, and then the frontend must build.
     if: >-
       !cancelled() &&
       (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') &&
-      needs.publish-server.result == 'success' &&
+      (needs.publish-server.result == 'success' ||
+        (inputs.component == 'frontend' && needs.publish-server.result == 'skipped' && needs.publish-frontend.result == 'success')) &&
       (needs.publish-frontend.result == 'success' || needs.publish-frontend.result == 'skipped')
     environment: development
 
@@ -859,6 +893,9 @@ jobs:
         # (room for the 3 new instances to boot beside the old revision; the boot
         # reads are sequential, so each needs one), so the new revision
         # does not boot into the slots the old one still holds.
+        # The API steps run only when publish-server built an image; a
+        # component=frontend dispatch leaves the API on the revision it serves.
+        if: needs.publish-server.result == 'success'
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
@@ -872,6 +909,7 @@ jobs:
       # set here from the resolved sha; `skip_default_labels` keeps the action
       # from writing its own copy of either.
       - name: Deploy backend to Cloud Run (dev)
+        if: needs.publish-server.result == 'success'
         uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
@@ -883,6 +921,7 @@ jobs:
             commit-sha=${{ needs.resolve-sha.outputs.sha }}
 
       - name: Wait for the API to settle
+        if: needs.publish-server.result == 'success'
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
@@ -926,6 +965,7 @@ jobs:
     needs: [publish-server, publish-frontend, deploy-dev]
     # A skipped publish-frontend (frontend unchanged) must not skip the server's
     # tag; the frontend's deployed-dev tag then stays on the digest dev serves.
+    # The same holds for a skipped publish-server on a component=frontend dispatch.
     if: ${{ !cancelled() && needs.deploy-dev.result == 'success' }}
 
     steps:
@@ -969,8 +1009,8 @@ jobs:
         run: |
           set -euo pipefail
           for IMAGE in "${SERVER_IMAGE}" "${FRONTEND_IMAGE}"; do
-            # Empty when publish-frontend was skipped: nothing new to tag, and
-            # both of the frontend's deployed- tags stay where they are.
+            # Empty when that publish job was skipped: nothing new to tag, and
+            # both of its deployed- tags stay where they are.
             [ -n "${IMAGE}" ] || continue
             ./scripts/ci/tag-deployed-digest.sh --image "${IMAGE}" --env dev
             PACKAGE="${IMAGE%@*}"

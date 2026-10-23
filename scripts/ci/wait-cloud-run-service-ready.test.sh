@@ -636,7 +636,6 @@ KNOWN = {
     "publish-images.yml:deploy-dev",
     "deploy-gcp.yml:deploy-api",
     "deploy-gcp.yml:deploy-frontend",
-    "fasttrack-deploy.yml:publish-and-deploy",
     "deploy-satellite-cloud-run.yml:deploy",
     "terraform.yml:apply-dev",
 }
@@ -765,14 +764,12 @@ BEFORE_API = "Wait until no dev Cloud Run service is mid-rollout (before the API
 BROKEN = [
     ("publish-images.yml", "publish-images.yml:deploy-dev: no quiesce wait between the previous roll and 'Deploy frontend",
      lambda wf: drop_step(wf, "deploy-dev", BEFORE_FRONTEND)),
-    ("fasttrack-deploy.yml", "fasttrack-deploy.yml:publish-and-deploy: no quiesce wait between the previous roll and 'Deploy frontend",
-     lambda wf: drop_step(wf, "publish-and-deploy", BEFORE_FRONTEND)),
     ("deploy-satellite-cloud-run.yml", "deploy-satellite-cloud-run.yml:deploy: no quiesce wait between the previous roll and 'Roll back",
      lambda wf: strip_inline_quiesce(wf, "deploy", "Roll back to the previously serving digest")),
     ("publish-images.yml", "publish-images.yml:deploy-dev: the quiesce before 'Deploy backend to Cloud Run (dev)' lacks --db-headroom",
      lambda wf: edit_run(wf, "deploy-dev", BEFORE_API, " --db-headroom 6", "")),
-    ("fasttrack-deploy.yml", "fasttrack-deploy.yml:publish-and-deploy: the quiesce before 'Deploy frontend to Cloud Run (dev)' passes --db-headroom",
-     lambda wf: edit_run(wf, "publish-and-deploy", BEFORE_FRONTEND, " --timeout-seconds", " --db-headroom 6 --timeout-seconds")),
+    ("publish-images.yml", "publish-images.yml:deploy-dev: the quiesce before 'Deploy frontend to Cloud Run (dev)' passes --db-headroom",
+     lambda wf: edit_run(wf, "deploy-dev", BEFORE_FRONTEND, " --timeout-seconds", " --db-headroom 6 --timeout-seconds")),
     ("deploy-gcp.yml", "deploy-gcp.yml:update-seed-jobs: runs Cloud Run jobs beside the roll of deploy-api deploy-frontend",
      lambda wf: set_needs(wf, "update-seed-jobs", "resolve-images")),
 ]

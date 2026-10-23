@@ -140,7 +140,7 @@ jobs:
       service: photograveur
       image: ${{ needs.image.outputs.image }}
       digest: ${{ needs.image.outputs.digest }}
-      ship_platform: ${{ needs.bump.outputs.state == 'pushed' }}
+      ship_platform: ${{ needs.bump.outputs.merged == 'true' }}
       release: v${{ needs.bump.outputs.version }}
       platform_summary: >-
         The photograveur service is on v${{ needs.bump.outputs.version }}; the platform binary that

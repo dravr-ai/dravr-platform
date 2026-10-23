@@ -94,6 +94,9 @@ on:
       branch:
         description: "The bump branch, when one was pushed"
         value: ${{ jobs.bump.outputs.branch }}
+      merged:
+        description: "'true' only when this run landed a commit on main; an empty squash (main already carried the pins) is 'false'"
+        value: ${{ jobs.merge.outputs.merged }}
       companions:
         description: "JSON object of companion crate -> version this release dictates"
         value: ${{ jobs.resolve.outputs.companions }}
@@ -636,6 +639,8 @@ jobs:
     timeout-minutes: 10  # ~15 s
     needs: [resolve, bump, gate]
     if: needs.bump.outputs.state == 'pushed'
+    outputs:
+      merged: ${{ steps.squash.outputs.merged }}
     # Eleven lanes resolve, bump and gate in parallel — the expensive part —
     # and serialize only this ~1-minute critical section, which is the only part that
     # actually races. A shared WORKFLOW-level group was rejected: it holds one waiting
@@ -657,6 +662,7 @@ jobs:
           ref: main
 
       - name: Squash merge and delete the branch
+        id: squash
         env:
           SATELLITE: ${{ inputs.satellite }}
           BRANCH: ${{ needs.bump.outputs.branch }}
@@ -674,10 +680,19 @@ jobs:
           # carries a pin main moved in the meantime is a split the gate never saw.
           # One second, on the tree about to be pushed.
           scripts/ci/check-lockfile-duplicates.sh
-          git commit -m "chore(${SATELLITE}): integrate ${SATELLITE} ${PINNED} -> ${VERSION}"
-          # Same race as carnet#383: this lands on whatever main is NOW, so a
-          # commit arriving mid-job must be rebased onto, never forced over.
-          scripts/ci/push-to-branch-with-rebase.sh origin main
+          # Main can already carry these pins: a hand bump or a peer lane landed
+          # them while this run gated. An empty squash is then the goal reached,
+          # not a stall, and `git commit` would exit 1 on it (carnet#1133).
+          if git diff --cached --quiet; then
+            echo "::notice title=Already integrated::main already carries ${SATELLITE} ${VERSION}; nothing to merge"
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore(${SATELLITE}): integrate ${SATELLITE} ${PINNED} -> ${VERSION}"
+            # Same race as carnet#383: this lands on whatever main is NOW, so a
+            # commit arriving mid-job must be rebased onto, never forced over.
+            scripts/ci/push-to-branch-with-rebase.sh origin main
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          fi
           # Squash gives the merge a new SHA, so the branch is dead the moment it
           # lands. Deleting it here keeps dead refs from accumulating per release.
           git push origin --delete "${BRANCH}"

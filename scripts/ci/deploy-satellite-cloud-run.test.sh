@@ -45,8 +45,8 @@ for path in sorted(glob.glob(".github/workflows/*.yml")):
             problems.append(f"{path} job {job_id} omits required input '{k}'")
         if job.get("secrets") != "inherit":
             problems.append(f"{path} job {job_id} must pass `secrets: inherit` (the deploy and tag jobs read GCP secrets)")
-        if "needs.bump.outputs.state == 'pushed'" not in str((job.get("with") or {}).get("ship_platform")):
-            problems.append(f"{path} job {job_id} must ship the platform only when the spine pushed a bump")
+        if "needs.bump.outputs.merged == 'true'" not in str((job.get("with") or {}).get("ship_platform")):
+            problems.append(f"{path} job {job_id} must ship the platform only when the spine landed a bump on main")
 # Each lifted step must be expression-free, so the test runs what the runner runs.
 steps = {s.get("name"): s for j in wf["jobs"].values() for s in j["steps"] if s.get("name")}
 lift = {"assert.sh": "Assert the serving bytes are the bytes we built and scanned",

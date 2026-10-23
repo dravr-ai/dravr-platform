@@ -157,7 +157,7 @@ jobs:
       digest: ${{ needs.image.outputs.digest }}
       probe_audience: dravr-sciotte-development
       probe_providers: garmin strava
-      ship_platform: ${{ needs.bump.outputs.state == 'pushed' }}
+      ship_platform: ${{ needs.bump.outputs.merged == 'true' }}
       release: enforme v${{ needs.bump.outputs.version }}
       platform_summary: |-
         The sciotte service is on **v${{ fromJSON(needs.bump.outputs.companions)['dravr-sciotte'] }}**; the platform binary that

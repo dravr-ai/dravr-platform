@@ -10,6 +10,12 @@ permissions:
   contents: read
   id-token: write
 
+# It rolls the same dev services as publish-images.yml, so it waits in that
+# workflow's deploy group instead of racing it (carnet#1118).
+concurrency:
+  group: deploy-dev-main
+  cancel-in-progress: false
+
 jobs:
   # ---------------------------------------------------------------------------
   # Resolve image tags from HEAD commit
