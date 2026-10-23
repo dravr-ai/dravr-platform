@@ -2283,6 +2283,7 @@
       "signInRejected": "{0} não aceitou esse início de sessão. Verifica os teus dados e tenta de novo.",
       "signInUnavailable": "De momento não foi possível iniciar sessão em {0}. Costuma ser temporário — tenta de novo dentro de alguns minutos.",
       "signInChallenged": "{0} pediu uma verificação de segurança adicional que de momento não conseguimos concluir automaticamente. Tenta de novo daqui a pouco.",
+      "signInPaused": "O início de sessão em {0} está em pausa enquanto mudamos para a ligação oficial do {0}.",
       "signInExpired": "Este início de sessão já não está ativo. Começa de novo.",
       "tryAgain": "Tentar de novo"
     },
@@ -2296,6 +2297,7 @@
       "backToProviders": "Voltar aos serviços",
       "tagConnected": "Ligado",
       "tagAuthorize": "Autorizar",
+      "tagPaused": "Em pausa",
       "tagApiKey": "ID de atleta / chave de API",
       "tagUsernamePassword": "Utilizador / palavra-passe",
       "tagEmailPassword": "E-mail / palavra-passe",
@@ -2567,6 +2569,7 @@
       "reauth_required_no_link": "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente o {0} nas definições e volta a perguntar-me.",
       "reauth_served": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. Liga novamente o {0} aqui para eu ver tudo (link válido por 24 horas):\n\n{1}",
       "reauth_served_no_link": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. Liga novamente o {0} nas definições para eu ver tudo.",
+      "reauth_paused": "A tua ligação ao {0} expirou e o início de sessão em {0} está em pausa enquanto mudamos para a ligação oficial do {0}, por isso de momento não consigo ler os teus dados do {0}.",
       "reconnect_button": "Ligar novamente {0}"
     },
     "quota_exceeded": "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.",
@@ -3108,6 +3111,7 @@
     "pendingLink": "{{coach}} pediu para associar os teus treinos — revê em {{group}}",
     "polar": "Polar",
     "privacyNote": "O Dravr só acede aos dados que autorizas. Nunca partilhamos os teus dados de fitness com terceiros. Podes desligar qualquer fornecedor quando quiseres.",
+    "connectPaused": "O início de sessão em {{provider}} está em pausa enquanto mudamos para a ligação oficial do {{provider}}.",
     "provider": "Fornecedor",
     "reconnect": "Ligar de novo",
     "reconnectNeeded": "É preciso voltar a ligar",

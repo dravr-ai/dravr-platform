@@ -2283,6 +2283,7 @@
       "signInRejected": "{0} no ha aceptado ese inicio de sesión. Comprueba tus datos e inténtalo de nuevo.",
       "signInUnavailable": "Ahora mismo no hemos podido iniciar sesión en {0}. Suele ser algo temporal: inténtalo de nuevo en unos minutos.",
       "signInChallenged": "{0} ha pedido una comprobación de seguridad adicional que ahora mismo no podemos completar automáticamente. Inténtalo de nuevo dentro de un rato.",
+      "signInPaused": "El inicio de sesión en {0} está en pausa mientras pasamos a la conexión oficial de {0}.",
       "signInExpired": "Este inicio de sesión ya no está activo. Empieza de nuevo.",
       "tryAgain": "Reintentar"
     },
@@ -2296,6 +2297,7 @@
       "backToProviders": "Volver a los servicios",
       "tagConnected": "Conectado",
       "tagAuthorize": "Autorizar",
+      "tagPaused": "En pausa",
       "tagApiKey": "ID de atleta / clave de API",
       "tagUsernamePassword": "Usuario / contraseña",
       "tagEmailPassword": "Correo / contraseña",
@@ -2567,6 +2569,7 @@
       "reauth_required_no_link": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar {0} desde los ajustes y pregúntame de nuevo.",
       "reauth_served": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. Vuelve a conectar {0} aquí para que lo vea todo (enlace válido durante 24 horas):\n\n{1}",
       "reauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. Vuelve a conectar {0} desde los ajustes para que lo vea todo.",
+      "reauth_paused": "Tu conexión con {0} ha expirado y el inicio de sesión en {0} está en pausa mientras pasamos a la conexión oficial de {0}, así que por ahora no puedo leer tus datos de {0}.",
       "reconnect_button": "Volver a conectar {0}"
     },
     "quota_exceeded": "Has alcanzado el límite de conversación de tu plan por ahora. Se reinicia automáticamente — vuelve un poco más tarde.",
@@ -3108,6 +3111,7 @@
     "pendingLink": "{{coach}} pidió vincular tus entrenamientos; revísalo en {{group}}",
     "polar": "Polar",
     "privacyNote": "Dravr solo accede a los datos que autorizas. Nunca compartimos tus datos de fitness con terceros. Puedes desconectar cualquier proveedor cuando quieras.",
+    "connectPaused": "El inicio de sesión en {{provider}} está en pausa mientras pasamos a la conexión oficial de {{provider}}.",
     "provider": "Proveedor",
     "reconnect": "Volver a conectar",
     "reconnectNeeded": "Hace falta reconectar",

@@ -2283,6 +2283,7 @@
       "signInRejected": "{0} didn't accept that sign-in. Check your details and try again.",
       "signInUnavailable": "We couldn't sign you in to {0} right now. This is usually temporary — please try again in a few minutes.",
       "signInChallenged": "{0} asked for an extra security check we can't complete automatically right now. Please try again in a little while.",
+      "signInPaused": "{0} sign-in is paused while we move to {0}'s official connection.",
       "signInExpired": "This sign-in is no longer active. Please start the sign-in again.",
       "tryAgain": "Try Again"
     },
@@ -2296,6 +2297,7 @@
       "backToProviders": "Back to providers",
       "tagConnected": "Connected",
       "tagAuthorize": "Authorize",
+      "tagPaused": "Paused",
       "tagApiKey": "Athlete ID / API key",
       "tagUsernamePassword": "Username / password",
       "tagEmailPassword": "Email / password",
@@ -2567,6 +2569,7 @@
       "reauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. Reconnect {0} from your settings, then ask me again.",
       "reauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} here so I can see everything (link valid for 24 hours):\n\n{1}",
       "reauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} from your settings so I can see everything.",
+      "reauth_paused": "Your {0} connection has expired, and {0} sign-in is paused while we move to {0}'s official connection — so I can't read your {0} data for now.",
       "reconnect_button": "Reconnect {0}"
     },
     "quota_exceeded": "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.",
@@ -3108,6 +3111,7 @@
     "pendingLink": "{{coach}} asked to link your workouts — review it in {{group}}",
     "polar": "Polar",
     "privacyNote": "Dravr only accesses the data you authorize. We never share your fitness data with third parties. You can disconnect any provider at any time.",
+    "connectPaused": "{{provider}} sign-in is paused while we move to {{provider}}'s official connection.",
     "provider": "Provider",
     "reconnect": "Reconnect",
     "reconnectNeeded": "Reconnect needed",
