@@ -31,10 +31,13 @@ import { useTeamProposal } from './onboarding/useTeamProposal';
  */
 export default function OnboardingCoachProposal({
   userDisplayName,
+  withoutProvider = false,
   onSave,
   onComplete,
 }: {
   userDisplayName?: string | null;
+  /** The athlete continued without connecting: no copy may claim their data is read. */
+  withoutProvider?: boolean;
   /** Write the step; rejects when the team was not saved. */
   onSave: (choice: TeamStepChoice) => Promise<void>;
   /** The step is done: advance to Home. */
@@ -75,9 +78,11 @@ export default function OnboardingCoachProposal({
       <OnboardingShell>
         <div className="flex flex-col items-center gap-4 py-8">
           <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
-          <p className="text-sm text-on-surface">{t('onboarding.analyzingTrainingData')}</p>
+          <p className="text-sm text-on-surface">
+            {t(withoutProvider ? 'onboarding.preparingTeam' : 'onboarding.analyzingTrainingData')}
+          </p>
           <p className="text-xs text-on-surface-variant max-w-sm text-center">
-            {t('onboarding.readingActivitiesHint')}
+            {t(withoutProvider ? 'onboarding.preparingTeamHint' : 'onboarding.readingActivitiesHint')}
           </p>
         </div>
       </OnboardingShell>
@@ -116,10 +121,10 @@ export default function OnboardingCoachProposal({
     >
       <div className="mx-auto max-w-[560px]">
         <p className="mt-2 text-center font-serif text-lg italic text-on-surface-variant">
-          {t('onboarding.team.subline')}
+          {t(withoutProvider ? 'onboarding.team.sublineNoProvider' : 'onboarding.team.subline')}
         </p>
         <div className="mt-7">
-          <TeamPicker proposal={data} onSubmit={handleSubmit} />
+          <TeamPicker proposal={data} withoutProvider={withoutProvider} onSubmit={handleSubmit} />
         </div>
       </div>
     </OnboardingShell>

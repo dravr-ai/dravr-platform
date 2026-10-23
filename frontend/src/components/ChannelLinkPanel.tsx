@@ -26,6 +26,10 @@ export default function ChannelLinkPanel({
 }) {
   const { t } = useTranslation();
   const isDeepLink = link.method === 'deep_link';
+  // Telegram's deep link ends on its Start button; WhatsApp's opens a chat
+  // with the code already typed, which the athlete sends.
+  const finishAction =
+    link.channel === 'whatsapp' ? t('onboarding.messagingSendButton') : t('onboarding.messagingStartButton');
 
   return (
     <div className="flex flex-col items-center gap-5" data-testid="channel-link-panel">
@@ -41,7 +45,7 @@ export default function ChannelLinkPanel({
           </div>
           <p className="max-w-sm text-center text-sm text-on-surface-variant">
             {t('onboarding.messagingScanPrefix', { app: displayName })}
-            <span className="font-semibold"> {t('onboarding.messagingStartButton')}</span> {t('onboarding.messagingScanSuffix')}
+            <span className="font-semibold"> {finishAction}</span> {t('onboarding.messagingScanSuffix')}
           </p>
         </>
       ) : (

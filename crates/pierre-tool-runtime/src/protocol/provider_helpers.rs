@@ -8,7 +8,7 @@ use crate::activity_fetch::provider_auth_failure;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
 use crate::protocol::types::{
-    UniversalResponse, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+    UniversalResponse, UniversalToolExecutor, META_NO_PROVIDER_CONNECTED,
 };
 use crate::runtime::ToolRuntime;
 use pierre_config::environment::default_provider;
@@ -39,29 +39,34 @@ pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> Opti
         .map(str::to_owned)
 }
 
+/// What the model is told when a tool needs a provider and the athlete has none.
+///
+/// Worded for the model, which writes the reply: there is no data to read, the
+/// question may still be answerable without it, and connecting is the way to
+/// get personal answers.
+pub const NO_PROVIDER_CONNECTED_TEXT: &str = "No fitness provider connected: there is no activity \
+     or health data for this athlete. Answer from general knowledge if the question \
+     does not need their data, and tell them that connecting Strava, Garmin or another \
+     provider in the app lets you use their own training.";
+
 /// The canonical no-provider refusal, minted in exactly one place.
 ///
 /// Three sites refuse for the same reason — both resolvers here and the
-/// dispatch chokepoint in `executor.rs` — and the tool loop detects this shape
-/// (`success: false` + [`META_AUTH_REQUIRED_PROVIDER`]) to hand the turn to the
-/// `auth_recovery` stage, which mints a hosted-login URL and localized copy.
-/// One constructor keeps the three from drifting apart; drift here means one
-/// path silently stops triggering the recovery flow.
+/// dispatch chokepoint in `executor.rs` — and all carry
+/// [`META_NO_PROVIDER_CONNECTED`]. It is deliberately NOT the re-auth signal
+/// ([`crate::protocol::types::META_AUTH_REQUIRED_PROVIDER`]): that one stops
+/// the tool loop and hands the turn to the `auth_recovery` stage, whose copy
+/// says a connection *expired* — false for an account that never connected
+/// one. The tool loop keeps going here, and the model answers from the
+/// refusal text.
 #[must_use]
 pub fn no_provider_refusal() -> UniversalResponse {
     let mut metadata: HashMap<String, JsonValue> = HashMap::new();
-    metadata.insert(
-        META_AUTH_REQUIRED_PROVIDER.to_owned(),
-        JsonValue::String("sciotte".to_owned()),
-    );
+    metadata.insert(META_NO_PROVIDER_CONNECTED.to_owned(), JsonValue::Bool(true));
     UniversalResponse {
         success: false,
         result: None,
-        error: Some(
-            "No fitness provider connected. Connect Strava, Garmin, or another \
-             provider before asking for activity data."
-                .to_owned(),
-        ),
+        error: Some(NO_PROVIDER_CONNECTED_TEXT.to_owned()),
         metadata: Some(metadata),
     }
 }
@@ -73,9 +78,8 @@ pub fn no_provider_refusal() -> UniversalResponse {
 /// 2. Deployment-wide `PIERRE_DEFAULT_PROVIDER` env override.
 /// 3. The user's most-recently-used connection from `provider_connections`
 ///    (ordered by `last_used_at DESC NULLS LAST, connected_at DESC`).
-/// 4. Returns a `UniversalResponse` carrying `META_AUTH_REQUIRED_PROVIDER` so the
-///    tool loop short-circuits and the chat-pipeline `auth_recovery` stage mints
-///    a hosted-login URL and renders the localized reconnect copy.
+/// 4. Returns the [`no_provider_refusal`] when the user has no connection: the
+///    model is told there is no data and answers what it can.
 ///
 /// Replaces the historical `.and_then(|v| v.as_str()).map_or_else(default_provider, String::from)`
 /// pattern duplicated across every fitness-API handler, which silently bound
@@ -84,8 +88,7 @@ pub fn no_provider_refusal() -> UniversalResponse {
 /// # Errors
 ///
 /// Returns a boxed `UniversalResponse` when the user has no provider connections at
-/// all. The returned response carries the canonical reconnect-required metadata
-/// the tool loop scans for.
+/// all: the [`no_provider_refusal`].
 pub async fn resolve_provider_for_request(
     parameters: &JsonValue,
     executor: &UniversalToolExecutor,
@@ -98,7 +101,7 @@ pub async fn resolve_provider_for_request(
         Ok(None) => {
             warn!(
                 user_id = %user_uuid,
-                "no fitness provider connected for user — surfacing reconnect signal"
+                "no fitness provider connected for user — refusing with the no-provider signal"
             );
             // The race-window backstop: the dispatch chokepoint already refused
             // providerless users for REQUIRES_PROVIDER tools, so reaching this
@@ -147,8 +150,8 @@ pub async fn resolve_provider_for_tool(
     match elect_provider(args, &context.resources, context.user_id, tenant).await {
         Ok(Some(provider)) => Ok(provider),
         Ok(None) | Err(_) => Err(ToolResult::error(json!({
-            "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
-            "auth_required_provider": "sciotte"
+            "error": NO_PROVIDER_CONNECTED_TEXT,
+            META_NO_PROVIDER_CONNECTED: true
         }))),
     }
 }

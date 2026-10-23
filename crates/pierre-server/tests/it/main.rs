@@ -610,6 +610,7 @@ mod provider_roster_tool_test;
 mod provider_spi_test;
 mod provider_token_refresh_flow_test;
 mod provider_tool_contract_test;
+mod providerless_general_ask_test;
 mod providerless_prompt_context_test;
 mod providers_utils_test;
 mod quota_enforcement_test;

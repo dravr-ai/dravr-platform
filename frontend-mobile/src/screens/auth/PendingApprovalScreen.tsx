@@ -1,8 +1,9 @@
 // ABOUTME: Waiting screen for accounts that cannot sign in yet — unconfirmed address, or awaiting review
 // ABOUTME: Mirrors the web PendingApproval: two different situations, two different next actions; plain page, no card shell
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  AppState,
   View,
   Text,
 
@@ -69,11 +70,43 @@ const stepBadgeStyle: ViewStyle = {
  * address is confirmed when it is not yet. A deleted account's address is
  * refused a code, so the field is not offered beside the tombstone.
  */
+/** How often the waiting screen re-reads the session for an approval. */
+const PENDING_STATUS_POLL_MS = 15_000;
+
 export function PendingApprovalScreen() {
   const colors = useThemeColors();
   const { t, language } = useTranslation();
   const router = useRouter();
   const { user, updateUser } = useAuth();
+  // An approval or a confirmed address lands on the server, not here: re-read
+  // the session while the screen is up and whenever the app returns to the
+  // foreground, so the athlete moves on without signing in again. Failures
+  // are ignored; the next tick tries again.
+  const userStatus = user?.user_status;
+  const emailVerified = user?.email_verified;
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      authApi
+        .getSession()
+        .then(({ user: fresh }) => {
+          if (cancelled) return;
+          if (fresh.user_status !== userStatus || fresh.email_verified !== emailVerified) {
+            void updateUser({ user_status: fresh.user_status, email_verified: fresh.email_verified });
+          }
+        })
+        .catch(() => {});
+    };
+    const timer = setInterval(check, PENDING_STATUS_POLL_MS);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') check();
+    });
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, [userStatus, emailVerified, updateUser]);
   const { message: registerMessage } = useLocalSearchParams<{ message?: string }>();
   const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const [clearing, setClearing] = useState(false);

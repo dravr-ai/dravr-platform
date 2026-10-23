@@ -77,6 +77,13 @@ fn auth_tag(metadata: Option<&HashMap<String, Value>>) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn no_provider_tag(metadata: Option<&HashMap<String, Value>>) -> bool {
+    metadata
+        .and_then(|m| m.get("no_provider_connected"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// Every tool that computes training load elects the same provider.
 const TRAINING_LOAD_TOOLS: [&str; 3] = [
     "calculate_recovery_score",
@@ -85,8 +92,8 @@ const TRAINING_LOAD_TOOLS: [&str; 3] = [
 ];
 
 #[tokio::test]
-async fn an_athlete_with_no_connection_gets_the_reconnect_refusal_not_a_strava_fetch() -> Result<()>
-{
+async fn an_athlete_with_no_connection_gets_the_no_provider_refusal_not_a_strava_fetch(
+) -> Result<()> {
     let executor = executor().await?;
     let (user_id, tenant) = user_with_tenant(&executor).await?;
 
@@ -100,10 +107,14 @@ async fn an_athlete_with_no_connection_gets_the_reconnect_refusal_not_a_strava_f
             error.starts_with("No fitness provider connected"),
             "{tool}: an athlete with no connection is asked to connect one, not sent to a Strava token they never had: {error}"
         );
+        assert!(
+            no_provider_tag(response.metadata.as_ref()),
+            "{tool}: the canonical no-provider refusal carries the no-provider tag: {error}"
+        );
         assert_eq!(
-            auth_tag(response.metadata.as_ref()).as_deref(),
-            Some("sciotte"),
-            "{tool}: the canonical no-provider refusal carries the reconnect tag: {error}"
+            auth_tag(response.metadata.as_ref()),
+            None,
+            "{tool}: an athlete who never connected has nothing to reconnect: {error}"
         );
     }
     Ok(())

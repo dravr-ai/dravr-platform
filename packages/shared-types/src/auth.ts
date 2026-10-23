@@ -226,6 +226,11 @@ export interface RegisterResponse {
   user_status: 'pending' | 'active' | 'suspended';
   /** Display name, if the user supplied one at registration */
   display_name?: string;
+  /**
+   * What the account waits on. `message` says it in English; a client words
+   * it in the athlete's language from this.
+   */
+  activation: 'active' | 'confirm_email' | 'review';
   message: string;
 }
 

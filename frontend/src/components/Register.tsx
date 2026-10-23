@@ -15,7 +15,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
-import { isInvalidSignupCode } from '@pierre/ui-logic';
+import { describeRegistration, isInvalidSignupCode } from '@pierre/ui-logic';
 
 interface RegisterProps {
   onNavigateToLogin: () => void;
@@ -79,7 +79,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
         turnstile_token: turnstileToken ?? undefined,
         ...(trimmedCode ? { signup_code: trimmedCode } : {}),
       });
-      onRegistrationSuccess(response.message, email);
+      onRegistrationSuccess(describeRegistration(response, t), email);
     } catch (err: unknown) {
       // The server's sentence covers each guard: paused or past the day's
       // ceiling (429 QuotaExceeded), too many sign-ups from this network

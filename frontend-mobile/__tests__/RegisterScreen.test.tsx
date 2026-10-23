@@ -123,11 +123,12 @@ describe('RegisterScreen', () => {
   });
 
   describe('form submission', () => {
-    it('registers with the trimmed fields and routes to pending-approval with the server sentence', async () => {
+    it("registers with the trimmed fields and routes to pending-approval with what the account waits on, in the athlete's language", async () => {
       mockRegister.mockResolvedValueOnce({
         user_id: 'u1',
         email: 'jean@example.com',
         user_status: 'pending',
+        activation: 'confirm_email',
         message: 'Confirm your email to activate your account.',
       });
       const { getByTestId } = await renderReady();
@@ -144,7 +145,7 @@ describe('RegisterScreen', () => {
       await waitFor(() =>
         expect(mockRouter.replace).toHaveBeenCalledWith({
           pathname: '/(auth)/pending-approval',
-          params: { message: 'Confirm your email to activate your account.' },
+          params: { message: 'Account created. Open the confirmation link we emailed you to activate it.' },
         }),
       );
     });

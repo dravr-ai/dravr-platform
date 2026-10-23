@@ -59,6 +59,30 @@ describe('OnboardingMessagingConfigure', () => {
     expect(screen.getByText('Open Telegram')).toBeInTheDocument();
   });
 
+  it('tells a Telegram athlete to press Start', async () => {
+    renderConfigure();
+    const panel = await screen.findByTestId('channel-link-panel');
+    expect(panel).toHaveTextContent('Then press Start to finish.');
+  });
+
+  // Found by the 2026-10-23 onboarding e2e on dev: the WhatsApp step said to
+  // press Start, which WhatsApp does not have; its link opens a chat with the
+  // code already typed.
+  it('tells a WhatsApp athlete to send the pre-filled message', async () => {
+    initLinkMock.mockResolvedValue({
+      channel: 'whatsapp',
+      method: 'deep_link',
+      code: 'abc',
+      linking_url: 'https://wa.me/15551562480?text=LINK%20abc',
+      expires_at: '2026-07-08T00:00:00Z',
+      qr_svg: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    });
+    renderConfigure();
+    const panel = await screen.findByTestId('channel-link-panel');
+    expect(panel).toHaveTextContent('Then press Send to finish.');
+    expect(panel).not.toHaveTextContent('Start');
+  });
+
   it('auto-advances via onLinked once the channel link appears', async () => {
     listLinksMock.mockResolvedValue([
       { channel: 'telegram', channel_user_id: 'u1', display_name: null, linked_at: 'now' },

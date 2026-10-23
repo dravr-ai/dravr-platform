@@ -7,6 +7,8 @@ import { useTranslation } from '@pierre/i18n';
 import { formatList } from '@pierre/chat-utils';
 import { CONNECTIONS_ROUTE } from '../constants/surfaceLayout';
 import { useProviderConnection } from '../hooks/useHome';
+import { useOnboardingStatus } from '../hooks/useOnboardingStatus';
+import { athleteStepsWaived } from '../onboarding/steps';
 import { Button } from './ui';
 
 /**
@@ -37,6 +39,9 @@ interface ConnectProviderBannerProps {
  */
 export function ConnectProviderBanner({ kind, onNavigate }: ConnectProviderBannerProps) {
   const providers = useProviderConnection();
+  // A coach who does not train has no activity of their own to connect: the
+  // nudge is for athletes. Same onboarding status the gate reads.
+  const { data: onboardingStatus } = useOnboardingStatus(kind === 'connect');
   if (!providers.loaded) {
     return null;
   }
@@ -45,7 +50,10 @@ export function ConnectProviderBanner({ kind, onNavigate }: ConnectProviderBanne
       <ReconnectStrip names={providers.needsReconnect} onNavigate={onNavigate} />
     ) : null;
   }
-  return providers.connected ? null : <ConnectNudge onNavigate={onNavigate} />;
+  if (providers.connected || athleteStepsWaived(onboardingStatus?.steps)) {
+    return null;
+  }
+  return <ConnectNudge onNavigate={onNavigate} />;
 }
 
 /**

@@ -97,6 +97,7 @@ describe('Register sign-up guards', () => {
       user_id: 'u1',
       email: 'new@example.com',
       user_status: 'pending',
+      activation: 'confirm_email',
       message: 'Confirm your email to activate your account.',
     })
 
@@ -120,10 +121,11 @@ describe('Register sign-up guards', () => {
         turnstile_token: 'tok-1',
       }),
     )
-    // The server's sentence is what the next screen shows, not a hardcoded one.
+    // What the account waits on is what the next screen shows, in the
+    // athlete's language rather than the server's English sentence.
     await waitFor(() =>
       expect(onRegistrationSuccess).toHaveBeenCalledWith(
-        'Confirm your email to activate your account.',
+        'Account created. Open the confirmation link we emailed you to activate it.',
         'new@example.com',
       ),
     )

@@ -37,6 +37,6 @@ pub use auth::AuthService;
 pub use coach_calendar::delegation_services;
 pub use executor::UniversalExecutor;
 pub use types::{
-    auth_required_provider, UniversalRequest, UniversalResponse, UniversalTool,
-    UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
+    auth_required_provider, is_no_provider_refusal, UniversalRequest, UniversalResponse,
+    UniversalTool, UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER, META_NO_PROVIDER_CONNECTED,
 };

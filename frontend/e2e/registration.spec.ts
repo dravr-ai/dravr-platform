@@ -249,8 +249,10 @@ test.describe('Registration Page - API Interaction', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          success: true,
-          message: 'Registration successful. Awaiting admin approval.',
+          user_id: 'user-new',
+          user_status: 'pending',
+          activation: 'review',
+          message: 'User registered successfully. Your account is pending admin approval.',
         }),
       });
     });
@@ -274,8 +276,10 @@ test.describe('Registration Page - API Interaction', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          success: true,
-          message: 'Registration successful. Awaiting admin approval.',
+          user_id: 'user-new',
+          user_status: 'pending',
+          activation: 'review',
+          message: 'User registered successfully. Your account is pending admin approval.',
         }),
       });
     });
@@ -287,8 +291,11 @@ test.describe('Registration Page - API Interaction', () => {
 
     await page.getByRole('button', { name: 'Create Account' }).click();
 
-    // Should show success message (on login page after redirect)
-    await expect(page.getByText('Awaiting admin approval')).toBeVisible({ timeout: 5000 });
+    // The login page greets the account with what it waits on, worded by the
+    // app from `activation` rather than the server's English sentence.
+    await expect(
+      page.getByText("Account created. It will be reviewed, and you'll get an email once it's approved."),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test('displays error message on registration failure', async ({ page }) => {

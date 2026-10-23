@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { authApi, userApi } from '../services/api';
 import { describeApiError, describeEmailTombstone, isInvalidSignupCode } from '@pierre/ui-logic';
@@ -24,6 +24,9 @@ function ClockIcon({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/** How often the waiting page re-reads the session for an approval. */
+const PENDING_STATUS_POLL_MS = 15_000;
 
 // Pierre holistic node logo SVG
 import { DravrLogo } from './DravrLogo';
@@ -62,6 +65,37 @@ export default function PendingApproval() {
   // Set once a code was accepted but the account still waits on the
   // confirmation link: the field gives way to what happens next.
   const [redeemed, setRedeemed] = useState<{ groupJoined: boolean } | null>(null);
+
+  // An approval or a confirmed address lands on the server, not here: re-read
+  // the session while the page is up, and whenever the tab comes back, so the
+  // athlete moves on without a reload. Failures are ignored; the next tick
+  // tries again.
+  const userStatus = user?.user_status;
+  const emailVerified = user?.email_verified;
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      authApi
+        .getSession()
+        .then(({ user: fresh }) => {
+          if (cancelled) return;
+          if (fresh.user_status !== userStatus || fresh.email_verified !== emailVerified) {
+            updateUser({ user_status: fresh.user_status, email_verified: fresh.email_verified });
+          }
+        })
+        .catch(() => {});
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    const timer = window.setInterval(check, PENDING_STATUS_POLL_MS);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [userStatus, emailVerified, updateUser]);
 
   const needsEmailConfirmation = user?.email_verified === false;
   const tombstone = user?.email_tombstone;

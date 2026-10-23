@@ -20,7 +20,7 @@ use secrecy::{ExposeSecret, SecretString};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse};
+use pierre_auth::dto::auth::{RegisterRequest, RegisterResponse, RegistrationActivation};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::GroupInvite;
 use pierre_core::models::{SignupCodeRedemption, SignupCodeSource, User, UserStatus};
@@ -82,12 +82,15 @@ impl AuthService {
             }
         };
         response.user_status = redeemed.status;
-        response.message = if redeemed.status == UserStatus::Active {
-            "User registered successfully. Your account is ready to use.".to_owned()
+        response.activation = if redeemed.status == UserStatus::Active {
+            RegistrationActivation::Active
         } else {
-            "User registered successfully. Confirm your email address to activate your account."
-                .to_owned()
+            RegistrationActivation::ConfirmEmail
         };
+        response
+            .activation
+            .message()
+            .clone_into(&mut response.message);
         Ok((response, Some(redeemed)))
     }
 
@@ -114,7 +117,9 @@ impl AuthService {
         {
             return;
         }
-        "User registered successfully. Your account is pending admin approval."
+        response.activation = RegistrationActivation::Review;
+        RegistrationActivation::Review
+            .message()
             .clone_into(&mut response.message);
         match repos.tenants.list_for_user(user_id).await {
             Ok(tenants) => {

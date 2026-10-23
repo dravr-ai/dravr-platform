@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   classifyApiError,
   describeApiError,
+  describeRegistration,
   isInvalidSignupCode,
   useAsyncAction,
 } from '@pierre/ui-logic';
@@ -123,9 +124,13 @@ export function RegisterScreen() {
         signupCodeOrUndefined(signupCode),
       ),
     onSuccess: (response) => {
-      // The server's sentence (awaiting review, or confirm the address to
-      // activate) goes to the waiting screen rather than a fixed one.
-      router.replace({ pathname: '/(auth)/pending-approval', params: { message: response.message } });
+      // What the account waits on (awaiting review, or confirm the address to
+      // activate) goes to the waiting screen rather than a fixed sentence,
+      // worded in the athlete's language.
+      router.replace({
+        pathname: '/(auth)/pending-approval',
+        params: { message: describeRegistration(response, t) },
+      });
     },
     onError: (error: unknown) => {
       // A code the server will not take creates nothing: say so next to the

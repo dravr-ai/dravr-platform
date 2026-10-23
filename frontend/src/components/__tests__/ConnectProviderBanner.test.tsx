@@ -14,10 +14,12 @@ import { providerStatus } from '../home/__tests__/homeFixtures';
 
 const api = vi.hoisted(() => ({
   getProvidersStatus: vi.fn<() => Promise<ProvidersStatusResponse>>(),
+  getOnboardingStatus: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => ({
   providersApi: { getProvidersStatus: api.getProvidersStatus },
+  userApi: { getOnboardingStatus: api.getOnboardingStatus },
 }));
 
 function providers(...list: ExtendedProviderStatus[]) {
@@ -39,6 +41,7 @@ function renderBanner(kind: ProviderBannerKind) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.getOnboardingStatus.mockResolvedValue({ steps: [] });
 });
 
 describe('ConnectProviderBanner — reconnect', () => {
@@ -132,6 +135,19 @@ describe('ConnectProviderBanner — connect', () => {
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith('settings/connections');
 
     await userEvent.click(within(nudge).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByTestId('connect-provider-banner')).toBeNull();
+  });
+
+  // Found by the 2026-10-23 onboarding e2e on dev: a coach who does not train
+  // was nudged to connect a fitness provider on their group thread.
+  it('stays quiet for a coach who does not train', async () => {
+    providers(providerStatus({ provider: 'strava', display_name: 'Strava', connected: false }));
+    api.getOnboardingStatus.mockResolvedValue({
+      steps: [{ step_id: 'about_you', status: 'not_applicable' }],
+    });
+    const { settled } = renderBanner('connect');
+
+    await settled();
     expect(screen.queryByTestId('connect-provider-banner')).toBeNull();
   });
 

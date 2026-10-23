@@ -210,6 +210,11 @@ async fn test_register_user() {
         response.message,
         "User registered successfully. Your account is pending admin approval."
     );
+    // The machine-readable twin a client words in the athlete's language.
+    assert_eq!(
+        serde_json::to_value(response.activation).unwrap(),
+        serde_json::json!("review")
+    );
 }
 
 #[tokio::test]

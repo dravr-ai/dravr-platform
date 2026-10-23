@@ -49,6 +49,27 @@ pub struct UniversalResponse {
 /// [`provider_helpers`](super::provider_helpers).
 pub const META_AUTH_REQUIRED_PROVIDER: &str = "auth_required_provider";
 
+/// Metadata key set (to `true`) on the refusal a tool returns when the athlete
+/// has no fitness provider connected at all.
+///
+/// Distinct from [`META_AUTH_REQUIRED_PROVIDER`] on purpose: an account that
+/// never connected anything has no connection to RE-connect, and the re-auth
+/// signal replaces the turn with "your connection expired". This key does not
+/// stop the tool loop: the model reads the refusal text and answers what it
+/// can, with a nudge to connect.
+pub const META_NO_PROVIDER_CONNECTED: &str = "no_provider_connected";
+
+/// Whether a failed response is the no-provider-connected refusal.
+#[must_use]
+pub fn is_no_provider_refusal(response: &UniversalResponse) -> bool {
+    response
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get(META_NO_PROVIDER_CONNECTED))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// The provider slug a failed response says the athlete must reconnect, if any.
 ///
 /// Every caller that re-raises the typed auth error, drops a cached page, or

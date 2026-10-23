@@ -31,8 +31,8 @@ use common::{create_test_server_resources, create_test_tenant, create_test_tenan
 use pierre_core::models::UserOAuthToken;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::protocol::{
-    auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
-    META_AUTH_REQUIRED_PROVIDER,
+    auth_required_provider, is_no_provider_refusal, UniversalRequest, UniversalResponse,
+    UniversalToolExecutor, META_AUTH_REQUIRED_PROVIDER,
 };
 use serde_json::json;
 use serial_test::serial;
@@ -84,11 +84,16 @@ async fn a_providerless_dispatch_is_refused_with_recovery_metadata() {
         !resp.success,
         "zero provider_connections rows must refuse a REQUIRES_PROVIDER dispatch"
     );
+    assert!(
+        is_no_provider_refusal(&resp),
+        "the refusal must carry the no-provider metadata, got {:?}",
+        resp.metadata
+    );
     assert_eq!(
-        auth_required_provider(&resp).as_deref(),
-        Some("sciotte"),
-        "the refusal must carry the exact metadata the auth_recovery stage decodes \
-         into a hosted-login flow; anything else silently breaks that handoff"
+        auth_required_provider(&resp),
+        None,
+        "a providerless refusal must never read as a re-auth: the auth_recovery \
+         stage would tell an athlete who never connected that a connection expired"
     );
     assert!(
         resp.error
@@ -287,10 +292,14 @@ async fn an_unregistered_provider_name_does_not_bypass_the_refusal() {
             "provider={bogus} must not reach a success shape for a providerless \
              athlete; got {resp:?}"
         );
+        assert!(
+            is_no_provider_refusal(&resp),
+            "provider={bogus} must still carry the no-provider metadata"
+        );
         assert_eq!(
-            auth_required_provider(&resp).as_deref(),
-            Some("sciotte"),
-            "provider={bogus} must still carry the recovery metadata"
+            auth_required_provider(&resp),
+            None,
+            "provider={bogus} must not read as a re-auth"
         );
     }
 }

@@ -20,6 +20,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { Sheet } from '../ui/Sheet';
 import { TeamPicker, type TeamChoice } from '../onboarding/TeamPicker';
 import { useTeamProposal } from '../onboarding/useTeamProposal';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import type { TodayActions } from '../ChatTab';
 
 /** The agent list changes when the athlete adds or removes one, which invalidates it; the cache stays warm. */
@@ -198,6 +199,9 @@ export function PickTeamSheet({ side, onClose }: PickTeamSheetProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const proposal = useTeamProposal();
+  // With no provider connected, no copy may claim the athlete's training is
+  // being read.
+  const withoutProvider = useOnboardingStatus().data?.needs_provider_connection === true;
 
   // Picking a team from Home always completes the step, Skip included (it
   // keeps the lead alone): a stored `complete` re-sent from here must never
@@ -223,14 +227,16 @@ export function PickTeamSheet({ side, onClose }: PickTeamSheetProps) {
         {proposal.isLoading ? (
           <div className="flex flex-col items-center gap-3 py-8" role="status">
             <div className="pierre-spinner" />
-            <p className="text-sm text-on-surface">{t('onboarding.analyzingTrainingData')}</p>
+            <p className="text-sm text-on-surface">
+              {t(withoutProvider ? 'onboarding.preparingTeam' : 'onboarding.analyzingTrainingData')}
+            </p>
           </div>
         ) : proposal.data === undefined || lead === undefined ? (
           <EmptyState action={{ label: t('onboarding.retry'), onClick: () => void proposal.refetch() }}>
             {t('onboarding.agentSuggestionsFailed')}
           </EmptyState>
         ) : (
-          <TeamPicker proposal={proposal.data} onSubmit={handleSubmit} />
+          <TeamPicker proposal={proposal.data} withoutProvider={withoutProvider} onSubmit={handleSubmit} />
         )}
       </div>
     </Sheet>

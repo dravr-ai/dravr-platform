@@ -29,6 +29,9 @@ pub mod activity_fold;
 pub mod agent_mention;
 /// Re-auth recovery: short-circuit a turn with a hosted-login URL.
 pub mod auth_recovery;
+/// The repair re-asks capability recovery sends, and when their reply replaces
+/// the draft.
+mod capability_reask;
 /// Capability-failure recovery: verify a "my data access is broken" claim
 /// with a real fetch, then re-ask with the data or route to re-auth.
 pub mod capability_recovery;

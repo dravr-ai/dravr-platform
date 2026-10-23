@@ -41,6 +41,7 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::TransportPolicy;
 use pierre_tool_runtime::implementations::endurance_workouts::ListWorkoutTemplatesTool;
+use pierre_tool_runtime::protocol::{auth_required_provider, is_no_provider_refusal};
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -106,20 +107,20 @@ async fn create_connected_test_user(executor: &UniversalToolExecutor) -> Result<
 /// refusal used to surface from deep in the tool body as a `ProtocolError`,
 /// which kills the turn. The dispatch chokepoint refuses first and returns the
 /// same `UniversalResponse` the provider resolvers mint, carrying
-/// `auth_required_provider` — the signal `auth_recovery` turns into a
-/// hosted-login prompt, so the agent can offer to fix it instead of the turn
-/// simply dying.
+/// `no_provider_connected` — not the re-auth signal, since there is nothing to
+/// reconnect — so the model answers what it can instead of the turn simply
+/// dying.
 fn assert_provider_refusal(resp: &UniversalResponse, tool: &str) {
     assert!(!resp.success, "{tool}: providerless call must not succeed");
-    let provider = resp
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("auth_required_provider"))
-        .and_then(serde_json::Value::as_str);
+    assert!(
+        is_no_provider_refusal(resp),
+        "{tool}: the refusal must carry the no-provider metadata, got {:?}",
+        resp.metadata
+    );
     assert_eq!(
-        provider,
-        Some("sciotte"),
-        "{tool}: the refusal must carry the recovery metadata, got {:?}",
+        auth_required_provider(resp),
+        None,
+        "{tool}: a providerless refusal is not a re-auth signal, got {:?}",
         resp.metadata
     );
 }

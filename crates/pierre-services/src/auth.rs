@@ -14,7 +14,8 @@ use tracing::{debug, error, info, warn};
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::dto::auth::{
-    FirebaseLoginRequest, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse, UserInfo,
+    FirebaseLoginRequest, LoginRequest, LoginResponse, RegisterRequest, RegisterResponse,
+    RegistrationActivation, UserInfo,
 };
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_auth::password::verify_password;
@@ -240,20 +241,20 @@ impl AuthService {
 
         info!(user_id = %user_id, "User registered successfully");
 
-        let message = if user.user_status == UserStatus::Active {
-            "User registered successfully. Your account is ready to use.".to_owned()
+        let activation = if user.user_status == UserStatus::Active {
+            RegistrationActivation::Active
         } else if self_activates {
-            "User registered successfully. Confirm your email address to activate your account."
-                .to_owned()
+            RegistrationActivation::ConfirmEmail
         } else {
-            "User registered successfully. Your account is pending admin approval.".to_owned()
+            RegistrationActivation::Review
         };
 
         Ok(RegisterResponse {
             user_id: user_id.to_string(),
             user_status: user.user_status,
             display_name: user.display_name,
-            message,
+            activation,
+            message: activation.message().to_owned(),
         })
     }
 
@@ -326,6 +327,7 @@ impl AuthService {
             user_id: user_id.to_string(),
             user_status: user.user_status,
             display_name: user.display_name,
+            activation: RegistrationActivation::Active,
             message: "Your account is ready. Sign in with your email and the password you chose."
                 .to_owned(),
         })

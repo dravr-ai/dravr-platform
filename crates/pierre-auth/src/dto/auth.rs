@@ -24,6 +24,37 @@ pub struct RegisterRequest {
     pub display_name: Option<String>,
 }
 
+/// What a new account waits on before it can be used.
+///
+/// The machine-readable twin of [`RegisterResponse::message`]: the sentence is
+/// English, so a client says the same thing in the athlete's own language from
+/// this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RegistrationActivation {
+    /// Nothing: the account is active.
+    Active,
+    /// The confirmation link mailed to the address activates it.
+    ConfirmEmail,
+    /// An operator reviews it.
+    Review,
+}
+
+impl RegistrationActivation {
+    /// The English sentence a registration answers with for this outcome.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::Active => "User registered successfully. Your account is ready to use.",
+            Self::ConfirmEmail => {
+                "User registered successfully. Confirm your email address to activate your account."
+            }
+            Self::Review => "User registered successfully. Your account is pending admin approval.",
+        }
+    }
+}
+
 /// User registration response
 #[derive(Debug, Serialize)]
 pub struct RegisterResponse {
@@ -34,6 +65,8 @@ pub struct RegisterResponse {
     /// Display name, if the user supplied one at registration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// What the account waits on, for a client to word in its own language
+    pub activation: RegistrationActivation,
     /// Success message for the registration
     pub message: String,
 }

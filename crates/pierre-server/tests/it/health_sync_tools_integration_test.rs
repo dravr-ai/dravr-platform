@@ -19,6 +19,7 @@
 use anyhow::Result;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_tool_runtime::protocol::{auth_required_provider, is_no_provider_refusal};
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -490,15 +491,15 @@ async fn test_refresh_provider_data_all_no_connections() -> Result<()> {
         "there is nothing to refresh; a success shape here is the ambiguity the \
          chokepoint exists to remove"
     );
-    let provider = resp
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("auth_required_provider"))
-        .and_then(serde_json::Value::as_str);
+    assert!(
+        is_no_provider_refusal(&resp),
+        "the refusal must carry the no-provider metadata, got {:?}",
+        resp.metadata
+    );
     assert_eq!(
-        provider,
-        Some("sciotte"),
-        "the refusal must carry the recovery metadata, got {:?}",
+        auth_required_provider(&resp),
+        None,
+        "nothing was ever connected, so nothing is offered for reconnection, got {:?}",
         resp.metadata
     );
     Ok(())

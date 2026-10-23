@@ -16,6 +16,7 @@ import { coachesApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { useTranslation } from '@pierre/i18n';
 import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
 import { useRouter } from 'expo-router';
@@ -47,6 +48,10 @@ export function OnboardingCoachProposalScreen() {
     await markSeenLocal();
   };
   const progress = useOnboardingProgress('coach_proposal');
+  // The athlete continued without connecting: no copy may claim their training
+  // is being read.
+  const { data: onboardingStatus } = useOnboardingStatus(true);
+  const withoutProvider = onboardingStatus?.needs_provider_connection === true;
   const [selecting, setSelecting] = useState<string | null>(null);
   const router = useRouter();
   const openPersonalTopic = useOpenPersonalTopic();
@@ -96,9 +101,11 @@ export function OnboardingCoachProposalScreen() {
       <Shell progress={progress}>
         <View className="items-center gap-4 py-10">
           <ActivityIndicator size="large" />
-          <Text className="text-base text-on-surface font-medium">{t('onboarding.analyzingTrainingData')}</Text>
+          <Text className="text-base text-on-surface font-medium">
+            {t(withoutProvider ? 'onboarding.preparingTeam' : 'onboarding.analyzingTrainingData')}
+          </Text>
           <Text className="text-sm text-on-surface-variant text-center px-6">
-            {t('onboarding.readingActivitiesHint')}
+            {t(withoutProvider ? 'onboarding.preparingTeamHint' : 'onboarding.readingActivitiesHint')}
           </Text>
         </View>
       </Shell>
@@ -168,7 +175,7 @@ export function OnboardingCoachProposalScreen() {
           </>
         ) : (
           <Text className="text-sm text-on-surface-variant">
-            {t('onboarding.agentProposalNoActivities')}
+            {t(withoutProvider ? 'onboarding.agentProposalNoProvider' : 'onboarding.agentProposalNoActivities')}
           </Text>
         )}
       </View>

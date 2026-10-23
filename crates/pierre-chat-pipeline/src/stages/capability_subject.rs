@@ -468,7 +468,9 @@ async fn fetch_own_side(
             );
             true
         }
-        VerificationOutcome::NotTheSubject => {
+        // No provider connected: like a seat that is not the subject, the
+        // requester's own side has nothing to read.
+        VerificationOutcome::NotTheSubject | VerificationOutcome::NoDataSource => {
             evidence.own = OwnEvidence::NotRead;
             true
         }

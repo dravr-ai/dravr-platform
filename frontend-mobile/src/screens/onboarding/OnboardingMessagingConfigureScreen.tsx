@@ -130,7 +130,11 @@ export function OnboardingMessagingConfigureScreen() {
               />
             </View>
             <Text className="max-w-xs text-center text-sm text-on-surface-variant">
-              {t('app.scanQrThenStart', { channel: displayName })}
+              {/* Telegram ends on its Start button; WhatsApp opens a chat with
+                  the code already typed, which the athlete sends. */}
+              {t(link.channel === 'whatsapp' ? 'app.scanQrThenSend' : 'app.scanQrThenStart', {
+                channel: displayName,
+              })}
             </Text>
           </>
         ) : (

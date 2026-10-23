@@ -65,7 +65,8 @@ use crate::implementations::analytics::output::{
 use crate::implementations::analytics::recommendations_output::RecommendationsResult;
 use crate::implementations::handler_bridge;
 use crate::protocol::auth::AuthService;
-use crate::protocol::provider_helpers::resolve_provider_for_tool;
+use crate::protocol::provider_helpers::{resolve_provider_for_tool, NO_PROVIDER_CONNECTED_TEXT};
+use crate::protocol::types::META_NO_PROVIDER_CONNECTED;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -430,8 +431,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                 Ok(Some(conn)) => conn.provider,
                 Ok(None) | Err(_) => {
                     return Ok(ToolResult::error(json!({
-                        "error": "No fitness provider connected. Connect Strava, Garmin, or another provider before asking for activity data.",
-                        "auth_required_provider": "sciotte"
+                        "error": NO_PROVIDER_CONNECTED_TEXT,
+                        META_NO_PROVIDER_CONNECTED: true
                     })));
                 }
             }

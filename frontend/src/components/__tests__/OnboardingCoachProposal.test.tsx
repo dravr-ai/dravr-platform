@@ -79,12 +79,21 @@ const PROPOSAL = {
   },
 };
 
-function renderStep({ onSave = vi.fn().mockResolvedValue(undefined), onComplete = vi.fn() } = {}) {
+function renderStep({
+  onSave = vi.fn().mockResolvedValue(undefined),
+  onComplete = vi.fn(),
+  withoutProvider = false,
+} = {}) {
   // The step sets `retry: 1` itself; a zero delay keeps the error case quick.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
   render(
     <QueryClientProvider client={client}>
-      <OnboardingCoachProposal userDisplayName="Camille" onSave={onSave} onComplete={onComplete} />
+      <OnboardingCoachProposal
+        userDisplayName="Camille"
+        withoutProvider={withoutProvider}
+        onSave={onSave}
+        onComplete={onComplete}
+      />
     </QueryClientProvider>,
   );
   return { onSave, onComplete };
@@ -286,5 +295,28 @@ describe('OnboardingCoachProposal — Your team', () => {
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete.mock.calls[0]).toEqual([]);
     expect(onSave).toHaveBeenCalledWith({ status: 'complete' });
+  });
+
+  // Found by the 2026-10-23 onboarding e2e on dev: an athlete who continued
+  // without connecting was told their training data was being analyzed and
+  // that suggestions would sharpen "as your provider syncs".
+  it('never claims to read the training of an athlete who connected nothing', async () => {
+    getProposal.mockResolvedValue({
+      ...PROPOSAL,
+      goal: undefined,
+      profile: { has_profile: false, window_days: 90, total_activities: 0, sport_mix: [] },
+    });
+    renderStep({ withoutProvider: true });
+    expect(screen.getByText('Putting your starting team together…')).toBeInTheDocument();
+    expect(screen.queryByText('Analyzing your training data…')).not.toBeInTheDocument();
+
+    await startButton(3);
+    expect(
+      screen.getByText('A few agents to start with. Connect a provider and your picks will follow your training.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'What we read' })).toHaveTextContent(
+      'No provider connected yet — here are some agents to start with.',
+    );
+    expect(screen.queryByText(/as your provider syncs/)).not.toBeInTheDocument();
   });
 });

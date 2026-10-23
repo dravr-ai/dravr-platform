@@ -786,6 +786,131 @@ mod capability_recovery {
             "the dangling fragment must not survive as the durable reply, got: {reply:?}"
         );
     }
+    /// A substring of the re-ask instruction for an empty turn whose data
+    /// source did not answer.
+    const UNAVAILABLE_MARKER: &str = "could not be read just now";
+
+    /// What the re-asked model says once told the data could not be loaded.
+    const UNAVAILABLE_REPLY: &str =
+        "Je n'arrive pas à charger tes données Garmin pour l'instant, réessaie dans un moment. \
+         En attendant : vise 3 à 4 séances par semaine dont une longue.";
+
+    /// Calls a tool, then comes back with a dangling fragment; answers once the
+    /// recovery re-ask says the data source is unavailable.
+    struct ToolThenFragmentUnavailableProvider;
+
+    #[async_trait]
+    impl LlmProvider for ToolThenFragmentUnavailableProvider {
+        fn name(&self) -> &'static str {
+            "tool_then_fragment_unavailable_mock"
+        }
+        fn display_name(&self) -> &'static str {
+            "Tool-then-fragment Mock LLM (unavailable source e2e)"
+        }
+        fn capabilities(&self) -> LlmCapabilities {
+            LlmCapabilities::FUNCTION_CALLING | LlmCapabilities::SYSTEM_MESSAGES
+        }
+        fn default_model(&self) -> &'static str {
+            "mock-model"
+        }
+        fn available_models(&self) -> &[String] {
+            &[]
+        }
+
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            let is_reask = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains(UNAVAILABLE_MARKER));
+            let has_tool_results = request
+                .messages
+                .iter()
+                .any(|m| m.content.contains("[Tool Result for "));
+            let (content, tool_calls) = if is_reask {
+                (UNAVAILABLE_REPLY.to_owned(), None)
+            } else if has_tool_results {
+                (DEGENERATE_REPLY.to_owned(), None)
+            } else {
+                (
+                    String::new(),
+                    Some(vec![ToolCallRequest {
+                        id: "call-1".to_owned(),
+                        function_name: "get_activities".to_owned(),
+                        arguments: json!({ "limit": 5 }),
+                    }]),
+                )
+            };
+            Ok(ChatResponse {
+                content,
+                model: "mock-model".to_owned(),
+                usage: Some(TokenUsage::new(30, 40, 70)),
+                finish_reason: Some("stop".to_owned()),
+                warnings: None,
+                tool_calls,
+            })
+        }
+
+        async fn complete_stream(&self, _request: &ChatRequest) -> Result<ChatStream, AppError> {
+            Err(AppError::internal("streaming not used by this test"))
+        }
+
+        async fn health_check(&self) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    /// Found by the 2026-10-23 onboarding e2e on dev: a Garmin athlete whose
+    /// scraper did not answer asked about their last session, the turn spent
+    /// its tools and came back empty, and the verification fetch failed the
+    /// same non-auth way — so nothing re-asked, and the athlete saw no reply at
+    /// all. An empty turn over an unreadable source must be re-asked into a
+    /// reply that says the data could not be loaded.
+    #[tokio::test]
+    #[serial]
+    async fn an_empty_turn_over_an_unreadable_source_is_reasked_into_an_answer() {
+        // A connected scrape session whose scraper is down: every read fails,
+        // and none of the failures is a re-auth.
+        let mock = Arc::new(ToolThenFragmentUnavailableProvider);
+        let resources = create_test_server_resources_with_llm_and_config(
+            mock,
+            test_server_config_with_sciotte("http://127.0.0.1:9"),
+        )
+        .await
+        .unwrap();
+        let (user_id, tenant_id) = create_user_with_connection(
+            &resources,
+            "capability-unavailable@example.com",
+            "sciotte",
+            &ConnectionType::Manual,
+        )
+        .await;
+        seed_sciotte_session(&resources, user_id, tenant_id).await;
+
+        drive_slack_turn(
+            &resources,
+            tenant_id,
+            user_id,
+            "U_CAP_UNAVAIL",
+            "capability_unavailable_secret",
+            "Comment s'est passée ma dernière séance d'entraînement ?",
+        )
+        .await;
+
+        let reply = wait_for_persisted_assistant_reply(&resources, tenant_id)
+            .await
+            .expect("pipeline did not persist an assistant chat_messages row within 30s");
+
+        assert!(
+            reply.contains("charger tes données"),
+            "an empty turn over an unreadable source must be re-asked into an answer, \
+             got: {reply:?}"
+        );
+        assert!(
+            !reply.contains(DEGENERATE_REPLY),
+            "the dangling fragment must not survive as the durable reply, got: {reply:?}"
+        );
+    }
+
     /// The re-ask reply must be stripped before it goes on the wire.
     ///
     /// `apply_reask_outcome` assigns the re-ask's content downstream of every

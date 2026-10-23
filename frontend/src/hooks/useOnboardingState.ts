@@ -5,11 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { QUERY_KEYS } from '../constants/queryKeys';
 import { userApi } from '../services/api';
 import type { AvailableChannel } from '@pierre/api-client';
 import { useAuth } from './useAuth';
+import { useOnboardingStatus } from './useOnboardingStatus';
 import { useAvailableChannels } from './useAvailableChannels';
 import {
   ATHLETE_STEP_IDS,
@@ -93,14 +92,7 @@ export function useOnboardingState(): OnboardingState {
     isAuthenticated && user?.user_status === 'active' && !isAdminRole,
   );
 
-  const { data: onboardingStatus } = useQuery({
-    queryKey: QUERY_KEYS.user.onboardingStatus(),
-    queryFn: () => userApi.getOnboardingStatus(),
-    enabled: onboardingActive,
-    // Keep this fresh during the OAuth round-trip so the redirect flips as soon
-    // as the provider connection lands.
-    staleTime: 5_000,
-  });
+  const { data: onboardingStatus } = useOnboardingStatus(onboardingActive);
 
   // Session-only "continue without a provider": lets the user into the app
   // without connecting. Deliberately not persisted — the connect prompts in

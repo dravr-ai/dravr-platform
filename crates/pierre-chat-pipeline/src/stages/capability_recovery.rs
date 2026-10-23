@@ -39,6 +39,9 @@ use std::sync::Arc;
 use serde_json::json;
 use tracing::{info, warn};
 
+use super::capability_reask::{
+    reask_while_unavailable, reask_with_verified_data, reask_without_data,
+};
 use super::capability_subject::{
     apply_subject_recovery, conversation_group_id, resolve_ask_subject, AskSubject,
 };
@@ -54,17 +57,18 @@ use super::turn_evidence::collect_turn_evidence;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
-use pierre_core::errors::AppError;
 use pierre_core::models::{MemberFitnessSnapshot, OnboardingState};
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
-use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, FunctionResponse};
+use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::coach_seat::TurnSeat;
-use pierre_tool_runtime::protocol::{auth_required_provider, UniversalExecutor, UniversalRequest};
+use pierre_tool_runtime::protocol::{
+    auth_required_provider, is_no_provider_refusal, UniversalExecutor, UniversalRequest,
+    UniversalResponse,
+};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
-use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 
 /// The read-only verification tool for the REQUESTER's own data. Every
 /// connected provider serves it, so one fetch adjudicates the claim regardless
@@ -111,7 +115,8 @@ const VERIFICATION_LIMIT: u32 = 20;
 /// successfully" is true only on the re-ask this stage builds, right after its
 /// own verification fetch succeeded. Text that hot-reloads independently of
 /// that fetch could assert a success the code did not have.
-const REASK_INSTRUCTION: &str = "Your data tools are connected and working — the activities \
+pub(super) const REASK_INSTRUCTION: &str =
+    "Your data tools are connected and working — the activities \
      above were just fetched successfully on your behalf. Your draft reply above was written \
      without them: replace it with your reply to the athlete's last message, using this data. \
      Do not claim any connection or data-access problem, and do not say the athlete has not \
@@ -212,7 +217,22 @@ pub async fn apply_capability_recovery(
         return;
     }
 
-    match run_verification_fetch(&deps, input).await {
+    let outcome = run_verification_fetch(&deps, input).await;
+    settle_requester(&deps, input, result, trigger, outcome).await;
+}
+
+/// Act on what the verification fetch of the requester's own activities
+/// proved: hand a dead connection to the reconnect offer, re-ask a reply the
+/// data contradicts or that came back empty, or let it stand.
+async fn settle_requester(
+    deps: &CapabilityRecoveryDeps<'_>,
+    input: &TurnInput,
+    result: &mut ToolLoopResult,
+    trigger: RecoveryTrigger,
+    outcome: VerificationOutcome,
+) {
+    let claimed_failure = matches!(trigger, RecoveryTrigger::ClaimedFailure);
+    match outcome {
         VerificationOutcome::AuthRequired(provider_slug) => {
             info!(
                 provider = %provider_slug,
@@ -224,6 +244,14 @@ pub async fn apply_capability_recovery(
             // this moment only — stamp it out of every later prompt.
             result.capability_claim_unverified = true;
         }
+        // A turn that spent its tools and came back with nothing, whose data
+        // source cannot be read either: delivered as is, the athlete gets an
+        // empty reply. Re-ask for what can be said without the data.
+        VerificationOutcome::Unverifiable
+            if matches!(trigger, RecoveryTrigger::DegenerateReply) =>
+        {
+            reask_while_unavailable(deps, result).await;
+        }
         // The claim may be an honest outage report, so it still reaches the
         // athlete — but the platform could not stand behind it, so it does not
         // get to teach the model anything on a later turn. A sender who is not
@@ -231,8 +259,17 @@ pub async fn apply_capability_recovery(
         VerificationOutcome::Unverifiable | VerificationOutcome::NotTheSubject => {
             result.capability_claim_unverified = claimed_failure;
         }
+        // Nothing is connected, so a claim of "no data" is true and needs no
+        // stamping, and there is no link to offer: that reply stands. Any other
+        // trigger means the draft answered a data question with no data behind
+        // it, so whatever figures it holds were made up: re-ask without them.
+        VerificationOutcome::NoDataSource => {
+            if !claimed_failure {
+                reask_without_data(deps, result).await;
+            }
+        }
         VerificationOutcome::Verified(payload) => {
-            reground_requester(&deps, input, result, payload, claimed_failure).await;
+            reground_requester(deps, input, result, payload, claimed_failure).await;
         }
     }
 }
@@ -590,6 +627,10 @@ pub(super) enum VerificationOutcome {
     /// activities say nothing about it. Nothing was attempted, and nothing
     /// failed.
     NotTheSubject,
+    /// The athlete has no provider connected: there is nothing to verify the
+    /// claim against, and nothing to reconnect. A "I can't see your data" is
+    /// simply true, so the reply stands as written.
+    NoDataSource,
     /// The fetch succeeded: the claim is disproven. Carries the tool payload.
     Verified(serde_json::Value),
 }
@@ -616,9 +657,10 @@ pub(super) async fn run_verification_fetch(
 ///
 /// Auth-required rides two shapes: the executor's typed error
 /// (`ProtocolError::ProviderAuthRequired`) and a `success: false` response
-/// stamped with `META_AUTH_REQUIRED_PROVIDER` (the provider resolver and
-/// token layer use this one — including the zero-connections case). The tool
-/// loop scans for the same pair at `tool_execution.rs`.
+/// stamped with `META_AUTH_REQUIRED_PROVIDER` (the token layer uses this one).
+/// The tool loop scans for the same pair at `tool_execution.rs`. An athlete
+/// with no connection at all is refused with `META_NO_PROVIDER_CONNECTED`
+/// instead, which is [`VerificationOutcome::NoDataSource`], never a re-auth.
 async fn fetch_sender_activities(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -647,17 +689,7 @@ async fn fetch_sender_activities(
                 .result
                 .unwrap_or_else(|| json!({ "status": "success" })),
         ),
-        Ok(response) => {
-            if let Some(provider_slug) = auth_required_provider(&response) {
-                return VerificationOutcome::AuthRequired(provider_slug);
-            }
-            warn!(
-                error = response.error.as_deref().unwrap_or("unknown"),
-                "capability_failure_unverifiable: verification fetch reported failure; \
-                 leaving the reply as delivered"
-            );
-            VerificationOutcome::Unverifiable
-        }
+        Ok(response) => classify_refusal(&response),
         Err(e) => {
             if let Some(provider_slug) = e.provider_auth_required_provider() {
                 return VerificationOutcome::AuthRequired(provider_slug.to_owned());
@@ -672,49 +704,25 @@ async fn fetch_sender_activities(
     }
 }
 
-/// One completion over the turn's messages plus the verified tool result,
-/// taken only if it comes back free of capability-failure claims. Returns the
-/// tool result as the text the model saw, so a re-check of the replacement
-/// can count it as evidence.
-async fn reask_with_verified_data(
-    deps: &CapabilityRecoveryDeps<'_>,
-    payload: serde_json::Value,
-    result: &mut ToolLoopResult,
-) -> String {
-    let function_response = FunctionResponse {
-        name: VERIFICATION_TOOL.to_owned(),
-        response: payload,
-    };
-    let tool_text = format_tool_results_as_text(&[function_response]);
-
-    let Ok(provider) = chat_provider_from_resources_arc(
-        deps.ctx.chat_provider.as_ref(),
-        deps.ctx.llm_provider.as_ref(),
-    ) else {
-        // A missing provider handle is a wiring bug, not a transient condition
-        // (see `resolve_reask_provider`); the fetched data still proves access
-        // works, but without a completion there is nothing to re-ask with.
-        warn!(
-            "capability recovery found no provider for the re-ask; leaving the reply as delivered"
+/// What a `success: false` verification response proves: no provider at all,
+/// a connection that needs re-auth, or an outage the reply may honestly report.
+fn classify_refusal(response: &UniversalResponse) -> VerificationOutcome {
+    if is_no_provider_refusal(response) {
+        info!(
+            "capability_recovery: the athlete has no provider connected; \
+             the reply stands without a verification fetch"
         );
-        return tool_text;
-    };
-
-    let messages = repair_messages(
-        deps.llm_messages,
-        &result.content,
-        &format!(
-            "{tool_text}\n\n{REASK_INSTRUCTION}\n\n{}",
-            turn_language_directive(deps)
-        ),
+        return VerificationOutcome::NoDataSource;
+    }
+    if let Some(provider_slug) = auth_required_provider(response) {
+        return VerificationOutcome::AuthRequired(provider_slug);
+    }
+    warn!(
+        error = response.error.as_deref().unwrap_or("unknown"),
+        "capability_failure_unverifiable: verification fetch reported failure; \
+         leaving the reply as delivered"
     );
-    let request = ChatRequest::new(messages).with_model(deps.active_model);
-
-    apply_reask_outcome(
-        complete_recorded(provider.as_ref(), &request, Some(deps.reask_recorder)).await,
-        result,
-    );
-    tool_text
+    VerificationOutcome::Unverifiable
 }
 
 /// The message list a repair completion runs over: the turn as the model saw
@@ -1090,67 +1098,13 @@ pub fn parse_unsupported_verdict(text: &str) -> Vec<String> {
     }
 }
 
-/// Take the re-ask's reply if it is free of capability-failure claims;
-/// otherwise leave the original reply alone. Mirrors the identity re-ask's
-/// accept-only-if-clean contract.
-fn apply_reask_outcome(outcome: Result<ChatResponse, AppError>, result: &mut ToolLoopResult) {
-    match outcome {
-        Ok(reply) => apply_reask_reply(reply, result),
-        Err(e) => warn!(
-            error = %e,
-            "capability_failure_reask_failed: re-ask did not complete; \
-             keeping the original reply"
-        ),
-    }
-}
-
-/// The completed re-ask: taken when [`reask_verdict`] says it is usable.
-fn apply_reask_reply(reply: ChatResponse, result: &mut ToolLoopResult) {
-    match reask_verdict(&reply.content) {
-        ReaskVerdict::Usable => {
-            info!(
-                reply_len = reply.content.len(),
-                "capability_failure_reask_recovered: re-ask with verified data \
-                 produced a usable reply; the athlete keeps their turn"
-            );
-            result.content = reply.content;
-        }
-        ReaskVerdict::NoAnswer => warn!(
-            reply_len = reply.content.len(),
-            "capability_failure_reask_degenerate: re-ask carried no answer; \
-             keeping the original reply"
-        ),
-        ReaskVerdict::StillClaims => warn!(
-            "capability_failure_reask_persisted: re-ask still claimed broken \
-             access with the data in hand; keeping the original reply"
-        ),
-    }
-}
-
-/// Whether a re-ask's reply may replace the original.
-enum ReaskVerdict {
-    /// Substantive and free of capability-failure claims.
-    Usable,
-    /// Empty or a dangling fragment — a lost turn, not a corrected reply.
-    NoAnswer,
-    /// Still claims broken access with the data in hand.
-    StillClaims,
-}
-
-/// Classify a re-ask's reply — see [`ReaskVerdict`].
-fn reask_verdict(content: &str) -> ReaskVerdict {
-    if narration::is_degenerate_reply(content) {
-        ReaskVerdict::NoAnswer
-    } else if narration::contains_capability_failure(content) {
-        ReaskVerdict::StillClaims
-    } else {
-        ReaskVerdict::Usable
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use pierre_llm::MessageRole;
+    use pierre_tool_runtime::protocol::provider_helpers::no_provider_refusal;
+    use pierre_tool_runtime::protocol::META_AUTH_REQUIRED_PROVIDER;
 
     use super::*;
 
@@ -1178,5 +1132,40 @@ mod tests {
         assert_eq!(without[1].content, "Comment était ma semaine ?");
         assert_eq!(without[2].role, MessageRole::User);
         assert!(without[2].content.starts_with(REPAIR_EVIDENCE_FRAME));
+    }
+
+    /// An athlete with no provider connected has nothing to reconnect: the
+    /// no-provider refusal must classify as `NoDataSource`, never as a re-auth
+    /// (which once told such an athlete their "Strava connection expired"),
+    /// while a dead connection's stamp still routes to the reconnect offer.
+    #[test]
+    fn a_providerless_refusal_is_no_data_source_not_a_reauth() {
+        let refusal = no_provider_refusal();
+        assert!(
+            matches!(
+                classify_refusal(&refusal),
+                VerificationOutcome::NoDataSource
+            ),
+            "a providerless refusal must leave the reply standing"
+        );
+
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            META_AUTH_REQUIRED_PROVIDER.to_owned(),
+            json!("sciotte_garmin"),
+        );
+        let dead = UniversalResponse {
+            success: false,
+            result: None,
+            error: Some("session expired".to_owned()),
+            metadata: Some(metadata),
+        };
+        assert!(
+            matches!(
+                classify_refusal(&dead),
+                VerificationOutcome::AuthRequired(ref slug) if slug == "sciotte_garmin"
+            ),
+            "a dead connection still routes to the reconnect offer"
+        );
     }
 }

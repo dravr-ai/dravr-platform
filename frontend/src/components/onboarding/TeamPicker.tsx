@@ -54,6 +54,11 @@ type OpenSheet = 'lead' | 'browse' | null;
 export interface TeamPickerProps {
   proposal: AgentProposalResponse;
   /**
+   * The athlete has no provider connected: the empty "what we read" says so
+   * instead of waiting on a provider to sync.
+   */
+  withoutProvider?: boolean;
+  /**
    * Write the team. Resolves once it is saved; a rejection keeps the picker
    * on screen with an inline error and a retry.
    */
@@ -70,7 +75,7 @@ export interface TeamPickerProps {
  * ticked member; Skip starts with the lead alone. Nothing is installed until
  * the host's `onSubmit` writes the whole team in one call.
  */
-export function TeamPicker({ proposal, onSubmit }: TeamPickerProps) {
+export function TeamPicker({ proposal, withoutProvider = false, onSubmit }: TeamPickerProps) {
   const { t } = useTranslation();
   const [lead, setLead] = useState<TeamEntry | null>(() => initialLead(proposal));
   const [members, setMembers] = useState<MemberEntry[]>(() =>
@@ -122,7 +127,7 @@ export function TeamPicker({ proposal, onSubmit }: TeamPickerProps) {
 
   return (
     <div className="flex flex-col gap-7">
-      <WhatWeRead proposal={proposal} />
+      <WhatWeRead proposal={proposal} withoutProvider={withoutProvider} />
 
       <section aria-labelledby="team-lead-heading">
         <h2 id="team-lead-heading" className="text-[13px] font-semibold text-on-surface">
@@ -239,7 +244,7 @@ export function TeamPicker({ proposal, onSubmit }: TeamPickerProps) {
 }
 
 /** "What we read": the window, the count in mono, the main sport, the goal and the sport mix. */
-function WhatWeRead({ proposal }: { proposal: AgentProposalResponse }) {
+function WhatWeRead({ proposal, withoutProvider }: { proposal: AgentProposalResponse; withoutProvider: boolean }) {
   const { t } = useTranslation();
   const { profile, goal } = proposal;
   // A sport as the profile spells it, in the athlete's language when the
@@ -297,7 +302,7 @@ function WhatWeRead({ proposal }: { proposal: AgentProposalResponse }) {
         </>
       ) : (
         <p className="text-sm text-on-surface-variant">
-          {t('onboarding.agentProposalNoActivities')}
+          {t(withoutProvider ? 'onboarding.agentProposalNoProvider' : 'onboarding.agentProposalNoActivities')}
           {goal ? <> {t('onboarding.team.goalLine', { goal })}</> : null}
         </p>
       )}

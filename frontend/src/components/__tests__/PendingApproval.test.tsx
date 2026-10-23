@@ -6,12 +6,12 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../../services/api', () => ({
-  authApi: { resendVerification: vi.fn() },
+  authApi: { resendVerification: vi.fn(), getSession: vi.fn(() => new Promise(() => {})) },
   userApi: { clearImportTombstone: vi.fn(), redeemSignupCode: vi.fn() },
 }))
 
 import PendingApproval from '../PendingApproval'
-import { userApi } from '../../services/api'
+import { authApi, userApi } from '../../services/api'
 
 const mockLogout = vi.fn()
 
@@ -222,5 +222,31 @@ describe('PendingApproval', () => {
       expect(screen.getByLabelText('Signup code')).toHaveValue('NOPE')
       expect(mockUpdateUser).not.toHaveBeenCalled()
     })
+  })
+
+  // Found by the 2026-10-23 onboarding e2e on dev: an operator approved the
+  // account, and the page kept saying it was waiting until a manual reload.
+  it('moves on by itself once the server says the account is active', async () => {
+    vi.useFakeTimers()
+    try {
+      const updateUser = vi.fn()
+      vi.mocked(useAuth).mockReturnValue({
+        user: { id: '1', email: 'pending@example.com', user_status: 'pending', email_verified: true },
+        logout: mockLogout,
+        updateUser,
+      } as unknown as ReturnType<typeof useAuth>)
+      vi.mocked(authApi.getSession).mockResolvedValue({
+        user: { id: '1', email: 'pending@example.com', user_status: 'active', email_verified: true },
+        access_token: 't',
+        csrf_token: 'c',
+      } as Awaited<ReturnType<typeof authApi.getSession>>)
+
+      render(<PendingApproval />)
+      expect(updateUser).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(updateUser).toHaveBeenCalledWith({ user_status: 'active', email_verified: true })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

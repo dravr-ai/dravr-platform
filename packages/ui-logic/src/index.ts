@@ -83,6 +83,7 @@ export {
   describeAccountDeletionFailure,
 } from './accountDeletion';
 export type { ImportTombstoneRefusal } from './importTombstone';
+export { describeRegistration } from './registration';
 export {
   importTombstoneRefusal,
   importTombstoneFromReturn,

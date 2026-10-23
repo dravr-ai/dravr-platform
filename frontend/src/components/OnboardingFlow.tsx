@@ -90,6 +90,7 @@ function renderStep(
       return (
         <OnboardingCoachProposal
           userDisplayName={userDisplayName}
+          withoutProvider={state.ctx.needsProviderConnection === true}
           onSave={state.persistCoachProposal}
           onComplete={state.completeCoachProposal}
         />
