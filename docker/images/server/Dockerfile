@@ -165,7 +165,16 @@ WORKDIR /app
 # one per CVE, all on libexpat1. The 2026-10-17 deploy of
 # 64f8c89b1, which touched no Docker file, was gated with 2.8.3-1~deb13u1
 # installed under "apt security epoch: 2026-10-14".
-ARG APT_SECURITY_EPOCH=2026-10-17
+# ca-certificates 20250419+deb13u1 distrusts the eight eMudhra intermediates
+# whose private keys were compromised (announced 2026-10-19), plus their
+# Sectigo cross-signs. With the 10-17 bundle, anyone who can intercept the
+# server's traffic could forge a certificate for Strava, Garmin or an LLM API,
+# and every client that reads the system store would accept it: reqwest on
+# native-tls/OpenSSL (pierre-providers, dravr-canot) and Debian's nodejs, which
+# runs the Copilot and Claude Code CLIs. The rustls clients pin webpki-roots,
+# fixed separately at 1.0.10. Checked in a fresh trixie layer: curl and node
+# both reject dv-g3b-emudhra.we-have-a-problem.com.
+ARG APT_SECURITY_EPOCH=2026-10-23
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)

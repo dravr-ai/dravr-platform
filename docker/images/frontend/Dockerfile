@@ -74,7 +74,9 @@ FROM alpine:3.23
 # pcre2 10.49-r0 closes CVE-2026-103111, an out-of-bounds write through a
 # crafted regular expression. Gated the 2026-10-01 dev deploys of b0d760586
 # and c480933f7, which touched no frontend Docker file, with 10.48-r0 installed.
-ARG APK_SECURITY_EPOCH=2026-10-01
+# ca-certificates 20261020-r0 distrusts the compromised eMudhra intermediates
+# (announced 2026-10-19); the 10-01 layer predates it.
+ARG APK_SECURITY_EPOCH=2026-10-23
 
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of
