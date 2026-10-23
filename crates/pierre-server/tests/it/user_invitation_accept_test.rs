@@ -170,6 +170,11 @@ async fn redemption_creates_an_active_account_tied_to_the_invited_address() {
     assert_eq!(status, 201, "acceptance must create the account: {body}");
     assert_eq!(body["user_status"].as_str(), Some("active"), "{body}");
     assert_eq!(body["display_name"].as_str(), Some("Coach Phil"), "{body}");
+    assert_eq!(
+        body["email"].as_str(),
+        Some("coach.phil@example.com"),
+        "the answer names the address the invitee signs in with: {body}"
+    );
 
     let repos = &resources.common.repos;
     let user = repos

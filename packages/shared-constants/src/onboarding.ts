@@ -349,10 +349,18 @@ export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressIt
   // messaging channels configured — was shown "Chat app" and "Link" as upcoming
   // steps that would never arrive, and a five-step journey that ran in two.
   //
-  // A step counts as part of the journey when it is applicable now or already
-  // behind us; `isComplete` covers the latter, since a finished step stops being
-  // applicable the moment it completes.
-  const journey = ONBOARDING_STEPS.filter((s) => s.isApplicable(ctx) || s.isComplete(ctx));
+  // A step counts as part of the journey when it is applicable now, already
+  // behind us (`isComplete`: a finished step stops being applicable the moment
+  // it completes), or ahead of us past the provider gate. Connecting and
+  // continuing without connecting both lead past it, so the steps there are
+  // ones this user will meet; counting them only once reached made the total
+  // grow mid-journey ("5 of 5", then "6 of 7").
+  const pastGate: OnboardingContext | null =
+    ctx.needsProviderConnection === true ? { ...ctx, needsProviderConnection: false } : null;
+  const journey = ONBOARDING_STEPS.filter(
+    (s) =>
+      s.isApplicable(ctx) || s.isComplete(ctx) || (pastGate !== null && s.isApplicable(pastGate)),
+  );
   const currentId = currentOnboardingStep(ctx)?.id;
   const currentIndex = currentId
     ? journey.findIndex((s) => s.id === currentId)

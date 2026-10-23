@@ -60,6 +60,9 @@ impl RegistrationActivation {
 pub struct RegisterResponse {
     /// Unique identifier for the newly created user
     pub user_id: String,
+    /// The address the account signs in with — on an invitation, the one the
+    /// invitee never typed
+    pub email: String,
     /// User account status at creation time (`pending` or `active`)
     pub user_status: UserStatus,
     /// Display name, if the user supplied one at registration

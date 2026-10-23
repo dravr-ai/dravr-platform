@@ -251,6 +251,7 @@ impl AuthService {
 
         Ok(RegisterResponse {
             user_id: user_id.to_string(),
+            email: user.email.clone(),
             user_status: user.user_status,
             display_name: user.display_name,
             activation,
@@ -325,6 +326,7 @@ impl AuthService {
 
         Ok(RegisterResponse {
             user_id: user_id.to_string(),
+            email: user.email.clone(),
             user_status: user.user_status,
             display_name: user.display_name,
             activation: RegistrationActivation::Active,

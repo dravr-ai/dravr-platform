@@ -66,6 +66,8 @@ describe('AcceptInvitation', () => {
       expect(invitationsApi.acceptInvitation).toHaveBeenCalledWith(TOKEN, 'StrongPass1', 'Coach Phil'),
     );
     expect(await screen.findByRole('heading', { name: 'Account created' })).toBeTruthy();
+    // The invitee never typed the address: it is named before they sign in with it.
+    expect(screen.getByTestId('accepted-email')).toHaveTextContent('coach@example.com');
     expect(screen.getByText('Then connect a fitness service and meet your agent')).toBeTruthy();
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Continue to sign in' }));

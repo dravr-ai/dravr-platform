@@ -300,6 +300,8 @@ describe('useOnboardingProgress', () => {
         ['parq', 'done'],
         ['check_in', 'done'],
         ['connect_provider', 'current'],
+        // Past the provider gate, already counted: the total never grows.
+        ['coach_proposal', 'upcoming'],
       ]),
     );
   });

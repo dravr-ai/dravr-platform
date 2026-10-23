@@ -39,6 +39,9 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  // The address the account signs in with: the invitee never typed it, so the
+  // done screen names it before they reach the sign-in form.
+  const [email, setEmail] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,7 +61,12 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
 
     setIsLoading(true);
     try {
-      await invitationsApi.acceptInvitation(token, password, displayName.trim() || undefined);
+      const account = await invitationsApi.acceptInvitation(
+        token,
+        password,
+        displayName.trim() || undefined,
+      );
+      setEmail(account.email);
       setStage('accepted');
     } catch (err: unknown) {
       const apiError = err as {
@@ -90,6 +98,12 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
                 <h1 className="mt-6 text-xl font-bold text-on-surface tracking-tight">
                   {accepted ? t('auth.registrationSuccess') : t('auth.linkExpired')}
                 </h1>
+                {accepted && email && (
+                  <p className="mt-3 text-sm text-on-surface" data-testid="accepted-email">
+                    <span className="text-on-surface-variant">{t('auth.emailAddressLabel')} </span>
+                    <span className="font-medium">{email}</span>
+                  </p>
+                )}
                 {accepted && (
                   <p className="mt-3 text-sm text-on-surface-variant max-w-sm">
                     {t('auth.thenConnectService')}

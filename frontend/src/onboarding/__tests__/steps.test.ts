@@ -241,7 +241,32 @@ describe('onboardingProgress — stable position-based labeled sequence', () => 
       'onboarding.stepHealthCheck',
       'onboarding.stepCheckIn',
       'onboarding.stepConnect',
+      'onboarding.stepAgent',
     ]);
+  });
+
+  // Found by the 2026-10-23 onboarding e2e on dev: the bar read "5 of 5" on the
+  // connect step and "6 of 7" on the next one. The total is what this user will
+  // meet from the start, so it never grows as they advance.
+  it('keeps the same total from the first step to the last', () => {
+    const steps = { messagingAvailableCount: 2, coachProposalDone: false };
+    const first = onboardingProgress(
+      ctx({
+        ...steps,
+        needsProviderConnection: true,
+        profileTypeChosen: false,
+        aboutYouDone: false,
+        parqDone: false,
+        checkInDone: false,
+      }),
+    );
+    const onConnect = onboardingProgress(ctx({ ...steps, needsProviderConnection: true }));
+    const onTeam = onboardingProgress(ctx({ ...steps, needsProviderConnection: false }));
+    const onChatApp = onboardingProgress(
+      ctx({ ...steps, needsProviderConnection: false, coachProposalDone: true }),
+    );
+    const totals = [first, onConnect, onTeam, onChatApp].map((items) => items.length);
+    expect(totals, 'the journey length must not change as the athlete advances').toEqual([7, 7, 7, 7]);
   });
 
   it('keeps canonical order — the journey is a subset, never a reshuffle', () => {
@@ -466,6 +491,14 @@ describe('coach who does not train — athlete steps leave the journey', () => {
       'profile_type',
       'connect_provider',
     ]);
+  });
+
+  it('counts the messaging step ahead of a coach on the connect step', () => {
+    expect(
+      onboardingProgress(coachOnly({ coachesOthers: true, messagingAvailableCount: 2 })).map(
+        (s) => s.id,
+      ),
+    ).toEqual(['profile_type', 'connect_provider', 'coach_group', 'messaging_channel']);
   });
 
   it('a coach who trains still gets the athlete steps', () => {
