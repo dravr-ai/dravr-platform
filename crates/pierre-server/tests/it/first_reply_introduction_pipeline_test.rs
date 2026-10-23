@@ -421,13 +421,30 @@ async fn a_bound_agent_introduces_itself_once() {
     );
 }
 
-/// The incident's own question, asked with no provider connected: the model
-/// was told to introduce itself and did, but the reconnect re-challenge the
-/// platform wrote is what the thread received. That text names nobody, so the
-/// agent is still unintroduced and the next reply is asked again.
+/// The incident's own question, asked by an athlete whose connection needs
+/// reconnecting: the model was told to introduce itself and did, but the
+/// reconnect re-challenge the platform wrote is what the thread received. That
+/// text names nobody, so the agent is still unintroduced and the next reply is
+/// asked again.
 #[tokio::test]
 async fn a_reply_the_platform_replaced_introduced_nobody() {
     let fx = setup("intro-replaced@test.com").await;
+    // A scrape connection with no stored session: reading it fails
+    // auth-shaped, so the platform answers with the reconnect re-challenge. An
+    // athlete with no connection at all gets the model's own answer instead.
+    fx.resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            fx.user_id,
+            fx.tenant_id,
+            "sciotte",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
     let agent = custom_agent(&fx, TRAIL_COACH).await;
     let conv = conversation(&fx, fx.user_id, Some(&agent), None).await;
     fx.provider.answer_with(&introduced_reply(TRAIL_COACH));
@@ -454,7 +471,7 @@ async fn a_reply_the_platform_replaced_introduced_nobody() {
         .expect("the turn persisted a reply");
     assert!(
         !delivered.content.contains(TRAIL_COACH),
-        "premise: with no provider connected the platform answers this question itself —          got {:?}",
+        "premise: with a connection to reconnect the platform answers this question itself —          got {:?}",
         delivered.content
     );
 

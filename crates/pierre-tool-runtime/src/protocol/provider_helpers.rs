@@ -44,10 +44,10 @@ pub fn extract_provider(parameters: &serde_json::Map<String, JsonValue>) -> Opti
 /// Worded for the model, which writes the reply: there is no data to read, the
 /// question may still be answerable without it, and connecting is the way to
 /// get personal answers.
-pub const NO_PROVIDER_CONNECTED_TEXT: &str = "No fitness provider connected: there is no activity \
-     or health data for this athlete. Answer from general knowledge if the question \
-     does not need their data, and tell them that connecting Strava, Garmin or another \
-     provider in the app lets you use their own training.";
+pub const NO_PROVIDER_CONNECTED_TEXT: &str = "No fitness provider connected: there is no \
+     activity or health data for this athlete. Connect Strava, Garmin or another provider in \
+     the app to use their own training; until then, answer from general knowledge any \
+     question that does not need their data.";
 
 /// The canonical no-provider refusal, minted in exactly one place.
 ///
