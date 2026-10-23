@@ -29,8 +29,8 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
-    guardian_config, harness_config, memory_worker, myth_busting, provider_data, settings, setup,
-    signup_codes, strava_pool, tokens, user_removal, users, website,
+    guardian_config, harness_config, memory_worker, myth_busting, provider_clone, provider_data,
+    settings, setup, signup_codes, strava_pool, tokens, user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -332,6 +332,12 @@ impl AdminRoutes {
             .route(
                 "/admin/users/{user_id}/providers/{provider}",
                 delete(user_removal::handle_disconnect_user_provider),
+            )
+            // Copy another account's scrape session onto this one (super-admin
+            // only inside the handler): operator e2e testing on a deployed env.
+            .route(
+                "/admin/users/{user_id}/providers/{provider}/clone",
+                post(provider_clone::handle_clone_user_provider),
             )
             // Send a user back through onboarding, leaving their groups alone.
             .route(

@@ -13,7 +13,7 @@ use axum::{
     Extension, Json,
 };
 use serde::Serialize;
-use serde_json::{json, to_value};
+use serde_json::{json, to_value, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -30,7 +30,7 @@ use pierre_services::pre_approval;
 use pierre_services::user_removal::held_providers;
 
 use super::api_keys::json_response;
-use super::invitations::send_invite_if_eligible;
+use super::invitations::{self, send_invite_if_eligible};
 use super::types::{
     AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
     UserActivityQuery,
@@ -982,6 +982,12 @@ pub(crate) async fn handle_allow_email(
     }
 
     let ctx = context.as_ref();
+    // Refused before anything is written: a link answered to the caller is
+    // super-admin only (see the invitations module).
+    let delivery = match invitations::delivery(ctx, &request, &admin_token) {
+        Ok(delivery) => delivery,
+        Err(refused) => return Ok(*refused),
+    };
     // The operator behind the token — the approving super-admin of a device
     // login, the admin of a console session. A service token names no person,
     // so `allowed_by` stays NULL rather than attributing its allow to some
@@ -1007,7 +1013,8 @@ pub(crate) async fn handle_allow_email(
         .await;
     }
 
-    let invite = send_invite_if_eligible(ctx, &result, request.send_invite, &admin_token).await?;
+    let invite =
+        send_invite_if_eligible(ctx, &result, request.send_invite, &delivery, &admin_token).await?;
     let invited = invite.invited();
     let recipient = mask_email(&result.email);
 
@@ -1024,18 +1031,27 @@ pub(crate) async fn handle_allow_email(
         AdminResponse {
             success: true,
             message: format!("{}{}", result.message(), invite.sentence()),
-            data: to_value(json!({
-                "email": result.email,
-                "outcome": result.outcome,
-                "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
-                "invited": invited,
-                "invitation_expires_at": invite.expires_at().map(|t| t.to_rfc3339()),
-            }))
-            .ok(),
+            data: Some(allow_data(&result, &invite)),
         },
         StatusCode::OK,
     )
     .into_response())
+}
+
+/// The allow's answer body; `invite_url` appears only when the link was asked
+/// for and issued.
+fn allow_data(result: &pre_approval::AllowResult, invite: &invitations::InviteReport) -> Value {
+    let mut data = json!({
+        "email": result.email,
+        "outcome": result.outcome,
+        "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
+        "invited": invite.invited(),
+        "invitation_expires_at": invite.expires_at().map(|t| t.to_rfc3339()),
+    });
+    if let (Some(url), Some(fields)) = (invite.invite_url(), data.as_object_mut()) {
+        fields.insert("invite_url".to_owned(), Value::String(url.to_owned()));
+    }
+    data
 }
 
 /// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow, and

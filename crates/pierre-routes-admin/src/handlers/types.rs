@@ -70,6 +70,21 @@ pub struct AllowEmailRequest {
     /// contact the person.
     #[serde(default)]
     pub send_invite: bool,
+    /// Answer the invitation's link instead of mailing it. Super-admin only
+    /// and requires `send_invite`: for operator-driven end-to-end testing,
+    /// where the invitee's address has no mailbox anyone reads.
+    #[serde(default)]
+    pub return_link: bool,
+}
+
+/// Scrape-session clone request — copy the source account's provider
+/// connection onto the account the path names.
+#[derive(Debug, Deserialize)]
+pub struct CloneProviderRequest {
+    /// The account whose session is copied.
+    pub from_user_id: String,
+    /// Operator note recorded on the audit row (why the clone was made).
+    pub reason: Option<String>,
 }
 
 /// User suspension request

@@ -1,4 +1,4 @@
-// ABOUTME: carnet#502 — `user disconnect`, `user delete`, `user reset-onboarding` and `strava-pool seats` against a stub admin API
+// ABOUTME: carnet#502/#1144 — user disconnect, delete, reset-onboarding, clone-provider, allow --print-link, strava-pool seats
 // ABOUTME: Pins the requests each verb sends, that delete without --yes deletes nothing, and what gets printed
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -498,4 +498,132 @@ fn reset_onboarding_without_yes_keeps_what_the_server_says_groups_rely_on() {
     );
     let requests = stub.requests();
     assert_eq!(requests.len(), 2, "one lookup, one read: {requests:?}");
+}
+
+#[test]
+fn clone_provider_resolves_both_accounts_and_posts_to_the_target() {
+    let from = Uuid::new_v4().to_string();
+    let to = Uuid::new_v4().to_string();
+    let target = "e2e-athlete@example.com";
+    let stub = StubServer::serve(vec![
+        route(
+            "GET /admin/users?status=all",
+            200,
+            listing(&[(EMAIL, &from), (target, &to)]),
+        ),
+        route(
+            format!("POST /admin/users/{to}/providers/garmin/clone "),
+            200,
+            json!({
+                "success": true,
+                "message": format!("Cloned sciotte_garmin from {EMAIL} onto {target}"),
+                "data": { "from_user_id": from, "to_user_id": to, "provider": "garmin", "backend": "sciotte_garmin" },
+            }),
+        ),
+    ]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "clone-provider",
+            "--from",
+            EMAIL,
+            "--to",
+            target,
+            "--provider",
+            "garmin",
+            "--reason",
+            "onboarding e2e",
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_eq!(code, 0, "the clone succeeds: {stdout}{stderr}");
+    assert!(
+        stdout.contains(&format!("Cloned sciotte_garmin from {EMAIL} onto {target}")),
+        "{stdout}"
+    );
+    let requests = stub.requests();
+    let post = requests
+        .iter()
+        .find(|r| r.starts_with(&format!("POST /admin/users/{to}/providers/garmin/clone ")))
+        .unwrap_or_else(|| panic!("no clone POST reached the server: {requests:?}"));
+    assert!(
+        post.contains(&format!(r#""from_user_id":"{from}""#)),
+        "the source travels in the body: {post}"
+    );
+    assert!(post.contains(r#""reason":"onboarding e2e""#), "{post}");
+}
+
+#[test]
+fn allow_print_link_asks_for_the_link_and_prints_it_alone() {
+    let url = "https://app.example.test/accept-invite#token=sel.verifier";
+    let stub = StubServer::serve(vec![route(
+        "POST /admin/pre-approved-emails ",
+        200,
+        json!({
+            "success": true,
+            "message": "Pre-approved — invitation link issued, not mailed",
+            "data": { "email": EMAIL, "invited": true, "invite_url": url },
+        }),
+    )]);
+
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "allow",
+            "--email",
+            EMAIL,
+            "--send-invite",
+            "--print-link",
+            "--server",
+            &stub.url,
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_eq!(code, 0, "{stdout}{stderr}");
+    assert!(
+        stdout.lines().any(|line| line == url),
+        "the link is printed on its own line: {stdout}"
+    );
+    let requests = stub.requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert!(
+        requests[0].contains(r#""return_link":true"#),
+        "{}",
+        requests[0]
+    );
+    assert!(
+        requests[0].contains(r#""send_invite":true"#),
+        "{}",
+        requests[0]
+    );
+}
+
+#[test]
+fn print_link_without_send_invite_is_refused_before_any_request() {
+    let (code, stdout, stderr) = run_cli(
+        &empty_home(),
+        &[
+            "user",
+            "allow",
+            "--email",
+            EMAIL,
+            "--print-link",
+            "--server",
+            "http://127.0.0.1:9",
+            "--token",
+            "t",
+        ],
+    );
+
+    assert_ne!(code, 0, "{stdout}{stderr}");
+    assert!(stderr.contains("--send-invite"), "{stderr}");
 }

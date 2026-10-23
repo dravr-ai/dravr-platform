@@ -261,6 +261,35 @@ pub struct DisconnectArgs {
     pub token: Option<SecretString>,
 }
 
+/// `user clone-provider` — copy one account's scrape-session provider
+/// connection onto another.
+#[derive(Debug, Args)]
+pub struct CloneProviderArgs {
+    /// Email (or user id) of the account whose session is copied
+    #[arg(long)]
+    pub from: String,
+
+    /// Email (or user id) of the account that receives the connection
+    #[arg(long)]
+    pub to: String,
+
+    /// Provider to clone: garmin or strava (the backend name is accepted too)
+    #[arg(long)]
+    pub provider: String,
+
+    /// Reason recorded on the audit row
+    #[arg(long)]
+    pub reason: Option<String>,
+
+    /// Server base URL (defaults to the cached login)
+    #[arg(long, env = "PIERRE_SERVER")]
+    pub server: Option<String>,
+
+    /// Admin token (defaults to the cached login)
+    #[arg(long, env = "PIERRE_TOKEN", hide_env_values = true)]
+    pub token: Option<SecretString>,
+}
+
 /// `user delete` — remove a user completely.
 #[derive(Debug, Args)]
 pub struct DeleteArgs {
@@ -379,6 +408,32 @@ pub async fn disconnect_provider(
     for entry in provider_entries(&body, "disconnected") {
         println!("  - {}", disconnected_line(&entry));
     }
+    Ok(())
+}
+
+/// Copy `from`'s scrape-session connection for `provider` onto `to`
+/// over the admin API.
+///
+/// # Errors
+///
+/// Returns the client's error when the call fails — including the server's
+/// refusal of an OAuth grant, a dead session or a token below super-admin.
+pub async fn clone_provider(
+    client: &RemoteClient,
+    from: &str,
+    to: &str,
+    provider: &str,
+    reason: Option<&str>,
+) -> AppResult<()> {
+    let encoded = urlencoding::encode(provider);
+    let payload = json!({ "from_user_id": from, "reason": reason });
+    let body: Value = client
+        .post_json(
+            &format!("/admin/users/{to}/providers/{encoded}/clone"),
+            &payload,
+        )
+        .await?;
+    println!("{}", message_or_json(&body));
     Ok(())
 }
 
@@ -642,14 +697,53 @@ pub async fn allow_email(
     client: &RemoteClient,
     email: &str,
     note: Option<&str>,
-    send_invite: bool,
+    invite: Invite,
 ) -> AppResult<()> {
-    let payload = json!({ "email": email, "note": note, "send_invite": send_invite });
+    let payload = json!({
+        "email": email,
+        "note": note,
+        "send_invite": invite != Invite::None,
+        "return_link": invite == Invite::PrintLink,
+    });
     let body: Value = client
         .post_json("/admin/pre-approved-emails", &payload)
         .await?;
     println!("{}", message_or_json(&body));
+    if invite == Invite::PrintLink {
+        if let Some(url) = body
+            .get("data")
+            .and_then(|d| d.get("invite_url"))
+            .and_then(Value::as_str)
+        {
+            println!("{url}");
+        }
+    }
     Ok(())
+}
+
+/// What an allow asks about the invitation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Invite {
+    /// No invitation.
+    None,
+    /// Issue a single-use invitation and mail it.
+    Mail,
+    /// Issue a single-use invitation and answer its link to the caller, who
+    /// prints it, instead of mailing it.
+    PrintLink,
+}
+
+impl Invite {
+    /// The invitation the `--send-invite` and `--print-link` flags ask for;
+    /// clap refuses `--print-link` without `--send-invite`.
+    #[must_use]
+    pub const fn from_flags(send_invite: bool, print_link: bool) -> Self {
+        match (send_invite, print_link) {
+            (false, _) => Self::None,
+            (true, false) => Self::Mail,
+            (true, true) => Self::PrintLink,
+        }
+    }
 }
 
 /// Remove a standing pre-approval over the admin API.

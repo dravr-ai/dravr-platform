@@ -465,6 +465,8 @@ pub enum AdminAction {
     /// Clear a deleted account's import tombstone, so its identity is
     /// accepted again
     ClearImportTombstone,
+    /// Copy one account's scrape-session provider connection onto another
+    CloneProviderConnection,
 }
 
 impl Display for AdminAction {
@@ -480,6 +482,7 @@ impl Display for AdminAction {
             Self::ManageUser => write!(f, "manage_user"),
             Self::PurgeProviderData => write!(f, "purge_provider_data"),
             Self::ClearImportTombstone => write!(f, "clear_import_tombstone"),
+            Self::CloneProviderConnection => write!(f, "clone_provider_connection"),
         }
     }
 }
@@ -499,6 +502,7 @@ impl FromStr for AdminAction {
             "manage_user" => Ok(Self::ManageUser),
             "purge_provider_data" => Ok(Self::PurgeProviderData),
             "clear_import_tombstone" => Ok(Self::ClearImportTombstone),
+            "clone_provider_connection" => Ok(Self::CloneProviderConnection),
             _ => Err(format!("Unknown admin action: {s}")),
         }
     }
@@ -618,4 +622,23 @@ pub struct AdminConfigOverrideRow {
     pub tenant_id: Option<String>,
     /// JSON-encoded payload whose schema is category-specific.
     pub config_value: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AdminAction;
+
+    #[test]
+    fn the_clone_action_reads_back_as_stored() {
+        let stored = AdminAction::CloneProviderConnection.to_string();
+        // A persisted value: `admin_token_usage.action` rows already carry it.
+        assert_eq!(
+            stored, "clone_provider_connection",
+            "the stored action name changed under existing audit rows"
+        );
+        assert_eq!(
+            stored.parse::<AdminAction>(),
+            Ok(AdminAction::CloneProviderConnection)
+        );
+    }
 }

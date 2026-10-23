@@ -434,6 +434,12 @@ impl ProviderToolRouter {
                 resources.data(),
                 resources.common.config.clone(),
             )));
+            // The operator clone stores a scrape session through the same
+            // write and data warm-up a sciotte login runs.
+            #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]
+            {
+                admin_context.session_installer = Some(Arc::new(resources.auth_routes_context()));
+            }
             admin_context.firebase_identity =
                 FirebaseIdentityDeleter::from_config(&resources.common.config.firebase)
                     .map(Arc::new);

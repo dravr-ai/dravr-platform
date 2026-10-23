@@ -501,6 +501,14 @@ enum UserCommand {
         #[arg(long)]
         send_invite: bool,
 
+        /// Print the invitation link instead of mailing it (super-admin only)
+        ///
+        /// For operator-driven end-to-end testing on a deployed environment,
+        /// where the test addresses have no mailbox anyone reads. The link is
+        /// printed alone on its own line; nothing is mailed.
+        #[arg(long, requires = "send_invite")]
+        print_link: bool,
+
         /// Server base URL (defaults to the cached login)
         #[arg(long, env = "PIERRE_SERVER")]
         server: Option<String>,
@@ -548,6 +556,9 @@ enum UserCommand {
 
     /// Disconnect one provider for a user over the admin API, revoking the grant at the provider
     Disconnect(commands::user_admin::DisconnectArgs),
+
+    /// Copy one account's scrape-session provider connection onto another (super-admin only)
+    CloneProvider(commands::user_admin::CloneProviderArgs),
 
     /// Remove a user completely over the admin API; every provider grant is revoked first
     Delete(commands::user_admin::DeleteArgs),
@@ -895,6 +906,7 @@ async fn main() -> Result<()> {
                 | UserCommand::ListAllowed { .. }
                 | UserCommand::Code { .. }
                 | UserCommand::Disconnect(_)
+                | UserCommand::CloneProvider(_)
                 | UserCommand::Delete(_)
                 | UserCommand::ResetOnboarding(_)
         ) {
@@ -999,6 +1011,7 @@ async fn main() -> Result<()> {
             | UserCommand::ListAllowed { .. }
             | UserCommand::Code { .. }
             | UserCommand::Disconnect(_)
+            | UserCommand::CloneProvider(_)
             | UserCommand::Delete(_)
             | UserCommand::ResetOnboarding(_) => {
                 unreachable!("remote user commands dispatch before the database bootstrap")

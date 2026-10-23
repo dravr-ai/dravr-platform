@@ -30,6 +30,7 @@ use pierre_contremaitre::{
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_services::scrape_session::ScrapeSessionInstaller;
 use pierre_services::user_approval::UserApprovalNotifier;
 use pierre_services::user_removal::ProviderDisconnector;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
@@ -83,6 +84,10 @@ pub struct AdminApiContext {
     /// deleting one (injected by the composition root; `None` until wired, in
     /// which case those routes refuse rather than strand a grant upstream).
     pub provider_disconnector: Option<Arc<dyn ProviderDisconnector>>,
+    /// Stores a scrape session on an account and warms its data the way a
+    /// login does, for the operator clone (injected by the composition root;
+    /// `None` until wired, in which case the clone route refuses).
+    pub session_installer: Option<Arc<dyn ScrapeSessionInstaller>>,
     /// Meters the device-approval sign-in per client address and account
     /// (carnet#804). A process-local limiter until the composition root
     /// injects the server's shared one, so the page is never unmetered.
@@ -203,6 +208,7 @@ impl AdminApiContext {
             background: TaskTracker::new(),
             approval_notifier: None,
             provider_disconnector: None,
+            session_installer: None,
             sign_in_limiter: Arc::new(OAuth2RateLimiter::new(
                 None,
                 OAuth2RateLimiter::local_window_store(),

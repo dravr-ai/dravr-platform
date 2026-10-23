@@ -73,11 +73,13 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
             email,
             note,
             send_invite,
+            print_link,
             server,
             token,
         } => {
             let client = commands::auth::admin_client(server, token)?;
-            commands::user_admin::allow_email(&client, &email, note.as_deref(), send_invite).await
+            let invite = commands::user_admin::Invite::from_flags(send_invite, print_link);
+            commands::user_admin::allow_email(&client, &email, note.as_deref(), invite).await
         }
         UserCommand::Disallow {
             email,
@@ -101,6 +103,19 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
             let client = commands::auth::admin_client(args.server, args.token)?;
             let id = commands::user_admin::resolve_user_id(&client, &args.email).await?;
             commands::user_admin::disconnect_provider(&client, &id, &args.provider).await
+        }
+        UserCommand::CloneProvider(args) => {
+            let client = commands::auth::admin_client(args.server, args.token)?;
+            let from = commands::user_admin::resolve_user_id(&client, &args.from).await?;
+            let to = commands::user_admin::resolve_user_id(&client, &args.to).await?;
+            commands::user_admin::clone_provider(
+                &client,
+                &from,
+                &to,
+                &args.provider,
+                args.reason.as_deref(),
+            )
+            .await
         }
         UserCommand::Delete(args) => {
             let client = commands::auth::admin_client(args.server, args.token)?;

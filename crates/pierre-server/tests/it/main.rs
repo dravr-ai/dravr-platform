@@ -57,6 +57,7 @@ mod admin_functionality_test;
 mod admin_jwt_test;
 mod admin_models_test;
 mod admin_pre_approved_emails_test;
+mod admin_provider_clone_test;
 mod admin_routes_test;
 mod admin_store_package_review_test;
 mod admin_tenant_access_authz_test;

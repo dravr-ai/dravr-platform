@@ -55,6 +55,9 @@ use uuid::Uuid;
 
 const TEST_ADMIN_JWT_SECRET: &str = "test_jwt_secret_for_pre_approved_email_routes";
 
+/// The web app an answered invitation link opens.
+const FRONTEND_URL: &str = "https://app.example.test";
+
 /// One invitation the handler handed over to be mailed: the address and the
 /// single-use token its link carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,6 +154,8 @@ impl Harness {
             mail_fails: Arc::clone(&mail_fails),
         }));
 
+        context.frontend_url = Some(FRONTEND_URL.to_owned());
+
         // The super-admin who approved the device login. `pierre-cli auth
         // login` mints its token against exactly this account.
         let operator_email = "device-operator@example.com".to_owned();
@@ -234,6 +239,18 @@ impl Harness {
         let response = AxumTestRequest::post("/admin/pre-approved-emails")
             .header("Authorization", &format!("Bearer {token}"))
             .json(&json!({ "email": email, "send_invite": true }))
+            .send(self.router.clone())
+            .await;
+        let status = response.status();
+        (status, response.json())
+    }
+
+    /// `allow` asking for the invitation's link back, which is what
+    /// `pierre-cli user allow --send-invite --print-link` puts on the wire.
+    async fn allow_with_link(&self, token: &str, email: &str, send_invite: bool) -> (u16, Value) {
+        let response = AxumTestRequest::post("/admin/pre-approved-emails")
+            .header("Authorization", &format!("Bearer {token}"))
+            .json(&json!({ "email": email, "send_invite": send_invite, "return_link": true }))
             .send(self.router.clone())
             .await;
         let status = response.status();
@@ -1033,6 +1050,122 @@ async fn a_pending_account_is_approved_rather_than_invited() -> Result<()> {
         harness.approved(),
         vec![email.to_owned()],
         "the promotion must still be announced"
+    );
+    Ok(())
+}
+
+/// A link answered to the caller hands them the means to create the account,
+/// so a token below super-admin is refused it, and nothing is recorded.
+#[tokio::test]
+async fn a_returned_link_is_refused_below_super_admin_and_writes_nothing() -> Result<()> {
+    let harness = Harness::new().await?;
+    let manager = harness
+        .mint_token(
+            "manage-users-service",
+            Some(vec![AdminPermission::ManageUsers]),
+            false,
+        )
+        .await?;
+    let email = "link-for-a-manager@example.com";
+
+    let (status, body) = harness.allow_with_link(&manager, email, true).await;
+
+    assert_eq!(status, 403, "{body}");
+    assert!(body["data"]["invite_url"].is_null(), "{body}");
+    let stored = harness.repos.pre_approved_emails.list().await?;
+    assert!(stored.is_empty(), "no allow is recorded: {stored:?}");
+    let live = harness
+        .repos
+        .user_invitations
+        .list_live(chrono::Utc::now())
+        .await?;
+    assert!(live.is_empty(), "no invitation is issued: {live:?}");
+    let mailed = harness.invited();
+    assert!(mailed.is_empty(), "nothing is mailed: {mailed:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_returned_link_requires_an_invitation() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+
+    let (status, body) = harness
+        .allow_with_link(&token, "link-without-invite@example.com", false)
+        .await;
+
+    assert_eq!(status, 400, "{body}");
+    let stored = harness.repos.pre_approved_emails.list().await?;
+    assert!(stored.is_empty(), "no allow is recorded: {stored:?}");
+    Ok(())
+}
+
+/// The operator e2e path: a super-admin gets the accept link back instead of
+/// a mail, and the link creates the account once.
+#[tokio::test]
+async fn a_super_admin_gets_the_link_back_and_nothing_is_mailed() -> Result<()> {
+    let harness = Harness::new().await?;
+    let token = harness.device_login_token().await?;
+    let email = "e2e-athlete-1@example.com";
+
+    let buffer = LogBuffer::default();
+    let subscriber = log_fmt()
+        .json()
+        .with_max_level(Level::INFO)
+        .with_writer(buffer.clone())
+        .finish();
+    let (status, body) = {
+        let _guard = set_default(subscriber);
+        harness.allow_with_link(&token, email, true).await
+    };
+
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["invited"], json!(true), "{body}");
+    assert!(body["data"]["invitation_expires_at"].is_string(), "{body}");
+    let url = body["data"]["invite_url"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the link must be answered: {body}"));
+    let prefix = format!("{FRONTEND_URL}/accept-invite#token=");
+    let encoded = url
+        .strip_prefix(&prefix)
+        .unwrap_or_else(|| panic!("{url} must start with {prefix}"));
+    let link_token = urlencoding::decode(encoded)?.into_owned();
+    assert!(
+        harness.invited().is_empty(),
+        "a returned link is never mailed"
+    );
+    let message = body["message"].as_str().unwrap_or_default();
+    assert!(
+        !message.contains(&link_token) && !message.contains(encoded),
+        "the token must not reach the sentence: {message}"
+    );
+
+    let (selector, verifier) = link_token.split_once('.').expect("selector.verifier");
+    let leaked: Vec<Value> = buffer
+        .lines()
+        .into_iter()
+        .filter(|l| {
+            let line = l.to_string();
+            line.contains(verifier) || line.contains(selector) || line.contains(email)
+        })
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "neither the token nor the address may reach the log: {leaked:?}"
+    );
+    assert!(
+        buffer
+            .lines()
+            .iter()
+            .all(|l| l["fields"]["event"].as_str() != Some("user.invited")),
+        "a link handed to an operator raises no user.invited"
+    );
+
+    let redeemed = harness.redeem(&link_token).await?;
+    assert_eq!(redeemed.email, email);
+    assert!(
+        harness.redeem(&link_token).await.is_err(),
+        "the link works once"
     );
     Ok(())
 }

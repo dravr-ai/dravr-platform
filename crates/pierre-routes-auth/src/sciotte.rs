@@ -12,17 +12,16 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use chrono::Utc;
 use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
-use pierre_core::constants::oauth_providers::{SCIOTTE_TRAININGPEAKS, TOKEN_TYPE_SESSION};
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
+use pierre_core::models::TenantId;
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
-use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::provider_notice::require_notice_accepted;
+use pierre_services::scrape_session::{persist_sciotte_session, ScrapeSessionInstaller};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -37,7 +36,7 @@ use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::trainingpeaks_account::spawn_login_probe;
 use crate::AuthRoutesContext;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::{
     extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims, CONNECT_PROVIDER,
@@ -312,10 +311,8 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 }
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
-/// After storing, spawns a background task to pre-fetch activities into cache so the
-/// agent can serve data immediately when the user starts chatting. A TrainingPeaks
-/// session is first probed for its account role, which decides whether there is
-/// a calendar to prefetch at all.
+/// After storing, raises `provider.connected` and warms the account's data from
+/// the session (see [`warm_from_session`]).
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: uuid::Uuid,
@@ -323,53 +320,41 @@ async fn store_sciotte_session(
     session: &AuthSession,
     provider_name: &str,
 ) -> Result<Response, AppError> {
-    let session_json = serde_json::to_string(session)
-        .map_err(|e| AppError::internal(format!("Failed to serialize session: {e}")))?;
-
-    let now = Utc::now();
-    let token = UserOAuthToken {
-        id: Uuid::new_v4().to_string(),
+    let session_json = persist_sciotte_session(
+        &resources.repos,
+        &resources.cache,
         user_id,
-        tenant_id: tenant_id.to_string(),
-        provider: provider_name.to_owned(),
-        access_token: SecretString::from(session_json.clone()),
-        refresh_token: None,
-        token_type: TOKEN_TYPE_SESSION.to_owned(),
-        expires_at: session.expires_at,
-        scope: None,
-        provider_user_id: None,
-        oauth_app_client_id: None,
-        created_at: now,
-        updated_at: now,
-    };
-
-    let tenant = TenantId::from_uuid(tenant_id);
-    if provider_name == SCIOTTE_TRAININGPEAKS {
-        supersede_delegated_link(&resources.repos, user_id, tenant, provider_name).await?;
-    }
-
-    resources.repos.oauth_tokens.upsert_token(&token).await?;
-    if provider_name == SCIOTTE_TRAININGPEAKS {
-        // A roster read through the session this one replaces may name
-        // another account's athletes.
-        forget_coach_roster(&resources.cache, user_id, tenant, provider_name).await;
-    }
-
-    resources
-        .repos
-        .provider_connections
-        .register_connection(
-            user_id,
-            tenant,
-            provider_name,
-            &ConnectionType::Manual,
-            None,
-        )
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
+        TenantId::from_uuid(tenant_id),
+        session,
+        provider_name,
+    )
+    .await?;
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
+    warm_from_session(
+        resources,
+        user_id,
+        tenant_id,
+        session,
+        session_json.expose_secret(),
+        provider_name,
+    );
 
+    Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
+}
+
+/// Start what a freshly stored session owes the account: an activity
+/// pre-fetch so the agent can serve data immediately, then the health
+/// backfill. A `TrainingPeaks` session is first probed for its account role,
+/// which decides whether there is a calendar to prefetch at all.
+fn warm_from_session(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    session: &AuthSession,
+    session_json: &str,
+    provider_name: &str,
+) {
     // Pre-fetch activities in background so the cache is warm when the user
     // chats. A TrainingPeaks coach account has no calendar of its own, so its
     // role is read first and decides whether there is anything to prefetch.
@@ -377,9 +362,9 @@ async fn store_sciotte_session(
     // arrives meanwhile (the onboarding proposal) waits for this one instead
     // of scraping the fresh session beside it (carnet#736).
     let prefetch = if provider_name == SCIOTTE_TRAININGPEAKS {
-        spawn_login_probe(resources, user_id, tenant_id, session, &session_json)
+        spawn_login_probe(resources, user_id, tenant_id, session, session_json)
     } else {
-        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json)
+        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, session_json)
     };
 
     // The session also feeds the health sync (Garmin's and COROS's nights,
@@ -395,8 +380,39 @@ async fn store_sciotte_session(
     );
     #[cfg(not(feature = "health-sync"))]
     drop(prefetch);
+}
 
-    Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
+/// The operator clone's install: the same store and warm-up as a login, with
+/// no `provider.connected` event, since an operator copying a session onto a
+/// test account is not an athlete connecting and must not count as one.
+#[async_trait::async_trait]
+impl ScrapeSessionInstaller for AuthRoutesContext {
+    async fn install_session(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        backend: &str,
+        session: &AuthSession,
+    ) -> AppResult<()> {
+        let session_json = persist_sciotte_session(
+            &self.repos,
+            &self.cache,
+            user_id,
+            tenant_id,
+            session,
+            backend,
+        )
+        .await?;
+        warm_from_session(
+            self,
+            user_id,
+            tenant_id.as_uuid(),
+            session,
+            session_json.expose_secret(),
+            backend,
+        );
+        Ok(())
+    }
 }
 
 /// Which step of a sign-in produced the outcome being answered.
