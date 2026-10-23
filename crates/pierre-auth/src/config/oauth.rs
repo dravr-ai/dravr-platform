@@ -535,9 +535,11 @@ fn first_configured_url(explicit: Option<&str>, base_url: Option<&str>, http_por
 impl OAuth2ServerConfig {
     /// Load `OAuth2` authorization server configuration from environment.
     ///
-    /// `previous_frontend_origins` are the origins the frontend was served
-    /// from before `FRONTEND_URL` (`ALLOWED_MOBILE_REDIRECT_ORIGINS`, parsed
-    /// once by the security config): the web app still signs in from them.
+    /// `previous_frontend_origins` are the origins besides `FRONTEND_URL`
+    /// that serve the web app (`ALLOWED_MOBILE_REDIRECT_ORIGINS`, infra's
+    /// `local.frontend_extra_origins`, parsed once by the security config):
+    /// previous frontend origins, other public hostnames and run.app URLs.
+    /// The web app signs in from each.
     #[must_use]
     pub fn from_env(previous_frontend_origins: &[String]) -> Self {
         let http_port = env::var("HTTP_PORT")

@@ -88,7 +88,9 @@ resource "google_monitoring_alert_policy" "first_party_authorize_refused" {
          refused` names it too.
       2. If that origin is one the app is really served from, it is missing from
          the first-party list: `FRONTEND_URL`, the issuer, or
-         `ALLOWED_MOBILE_REDIRECT_ORIGINS` (terraform `frontend_previous_origins`).
+         `ALLOWED_MOBILE_REDIRECT_ORIGINS` (terraform `local.frontend_extra_origins`
+         in main.tf: `frontend_previous_origins`, every `public_domains`
+         hostname and the frontend's run.app URL).
       3. Workaround for the athlete meanwhile: sign in at `frontend_base_url`.
     EOT
     mime_type = "text/markdown"

@@ -234,7 +234,7 @@ variable "mcp_resource_url" {
 }
 
 variable "frontend_previous_origins" {
-  description = "Origins the frontend was served from before the current frontend_base_url, still accepted for the dual-origin window: joined into MCP_ALLOWED_ORIGINS and set as ALLOWED_MOBILE_REDIRECT_ORIGINS, which also lets the web app sign in from them (first-party /auth/callback, carnet#1145). Empty it once every client and provider callback is on frontend_base_url."
+  description = "Origins the frontend was served from before the current frontend_base_url, still accepted for the dual-origin window: joined into MCP_ALLOWED_ORIGINS and set as ALLOWED_MOBILE_REDIRECT_ORIGINS, which also lets the web app sign in from them (first-party /auth/callback, carnet#1145); sign_in_uptime_monitoring.tf probes sign-in on each. Empty it once every client and provider callback is on frontend_base_url, except for a run.app URL Cloud Run still serves the frontend on: the web app signs in from it while it serves, and plan refuses to drop it (the precondition in sign_in_uptime_monitoring.tf)."
   type        = list(string)
   default     = []
 }
@@ -362,7 +362,7 @@ variable "frontend_max_instances" {
 }
 
 variable "public_domains" {
-  description = "First-party hostnames served by a global external load balancer in front of the frontend Cloud Run service (e.g. app.dravr.ai, mcp.dravr.ai). Empty = no load balancer, the run.app hostname only. Requires enable_frontend."
+  description = "First-party hostnames served by a global external load balancer in front of the frontend Cloud Run service (e.g. app.dravr.ai, mcp.dravr.ai). Each serves the app, so each is a first-party sign-in origin: every one besides frontend_base_url's host goes into ALLOWED_MOBILE_REDIRECT_ORIGINS and gets a sign-in uptime check (carnet#1152). Empty = no load balancer, the run.app hostname only. Requires enable_frontend."
   type        = list(string)
   default     = []
 

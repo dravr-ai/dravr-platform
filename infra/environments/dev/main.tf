@@ -202,6 +202,38 @@ data "google_compute_global_address" "frontend_lb" {
   project  = var.project_id
 }
 
+locals {
+  # Cloud Run serves the frontend on two run.app URLs, and the web app signs in
+  # from whichever one the athlete opened. The hash URL (status.url) is the one
+  # frontend_previous_origins carries; this is the deterministic one, built
+  # from plan-known values because module.frontend depends on the backend's URL
+  # and cannot feed the backend's env. Leaving it out refused web sign-in there
+  # (carnet#1152). sign_in_uptime_monitoring.tf asserts every frontend URL is
+  # accepted.
+  frontend_run_app_origin = "https://${var.service_name}-frontend-${data.google_project.current.number}.${var.region}.run.app"
+
+  # Every public_domains hostname routes to the same frontend nginx and serves
+  # the app, so the web app signs in from each: every one is a first-party
+  # origin, not only frontend_base_url's (carnet#1152). Compared as strings so
+  # an unset frontend_base_url does not fail plan.
+  frontend_public_domain_origins = [
+    for domain in var.public_domains : "https://${domain}"
+    if "https://${domain}" != trimsuffix(var.frontend_base_url, "/")
+  ]
+
+  # The origins the server accepts as first-party besides frontend_base_url
+  # (ALLOWED_MOBILE_REDIRECT_ORIGINS): the previous origins, every other
+  # public_domains hostname, and the frontend's deterministic run.app URL.
+  # Every hostname that serves the frontend is here by construction, which is
+  # what keeps each sign-in uptime check (sign_in_uptime_monitoring.tf) on an
+  # accepted origin.
+  frontend_extra_origins = distinct(concat(
+    var.frontend_previous_origins,
+    local.frontend_public_domain_origins,
+    var.enable_frontend ? [local.frontend_run_app_origin] : [],
+  ))
+}
+
 module "backend" {
   source = "../../modules/cloud_run"
 
@@ -272,6 +304,9 @@ module "backend" {
       # SPA only displays the URL for stdio clients to copy), and native/CLI MCP
       # clients send no Origin at all, so they are unaffected. This rejects a
       # browser origin other than our own with 403 before authentication.
+      # It stays frontend_base_url + frontend_previous_origins rather than
+      # local.frontend_extra_origins: sign-in never reaches POST /mcp, so the
+      # other public_domains hostnames and the run.app URL need no entry here.
       MCP_ALLOWED_ORIGINS = join(",", concat([var.frontend_base_url], var.frontend_previous_origins))
 
       # Public URL for OAuth callbacks (frontend URL, since nginx proxies to backend)
@@ -283,10 +318,14 @@ module "backend" {
       # (carnet#639). Blank falls back to BASE_URL alone.
       MCP_RESOURCE_URL = var.mcp_resource_url
 
-      # A mobile OAuth return to a previous frontend origin is still accepted
-      # while a build pointing at it is in the field; base_url itself is
-      # always allowed. Empty when frontend_previous_origins is.
-      ALLOWED_MOBILE_REDIRECT_ORIGINS = join(",", var.frontend_previous_origins)
+      # Every origin besides base_url that serves the frontend (always
+      # allowed itself): a previous frontend origin, while a build pointing at
+      # it is in the field; every other public_domains hostname; and the
+      # deterministic run.app URL Cloud Run keeps serving the app on. The web
+      # app signs in from each (FirstPartyRedirects, carnet#1152), and a
+      # mobile provider-OAuth return may land on any of them; all are this
+      # deployment's own hosts.
+      ALLOWED_MOBILE_REDIRECT_ORIGINS = join(",", local.frontend_extra_origins)
 
       # The OAuth2 limiter keys each client by the rightmost X-Forwarded-For
       # entry no trusted proxy wrote, since the backend's TCP peer is a proxy

@@ -396,9 +396,9 @@ jobs:
     # The rollback verdict is honoured here and in publish-frontend only. deploy-dev
     # requires this job's success in its `if:` (the one exception is a
     # component=frontend dispatch, which builds no server image), and
-    # tag-deployed-dev, sdk-smoke-dev and seed-dev require deploy-dev's, so
-    # skipping this job for a rollback or a missing GCP secret skips all four
-    # with it.
+    # tag-deployed-dev, sdk-smoke-dev, sign-in-smoke-dev and seed-dev require
+    # deploy-dev's, so skipping this job for a rollback or a missing GCP secret
+    # skips all five with it.
     if: >-
       needs.resolve-sha.outputs.gcp_configured == 'true' &&
       needs.resolve-sha.outputs.rollback != 'true' &&
@@ -1068,6 +1068,65 @@ jobs:
           # likely cause when it fails.
           PIERRE_JWT_TOKEN: ${{ secrets.DEV_MCP_SMOKE_KEY }}
         run: ./scripts/ci/mcp-sdk-smoke.sh
+
+  # ---------------------------------------------------------------------------
+  # First-party sign-in smoke (after dev deploy)
+  #
+  # The web and mobile apps sign in through /oauth2/authorize, which accepts
+  # their callback only on the deployment's own origins (FRONTEND_URL, the
+  # issuer, ALLOWED_MOBILE_REDIRECT_ORIGINS). From 2026-10-07 to 2026-10-23 the
+  # previous run.app frontend origin was missing from that list: web sign-in
+  # there answered 400 "Invalid redirect_uri" for 16 days behind green CI,
+  # until an athlete reported it (carnet#1145).
+  #
+  # Read back from Cloud Run after the rollout, every run.app URL the frontend
+  # service is served on must be an origin the api accepts, and each accepted
+  # origin must answer the apps' authorize request with the 303 to the hosted
+  # login page. A served origin the server refuses, a regression in its
+  # redirect policy, or an origin that does not route to it fails the deploy
+  # (carnet#1152). Unauthenticated, it writes nothing.
+  #
+  # Rollout order: a deploy changes only the image, and the api's
+  # ALLOWED_MOBILE_REDIRECT_ORIGINS changes only through a manual terraform
+  # apply of infra/environments/dev (terraform.yml). When the origins terraform
+  # accepts (main.tf local.frontend_extra_origins) and the URLs the frontend is
+  # served on disagree, this job fails every deploy until that apply lands — a
+  # real gap, not a flake.
+  # ---------------------------------------------------------------------------
+  sign-in-smoke-dev:
+    name: First-Party Sign-In Smoke (dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~20 s
+    needs: [deploy-dev]
+    # As sdk-smoke-dev: a skipped publish-frontend must not skip the probe.
+    if: ${{ !cancelled() && needs.deploy-dev.result == 'success' }}
+    environment: development
+
+    steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (smoke script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
+      # The dev deployer already describes these services in deploy-dev's
+      # rollout waits; the probe reads the api's env and the frontend's URLs.
+      - name: Authenticate to GCP (dev deployer)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Probe sign-in on every accepted and serving origin
+        env:
+          SIGN_IN_SMOKE_SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          SIGN_IN_SMOKE_FRONTEND_SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
+          SIGN_IN_SMOKE_REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: ./scripts/ci/first-party-sign-in-smoke.sh
 
   # Run Seed Jobs (after dev deploy)
   # ---------------------------------------------------------------------------

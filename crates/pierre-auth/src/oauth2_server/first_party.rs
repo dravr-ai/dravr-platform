@@ -116,10 +116,11 @@ fn is_expo_go_callback(redirect_uri: &str) -> bool {
 
 /// The origins Dravr's web app is served from: the frontend's own URL when
 /// it is set, then the issuer, which serves the app wherever the frontend
-/// and the API share one origin, then the origins the frontend was served
-/// from before (`ALLOWED_MOBILE_REDIRECT_ORIGINS`, infra's
-/// `frontend_previous_origins`): athletes still open the app there during the
-/// dual-origin window, and refusing them broke web sign-in (carnet#1145).
+/// and the API share one origin, then every other origin that serves the web
+/// app (`ALLOWED_MOBILE_REDIRECT_ORIGINS`, infra's
+/// `local.frontend_extra_origins`: the previous frontend origins, the other
+/// public hostnames and the frontend's run.app URLs). Athletes open the app on
+/// each, and refusing one broke web sign-in (carnet#1145, carnet#1152).
 /// Each reduced to `scheme://host[:port]`; one that does not parse is left out.
 pub(crate) fn first_party_web_origins(
     frontend_url: Option<&str>,

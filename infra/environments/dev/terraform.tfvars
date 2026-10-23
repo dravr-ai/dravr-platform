@@ -26,14 +26,19 @@ frontend_base_url = "https://app.dravr.ai"
 # the plan in dravr-vault, Work Log 2026-09-21 — once a mobile release on
 # app.dravr.ai has shipped, two weeks or one release, whichever is later. The
 # window is ledgered as frontend-dual-origin-window in feature-phases.yaml, so
-# the weekly phase review raises it when the date passes.
+# the weekly phase review raises it when the date passes. Emptying it does not
+# stop Cloud Run serving the app on this URL, so web sign-in there would be
+# refused again (carnet#1152): plan fails on the sign-in probe's precondition
+# until the URL is accepted some other way or the run.app URLs are disabled.
 frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"]
 
 # First-party hostnames on a global external load balancer in front of the
 # frontend service. app.dravr.ai is the address provider OAuth applications
 # register their callback against; mcp.dravr.ai is the MCP server's published
 # address for the AI chats. Both hostnames share one load balancer, one IP pair
-# and one bundle of forwarding rules, so the second costs nothing.
+# and one bundle of forwarding rules, so the second costs nothing. Each one
+# serves the app, so each is accepted as a first-party sign-in origin and
+# probed by an uptime check (main.tf frontend_extra_origins, carnet#1152).
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 
 # The MCP resource identifier (MCP_RESOURCE_URL). A client that dials
