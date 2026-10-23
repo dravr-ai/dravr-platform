@@ -234,7 +234,7 @@ variable "mcp_resource_url" {
 }
 
 variable "frontend_previous_origins" {
-  description = "Origins the frontend was served from before the current frontend_base_url, still accepted for the dual-origin window: joined into MCP_ALLOWED_ORIGINS and set as ALLOWED_MOBILE_REDIRECT_ORIGINS. Empty it once every client and provider callback is on frontend_base_url."
+  description = "Origins the frontend was served from before the current frontend_base_url, still accepted for the dual-origin window: joined into MCP_ALLOWED_ORIGINS and set as ALLOWED_MOBILE_REDIRECT_ORIGINS, which also lets the web app sign in from them (first-party /auth/callback, carnet#1145). Empty it once every client and provider callback is on frontend_base_url."
   type        = list(string)
   default     = []
 }

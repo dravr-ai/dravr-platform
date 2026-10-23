@@ -161,6 +161,7 @@ impl ServerConfig {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(8081);
+        let security = SecurityConfig::from_env()?;
         let config = Self {
             http_port,
             frontend_url: env::var("FRONTEND_URL").ok(),
@@ -172,8 +173,8 @@ impl ServerConfig {
             auth: AuthConfig::from_env()?,
             firebase: FirebaseConfig::from_env(),
             oauth: OAuthConfig::from_env(),
-            oauth2_server: OAuth2ServerConfig::from_env(),
-            security: SecurityConfig::from_env()?,
+            oauth2_server: OAuth2ServerConfig::from_env(&security.allowed_mobile_redirect_origins),
+            security,
             external_services: ExternalServicesConfig::from_env(),
             usda_api_key: env::var("USDA_API_KEY").ok().map(SecretString::from),
             app_behavior: AppBehaviorConfig::from_env()?,

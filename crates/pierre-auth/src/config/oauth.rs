@@ -20,7 +20,7 @@ use url::Url;
 
 use super::google_sign_in::GoogleSignInConfig;
 use super::satellites::resolve_satellite_resources;
-use crate::oauth2_server::first_party::FirstPartyRedirects;
+use crate::oauth2_server::first_party::{first_party_web_origins, FirstPartyRedirects};
 
 /// The server's own OAuth apps and provider endpoints, read once at startup.
 ///
@@ -532,32 +532,14 @@ fn first_configured_url(explicit: Option<&str>, base_url: Option<&str>, http_por
         .map_or_else(|| format!("http://localhost:{http_port}"), str::to_owned)
 }
 
-/// The origins Dravr's web app is served from: the frontend's own URL when
-/// it is set, then the issuer, which serves the app wherever the frontend
-/// and the API share one origin. Each reduced to `scheme://host[:port]`;
-/// one that does not parse is left out.
-fn first_party_web_origins(frontend_url: Option<&str>, issuer_url: &str) -> Vec<String> {
-    let mut origins: Vec<String> = Vec::new();
-    for candidate in frontend_url.into_iter().chain(iter::once(issuer_url)) {
-        let Ok(url) = Url::parse(candidate.trim()) else {
-            warn!(
-                url = %redact_url(candidate),
-                "Ignoring a first-party web origin that does not parse"
-            );
-            continue;
-        };
-        let origin = url.origin().ascii_serialization();
-        if url.origin().is_tuple() && !origins.contains(&origin) {
-            origins.push(origin);
-        }
-    }
-    origins
-}
-
 impl OAuth2ServerConfig {
-    /// Load `OAuth2` authorization server configuration from environment
+    /// Load `OAuth2` authorization server configuration from environment.
+    ///
+    /// `previous_frontend_origins` are the origins the frontend was served
+    /// from before `FRONTEND_URL` (`ALLOWED_MOBILE_REDIRECT_ORIGINS`, parsed
+    /// once by the security config): the web app still signs in from them.
     #[must_use]
-    pub fn from_env() -> Self {
+    pub fn from_env(previous_frontend_origins: &[String]) -> Self {
         let http_port = env::var("HTTP_PORT")
             .or_else(|_| env::var("MCP_PORT"))
             .ok()
@@ -582,6 +564,7 @@ impl OAuth2ServerConfig {
             web_origins: first_party_web_origins(
                 env::var("FRONTEND_URL").ok().as_deref(),
                 &issuer_url,
+                previous_frontend_origins,
             ),
             allow_expo_go: env::var("OAUTH_ALLOW_EXPO_GO_REDIRECT")
                 .is_ok_and(|value| value.trim().eq_ignore_ascii_case("true")),
@@ -1078,35 +1061,6 @@ mod tests {
         assert_eq!(
             configured_credential(Some(" 4f1c2a7e-0d3b-4c5a-9e8f-6a7b8c9d0e1f\n".to_owned())),
             Some("4f1c2a7e-0d3b-4c5a-9e8f-6a7b8c9d0e1f".to_owned())
-        );
-    }
-
-    #[test]
-    fn first_party_web_origins_are_the_frontend_then_the_issuer_reduced_to_origins() {
-        assert_eq!(
-            first_party_web_origins(
-                Some(" https://app.dravr.ai/some/path?x=1 "),
-                "https://api.dravr.ai/"
-            ),
-            vec!["https://app.dravr.ai", "https://api.dravr.ai"]
-        );
-    }
-
-    #[test]
-    fn first_party_web_origins_drop_duplicates_and_what_names_no_origin() {
-        // One origin serving both the app and the API is listed once.
-        assert_eq!(
-            first_party_web_origins(Some("http://localhost:8081/"), "http://localhost:8081"),
-            vec!["http://localhost:8081"]
-        );
-        // An unparsable FRONTEND_URL, or an opaque-origin one, adds nothing.
-        assert_eq!(
-            first_party_web_origins(Some("not a url"), "https://api.dravr.ai"),
-            vec!["https://api.dravr.ai"]
-        );
-        assert_eq!(
-            first_party_web_origins(Some("dravr://auth/callback"), "https://api.dravr.ai"),
-            vec!["https://api.dravr.ai"]
         );
     }
 

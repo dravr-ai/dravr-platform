@@ -28,7 +28,11 @@
 //! (`20261006150000_first_party_oauth2_clients`), because the codes they are
 //! issued reference one.
 
+use pierre_core::redaction;
 use serde::{Deserialize, Serialize};
+use std::iter;
+use tracing::warn;
+use url::Url;
 
 /// The `client_id` Dravr's web app signs in as.
 pub const WEB_CLIENT_ID: &str = "dravr-web";
@@ -110,6 +114,39 @@ fn is_expo_go_callback(redirect_uri: &str) -> bool {
         })
 }
 
+/// The origins Dravr's web app is served from: the frontend's own URL when
+/// it is set, then the issuer, which serves the app wherever the frontend
+/// and the API share one origin, then the origins the frontend was served
+/// from before (`ALLOWED_MOBILE_REDIRECT_ORIGINS`, infra's
+/// `frontend_previous_origins`): athletes still open the app there during the
+/// dual-origin window, and refusing them broke web sign-in (carnet#1145).
+/// Each reduced to `scheme://host[:port]`; one that does not parse is left out.
+pub(crate) fn first_party_web_origins(
+    frontend_url: Option<&str>,
+    issuer_url: &str,
+    previous_origins: &[String],
+) -> Vec<String> {
+    let mut origins: Vec<String> = Vec::new();
+    let candidates = frontend_url
+        .into_iter()
+        .chain(iter::once(issuer_url))
+        .chain(previous_origins.iter().map(String::as_str));
+    for candidate in candidates {
+        let Ok(url) = Url::parse(candidate.trim()) else {
+            warn!(
+                url = %redaction::redact_url(candidate),
+                "Ignoring a first-party web origin that does not parse"
+            );
+            continue;
+        };
+        let origin = url.origin().ascii_serialization();
+        if url.origin().is_tuple() && !origins.contains(&origin) {
+            origins.push(origin);
+        }
+    }
+    origins
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +206,70 @@ mod tests {
     fn other_clients_are_never_first_party() {
         assert!(!is_first_party("mcp_client_123"));
         assert!(!redirects(true).accepts("mcp_client_123", MOBILE_CALLBACK_URI));
+    }
+
+    #[test]
+    fn first_party_web_origins_are_the_frontend_then_the_issuer_reduced_to_origins() {
+        assert_eq!(
+            first_party_web_origins(
+                Some(" https://app.dravr.ai/some/path?x=1 "),
+                "https://api.dravr.ai/",
+                &[]
+            ),
+            vec!["https://app.dravr.ai", "https://api.dravr.ai"]
+        );
+    }
+
+    #[test]
+    fn first_party_web_origins_drop_duplicates_and_what_names_no_origin() {
+        // One origin serving both the app and the API is listed once.
+        assert_eq!(
+            first_party_web_origins(Some("http://localhost:8081/"), "http://localhost:8081", &[]),
+            vec!["http://localhost:8081"]
+        );
+        // An unparsable FRONTEND_URL, or an opaque-origin one, adds nothing.
+        assert_eq!(
+            first_party_web_origins(Some("not a url"), "https://api.dravr.ai", &[]),
+            vec!["https://api.dravr.ai"]
+        );
+        assert_eq!(
+            first_party_web_origins(Some("dravr://auth/callback"), "https://api.dravr.ai", &[]),
+            vec!["https://api.dravr.ai"]
+        );
+    }
+
+    /// The run.app origin the frontend was served from before app.dravr.ai is
+    /// still where athletes open the app; its callback must be accepted, or
+    /// web sign-in dies with "Invalid `redirect_uri`" (carnet#1145).
+    #[test]
+    fn first_party_web_origins_keep_the_previous_frontend_origins() {
+        let run_app = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app";
+        let origins = first_party_web_origins(
+            Some("https://app.dravr.ai"),
+            "https://app.dravr.ai",
+            &[format!("{run_app}/"), "*".to_owned()],
+        );
+        assert_eq!(
+            origins,
+            vec!["https://app.dravr.ai", run_app],
+            "bug: a previous frontend origin is missing, or a `*` entry was kept"
+        );
+
+        let policy = FirstPartyRedirects {
+            web_origins: origins,
+            allow_expo_go: false,
+        };
+        assert!(
+            policy.accepts(WEB_CLIENT_ID, &format!("{run_app}/auth/callback")),
+            "bug: the web app is refused on its previous frontend origin"
+        );
+        assert!(
+            policy.accepts(WEB_CLIENT_ID, "https://app.dravr.ai/auth/callback"),
+            "bug: the web app is refused on its current frontend origin"
+        );
+        assert!(
+            !policy.accepts(WEB_CLIENT_ID, "https://evil.run.app/auth/callback"),
+            "bug: an origin nobody configured is accepted for the web app"
+        );
     }
 }

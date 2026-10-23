@@ -170,6 +170,9 @@ a chat path budgeted for 600s.
    variable carries `BASE_URL`, `FRONTEND_URL`, the OAuth issuer and every
    provider callback, so the provider portals and the Firebase authorized
    domains (`modules/firebase/MANUAL_STEPS.tf`) move in the same window.
+   List the old hostname in `frontend_previous_origins` for as long as athletes
+   still open the app there: it is the only thing that lets the web app sign
+   in from it (first-party `/auth/callback`, carnet#1145).
 
 ## Module Reference
 

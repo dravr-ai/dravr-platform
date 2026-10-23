@@ -27,6 +27,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::redaction;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use secrecy::{ExposeSecret, SecretString};
@@ -222,6 +223,18 @@ impl OAuth2AuthorizationServer {
             client.redirect_uris.contains(&request.redirect_uri)
         };
         if !redirect_accepted {
+            // Dravr's own apps only ever send this deployment's callbacks, so
+            // a refusal here is usually an origin missing from the first-party
+            // list, which locks athletes out of sign-in (carnet#1145); it names
+            // the origin the `dravr-first-party-authorize-refused` alert is
+            // paging about.
+            if is_first_party(&client.client_id) {
+                warn!(
+                    client_id = %client.client_id,
+                    redirect_uri = %redaction::redact_url(&request.redirect_uri),
+                    "first-party redirect_uri refused"
+                );
+            }
             return Err(AuthorizeRejection::ShownToUser(
                 OAuth2Error::invalid_request("Invalid redirect_uri"),
             ));
