@@ -524,6 +524,9 @@ pub(crate) struct PromptTurn<'a> {
     pub history: &'a [MessageRecord],
     /// Onboarding turn context when the conversation is mid pillar walk.
     pub onboarding: Option<&'a super::onboarding::OnboardingTurn>,
+    /// The turn's standing in a coach's thread about one athlete, resolved
+    /// once with the history it trims; `None` for every other conversation.
+    pub subject_turn: Option<SubjectTurn>,
 }
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -575,6 +578,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         agent_ctx,
         history,
         onboarding,
+        subject_turn,
     } = turn;
     // Stage 7a: Build the base prompt in two layers — platform contract, then
     // persona.
@@ -634,9 +638,10 @@ pub(crate) async fn assemble_prompt_and_messages(
     } = standing;
 
     // Stage 7a.1c: A coach's thread bound to one athlete (carnet#1070). The
-    // coaching gates run again on this turn, and the athlete — never the coach
-    // writing — is what every athlete-data stage below is about.
-    let subject_turn = subject_athlete::resolve(&ctx.repos, conv, &input.user_id).await;
+    // coaching gates ran again on this turn (`subject_turn`, resolved where
+    // the history loads), and the athlete — never the coach writing — is what
+    // every athlete-data stage below is about.
+    let subject_refused = matches!(subject_turn, Some(SubjectTurn::Refused(_)));
 
     // The sender is the turn's subject outside both of those alone. Neither
     // the coach's seat nor a coach's athlete thread reads the sender's own
@@ -1083,6 +1088,9 @@ pub(crate) async fn assemble_prompt_and_messages(
         .list_compaction_blocks(&input.conversation_id, input.conversation_tenant_id)
         .await
     {
+        // A coach's athlete thread the gates now refuse reads no summary of
+        // its earlier turns, as it reads none of their rows (carnet#1168).
+        Ok(_) if subject_refused => Vec::new(),
         Ok(mut blocks) => {
             // A summary of first-party-only turns is withheld from an external
             // turn, which then reads the raw rows it is served (carnet#769).

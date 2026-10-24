@@ -8,7 +8,13 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { COACH_CONSENTS_KEYS, coachPlatformName, offeredConsents, weeklyVolumeFigure } from '@pierre/shared-constants';
+import {
+  COACH_CONSENTS_KEYS,
+  analyticsScopeLine,
+  coachPlatformName,
+  offeredConsents,
+  weeklyVolumeFigure,
+} from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
@@ -32,6 +38,8 @@ import {
   useUpdateGroup,
   useUpdateMemberRole,
   useUpdatePeerConsent,
+  useCoachSharing,
+  useSetCoachSharing,
 } from '../../hooks/useGroups';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
@@ -120,7 +128,8 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   // Held until the group resolves: before then a coach reads as a member.
   const memberSurfaces = !!group && !isCoachViewer;
 
-  const { stats, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
+  const { stats, scope: statsScope, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
+  const statsScopeLine = analyticsScopeLine(t, statsScope);
   const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
   // Only an owner or admin may list a group's invites; the route refuses anyone else.
   const { invites, isLoading: isLoadingInvites } = useGroupInvites(groupId, memberSurfaces && isAdmin);
@@ -151,6 +160,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { deactivateInvite } = useDeactivateInvite(groupId);
   const { updateGroup, isPending: isUpdatingGroup } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
+  // Whether the group's human coach sees the member's training: granted at
+  // join, so the member's own switch sits beside peer sharing (carnet#1168).
+  const showsCoachSharing = !!myMembership && !isGroupCoach;
+  const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
+  const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
+    useSetCoachSharing(groupId);
   const { updateRole } = useUpdateMemberRole(groupId);
   const { removeMember } = useRemoveMember(groupId);
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -332,6 +347,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       }
     },
     [updateConsent, t],
+  );
+
+  const handleCoachSharingChange = useCallback(
+    async (consent: boolean) => {
+      try {
+        await setCoachSharing(consent);
+      } catch (err) {
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
+      }
+    },
+    [setCoachSharing, t],
   );
 
   /**
@@ -694,9 +720,30 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     testID="peer-consent-switch"
                   />
                 }
-                last
+                last={!showsCoachSharing}
                 testID="peer-consent-row"
               />
+              {showsCoachSharing && (
+                <Row
+                  title={t('humanCoach.shareTraining')}
+                  subtitle={
+                    group?.coach_user_id
+                      ? t('humanCoach.shareTrainingHint')
+                      : t('humanCoach.shareTrainingPendingHint')
+                  }
+                  trailing={
+                    <Switch
+                      value={coachSharing?.consent ?? false}
+                      onValueChange={(value) => void handleCoachSharingChange(value)}
+                      disabled={!coachSharing || isSavingCoachSharing}
+                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      testID="coach-sharing-switch"
+                    />
+                  }
+                  last
+                  testID="coach-sharing-row"
+                />
+              )}
             </View>
           )}
         </CollapsibleSection>
@@ -730,6 +777,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               </Text>
             </View>
           </View>
+          {/* The stats, the weekly report and the health flags all cover the members who share with the reader. */}
+          {!isLoadingStats && statsScopeLine && (
+            <Text className="text-text-tertiary text-xs mt-1" testID="group-info-scope">
+              {statsScopeLine}
+            </Text>
+          )}
           <GroupInsightsSection groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
         </CollapsibleSection>
         )}

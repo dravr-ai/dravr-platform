@@ -63,6 +63,15 @@ mod group_digest_room_tests {
         )
     }
 
+    /// The French opening of a manager's copy that covers `visible` of
+    /// `roster` members.
+    fn french_manager_scope(visible: usize, roster: usize) -> String {
+        format!(
+            "Ce récap ne couvre que les membres qui partagent leur entraînement avec toi \
+             ({visible} sur {roster})."
+        )
+    }
+
     const FRENCH_ALL_CLEAR: &str = "Rien à signaler côté forme et assiduité cette semaine.";
 
     /// The first Monday after today. A week is owed only when its Monday slot
@@ -366,7 +375,8 @@ mod group_digest_room_tests {
 
     /// The Telegram digest that motivated this: posted once into the group's
     /// chat, in French, naming only the members who share — while both managers
-    /// keep the full digest in the app and nothing reaches their DMs.
+    /// keep their own copy in the app, over the members who share with them,
+    /// and nothing reaches their DMs.
     #[tokio::test]
     async fn a_bound_group_gets_its_digest_in_its_chat_and_managers_keep_it_in_app() {
         let h = Harness::new().await;
@@ -421,8 +431,17 @@ mod group_digest_room_tests {
         for manager in [alice, bruno] {
             let rows = h.digest_rows(manager, tenant).await;
             assert_eq!(rows.len(), 1, "one in-app digest per manager");
-            assert!(rows[0].starts_with("3/3 membres actifs"), "{}", rows[0]);
-            assert!(rows[0].contains("• Zoé Tremblay : 0,0 km"), "{}", rows[0]);
+            let opening = format!("{}\n\n2/2 membres actifs", french_manager_scope(2, 3));
+            assert!(
+                rows[0].starts_with(&opening),
+                "each manager's copy opens on its scope, two of three members: {}",
+                rows[0]
+            );
+            assert!(
+                !rows[0].contains("Zoé"),
+                "a manager is never shown a member who does not share with them: {}",
+                rows[0]
+            );
         }
         assert!(
             h.digest_rows(zoe, tenant).await.is_empty(),
@@ -576,8 +595,9 @@ mod group_digest_room_tests {
     }
 
     /// A managers-only group posts nothing into its chat, however good the
-    /// binding: the owner and the admin get the full digest over every member
-    /// on their own channels and in the app, and a plain member gets nothing.
+    /// binding: the owner and the admin each get their digest, over the
+    /// members who share with them, on their own channels and in the app, and
+    /// a plain member gets nothing.
     #[tokio::test]
     async fn a_managers_group_posts_nothing_and_its_managers_hear_on_their_channels() {
         let h = Harness::new().await;
@@ -619,14 +639,114 @@ mod group_digest_room_tests {
         for manager in [owner, admin] {
             let rows = h.digest_rows(manager, tenant).await;
             assert_eq!(rows.len(), 1, "one in-app digest per manager");
-            assert!(rows[0].starts_with("3/3 membres actifs"), "{}", rows[0]);
+            let opening = format!("{}\n\n2/2 membres actifs", french_manager_scope(2, 3));
             assert!(
-                rows[0].contains("• Ugo Member : 0,0 km"),
-                "the managers' copy covers every member, sharing or not: {}",
+                rows[0].starts_with(&opening),
+                "each manager's copy opens on its scope, two of three members: {}",
+                rows[0]
+            );
+            assert!(
+                !rows[0].contains("Ugo"),
+                "managing the group grants no view of a member who does not share: {}",
                 rows[0]
             );
         }
         assert_eq!(h.digest_rows(member, tenant).await, [] as [String; 0]);
+    }
+
+    /// The group's human coach is also its owner, as onboarding and
+    /// `/group create` make them. An athlete who ran `/group consent coach no`
+    /// is absent from the coach's copy, however much they share with their
+    /// peers. The admin is not the coach and reads the peer rule, so an
+    /// athlete who shares with the coach alone is absent from theirs
+    /// (carnet#1166).
+    #[tokio::test]
+    async fn each_managers_digest_covers_only_the_members_who_share_with_them() {
+        let h = Harness::new().await;
+        let coach = h
+            .person("Coralie Coach", "fr", Some("America/Toronto"))
+            .await;
+        let admin = h.person("Adam Admin", "fr", None).await;
+        let withdrew = h.person("Wanda Withdrew", "fr", None).await;
+        let coach_only = h.person("Cyril CoachOnly", "fr", None).await;
+        let tenant = h.tenant(coach).await;
+        let group = h
+            .group(
+                tenant,
+                "Club Coaché",
+                GroupDigestMode::Managers,
+                None,
+                &[
+                    (coach, GroupRole::Owner, true),
+                    (admin, GroupRole::Admin, true),
+                    (withdrew, GroupRole::Member, true),
+                    (coach_only, GroupRole::Member, true),
+                ],
+            )
+            .await
+            .to_string();
+        let groups = &h.resources.common.repos.groups;
+        assert!(
+            groups
+                .set_group_coach_user(&group, Some(coach), tenant)
+                .await
+                .unwrap(),
+            "fixture: the owner is attached as the group's coach"
+        );
+        assert!(
+            groups
+                .update_coach_sharing_consent(&group, withdrew, false)
+                .await
+                .unwrap(),
+            "fixture: Wanda runs /group consent coach no"
+        );
+        assert!(
+            groups
+                .update_peer_sharing_consent(&group, coach_only, false)
+                .await
+                .unwrap(),
+            "fixture: Cyril stops sharing with his peers"
+        );
+
+        let outcome = h.tick(monday_morning_montreal()).await;
+        assert_eq!(
+            outcome.dispatched, 2,
+            "one copy for the coach-owner and one for the admin: {outcome:?}"
+        );
+        assert_eq!(outcome.errors, 0, "the sweep fails nowhere: {outcome:?}");
+        let opening = format!("{}\n\n3/3 membres actifs", french_manager_scope(3, 4));
+
+        let coach_rows = h.digest_rows(coach, tenant).await;
+        assert_eq!(coach_rows.len(), 1, "one in-app digest for the coach-owner");
+        let coach_copy = &coach_rows[0];
+        assert!(
+            coach_copy.starts_with(&opening),
+            "the coach's copy opens on its scope, three of four members: {coach_copy}"
+        );
+        assert!(
+            coach_copy.contains("• Cyril CoachOnly : 0,0 km"),
+            "shares with the coach, so in the coach's copy: {coach_copy}"
+        );
+        assert!(
+            !coach_copy.contains("Wanda"),
+            "withdrawn from the coach, so absent from the coach's copy: {coach_copy}"
+        );
+
+        let admin_rows = h.digest_rows(admin, tenant).await;
+        assert_eq!(admin_rows.len(), 1, "one in-app digest for the admin");
+        let admin_copy = &admin_rows[0];
+        assert!(
+            admin_copy.starts_with(&opening),
+            "the admin's copy opens on its scope, three of four members: {admin_copy}"
+        );
+        assert!(
+            admin_copy.contains("• Wanda Withdrew : 0,0 km"),
+            "still shares with her peers, so in the admin's copy: {admin_copy}"
+        );
+        assert!(
+            !admin_copy.contains("Cyril"),
+            "shares with the coach alone, so absent from the admin's copy: {admin_copy}"
+        );
     }
 
     /// A group with no chat, or bound where a proactive message bounces, keeps

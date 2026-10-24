@@ -24,6 +24,8 @@ const mockReport: GroupWeeklyReportResponse = {
     },
     fresh_members: [{ user_id: 'user-phil', display_name: 'Phil', form_pct: 12, tsb: 12 }],
   },
+  // Three of the group's five members share their training with this admin.
+  scope: { visible_members: 3, roster_members: 5 },
 };
 
 const mockHealth: GroupHealthFlagsResponse = {
@@ -44,6 +46,7 @@ const mockHealth: GroupHealthFlagsResponse = {
     },
   ],
   total: 2,
+  scope: { visible_members: 3, roster_members: 5 },
 };
 
 jest.mock('../src/services/api', () => ({

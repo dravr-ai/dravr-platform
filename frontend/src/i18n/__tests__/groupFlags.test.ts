@@ -15,6 +15,7 @@ import {
   oneDecimal,
   signedWhole,
   weeklyReportRecommendations,
+  analyticsScopeLine,
   weeklyReportSummary,
   weeklyVolume,
 } from '@pierre/shared-constants';
@@ -128,6 +129,18 @@ describe('group flag and weekly-report phrasing', () => {
       'Membres à risque de surentraînement élevé : 1. Pense à adapter leur récupération.',
       'Volume du groupe en baisse par rapport à la semaine dernière — prends des nouvelles des membres moins actifs.',
     ]);
+  });
+
+  it('says the report covers only the members who share with the reader, and how many', () => {
+    expect(analyticsScopeLine(i18n.getFixedT('en'), { visible_members: 3, roster_members: 5 })).toBe(
+      'This report covers only the members who share their training with you (3 of 5).',
+    );
+    expect(analyticsScopeLine(i18n.getFixedT('fr'), { visible_members: 3, roster_members: 5 })).toBe(
+      'Ce rapport ne couvre que les membres qui partagent leur entraînement avec toi (3 sur 5).',
+    );
+    const t = i18n.getFixedT('en');
+    expect(analyticsScopeLine(t, { visible_members: 5, roster_members: 5 })).toBeNull();
+    expect(analyticsScopeLine(t, null)).toBeNull();
   });
 
   it('still says which way a steady week went, with nobody at risk', () => {

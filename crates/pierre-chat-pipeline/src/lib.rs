@@ -124,7 +124,6 @@ use pierre_services::provider_notice;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_sse::SseManager;
 use pierre_tool_runtime::coach_seat::TurnSeat;
-use pierre_tool_runtime::derived_content;
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
@@ -719,20 +718,12 @@ async fn run_turn(
     )
     .await?;
 
-    // A thread opened from a first-party-only activity is about that activity
-    // throughout, the athlete's own first question included: an external turn
-    // reads none of it but the question it answers, and a first-party turn is
-    // stamped by it (carnet#769).
-    let thread = derived_content::thread_policy(
-        ctx.tool_runtime.as_ref(),
-        &input.conversation_tenant_id,
-        parse_uuid(&input.user_id)?,
-        &input.conversation_id,
-    )
-    .await?;
-    if !ai_scope::admit_derived(thread) {
-        history.retain(|row| row.id == user_message.id);
-    }
+    // What of the history the turn may read: an external turn in a
+    // first-party-only thread, or a coach's athlete thread the gates refuse,
+    // reads only its own new message (`history_scope`).
+    let subject_turn =
+        stages::history_scope::scope_history(ctx, &input, &conv, &user_message.id, &mut history)
+            .await?;
 
     append_platform_prompt(&mut history, &user_message, input.origin);
 
@@ -762,6 +753,7 @@ async fn run_turn(
             agent_ctx: agent_ctx.as_ref(),
             history: &history,
             onboarding: onboarding_turn.as_ref(),
+            subject_turn,
         },
     )
     .await?;

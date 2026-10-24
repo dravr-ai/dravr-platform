@@ -1029,6 +1029,18 @@ pub const KEY_GROUP_CONSENT_UPDATED: &str = "commands.group.consent_updated";
 /// Key: `/group consent coach` confirmation. `{0}` = on/off (peer-sharing
 /// localized), `{1}` = group name.
 pub const KEY_GROUP_COACH_CONSENT_UPDATED: &str = "commands.group.coach_consent_updated";
+/// Key: `/group consent` from a direct message, applied to every group the
+/// member belongs to. `{0}` = on/off (peer-sharing localized), `{1}` = the
+/// group names, comma-separated.
+pub const KEY_GROUP_CONSENT_UPDATED_ALL: &str = "commands.group.consent_updated_all";
+/// Key: `/group consent coach` from a direct message, applied to every group
+/// the member belongs to. `{0}` = on/off (peer-sharing localized), `{1}` = the
+/// group names, comma-separated.
+pub const KEY_GROUP_COACH_CONSENT_UPDATED_ALL: &str = "commands.group.coach_consent_updated_all";
+/// Key: a `/group consent [coach] yes` from a direct message by a member of
+/// several groups, which changes nothing and asks which group. `{0}` = the
+/// group names, comma-separated.
+pub const KEY_GROUP_CONSENT_PICK_GROUP: &str = "commands.group.consent_pick_group";
 /// Key: the `/group join` reply's sharing line when the group has a human
 /// coach. `{0}` = the coach's name.
 pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";
@@ -1483,6 +1495,10 @@ pub const KEY_GROUP_DIGEST_ALL_CLEAR: &str = "notifications.group_digest.all_cle
 /// than all members share their training, and the whole body when none do.
 /// `{0}` members who share, `{1}` members.
 pub const KEY_GROUP_DIGEST_ROOM_SCOPE: &str = "notifications.group_digest.room_scope";
+/// Key: the opening line of a manager's digest when it covers fewer members
+/// than the group holds — only those who share their training with that
+/// manager. `{0}` members covered, `{1}` members.
+pub const KEY_GROUP_DIGEST_MANAGER_SCOPE: &str = "notifications.group_digest.manager_scope";
 
 /// Key: the "reply to your coach" action button. No format placeholders.
 pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";

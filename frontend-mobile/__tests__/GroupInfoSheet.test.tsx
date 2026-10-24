@@ -44,6 +44,8 @@ const mockDeleteGroup = jest.fn();
 const mockConfirmLink = jest.fn();
 const mockGetCoachConsents = jest.fn();
 const mockUpdateCoachConsents = jest.fn();
+const mockGetCoachSharing = jest.fn();
+const mockUpdateCoachSharing = jest.fn();
 
 /** What the caller lets the group's coach do: nothing granted, nothing offered unless overridden. */
 function coachConsents(overrides: Record<string, unknown> = {}) {
@@ -69,6 +71,8 @@ jest.mock('../src/services/api', () => ({
     confirmDelegatedConnection: (...args: unknown[]) => mockConfirmLink(...args),
     getCoachConsents: (...args: unknown[]) => mockGetCoachConsents(...args),
     updateCoachConsents: (...args: unknown[]) => mockUpdateCoachConsents(...args),
+    getCoachSharing: (...args: unknown[]) => mockGetCoachSharing(...args),
+    updateCoachSharing: (...args: unknown[]) => mockUpdateCoachSharing(...args),
     endDelegatedConnection: jest.fn(),
     listMembers: jest.fn(),
     getStats: jest.fn().mockResolvedValue({ stats: null }),
@@ -156,6 +160,8 @@ describe('GroupInfoSheet', () => {
     (userApi.getCoachAccessRequest as jest.Mock).mockResolvedValue({ request: null });
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(GROUP);
     mockGetCoachConsents.mockResolvedValue(coachConsents());
+    mockGetCoachSharing.mockResolvedValue({ consent: true });
+    mockUpdateCoachSharing.mockImplementation(async (_groupId: string, request: unknown) => request);
     (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
       can_create: true,
       policy: 'everyone',
@@ -596,6 +602,31 @@ describe('GroupInfoSheet', () => {
     // Stats and invites refuse a non-member, so the coach never asks for them.
     expect(groupsApi.getStats).not.toHaveBeenCalled();
     expect(groupsApi.listInvites).not.toHaveBeenCalled();
+    // Sharing with the coach is a member's choice the coach never holds.
+    expect(queryByTestId('coach-sharing-row')).toBeNull();
+    expect(mockGetCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it("shows a member's own coach sharing beside peer sharing, and stops it when switched off", async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    const { findByTestId, getByTestId } = renderSheet();
+    // Beside peer sharing, under the settings disclosure.
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
+    });
+
+    const toggle = await findByTestId('coach-sharing-switch');
+    await waitFor(() => expect(getByTestId('coach-sharing-switch')).toHaveProp('value', true));
+    expect(mockGetCoachSharing).toHaveBeenCalledWith('group-1');
+    await act(async () => {
+      fireEvent(toggle, 'valueChange', false);
+    });
+
+    expect(mockUpdateCoachSharing).toHaveBeenCalledWith('group-1', { consent: false });
+    await waitFor(() => expect(getByTestId('coach-sharing-switch')).toHaveProp('value', false));
+    // Peer sharing is a separate choice the switch leaves alone.
+    expect(groupsApi.updatePeerConsent).not.toHaveBeenCalled();
   });
 
   it("offers the group's coach a way into each member's plan, and opens that thread", async () => {
@@ -901,5 +932,29 @@ describe('GroupInfoSheet', () => {
     await findByTestId('leave-group-button');
     expect(mockGetCoachConsents).not.toHaveBeenCalled();
     expect(queryByTestId('coach-consents')).toBeNull();
+  });
+
+  // The stats, the weekly report and the health flags all cover only the
+  // members who share with the reader, the owner included (carnet#1166).
+  it('says under the stats that they cover only the members who share with the reader', async () => {
+    (groupsApi.getStats as jest.Mock).mockResolvedValueOnce({
+      stats: {
+        total_members: 1,
+        active_members: 1,
+        avg_weekly_volume_km: 20,
+        avg_ctl: null,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 1, roster_members: 2 },
+    });
+    const view = renderSheet();
+    await act(async () => {
+      fireEvent.press(await view.findByTestId('group-info-analytics-toggle'));
+    });
+
+    expect(await view.findByTestId('group-info-scope')).toHaveTextContent(
+      'This report covers only the members who share their training with you (1 of 2).',
+    );
   });
 });

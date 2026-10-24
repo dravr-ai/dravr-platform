@@ -165,11 +165,27 @@ pub struct GroupMetadata {
     pub api_version: String,
 }
 
+/// Which members a group analytics response was computed over.
+///
+/// Every number, name and flag in `/stats`, `/report` and `/health` comes
+/// from the members whose training the caller may see — those who share it
+/// with them, plus the caller — so a client can say when that is fewer than
+/// the group holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalyticsScope {
+    /// Members the response covers.
+    pub visible_members: usize,
+    /// Members the group holds.
+    pub roster_members: usize,
+}
+
 /// Response wrapper for group aggregate stats
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StatsResponse {
     /// Aggregate statistics
     pub stats: GroupAggregateStats,
+    /// The members the stats cover
+    pub scope: AnalyticsScope,
     /// Response metadata
     pub metadata: GroupMetadata,
 }
@@ -179,6 +195,8 @@ pub struct StatsResponse {
 pub struct WeeklyReportResponse {
     /// Weekly report data
     pub report: GroupWeeklyReport,
+    /// The members the report covers
+    pub scope: AnalyticsScope,
     /// Response metadata
     pub metadata: GroupMetadata,
 }
@@ -190,6 +208,8 @@ pub struct HealthFlagsResponse {
     pub flags: Vec<GroupHealthFlag>,
     /// Total count
     pub total: usize,
+    /// The members the flags were computed over
+    pub scope: AnalyticsScope,
     /// Response metadata
     pub metadata: GroupMetadata,
 }
@@ -268,6 +288,14 @@ pub struct UpdatePeerConsentBody {
     pub consent: bool,
 }
 
+/// Request body for the caller's own coach sharing, and its answer: whether
+/// the group's human coach reads their training, plan and room messages.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoachSharingBody {
+    /// Whether the caller shares with the group's human coach
+    pub consent: bool,
+}
+
 // ============================================================================
 // Query Types
 // ============================================================================
@@ -319,6 +347,14 @@ impl GroupRoutes {
             .route(
                 "/api/groups/{group_id}/members/me/consent",
                 put(Self::handle_update_peer_consent::<C>),
+            )
+            .route(
+                "/api/groups/{group_id}/members/me/coach-sharing",
+                get(Self::handle_get_coach_sharing::<C>),
+            )
+            .route(
+                "/api/groups/{group_id}/members/me/coach-sharing",
+                put(Self::handle_update_coach_sharing::<C>),
             )
             // Human coach attachment
             .route(
@@ -916,6 +952,55 @@ impl GroupRoutes {
 
         let response: MemberResponse = member.into();
         Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// GET `/api/groups/:group_id/members/me/coach-sharing` — whether the
+    /// group's human coach reads the caller's training.
+    ///
+    /// The caller's own choice only: the member list peers read carries no
+    /// member's coach sharing.
+    async fn handle_get_coach_sharing<C: GroupsCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path(group_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let member = Self::require_member(&resources, &group_id, auth.user_id).await?;
+        let response = CoachSharingBody {
+            consent: member.coach_sharing_consent,
+        };
+        Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// PUT `/api/groups/:group_id/members/me/coach-sharing` — the caller
+    /// stops or resumes sharing their training with the group's human coach,
+    /// the switch beside peer sharing in Group info (carnet#1168). Joining
+    /// grants it (ADR-002); `/group consent coach yes|no` is the same write.
+    async fn handle_update_coach_sharing<C: GroupsCtx + MiddlewareCtx>(
+        State(resources): State<Arc<C>>,
+        auth: AuthenticatedUser,
+        Path(group_id): Path<String>,
+        Json(body): Json<CoachSharingBody>,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        Self::require_member(&resources, &group_id, auth.user_id).await?;
+
+        let updated = resources
+            .repos()
+            .groups
+            .update_coach_sharing_consent(&group_id, auth.user_id, body.consent)
+            .await?;
+        if !updated {
+            return Err(AppError::not_found("Membership not found"));
+        }
+        info!(
+            user_id = %auth.user_id,
+            group_id = %group_id,
+            consent = body.consent,
+            "Member set coach sharing from Group info"
+        );
+
+        Ok((StatusCode::OK, Json(body)).into_response())
     }
 
     // ========================================================================

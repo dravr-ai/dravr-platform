@@ -172,6 +172,7 @@ const mockStats: GroupStatsResponse = {
     flagged_members: 1,
     weekly_trend: 'improving',
   },
+  scope: { visible_members: 5, roster_members: 5 },
 };
 
 // ============================================================================
@@ -318,7 +319,11 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ flags: mockHealthFlags, total: mockHealthFlags.length }),
+      body: JSON.stringify({
+        flags: mockHealthFlags,
+        total: mockHealthFlags.length,
+        scope: mockStats.scope,
+      }),
     });
   });
 
@@ -328,6 +333,7 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
         stats: mockStats.stats,
         fresh_members: [{ user_id: 'user-456', display_name: 'Alice Runner', form_pct: 12, tsb: 9 }],
       },
+      scope: mockStats.scope,
     };
     await route.fulfill({
       status: 200,
@@ -623,6 +629,34 @@ test.describe('Group info — settings and consent', () => {
     await toggle.click();
     await expect.poll(() => consentBodies.length).toBe(1);
     expect(consentBodies[0]).toEqual({ consent: true });
+  });
+
+  test('binds the coach-sharing switch to the caller own membership row', async ({ page }) => {
+    const sharingBodies: Array<Record<string, unknown>> = [];
+    await openGroupInfo(page, {}, async (p) => {
+      await p.route('**/api/groups/group-*/members/me/coach-sharing', async (route) => {
+        if (route.request().method() === 'PUT') {
+          const body = route.request().postDataJSON() as Record<string, unknown>;
+          sharingBodies.push(body);
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+        } else {
+          // Joining granted it.
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ consent: true }),
+          });
+        }
+      });
+    });
+
+    const toggle = page.getByTestId('coach-sharing-switch');
+    await expect(toggle).toBeChecked();
+
+    await toggle.click();
+    await expect.poll(() => sharingBodies.length).toBe(1);
+    expect(sharingBodies[0]).toEqual({ consent: false });
+    await expect(toggle).not.toBeChecked();
   });
 
   test('shows the weekly report and one row per flagged member', async ({ page }) => {

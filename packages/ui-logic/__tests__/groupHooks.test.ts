@@ -28,6 +28,8 @@ function fakeGroupsApi() {
     confirmDelegatedConnection: vi.fn().mockResolvedValue(undefined),
     getCoachConsents: vi.fn(),
     updateCoachConsents: vi.fn(),
+    getCoachSharing: vi.fn().mockResolvedValue({ consent: true }),
+    updateCoachSharing: vi.fn(),
   };
 }
 
@@ -267,5 +269,31 @@ describe('createGroupHooks — writes', () => {
     const { result } = renderHook(() => hooks.useCoachConsents('g1', true), { wrapper });
     await waitFor(() => expect(result.current.consents).toEqual(answered));
     expect(api.getCoachConsents).toHaveBeenCalledWith('g1');
+  });
+
+  it("reads the member's coach sharing under its own key, only while enabled", async () => {
+    const { api, client, wrapper, hooks } = ctx;
+
+    const { result: off } = renderHook(() => hooks.useCoachSharing('g1', false), { wrapper });
+    expect(off.current.sharing).toBeUndefined();
+    expect(api.getCoachSharing).not.toHaveBeenCalled();
+
+    const { result } = renderHook(() => hooks.useCoachSharing('g1', true), { wrapper });
+    await waitFor(() => expect(result.current.sharing).toEqual({ consent: true }));
+    expect(api.getCoachSharing).toHaveBeenCalledWith('g1');
+    expect(client.getQueryData(['groups', 'g1', 'coach-sharing'])).toEqual({ consent: true });
+  });
+
+  it('shows the answer to a coach-sharing change at once, under the same key', async () => {
+    const { api, client, wrapper, hooks } = ctx;
+    api.updateCoachSharing.mockResolvedValue({ consent: false });
+
+    const { result } = renderHook(() => hooks.useSetCoachSharing('g1'), { wrapper });
+    await act(async () => {
+      await result.current.setSharing(false);
+    });
+
+    expect(api.updateCoachSharing).toHaveBeenCalledWith('g1', { consent: false });
+    expect(client.getQueryData(['groups', 'g1', 'coach-sharing'])).toEqual({ consent: false });
   });
 });

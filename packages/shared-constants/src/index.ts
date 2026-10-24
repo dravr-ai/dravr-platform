@@ -246,6 +246,7 @@ export {
   healthFlagDetail,
   healthFlagConcern,
   freshMemberLine,
+  analyticsScopeLine,
   weeklyReportSummary,
   weeklyReportRecommendations,
   weeklyVolume,

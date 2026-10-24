@@ -93,10 +93,12 @@ const OWN_PROVIDERS_MARKER: &str = "Connected Fitness Data Providers";
 const PLAN_BLOCK: &str = "## Current training plan (persisted)";
 const WELLNESS_HEADING: &str = "Mira Subject's wellness, through the coach's";
 
-/// Records every system prompt it is sent; on [`READ_ASK`] it reads the plan
-/// once, then answers in prose.
+/// Records every system prompt it is sent, and every call's other messages;
+/// on [`READ_ASK`] it reads the plan once, then answers in prose.
 struct ThreadModel {
     system_prompts: Mutex<Vec<String>>,
+    /// Each call's non-system messages, joined.
+    conversations: Mutex<Vec<String>>,
     models: Vec<String>,
 }
 
@@ -104,8 +106,21 @@ impl ThreadModel {
     fn new() -> Self {
         Self {
             system_prompts: Mutex::new(Vec::new()),
+            conversations: Mutex::new(Vec::new()),
             models: vec![MODEL.to_owned()],
         }
+    }
+
+    /// Every non-system message sent on the calls after `from`, joined.
+    fn conversation_since(&self, from: usize) -> String {
+        self.conversations
+            .lock()
+            .unwrap()
+            .iter()
+            .skip(from)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn calls(&self) -> usize {
@@ -152,6 +167,14 @@ impl LlmProvider for ThreadModel {
             .collect::<Vec<_>>()
             .join("\n");
         self.system_prompts.lock().unwrap().push(system);
+        let conversation = request
+            .messages
+            .iter()
+            .filter(|m| !matches!(m.role, MessageRole::System))
+            .map(|m| m.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.conversations.lock().unwrap().push(conversation);
         let already_ran = request
             .messages
             .iter()
@@ -682,6 +705,44 @@ async fn a_revoked_consent_leaves_one_line_and_nothing_of_the_athlete() {
             .any(|block| matches!(block, ReplyBlock::WorkoutPlan { .. })),
         "a refused turn carries no card"
     );
+}
+
+/// carnet#1168 D27: once the athlete stops sharing, the thread stays the
+/// coach's record, but none of it reaches the model again — not the tool
+/// result that read her plan, not the coach's earlier questions: the turn
+/// reads the coach's new message alone.
+#[tokio::test]
+async fn a_revoked_consent_replays_none_of_the_threads_history() {
+    const LATER_ASK: &str = "Et maintenant, que faire ?";
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    fx.thread_turn(READ_ASK).await;
+    let granted_from = fx.model.calls();
+    fx.thread_turn(PLAIN_ASK).await;
+    let granted = fx.model.conversation_since(granted_from);
+    assert!(
+        granted.contains(SUBJECT_RACE) && granted.contains(READ_ASK),
+        "premise: a granted turn replays the plan the thread read: {granted}"
+    );
+
+    assert!(fx
+        .repos()
+        .groups
+        .update_coach_sharing_consent(&fx.group.id.to_string(), fx.subject.id, false)
+        .await
+        .unwrap());
+    let refused_from = fx.model.calls();
+    let (prompt, _) = fx.thread_turn(LATER_ASK).await;
+
+    assert!(prompt.contains(REFUSED_MARKER), "premise: the gates refuse");
+    let refused = fx.model.conversation_since(refused_from);
+    assert!(refused.contains(LATER_ASK), "{refused}");
+    for absent in [SUBJECT_RACE, READ_ASK, PLAIN_ASK, ANSWER] {
+        assert!(
+            !refused.contains(absent),
+            "{absent:?} from before the withdrawal reached the model: {refused}"
+        );
+    }
 }
 
 #[tokio::test]

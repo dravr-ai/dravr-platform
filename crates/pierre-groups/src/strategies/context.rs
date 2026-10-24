@@ -124,8 +124,8 @@ impl GroupContextStrategy for IndividualFocusContext {
     }
 }
 
-/// Context providing a full group overview for admin/owner users.
-/// Used when the group admin reviews the whole roster.
+/// Context providing a group overview for admin/owner users and the group's
+/// coach, over the cards of the members who share with them.
 pub struct GroupOverviewContext;
 
 impl GroupContextStrategy for GroupOverviewContext {

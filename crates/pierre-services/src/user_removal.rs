@@ -666,6 +666,12 @@ fn copies_not_deleted(
     copies.push(
         "posthog_person: no PostHog person-deletion call is wired; events already captured under the account's hashed id stay in PostHog".to_owned(),
     );
+    // The coach's thread about the account, their flags and corrections, and
+    // the account's room transcript go with it (`SQLITE_USER_PURGE`).
+    // LIMITATION(registre#1174): `coach_group_chats` — a coach's own copy of a group's chat records no member per row, so this account's tool results there cannot be told apart and stay.
+    copies.push(
+        "coach_group_chats: what an agent told a human coach about the account inside the coach's own copy of a group's chat (their questions, tool results and replies there) is the coach's record, not keyed to the account, and stays until removed on request".to_owned(),
+    );
     copies.push(
         "process_caches: the response cache and the notify-event email cache are evicted after the commit, the email cache on this instance only; other instances keep their copy until they restart".to_owned(),
     );

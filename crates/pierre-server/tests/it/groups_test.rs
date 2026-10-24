@@ -763,6 +763,77 @@ async fn test_update_peer_sharing_consent() {
     assert_success(&resp, "request");
 }
 
+/// carnet#1168 D22: a member reads and sets their own coach sharing, the
+/// switch beside peer sharing in Group info. Joining grants it; the switch
+/// stops and resumes it without touching peer sharing; the member list peers
+/// read carries no one's choice; a non-member is refused.
+#[tokio::test]
+async fn test_member_sets_own_coach_sharing() {
+    let (router, auth1, auth2, _u1, u2, agent_id, doors) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) =
+        create_group_with_invite(&doors, &router, &auth1, &agent_id).await;
+    let path = format!("/api/groups/{group_id}/members/me/coach-sharing");
+    let read = |auth: String| {
+        let (router, path) = (router.clone(), path.clone());
+        async move {
+            AxumTestRequest::get(&path)
+                .header("authorization", &auth)
+                .send(router)
+                .await
+        }
+    };
+    let set = |consent: bool| {
+        let (router, path, auth) = (router.clone(), path.clone(), auth2.clone());
+        async move {
+            AxumTestRequest::put(&path)
+                .header("authorization", &auth)
+                .json(&json!({ "consent": consent }))
+                .send(router)
+                .await
+        }
+    };
+
+    assert_eq!(
+        read(auth2.clone()).await.status_code(),
+        StatusCode::NOT_FOUND,
+        "a non-member has no coach sharing to read"
+    );
+    assert_eq!(set(false).await.status_code(), StatusCode::NOT_FOUND);
+
+    doors.join(&auth2, &invite_code).await.unwrap();
+    let joined = read(auth2.clone()).await;
+    assert_success(&joined, "read after joining");
+    assert_eq!(joined.json::<Value>()["consent"], true, "joining grants it");
+
+    let stopped = set(false).await;
+    assert_success(&stopped, "stop sharing");
+    assert_eq!(stopped.json::<Value>()["consent"], false);
+    assert_eq!(read(auth2.clone()).await.json::<Value>()["consent"], false);
+
+    let members = AxumTestRequest::get(&format!("/api/groups/{group_id}/members"))
+        .header("authorization", &auth1)
+        .send(router.clone())
+        .await
+        .json::<Value>();
+    let member = members["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["user_id"] == u2)
+        .expect("the member is listed");
+    assert_eq!(
+        member["peer_sharing_consent"], false,
+        "peer sharing is untouched"
+    );
+    assert!(
+        member.get("coach_sharing_consent").is_none(),
+        "peers never read another member's coach sharing: {member}"
+    );
+
+    assert_success(&set(true).await, "resume sharing");
+    assert_eq!(read(auth2).await.json::<Value>()["consent"], true);
+}
+
 #[tokio::test]
 async fn test_toggle_group_peer_sharing() {
     let (router, auth, _user_id, agent_id, doors) = Box::pin(setup_single_user()).await;

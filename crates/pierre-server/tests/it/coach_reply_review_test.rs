@@ -31,13 +31,16 @@ use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
     NewGroupTranscriptEntry, TranscriptSpeaker,
 };
-use pierre_core::models::{AddMessageParams, AgentCategory, CreateAgentRequest, TenantId, User};
+use pierre_core::models::{
+    AddMessageParams, AgentCategory, ConversationSubject, CreateAgentRequest, TenantId, User,
+};
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::InsertClaimVerdictParams;
+use pierre_database::repositories::{InsertClaimVerdictParams, NewSubjectConversation};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_mcp_server::routes::coach_replies::CoachReplyRoutes;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+use pierre_test_support::account::delete_account;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -71,6 +74,7 @@ struct Replies {
 }
 
 struct World {
+    res: Arc<ServerContext>,
     router: Router,
     casey: Person,
     dana: Person,
@@ -382,6 +386,7 @@ async fn world() -> World {
         .merge(CoachReplyRoutes::routes(Arc::clone(&res)))
         .merge(ChatRoutes::routes(Arc::clone(&res)));
     World {
+        res,
         router,
         casey,
         dana,
@@ -742,6 +747,124 @@ async fn a_flag_stays_with_the_coach_and_a_correction_reaches_the_athletes_threa
     // The athlete's own coach page shows no flag: she coaches nothing.
     let (_, alex_page) = get(&w.router, "/api/coach/replies", &w.alex.auth).await;
     assert!(!alex_page.to_string().contains(FLAG_NOTE));
+}
+
+/// carnet#1168 D27: deleting an athlete's account reaches what their coach
+/// holds about them — the coach's thread about them with every message and
+/// tool result in it, the coach's flags and corrections of replies to them,
+/// and their room transcript — and the deletion counts each. The coach's own
+/// entries stay.
+#[tokio::test]
+async fn deleting_the_athletes_account_reaches_what_their_coach_holds_about_them() {
+    let w = world().await;
+    let repos = &w.res.common.repos;
+    let reply = w.replies.alex_first;
+    for (path, body) in [
+        ("flags", json!({ "reason": "off_tone", "note": FLAG_NOTE })),
+        ("corrections", json!({ "content": CORRECTION })),
+    ] {
+        let (status, answer) = post(
+            &w.router,
+            &format!("/api/coach/replies/{reply}/{path}"),
+            &w.casey.auth,
+            &body,
+        )
+        .await;
+        assert_eq!(status, 201, "{answer}");
+    }
+
+    // Casey's thread about Alex, holding a tool result read from Alex's data.
+    let casey = w.casey.id.to_string();
+    let thread = repos
+        .chat
+        .open_subject_conversation(&NewSubjectConversation {
+            user_id: &casey,
+            tenant_id: w.casey.tenant,
+            title: "Alex Athlete",
+            model: "model",
+            agent_id: &group_agent(&w.res, &w.casey).await,
+            subject: ConversationSubject {
+                athlete_user_id: w.alex.id,
+                group_id: w.casey_group,
+            },
+        })
+        .await
+        .unwrap()
+        .conversation;
+    repos
+        .chat
+        .add_message(&AddMessageParams {
+            tenant_id: w.casey.tenant,
+            conversation_id: &thread.id,
+            user_id: &casey,
+            role: "tool_result",
+            content: "Alex: 21 km long run on Sunday, average HR 148",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+            content_blocks: None,
+            transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
+        })
+        .await
+        .unwrap();
+
+    let alex_replies = [
+        w.replies.alex_first.to_string(),
+        w.replies.alex_later.to_string(),
+        w.replies.alex_newest.to_string(),
+    ];
+    let (_, before) = get(&w.router, "/api/coach/replies", &w.casey.auth).await;
+    assert!(
+        alex_replies
+            .iter()
+            .all(|id| reply_ids(&before).contains(id)),
+        "premise: Casey reads Alex's replies: {before}"
+    );
+
+    let deletion = delete_account(repos, w.alex.id, None).await.unwrap();
+
+    // Alex's three group conversations and Casey's thread about her.
+    assert_eq!(deletion.removed_from("chat_conversations"), 4);
+    assert!(repos
+        .chat
+        .get_conversation(&thread.id, &casey, w.casey.tenant)
+        .await
+        .unwrap()
+        .is_none());
+    // The flag and the correction.
+    assert_eq!(deletion.removed_from("coach_reply_reviews"), 2);
+    let (_, weekly) = get(
+        &w.router,
+        "/api/coach/replies/weekly?weeks=1",
+        &w.casey.auth,
+    )
+    .await;
+    assert_eq!(weekly["weeks"][0]["flags"], 0, "{weekly}");
+    assert_eq!(weekly["weeks"][0]["corrections"], 0, "{weekly}");
+    // The three replies to Alex; the correction of one may go with the reply
+    // it corrects, by cascade, which no row count sees.
+    assert!(deletion.removed_from("group_transcript_entries") >= 3);
+    let (_, after) = get(&w.router, "/api/coach/replies", &w.casey.auth).await;
+    assert!(
+        alex_replies
+            .iter()
+            .all(|id| !reply_ids(&after).contains(id)),
+        "{after}"
+    );
+    let room = repos
+        .groups
+        .list_transcript_visible_to(&w.casey_group.to_string(), w.casey.id, 50)
+        .await
+        .unwrap();
+    assert!(
+        room.iter().any(|entry| entry.id == w.replies.casey_own),
+        "the coach's own entry stays"
+    );
+    assert!(room
+        .iter()
+        .all(|entry| entry.content != ALEX_REPLY && entry.content != CORRECTION));
 }
 
 #[tokio::test]

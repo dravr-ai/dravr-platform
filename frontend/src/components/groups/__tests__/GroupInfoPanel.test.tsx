@@ -70,6 +70,8 @@ vi.mock('../../../services/api', () => ({
     getHealthFlags: vi.fn(),
     updateGroup: vi.fn(),
     updatePeerConsent: vi.fn(),
+    getCoachSharing: vi.fn(),
+    updateCoachSharing: vi.fn(),
     leaveGroup: vi.fn(),
     deleteGroup: vi.fn(),
     removeCoach: vi.fn(),
@@ -215,6 +217,7 @@ describe('GroupInfoPanel', () => {
         flagged_members: 0,
         weekly_trend: 'stable',
       },
+      scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.getPermissions).mockResolvedValue({
       can_create: true,
@@ -233,6 +236,7 @@ describe('GroupInfoPanel', () => {
           weekly_trend: 'stable',
         },
       },
+      scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.getHealthFlags).mockResolvedValue({
       flags: [
@@ -252,8 +256,11 @@ describe('GroupInfoPanel', () => {
         },
       ],
       total: 2,
+      scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
+    vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => request);
     vi.mocked(groupsApi.updateGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
     vi.mocked(groupsApi.listInvites).mockResolvedValue({ invites: [] });
@@ -417,6 +424,31 @@ describe('GroupInfoPanel', () => {
     expect(groupsApi.updatePeerConsent).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the caller's own coach sharing beside peer sharing, and stops it when flipped", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    renderPanel();
+
+    const toggle = (await screen.findByTestId('coach-sharing-switch')) as HTMLInputElement;
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(groupsApi.getCoachSharing).toHaveBeenCalledWith(GROUP_ID);
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(groupsApi.updateCoachSharing).toHaveBeenCalledWith(GROUP_ID, { consent: false });
+    });
+    await waitFor(() => expect(toggle.checked).toBe(false));
+    // Peer sharing is a separate choice the flip leaves alone.
+    expect(groupsApi.updatePeerConsent).not.toHaveBeenCalled();
+  });
+
+  it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-sharing-row')).toBeInTheDocument();
+  });
+
   it('lists the roster with each member role', async () => {
     renderPanel();
 
@@ -461,11 +493,8 @@ describe('GroupInfoPanel', () => {
     expect(screen.getByText('Nothing is sent.')).toBeInTheDocument();
 
     await user.selectOptions(select, 'managers');
-    expect(
-      screen.getByText(
-        "The owner and admins get the full recap on their own channels; nothing is posted in the group's chat.",
-      ),
-    ).toBeInTheDocument();
+    // Read from the catalogue: the hint's wording belongs to the corpus.
+    expect(screen.getByText(i18n.getFixedT('en')('groups.digestManagersHint'))).toBeInTheDocument();
     await user.click(screen.getByTestId('group-info-save-settings'));
 
     await waitFor(() =>
@@ -550,6 +579,28 @@ describe('GroupInfoPanel', () => {
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText('No activity for 11 days')).toBeInTheDocument();
     expect(screen.getByText('Health flags (2)')).toBeInTheDocument();
+    expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
+    // Both members share with the reader: nothing to say about scope.
+    expect(screen.queryByTestId('group-info-scope')).toBeNull();
+  });
+
+  it('says under the stats that they cover only the members who share with the reader, owner included', async () => {
+    vi.mocked(groupsApi.getStats).mockResolvedValueOnce({
+      stats: {
+        total_members: 2,
+        active_members: 2,
+        avg_weekly_volume_km: 41.5,
+        avg_ctl: 55,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 2, roster_members: 4 },
+    });
+    renderPanel();
+
+    expect(await screen.findByTestId('group-info-scope')).toHaveTextContent(
+      'This report covers only the members who share their training with you (2 of 4).',
+    );
     expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
   });
 
@@ -710,6 +761,8 @@ describe('GroupInfoPanel', () => {
     expect(screen.queryByTestId('group-info-leave')).toBeNull();
     expect(screen.queryByTestId('group-info-delete')).toBeNull();
     expect(screen.queryByTestId('peer-consent-card')).toBeNull();
+    expect(screen.queryByTestId('coach-sharing-row')).toBeNull();
+    expect(groupsApi.getCoachSharing).not.toHaveBeenCalled();
     // The coach sets where the weekly digest goes, and no other group setting.
     expect(await screen.findByTestId('group-digest-mode')).toHaveValue('off');
     expect(screen.getByTestId('group-info-save-settings')).toBeInTheDocument();

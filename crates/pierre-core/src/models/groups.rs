@@ -125,12 +125,13 @@ pub enum GroupDigestMode {
     #[default]
     Off,
     /// Posted into the group's bound Telegram, Slack or Discord chat, with
-    /// the managers' full copy kept in the app. A group with no chat that
+    /// each manager's own copy kept in the app. A group with no chat that
     /// takes a proactive message, or whose chat refuses the post, sends the
-    /// managers' copy to their own channels instead.
+    /// managers' copies to their own channels instead.
     Chat,
-    /// The owner and admins get the full digest on their own channels;
-    /// nothing is posted into the group's chat.
+    /// The owner and admins each get their copy on their own channels;
+    /// nothing is posted into the group's chat. A manager's copy covers the
+    /// members who share their training with that manager.
     Managers,
 }
 

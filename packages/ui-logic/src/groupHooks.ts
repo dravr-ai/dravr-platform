@@ -14,6 +14,7 @@ import type {
   GroupRole,
   ProposeDelegatedConnectionRequest,
   CoachConsentsResponse,
+  CoachSharing,
   UpdateCoachConsentsRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
@@ -121,6 +122,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
 
     return {
       stats: query.data?.stats ?? null,
+      scope: query.data?.scope ?? null,
       isLoading: query.isLoading,
       isError: query.isError,
       error: query.error,
@@ -315,10 +317,10 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
   /**
    * The caller's own peer-sharing consent in a group.
    *
-   * This is the GDPR-relevant control: it decides whether the athlete's own
-   * training data is readable by the group's other members and by the group
-   * coach. It applies to the caller's membership row only — there is no path
-   * here to change anyone else's consent.
+   * It decides whether the athlete's own training data is readable by the
+   * group's other members; what the group's human coach sees is coach sharing
+   * ({@link useCoachSharing}). It applies to the caller's membership row only —
+   * there is no path here to change anyone else's consent.
    */
   function useUpdatePeerConsent(groupId: string) {
     const queryClient = useQueryClient();
@@ -336,6 +338,47 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
       isPending: mutation.isPending,
       isError: mutation.isError,
       error: mutation.error,
+    };
+  }
+
+  /**
+   * Whether the group's human coach sees the caller's training, plan and
+   * messages in the group's chat. Joining grants it; withdrawing it must be as
+   * easy (carnet#1168). Read only while `enabled`: for a member of the group.
+   */
+  function useCoachSharing(groupId: string, enabled: boolean) {
+    const query = useQuery({
+      queryKey: QUERY_KEYS.groups.coachSharing(groupId),
+      queryFn: () => groupsApi.getCoachSharing(groupId),
+      enabled: !!groupId && enabled,
+    });
+
+    return {
+      sharing: query.data,
+      isLoading: query.isLoading,
+    };
+  }
+
+  /**
+   * The caller stops or resumes sharing their training with the group's human
+   * coach. Their own membership row only; the answer is shown at once.
+   */
+  function useSetCoachSharing(groupId: string) {
+    const queryClient = useQueryClient();
+
+    const mutation = useMutation({
+      mutationFn: (consent: boolean) => {
+        const request: CoachSharing = { consent };
+        return groupsApi.updateCoachSharing(groupId, request);
+      },
+      onSuccess: (answered: CoachSharing) =>
+        queryClient.setQueryData(QUERY_KEYS.groups.coachSharing(groupId), answered),
+      onError: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.coachSharing(groupId) }),
+    });
+
+    return {
+      setSharing: mutation.mutateAsync,
+      isPending: mutation.isPending,
     };
   }
 
@@ -649,6 +692,8 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     useRemoveCoach,
     useUpdateMemberRole,
     useUpdatePeerConsent,
+    useCoachSharing,
+    useSetCoachSharing,
     useGroupPermissions,
     useGroupWeeklyReport,
     useGroupHealthFlags,

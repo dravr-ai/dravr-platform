@@ -61,6 +61,8 @@ pub(crate) mod guardian_confirm;
 pub(crate) mod guardian_denied;
 /// Admin-configured text guardrails applied to the assistant reply.
 pub(crate) mod guardrails;
+/// What of a conversation's loaded history a turn may read.
+pub(crate) mod history_scope;
 /// Agent introduction: an agent names itself and its role the first time it
 /// answers in a thread.
 pub mod introduction;

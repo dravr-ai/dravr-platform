@@ -1,5 +1,5 @@
 // ABOUTME: Background scheduler that sends each coaching group its weekly digest, as its digest mode asks, at a fixed local slot
-// ABOUTME: Chat mode posts it into the bound chat over the members who share; managers get the full digest whenever one goes out
+// ABOUTME: Chat mode posts it into the bound chat over the members who share; each manager gets one over who shares with them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,7 +18,7 @@
 //! - [`GroupDigestMode::Chat`] posts into the group's chat and keeps the
 //!   managers' copy in the app, as described below.
 //! - [`GroupDigestMode::Managers`] posts nothing into the chat: the managers
-//!   get the full digest on their own channels, as a group with no chat does.
+//!   get their digest on their own channels, as a group with no chat does.
 //!
 //! The tier stays the ceiling: a group's mode is stored whatever its tenant's
 //! plan, and nothing goes out for a tenant whose tier lacks the digest.
@@ -43,7 +43,8 @@
 //! digest, lists their active groups and, for a group whose week is due and
 //! claimed, builds member snapshots through the canonical
 //! [`fetch_member_snapshots`] builder (the same all-providers + deduplicated
-//! path the chat agent and the REST analytics endpoints use).
+//! path the chat agent and the REST analytics endpoints use) — only for the
+//! members some copy of the digest covers.
 //!
 //! - **The group's chat.** A group in [`GroupDigestMode::Chat`] bound to a
 //!   Telegram group, a Slack channel or a Discord channel ([`digest_room`])
@@ -57,7 +58,12 @@
 //!   It is written in the language most members read ([`plurality_locale`]).
 //!   A room whose `respond_mode` is mentions-only still receives it — that
 //!   mode governs replies — and no transcript row is written for it.
-//! - **Managers** (owner + admins) get the full digest over every member as a
+//! - **Managers** (owner + admins) each get the digest over the members who
+//!   share their training with them ([`GroupService::visible_member_ids`],
+//!   the rule applied everywhere a member's training is shown: the group's
+//!   human coach reads the members' coach sharing, any other manager their
+//!   peer sharing, carnet#1166). It opens by saying how many members that is
+//!   when it is not everyone. It goes out as a
 //!   [`NotificationEvent::GroupWeeklyDigest`], which the notification
 //!   localizer renders in each recipient's own language and the stored row
 //!   keeps as parameters, so the feed renders it again after a language
@@ -71,7 +77,7 @@
 //! notification is logged and counted, and never aborts the rest of the sweep.
 
 use pierre_providers::ai_scope;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
@@ -110,6 +116,8 @@ use pierre_notifications::{
     models::NotificationCategory, EventDispatch, NotificationService, PushTier,
     TenantId as CommTenantId,
 };
+#[cfg(feature = "client-notifications")]
+use pierre_services::notification_text::PARAM_VISIBLE_MEMBERS;
 
 use crate::group_chat_poster::GroupChatPoster;
 use crate::group_digest_slot::{due_week, group_zone};
@@ -285,7 +293,7 @@ where
 /// Only [`GroupDigestMode::Chat`] posts into the group's chat. A REST-created
 /// group has no chat. `WhatsApp` and Messenger refuse a text the platform
 /// starts outside the 24-hour window after a member's last message, so a
-/// group bound there keeps its managers' full notification instead of a post
+/// group bound there keeps its managers' own notifications instead of a post
 /// that would bounce.
 #[must_use]
 pub fn digest_room(group: &CoachingGroup) -> Option<DigestRoom<'_>> {
@@ -360,8 +368,13 @@ async fn process_group<C>(
         return;
     }
 
-    let user_ids: Vec<Uuid> = audience.members.iter().map(|m| m.user_id).collect();
-    // The digest is derived from every member's training: it is stamped with
+    let posts_to_room = sweep.poster.is_some() && digest_room(group).is_some();
+    #[cfg(feature = "client-notifications")]
+    let notifies_managers = sweep.notifications.is_some();
+    #[cfg(not(feature = "client-notifications"))]
+    let notifies_managers = false;
+    let user_ids = digest_subjects(group, &audience.members, posts_to_room, notifies_managers);
+    // The digest is derived from those members' training: it is stamped with
     // what those reads served (carnet#769).
     let (snapshots, derived_from) =
         ai_scope::derived(fetch_member_snapshots(sweep.runtime, &user_ids, tenant_id)).await;
@@ -395,6 +408,38 @@ async fn process_group<C>(
         first_party_only = derived_from.is_first_party_only(),
         "digest: weekly report delivered"
     );
+}
+
+/// The members whose training some copy of this week's digest covers, in
+/// join order: the sharers the chat copy is computed over when it posts into
+/// the group's chat, and the members each manager may see when the managers
+/// are notified. Nobody else's training is read.
+fn digest_subjects(
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    posts_to_room: bool,
+    notifies_managers: bool,
+) -> Vec<Uuid> {
+    let mut covered = if posts_to_room {
+        GroupService::peer_sharing_user_ids(group, members)
+    } else {
+        HashSet::new()
+    };
+    if notifies_managers {
+        let managers = members.iter().filter(|m| m.role.can_manage_members());
+        for manager in managers {
+            covered.extend(GroupService::visible_member_ids(
+                group,
+                members,
+                manager.user_id,
+            ));
+        }
+    }
+    members
+        .iter()
+        .map(|m| m.user_id)
+        .filter(|id| covered.contains(id))
+        .collect()
 }
 
 /// Mark the group's `week_key` delivered in the ledger. A failure is counted:
@@ -585,17 +630,66 @@ pub fn room_digest_params(
     snapshots: &[MemberFitnessSnapshot],
 ) -> Value {
     let sharing = GroupService::peer_sharing_user_ids(group, members);
-    // The reducers take owned slices; this copy is made once per group per week.
-    let shared: Vec<MemberFitnessSnapshot> = snapshots
+    covered_digest_params(
+        service,
+        group,
+        members,
+        snapshots,
+        &sharing,
+        PARAM_SHARED_MEMBERS,
+    )
+}
+
+/// The parameters of the digest one manager receives.
+///
+/// [`digest_params`] over the members whose training `manager` may see
+/// ([`GroupService::visible_member_ids`]): the group's human coach reads the
+/// members' coach sharing, any other owner or admin their peer sharing, and
+/// the manager themself is always in. The summary, the trend, the volume
+/// lines, the highlights and the concerns are all computed over that set, so
+/// no total gives away the week of a member left out (carnet#1166). It also
+/// carries how many members that is and how many the group holds, which the
+/// renderer turns into its scope line.
+#[cfg(feature = "client-notifications")]
+fn manager_digest_params(
+    service: &GroupService,
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    snapshots: &[MemberFitnessSnapshot],
+    manager: Uuid,
+) -> Value {
+    let visible = GroupService::visible_member_ids(group, members, manager);
+    covered_digest_params(
+        service,
+        group,
+        members,
+        snapshots,
+        &visible,
+        PARAM_VISIBLE_MEMBERS,
+    )
+}
+
+/// [`digest_params`] over the snapshots of the `covered` members alone, with
+/// how many that is under `count_param` and how many members the group holds.
+fn covered_digest_params(
+    service: &GroupService,
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    snapshots: &[MemberFitnessSnapshot],
+    covered: &HashSet<Uuid>,
+    count_param: &str,
+) -> Value {
+    // The reducers take owned slices; this copy is made once per copy per week.
+    let shown: Vec<MemberFitnessSnapshot> = snapshots
         .iter()
-        .filter(|s| sharing.contains(&s.user_id))
+        .filter(|s| covered.contains(&s.user_id))
         .cloned()
         .collect();
-    let stats = service.compute_aggregate_stats(&shared);
-    let flags = GroupService::compute_health_flags(&shared);
-    let mut params = digest_params(&group.name, &stats, &shared, &flags);
+    let stats = service.compute_aggregate_stats(&shown);
+    let flags = GroupService::compute_health_flags(&shown);
+    let mut params = digest_params(&group.name, &stats, &shown, &flags);
     if let Some(object) = params.as_object_mut() {
-        object.insert(PARAM_SHARED_MEMBERS.to_owned(), json!(shared.len()));
+        object.insert(count_param.to_owned(), json!(shown.len()));
         object.insert(PARAM_ROSTER_MEMBERS.to_owned(), json!(members.len()));
     }
     params
@@ -697,8 +791,9 @@ struct DigestDelivery {
     derived_from: TransportPolicy,
 }
 
-/// Notify every member who can manage the group (owner + admins) of the full
-/// digest over every member. Best-effort per recipient.
+/// Notify every member who can manage the group (owner + admins) of the
+/// digest over the members who share with them ([`manager_digest_params`]).
+/// Best-effort per recipient.
 ///
 /// When the digest reached the group's chat the notification stays in the
 /// app, so a manager does not read it a second time on their own chat
@@ -718,9 +813,6 @@ async fn dispatch_to_managers<C>(
     let Some(service) = sweep.notifications else {
         return;
     };
-    let stats = sweep.ctx.group_service().compute_aggregate_stats(snapshots);
-    let flags = GroupService::compute_health_flags(snapshots);
-    let params = digest_params(&group.name, &stats, snapshots, &flags);
 
     for member in audience
         .members
@@ -728,12 +820,19 @@ async fn dispatch_to_managers<C>(
         .filter(|m| m.role.can_manage_members())
     {
         outcome.dispatched += 1;
+        let params = manager_digest_params(
+            sweep.ctx.group_service(),
+            group,
+            &audience.members,
+            snapshots,
+            member.user_id,
+        );
         let dispatch = EventDispatch {
             user_id: member.user_id,
             tenant_id: CommTenantId(tenant_id.into()),
             category: NotificationCategory::Coach,
             event: NotificationEvent::GroupWeeklyDigest,
-            params: params.clone(),
+            params,
             route: Value::Null,
             actions: None,
             bypass_frequency_cap: false,
@@ -868,4 +967,95 @@ pub fn start_digest_scheduler<C>(
             Ok(())
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::models::groups::{CoachConsents, GroupRespondMode, GroupRole};
+
+    use super::*;
+
+    fn member(group: &CoachingGroup, role: GroupRole, peer: bool, coach: bool) -> GroupMember {
+        let now = Utc::now();
+        GroupMember {
+            id: Uuid::new_v4(),
+            group_id: group.id,
+            user_id: Uuid::new_v4(),
+            tenant_id: group.tenant_id.clone(),
+            role,
+            peer_sharing_consent: peer,
+            coach_sharing_consent: coach,
+            coach_consents: CoachConsents::default(),
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        }
+    }
+
+    /// An admin who is not the coach, an athlete sharing with their peers
+    /// only, one sharing with the coach only, and one sharing with nobody.
+    fn group_and_members() -> (CoachingGroup, Vec<GroupMember>) {
+        let now = Utc::now();
+        let group = CoachingGroup {
+            id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4().to_string(),
+            name: "Les Rouleurs".to_owned(),
+            description: None,
+            agent_id: Uuid::new_v4().to_string(),
+            owner_id: Uuid::new_v4(),
+            coach_user_id: None,
+            peer_data_sharing: true,
+            respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::Managers,
+            max_members: 20,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let members = vec![
+            member(&group, GroupRole::Admin, false, false),
+            member(&group, GroupRole::Member, true, false),
+            member(&group, GroupRole::Member, false, true),
+            member(&group, GroupRole::Member, false, false),
+        ];
+        (group, members)
+    }
+
+    fn ids(members: &[GroupMember], picks: &[usize]) -> Vec<Uuid> {
+        picks.iter().map(|&i| members[i].user_id).collect()
+    }
+
+    #[test]
+    fn a_member_no_copy_covers_is_never_read() {
+        let (group, members) = group_and_members();
+        assert_eq!(
+            digest_subjects(&group, &members, false, true),
+            ids(&members, &[0, 1]),
+            "the admin's copy: themself and the peer sharer"
+        );
+        assert_eq!(
+            digest_subjects(&group, &members, true, false),
+            ids(&members, &[1]),
+            "the chat copy: the peer sharer alone"
+        );
+        assert!(
+            digest_subjects(&group, &members, false, false).is_empty(),
+            "no copy goes out, so nothing is read"
+        );
+    }
+
+    #[test]
+    fn the_coachs_copy_reads_the_members_who_share_with_the_coach() {
+        let (mut group, mut members) = group_and_members();
+        members[0].coach_sharing_consent = true;
+        group.coach_user_id = Some(members[0].user_id);
+        assert_eq!(
+            digest_subjects(&group, &members, false, true),
+            ids(&members, &[0, 2]),
+            "the coach-admin, and the athlete sharing with the coach"
+        );
+    }
 }

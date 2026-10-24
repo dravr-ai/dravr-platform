@@ -15,6 +15,9 @@ use pierre_commands::group::{GroupDigestHandler, GroupStatusHandler};
 use pierre_commands::{
     caller_group_standing, CommandHandler, ConversationRotation, PlatformCommandContext,
 };
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_GROUP_DIGEST_STATUS_CHAT,
+};
 use pierre_core::models::agents::{AgentCategory, CreateAgentRequest};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -35,10 +38,11 @@ const EN_FORBIDDEN: &str =
 const EN_USAGE: &str = "Usage: /group digest off, /group digest chat or /group digest managers";
 const EN_TIER_OFF: &str =
     "Your plan does not include the weekly recap, so nothing is sent until it does.";
-const FR_CHAT: &str = "Récap hebdo : publié chaque lundi matin dans la discussion Telegram, \
-                       Slack ou Discord du groupe, avec le récap complet pour le propriétaire et \
-                       les admins dans l'app. Pour changer : /group digest managers ou /group \
-                       digest off.";
+/// The French status of a group whose digest posts into its chat, read from
+/// the catalogue: what it promises the managers is the corpus's wording.
+fn fr_chat() -> String {
+    MessagingStringsRegistry::new().render(KEY_GROUP_DIGEST_STATUS_CHAT, "fr", &[])
+}
 
 /// A group with an owner, a plain member and an attached human coach, each
 /// with a conversation bound to it the way a shared room's rows are.
@@ -267,7 +271,15 @@ async fn the_owner_turns_the_digest_on_and_reads_it_in_their_language() {
 
     let reply = room.run(&room.owner, "fr", &["chat"]).await;
 
-    assert_eq!(reply, FR_CHAT);
+    assert_eq!(
+        reply,
+        fr_chat(),
+        "the reply is the chat mode's status in the owner's French"
+    );
+    assert!(
+        reply.starts_with("Récap hebdo : publié"),
+        "the status reads in French, not as a key or in English: {reply}"
+    );
     assert_eq!(room.stored_mode().await, GroupDigestMode::Chat);
 }
 

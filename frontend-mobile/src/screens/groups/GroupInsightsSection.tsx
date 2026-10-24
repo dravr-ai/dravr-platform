@@ -55,6 +55,10 @@ interface GroupInsightsSectionProps {
  * The server sends numbers and evidence, never sentences, so every line here
  * is phrased in the reader's language by the shared group formatter. The
  * report's concerns are the health flags themselves, one line per flag.
+ *
+ * Both cover only the members who share their training with the reader, owner
+ * and admins included; the line under the stat row above says so when that is
+ * not everyone.
  */
 export function GroupInsightsSection({
   groupId,
