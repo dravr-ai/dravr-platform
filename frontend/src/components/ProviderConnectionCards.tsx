@@ -166,7 +166,7 @@ export default function ProviderConnectionCards({
   // `pierre_oauth_result` (firing a `storage` event here in the opener); on a
   // failed Strava result we open the Sciotte credential login for the same data.
   // Only *failed* Strava results are consumed — successful results are left
-  // untouched for the success handlers in ChatTab and UserSettings.
+  // untouched for the success handlers in useOAuthCompletion and UserSettings.
   useEffect(() => {
     const consumeFailedStrava = () => {
       let stored: string | null;
@@ -183,7 +183,7 @@ export default function ProviderConnectionCards({
         // provider is connected, so a second connection is picked up here.
         // The onboarding status is refetched too, so this tab leaves the
         // connect gate and reaches the coach proposal (carnet#1042).
-        // The entry is left for the success handlers in ChatTab and UserSettings.
+        // The entry is left for the success handlers in useOAuthCompletion and UserSettings.
         if (fresh && result.success === true) {
           void refetch();
           void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });

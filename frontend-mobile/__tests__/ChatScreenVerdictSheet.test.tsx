@@ -8,6 +8,7 @@ import React from 'react';
 import { Alert } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 jest.mock('expo-router/react-navigation', () => ({
   ...jest.requireActual('expo-router/react-navigation'),
@@ -51,10 +52,12 @@ const CONVERSATION = {
   created_at: '2026-10-05T13:50:00Z',
   updated_at: '2026-10-05T13:52:00Z',
 };
+// The thread on screen; a test that needs Home's personal thread swaps it in.
+let mockConversation: typeof CONVERSATION & { personal?: boolean } = CONVERSATION;
 jest.mock('../src/screens/chat/useConversations', () => ({
   useConversations: () => ({
-    conversations: [CONVERSATION],
-    currentConversation: CONVERSATION,
+    conversations: [mockConversation],
+    currentConversation: mockConversation,
     isLoading: false,
     error: null,
     loadConversations: jest.fn(),
@@ -174,8 +177,11 @@ jest.mock('../src/screens/chat/useChatPlusActions', () => ({
 
 import { ChatScreen } from '../src/screens/chat/ChatScreen';
 
-function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderScreen(seed?: (client: QueryClient) => void) {
+  // `gcTime: Infinity`: a seeded or fetched query would otherwise arm a
+  // five-minute garbage-collection timer that keeps jest from exiting.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  seed?.(client);
   return render(
     <QueryClientProvider client={client}>
       <ChatScreen />
@@ -194,6 +200,7 @@ function copyFromMenu(view: ReturnType<typeof renderScreen>) {
 describe('ChatScreen verdict sheet', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockConversation = CONVERSATION;
     jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
   });
 
@@ -209,6 +216,22 @@ describe('ChatScreen verdict sheet', () => {
 
     fireEvent.press(view.getByTestId('verdict-source'));
     expect(view.getByTestId('verdict-source-preview')).toHaveTextContent(/No HR zones on file/);
+  });
+
+  // carnet#1146: the server stamps a rebound personal thread with its agent's
+  // canonical English title. Home's thread is named after its agent as the
+  // athlete's own agent list spells it, so the sheet names it that way too.
+  it("names Home's personal thread after its agent, in the athlete's language", async () => {
+    mockConversation = { ...CONVERSATION, title: 'Fuelling Agent', personal: true };
+    const view = renderScreen((client) =>
+      client.setQueryData(QUERY_KEYS.coaches.list(), {
+        agents: [{ id: 'coach-1', title: 'Agent Ravitaillement' }],
+      }),
+    );
+
+    fireEvent.press(view.getByTestId('verdict-chip'));
+    await waitFor(() => expect(view.getByTestId('verdict-source')).toHaveTextContent(/Agent Ravitaillement/));
+    expect(view.getByTestId('verdict-source')).not.toHaveTextContent(/Fuelling Agent/);
   });
 
   it('copies the verdict, message and conversation ids for support, and says so', async () => {

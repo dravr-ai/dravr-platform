@@ -8,6 +8,7 @@ import type {
   Conversation,
   Agent,
   MessageActions,
+  MessageOrigin,
   MessageRole,
   RoomAttribution,
 } from '@pierre/shared-types';
@@ -63,6 +64,28 @@ export interface OAuthNotification {
 export interface DeleteConfirmation {
   id: string;
   title: string | null;
+}
+
+/**
+ * A composer action a host hands the chat thread.
+ *
+ * `draft` seeds the composer and leaves the athlete to press send; `send`
+ * dispatches the text as a turn on its own. Both start a conversation first
+ * when none is open — an invite link opened cold has no thread to speak into.
+ */
+export interface PendingComposerAction {
+  kind: 'draft' | 'send';
+  text: string;
+  /**
+   * How a `send` was produced, when not typed: the activity view's chips say
+   * `chip`. A `draft` is reported as one when the athlete sends it.
+   */
+  origin?: MessageOrigin;
+  /**
+   * What the athlete's bubble shows for a `send` whose text is a starter's
+   * postback: its label, until the turn echoes the words it stands for.
+   */
+  display?: string;
 }
 
 // Re-export for convenience

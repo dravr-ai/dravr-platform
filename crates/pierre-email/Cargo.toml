@@ -14,7 +14,7 @@ publish = false
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
 dravr-tronc = { workspace = true, features = ["notifications"] }
 
-html-escape = "0.2.13"
+html-escape = "0.2.15"
 tracing = "0.1"
 
 [lints]

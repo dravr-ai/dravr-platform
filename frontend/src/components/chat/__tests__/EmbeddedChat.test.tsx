@@ -9,8 +9,9 @@ import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import ChatTab, { type PendingComposerAction } from '../ChatTab';
-import { ToastProvider } from '../ui';
+import EmbeddedChat from '../EmbeddedChat';
+import type { PendingComposerAction } from '../types';
+import { ToastProvider } from '../../ui';
 
 const QUESTION = 'What recovery do you advise after my activity “Morning Trail Run” from Tuesday 29 September?';
 
@@ -19,7 +20,7 @@ const sendTurn = vi.fn();
 const getConversations = vi.fn();
 const getConversationMessages = vi.fn();
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../../services/api', () => ({
   // The header's notifications bell reads the unread count.
   notificationsApi: { getUnreadCount: async () => ({ unread_count: 0 }) },
   chatApi: {
@@ -41,9 +42,9 @@ vi.mock('../../services/api', () => ({
   groupsApi: { getGroup: vi.fn(), readRoom: vi.fn() },
 }));
 
-vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
-vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
-vi.mock('../../hooks/useUsageStatus', () => ({
+vi.mock('../../../services/analytics', () => ({ track: vi.fn() }));
+vi.mock('../../../hooks/useAuth', () => ({ useAuth: () => ({ token: 'test-token' }) }));
+vi.mock('../../../hooks/useUsageStatus', () => ({
   useUsageStatus: () => ({
     data: undefined,
     isLoading: false,
@@ -65,13 +66,12 @@ function Host() {
   return (
     <div>
       <p data-testid="host-conversation">{conversation ?? 'none'}</p>
-      <ChatTab
-        layout="embedded"
-        selectedConversation={conversation}
+      <EmbeddedChat
+        conversationId={conversation}
         onSelectConversation={setConversation}
         pendingComposerAction={action}
         onPendingComposerActionConsumed={() => setAction(null)}
-        embeddedEmptyState={
+        emptyState={
           <button type="button" onClick={() => setAction({ kind: 'send', text: QUESTION })}>
             host question
           </button>
@@ -94,7 +94,7 @@ function renderHost() {
   );
 }
 
-describe('ChatTab embedded', () => {
+describe('EmbeddedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getConversations.mockResolvedValue({ conversations: [], total: 0 });
@@ -124,7 +124,9 @@ describe('ChatTab embedded', () => {
     expect(await screen.findByText(QUESTION)).toBeInTheDocument();
     // The thread's composer takes over from the host's way in.
     expect(screen.queryByRole('button', { name: 'host question' })).toBeNull();
+    // The view owns the way in: the thread's composer does not take focus on open.
     expect(screen.getByPlaceholderText('Message Dravr...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Message Dravr...')).not.toHaveFocus();
     expect(screen.queryByTestId('thread-header')).toBeNull();
   });
 });

@@ -489,14 +489,7 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
             "potência de limiar",
         ] {
             if let Some(v) = extract_number_near(text, kw) {
-                // FTP test-retest reliability is ~±3%.
-                // LIMITATION(registre#1080): the FTP probe has no margin of its own, so under the default `DEFAULT_MARGIN_FRAC` a quoted FTP 3–11% off the record is `Indeterminate` and this check stays silent.
-                return verdict_for(
-                    ctx,
-                    (ftp * 0.97, ftp * 1.03),
-                    v,
-                    &point_descr("FTP", ftp, v),
-                );
+                return ftp_verdict(ctx, ftp, v);
             }
         }
     }
@@ -536,6 +529,46 @@ pub fn check(claim: &ExtractedClaim, ctx: &PersonalizedContext<'_>) -> Option<Ve
     // --- Form: a share of fitness, a band, or a bare TSB ---
     // --- then overnight HRV, resting HR and sleep ---
     form::check(text, ctx).or_else(|| personalized_recovery::check(text, ctx))
+}
+
+/// FTP test-retest reliability: a quote within this fraction of the recorded
+/// FTP is `Supported`.
+const FTP_RELIABILITY_FRAC: f64 = 0.03;
+
+/// The furthest a quoted FTP may sit from the recorded one and still be left
+/// silent. The agent fetched the recorded FTP, so a quote further off is a
+/// misquote rather than test-retest noise, and a 10% error turns a 95%
+/// session into a ~105% one (carnet#1080).
+const FTP_MISQUOTE_FRAC: f64 = 0.05;
+
+/// The verdict for a quoted FTP against the athlete's recorded one.
+///
+/// Within [`FTP_RELIABILITY_FRAC`] it is `Supported`. Beyond it the tolerance
+/// strategy's buffer may leave it silent, but never past
+/// [`FTP_MISQUOTE_FRAC`]: there it is `Contradicted` whatever the buffer. The
+/// ceiling only tightens — a strategy stricter than it fires sooner.
+fn ftp_verdict(
+    ctx: &PersonalizedContext<'_>,
+    recorded: f64,
+    claimed: f64,
+) -> Option<VerdictOutcome> {
+    let descr = point_descr("FTP", recorded, claimed);
+    let call = ctx.tolerance.assess(
+        claimed,
+        (
+            recorded * (1.0 - FTP_RELIABILITY_FRAC),
+            recorded * (1.0 + FTP_RELIABILITY_FRAC),
+        ),
+    );
+    if call == ToleranceCall::Indeterminate
+        && (claimed - recorded).abs() > recorded.abs() * FTP_MISQUOTE_FRAC
+    {
+        return Some(contradicted_verdict(&format!(
+            "{descr} (more than {:.0}% off your recorded FTP)",
+            FTP_MISQUOTE_FRAC * 100.0
+        )));
+    }
+    verdict_from_call(ctx, call, &descr)
 }
 
 /// Keywords for critical power, in the five shipped locales. No bare "cp":

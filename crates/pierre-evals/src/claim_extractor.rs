@@ -66,6 +66,9 @@ pub fn extract_heuristic(agent_reply: &str) -> Vec<ExtractedClaim> {
         if word_count(trimmed) < MIN_CLAIM_WORDS {
             continue;
         }
+        if is_capability_report(trimmed) {
+            continue;
+        }
         if let Some(category) = classify_heuristic(trimmed) {
             out.push(ExtractedClaim {
                 text: trimmed.to_owned(),
@@ -77,11 +80,150 @@ pub fn extract_heuristic(agent_reply: &str) -> Vec<ExtractedClaim> {
     out
 }
 
+/// Openings with which the agent reports what it cannot do, in the five
+/// shipped locales.
+const CAPABILITY_OPENINGS: &[&str] = &[
+    // English
+    "i can't",
+    "i cannot",
+    "i can not",
+    "i couldn't",
+    "i could not",
+    "i'm unable",
+    "i am unable",
+    "i'm not able",
+    "i am not able",
+    "i don't have access",
+    "i do not have access",
+    // French
+    "je n'arrive pas",
+    "je n'arrive plus",
+    "je ne peux pas",
+    "je ne parviens pas",
+    "je n'ai pas accès",
+    "je n'ai pas acces",
+    "je n'ai pas pu",
+    // Spanish
+    "no puedo",
+    "no consigo",
+    "no logro",
+    "no tengo acceso",
+    "no he podido",
+    // German
+    "ich kann",
+    "ich konnte",
+    "ich habe keinen zugriff",
+    // Portuguese
+    "não consigo",
+    "nao consigo",
+    "não posso",
+    "nao posso",
+    "não tenho acesso",
+    "nao tenho acesso",
+];
+
+/// The German negations a "ich kann" report carries.
+const GERMAN_NEGATIONS: &[&str] = &["nicht", "kein", "keine", "keinen"];
+
+/// What the agent reports it cannot do with the athlete's data: show it,
+/// read it, reach it. Matched as whole tokens; a stem list would also match
+/// the training words a real claim carries.
+const DATA_ACCESS_VERBS: &[&str] = &[
+    // English
+    "show",
+    "see",
+    "access",
+    "read",
+    "load",
+    "display",
+    "fetch",
+    "reach",
+    "retrieve",
+    "open",
+    "pull",
+    "find",
+    "get",
+    // French
+    "afficher",
+    "voir",
+    "lire",
+    "charger",
+    "récupérer",
+    "recuperer",
+    "accéder",
+    "acceder",
+    "consulter",
+    "trouver",
+    "accès",
+    "acces",
+    "ouvrir",
+    // Spanish
+    "mostrar",
+    "ver",
+    "leer",
+    "cargar",
+    "acceder",
+    "recuperar",
+    "consultar",
+    "encontrar",
+    "abrir",
+    "acceso",
+    // German
+    "anzeigen",
+    "sehen",
+    "lesen",
+    "laden",
+    "abrufen",
+    "finden",
+    "öffnen",
+    "zugriff",
+    // Portuguese
+    "mostrar",
+    "ler",
+    "carregar",
+    "acessar",
+    "aceder",
+    "recuperar",
+    "consultar",
+    "encontrar",
+    "abrir",
+    "acesso",
+];
+
+/// Whether a sentence is the agent reporting a capability failure — "Je
+/// n'arrive pas à afficher tes dernières sorties pour l'instant", "I can't
+/// show your recent runs right now".
+///
+/// Such a sentence is about the agent, not about training or the athlete:
+/// nothing in it is a claim to verify. Read as one it reached the
+/// athlete-data layer ("your recent") or the prescription bucket ("séance")
+/// and could come back contradicted under an honest answer (carnet#1151).
+/// Only a sentence that opens on the report and names a data-access verb is
+/// dropped, so "I can't stress enough that protein matters" stays a claim.
+fn is_capability_report(sentence: &str) -> bool {
+    let lower = sentence.to_lowercase();
+    let tokens = tokens_of(&lower);
+    let opens = CAPABILITY_OPENINGS.iter().any(|opening| {
+        let words = tokens_of(opening);
+        !words.is_empty() && tokens.starts_with(&words)
+    });
+    // German places the negation at the end ("Ich kann deine Einheiten nicht
+    // anzeigen"), so its openings are only a report when one follows: "Ich
+    // kann sehen, dass dein Puls hoch ist" is a claim.
+    let german_without_negation = matches!(tokens.as_slice(), ["ich", "kann" | "konnte", ..])
+        && !tokens.iter().any(|t| GERMAN_NEGATIONS.contains(t));
+    opens && !german_without_negation && tokens.iter().any(|t| DATA_ACCESS_VERBS.contains(t))
+}
+
 fn word_count(s: &str) -> usize {
     s.split_whitespace().filter(|w| !w.is_empty()).count()
 }
 
 /// Split an agent reply into sentences on `.`/`!`/`?` boundaries.
+///
+/// A terminator inside parentheses ends nothing: "Dis-moi ce qui est prévu
+/// (des 400 m, des 1000 m ?) et je l'ajuste" is one sentence, and splitting it
+/// at the `?` left ") et je l'ajuste à ta séance" to be verified as a claim.
 ///
 /// Used by [`extract_heuristic`]; exposed so the heuristic building blocks
 /// can be exercised directly.
@@ -90,14 +232,24 @@ pub fn split_sentences(text: &str) -> Vec<String> {
     let mut sentences = Vec::new();
     let mut current = String::new();
     let chars: Vec<char> = text.chars().collect();
+    let mut depth = 0usize;
     for i in 0..chars.len() {
         let ch = chars[i];
         current.push(ch);
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
         // A line break is a unit boundary. Without this, a newline-delimited
         // list with no terminal punctuation (e.g. a weekly training plan) is
         // swallowed into one giant multi-line "claim".
         if ch == '\n' {
+            depth = 0;
             finalize_sentence(&mut current, &mut sentences);
+            continue;
+        }
+        if depth > 0 {
             continue;
         }
         if matches!(ch, '!' | '?') {

@@ -386,7 +386,6 @@ mod llm_provider_test;
 mod llm_provider_unreachable_test;
 mod llm_test;
 mod llm_usage_test;
-mod logging_chromiumoxide_filter_test;
 mod logging_gcp_test;
 mod login_algorithm_test;
 mod mcp_advertised_surface_test;

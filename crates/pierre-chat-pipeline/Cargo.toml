@@ -74,15 +74,15 @@ futures-util = { version = "0.3", optional = true }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.54", features = ["macros", "rt-multi-thread", "sync", "time"] }
 # TaskTracker: the drain handle llm_usage writes are spawned on.
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 urlencoding = "2.1"
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 # Behind `language-detection`: only the five platform languages' models.
 lingua = { version = "1.8", default-features = false, features = ["english", "french", "spanish", "german", "portuguese"], optional = true }
-jsonschema = { version = "0.46.5", default-features = false }
+jsonschema = { version = "0.46.10", default-features = false }
 
 [dev-dependencies]
 # Assets crate (git): provides the structured-workout schema for the

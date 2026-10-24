@@ -1,5 +1,5 @@
-// ABOUTME: Tests for ChatTab's author label, its header info drawer, its url reply actions, create failures and group room
-// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, the trusted-domain gate, 429 wording and the room thread
+// ABOUTME: Tests for the Groups tab's author label, its header info drawer, its url reply actions and group room
+// ABOUTME: Covers the coach-titled bubble, the header-as-button contract, the trusted-domain gate and the room thread
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,7 +16,8 @@ import type {
   TurnEnvelope,
 } from '@pierre/shared-types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import ChatTab, { type PendingComposerAction } from '../ChatTab';
+import ChatTab from '../ChatTab';
+import type { PendingComposerAction } from '../chat/types';
 import { ToastProvider } from '../ui';
 
 const CONVERSATION_ID = 'conv-1';
@@ -32,7 +33,6 @@ const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 const applyNotice = vi.fn();
 const createConversation = vi.fn();
-const openPersonalTopic = vi.fn();
 const getGroup = vi.fn();
 const readRoom = vi.fn();
 
@@ -47,7 +47,6 @@ vi.mock('../../services/api', () => ({
     sendTurn: (...a: unknown[]) => sendTurn(...a),
     markConversationRead: vi.fn().mockResolvedValue(undefined),
     createConversation: (...a: unknown[]) => createConversation(...a),
-    openPersonalTopic: (...a: unknown[]) => openPersonalTopic(...a),
     updateConversation: vi.fn(),
     deleteConversation: vi.fn(),
     markConversationUnread: vi.fn(),
@@ -111,7 +110,6 @@ function renderChatTab(
   props: {
     onNavigate?: (route: string) => void;
     onSelectConversation?: (id: string | null) => void;
-    layout?: 'shell' | 'personal';
     pendingComposerAction?: PendingComposerAction | null;
     openInfoFor?: string | null;
     onOpenInfoConsumed?: () => void;
@@ -129,7 +127,6 @@ function renderChatTab(
           onOpenInfoConsumed={props.onOpenInfoConsumed}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
           onNavigate={props.onNavigate}
-          layout={props.layout}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -146,7 +143,6 @@ function ComposerActionHost(props: {
   onOpenInfoConsumed?: () => void;
   onSelectConversation: (id: string | null) => void;
   onNavigate?: (route: string) => void;
-  layout?: 'shell' | 'personal';
 }) {
   const [action, setAction] = useState<PendingComposerAction | null>(props.initial);
   const [infoFor, setInfoFor] = useState<string | null>(props.initialInfoFor);
@@ -155,7 +151,6 @@ function ComposerActionHost(props: {
       selectedConversation={CONVERSATION_ID}
       onSelectConversation={props.onSelectConversation}
       onNavigate={props.onNavigate}
-      layout={props.layout}
       openInfoFor={infoFor}
       onOpenInfoConsumed={() => {
         setInfoFor(null);
@@ -1182,69 +1177,6 @@ describe('ChatTab copy and share', () => {
     // No navigator.share in jsdom, so the share path falls to the clipboard —
     // and it carries the same text the copy button does.
     expect(writeText).toHaveBeenCalledWith(READABLE);
-  });
-});
-
-describe('ChatTab conversation create failures', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    getProvidersStatus.mockResolvedValue({ providers: [] });
-    getConversationVerdicts.mockResolvedValue({ verdicts: [] });
-    listParticipants.mockResolvedValue([]);
-    listCoaches.mockResolvedValue({ agents: [] });
-    getConversations.mockResolvedValue({
-      conversations: [{ id: CONVERSATION_ID, title: 'Sunday long run', agent_id: null }],
-      total: 1,
-    });
-    getConversationMessages.mockResolvedValue({ messages: [] });
-  });
-
-  // Home's "+" opens a topic in the personal thread, which no cap refuses —
-  // the cap's wording is pinned where a room is created (ChatComposeMenu).
-  // The Groups tab's "+" offers rooms only.
-  async function startNewChat() {
-    const user = userEvent.setup();
-    renderChatTab({ layout: 'personal' });
-    const [menuButton] = await screen.findAllByRole('button', { name: 'New' });
-    await user.click(menuButton);
-    await user.click(await screen.findByRole('menuitem', { name: 'New chat' }));
-  }
-
-  function refusedWith(details: Record<string, unknown>, code: string) {
-    return { response: { status: 429, data: { code, message: 'refused', details } } };
-  }
-
-  it('reads a spent request budget as the usage quota, not as the conversation cap', async () => {
-    openPersonalTopic.mockRejectedValue(
-      refusedWith(
-        { limit_type: 'requests', current: 10000, limit: 10000, retry_after_secs: 3600 },
-        'RateLimitExceeded',
-      ),
-    );
-
-    await startNewChat();
-
-    expect(
-      await screen.findByText('Usage quota reached (10,000/10,000). Please try again later.'),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Could not start chat')).toBeInTheDocument();
-    expect(screen.queryByText('Conversation limit reached')).toBeNull();
-    expect(
-      screen.queryByText('Something went wrong creating the conversation. Please try again.'),
-    ).toBeNull();
-  });
-
-  it('falls back to the create-failed sentence for any other failure', async () => {
-    openPersonalTopic.mockRejectedValue({
-      response: { status: 409, data: { code: 'ResourceAlreadyExists' } },
-    });
-
-    await startNewChat();
-
-    expect(
-      await screen.findByText('Something went wrong creating the conversation. Please try again.'),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Could not start chat')).toBeInTheDocument();
   });
 });
 

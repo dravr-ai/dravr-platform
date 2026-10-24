@@ -36,6 +36,7 @@ use super::errors::provider::ProviderError;
 use crate::activity_paging::{max_activity_pages, MAX_ACTIVITY_PAGES_ENV};
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
+use crate::fit_file::decode_bounded;
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
 use crate::models::StatsCoverage;
@@ -607,7 +608,9 @@ impl WahooProvider {
                 "workout file is larger than any activity file".to_owned(),
             ));
         }
-        time_series_from_fit(&bytes).map(Some)
+        decode_bounded(move || time_series_from_fit(&bytes))
+            .await?
+            .map(Some)
     }
 
     /// A completed workout, refusing a scheduled one.

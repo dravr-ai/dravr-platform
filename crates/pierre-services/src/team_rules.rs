@@ -37,7 +37,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::{
     resolve_sport_type, Dossier, Pillar, SportProfile, SportType, LONG_SESSION_MIN,
 };
-use pierre_memory::FactKind;
+use pierre_memory::{FactKind, PredicateCode};
 use serde::{Deserialize, Serialize};
 
 use crate::agents::extract_json_array;
@@ -243,6 +243,39 @@ pub fn first_goal(dossier: &Dossier) -> Option<&str> {
         .find(|fact| fact.kind == FactKind::Goal.as_str() && !fact.stale)
         .map(|fact| fact.object.as_str())
         .filter(|goal| !goal.trim().is_empty())
+}
+
+/// The sports the athlete said they mainly train, read from the about-you
+/// step's live `primarily_train` fact.
+///
+/// The step stores the chip's canonical value ("Running", "Cycling") or the
+/// athlete's own words, so both resolve through the alias table; a
+/// triathlete trains all three of its disciplines. Empty when nothing was
+/// said or the words name no known sport.
+#[must_use]
+pub fn declared_sports(dossier: &Dossier) -> Vec<SportType> {
+    let Some(declared) = Pillar::ALL
+        .iter()
+        .filter_map(|pillar| dossier.pillars.get(pillar))
+        .flatten()
+        .find(|fact| fact.predicate_code == PredicateCode::PrimarilyTrain.as_str() && !fact.stale)
+        .map(|fact| fact.object.trim().to_lowercase())
+    else {
+        return Vec::new();
+    };
+    if matches!(
+        declared.as_str(),
+        "triathlon"
+            | "triathlete"
+            | "triathlète"
+            | "triatlón"
+            | "triatlon"
+            | "triatleta"
+            | "triatlo"
+    ) {
+        return vec![SportType::Run, SportType::Ride, SportType::Swim];
+    }
+    resolve_sport_type(&declared).into_iter().collect()
 }
 
 /// Strength and crossfit sessions in the profile (weight training folds into
@@ -551,6 +584,61 @@ mod tests {
         assert_eq!(first_goal(&stale), None);
         let preference = dossier_with(vec![fact("preference", "Mornings", false)]);
         assert!(!has_goal(&preference));
+    }
+
+    fn sport_fact(object: &str, stale: bool) -> DossierFact {
+        DossierFact {
+            kind: "preference".to_owned(),
+            predicate_code: PredicateCode::PrimarilyTrain.as_str().to_owned(),
+            object: object.to_owned(),
+            confidence: 1.0,
+            source: "onboarding".to_owned(),
+            updated_at: chrono::Utc::now(),
+            valid_until: None,
+            stale,
+        }
+    }
+
+    #[test]
+    fn the_declared_sport_resolves_from_the_chip_or_the_athletes_words() {
+        let runner = dossier_with(vec![sport_fact("Running", false)]);
+        assert_eq!(
+            declared_sports(&runner),
+            vec![SportType::Run],
+            "bug: the Running chip did not resolve"
+        );
+        let french = dossier_with(vec![sport_fact("Course à pied", false)]);
+        assert_eq!(
+            declared_sports(&french),
+            vec![SportType::Run],
+            "bug: the athlete's French words did not resolve"
+        );
+        for spelling in ["Triathlon", "Triatlón", "Triatlo"] {
+            let triathlete = dossier_with(vec![sport_fact(spelling, false)]);
+            assert_eq!(
+                declared_sports(&triathlete),
+                vec![SportType::Run, SportType::Ride, SportType::Swim],
+                "bug: {spelling} is not its three disciplines"
+            );
+        }
+        let stale = dossier_with(vec![sport_fact("Running", true)]);
+        assert_eq!(
+            declared_sports(&stale),
+            Vec::<SportType>::new(),
+            "bug: a stale answer still declared a sport"
+        );
+        let unknown = dossier_with(vec![sport_fact("Underwater hockey", false)]);
+        assert_eq!(
+            declared_sports(&unknown),
+            Vec::<SportType>::new(),
+            "bug: an unknown sport resolved to one"
+        );
+        let goal_only = dossier_with(vec![fact("goal", "A half marathon", false)]);
+        assert_eq!(
+            declared_sports(&goal_only),
+            Vec::<SportType>::new(),
+            "bug: a goal was read as a declared sport"
+        );
     }
 
     #[test]

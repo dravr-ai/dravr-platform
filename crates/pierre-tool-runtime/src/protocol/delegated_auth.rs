@@ -41,7 +41,6 @@
 //! flags the coach's connection and tells the coach instead.
 
 use chrono::{DateTime, Utc};
-use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ConnectionType, DelegatedConnection, DelegationEndReason, ProviderAccountRole,
@@ -50,7 +49,7 @@ use pierre_core::models::{
 use pierre_core::untrusted::display_line;
 use pierre_groups::delegation::{DelegationStore, UnbackedLink};
 use pierre_providers::delegation::{is_athlete_off_roster, is_coach_credential_expired};
-use pierre_providers::sciotte_error::sciotte_refusal;
+use pierre_providers::sciotte_error::is_coach_account_refusal;
 use pierre_providers::CoreFitnessProvider;
 use pierre_services::coach_platform::{coach_platform, CoachPlatform};
 use pierre_services::delegated_connections::{end_off_roster, person_name, unbound_link_reason};
@@ -434,7 +433,7 @@ impl AuthService {
                 .await;
         } else if is_athlete_off_roster(error) {
             self.end_off_roster_link(platform, user_id, tenant).await;
-        } else if sciotte_refusal(error) == Some(ATHLETE_REQUIRED) {
+        } else if is_coach_account_refusal(error) {
             self.record_coach_account(user_id, tenant).await;
         }
     }

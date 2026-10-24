@@ -39,7 +39,7 @@ export default function OAuthCallback({ provider, success, error, tombstone, onC
     providersData?.providers?.find((p) => p.provider === provider)?.display_name ??
     provider.charAt(0).toUpperCase() + provider.slice(1);
 
-  // Store OAuth result in localStorage so ChatTab can display connection status
+  // Store OAuth result in localStorage so the open chat thread (useOAuthCompletion) can display connection status
   // Security: Only store non-sensitive data - error messages may contain sensitive info
   useEffect(() => {
     const result = {

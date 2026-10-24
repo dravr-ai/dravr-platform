@@ -16,11 +16,12 @@ import type {
 import { ENDPOINTS } from '../core/endpoints';
 
 // Backpressure retry parameters for the sciotte provider. The platform
-// sheds load with HTTP 503 + `Retry-After` when its Chrome queue is
-// saturated; clients retry with jittered exponential backoff so a
-// thundering herd at t+Retry-After doesn't re-saturate the pod on every
+// answers HTTP 503 + `Retry-After` when the dedicated sciotte scraper
+// service sheds load; clients retry with jittered exponential backoff so a
+// thundering herd at t+Retry-After doesn't re-saturate the service on every
 // synchronized tick. Values are fixed per-release — operators tune the
-// server-side limit via PIERRE_SCIOTTE_* env vars, not the client.
+// limit on the scraper service (DRAVR_SCIOTTE_MAX_CONCURRENT and friends),
+// not the client.
 const SCIOTTE_RETRY_MAX_ATTEMPTS = 3;
 const SCIOTTE_RETRY_BASE_MS = 1000;
 const SCIOTTE_RETRY_JITTER_MS = 500;

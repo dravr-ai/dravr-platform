@@ -14,7 +14,8 @@ import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
 import { ACCOUNT_ROLE_LABEL_KEY, COMMAND_DRAFTS, PRODUCT_WORDMARK } from '@pierre/shared-constants';
-import type { PendingComposerAction, PersonalToday } from './ChatTab';
+import type { PendingComposerAction } from './chat/types';
+import type { PersonalToday } from './home/personalToday';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
@@ -90,6 +91,7 @@ const AdminSettings = lazy(() => import('./AdminSettings'));
 const ApiKeyList = lazy(() => import('./ApiKeyList'));
 const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
+const PersonalChat = lazy(() => import('./home/PersonalChat'));
 // Home's Today, drawn beside the athlete's conversation: its sections for the
 // panel, the drawer or the sheet, and the one line that stands for them above
 // the thread on a narrow screen.
@@ -1131,8 +1133,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                 onNavigate={applyRoute}
               />
             ) : (
-              <ChatTab
-                layout="personal"
+              <PersonalChat
                 selectedConversation={homeConversation ?? personalThread.id}
                 onSelectConversation={setHomeConversation}
                 onNavigate={applyRoute}

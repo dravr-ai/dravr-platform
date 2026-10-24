@@ -22,7 +22,7 @@ use pierre_config::environment::{
     MonitoringConfig, OAuth2ServerConfig, OAuthConfig, OAuthProviderConfig, PostgresPoolConfig,
     ProtocolConfig, RateLimitConfig, SciotteServiceConfig, SecurityConfig, SecurityHeadersConfig,
     ServerConfig, SleepToolParamsConfig, SseConfig, StravaApiConfig, TlsConfig, TokioRuntimeConfig,
-    TrainingZonesConfig, WeatherServiceConfig,
+    TrainingZonesConfig,
 };
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
@@ -230,11 +230,6 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -521,11 +516,6 @@ async fn test_user_login_success() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -816,11 +806,6 @@ async fn test_token_refresh_success() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -1079,11 +1064,6 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -1596,11 +1576,6 @@ async fn test_complete_auth_flow() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),
@@ -1918,11 +1893,6 @@ async fn test_concurrent_logins() -> Result<()> {
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),

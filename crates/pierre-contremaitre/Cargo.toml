@@ -27,7 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dravr-contremaitre = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications"] }
 hex = "0.4"
-regex = "1.12"
+regex = "1.13"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -38,7 +38,7 @@ urlencoding = "2.1"
 
 [dev-dependencies]
 # The tool-description sync is async; its inline tests drive it directly.
-tokio = { version = "1.50", features = ["macros", "rt"] }
+tokio = { version = "1.54", features = ["macros", "rt"] }
 
 [lints]
 workspace = true

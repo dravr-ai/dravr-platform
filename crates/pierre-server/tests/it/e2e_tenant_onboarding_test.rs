@@ -492,11 +492,6 @@ fn create_test_server_config() -> ServerConfig {
             },
         },
         external_services: ExternalServicesConfig {
-            weather: WeatherServiceConfig {
-                api_key: None,
-                base_url: "https://api.openweathermap.org/data/2.5".to_owned(),
-                enabled: false,
-            },
             strava_api: StravaApiConfig {
                 base_url: "https://www.strava.com/api/v3".to_owned(),
                 auth_url: "https://www.strava.com/oauth/authorize".to_owned(),

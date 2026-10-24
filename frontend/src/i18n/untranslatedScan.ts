@@ -251,6 +251,8 @@ function decodeEntities(text: string): string {
 const WEB_ENTRY_POINTS = [
   // Sidebar destinations a non-admin gets — `regularTabs` in Dashboard.tsx.
   'components/ChatTab.tsx',
+  // Home: the athlete's own conversation beside Today.
+  'components/home/PersonalChat.tsx',
   'components/StoreScreen.tsx',
   'components/notifications/NotificationsPanel.tsx',
   'components/BillingPage.tsx',

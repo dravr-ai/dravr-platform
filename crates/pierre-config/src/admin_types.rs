@@ -68,7 +68,7 @@ pub struct ParameterRange {
 /// Admin-configurable parameter with full metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminConfigParameter {
-    /// Unique key identifier (e.g., `feature.weather_api_enabled`)
+    /// Unique key identifier (e.g., `feature.auto_approval_enabled`)
     pub key: String,
     /// Human-readable display name
     pub display_name: String,

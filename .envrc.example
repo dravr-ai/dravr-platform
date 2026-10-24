@@ -127,23 +127,9 @@ export JWT_EXPIRY_HOURS="24"
 # - "garmin": Real OAuth testing with Garmin
 export PIERRE_DEFAULT_PROVIDER=strava
 
-# ----------------------------------------------------------------------------
-# Sciotte Backpressure Limiter (REQUIRED — no crate defaults)
-# ----------------------------------------------------------------------------
-# The sciotte provider wraps a Chrome-driven scraper with a FIFO-fair
-# backpressure limiter. All seven variables below are mandatory at startup
-# — init_sciotte_limiter() fails fast if any is missing. Production values
-# live in Terraform; these are sane dev defaults.
-export PIERRE_SCIOTTE_MAX_CONCURRENT=2            # concurrent Chrome scrapes
-export PIERRE_SCIOTTE_MAX_QUEUE=8                 # running + waiting cap
-export PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS=10     # wait before returning 503
-export PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS=300 # parked-permit TTL (OTP/2FA)
-export PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS=15    # watchdog tick interval
-export PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS=5      # Retry-After on 503
-export PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS=60   # Retry-After on shutdown
-
 # Dedicated sciotte scraper service (ADR-021), optional. Set => the server sends
-# sciotte logins and scrapes here instead of to in-pod Chrome, and the one-shot
+# sciotte logins and scrapes here (the server runs no Chrome of its own, so
+# unset disables the sciotte providers), and the one-shot
 # setup starts the service on this URL's port (scripts/sciotte-local.sh port).
 # Never 8091: that is the isolated Pierre server's port, and setup refuses a
 # sciotte port equal to HTTP_PORT.
@@ -411,10 +397,9 @@ export COPILOT_SKIP_CLI_DOWNLOAD=1
 # API PROVIDER CONFIGURATION
 # ============================================================================
 
-# Weather Service
+# Weather Service — read by dravr-meteo: WEATHER_PROVIDER picks the historical
+# vendor, and openweathermap needs OPENWEATHER_API_KEY
 export OPENWEATHER_API_KEY="your-openweathermap-api-key"
-# export OPENWEATHER_BASE_URL="https://api.openweathermap.org/data/2.5"
-# export WEATHER_SERVICE_ENABLED="true"
 
 # USDA FoodData Central API
 # export USDA_API_KEY="your-usda-api-key"

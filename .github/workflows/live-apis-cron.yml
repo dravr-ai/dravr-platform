@@ -1,4 +1,4 @@
-# ABOUTME: Daily live run of the tests that call public third-party APIs (Open-Meteo, Overpass/Nominatim, USDA)
+# ABOUTME: Daily live run of the tests that call public third-party APIs (Open-Meteo weather and geocoding, Overpass, USDA)
 # ABOUTME: Builds the live-e2e targets no other lane provisions and fails unless every one of them ran and passed
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0

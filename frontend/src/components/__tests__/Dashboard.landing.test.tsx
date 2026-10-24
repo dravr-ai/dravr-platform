@@ -20,14 +20,12 @@ vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
 }));
 
-// Home is ChatTab's personal layout; the Groups tab is its shell.
+// Home is PersonalChat; the Groups tab is ChatTab.
+vi.mock('../home/PersonalChat', () => ({
+  default: () => <div data-testid="home-tab">Home surface</div>,
+}));
 vi.mock('../ChatTab', () => ({
-  default: ({ layout }: { layout?: string }) =>
-    layout === 'personal' ? (
-      <div data-testid="home-tab">Home surface</div>
-    ) : (
-      <div data-testid="chat-tab">Groups surface</div>
-    ),
+  default: () => <div data-testid="chat-tab">Groups surface</div>,
 }));
 
 vi.mock('../StoreScreen', () => ({

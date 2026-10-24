@@ -214,6 +214,14 @@ pub fn sciotte_refusal(error: &AppError) -> Option<&str> {
         .as_str()
 }
 
+/// Whether `error` is the scraper's refusal of a coach account read as an
+/// athlete's own ([`ATHLETE_REQUIRED`]): the account has no calendar of its
+/// own, and a read must name one of the athletes it coaches.
+#[must_use]
+pub fn is_coach_account_refusal(error: &AppError) -> bool {
+    sciotte_refusal(error) == Some(ATHLETE_REQUIRED)
+}
+
 /// The server's sciotte client, or the not-configured error a call that needs
 /// the scraper service reports when the server started without one.
 ///
@@ -544,6 +552,10 @@ mod tests {
         );
         assert_eq!(sciotte_refusal(&error), Some(ATHLETE_REQUIRED));
         assert_eq!(error.provider_auth_required_provider(), None);
+        assert!(
+            is_coach_account_refusal(&error),
+            "the athlete-required refusal reads as a coach account"
+        );
     }
 
     #[test]

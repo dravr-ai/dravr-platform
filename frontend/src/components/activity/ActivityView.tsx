@@ -23,7 +23,8 @@ import {
   useDistanceUnit,
 } from '@pierre/ui-logic';
 import type { ActivityDetailResponse } from '@pierre/shared-types';
-import ChatTab, { type PendingComposerAction } from '../ChatTab';
+import EmbeddedChat from '../chat/EmbeddedChat';
+import type { PendingComposerAction } from '../chat/types';
 import { Button, IconButton, Input } from '../ui';
 import { EmptyState } from '../ui/EmptyState';
 import { Section } from '../ui/Section';
@@ -175,12 +176,10 @@ function AskField({ onAsk }: { onAsk: (question: string) => void }) {
 function ActivityChat({
   activity,
   detail,
-  onNavigate,
 }: {
   /** The activity as the view was opened on it: the thread is linked to this. */
   activity: ActivityRef;
   detail: ActivityDetailResponse;
-  onNavigate: (route: string) => void;
 }) {
   const { t, language } = useTranslation();
   const { conversationId, setConversationId } = useActivityConversation(activity.provider, activity.id, detail);
@@ -220,14 +219,12 @@ function ActivityChat({
             : ''
         }
       >
-        <ChatTab
-          layout="embedded"
-          selectedConversation={conversationId}
+        <EmbeddedChat
+          conversationId={conversationId}
           onSelectConversation={setConversationId}
-          onNavigate={onNavigate}
           pendingComposerAction={action}
           onPendingComposerActionConsumed={consumed}
-          embeddedEmptyState={
+          emptyState={
             <AskField onAsk={(question) => send(activityFirstLine(t, naming, question))} />
           }
         />
@@ -310,7 +307,7 @@ export default function ActivityView({ activity, onBack, onNavigate }: ActivityV
               </p>
               <ActivityMap activity={data.activity} />
             </div>
-            <ActivityChat activity={activity} detail={data} onNavigate={onNavigate} />
+            <ActivityChat activity={activity} detail={data} />
             <div
               data-testid="activity-details"
               className="space-y-8 border-0 ghost-border lg:absolute lg:inset-y-0 lg:right-0 lg:!mt-0 lg:flex lg:w-[420px] lg:flex-col lg:gap-8 lg:space-y-0 lg:overflow-y-auto lg:border-l lg:px-6 lg:py-6"

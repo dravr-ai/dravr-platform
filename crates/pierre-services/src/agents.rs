@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::models::agents::{Agent, AgentPrerequisites};
-use pierre_core::models::SportProfile;
+use pierre_core::models::{resolve_sport_type, sport_matches_family, SportProfile, SportType};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -190,6 +190,52 @@ pub fn score_agent<S: BuildHasher>(
                 },
             }
         }
+    }
+}
+
+/// Score a sport-specific agent for an athlete with no activity profile yet
+/// against the sports they said they train (the about-you step).
+///
+/// [`score_agent`] keeps every sport-specific agent out of a cold start,
+/// because there is nothing to see what the athlete does. The athlete's own
+/// answer is something: a runner with a connected watch and no synced run yet
+/// was led by the Mobility agent while the road-running agent waited
+/// (carnet#1151). So a sport-specific agent is eligible here when its
+/// provider prerequisite is met and one of its activity types matches a
+/// declared sport, scored like [`SportProfile::activity_type_overlap`]: the
+/// share of its activity types the athlete declared, so an agent for exactly
+/// that sport ranks above one that spreads across three. A sport-agnostic
+/// agent, or one whose provider is missing, is never eligible through this.
+#[must_use]
+pub fn score_declared_sport<S: BuildHasher>(
+    prerequisites: &AgentPrerequisites,
+    declared: &[SportType],
+    user_providers: &HashSet<String, S>,
+) -> AgentRecommendation {
+    let ineligible = AgentRecommendation {
+        eligible: false,
+        match_score: 0.0,
+    };
+    if prerequisites.activity_types.is_empty()
+        || declared.is_empty()
+        || !meets_prerequisites(prerequisites, !user_providers.is_empty())
+    {
+        return ineligible;
+    }
+    let matches = prerequisites
+        .activity_types
+        .iter()
+        .filter_map(|t| resolve_sport_type(t))
+        .filter(|sport| declared.iter().any(|d| sport_matches_family(d, sport)))
+        .count();
+    if matches == 0 {
+        return ineligible;
+    }
+    let match_score = f32::from(u16::try_from(matches).unwrap_or(u16::MAX))
+        / f32::from(u16::try_from(prerequisites.activity_types.len()).unwrap_or(u16::MAX));
+    AgentRecommendation {
+        eligible: true,
+        match_score,
     }
 }
 

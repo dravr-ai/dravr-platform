@@ -17,7 +17,7 @@ import { recentActivitiesQuery } from '../../hooks/useHome';
 import { useGettingStarted } from './gettingStartedState';
 import { usePersonalConversation } from '../../hooks/useConversationList';
 import { Section } from '../ui/Section';
-import type { TodayActions } from '../ChatTab';
+import type { TodayActions } from './personalToday';
 
 /** Each row's strings, keyed by the server's row id. */
 const ROW_KEY: Record<string, string> = {

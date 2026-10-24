@@ -94,3 +94,58 @@ fn extract_heuristic_empty_on_motivation() {
     let reply = "You're crushing it! Keep going! Amazing work!";
     assert_eq!(extract_heuristic(reply), []);
 }
+
+#[test]
+fn a_capability_report_is_not_a_claim() {
+    for report in [
+        "Je n'arrive pas à afficher tes dernières sorties avant ta séance.",
+        "I can't show your recent runs before your session right now.",
+        "No puedo ver tus últimas sesiones de entrenamiento ahora mismo.",
+        "Ich kann deine letzten Einheiten gerade nicht anzeigen, sorry.",
+        "Não consigo mostrar os teus últimos treinos com a sessão agora.",
+    ] {
+        assert!(
+            extract_heuristic(report).is_empty(),
+            "bug: a capability report was extracted as a claim: {report}"
+        );
+    }
+}
+
+#[test]
+fn a_german_sentence_that_can_see_the_data_stays_a_claim() {
+    let claims = extract_heuristic("Ich kann sehen, dass deine Herzfrequenz in Zone 2 lag.");
+    assert_eq!(
+        claims.len(),
+        1,
+        "bug: a German sentence that sees the data was dropped as a capability report"
+    );
+}
+
+#[test]
+fn a_sentence_opening_on_cant_without_data_access_stays_a_claim() {
+    let claims = extract_heuristic("I can't stress enough that protein at every meal matters.");
+    assert_eq!(
+        claims.len(),
+        1,
+        "bug: \"I can't\" without a data-access verb was dropped"
+    );
+    assert_eq!(
+        claims[0].category,
+        ClaimCategory::Nutrition,
+        "bug: the kept claim lost its category"
+    );
+}
+
+#[test]
+fn a_question_in_parentheses_does_not_end_the_sentence() {
+    let s =
+        split_sentences("Dis-moi ce qui est prévu (des 400 m, des 1000 m ?) et je l'ajuste. Ok!");
+    assert_eq!(
+        s,
+        vec![
+            "Dis-moi ce qui est prévu (des 400 m, des 1000 m ?) et je l'ajuste.".to_owned(),
+            "Ok!".to_owned()
+        ],
+        "bug: a terminator inside parentheses ended the sentence"
+    );
+}

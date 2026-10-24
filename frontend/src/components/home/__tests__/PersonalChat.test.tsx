@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests Home's personal surface — Today beside the thread, its folded line, the history, where a Today tap drafts, and the empty thread's starters
-// ABOUTME: Drives ChatTab's personal layout against mocked chat reads; Today is a stand-in the test hands it
+// ABOUTME: Drives the PersonalChat host against mocked chat reads; Today is a stand-in the test hands it
 
 import { useState } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -10,8 +10,9 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { UseCaseStarter } from '@pierre/shared-types';
-import ChatTab, { type PersonalToday } from '../ChatTab';
-import { ToastProvider } from '../ui';
+import PersonalChat from '../PersonalChat';
+import type { PersonalToday } from '../personalToday';
+import { ToastProvider } from '../../ui';
 
 const getConversations = vi.fn();
 const getConversationMessages = vi.fn();
@@ -24,7 +25,7 @@ const listStarters = vi.fn();
 const listCoaches = vi.fn();
 const getProvidersStatus = vi.fn();
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../../services/api', () => ({
   // The header's notifications bell reads the unread count.
   notificationsApi: { getUnreadCount: async () => ({ unread_count: 0 }) },
   chatApi: {
@@ -44,8 +45,8 @@ vi.mock('../../services/api', () => ({
   groupsApi: {},
 }));
 
-vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
-vi.mock('../../hooks/useUsageStatus', () => ({
+vi.mock('../../../services/analytics', () => ({ track: vi.fn() }));
+vi.mock('../../../hooks/useUsageStatus', () => ({
   useUsageStatus: () => ({
     level: 'none',
     sendDisabled: false,
@@ -86,8 +87,7 @@ function renderHome(
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ChatTab
-          layout="personal"
+        <PersonalChat
           selectedConversation={selected}
           onSelectConversation={props.onSelectConversation ?? vi.fn()}
           today={TODAY}
@@ -108,7 +108,7 @@ const STARTERS: UseCaseStarter[] = [
 /** Home as the shell hosts it: the thread a created conversation selects is the one drawn. */
 function StatefulHome() {
   const [selected, setSelected] = useState<string | null>(null);
-  return <ChatTab layout="personal" selectedConversation={selected} onSelectConversation={setSelected} today={TODAY} />;
+  return <PersonalChat selectedConversation={selected} onSelectConversation={setSelected} today={TODAY} />;
 }
 
 function composer(): HTMLTextAreaElement {
@@ -310,5 +310,103 @@ describe('Home — the personal surface', () => {
     await screen.findByRole('status', { name: 'Loading...' });
     expect(screen.queryByTestId('chat-empty-state')).toBeNull();
     expect(listStarters).not.toHaveBeenCalled();
+  });
+
+  // carnet#1146: the server stamps a rebound thread with the agent's
+  // canonical English title; the replies are signed with the localized name
+  // the agent list serves. Home's header names the agent the way its
+  // replies do, and a stored title or rename shows only in History.
+  it('names the thread after its agent as the agent list localizes it, as its replies are signed', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-fuel',
+          title: 'Fuelling Agent',
+          agent_id: 'agent-fuel',
+          agent_handle: 'fuelling-agent',
+          agent_title: 'Fuelling Agent',
+          personal: true,
+          channel_type: 'web',
+          unread_count: 0,
+          updated_at: '2026-10-23T09:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+    listCoaches.mockResolvedValue({ agents: [{ id: 'agent-fuel', title: 'Agent Ravitaillement' }] });
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        { id: 'a1', role: 'assistant', content: 'Bonjour, parlons ravitaillement.', created_at: '2026-10-23T09:00:01Z' },
+      ],
+    });
+    const user = userEvent.setup();
+    renderHome('conv-fuel');
+
+    await waitFor(() => expect(screen.getByTestId('thread-title')).toHaveTextContent('Agent Ravitaillement'));
+    expect(screen.getByTestId('thread-subtitle')).toHaveTextContent('@fuelling-agent');
+    // The reply is signed with the same name the header prints.
+    await screen.findByText('Bonjour, parlons ravitaillement.');
+    expect(screen.getAllByText('Agent Ravitaillement').length).toBeGreaterThan(1);
+    expect(screen.getByTestId('thread-header')).not.toHaveTextContent('Fuelling Agent');
+
+    // The stored title is the list's: History still prints it.
+    await user.click(screen.getByTestId('home-history-button'));
+    const history = await screen.findByRole('dialog', { name: 'History' });
+    expect(await within(history).findByRole('button', { name: /Fuelling Agent/ })).toBeInTheDocument();
+  });
+
+  it('keeps the stored title for a thread no agent is bound to', async () => {
+    renderHome('conv-1');
+    await waitFor(() => expect(screen.getByTestId('thread-title')).toHaveTextContent('Bromont analysis'));
+  });
+
+  // Home's "+" opens a topic in the personal thread, which no cap refuses —
+  // the cap's wording is pinned where a room is created (ChatComposeMenu).
+  describe('when a new chat cannot be opened', () => {
+    async function startNewChat() {
+      const user = userEvent.setup();
+      renderHome('conv-1');
+      const [menuButton] = await screen.findAllByRole('button', { name: 'New' });
+      await user.click(menuButton);
+      await user.click(await screen.findByRole('menuitem', { name: 'New chat' }));
+    }
+
+    function refusedWith(details: Record<string, unknown>, code: string) {
+      return { response: { status: 429, data: { code, message: 'refused', details } } };
+    }
+
+    it('reads a spent request budget as the usage quota, not as the conversation cap', async () => {
+      openPersonalTopic.mockRejectedValue(
+        refusedWith(
+          { limit_type: 'requests', current: 10000, limit: 10000, retry_after_secs: 3600 },
+          'RateLimitExceeded',
+        ),
+      );
+
+      await startNewChat();
+
+      expect(
+        await screen.findByText('Usage quota reached (10,000/10,000). Please try again later.'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Could not start chat')).toBeInTheDocument();
+      expect(screen.queryByText('Conversation limit reached')).toBeNull();
+      expect(
+        screen.queryByText('Something went wrong creating the conversation. Please try again.'),
+      ).toBeNull();
+      expect(createConversation).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the create-failed sentence for any other failure', async () => {
+      openPersonalTopic.mockRejectedValue({
+        response: { status: 409, data: { code: 'ResourceAlreadyExists' } },
+      });
+
+      await startNewChat();
+
+      expect(
+        await screen.findByText('Something went wrong creating the conversation. Please try again.'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('Could not start chat')).toBeInTheDocument();
+    });
   });
 });

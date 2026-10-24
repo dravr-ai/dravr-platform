@@ -7,15 +7,12 @@
 use pierre_core::constants::api_provider_limits::{garmin, strava};
 use pierre_core::constants::oauth;
 use pierre_core::constants::rate_limits::{STRAVA_RATE_LIMIT_15MIN, STRAVA_RATE_LIMIT_DAILY};
-use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::env;
 
 /// External API services configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExternalServicesConfig {
-    /// Weather service configuration
-    pub weather: WeatherServiceConfig,
     /// Strava API configuration
     pub strava_api: StravaApiConfig,
     /// Garmin API configuration
@@ -33,7 +30,6 @@ impl ExternalServicesConfig {
     #[must_use]
     pub fn from_env() -> Self {
         Self {
-            weather: WeatherServiceConfig::from_env(),
             strava_api: StravaApiConfig::from_env(),
             garmin_api: GarminApiConfig::from_env(),
             sciotte: SciotteServiceConfig::from_env(),
@@ -70,35 +66,6 @@ impl SciotteServiceConfig {
             audience: env::var("DRAVR_SCIOTTE_AUDIENCE")
                 .ok()
                 .filter(|audience| !audience.is_empty()),
-        }
-    }
-}
-
-/// Weather API service configuration
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct WeatherServiceConfig {
-    /// `OpenWeather` API key; Debug prints a redaction and serialization omits it
-    #[serde(skip_serializing)]
-    pub api_key: Option<SecretString>,
-    /// Weather service base URL
-    pub base_url: String,
-    /// Enable weather service
-    pub enabled: bool,
-}
-
-impl WeatherServiceConfig {
-    /// Load weather service configuration from environment
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self {
-            api_key: env::var("OPENWEATHER_API_KEY").ok().map(SecretString::from),
-            base_url: env_var_or(
-                "OPENWEATHER_BASE_URL",
-                "https://api.openweathermap.org/data/2.5",
-            ),
-            enabled: env_var_or("WEATHER_SERVICE_ENABLED", "true")
-                .parse()
-                .unwrap_or(true),
         }
     }
 }

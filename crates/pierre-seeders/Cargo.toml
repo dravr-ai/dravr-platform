@@ -33,7 +33,7 @@ glob = "0.3"
 rand = "0.9"
 serde_json = "1.0"
 tracing = "0.1"
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [lints]
 workspace = true

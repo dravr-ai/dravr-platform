@@ -339,18 +339,6 @@ jobs:
           COPILOT_SDK_MAX_HISTORY_TURNS: "41"
           EMBACLE_SDK_PROMPT_TIMEOUT_SECS: "300"
           EMBACLE_SDK_SESSION_TIMEOUT_SECS: "60"
-          # Sciotte backpressure limiter — required by the pierre-sciotte
-          # feature which ships in the default server-full feature set.
-          # Low-traffic CI numbers: single concurrent scrape, tiny queue,
-          # short retry hints. Values mirror bin/start-server.sh's
-          # pre-flight check.
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "1"
-          PIERRE_SCIOTTE_MAX_QUEUE: "4"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "30"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "120"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "10"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "30"
         run: |
           mkdir -p "$RUNNER_TEMP/pierre-logs"
           ./target/release/pierre-mcp-server \

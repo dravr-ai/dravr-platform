@@ -375,7 +375,6 @@ llm_provider_test	0.0
 llm_provider_unreachable_test	0.0
 llm_test	0.0
 llm_usage_test	1.4
-logging_chromiumoxide_filter_test	0.0
 logging_gcp_test	0.0
 logging_test	0.0
 login_algorithm_test	11.5

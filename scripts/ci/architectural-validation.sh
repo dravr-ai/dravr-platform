@@ -1520,7 +1520,7 @@ fi
 
 # Check for heavy duplicate crates that indicate transitive dependency divergence
 HEAVY_DUPES=""
-for CRATE in chromiumoxide sqlx axum tokio hyper; do
+for CRATE in sqlx axum tokio hyper; do
     DISTINCT_VERSIONS=$(cargo tree --duplicates 2>/dev/null | grep "^${CRATE} v" | sed 's/ (.*//' | sort -u | wc -l | tr -d ' ')
     if [ "$DISTINCT_VERSIONS" -gt 1 ]; then
         VERSION_LIST=$(cargo tree --duplicates 2>/dev/null | grep "^${CRATE} v" | sed 's/ (.*//' | sort -u | tr '\n' ', ' | sed 's/,$//')
@@ -1534,6 +1534,18 @@ if [ -n "$HEAVY_DUPES" ]; then
     VALIDATION_FAILED=true
 else
     echo -e "${GREEN}  ✅ No heavy crate duplication detected${NC}"
+fi
+
+# The platform never runs Chrome: the browser stack belongs to sciotte's own
+# service (carnet#980). `cargo tree -i` exits non-zero when nothing depends on
+# the crate, so success here means chromiumoxide came back into the graph.
+if CHROME_PATH=$(cargo tree --workspace --all-features -e normal,build -i chromiumoxide 2>/dev/null); then
+    echo -e "${RED}❌ FORBIDDEN: chromiumoxide is back in the platform build:${NC}"
+    echo "$CHROME_PATH" | head -12
+    echo -e "${RED}Take dravr-sciotte with default-features = false and dravr-enforme without local-chrome (carnet#980).${NC}"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ No in-process browser stack (chromiumoxide) in the build${NC}"
 fi
 
 # ============================================================================

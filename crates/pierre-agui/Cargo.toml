@@ -17,7 +17,7 @@ async-trait = "0.1"
 dashmap = "5.5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.50", features = ["sync", "macros", "rt"] }
+tokio = { version = "1.54", features = ["sync", "macros", "rt"] }
 tracing = "0.1"
 
 [lints]

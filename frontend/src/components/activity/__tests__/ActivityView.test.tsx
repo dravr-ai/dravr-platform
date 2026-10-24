@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ActivityDetailResponse, ActivityRouteResponse } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
-import type { PendingComposerAction } from '../../ChatTab';
+import type { PendingComposerAction } from '../../chat/types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import ActivityView from '../ActivityView';
 import {
@@ -42,30 +42,28 @@ vi.mock('../../../services/api', () => ({
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
 }));
 
-// The chat surface has its own suite; here it only has to receive, embedded,
-// the composer actions the view hands it.
+// The embedded chat has its own suite; here it only has to receive the
+// composer actions the view hands it.
 const chat = vi.hoisted(() => ({
   props: vi.fn(),
   // The latest `onSelectConversation`: how the chat reports the thread it opened.
   select: null as ((conversationId: string | null) => void) | null,
 }));
-vi.mock('../../ChatTab', () => ({
+vi.mock('../../chat/EmbeddedChat', () => ({
   default: (props: {
-    layout?: string;
-    selectedConversation: string | null;
+    conversationId: string | null;
     onSelectConversation: (conversationId: string | null) => void;
     pendingComposerAction?: PendingComposerAction | null;
     onPendingComposerActionConsumed?: () => void;
-    embeddedEmptyState?: React.ReactNode;
+    emptyState?: React.ReactNode;
   }) => {
     chat.select = props.onSelectConversation;
     chat.props({
-      layout: props.layout,
-      selected: props.selectedConversation,
+      selected: props.conversationId,
       action: props.pendingComposerAction ?? null,
     });
     if (props.pendingComposerAction) props.onPendingComposerActionConsumed?.();
-    return <div data-testid="embedded-chat-stub">{props.selectedConversation ? null : props.embeddedEmptyState}</div>;
+    return <div data-testid="embedded-chat-stub">{props.conversationId ? null : props.emptyState}</div>;
   },
 }));
 
@@ -283,7 +281,7 @@ describe('ActivityView', () => {
       'Recovery advice',
       'What to adjust',
     ]);
-    expect(chat.props).toHaveBeenLastCalledWith({ layout: 'embedded', selected: null, action: null });
+    expect(chat.props).toHaveBeenLastCalledWith({ selected: null, action: null });
 
     await userEvent.click(screen.getByTestId('activity-prompt-recovery'));
 
@@ -320,7 +318,7 @@ describe('ActivityView', () => {
     renderView();
 
     await screen.findByTestId('activity-prompts');
-    expect(chat.props).toHaveBeenLastCalledWith({ layout: 'embedded', selected: 'conv-42', action: null });
+    expect(chat.props).toHaveBeenLastCalledWith({ selected: 'conv-42', action: null });
     // The thread is open, so the first-question field is gone.
     expect(screen.queryByTestId('activity-ask')).toBeNull();
   });
@@ -338,7 +336,7 @@ describe('ActivityView', () => {
     // The chat created the thread for that question and reports it.
     act(() => chat.select?.('conv-recovery'));
     await waitFor(() =>
-      expect(chat.props).toHaveBeenLastCalledWith({ layout: 'embedded', selected: 'conv-recovery', action: null }),
+      expect(chat.props).toHaveBeenLastCalledWith({ selected: 'conv-recovery', action: null }),
     );
 
     await waitFor(() =>
@@ -351,7 +349,7 @@ describe('ActivityView', () => {
     chat.props.mockClear();
     renderView();
     await screen.findByTestId('activity-prompts');
-    expect(chat.props).toHaveBeenLastCalledWith({ layout: 'embedded', selected: 'conv-recovery', action: null });
+    expect(chat.props).toHaveBeenLastCalledWith({ selected: 'conv-recovery', action: null });
     expect(screen.queryByTestId('activity-ask')).toBeNull();
   });
 

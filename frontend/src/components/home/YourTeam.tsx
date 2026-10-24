@@ -21,7 +21,7 @@ import { Sheet } from '../ui/Sheet';
 import { TeamPicker, type TeamChoice } from '../onboarding/TeamPicker';
 import { useTeamProposal } from '../onboarding/useTeamProposal';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
-import type { TodayActions } from '../ChatTab';
+import type { TodayActions } from './personalToday';
 
 /** The agent list changes when the athlete adds or removes one, which invalidates it; the cache stays warm. */
 const AGENT_LIST_STALE_MS = 5 * 60_000;

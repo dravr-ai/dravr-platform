@@ -44,13 +44,13 @@
 //!
 //! // Update configuration
 //! let request = UpdateConfigRequest {
-//!     parameters: [("feature.weather_api_enabled".to_string(), json!(false))].into(),
-//!     reason: Some("Weather provider outage".to_string()),
+//!     parameters: [("feature.auto_approval_enabled".to_string(), json!(false))].into(),
+//!     reason: Some("Pausing open sign-ups".to_string()),
 //! };
 //! let response = service.update_config(&request, admin_id, admin_email, None, None, None).await?;
 //!
 //! // Get specific value
-//! let value = service.get_value("feature.weather_api_enabled", None).await?;
+//! let value = service.get_value("feature.auto_approval_enabled", None).await?;
 //! ```
 
 /// Database-agnostic repository trait for admin configuration, and the one

@@ -41,6 +41,9 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::{field, warn, Span};
 use uuid::Uuid;
 
+use super::proposal_lead::{
+    best_declared_sport_agent, declared_sport_lead, proposal_order, put_lead_first,
+};
 use super::proposal_profile::{
     build_profile_view, pillar_context_prompt, proposal_goal, ProfileView,
 };
@@ -308,9 +311,12 @@ pub(super) async fn handle_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
 /// (published, bindable and provider-satisfiable catalogue agents only, never
 /// the lead). Members are never re-rank candidates, so the model cannot make
 /// one the lead; it writes their reasons in the same call. A cold start (no
-/// usable profile) leads with Fuelling, then Recovery, then Mobility, and
-/// never with RED-S; it is re-ranked when the athlete's about-you or pillar
-/// answers give the model something to read.
+/// usable profile) leads with the agent for the sport the athlete declared
+/// when its provider prerequisite is met, otherwise with Fuelling, then
+/// Recovery, then Mobility, and never with RED-S; it is re-ranked when the
+/// athlete's about-you or pillar answers give the model something to read.
+/// No proposal leads with a coach tool: the lead answers the person's own
+/// training.
 ///
 /// `locale` is the user's BCP-47 language code; it drives the language of each
 /// agent's rationale (the LLM re-rank prompt and the deterministic fallback),
@@ -385,18 +391,37 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     // Agent-facing builder personas are proposed only to users in Agent mode;
     // an athlete never gets an agent-facing builder recommended.
     let sees_coach_tools = sees_coach_tools(ctx, user_id).await;
+    // With no activity profile yet, the sport the athlete declared is what
+    // makes a sport-specific agent eligible to lead (carnet#1151).
+    let declared_sports = if sport_profile.is_none() {
+        dossier
+            .as_ref()
+            .map(team_rules::declared_sports)
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let eligible: Vec<(AgentListItem, f32)> = items
         .into_iter()
         .filter_map(|item| {
             if !sees_coach_tools && item.agent.is_coach_facing() {
                 return None;
             }
-            let recommendation = agents_service::score_agent(
+            let profiled = agents_service::score_agent(
                 &item.agent.prerequisites,
                 sport_profile.as_ref(),
                 &user_providers,
                 &rec_config,
             );
+            let recommendation = if profiled.eligible {
+                profiled
+            } else {
+                agents_service::score_declared_sport(
+                    &item.agent.prerequisites,
+                    &declared_sports,
+                    &user_providers,
+                )
+            };
             recommendation
                 .eligible
                 .then_some((item, recommendation.match_score))
@@ -489,28 +514,6 @@ pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     })
 }
 
-/// The deterministic proposal order: best score first, then (on a cold
-/// start) the cold-start lead order, then the title — never an id, which
-/// would make the lead an accident of UUID generation.
-fn proposal_order(
-    a: &(AgentListItem, f32),
-    b: &(AgentListItem, f32),
-    cold_start: bool,
-) -> Ordering {
-    let rank = |item: &AgentListItem| {
-        if cold_start {
-            team_rules::cold_start_rank(item.agent.handle.as_deref())
-        } else {
-            0
-        }
-    };
-    b.1.partial_cmp(&a.1)
-        .unwrap_or(Ordering::Equal)
-        .then_with(|| rank(&a.0).cmp(&rank(&b.0)))
-        .then_with(|| a.0.agent.title.cmp(&b.0.agent.title))
-        .then_with(|| a.0.agent.handle.cmp(&b.0.agent.handle))
-}
-
 /// Display name of the first connected provider (by name, for a stable
 /// answer) that sends sleep or recovery data.
 fn sleep_source_name(
@@ -598,7 +601,8 @@ struct RerankOptions {
     max: usize,
     /// Whether to ask the LLM at all.
     use_llm: bool,
-    /// No usable profile: RED-S never leads.
+    /// No usable profile: RED-S never leads, an agent for the declared sport
+    /// does when there is one (a coach tool never leads at all).
     cold_start: bool,
 }
 
@@ -689,6 +693,19 @@ async fn rerank_candidates<C: AgentsCtx>(
         }
     }
 
+    // On a cold start a sport-specific agent is eligible only through the
+    // sport the athlete declared, and it is the one that answers what they
+    // train (carnet#1151): when the model offered none, the best one takes a
+    // slot ahead of the deterministic fill.
+    if options.cold_start && !out.iter().any(|(item, _, _)| declared_sport_lead(item)) {
+        let best = best_declared_sport_agent(by_id.values(), &member_ids);
+        if let Some((item, score)) = best.and_then(|id| by_id.remove(&id)) {
+            out.truncate(options.max.saturating_sub(1));
+            let reason = fallback_reason(&item, profile.primary_sport.as_deref(), locale);
+            out.push((item, score, reason));
+        }
+    }
+
     // Deterministic fill for any unfilled slots (LLM returned too few, or off).
     if out.len() < options.max {
         let mut remaining: Vec<(AgentListItem, f32)> = by_id.into_values().collect();
@@ -707,15 +724,7 @@ async fn rerank_candidates<C: AgentsCtx>(
         }
     }
 
-    // A cold start never leads with RED-S, whoever ranked it first.
-    if options.cold_start {
-        if let Some(first_lead) = out
-            .iter()
-            .position(|(item, _, _)| team_rules::may_lead_cold_start(item.agent.handle.as_deref()))
-        {
-            out[..=first_lead].rotate_right(1);
-        }
-    }
+    put_lead_first(&mut out, options.cold_start);
 
     (out, member_reasons)
 }

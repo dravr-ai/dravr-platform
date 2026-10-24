@@ -15,7 +15,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["llm", "
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
-tokio = { version = "1.50", features = ["rt", "time", "sync"] }
+tokio = { version = "1.54", features = ["rt", "time", "sync"] }
 tracing = "0.1"
 futures-util = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
@@ -31,7 +31,7 @@ dravr-contremaitre = { workspace = true }
 # `complete()`/`complete_with_tools()` call, both of which are async.
 # `net` and `io-util` serve the loopback OpenAI-shaped endpoint the
 # openai_api provider test drives.
-tokio = { version = "1.50", features = ["macros", "rt", "rt-multi-thread", "net", "io-util"] }
+tokio = { version = "1.54", features = ["macros", "rt", "rt-multi-thread", "net", "io-util"] }
 # The `llm.request` span an EmbacleProvider opens is only observable through
 # a subscriber layer that records new spans and their fields.
 tracing-subscriber = { version = "0.3", features = ["std", "registry"], default-features = false }

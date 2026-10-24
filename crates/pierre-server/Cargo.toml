@@ -237,7 +237,7 @@ photograveur = { workspace = true }
 dravr-tronc = { workspace = true, features = ["notifications", "google-iam", "service-client"] }
 dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop"] }
 
-tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 # Derives the JSON Schemas the endurance tools declare as their outputSchema.
 schemars = "1.2"
@@ -253,9 +253,9 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 base64 = "0.22"
-bytes = "1.11"
-clap = { version = "4.5", features = ["derive", "std", "env"], default-features = false }
-uuid = { version = "1.22", features = ["v4", "v5", "serde"] }
+bytes = "1.12"
+clap = { version = "4.6", features = ["derive", "std", "env"], default-features = false }
+uuid = { version = "1.29", features = ["v4", "v5", "serde"] }
 dashmap = "5.5"
 urlencoding = "2.1"
 sha2 = "0.10"
@@ -270,7 +270,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"
 hex = "0.4"
 # HTTP framework: Axum (migrated from Warp)
 axum = { version = "0.8", features = ["json", "query", "macros", "tokio", "http2", "form"], default-features = false }
-http = "1.4"
+http = "1.5"
 futures-util = "0.3"
 # WebSocket client for Slack Socket Mode ingress; `connect_async` opens a
 # TLS-protected WSS to Slack after `apps.connections.open` returns an URL.
@@ -291,10 +291,10 @@ anyhow = "1.0"
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
-jsonschema = { version = "0.46.5", default-features = false }
+jsonschema = { version = "0.46.10", default-features = false }
 embacle = { version = "0.39.1" }
-tempfile = "3.26"
-serial_test = "3.4"
+tempfile = "3.27"
+serial_test = "3.5"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
 toml = "0.8"
@@ -333,14 +333,14 @@ dravr-sciotte = { workspace = true, features = ["client"] }
 # fails a normal dependency nothing under src/ names.
 argon2 = "0.5"
 bcrypt = "0.16"
-jsonwebtoken = { version = "10.3", features = ["rust_crypto", "use_pem"], default-features = false }
+jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals" }
 pierre-external = { version = "0.3.0", path = "../pierre-external" }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
 rand_chacha = "0.9"
-regex = "1.12"
+regex = "1.13"
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std", "registry", "json"], default-features = false }

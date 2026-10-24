@@ -55,6 +55,10 @@ const REFUSED_SESSION: &str = "refused-by-the-provider";
 const HELD_SESSION: &str = "held";
 /// A session whose import the service refuses.
 const IMPORT_REFUSED_SESSION: &str = "import-refused";
+/// A Garmin session whose cookies Garmin refuses (carnet#1148).
+const REFUSED_GARMIN_SESSION: &str = "garmin-refused-by-the-provider";
+/// A Garmin session whose scrape failed for a reason that may pass.
+const FAILED_SCRAPE_SESSION: &str = "garmin-scrape-failed";
 
 /// The id of the one ride the stand-in serves.
 const RIDE_ID: &str = "777001";
@@ -146,7 +150,13 @@ fn answer_for(seen: &Seen, earlier: usize) -> (u16, Value) {
         (IMPORT_PATH, session) => (200, json!({ "session_id": session })),
         (ACTIVITIES_PATH | ATHLETE_PATH, MISSED_ONCE_SESSION) if earlier == 0 => not_held,
         (ACTIVITIES_PATH, MISSED_TWICE_SESSION) => not_held,
-        (ACTIVITIES_PATH, REFUSED_SESSION) => (401, json!({ "error": "session_expired" })),
+        (ACTIVITIES_PATH, REFUSED_SESSION | REFUSED_GARMIN_SESSION) => {
+            (401, json!({ "error": "session_expired" }))
+        }
+        (ACTIVITIES_PATH, FAILED_SCRAPE_SESSION) => (
+            500,
+            json!({ "error": "network error: List page fetch failed: http 502" }),
+        ),
         (ACTIVITIES_PATH, _) => (200, ride_list()),
         (ATHLETE_PATH, _) => (200, json!({ "display_name": "Sam Strava" })),
         _ => (404, json!({ "error": "not_served" })),
@@ -262,6 +272,8 @@ async fn a_read_the_imports_instance_did_not_answer_is_reimported_once() {
     a_session_the_service_holds_is_read_once(&client, &log).await;
     a_refused_import_sends_no_read(&client, &log).await;
     a_profile_that_missed_the_import_once_is_served(&client, &log).await;
+    a_garmin_session_the_provider_refused_asks_for_a_garmin_reconnect(&client, &log).await;
+    a_garmin_scrape_that_failed_is_never_a_reconnect(&client, &log).await;
 }
 
 /// The incident's shape: the read after the import finds no session, the
@@ -430,5 +442,68 @@ async fn a_profile_that_missed_the_import_once_is_served(
     assert_eq!(
         profile_reads, 2,
         "the profile read was sent twice, once per import"
+    );
+}
+
+/// A dead Garmin session — a cloned one, or one Garmin stopped at a captcha —
+/// is refused on its list read: it reaches the caller auth-required under
+/// `sciotte_garmin`, which flags the connection and mints a Garmin reconnect
+/// link, instead of failing every read as a transient sync (carnet#1148).
+async fn a_garmin_session_the_provider_refused_asks_for_a_garmin_reconnect(
+    client: &SciotteClient,
+    log: &Mutex<Vec<Seen>>,
+) {
+    let provider = provider_holding(
+        &SciotteGarminProviderFactory::new(Some(client.clone())),
+        "sciotte_garmin",
+        REFUSED_GARMIN_SESSION,
+    )
+    .await;
+
+    let error = provider
+        .get_activities_with_params(&list_params())
+        .await
+        .expect_err("Garmin refused the session");
+
+    assert_eq!(error.code, ErrorCode::ProviderAuthRequired, "{error:?}");
+    assert_eq!(
+        error.provider_auth_required_provider().as_deref(),
+        Some("sciotte_garmin"),
+        "bug: the reconnect was not asked for under the Garmin connection"
+    );
+    assert_eq!(
+        paths_for(log, REFUSED_GARMIN_SESSION),
+        vec![IMPORT_PATH, ACTIVITIES_PATH],
+        "a dead session costs one scrape, not two"
+    );
+}
+
+/// A scrape the service could not finish (its `500`) says nothing about the
+/// session: it stays a failed sync the next refresh retries, never a
+/// reconnect the athlete is asked for, whatever words its message carries.
+async fn a_garmin_scrape_that_failed_is_never_a_reconnect(
+    client: &SciotteClient,
+    log: &Mutex<Vec<Seen>>,
+) {
+    let provider = provider_holding(
+        &SciotteGarminProviderFactory::new(Some(client.clone())),
+        "sciotte_garmin",
+        FAILED_SCRAPE_SESSION,
+    )
+    .await;
+
+    let error = provider
+        .get_activities_with_params(&list_params())
+        .await
+        .expect_err("the scrape failed");
+
+    assert!(
+        error.provider_auth_required_provider().is_none(),
+        "a failed scrape is not the athlete's re-login: {error:?}"
+    );
+    assert_eq!(
+        paths_for(log, FAILED_SCRAPE_SESSION),
+        vec![IMPORT_PATH, ACTIVITIES_PATH],
+        "bug: a failed scrape was retried or reimported within one read"
     );
 }

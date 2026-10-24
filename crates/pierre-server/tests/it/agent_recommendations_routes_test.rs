@@ -20,7 +20,8 @@ use helpers::contremaitre_checkout::contremaitre_tree;
 use helpers::recording_llm::RecordingProvider;
 use pierre_agent_parser::{parse_frontmatter, AgentFrontmatter};
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, UserOAuthToken};
+use pierre_database::seed_models::SeedAgent;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_agents::agents::{AgentProposalResponse, ListAgentsResponse};
 use pierre_routes_agents::build_agents_router;
@@ -414,6 +415,217 @@ async fn a_coach_facing_agent_is_never_a_team_member() {
     );
     assert_ne!(team.lead.agent.id, coach_tool);
     assert!(!body.agents.iter().any(|a| a.agent.id == coach_tool));
+}
+
+/// A coach who also trains sees the coach tools, but the lead answers their
+/// own training: the roster agent led one on dev, greeting them as a coach
+/// with no training of their own (carnet#1149). Even ranked first by the
+/// model, a coach tool is offered beside the team, never as its lead.
+#[tokio::test]
+async fn a_coach_who_trains_is_never_led_by_a_coach_tool() {
+    let llm = Arc::new(RecordingProvider::answering("[]"));
+    let resources = create_test_server_resources_with_llm(llm.clone())
+        .await
+        .unwrap();
+    let (user_id, tenant, auth) = athlete(&resources).await;
+    let repos = resources.agent.database.repositories();
+    repos.users.set_coaches_others(user_id, true).await.unwrap();
+    let roster = publish_catalogue_agent_tagged(
+        repos,
+        user_id,
+        tenant,
+        "Roster Agent",
+        "Test.",
+        AgentCategory::Custom,
+        vec![Agent::COACH_TOOL_TAG.to_owned()],
+    )
+    .await
+    .to_string();
+    let (fuelling, recovery, _) = rule_agents(&resources, user_id, tenant).await;
+    set_goal(&resources, user_id, tenant, "An Ironman 70.3 in June").await;
+    llm.answer_with(
+        &json!([
+            { "id": roster, "reason": "Runs your coaching practice." },
+            { "id": recovery, "reason": "Reads how you recover." },
+        ])
+        .to_string(),
+    );
+
+    let body = proposal(&resources, &auth).await;
+    let team = body.team.expect("a team is proposed");
+    assert_ne!(team.lead.agent.id, roster, "a coach tool never leads");
+    assert_eq!(
+        team.lead.agent.id, recovery,
+        "bug: the first agent that may lead was not rotated to the front"
+    );
+    assert!(
+        body.agents.iter().any(|a| a.agent.id == roster),
+        "a coach who coaches still sees the coach tool in the proposal"
+    );
+    assert!(
+        team.members.iter().any(|m| m.agent.id == fuelling),
+        "bug: Fuelling is missing from the team"
+    );
+    assert!(
+        team.members.iter().all(|m| m.agent.id != roster),
+        "bug: a coach tool became a team member"
+    );
+}
+
+/// Seed a catalogue agent for a sport: it needs a fitness provider and
+/// `min_activities`, and trains `activity_types`.
+async fn sport_agent(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    handle: &str,
+    min_activities: u32,
+    activity_types: &[&str],
+) -> String {
+    let id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now();
+    resources
+        .agent
+        .database
+        .repositories()
+        .seeder
+        .seed_insert_agent(&SeedAgent {
+            id: id.clone(),
+            user_id,
+            tenant_id: tenant,
+            title: handle.to_owned(),
+            description: format!("Description for {handle}"),
+            system_prompt: "Test.".to_owned(),
+            category: "training".to_owned(),
+            tags_json: "[]".to_owned(),
+            sample_prompts_json: "[]".to_owned(),
+            token_count: 10,
+            visibility: "tenant".to_owned(),
+            slug: handle.to_owned(),
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
+            prerequisites_json: json!({
+                "providers": ["strava", "garmin"],
+                "min_activities": min_activities,
+                "activity_types": activity_types,
+            })
+            .to_string(),
+            source_file: None,
+            content_hash: None,
+            startup_query: None,
+            data_requirements: None,
+            visuals: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+    id
+}
+
+/// carnet#1151, as dev showed it: a runner ("Course à pied", a sub-1h45
+/// half marathon) with Garmin connected and no activity synced yet was led by
+/// Mobility, with Fuelling and Recovery beside it. The sport they declared
+/// makes the running agents eligible, and the road-running one leads — not
+/// the ultra one, not the multi-sport one, and not a cycling agent.
+#[tokio::test]
+async fn a_declared_runner_with_no_activities_is_led_by_the_road_running_agent() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant, auth) = athlete(&resources).await;
+    let (fuelling, _, mobility) = rule_agents(&resources, user_id, tenant).await;
+    let ultra = sport_agent(
+        &resources,
+        user_id,
+        tenant,
+        "ultra-trail-agent",
+        14,
+        &["Run"],
+    )
+    .await;
+    let endurance = sport_agent(
+        &resources,
+        user_id,
+        tenant,
+        "endurance-agent",
+        14,
+        &["Run", "Ride"],
+    )
+    .await;
+    let road = sport_agent(
+        &resources,
+        user_id,
+        tenant,
+        "road-running-agent",
+        5,
+        &["Run"],
+    )
+    .await;
+    let cycling = sport_agent(&resources, user_id, tenant, "cycling-agent", 5, &["Ride"]).await;
+    // A connected watch with nothing synced: a token, no activity.
+    resources
+        .agent
+        .database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken::new(
+            user_id,
+            tenant.to_string(),
+            "garmin".to_owned(),
+            "access".to_owned(),
+            None,
+            None,
+            None,
+        ))
+        .await
+        .unwrap();
+    let written = persist_about_you(
+        resources.agent.database.repositories().memory.as_ref(),
+        tenant,
+        &user_id.to_string(),
+        &AboutYouAnswers {
+            primary_sport: Some("Course à pied".to_owned()),
+            goal: Some("Un demi-marathon en avril sous 1h45".to_owned()),
+            ..AboutYouAnswers::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        written, 2,
+        "bug: the sport and the goal were not both stored"
+    );
+
+    let body = proposal(&resources, &auth).await;
+    let team = body.team.expect("a team is proposed");
+    assert_eq!(
+        team.lead.agent.id, road,
+        "the declared runner is led by the road-running agent, not {}",
+        team.lead.agent.title
+    );
+    assert_ne!(
+        team.lead.agent.id, mobility,
+        "bug: Mobility led a declared runner"
+    );
+    assert!(
+        team.members.iter().any(|m| m.agent.id == fuelling),
+        "bug: Fuelling is missing from the runner's team"
+    );
+    let offered: Vec<&str> = body.agents.iter().map(|a| a.agent.id.as_str()).collect();
+    assert!(
+        !offered.contains(&cycling.as_str()),
+        "a runner is not offered the cycling agent"
+    );
+    let rank = |id: &str| offered.iter().position(|o| *o == id);
+    if let (Some(road_at), Some(other)) = (rank(&road), rank(&ultra).or_else(|| rank(&endurance))) {
+        assert!(
+            road_at < other,
+            "bug: an agent asking more activities ranked above the road-running one"
+        );
+    }
 }
 
 /// Every agent in the contremaitre catalogue, by handle: the `en.md`

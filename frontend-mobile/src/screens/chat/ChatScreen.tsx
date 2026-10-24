@@ -35,6 +35,7 @@ import { ChatThread } from './ChatThread';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
 import { useProviderConnected } from '../../hooks/useHome';
+import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -68,6 +69,12 @@ export function ChatScreen() {
 
   // Custom hooks
   const conversations = useConversations();
+  // The personal thread is named after its agent in the athlete's language,
+  // read off the same agent list Agent info and the @ palette read. Only the
+  // personal thread reads it, so only the personal thread asks for it.
+  const personalThread = conversations.currentConversation?.personal ? conversations.currentConversation : null;
+  const { coach: boundAgent } = useCoachInfo(personalThread?.agent_id ?? null);
+  const agentTitle = boundAgent?.title ?? null;
   const messagesHook = useMessages();
   const providerStatus = useProviderStatus();
   // The header's fallback line reads the status the reconnect banner under it
@@ -387,6 +394,7 @@ export function ChatScreen() {
             headerTitle: () => (
               <ChatHeaderTitle
                 currentConversation={conversations.currentConversation}
+                agentTitle={agentTitle}
                 providerStatus={headerProviderStatus}
                 onTitlePress={openInfoSheet}
               />
@@ -433,7 +441,7 @@ export function ChatScreen() {
           conversationId={conversations.currentConversation?.id ?? null}
           // The name the header's title view shows for an open thread.
           conversationTitle={
-            conversations.currentConversation ? threadTitle(conversations.currentConversation, t) : undefined
+            conversations.currentConversation ? threadTitle(conversations.currentConversation, t, agentTitle) : undefined
           }
           messagesHook={messagesHook}
           usageStatus={usageStatus}

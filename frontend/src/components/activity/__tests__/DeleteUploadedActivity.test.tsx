@@ -29,7 +29,7 @@ vi.mock('../../../services/api', () => ({
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
 }));
 
-vi.mock('../../ChatTab', () => ({
+vi.mock('../../chat/EmbeddedChat', () => ({
   default: () => <div data-testid="embedded-chat-stub" />,
 }));
 

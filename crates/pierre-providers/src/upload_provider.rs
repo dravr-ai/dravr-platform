@@ -25,13 +25,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_database::repositories::{ActivityCacheRepository, UploadedActivityFileRepository};
 use ring::digest::{digest, SHA256};
-use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 use crate::constants::oauth_providers::UPLOAD;
 use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use crate::errors::{AppError, AppResult};
-use crate::fit_file::{FitActivityFile, Position};
+use crate::fit_file::{decode_bounded, FitActivityFile, Position};
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
@@ -112,9 +111,9 @@ impl UploadProvider {
             .get_uploaded_file(&self.tenant_id, self.user_id, sha)
             .await?
             .ok_or_else(not_found)?;
-        // The decode is CPU-bound; it runs on the blocking pool so a large
-        // file does not hold a runtime worker for its length.
-        let file = spawn_blocking(move || FitActivityFile::parse(&bytes))
+        // The decode is CPU-bound and memory-heavy: it runs on the blocking
+        // pool under the process-wide decode bound.
+        let file = decode_bounded(move || FitActivityFile::parse(&bytes))
             .await
             .map_err(|e| AppError::internal(format!("decoding stored upload {sha}: {e}")))?
             .map_err(|e| {

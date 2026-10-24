@@ -240,6 +240,114 @@ fn vdot_point_claim_supported() {
     assert_eq!(outcome.status, ClaimStatus::Supported);
 }
 
+// ---------------------------------------------------------------------------
+// FTP: ±3% supported, silent to 5%, a misquote beyond (carnet#1080)
+// ---------------------------------------------------------------------------
+
+/// The status the personalized layer gives "Your FTP is `quoted` W" for an
+/// athlete whose recorded FTP is 300 W, or `None` when it stays silent.
+fn ftp_call(quoted: &str, tolerance: &dyn ToleranceStrategy) -> Option<ClaimStatus> {
+    let m = AthleteMetrics {
+        ftp_watts: Some(300.0),
+        ..usable_metrics()
+    };
+    let ctx = PersonalizedContext {
+        metrics: &m,
+        tolerance,
+    };
+    let c = claim(
+        &format!("Your FTP is {quoted} W."),
+        ClaimCategory::Physiological,
+    );
+    personalized_check(&c, &ctx).map(|outcome| outcome.status)
+}
+
+#[test]
+fn an_ftp_quote_within_three_percent_is_supported() {
+    let strat = AgentConfiguredStrategy::default();
+    for quoted in ["300", "308.7", "291.3"] {
+        assert_eq!(
+            ftp_call(quoted, &strat),
+            Some(ClaimStatus::Supported),
+            "{quoted} W against 300 W"
+        );
+    }
+}
+
+#[test]
+fn an_ftp_quote_between_three_and_five_percent_off_stays_silent() {
+    let strat = AgentConfiguredStrategy::default();
+    // 4% to 4.9% off: outside test-retest reliability, inside the misquote ceiling.
+    for quoted in ["314.7", "285.3", "312"] {
+        assert_eq!(ftp_call(quoted, &strat), None, "{quoted} W against 300 W");
+    }
+}
+
+#[test]
+fn an_ftp_quote_more_than_five_percent_off_is_contradicted() {
+    let strat = AgentConfiguredStrategy::default();
+    // ±5.1%, and a 10% misquote the default 8% buffer alone would leave silent.
+    for quoted in ["315.3", "284.7", "330", "270"] {
+        assert_eq!(
+            ftp_call(quoted, &strat),
+            Some(ClaimStatus::Contradicted),
+            "{quoted} W against 300 W"
+        );
+    }
+}
+
+#[test]
+fn the_ftp_misquote_ceiling_holds_whatever_the_agents_buffer() {
+    // An agent YAML margin of 50% would leave a 10% misquote silent; the FTP
+    // ceiling does not loosen with it.
+    let wide = AgentConfiguredStrategy { margin_frac: 0.50 };
+    assert_eq!(
+        ftp_call("330", &wide),
+        Some(ClaimStatus::Contradicted),
+        "bug: a wide agent buffer loosened the FTP misquote ceiling"
+    );
+    assert_eq!(
+        ftp_call("314.7", &wide),
+        None,
+        "bug: a quote inside the FTP ceiling fired under a wide buffer"
+    );
+}
+
+#[test]
+fn a_stricter_strategy_still_fires_inside_the_ftp_ceiling() {
+    // Tight has no buffer: 4% off is past the ±3% band and contradicted.
+    assert_eq!(
+        ftp_call("312", &TightStrategy),
+        Some(ClaimStatus::Contradicted),
+        "bug: the FTP ceiling loosened a stricter strategy"
+    );
+    assert_eq!(
+        ftp_call("308.7", &TightStrategy),
+        Some(ClaimStatus::Supported),
+        "bug: a quote inside test-retest reliability was not supported"
+    );
+}
+
+#[test]
+fn a_misquoted_ftp_names_the_ceiling_that_fired() {
+    let m = AthleteMetrics {
+        ftp_watts: Some(300.0),
+        ..usable_metrics()
+    };
+    let strat = AgentConfiguredStrategy::default();
+    let ctx = PersonalizedContext {
+        metrics: &m,
+        tolerance: &strat,
+    };
+    let c = claim("Your FTP is 330 W.", ClaimCategory::Physiological);
+    let outcome = personalized_check(&c, &ctx).expect("layer fires");
+    assert_eq!(
+        outcome.explanation,
+        "Contradicts your own data — FTP 330 vs your 300 (more than 5% off your recorded FTP)",
+        "bug: the explanation does not name the FTP ceiling that fired"
+    );
+}
+
 #[test]
 fn thin_data_gate_silences_the_layer() {
     let mut thin = usable_metrics();

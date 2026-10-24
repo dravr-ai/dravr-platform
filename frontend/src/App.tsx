@@ -268,7 +268,7 @@ function AppContent() {
         error={oauthCallback.error}
         tombstone={oauthCallback.tombstone}
         onClose={() => {
-          // Dispatch event for ChatTab to detect OAuth completion
+          // Dispatch event for the chat thread (useOAuthCompletion) to detect OAuth completion
           window.postMessage({
             type: 'oauth_completed',
             provider: oauthCallback.provider,

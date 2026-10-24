@@ -65,8 +65,6 @@ pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 dravr-enforme = { workspace = true, optional = true }
-# The athlete id a delegated read names and the scraper's athlete refusal markers.
-dravr-sciotte = { workspace = true }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-external = { version = "0.3.0", path = "../pierre-external", optional = true }
 
@@ -75,13 +73,13 @@ dravr-meteo = { workspace = true }
 dravr-riviere = { workspace = true }
 
 async-trait = "0.1"
-bitflags = { version = "2.11", features = ["serde"] }
+bitflags = { version = "2.13", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 futures-util = "0.3"
-lru = "0.18.2"
+lru = "0.18.5"
 secrecy = { workspace = true }
 num-traits = "0.2"
-regex = "1.12"
+regex = "1.13"
 # chrono04: sleep answers carry DateTime<Utc>, which the schema states as
 # a date-time string rather than an opaque one.
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
@@ -89,10 +87,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 # time: the bounded wait a refused token refresh gives a concurrent winner.
-tokio = { version = "1.50", features = ["rt", "sync", "macros", "time"] }
+tokio = { version = "1.54", features = ["rt", "sync", "macros", "time"] }
 tokio-stream = "0.1"
 tracing = "0.1"
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [dev-dependencies]
 # The headless re-run classifies the AppError image of embacle's RunnerError
@@ -100,8 +98,8 @@ uuid = { version = "1.22", features = ["v4", "serde"] }
 embacle = { version = "0.39.1" }
 # Validates a tool's declared outputSchema against the payload it actually
 # returns. Same version the chat pipeline validates structured replies with.
-jsonschema = { version = "0.46.5", default-features = false }
-tokio = { version = "1.50", features = ["macros", "rt-multi-thread"] }
+jsonschema = { version = "0.46.10", default-features = false }
+tokio = { version = "1.54", features = ["macros", "rt-multi-thread"] }
 # Captures the line the guardian gate logs under the tainted-destructive `Log`
 # phase, so its unit test reads the fields the arming measurement groups by.
 # Same spec the chat pipeline's log-asserting tests use.

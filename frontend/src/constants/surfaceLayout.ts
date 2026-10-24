@@ -39,7 +39,7 @@ export type SurfaceLayout = 'padded' | 'bleed';
  */
 const BLEED_ROUTES: ReadonlySet<string> = new Set([
   'home', // Home — TabHeader over its own reading-column scroller
-  'chat', // ChatTab — composer pinned to the pane floor, own message scroller
+  'chat', // ChatTab (Groups) — composer pinned to the pane floor, own message scroller
   'discover', // StoreScreen — TabHeader over its own results scroller
   'notifications', // NotificationsPanel — sticky header over its own list scroller
   'coach-replies', // CoachReplies — TabHeader over its own reply scroller

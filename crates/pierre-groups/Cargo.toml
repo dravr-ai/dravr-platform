@@ -19,7 +19,7 @@ pierre-providers = { version = "0.3.0", path = "../pierre-providers", default-fe
 async-trait = "0.1"
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 tracing = "0.1"
 rand = "0.9"
 

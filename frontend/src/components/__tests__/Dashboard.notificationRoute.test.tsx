@@ -10,7 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { NotificationItem } from '@pierre/shared-types';
 import Dashboard from '../Dashboard';
 import { ThemeProvider } from '../../hooks/useTheme';
-import type { PendingComposerAction } from '../ChatTab';
+import type { PendingComposerAction } from '../chat/types';
 
 const chatTabProps = vi.fn();
 const markAsRead = vi.fn();
@@ -102,15 +102,14 @@ vi.mock('../../hooks/useNotifications', () => ({
   }),
 }));
 
+// Home is its own host; only the Groups tab's props are asserted here.
+vi.mock('../home/PersonalChat', () => ({ default: () => <div data-testid="home-tab" /> }));
 vi.mock('../ChatTab', () => ({
   default: (props: {
-    layout?: string;
     selectedConversation: string | null;
     openInfoFor?: string | null;
     pendingComposerAction?: PendingComposerAction | null;
   }) => {
-    // Home is ChatTab's personal layout; only the Groups tab's props are asserted here.
-    if (props.layout === 'personal') return <div data-testid="home-tab" />;
     chatTabProps({
       selected: props.selectedConversation,
       info: props.openInfoFor ?? null,

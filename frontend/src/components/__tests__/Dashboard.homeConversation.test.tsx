@@ -30,10 +30,17 @@ vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
 }));
 
+// Home's conversation and the Groups tab are two hosts; each records which drew.
 vi.mock('../ChatTab', () => ({
-  default: (props: { layout?: string; selectedConversation: string | null; resolving?: boolean }) => {
-    chatTabProps({ layout: props.layout ?? 'shell', selected: props.selectedConversation, resolving: props.resolving ?? false });
-    return <div data-testid={props.layout === 'personal' ? 'home-tab' : 'chat-tab'} />;
+  default: (props: { selectedConversation: string | null }) => {
+    chatTabProps({ layout: 'shell', selected: props.selectedConversation, resolving: false });
+    return <div data-testid="chat-tab" />;
+  },
+}));
+vi.mock('../home/PersonalChat', () => ({
+  default: (props: { selectedConversation: string | null; resolving?: boolean }) => {
+    chatTabProps({ layout: 'personal', selected: props.selectedConversation, resolving: props.resolving ?? false });
+    return <div data-testid="home-tab" />;
   },
 }));
 

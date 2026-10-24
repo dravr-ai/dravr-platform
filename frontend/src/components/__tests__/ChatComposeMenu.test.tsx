@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the chat "+" menu — new chat, the group-name dialog, and adding someone to a thread
-// ABOUTME: Drives ChatTab so the menu's actions are asserted against the real conversation and turn calls
+// ABOUTME: Drives Home (PersonalChat) and the Groups tab (ChatTab) so the menu's actions are asserted against the real conversation and turn calls
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ChatTab from '../ChatTab';
+import PersonalChat from '../home/PersonalChat';
 import { ToastProvider } from '../ui';
 
 const getConversations = vi.fn();
@@ -54,21 +55,19 @@ vi.mock('../../hooks/useUsageStatus', () => ({
 
 const CONVERSATION_ID = 'conv-1';
 
+/** Home's conversation unless the Groups tab is named — the two surfaces the menu sits on. */
 function renderChatTab(
   selected: string | null,
-  props: { onSelectConversation?: (id: string | null) => void; layout?: 'shell' | 'personal' } = {},
+  props: { onSelectConversation?: (id: string | null) => void; surface?: 'groups' | 'home' } = {},
 ) {
+  const Surface = props.surface === 'groups' ? ChatTab : PersonalChat;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ChatTab
-          selectedConversation={selected}
-          onSelectConversation={props.onSelectConversation ?? vi.fn()}
-          layout={props.layout ?? 'personal'}
-        />
+        <Surface selectedConversation={selected} onSelectConversation={props.onSelectConversation ?? vi.fn()} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -202,7 +201,7 @@ describe('chat "+" menu', () => {
       total: 1,
     });
     const user = userEvent.setup();
-    renderChatTab(null, { layout: 'shell' });
+    renderChatTab(null, { surface: 'groups' });
 
     await user.click((await screen.findAllByRole('button', { name: 'New' }))[0]);
 
@@ -215,7 +214,7 @@ describe('chat "+" menu', () => {
     const onSelectConversation = vi.fn();
     const user = userEvent.setup();
     // The only conversation is the athlete's own, which lives on Home.
-    renderChatTab(null, { layout: 'shell', onSelectConversation });
+    renderChatTab(null, { surface: 'groups', onSelectConversation });
 
     expect(await screen.findByTestId('groups-empty')).toHaveTextContent('No groups yet');
     await user.click(screen.getByTestId('groups-empty-create'));
@@ -240,7 +239,7 @@ describe('chat "+" menu', () => {
       },
     });
     const user = userEvent.setup();
-    renderChatTab(null, { layout: 'shell' });
+    renderChatTab(null, { surface: 'groups' });
 
     await user.click(await screen.findByTestId('groups-empty-create'));
     await user.type(await screen.findByTestId('group-name-input'), 'Sunday Riders');
@@ -256,7 +255,7 @@ describe('chat "+" menu', () => {
 
   it('never says "No groups yet" over a list that failed to load — the list says what happened', async () => {
     getConversations.mockRejectedValue(new Error('network down'));
-    renderChatTab(null, { layout: 'shell' });
+    renderChatTab(null, { surface: 'groups' });
 
     expect(await screen.findByText('Your chats could not be loaded.')).toBeInTheDocument();
     expect(screen.queryByTestId('groups-empty')).toBeNull();

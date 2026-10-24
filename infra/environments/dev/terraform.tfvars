@@ -49,13 +49,15 @@ mcp_resource_url = "https://mcp.dravr.ai"
 
 # 2 vCPU. Two SEPARATE reasons historically pinned this: (a) the contremaitre
 # boot-sync ran on the bind path and saturated a single core, so 1 vCPU missed
-# Cloud Run's ~55s startup probe (rev 00465) — this is now FIXED (the sync runs
-# off the bind path via init_contremaitre_registries -> the poll's first
-# immediate tick); AND (b) the headless-Chrome sciotte scrape (Garmin + token-less
-# Strava) is CPU-hungry, and a coaching turn on 1 vCPU risks starving it into a
-# tool-loop timeout. (a) is resolved but (b) is NOT, so cpu=1 stays DEFERRED:
-# keep 2 vCPU until a cold-cache Chrome-scrape load-test on 1 vCPU proves the
-# scrape completes in time. cpu_idle stays false (ADR-019).
+# Cloud Run's ~55s startup probe (rev 00465) — FIXED (the sync runs off the bind
+# path via init_contremaitre_registries -> the poll's first immediate tick); and
+# (b) the in-pod headless-Chrome sciotte scrape was CPU-hungry — GONE: the pod
+# runs no Chrome since carnet#978 (scrapes run on the sciotte service, sized on
+# its own below), and the image ships none (db083300b). Neither reason holds
+# now; what remains on this CPU is the always-on Copilot ACP Node singleton and
+# the chat turns. Whether that fits 1 vCPU is unmeasured, so the value stands
+# until a turn-latency check on 1 vCPU says otherwise. cpu_idle stays false
+# (ADR-019).
 backend_cpu    = "2"
 backend_memory = "2Gi"
 # Scale to zero when idle. A warm floor (min=1) combined with cpu_idle=false
@@ -94,9 +96,9 @@ backend_max_instances = 3
 # heavyweight children. The `copilot --acp` Node process is a single long-lived
 # SINGLETON shared across all turns (built once, kept warm), and the ACP transport
 # mutex already serializes LLM turns onto it — so concurrent chat turns per pod are
-# capped by that mutex, NOT by this setting. Headless Chrome only spawns on a
-# cold-cache sciotte scrape, and admission control for that lives in the
-# dedicated dravr-sciotte service (ADR-021 Phase 4), not in this pod.
+# capped by that mutex, NOT by this setting. No headless Chrome runs in this pod:
+# scrapes and their admission control live in the dedicated dravr-sciotte
+# service (ADR-021 Phase 4).
 # concurrency=1 was pure harm: it forced one pod per request, so a single user's
 # ~13-request parallel dashboard load cold-started ~13 pods (a herd) that then
 # exhausted the Postgres connection slots (rev 00679, 2026-07-10 incident).

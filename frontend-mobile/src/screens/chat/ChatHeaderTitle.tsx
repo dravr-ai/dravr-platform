@@ -28,21 +28,36 @@ interface ChatHeaderTitleProps {
   providerStatus: string | null;
   /** Open the thread's info sheet — group info, coach info, or the plain rows. */
   onTitlePress: () => void;
+  /**
+   * The bound agent's name as the athlete's own agent list spells it — in
+   * their language. `null` while that list loads or with no agent bound.
+   */
+  agentTitle?: string | null;
 }
 
 /**
- * What an open thread is called: its stored title, or the untitled label when
- * it carries none. The header shows it, and the verdict sheet names the thread
- * a claim came from by it.
+ * What an open thread is called. The personal thread — Home's conversation —
+ * is named after the agent bound to it, in the athlete's language: its stored
+ * title is the server's, stamped with the agent's canonical (English) title
+ * when a topic rebinds it, and a rename shows only in the list (carnet#1146).
+ * Any other thread is its stored title, or the untitled label when it carries
+ * none. The header shows it, and the verdict sheet names the thread a claim
+ * came from by it.
  */
-export function threadTitle(conversation: Conversation, t: Translate): string {
+export function threadTitle(conversation: Conversation, t: Translate, agentTitle?: string | null): string {
+  if (conversation.personal && agentTitle) return agentTitle;
   return conversation.title?.trim() || t(CONVERSATION_ROW_LABEL_KEYS.untitled);
 }
 
-export function ChatHeaderTitle({ currentConversation, providerStatus, onTitlePress }: ChatHeaderTitleProps) {
+export function ChatHeaderTitle({
+  currentConversation,
+  providerStatus,
+  onTitlePress,
+  agentTitle = null,
+}: ChatHeaderTitleProps) {
   const { t } = useTranslation();
   // Before a thread exists the header names what the athlete is about to start.
-  const title = currentConversation ? threadTitle(currentConversation, t) : t('chat.newChat');
+  const title = currentConversation ? threadTitle(currentConversation, t, agentTitle) : t('chat.newChat');
   // A plan thread's athlete, then group, then handle — the precedence both headers share.
   const subtitle = threadSubtitle(currentConversation);
 

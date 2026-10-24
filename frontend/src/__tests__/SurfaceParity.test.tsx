@@ -43,14 +43,11 @@ const SERVED_BY: Record<string, string> = {
   users: 'surface-users',
 };
 
-// Home is ChatTab's personal layout; the Groups tab (`chat`) is its shell.
+// Home is PersonalChat; the Groups tab (`chat`) is ChatTab.
 vi.mock('../components/home/Home', () => ({ HomeBriefing: () => null }));
 vi.mock('../components/home/TodayPeek', () => ({ TodayPeek: () => null }));
-vi.mock('../components/ChatTab', () => ({
-  default: ({ layout }: { layout?: string }) => (
-    <div data-testid={layout === 'personal' ? 'surface-home' : 'surface-chat'} />
-  ),
-}));
+vi.mock('../components/home/PersonalChat', () => ({ default: () => <div data-testid="surface-home" /> }));
+vi.mock('../components/ChatTab', () => ({ default: () => <div data-testid="surface-chat" /> }));
 // Home opens on the latest personal thread; these specs assert nothing about
 // which one, and no #chat link here names a thread the list knows.
 vi.mock('../hooks/useConversationList', () => ({

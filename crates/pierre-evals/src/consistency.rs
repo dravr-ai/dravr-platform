@@ -18,8 +18,9 @@
 //! Two contradiction shapes are detected, both restricted to sibling claims
 //! in the **same category** so unrelated numbers never collide:
 //!
-//! - **Numeric divergence** — both claims attach a number to a shared salient
-//!   subject but no figure on one side is close to any figure on the other.
+//! - **Numeric divergence** — both claims share a salient subject and quantify
+//!   the same unit ("5 minutes" / "7 minutes"), but no figure of that unit on
+//!   one side is close to one on the other.
 //! - **Negation conflict** — one claim asserts a subject while the sibling
 //!   negates the same subject ("take X" vs "avoid X" / "don't take X").
 //!
@@ -67,11 +68,152 @@ const NEGATION_MARKERS: &[&str] = &[
 /// a content noun (e.g. "pace", "creatine") instead of "your" or "should",
 /// which both improves the reported reason and avoids spurious matches between
 /// two unrelated sentences that merely share a pronoun.
+///
+/// Listed for every shipped locale: an English-only list let a French warm-up
+/// reply share "pour" and "environ" between two of its steps and read as a
+/// self-contradiction (carnet#1151).
 const SUBJECT_STOPWORDS: &[&str] = &[
-    "your", "yours", "this", "that", "these", "those", "should", "would", "could", "around",
-    "about", "based", "with", "from", "into", "over", "than", "then", "they", "them", "there",
-    "here", "have", "will", "been", "every", "during", "daily", "still", "just", "very", "more",
-    "most", "some", "such", "what", "when", "which", "while", "each", "also",
+    // English
+    "your",
+    "yours",
+    "this",
+    "that",
+    "these",
+    "those",
+    "should",
+    "would",
+    "could",
+    "around",
+    "about",
+    "based",
+    "with",
+    "from",
+    "into",
+    "over",
+    "than",
+    "then",
+    "they",
+    "them",
+    "there",
+    "here",
+    "have",
+    "will",
+    "been",
+    "every",
+    "during",
+    "daily",
+    "still",
+    "just",
+    "very",
+    "more",
+    "most",
+    "some",
+    "such",
+    "what",
+    "when",
+    "which",
+    "while",
+    "each",
+    "also",
+    // French
+    "pour",
+    "avec",
+    "dans",
+    "environ",
+    "entre",
+    "après",
+    "apres",
+    "avant",
+    "puis",
+    "chaque",
+    "très",
+    "tres",
+    "plus",
+    "moins",
+    "sans",
+    "sous",
+    "votre",
+    "notre",
+    "cette",
+    "leur",
+    "comme",
+    "mais",
+    "donc",
+    "aussi",
+    "encore",
+    "jusqu",
+    "quand",
+    "tout",
+    "toute",
+    "tous",
+    "toutes",
+    "fait",
+    "faire",
+    "fais",
+    "pendant",
+    "chacune",
+    "chacun",
+    "elle",
+    "elles",
+    // Spanish
+    "para",
+    "como",
+    "sobre",
+    "cada",
+    "durante",
+    "antes",
+    "después",
+    "despues",
+    "desde",
+    "hasta",
+    "más",
+    "este",
+    "esta",
+    "esto",
+    "pero",
+    "también",
+    "tambien",
+    "unos",
+    "unas",
+    // German
+    "für",
+    "fuer",
+    "nach",
+    "über",
+    "ueber",
+    "unter",
+    "zwischen",
+    "etwa",
+    "ungefähr",
+    "sehr",
+    "mehr",
+    "jede",
+    "jeden",
+    "jeder",
+    "dann",
+    "auch",
+    "aber",
+    "oder",
+    "eine",
+    "einen",
+    "einem",
+    "einer",
+    "dein",
+    "deine",
+    "deinen",
+    "deiner",
+    "nicht",
+    // Portuguese
+    "cerca",
+    "depois",
+    "muito",
+    "mais",
+    "você",
+    "voce",
+    "então",
+    "entao",
+    "pelo",
+    "pela",
 ];
 
 /// Check a claim against its sibling claims for a direct contradiction.
@@ -91,7 +233,7 @@ pub fn find_contradiction(
     if claim_subjects.is_empty() {
         return None;
     }
-    let claim_numbers = numbers(&claim.text);
+    let claim_quantities = quantities(&claim.text);
     let claim_negated = is_negated(&claim.text);
 
     for sibling in siblings {
@@ -120,10 +262,10 @@ pub fn find_contradiction(
             });
         }
 
-        // Numeric divergence: both attach a number to the shared subject but
-        // the figures disagree beyond tolerance.
-        let sibling_numbers = numbers(&sibling.text);
-        if let Some((a, b)) = diverging_pair(&claim_numbers, &sibling_numbers) {
+        // Numeric divergence: both quantify the same unit about the shared
+        // subject but the figures disagree beyond tolerance.
+        let sibling_quantities = quantities(&sibling.text);
+        if let Some((a, b)) = diverging_pair(&claim_quantities, &sibling_quantities) {
             return Some(ConsistencyConflict {
                 conflicting_sibling: sibling.text.clone(),
                 reason: format!(
@@ -141,7 +283,7 @@ pub fn find_contradiction(
 /// Splitting on non-alphanumeric keeps compound subject tokens like "vo2max"
 /// intact instead of shattering them on the embedded digit. Pure-number
 /// tokens are excluded — those are figures, compared separately by
-/// [`numbers`], not subjects.
+/// [`quantities`], not subjects.
 fn salient_subjects(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
@@ -163,19 +305,92 @@ fn shared_subject(claim_subjects: &[String], other: &str) -> Option<String> {
         .cloned()
 }
 
-/// Extract every standalone numeric token from a claim, normalizing the French
-/// decimal comma ("1,6") to a period so locale-mixed replies compare correctly.
+/// One figure in a claim and the unit it counts: "15 à 20 minutes" holds
+/// `(15, minutes)` and `(20, minutes)`, "4 lignes droites" `(4, lignes)`.
+#[derive(Debug, Clone, PartialEq)]
+struct Quantity {
+    value: f64,
+    /// The first word after the figure, lowercased; `None` when the figure
+    /// ends the sentence ("your `VO2max` is 58").
+    unit: Option<String>,
+}
+
+/// Words that join the two ends of a range ("15 à 20 minutes", "4 to 6
+/// strides"), skipped when looking for the unit a figure counts.
+const RANGE_CONNECTORS: &[&str] = &[
+    "to", "or", "and", "à", "a", "ou", "et", "y", "o", "bis", "oder", "und", "até", "ate", "e",
+];
+
+/// One spelling per unit, so "1.6 g" and "1.6 grams" compare: the short form
+/// and the spelled-out forms of the five shipped locales.
+fn canonical_unit(unit: &str) -> String {
+    let canonical = match unit {
+        "g" | "gram" | "grams" | "gramme" | "grammes" | "gramo" | "gramos" | "gramm" | "grama"
+        | "gramas" => "g",
+        "kg" | "kilo" | "kilos" | "kilogram" | "kilograms" | "kilogramme" | "kilogrammes" => "kg",
+        "min" | "mins" | "minute" | "minutes" | "minuto" | "minutos" | "minuten" | "mn" => "min",
+        "s" | "sec" | "secs" | "second" | "seconds" | "seconde" | "secondes" | "segundo"
+        | "segundos" | "sekunde" | "sekunden" => "s",
+        "h" | "hr" | "hrs" | "hour" | "hours" | "heure" | "heures" | "hora" | "horas"
+        | "stunde" | "stunden" => "h",
+        "km" | "kilometre" | "kilometres" | "kilometer" | "kilometers" | "kilomètre"
+        | "kilomètres" | "kilómetro" | "kilómetros" | "quilómetro" | "quilômetro" => "km",
+        "m" | "metre" | "metres" | "meter" | "meters" | "mètre" | "mètres" | "metro" | "metros" => {
+            "m"
+        }
+        "w" | "watt" | "watts" | "vatios" => "w",
+        "kcal" | "kilocalorie" | "kilocalories" | "kilocalorías" | "kilokalorien" => "kcal",
+        other => other,
+    };
+    canonical.to_owned()
+}
+
+/// Extract every figure of a claim with the unit it counts, normalizing the
+/// French decimal comma ("1,6") to a period so locale-mixed replies compare
+/// correctly.
 ///
 /// Tokens are split on any non-alphanumeric, non-period character, so a digit
-/// embedded in a word ("vo2max") stays attached to its letters and is rejected
-/// by the all-digits filter rather than parsed as the figure `2`.
-fn numbers(text: &str) -> Vec<f64> {
-    let normalized = normalize_decimal_commas(text);
-    normalized
+/// embedded in a word ("vo2max") stays attached to its letters and is never
+/// read as the figure `2`. A figure glued to its unit ("80m") keeps it.
+fn quantities(text: &str) -> Vec<Quantity> {
+    let normalized = normalize_decimal_commas(text).to_lowercase();
+    let tokens: Vec<&str> = normalized
         .split(|c: char| !(c.is_alphanumeric() || c == '.'))
-        .filter(|t| !t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || c == '.'))
-        .filter_map(|t| t.parse::<f64>().ok())
-        .collect()
+        .map(|t| t.trim_matches('.'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    let mut out = Vec::new();
+    for (i, token) in tokens.iter().enumerate() {
+        let digits_end = token
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(token.len());
+        if digits_end == 0 {
+            continue;
+        }
+        let (figure, glued) = token.split_at(digits_end);
+        if !glued.is_empty() && !glued.chars().all(char::is_alphabetic) {
+            continue;
+        }
+        let Ok(value) = figure.parse::<f64>() else {
+            continue;
+        };
+        let unit = if glued.is_empty() {
+            tokens[i + 1..]
+                .iter()
+                .find(|next| {
+                    !RANGE_CONNECTORS.contains(next)
+                        && !next.chars().all(|c| c.is_ascii_digit() || c == '.')
+                })
+                .map(|next| (*next).to_owned())
+        } else {
+            Some(glued.to_owned())
+        };
+        out.push(Quantity {
+            value,
+            unit: unit.map(|u| canonical_unit(&u)),
+        });
+    }
+    out
 }
 
 /// Replace a decimal comma between two digits ("1,6") with a period so the
@@ -203,21 +418,29 @@ fn is_negated(text: &str) -> bool {
         .any(|word| NEGATION_MARKERS.contains(&word))
 }
 
-/// Find a pair of numbers — one from each claim — that diverge beyond
-/// [`NUMERIC_TOLERANCE`]. Returns the first diverging pair, or `None` when
-/// either side has no numbers or any cross-pair agrees within tolerance.
-fn diverging_pair(a: &[f64], b: &[f64]) -> Option<(f64, f64)> {
-    if a.is_empty() || b.is_empty() {
+/// Find a pair of figures — one from each claim, counting the same unit —
+/// that diverge beyond [`NUMERIC_TOLERANCE`]. Returns the first diverging
+/// pair, or `None` when no unit is quantified on both sides or any same-unit
+/// pair agrees within tolerance.
+///
+/// Figures of different units never compare: a warm-up's "15 à 20 minutes" in
+/// total and its "4 lignes droites" are two steps of one routine, not two
+/// answers to one question (carnet#1151).
+fn diverging_pair(a: &[Quantity], b: &[Quantity]) -> Option<(f64, f64)> {
+    let pairs: Vec<(f64, f64)> = a
+        .iter()
+        .flat_map(|x| {
+            b.iter()
+                .filter(move |y| x.unit == y.unit)
+                .map(move |y| (x.value, y.value))
+        })
+        .collect();
+    // If any same-unit figure on one side is close to one on the other, the
+    // claims agree on at least one figure and we treat them as consistent.
+    if pairs.iter().any(|(x, y)| within_tolerance(*x, *y)) {
         return None;
     }
-    // If any value on one side is close to a value on the other, the claims
-    // agree on at least one figure and we treat them as consistent. Only when
-    // no shared number exists do we report the leading pair as divergent.
-    let any_agree = a.iter().any(|x| b.iter().any(|y| within_tolerance(*x, *y)));
-    if any_agree {
-        return None;
-    }
-    Some((a[0], b[0]))
+    pairs.first().copied()
 }
 
 /// True when two figures are within [`NUMERIC_TOLERANCE`] of each other,

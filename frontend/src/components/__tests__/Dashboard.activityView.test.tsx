@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
-import type { PersonalToday } from '../ChatTab';
+import type { PersonalToday } from '../home/personalToday';
 
 const viewProps = vi.fn();
 
@@ -21,17 +21,15 @@ vi.mock('../dashboard/index', () => ({
 vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
 }));
-// Home is ChatTab's personal layout; it draws the Today panel the shell hands it.
-vi.mock('../ChatTab', () => ({
-  default: (props: { layout?: string; today?: PersonalToday }) =>
-    props.layout === 'personal' ? (
-      <div data-testid="home-tab">
-        {props.today?.panel({ draft: () => {}, send: () => {}, openTopic: () => {}, dismiss: () => {} }, true)}
-      </div>
-    ) : (
-      <div data-testid="chat-tab" />
-    ),
+// Home is PersonalChat; it draws the Today panel the shell hands it.
+vi.mock('../home/PersonalChat', () => ({
+  default: (props: { today?: PersonalToday }) => (
+    <div data-testid="home-tab">
+      {props.today?.panel({ draft: () => {}, send: () => {}, openTopic: () => {}, dismiss: () => {} }, true)}
+    </div>
+  ),
 }));
+vi.mock('../ChatTab', () => ({ default: () => <div data-testid="chat-tab" /> }));
 vi.mock('../ConnectProviderBanner', () => ({ ConnectProviderBanner: () => null }));
 
 // Home's Today hands the shell the route a tapped activity row builds.

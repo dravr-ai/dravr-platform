@@ -18,7 +18,7 @@ import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
 import { GettingStarted } from './GettingStarted';
 import { YourTeam } from './YourTeam';
-import type { TodayActions } from '../ChatTab';
+import type { TodayActions } from './personalToday';
 
 interface HomeBriefingProps {
   /** Dashboard route navigator, `tab[/subview]`. */

@@ -907,13 +907,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       # The `telemetry` feature is off in every other test job, so these
       # feature-gated integration tests (traceparent injection on the shared
@@ -947,13 +940,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         if: ${{ !cancelled() && steps.rust.outcome == 'success' && steps.changed.outputs.files != '' }}
@@ -992,13 +978,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
   feature-profiles:
     name: Feature Profile Check (${{ matrix.name }})
@@ -1234,13 +1213,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
   # Every test target OUTSIDE crates/pierre-server/tests, on every push. The
   # per-push suites enumerate only pierre-server's tests directory (ci-postgres
@@ -1337,7 +1309,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
 
       # pierre-server's in-module unit tests (ADR-027) — its tests/ binaries run
       # in their own lanes, and none of those runs the lib target. Compiling the

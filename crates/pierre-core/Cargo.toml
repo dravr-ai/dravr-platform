@@ -94,14 +94,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 base64 = "0.22"
 tracing = "0.1"
-bitflags = { version = "2.11", features = ["serde"] }
+bitflags = { version = "2.13", features = ["serde"] }
 
 # Optional: HTTP response support
 axum = { version = "0.8", optional = true, default-features = false, features = ["json"] }
-http = { version = "1.4", optional = true }
+http = { version = "1.5", optional = true }
 
 # Optional: Database error types
 sqlx = { version = "0.8", optional = true, default-features = false }
@@ -162,7 +162,7 @@ bcrypt = { version = "0.16", optional = true }
 # (carnet#1143). Without default features: no fork or timeout support.
 proptest = { version = "1", default-features = false, features = ["std"] }
 # Used by the DummyProvider tests in tests/it/billing_dummy_test.rs.
-tokio = { version = "1.48", features = ["macros", "rt", "net", "io-util", "time"] }
+tokio = { version = "1.54", features = ["macros", "rt", "net", "io-util", "time"] }
 hex = "0.4"
 # tests/it/trace_propagation_test.rs builds a real in-memory OTLP-less pipeline
 # (SdkTracerProvider + InMemorySpanExporter) to pin traceparent injection.

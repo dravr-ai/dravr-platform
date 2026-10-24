@@ -278,6 +278,133 @@ async fn consistency_layer_fires_in_full_pipeline() {
     );
 }
 
+/// The Mobility agent's answer to "Quel échauffement me conseilles-tu avant ma
+/// séance de fractionné de demain ?" on dev (carnet#1151), verbatim. Its chip
+/// read "4 verdicts · contredite": two steps of one warm-up shared "pour" and
+/// "environ", and their figures (15 minutes, 4 strides) read as one claim
+/// answered twice.
+const WARM_UP_REPLY_FR: &str = "Pour un fractionné, fais la séquence complète, environ 15 à 20 minutes. \
+Commence par 10 minutes de footing très tranquille. Ensuite, place la mobilité dynamique : 15 \
+balancements de jambe d'avant en arrière par jambe pour ouvrir les hanches et les ischios, puis 10 \
+fentes marchées avec rotation du buste de chaque côté. Active les muscles qui vont pousser avec 10 \
+ponts fessiers et 15 montées sur pointes. Termine par 4 lignes droites d'environ 80 m qui accélèrent \
+progressivement jusqu'à ton allure de fractionné, en marchant pour récupérer entre chacune.\n\n\
+Garde les étirements tenus pour après la séance : avant l'effort, ils te font perdre un peu de \
+force. S'il fait froid demain matin, allonge le footing, pas l'intensité.\n\n\
+Je n'arrive pas à afficher tes dernières sorties pour l'instant. Dis-moi ce qui est prévu (des \
+400 m, des 1000 m ?) et je l'ajuste à ta séance 😉";
+
+#[tokio::test]
+async fn a_warm_up_routine_never_contradicts_itself() {
+    let verdicts = verify_reply(
+        WARM_UP_REPLY_FR,
+        &VerificationConfig::default(),
+        &corpus(),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(
+        !verdicts.is_empty(),
+        "the routine still carries claims to check"
+    );
+    for (claim, verdict) in &verdicts {
+        assert_ne!(
+            verdict.status,
+            ClaimStatus::Contradicted,
+            "{:?} contradicted: {} — {}",
+            verdict.layer_fired,
+            claim.text,
+            verdict.explanation
+        );
+    }
+    // The capability report is about the agent, and the parenthesised
+    // question does not cut its sentence in two.
+    assert!(
+        verdicts
+            .iter()
+            .all(|(claim, _)| !claim.text.contains("afficher") && !claim.text.starts_with(')')),
+        "bug: the capability report or a split parenthesis reached verification"
+    );
+}
+
+#[test]
+fn consistency_ignores_figures_of_different_units() {
+    let total = claim(
+        "Your interval session warm-up lasts around 15 to 20 minutes in total.",
+        ClaimCategory::TrainingPrescription,
+    );
+    let strides = claim(
+        "Finish the interval session warm-up with 4 strides of 80 m.",
+        ClaimCategory::TrainingPrescription,
+    );
+    assert!(
+        find_contradiction(&total, slice::from_ref(&strides)).is_none(),
+        "bug: minutes and strides were compared as one figure"
+    );
+}
+
+#[test]
+fn consistency_ignores_shared_french_function_words() {
+    let a = claim(
+        "Pour un fractionné, garde 10 minutes de footing.",
+        ClaimCategory::TrainingPrescription,
+    );
+    let b = claim(
+        "Pour la sortie longue, garde 30 secondes de marche.",
+        ClaimCategory::TrainingPrescription,
+    );
+    assert!(
+        find_contradiction(&a, slice::from_ref(&b)).is_none(),
+        "bug: shared French function words made two claims one subject"
+    );
+}
+
+#[test]
+fn consistency_compares_one_unit_however_it_is_spelled() {
+    let grams = claim(
+        "Aim for 1.6 grams of protein per kg of body weight.",
+        ClaimCategory::Nutrition,
+    );
+    let short = claim(
+        "Around 2.5 g of protein per kg is what your body needs.",
+        ClaimCategory::Nutrition,
+    );
+    assert!(
+        find_contradiction(&grams, slice::from_ref(&short)).is_some(),
+        "1.6 grams and 2.5 g of protein are one figure answered twice"
+    );
+    let ftp = claim(
+        "Your FTP sits around 250 W after this block.",
+        ClaimCategory::TrainingPrescription,
+    );
+    let watts = claim(
+        "Your FTP sits around 310 watts after this block.",
+        ClaimCategory::TrainingPrescription,
+    );
+    assert!(
+        find_contradiction(&ftp, slice::from_ref(&watts)).is_some(),
+        "250 W and 310 watts are one FTP answered twice"
+    );
+}
+
+#[test]
+fn consistency_still_flags_one_unit_answered_twice() {
+    let a = claim(
+        "Ton footing d'échauffement dure 10 minutes avant la séance.",
+        ClaimCategory::TrainingPrescription,
+    );
+    let b = claim(
+        "Ton footing d'échauffement dure 25 minutes avant la séance.",
+        ClaimCategory::TrainingPrescription,
+    );
+    assert!(
+        find_contradiction(&a, slice::from_ref(&b)).is_some(),
+        "bug: 10 and 25 minutes of one warm-up jog read as consistent"
+    );
+}
+
 #[test]
 fn check_claim_without_siblings_skips_consistency() {
     let c = claim(

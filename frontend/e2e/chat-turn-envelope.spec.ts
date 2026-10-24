@@ -476,7 +476,10 @@ test.describe('Chat - one verdict affordance per surface', () => {
 
     const pill = drawer.getByTestId('verdict-source-pill');
     const preview = drawer.getByTestId('verdict-source-preview');
-    await expect(pill).toContainText(CONVERSATION_TITLE);
+    // Home names its thread after the agent bound to it, as its header does
+    // (carnet#1146); the stored title is the History list's.
+    await expect(pill).toContainText(COACH_TITLE);
+    await expect(pill).not.toContainText(CONVERSATION_TITLE);
     await expect(preview).toBeHidden();
 
     await pill.hover();

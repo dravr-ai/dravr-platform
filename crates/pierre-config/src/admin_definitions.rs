@@ -33,7 +33,7 @@ use crate::tid_cuts;
 /// the service that consumes it stays in `pierre-server`.
 #[derive(Debug, Clone)]
 pub struct ParameterDefinition {
-    /// Unique identifier for the parameter (e.g., `feature.weather_api_enabled`)
+    /// Unique identifier for the parameter (e.g., `feature.auto_approval_enabled`)
     pub key: String,
     /// Human-readable name for display in UI
     pub display_name: String,
@@ -367,25 +367,6 @@ pub fn register_feature_flags<S: BuildHasher>(defs: &mut HashMap<String, Paramet
             units: None,
             scientific_basis: None,
             env: None,
-            is_runtime_configurable: true,
-            requires_restart: false,
-        },
-    );
-
-    add_definition(
-        defs,
-        ParameterDefinition {
-            key: "feature.weather_api_enabled".to_owned(),
-            display_name: "Weather API Integration".to_owned(),
-            description: "Enable weather data integration for activity analysis".to_owned(),
-            category: "feature_flags".to_owned(),
-            data_type: ConfigDataType::Boolean,
-            default_value: serde_json::json!(true),
-            valid_range: None,
-            enum_options: None,
-            units: None,
-            scientific_basis: None,
-            env: boot_env("WEATHER_SERVICE_ENABLED"),
             is_runtime_configurable: true,
             requires_restart: false,
         },

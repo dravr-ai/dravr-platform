@@ -73,7 +73,7 @@ interface MessageListProps {
   onRetryMessage: (messageId: string) => void;
   /** Click handler for the verdict chip → open the drawer for that message. */
   onShowVerdict?: (verdicts: ClaimVerdict[], messageId: string) => void;
-  /** "Ask me about this claim" callback → ChatTab dispatches a follow-up. */
+  /** "Ask me about this claim" callback → ChatThread drafts a follow-up. */
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;

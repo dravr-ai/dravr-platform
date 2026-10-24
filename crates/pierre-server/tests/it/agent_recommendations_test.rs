@@ -12,7 +12,7 @@ use chrono::Utc;
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::models::agents::AgentPrerequisites;
 use pierre_core::models::{ActivityBuilder, SportProfile, SportType};
-use pierre_services::agents::score_agent;
+use pierre_services::agents::{score_agent, score_declared_sport};
 
 /// Build a sport profile directly from `(canonical_sport_label, count)` pairs.
 fn profile(counts: &[(&str, u32)]) -> SportProfile {
@@ -471,5 +471,70 @@ fn from_activities_records_the_longest_session_in_minutes() {
     assert_eq!(
         SportProfile::from_activities(&[], 90).longest_session_min,
         0
+    );
+}
+
+/// carnet#1151: a runner with a connected watch and no synced run was led by
+/// the Mobility agent. The declared sport makes the running agents eligible,
+/// the single-sport one first.
+#[test]
+fn a_declared_sport_makes_its_agents_eligible_on_a_cold_start() {
+    let cfg = AgentRecommendationConfig::default();
+    let garmin = providers(&["garmin"]);
+    let road = score_declared_sport(
+        &prereqs(&["strava"], 5, &["Run"]),
+        &[SportType::Run],
+        &garmin,
+    );
+    let endurance = score_declared_sport(
+        &prereqs(&["strava"], 14, &["Run", "Ride"]),
+        &[SportType::Run],
+        &garmin,
+    );
+    let cycling = score_declared_sport(
+        &prereqs(&["strava"], 14, &["Ride"]),
+        &[SportType::Run],
+        &garmin,
+    );
+    assert!(
+        road.eligible && endurance.eligible,
+        "bug: a declared runner's running agents stayed ineligible"
+    );
+    assert!(!cycling.eligible, "a runner is not offered a cycling agent");
+    assert!(
+        road.match_score > cfg.sport_agnostic_base_score,
+        "the agent for exactly the declared sport outranks the generic starters"
+    );
+    assert!(
+        road.match_score > endurance.match_score,
+        "bug: the multi-sport agent scored as high as the single-sport one"
+    );
+}
+
+#[test]
+fn a_declared_sport_never_lifts_the_provider_gate_or_a_generic_agent() {
+    let none = providers(&[]);
+    let gated = score_declared_sport(&prereqs(&["strava"], 5, &["Run"]), &[SportType::Run], &none);
+    assert!(
+        !gated.eligible,
+        "no provider: the running agent stays locked"
+    );
+    let generic = score_declared_sport(
+        &prereqs(&[], 0, &[]),
+        &[SportType::Run],
+        &providers(&["garmin"]),
+    );
+    assert!(
+        !generic.eligible,
+        "a sport-agnostic agent is scored by score_agent alone"
+    );
+    let undeclared = score_declared_sport(
+        &prereqs(&["strava"], 5, &["Run"]),
+        &[],
+        &providers(&["garmin"]),
+    );
+    assert!(
+        !undeclared.eligible,
+        "bug: no declared sport still made a sport agent eligible"
     );
 }

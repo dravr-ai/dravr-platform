@@ -166,7 +166,7 @@ module "kms" {
 }
 
 # -----------------------------------------------------------------------------
-# Sciotte Scripts Bucket (hot-swappable JS for headless Chrome scraping)
+# Sciotte Scripts Bucket (hot-swappable JS for the sciotte service's headless Chrome)
 # -----------------------------------------------------------------------------
 
 resource "google_storage_bucket" "sciotte_scripts" {
@@ -180,7 +180,8 @@ resource "google_storage_bucket" "sciotte_scripts" {
   labels = merge(var.labels, { component = "sciotte" })
 }
 
-# Grant the app service account read access to the scripts bucket
+# Grant the app service account read access to the scripts bucket: the sciotte
+# service runs as it and mounts the bucket
 resource "google_storage_bucket_iam_member" "sciotte_scripts_reader" {
   bucket = google_storage_bucket.sciotte_scripts.name
   role   = "roles/storage.objectViewer"
@@ -272,15 +273,6 @@ module "backend" {
   min_instances                    = var.backend_min_instances
   max_instances                    = var.backend_max_instances
   max_instance_request_concurrency = var.backend_max_instance_request_concurrency
-
-  # Mount sciotte scripts bucket for hot-swappable JS extraction scripts
-  gcs_volumes = {
-    sciotte-scripts = {
-      bucket     = google_storage_bucket.sciotte_scripts.name
-      mount_path = "/sciotte-scripts"
-      read_only  = true
-    }
-  }
 
   ingress                  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
   allow_unauthenticated    = true
@@ -544,9 +536,6 @@ module "backend" {
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
 
-      # Sciotte JS scripts override directory (GCS-mounted bucket)
-      DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
-
       # Seats the env Strava app (STRAVA_CLIENT_ID) fills before the pool takes
       # over. 9, not Strava's 10: Strava counted the app full on 2026-10-15 while
       # only 9 athletes held a token we know of — one grant we no longer hold
@@ -597,19 +586,16 @@ module "backend" {
       DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
       DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
 
-      # Sciotte vision login: Hybrid runs the fast CSS/JS selector path first
-      # and only falls back to LLM screenshot reasoning when selectors fail
-      # (e.g. a Strava login DOM change). The login runs on the dedicated
-      # scraper service (module "sciotte" below, ADR-021), and the
-      # COPILOT_HEADLESS_MODEL set there is the vision model. This process
-      # holds no Chrome and builds no vision analyzer: here the variable is
-      # only the Copilot headless runner's default, which a chain entry's
-      # model overrides on every path that builds one
+      # The sciotte vision login runs on the dedicated scraper service (module
+      # "sciotte" below, ADR-021), which sets its own DRAVR_SCIOTTE_LOGIN_MODE,
+      # and the COPILOT_HEADLESS_MODEL set there is the vision model. This
+      # process holds no Chrome and builds no vision analyzer: here the
+      # variable is only the Copilot headless runner's default, which a chain
+      # entry's model overrides on every path that builds one
       # (crates/pierre-llm/src/embacle_provider.rs, entry_model). It is kept
       # equal to the scraper's value so the two blocks cannot disagree; the
       # chat chain's models are set per entry by PIERRE_LLM_CHAIN above.
-      DRAVR_SCIOTTE_LOGIN_MODE = "hybrid"
-      COPILOT_HEADLESS_MODEL   = "claude-sonnet-5.5"
+      COPILOT_HEADLESS_MODEL = "claude-sonnet-5.5"
 
       # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
       # logins/scrapes route to the dedicated scraper service. Empty string =
@@ -1115,8 +1101,8 @@ module "sciotte" {
   # is creating. Environment-scoped, or a dev token replays against prod.
   custom_audiences = [local.sciotte_audience]
 
-  # Hot-swappable extraction scripts / prompt overrides, same bucket the API
-  # pod mounts today (both keep it until the Phase 4 in-process cutover).
+  # Hot-swappable extraction scripts / prompt overrides. Only this service
+  # mounts the bucket: the API pod runs no scraper.
   gcs_volumes = {
     sciotte-scripts = {
       bucket     = google_storage_bucket.sciotte_scripts.name

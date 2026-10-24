@@ -40,24 +40,24 @@ bcrypt = "0.16"
 # The sciotte service client the credential-login canary signs in through.
 dravr-sciotte = { workspace = true, features = ["client"] }
 chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.5", features = ["derive", "std", "env"], default-features = false }
+clap = { version = "4.6", features = ["derive", "std", "env"], default-features = false }
 dirs = "5.0"
 glob = "0.3"
 # Cross-platform "open this URL in the default browser" for `auth login` (gcloud-style);
 # std has no equivalent and it wraps the per-OS opener (open/xdg-open/start) + WSL.
-open = "5.3"
+open = "5.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # SecretString for the admin tokens the CLI holds: redacting Debug, explicit expose_secret().
 secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std"], default-features = false }
 # Percent-encodes the email in `DELETE /admin/pre-approved-emails/{email}`; a
 # path segment carrying user-supplied text is escaped, never interpolated raw.
 urlencoding = "2.1"
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [dev-dependencies]
 # The claim-verdict types the grading-sheet test seeds its database with.

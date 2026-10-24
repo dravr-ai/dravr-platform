@@ -10,6 +10,7 @@
 //! JWT authentication to identify the user and tenant.
 
 mod admin;
+mod proposal_lead;
 /// Athlete-profile view + the pillar-context prompt block, shared by the
 /// agent-proposal REST route and the messaging auto-send.
 pub mod proposal_profile;

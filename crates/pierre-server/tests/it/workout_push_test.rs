@@ -42,6 +42,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
+use pierre_providers::ai_scope;
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_services::parq;
@@ -2239,5 +2240,82 @@ async fn a_first_party_only_plan_is_not_pushed_over_an_external_transport() -> R
     let report = report.result.expect("result payload");
     assert_eq!(report["created"].as_u64(), Some(1), "{report}");
     assert_eq!(stub.events().await.len(), 1);
+    Ok(())
+}
+
+/// carnet#901: a workout a turn derives after reading first-party-only data
+/// does not leave over an external transport. The gate in `prescribe_workout`
+/// is the one `push_training_plan` applies to a stored plan, applied to what
+/// the call itself derives: reachable whenever the derivation it runs in has
+/// served such data and its executor serves an external transport.
+#[tokio::test]
+async fn a_workout_derived_from_first_party_only_data_is_not_pushed_over_an_external_transport(
+) -> Result<()> {
+    let stub = stub_live(4_242).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let prescription = json!({ "template_slug": "long_run_z2", "date": "2026-09-15" });
+
+    for transport in [Transport::McpHttp, Transport::A2a] {
+        let tainted = ai_scope::Provenance::new();
+        tainted.mark();
+        let refused = ai_scope::tracking(
+            tainted,
+            fixture.execute_over(transport, "prescribe_workout", prescription.clone()),
+        )
+        .await?;
+        assert!(!refused.success, "{transport:?} must be refused");
+        let text = refused
+            .result
+            .as_ref()
+            .map(Value::to_string)
+            .unwrap_or_default();
+        assert!(
+            text.contains("_unavailable_over_this_interface"),
+            "{transport:?}: {text}"
+        );
+    }
+    assert!(
+        stub.requests().await.is_empty(),
+        "the calendar provider must not be called"
+    );
+    assert!(
+        fixture.ledger().await.is_empty(),
+        "no ledger row is written"
+    );
+
+    // The same external call over a derivation that served nothing
+    // first-party-only pushes: the refusal above is the provenance gate.
+    let open = fixture
+        .execute_over(
+            Transport::McpHttp,
+            "prescribe_workout",
+            prescription.clone(),
+        )
+        .await?;
+    assert!(open.success, "an untainted call pushes: {:?}", open.error);
+
+    // And the athlete's own app pushes even a tainted derivation.
+    let tainted = ai_scope::Provenance::new();
+    tainted.mark();
+    let own_app = ai_scope::tracking(
+        tainted,
+        fixture.execute_over(Transport::WebApp, "prescribe_workout", prescription),
+    )
+    .await?;
+    assert!(
+        own_app.success,
+        "the athlete's own app pushes: {:?}",
+        own_app.error
+    );
+    assert_eq!(
+        stub.events().await.len(),
+        2,
+        "only the untainted call and the athlete's own app reach the calendar"
+    );
+    assert_eq!(
+        fixture.ledger().await.len(),
+        2,
+        "the two pushed prescriptions are recorded"
+    );
     Ok(())
 }

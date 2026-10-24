@@ -240,13 +240,13 @@ variable "frontend_previous_origins" {
 }
 
 variable "backend_cpu" {
-  description = "CPU allocation for backend instances. 2 vCPU: the headless-Chrome sciotte scrape (Garmin + token-less Strava) is CPU-hungry and a turn on 1 vCPU risks starving it into a tool-loop timeout. Async-boot fixed the boot-path blocker, so cpu=1 is unblocked there, but stays deferred pending a Chrome-scrape load-test. See terraform.tfvars."
+  description = "CPU allocation for backend instances. The pod runs no Chrome since carnet#978 (scrapes run on the dedicated sciotte service); it holds the always-on Copilot ACP Node singleton and the chat turns. See terraform.tfvars for why the value stands."
   type        = string
   default     = "2"
 }
 
 variable "backend_memory" {
-  description = "Memory allocation for backend instances. 2Gi fits ~4 concurrent Chrome processes (each ~250Mi) plus Pierre's working set with headroom."
+  description = "Memory allocation for backend instances: Pierre's working set, the Copilot ACP Node singleton, and at most two concurrent .fit decodes (~260Mi each at their field cap). No Chrome runs in this pod since carnet#978."
   type        = string
   default     = "2Gi"
 }
@@ -258,13 +258,13 @@ variable "backend_min_instances" {
 }
 
 variable "backend_max_instances" {
-  description = "Maximum backend instances. 15 × 4-concurrency = 60 concurrent Chrome slots at fleet peak — enough to absorb a 50-user onboarding burst with room to spare."
+  description = "Maximum backend instances. Bounded by the database connection budget (max_instances × POSTGRES_MAX_CONNECTIONS); see terraform.tfvars, which sets it."
   type        = number
   default     = 15
 }
 
 variable "backend_max_instance_request_concurrency" {
-  description = "Maximum concurrent requests per backend container. Set to 4 to match PIERRE_SCIOTTE_MAX_CONCURRENT so Cloud Run spreads sciotte traffic across instances instead of piling onto one pod (default 80 causes OOM under burst load)."
+  description = "Maximum concurrent requests per backend container. terraform.tfvars sets Cloud Run's default 80: chat turns are serialized by the ACP mutex, not by this, and scraping admission lives on the sciotte service."
   type        = number
   default     = 4
 }
@@ -323,7 +323,7 @@ variable "backend_photograveur" {
 }
 
 variable "backend_sciotte_remote" {
-  description = "Point the API's sciotte client at the dedicated scraper service (sets DRAVR_SCIOTTE_REMOTE_URL to the service URL). Off = the in-process Chrome path, unchanged. Requires enable_sciotte_service."
+  description = "Point the API's sciotte client at the dedicated scraper service (sets DRAVR_SCIOTTE_REMOTE_URL to the service URL). Off = the sciotte providers are disabled: the API pod has no in-process scraper. Requires enable_sciotte_service."
   type        = bool
   default     = false
 

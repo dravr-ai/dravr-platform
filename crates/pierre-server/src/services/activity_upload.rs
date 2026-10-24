@@ -40,13 +40,12 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
-use pierre_providers::fit_file::FitActivityFile;
+use pierre_providers::fit_file::{decode_bounded, FitActivityFile};
 use pierre_providers::upload_provider::{
     file_sha256, parse_upload_activity_id, upload_activity_id,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::rewarm_default_window;
-use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -113,11 +112,10 @@ pub async fn upload_activity_file(
         )));
     }
     let decoding = bytes.clone(); // Safe: a refcount bump, not a copy of the file
-    let (file, sha) = spawn_blocking(move || {
+    let (file, sha) = decode_bounded(move || {
         FitActivityFile::parse(&decoding).map(|file| (file, file_sha256(&decoding)))
     })
-    .await
-    .map_err(|e| AppError::internal(format!("decoding the uploaded file: {e}")))?
+    .await?
     .map_err(|e| AppError::invalid_input(format!("the file is not a completed activity: {e}")))?;
     let sessions = file.activities(|index| upload_activity_id(&sha, index), UPLOAD);
 

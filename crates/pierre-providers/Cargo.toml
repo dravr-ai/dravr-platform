@@ -39,13 +39,13 @@ secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.22", features = ["v4", "serde"] }
+uuid = { version = "1.29", features = ["v4", "serde"] }
 tracing = "0.1"
 async-trait = "0.1"
 dashmap = "5.5"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt", "sync", "time"] }
-bitflags = { version = "2.11", features = ["serde"] }
+bitflags = { version = "2.13", features = ["serde"] }
 num-traits = "0.2"
 ring = "0.17"
 hex = "0.4"

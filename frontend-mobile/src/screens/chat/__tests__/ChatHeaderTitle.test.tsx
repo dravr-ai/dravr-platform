@@ -7,7 +7,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react-native';
 import type { Conversation } from '../../../types';
-import { ChatHeaderTitle } from '../ChatHeaderTitle';
+import { ChatHeaderTitle, threadTitle } from '../ChatHeaderTitle';
 
 jest.mock('@pierre/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -27,12 +27,14 @@ function conversation(overrides: Partial<Conversation> = {}): Conversation {
 function renderHeader(
   currentConversation: Conversation | null,
   providerStatus: string | null,
+  agentTitle: string | null = null,
 ) {
   return render(
     <ChatHeaderTitle
       currentConversation={currentConversation}
       providerStatus={providerStatus}
       onTitlePress={jest.fn()}
+      agentTitle={agentTitle}
     />,
   );
 }
@@ -123,5 +125,44 @@ describe('ChatHeaderTitle subtitle', () => {
     expect(screen.getByTestId('chat-header-provider-status')).toHaveTextContent(
       'No provider connected',
     );
+  });
+});
+
+/**
+ * carnet#1146: the server stamps a rebound personal thread with the agent's
+ * canonical English title. Home's conversation is named after its agent in the
+ * athlete's language instead; a rename shows only in the list.
+ */
+describe('ChatHeaderTitle title', () => {
+  const fuelling = conversation({
+    title: 'Fuelling Agent',
+    agent_id: 'agent-fuel',
+    agent_handle: 'fuelling-agent',
+    personal: true,
+  });
+
+  it("names the personal thread after its agent as the athlete's agent list spells it", () => {
+    renderHeader(fuelling, null, 'Agent Ravitaillement');
+
+    expect(screen.getByTestId('chat-title')).toHaveTextContent('Agent Ravitaillement');
+    expect(screen.getByTestId('chat-header-handle')).toHaveTextContent('@fuelling-agent');
+  });
+
+  it('keeps the stored title while the agent list has not answered', () => {
+    renderHeader(fuelling, null, null);
+
+    expect(screen.getByTestId('chat-title')).toHaveTextContent('Fuelling Agent');
+  });
+
+  it('keeps the stored title of a thread that is not the personal one', () => {
+    renderHeader(conversation({ title: 'Renamed run', agent_id: 'agent-fuel' }), null, 'Agent Ravitaillement');
+
+    expect(screen.getByTestId('chat-title')).toHaveTextContent('Renamed run');
+  });
+
+  it('names the verdict sheet the same way the header does', () => {
+    const t = (key: string) => key;
+    expect(threadTitle(fuelling, t, 'Agent Ravitaillement')).toBe('Agent Ravitaillement');
+    expect(threadTitle(conversation({ title: '  ', personal: true }), t, null)).toBe('app.untitledChat');
   });
 });

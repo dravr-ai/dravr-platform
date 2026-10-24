@@ -24,7 +24,6 @@ use tracing::{info, warn};
 // API providers
 pub use crate::api_providers::{
     ExternalServicesConfig, GarminApiConfig, SciotteServiceConfig, StravaApiConfig,
-    WeatherServiceConfig,
 };
 // Cache and rate limiting
 pub use crate::cache::{CacheConfig, RedisConnectionConfig};
@@ -306,7 +305,6 @@ impl ServerConfig {
              - Database: {}\n\
              - Strava OAuth: {}\n\
              - Strava Redirect URI: {}\n\
-             - Weather Service: {}\n\
              - TLS: {}\n\
              - Rate Limiting: {}\n\
              - CI Mode: {}\n\
@@ -324,13 +322,6 @@ impl ServerConfig {
                 .redirect_uri
                 .as_ref()
                 .map_or("Not configured", |s| s.as_str()),
-            if self.external_services.weather.enabled
-                && self.external_services.weather.api_key.is_some()
-            {
-                "Enabled"
-            } else {
-                "Disabled"
-            },
             if self.security.tls.enabled {
                 "Enabled"
             } else {
@@ -353,17 +344,6 @@ impl ServerConfig {
             &self.base_url,
             self.http_port,
         )
-    }
-
-    /// Convenience methods for accessing commonly used values
-    /// Get the `OpenWeather` API key if available
-    #[must_use]
-    pub fn openweather_api_key(&self) -> Option<&str> {
-        self.external_services
-            .weather
-            .api_key
-            .as_ref()
-            .map(ExposeSecret::expose_secret)
     }
 
     /// Get Strava API configuration
@@ -497,7 +477,6 @@ mod tests {
     const STRAVA_SECRET: &str = "strava-client-secret-9a2e";
     const FIREBASE_KEY: &str = "firebase-api-key-41d7";
     const LOGIN_PASSWORD: &str = "default-login-password-c03b";
-    const WEATHER_KEY: &str = "openweather-key-8e55";
     const REDIS_PASSWORD: &str = "redis-password-2b90";
     const USDA_KEY: &str = "usda-api-key-77f0";
     const RESEND_KEY: &str = "re_resend-key-1d3a";
@@ -505,12 +484,11 @@ mod tests {
     /// What `secrecy` prints in place of a `SecretString`.
     const SECRET_MARKER: &str = "SecretBox<str>([REDACTED])";
 
-    const ALL_SECRETS: [&str; 8] = [
+    const ALL_SECRETS: [&str; 7] = [
         PG_PASSWORD,
         STRAVA_SECRET,
         FIREBASE_KEY,
         LOGIN_PASSWORD,
-        WEATHER_KEY,
         REDIS_PASSWORD,
         USDA_KEY,
         RESEND_KEY,
@@ -535,7 +513,6 @@ mod tests {
         };
         config.firebase.api_key = Some(SecretString::from(FIREBASE_KEY));
         config.oauth2_server.default_login_password = Some(SecretString::from(LOGIN_PASSWORD));
-        config.external_services.weather.api_key = Some(SecretString::from(WEATHER_KEY));
         config.cache.redis_url = Some(SecretString::from(format!(
             "redis://:{REDIS_PASSWORD}@cache.internal:6379"
         )));
@@ -548,8 +525,8 @@ mod tests {
         for secret in ALL_SECRETS {
             assert!(!printed.contains(secret), "{secret} leaked: {printed}");
         }
-        // Seven fields are SecretString; the database URL goes through redact_url.
-        assert_eq!(printed.matches(SECRET_MARKER).count(), 7, "{printed}");
+        // Six fields are SecretString; the database URL goes through redact_url.
+        assert_eq!(printed.matches(SECRET_MARKER).count(), 6, "{printed}");
         assert!(
             printed.contains("postgresql://***:***@db.internal:5432/pierre"),
             "{printed}"
@@ -564,7 +541,7 @@ mod tests {
         for secret in ALL_SECRETS {
             assert!(!printed.contains(secret), "{secret} leaked: {printed}");
         }
-        assert_eq!(printed.matches(SECRET_MARKER).count(), 7, "{printed}");
+        assert_eq!(printed.matches(SECRET_MARKER).count(), 6, "{printed}");
     }
 
     #[test]
@@ -591,7 +568,6 @@ mod tests {
     #[test]
     fn the_secret_accessors_expose_the_configured_values() {
         let mut config = config_holding_every_secret();
-        assert_eq!(config.openweather_api_key(), Some(WEATHER_KEY));
         config.resend_from_email = Some("Dravr <no-reply@dravr.ai>".to_owned());
         assert_eq!(
             config.outbound_email_credentials(),

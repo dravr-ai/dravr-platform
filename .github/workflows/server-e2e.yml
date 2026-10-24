@@ -321,16 +321,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          # Sciotte backpressure limiter — mandatory env vars with no crate
-          # defaults. Test values are permissive so the integration server
-          # boots cleanly; production values live in Terraform.
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       # ---- Real-server e2e (frontend/e2e-real) ----
       # The e2e-real suite has NO playwright webServer by design (locally it
@@ -381,13 +371,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
           # home-sync.real.spec.ts starts a scripted stand-in for the sciotte
           # scraper on this port and connects its athlete's Strava through it.
           DRAVR_SCIOTTE_REMOTE_URL: "http://127.0.0.1:8097"
@@ -530,13 +513,6 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
           PIERRE_ALLOW_INTERACTIVE_OAUTH: "false"
           PIERRE_RSA_KEY_SIZE: "2048"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Clean up validation artifacts
         if: always()
@@ -645,13 +621,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
   sdk-tests:
     name: SDK Test Suite
@@ -721,13 +690,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Run SDK E2E tests
         working-directory: sdk
@@ -742,13 +704,6 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
-          PIERRE_SCIOTTE_MAX_QUEUE: "8"
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Upload SDK test results
         if: always()
@@ -802,13 +757,6 @@ jobs:
           STRAVA_CLIENT_ID="test_ci" \
           STRAVA_CLIENT_SECRET="test_ci" \
           STRAVA_REDIRECT_URI="http://localhost:8080/callback" \
-          PIERRE_SCIOTTE_MAX_CONCURRENT="2" \
-          PIERRE_SCIOTTE_MAX_QUEUE="8" \
-          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS="10" \
-          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS="300" \
-          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS="15" \
-          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS="5" \
-          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS="60" \
           ./target/release/pierre-mcp-server &
           echo "Waiting for server startup..."
           for i in 1 2 3 4 5; do

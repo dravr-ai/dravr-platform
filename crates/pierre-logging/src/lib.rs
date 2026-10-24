@@ -30,132 +30,29 @@ use gcp::GcpFormatter;
 use span_fields::SpanFieldStorage;
 use throttle::{CallsiteThrottle, DEFAULT_THROTTLE_BURST, THROTTLE_WINDOW};
 
-use dravr_sciotte::log_targets::{BROWSER_DRIVER_LOG_CEILING, BROWSER_DRIVER_LOG_TARGET};
 use dravr_tronc::notifications::{
     EmailClient, ErrorNotificationLayer, NotificationConfig, PostHogClient, SlackClient,
     SlackConfig,
 };
 use dravr_tronc::notify::{AnalyticsProvider, NotifyActions, NotifyEnricher, NotifyLayer};
 use dravr_tronc::secrets::{self, RedactingMakeWriter};
-use dravr_tronc::server::log_ceiling::{LevelCeilings, TargetCeiling};
 use pierre_contremaitre::notify_routing::{ContremaitreRoutingProvider, NOTIFY_ROUTING_PROVIDER};
 use pierre_core::constants::service_names;
 use pierre_core::errors::AppResult;
 use serde_json::json;
 use std::env;
-use std::fmt::Debug;
 use std::io;
 use std::sync::{Arc, LazyLock, OnceLock};
-use tracing::field::{Field, Visit};
-use tracing::{info, Event, Metadata, Subscriber};
+use tracing::info;
 use tracing_subscriber::{
-    filter::{filter_fn, FilterFn},
     fmt::{self, format::FmtSpan},
-    layer::{Context, Filter, SubscriberExt},
-    registry::LookupSpan,
+    layer::SubscriberExt,
     util::SubscriberInitExt,
     EnvFilter, Layer,
 };
 
 #[cfg(feature = "telemetry")]
 use opentelemetry_sdk::trace::SdkTracer;
-
-/// The level ceilings the subscriber holds whatever `RUST_LOG` or the
-/// configured level says.
-///
-/// The server drives chromiumoxide in-process through `dravr_sciotte`, and
-/// chromiumoxide logs every CDP command and message at TRACE, and a frame it
-/// cannot parse at DEBUG with its raw text: typed passwords, one-time codes
-/// and session cookie values. sciotte names the target and its ceiling (INFO);
-/// installed as a global filter beside the `EnvFilter`, no directive raises
-/// it, and the driver's handler errors stay visible (carnet#1068).
-const LOG_CEILINGS: &[TargetCeiling] = &[TargetCeiling::new(
-    BROWSER_DRIVER_LOG_TARGET,
-    BROWSER_DRIVER_LOG_CEILING,
-)];
-
-/// Per-event closure type for the chromiumoxide teardown suppression
-/// filter. Encoded as a `fn(&Metadata) -> bool` so it implements `Clone`
-/// and `Copy` and can be wrapped in `FilterFn` once and applied to every
-/// downstream sink (stdout formatter + tronc Slack notifier) without
-/// fighting `tracing_subscriber`'s opaque-`Filter<S>` typing.
-type TeardownFilterFn = fn(&tracing::Metadata<'_>) -> bool;
-
-/// Returns `false` to suppress the event when:
-///   * its target is `chromiumoxide::handler`, AND
-///   * its level is ERROR, AND
-///   * sciotte advertises a browser teardown in progress.
-///
-/// chromiumoxide drives Chrome over a DevTools-Protocol WebSocket.
-/// Closing the browser exits Chrome without a polite WS Close frame,
-/// so the chromiumoxide handler task observes a `Ws(Protocol(
-/// ResetWithoutClosingHandshake))` and emits an `error!` log. The
-/// scrape data was already collected before the close — but
-/// `dravr-tronc` forwards every `error!` line to Slack, drowning real
-/// failures in lifecycle noise.
-///
-/// Globally downgrading `chromiumoxide::handler` would also hide
-/// genuine WS faults (Chrome crash mid-scrape, network reset on a
-/// live session), so this predicate ONLY fires while sciotte's
-/// `TeardownGuard` is alive (or in its 500 ms grace window). Outside
-/// that window every chromiumoxide error reaches both Cloud Logging
-/// and the Slack alert path with full fidelity.
-fn chromiumoxide_teardown_predicate(metadata: &tracing::Metadata<'_>) -> bool {
-    if metadata.target() == "chromiumoxide::handler"
-        && *metadata.level() == tracing::Level::ERROR
-        && dravr_sciotte::is_browser_teardown_in_progress()
-    {
-        return false;
-    }
-    true
-}
-
-/// Build a fresh `FilterFn` instance over [`chromiumoxide_teardown_predicate`].
-/// Cheap (no allocation) — call once per layer, hand the result to
-/// `.with_filter(...)`.
-fn chromiumoxide_teardown_filter() -> FilterFn<TeardownFilterFn> {
-    filter_fn(chromiumoxide_teardown_predicate as TeardownFilterFn)
-}
-
-/// Substring that identifies the chromiumoxide post-close WS reset pattern.
-/// Matches both the tungstenite error `Display` (`Connection reset
-/// without closing handshake`) and the `Debug` form chromiumoxide
-/// emits (`Ws(Protocol(ResetWithoutClosingHandshake))`).
-const CHROMIUMOXIDE_RESET_TOKEN: &str = "ResetWithoutClosingHandshake";
-
-/// Visitor that records whether the event's `message` field contains a
-/// given substring. Only inspects the `message` field — other fields are
-/// ignored so we don't trip on incidental references in structured args.
-struct MessageContainsVisitor<'a> {
-    needle: &'a str,
-    matched: bool,
-}
-
-impl<'a> MessageContainsVisitor<'a> {
-    fn new(needle: &'a str) -> Self {
-        Self {
-            needle,
-            matched: false,
-        }
-    }
-}
-
-impl Visit for MessageContainsVisitor<'_> {
-    fn record_debug(&mut self, field: &Field, value: &dyn Debug) {
-        if field.name() == "message" {
-            let rendered = format!("{value:?}");
-            if rendered.contains(self.needle) {
-                self.matched = true;
-            }
-        }
-    }
-
-    fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "message" && value.contains(self.needle) {
-            self.matched = true;
-        }
-    }
-}
 
 /// Process-wide `AnalyticsProvider` for the `NotifyLayer` `PostHog` sink.
 ///
@@ -226,49 +123,6 @@ static HOST_IDENTITY: LazyLock<Option<String>> = LazyLock::new(|| {
 #[must_use]
 pub fn host_identity() -> Option<&'static str> {
     HOST_IDENTITY.as_deref()
-}
-
-/// Per-event filter applied to the Slack notification sink only.
-///
-/// Suppresses chromiumoxide handler ERROR events whose message contains
-/// `ResetWithoutClosingHandshake` — that exact tungstenite protocol
-/// variant fires whenever Chrome exits without sending a Close frame.
-/// We see it in two paths: the explicit `close_browsers` route (already
-/// covered by [`chromiumoxide_teardown_predicate`]'s grace window) and
-/// the implicit `Drop` route when a `Browser` Arc is reaped without
-/// going through `close_browsers`. Both cases are post-close lifecycle
-/// noise — Chrome is gone, no operator action will recover it, and the
-/// scrape function's own error path is the actionable signal.
-///
-/// Other chromiumoxide handler errors (TLS faults, capacity exhaustion,
-/// distinct protocol violations) still page through the notifier with
-/// full fidelity. Cloud Logging keeps every event regardless: this
-/// filter only suppresses the *Slack ping*, not the structured log.
-///
-/// Exposed for integration tests so the filter can be wired into a
-/// scratch subscriber without going through [`LoggingConfig::init`]
-/// (which installs a process-global subscriber).
-pub struct ChromiumoxideNotifierFilter;
-
-impl<S> Filter<S> for ChromiumoxideNotifierFilter
-where
-    S: Subscriber + for<'a> LookupSpan<'a>,
-{
-    fn enabled(&self, _metadata: &Metadata<'_>, _ctx: &Context<'_, S>) -> bool {
-        // Defer the decision to `event_enabled` so we can inspect the
-        // message field, which `Metadata` alone does not expose.
-        true
-    }
-
-    fn event_enabled(&self, event: &Event<'_>, _ctx: &Context<'_, S>) -> bool {
-        let meta = event.metadata();
-        if meta.target() != "chromiumoxide::handler" || *meta.level() != tracing::Level::ERROR {
-            return true;
-        }
-        let mut visitor = MessageContainsVisitor::new(CHROMIUMOXIDE_RESET_TOKEN);
-        event.record(&mut visitor);
-        !visitor.matched
-    }
 }
 
 /// Log output options for controlling what information is included
@@ -520,13 +374,6 @@ impl LoggingConfig {
                     .parse()
                     .unwrap_or_else(|_| tracing::Level::INFO.into()),
             )
-            // Headless-Chrome WebSocket handler emits non-actionable WARNs
-            // for every malformed frame from the browser side; silence below ERROR.
-            .add_directive(
-                "chromiumoxide=error"
-                    .parse()
-                    .unwrap_or_else(|_| tracing::Level::ERROR.into()),
-            )
             // Keep our application logs at desired level
             .add_directive(
                 format!("pierre_mcp_server={}", self.level)
@@ -539,7 +386,6 @@ impl LoggingConfig {
         // (user_id, tenant_id, conversation_id, …) onto every child event.
         let registry = tracing_subscriber::registry()
             .with(env_filter)
-            .with(LevelCeilings::new(LOG_CEILINGS))
             .with(SpanFieldStorage);
 
         // Build optional error notification layer (active when SLACK_ERROR_CHANNEL is set)
@@ -562,13 +408,6 @@ impl LoggingConfig {
         // Drops a callsite's lines past its per-window budget on the formatter
         // only: the Slack, notify and OpenTelemetry layers see every event.
         let throttle = CallsiteThrottle::new(self.features.throttle_burst, THROTTLE_WINDOW);
-
-        // Per-layer filter that suppresses chromiumoxide's expected
-        // post-close WS-reset error events during the short teardown
-        // window sciotte advertises. Built fresh per sink so both the
-        // stdout/GCP-JSON formatter and the Slack error-notifier share
-        // the same suppression logic; outside the teardown window
-        // every event flows through normally.
         match self.format {
             LogFormat::Json => {
                 let json_layer = fmt::layer()
@@ -584,14 +423,9 @@ impl LoggingConfig {
                         FmtSpan::NONE
                     })
                     .json()
-                    .with_filter(chromiumoxide_teardown_filter())
                     .with_filter(throttle.clone());
 
-                let r = registry.with(json_layer).with(
-                    error_layer
-                        .with_filter(chromiumoxide_teardown_filter())
-                        .with_filter(ChromiumoxideNotifierFilter),
-                );
+                let r = registry.with(json_layer).with(error_layer);
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -610,14 +444,9 @@ impl LoggingConfig {
                     } else {
                         FmtSpan::NONE
                     })
-                    .with_filter(chromiumoxide_teardown_filter())
                     .with_filter(throttle.clone());
 
-                let r = registry.with(pretty_layer).with(
-                    error_layer
-                        .with_filter(chromiumoxide_teardown_filter())
-                        .with_filter(ChromiumoxideNotifierFilter),
-                );
+                let r = registry.with(pretty_layer).with(error_layer);
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -633,14 +462,9 @@ impl LoggingConfig {
                     .with_target(false)
                     .with_writer(RedactingMakeWriter::new(io::stdout))
                     .with_span_events(FmtSpan::NONE)
-                    .with_filter(chromiumoxide_teardown_filter())
                     .with_filter(throttle.clone());
 
-                let r = registry.with(compact_layer).with(
-                    error_layer
-                        .with_filter(chromiumoxide_teardown_filter())
-                        .with_filter(ChromiumoxideNotifierFilter),
-                );
+                let r = registry.with(compact_layer).with(error_layer);
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -655,14 +479,9 @@ impl LoggingConfig {
                         &self.environment,
                         self.output.location,
                     ))
-                    .with_filter(chromiumoxide_teardown_filter())
                     .with_filter(throttle.clone());
 
-                let r = registry.with(gcp_layer).with(
-                    error_layer
-                        .with_filter(chromiumoxide_teardown_filter())
-                        .with_filter(ChromiumoxideNotifierFilter),
-                );
+                let r = registry.with(gcp_layer).with(error_layer);
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]
                 let r = r.with(otel_tracer.map(|t| tracing_opentelemetry::layer().with_tracer(t)));
@@ -871,92 +690,4 @@ impl LoggingConfig {
 /// Returns an error if logging initialization fails
 pub fn init_from_env() -> AppResult<()> {
     LoggingConfig::from_env().init()
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use tracing::subscriber::with_default;
-    use tracing::{Event, Subscriber};
-    use tracing_subscriber::layer::{Context, SubscriberExt};
-    use tracing_subscriber::{EnvFilter, Layer};
-
-    use super::{LevelCeilings, LOG_CEILINGS};
-
-    /// Records the target of every event that reaches it.
-    #[derive(Clone, Default)]
-    struct Targets(Arc<Mutex<Vec<String>>>);
-
-    impl<S: Subscriber> Layer<S> for Targets {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            self.0
-                .lock()
-                .unwrap()
-                .push(event.metadata().target().to_owned());
-        }
-    }
-
-    /// The targets that reach the log under `directives` with the server's
-    /// ceilings installed, of the lines [`emit_driver_and_server_lines`] writes.
-    fn reaching_the_log(directives: &str) -> Vec<String> {
-        let seen = Targets::default();
-        let subscriber = tracing_subscriber::registry()
-            .with(EnvFilter::new(directives))
-            .with(LevelCeilings::new(LOG_CEILINGS))
-            .with(seen.clone());
-        with_default(subscriber, emit_driver_and_server_lines);
-        let targets = seen.0.lock().unwrap().clone();
-        targets
-    }
-
-    /// The lines chromiumoxide 0.9 writes — its CDP traffic at TRACE, an
-    /// unparsed raw frame at DEBUG, a handler error — and two of the server's
-    /// own.
-    fn emit_driver_and_server_lines() {
-        emit_driver_lines();
-        tracing::trace!(target: "pierre_mcp_server::routes", "trace of the server's own");
-        tracing::debug!(target: "pierre_mcp_server::routes", "debug of the server's own");
-    }
-
-    /// chromiumoxide 0.9's three kinds of line.
-    fn emit_driver_lines() {
-        tracing::trace!(target: "chromiumoxide::conn", "Sending Network.setCookies");
-        tracing::debug!(target: "chromiumoxide::conn::raw_ws::parse_errors", "Failed to parse raw WS message");
-        tracing::error!(target: "chromiumoxide::handler", "WS connection reset");
-    }
-
-    /// carnet#1068: no `RUST_LOG` brings chromiumoxide's CDP traffic back,
-    /// and its handler errors stay visible.
-    #[test]
-    fn a_trace_rust_log_cannot_bring_back_the_cdp_traffic() {
-        for directives in [
-            "trace",
-            "info,chromiumoxide=trace",
-            "info,chromiumoxide::conn=trace",
-        ] {
-            let targets = reaching_the_log(directives);
-            assert!(
-                !targets.iter().any(|t| t.starts_with("chromiumoxide::conn")),
-                "RUST_LOG={directives} let CDP traffic through: {targets:?}"
-            );
-            assert!(
-                targets.iter().any(|t| t == "chromiumoxide::handler"),
-                "RUST_LOG={directives} hid the driver's error: {targets:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_ceiling_leaves_every_other_target_to_rust_log() {
-        let targets = reaching_the_log("trace");
-        assert_eq!(
-            targets
-                .iter()
-                .filter(|t| t.as_str() == "pierre_mcp_server::routes")
-                .count(),
-            2,
-            "the server's own TRACE and DEBUG must pass under RUST_LOG=trace: {targets:?}"
-        );
-    }
 }

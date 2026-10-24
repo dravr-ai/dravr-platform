@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
-import type { PendingComposerAction } from '../ChatTab';
+import type { PendingComposerAction } from '../chat/types';
 
 const chatTabProps = vi.fn();
 

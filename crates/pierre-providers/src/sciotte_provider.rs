@@ -21,7 +21,6 @@ use dravr_sciotte::models::{
     AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap,
     RouteTrack as SciotteRouteTrack, Split as SciotteSplit, SportType as SciotteSportType,
 };
-use dravr_sciotte::wire::ATHLETE_REQUIRED;
 use pierre_core::untrusted::fence_athlete_text;
 use secrecy::ExposeSecret;
 use std::env;
@@ -42,7 +41,9 @@ use crate::models::{
     TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
-use crate::sciotte_error::{athlete_not_accessible, require_client, sciotte_refusal, to_app_error};
+use crate::sciotte_error::{
+    athlete_not_accessible, is_coach_account_refusal, require_client, to_app_error,
+};
 use crate::sciotte_self_report::self_report;
 use crate::spi::{
     ProviderDescriptor, SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
@@ -327,7 +328,7 @@ impl SciotteProvider {
     ///   the reconnect link minted downstream branches on the backend name to
     ///   pick the hosted-login target. Without the re-tag, a dead
     ///   `sciotte_garmin` session would send the athlete to a Strava login.
-    /// - The coach-account refusal ([`ATHLETE_REQUIRED`]) reaches the athlete
+    /// - The coach-account refusal ([`is_coach_account_refusal`]) reaches the athlete
     ///   as written, so it is re-worded with the brand they signed in to —
     ///   "this TrainingPeaks account is a coach account" — keeping its code
     ///   and its refusal marker. It is never an auth error: a coach account
@@ -346,7 +347,7 @@ impl SciotteProvider {
             }
             return AppError::provider_auth_required(self.provider_name);
         }
-        if sciotte_refusal(&e) == Some(ATHLETE_REQUIRED) {
+        if is_coach_account_refusal(&e) {
             return AppError {
                 message: SciotteTarget::from_backend_name(self.provider_name)
                     .coach_account_refusal(),

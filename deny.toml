@@ -10,50 +10,6 @@ version = 2
 # Ignored advisories with risk assessment and mitigation plans
 ignore = [
     # -------------------------------------------------------------------------
-    # RUSTSEC-2026-0381: webpki-roots trusts distrusted emSign intermediates
-    # -------------------------------------------------------------------------
-    # Severity: crypto-failure (the bundled emSign ECC Root CA - G3 lets
-    # certificate paths through distrusted intermediates whose keys are public).
-    # Affected in-tree version: webpki-roots 0.26.11, which sqlx-core 0.8.6
-    # depends on. Fixed in webpki-roots 1.0.10, which Cargo.lock resolves.
-    # 0.26.11 is a compatibility shim holding no roots of its own: it depends
-    # on and re-exports webpki-roots 1.x, which resolves to 1.0.10 here
-    # (`cargo tree -p webpki-roots@0.26.11`), so its root store is the patched
-    # one. The advisory marks only `>= 1.0.10` as patched, so it flags the
-    # shim by version number alone.
-    #
-    # Risk Assessment: NOT AFFECTED (the shim serves the 1.0.10 roots)
-    # Remove when sqlx moves off webpki-roots 0.26.
-    # Next Review: 2026-11-20
-    "RUSTSEC-2026-0381",
-
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2026-0367 + RUSTSEC-2026-0368 + RUSTSEC-2026-0369: zip extraction
-    # -------------------------------------------------------------------------
-    # Severity: privilege escalation, only through `ZipArchive::extract()` and
-    # `ZipStreamReader::extract()` (SUID/SGID bits kept, symlink targets and
-    # their permissions not confined to the destination).
-    # Affected in-tree version: zip 2.4.2, a build-dependency of
-    # github-copilot-sdk 1.0.14 (via embacle's copilot-sdk feature); its
-    # runtime dependency on zip is Windows-only.
-    #
-    # Risk Assessment: NOT REACHABLE
-    # - github-copilot-sdk never calls either extract() API: its build script
-    #   opens the copilot-cli release archive with `ZipArchive::new` and reads
-    #   one entry into memory, after checking it against the release's
-    #   SHA256SUMS.txt; nothing is written to disk from the archive.
-    # - The archive is GitHub's own release asset, not attacker input.
-    #
-    # Upgrade blocked on upstream: the fix is zip >= 9.0.0. Every stable
-    # github-copilot-sdk (up to 1.0.22) pins zip ^2 or ^7.2; only the
-    # 1.0.23 previews take ^9. Remove when embacle moves onto a stable
-    # github-copilot-sdk on zip >= 9.
-    # Next Review: 2026-11-16
-    "RUSTSEC-2026-0367",
-    "RUSTSEC-2026-0368",
-    "RUSTSEC-2026-0369",
-
-    # -------------------------------------------------------------------------
     # RUSTSEC-2023-0071: RSA 0.9.x - Marvin Attack (timing sidechannel)
     # -------------------------------------------------------------------------
     # Severity: 5.9/10 (Medium)
@@ -74,26 +30,10 @@ ignore = [
     # - Consider Ed25519 migration for future admin tokens (faster, smaller keys)
     #
     # Status: Accepted risk until stable fix available
-    # Reviewed: 2026-08-12 — Cargo.lock still pins rsa 0.9.10, so 0.10 stable
-    #   has not been adopted; the assessment above is unchanged.
-    # Next Review: 2026-11-12
+    # Reviewed: 2026-10-23 — rsa 0.9.10 is still the latest stable (0.10 is at
+    #   rc.19), so no fixed release exists; the assessment above is unchanged.
+    # Next Review: 2026-11-23
     "RUSTSEC-2023-0071",
-
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2026-0097: rand unsound with a custom `log` logger using rand::rng()
-    # -------------------------------------------------------------------------
-    # Severity: Unsound (UB only under very specific conditions)
-    # Affected in-tree version: rand 0.8.6 (transitive via jsonwebtoken, rsa,
-    # dravr-enforme). We use `tracing` + `tracing-subscriber`, not a custom
-    # `log::Log` impl, so the preconditions for the unsoundness are not met.
-    # Upgrade blocked on upstream crates (jsonwebtoken rand-0.9, rsa 0.10 stable).
-    #
-    # Reviewed: 2026-08-12 — `cargo tree -i rand@0.8.6` still shows jsonwebtoken
-    #   (now 10.3.0) as the sole first-hop dependent, so the named blocker is
-    #   unchanged despite the major-version bump. rand 0.9.4 and 0.10.2 are also
-    #   in the lock for other consumers; only the 0.8.x line is affected.
-    # Next Review: 2026-11-12
-    "RUSTSEC-2026-0097",
 
     # -------------------------------------------------------------------------
     # RUSTSEC-2026-0194 + RUSTSEC-2026-0195: quick-xml 0.26 parser DoS
@@ -109,10 +49,10 @@ ignore = [
     # still pins inferno 0.11, which requires quick-xml ^0.26.
     # Remove when pprof ships an inferno with quick-xml >= 0.41.
     #
-    # Reviewed: 2026-08-12 — lock still shows quick-xml 0.26.0 under
-    #   pprof 0.15.0 -> inferno 0.11.21, i.e. the upstream chain is unchanged
-    #   and the dep is still dev-only (never in the shipped binary).
-    # Next Review: 2026-11-12
+    # Reviewed: 2026-10-23 — lock still shows quick-xml 0.26.0 under
+    #   pprof 0.15.0 (latest) -> inferno 0.11.21, i.e. the upstream chain is
+    #   unchanged and the dep is still dev-only (never in the shipped binary).
+    # Next Review: 2026-11-23
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 ]

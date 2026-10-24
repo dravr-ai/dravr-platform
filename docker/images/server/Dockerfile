@@ -219,11 +219,13 @@ RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
 #
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm
 # is not needed at runtime.
-ARG COPILOT_CLI_VERSION=1.0.86
+ARG COPILOT_CLI_VERSION=1.0.103
 ARG CLAUDE_CODE_CLI_VERSION=2.1.258
 # The extracted copilot package vendors foundry-local-sdk, which bundles
-# adm-zip 0.6.0 (CVE-2026-102282, GHSA-8238-w5pm-2374, GHSA-rcw4-f5rp-g42v;
-# all fixed in 0.6.1). The trivy gate fails the image on it. adm-zip has no
+# adm-zip; CLI releases through 1.0.86 carried 0.6.0 (CVE-2026-102282,
+# GHSA-8238-w5pm-2374, GHSA-rcw4-f5rp-g42v; all fixed in 0.6.1). The trivy
+# gate fails the image on a vulnerable copy, so the swap below is a floor
+# whatever adm-zip the pinned CLI ships. adm-zip has no
 # dependencies and 0.6.1 is a patch release, so every vendored copy is swapped
 # for the fixed release after extraction, and the build fails if any other
 # version is still there — or if there is no copy to swap: the version check
