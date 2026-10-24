@@ -1344,7 +1344,7 @@
       "description": "Listar os meus grupos",
       "digest_forbidden": "Só o proprietário do grupo, os seus administradores e o seu coach humano podem mudar o resumo semanal.",
       "digest_status": {
-        "chat": "Resumo semanal: publicado todas as segundas-feiras de manhã na conversa de Telegram, Slack ou Discord do grupo, com o resumo completo para o proprietário e os administradores na app. Para mudar: /group digest managers ou /group digest off.",
+        "chat": "Resumo semanal: publicado todas as segundas-feiras de manhã na conversa de Telegram, Slack ou Discord do grupo, e o proprietário e os administradores recebem cada um o seu próprio resumo na app, com os membros que partilham com eles. Para mudar: /group digest managers ou /group digest off.",
         "managers": "Resumo semanal: enviado só ao proprietário e aos administradores, nos seus próprios canais; nada é publicado na conversa do grupo. Para mudar: /group digest chat ou /group digest off.",
         "off": "Resumo semanal: desativado — nada é enviado. Para o ativar: /group digest chat (publicado na conversa do grupo) ou /group digest managers (só proprietário e administradores)."
       },
@@ -1911,9 +1911,9 @@
     "description": "Descrição",
     "descriptionPlaceholder": "Sobre o que é este grupo?",
     "digestChat": "Na conversa do grupo",
-    "digestChatHint": "Publicado todas as segundas-feiras de manhã na conversa de Telegram, Slack ou Discord do grupo, com os membros que partilham o treino. O proprietário e os administradores recebem o resumo completo na app, ou nos seus próprios canais se o grupo não tiver essa conversa.",
+    "digestChatHint": "Publicado todas as segundas-feiras de manhã na conversa de Telegram, Slack ou Discord do grupo, com os membros que partilham o treino. O proprietário e os administradores recebem cada um o seu próprio resumo na app, com os membros que partilham com eles, ou nos seus próprios canais se o grupo não tiver essa conversa.",
     "digestManagers": "Só proprietário e administradores",
-    "digestManagersHint": "O proprietário e os administradores recebem o resumo completo nos seus próprios canais; nada é publicado na conversa do grupo.",
+    "digestManagersHint": "O proprietário e os administradores recebem cada um o seu próprio resumo nos seus próprios canais, com os membros que partilham com eles; nada é publicado na conversa do grupo.",
     "digestMode": "Resumo semanal",
     "digestOff": "Desativado",
     "digestOffHint": "Nada é enviado.",

@@ -1344,7 +1344,7 @@
       "description": "Lister mes groupes",
       "digest_forbidden": "Seuls le propriétaire du groupe, ses admins et son coach humain peuvent changer le récap hebdo.",
       "digest_status": {
-        "chat": "Récap hebdo : publié chaque lundi matin dans la discussion Telegram, Slack ou Discord du groupe, avec le récap complet pour le propriétaire et les admins dans l'app. Pour changer : /group digest managers ou /group digest off.",
+        "chat": "Récap hebdo : publié chaque lundi matin dans la discussion Telegram, Slack ou Discord du groupe, et le propriétaire et les admins reçoivent chacun leur propre récap dans l'app, sur les membres qui partagent avec eux. Pour changer : /group digest managers ou /group digest off.",
         "managers": "Récap hebdo : envoyé au propriétaire et aux admins seulement, sur leurs propres canaux ; rien n'est publié dans la discussion du groupe. Pour changer : /group digest chat ou /group digest off.",
         "off": "Récap hebdo : désactivé — rien n'est envoyé. Pour l'activer : /group digest chat (publié dans la discussion du groupe) ou /group digest managers (propriétaire et admins seulement)."
       },
@@ -1911,9 +1911,9 @@
     "description": "Description",
     "descriptionPlaceholder": "De quoi parle ce groupe ?",
     "digestChat": "Dans la discussion du groupe",
-    "digestChatHint": "Publié chaque lundi matin dans la discussion Telegram, Slack ou Discord du groupe, sur les membres qui partagent leur entraînement. Le propriétaire et les admins reçoivent le récap complet dans l'app, ou sur leurs propres canaux si le groupe n'a pas de telle discussion.",
+    "digestChatHint": "Publié chaque lundi matin dans la discussion Telegram, Slack ou Discord du groupe, sur les membres qui partagent leur entraînement. Le propriétaire et les admins reçoivent chacun leur propre récap dans l'app, sur les membres qui partagent avec eux, ou sur leurs propres canaux si le groupe n'a pas de telle discussion.",
     "digestManagers": "Propriétaire et admins seulement",
-    "digestManagersHint": "Le propriétaire et les admins reçoivent le récap complet sur leurs propres canaux ; rien n'est publié dans la discussion du groupe.",
+    "digestManagersHint": "Le propriétaire et les admins reçoivent chacun leur propre récap sur leurs propres canaux, sur les membres qui partagent avec eux ; rien n'est publié dans la discussion du groupe.",
     "digestMode": "Récap hebdo",
     "digestOff": "Désactivé",
     "digestOffHint": "Rien n'est envoyé.",
