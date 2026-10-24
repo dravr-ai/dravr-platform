@@ -70,6 +70,8 @@ vi.mock('../../../services/api', () => ({
     getHealthFlags: vi.fn(),
     updateGroup: vi.fn(),
     updatePeerConsent: vi.fn(),
+    getCoachSharing: vi.fn(),
+    updateCoachSharing: vi.fn(),
     leaveGroup: vi.fn(),
     deleteGroup: vi.fn(),
     removeCoach: vi.fn(),
@@ -254,6 +256,8 @@ describe('GroupInfoPanel', () => {
       total: 2,
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
+    vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => request);
     vi.mocked(groupsApi.updateGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
     vi.mocked(groupsApi.listInvites).mockResolvedValue({ invites: [] });
@@ -415,6 +419,31 @@ describe('GroupInfoPanel', () => {
       expect(groupsApi.updatePeerConsent).toHaveBeenCalledWith(GROUP_ID, { consent: true });
     });
     expect(groupsApi.updatePeerConsent).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the caller's own coach sharing beside peer sharing, and stops it when flipped", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    renderPanel();
+
+    const toggle = (await screen.findByTestId('coach-sharing-switch')) as HTMLInputElement;
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(groupsApi.getCoachSharing).toHaveBeenCalledWith(GROUP_ID);
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(groupsApi.updateCoachSharing).toHaveBeenCalledWith(GROUP_ID, { consent: false });
+    });
+    await waitFor(() => expect(toggle.checked).toBe(false));
+    // Peer sharing is a separate choice the flip leaves alone.
+    expect(groupsApi.updatePeerConsent).not.toHaveBeenCalled();
+  });
+
+  it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-sharing-row')).toBeInTheDocument();
   });
 
   it('lists the roster with each member role', async () => {
@@ -710,6 +739,8 @@ describe('GroupInfoPanel', () => {
     expect(screen.queryByTestId('group-info-leave')).toBeNull();
     expect(screen.queryByTestId('group-info-delete')).toBeNull();
     expect(screen.queryByTestId('peer-consent-card')).toBeNull();
+    expect(screen.queryByTestId('coach-sharing-row')).toBeNull();
+    expect(groupsApi.getCoachSharing).not.toHaveBeenCalled();
     // The coach sets where the weekly digest goes, and no other group setting.
     expect(await screen.findByTestId('group-digest-mode')).toHaveValue('off');
     expect(screen.getByTestId('group-info-save-settings')).toBeInTheDocument();

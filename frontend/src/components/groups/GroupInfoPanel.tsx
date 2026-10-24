@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, CalendarCheck, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
 import {
   useCoachConsents,
+  useCoachSharing,
   useDelegatedConnections,
   useDelegationRoster,
   useGroup,
@@ -17,6 +18,7 @@ import {
   useGroupStats,
   useUpdateGroup,
   useUpdatePeerConsent,
+  useSetCoachSharing,
   useLeaveGroup,
   useDeleteGroup,
   useRemoveCoach,
@@ -160,6 +162,12 @@ export default function GroupInfoPanel({
   const { weeklyDigest } = useGroupPermissions();
   const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
+  // Whether the group's human coach sees the member's training: granted at
+  // join, so the member's own switch sits beside peer sharing (carnet#1168).
+  const showsCoachSharing = !!currentMember && !isGroupCoach;
+  const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
+  const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
+    useSetCoachSharing(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -229,6 +237,20 @@ export default function GroupInfoPanel({
         consent
           ? t('groups.dataSharingOnBody')
           : t('groups.sharingOffNotice'),
+      );
+    } catch (err) {
+      const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
+      showError(t('app.updateFailed'), message);
+    }
+  };
+
+  /** Stop or resume sharing the caller's own training with the group's coach. */
+  const handleCoachSharingChange = async (consent: boolean) => {
+    try {
+      await setCoachSharing(consent);
+      showSuccess(
+        consent ? t('groups.sharingOn') : t('groups.sharingOff'),
+        consent ? t('humanCoach.sharingOnNotice') : t('humanCoach.sharingOffNotice'),
       );
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
@@ -367,7 +389,8 @@ export default function GroupInfoPanel({
 
       {/* The caller's own peer-sharing consent. The group can allow peer
           sharing, but each athlete still decides whether their own training
-          data is part of it. */}
+          data is part of it. Beside it, in the same card, their coach
+          sharing (carnet#1168). */}
       {currentMember && (
         <div data-testid="peer-consent-card">
           <Card variant="dark" className="!p-4">
@@ -383,6 +406,22 @@ export default function GroupInfoPanel({
               onChange={(e) => void handleConsentChange(e.target.checked)}
               data-testid="peer-consent-switch"
             />
+            {showsCoachSharing && (
+              <div className="mt-4" data-testid="coach-sharing-row">
+                <Checkbox
+                  label={t('humanCoach.shareTraining')}
+                  description={
+                    group.coach_user_id
+                      ? t('humanCoach.shareTrainingHint')
+                      : t('humanCoach.shareTrainingPendingHint')
+                  }
+                  checked={coachSharing?.consent ?? false}
+                  disabled={!coachSharing || isSavingCoachSharing}
+                  onChange={(e) => void handleCoachSharingChange(e.target.checked)}
+                  data-testid="coach-sharing-switch"
+                />
+              </div>
+            )}
           </Card>
         </div>
       )}

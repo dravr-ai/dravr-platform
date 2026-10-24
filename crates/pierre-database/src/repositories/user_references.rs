@@ -163,6 +163,16 @@ macro_rules! user_owned_tables {
         /// keys, usage records. A row attributing an act to the user in
         /// someone else's record is not here: those that do not cascade block
         /// the delete instead ([`DELETION_BLOCKERS_SQL`]).
+        ///
+        /// One kind of someone else's record goes with the account by design
+        /// (carnet#1168): what a human coach's records say about their
+        /// athlete. The coach's thread about the athlete (`subject_user_id`)
+        /// with every message and tool result in it, the coach's flags and
+        /// corrections of replies to the athlete (`coach_reply_reviews`), and
+        /// the athlete's room transcript, the agent's replies to them included
+        /// (`group_transcript_entries`), all cascade from the account; they
+        /// are named here so the delete states it, the survivor read proves
+        /// it, and the receipt counts them.
         pub const SQLITE_USER_PURGE: UserPurge =
             user_purge!($($table $(where $predicate)?),+);
 
@@ -198,7 +208,9 @@ user_owned_tables!(
     "messaging_messages" where "session_id IN (SELECT s.id FROM messaging_sessions s WHERE CAST(s.user_id AS TEXT) = $1)",
     "messaging_resumable_turns",
     "activity_conversations",
-    "chat_conversations",
+    "chat_conversations" where "CAST(user_id AS TEXT) = $1 OR CAST(subject_user_id AS TEXT) = $1",
+    "coach_reply_reviews" where "CAST(athlete_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
+    "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1",
     "short_links",
     "mcp_tasks",
     "guardian_pending_actions",

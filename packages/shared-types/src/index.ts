@@ -334,6 +334,7 @@ export type {
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
+  CoachSharing,
   CreateGroupRequest,
   CreateInviteRequest,
   GroupAggregateStats,

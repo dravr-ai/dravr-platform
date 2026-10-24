@@ -33,6 +33,7 @@ import type {
   ConfirmDelegatedConnectionRequest,
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
+  CoachSharing,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -65,6 +66,7 @@ export type {
   ConfirmDelegatedConnectionRequest,
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
+  CoachSharing,
 };
 
 /**
@@ -165,6 +167,21 @@ export function createGroupsApi(axios: AxiosInstance) {
     /** Update own peer sharing consent */
     async updatePeerConsent(groupId: string, request: UpdatePeerConsentRequest): Promise<void> {
       await axios.put(ENDPOINTS.GROUPS.MY_CONSENT(groupId), request);
+    },
+
+    /** Whether the group's human coach sees the caller's training */
+    async getCoachSharing(groupId: string): Promise<CoachSharing> {
+      const response = await axios.get<CoachSharing>(ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId));
+      return response.data;
+    },
+
+    /** The caller stops or resumes sharing their training with the group's human coach */
+    async updateCoachSharing(groupId: string, request: CoachSharing): Promise<CoachSharing> {
+      const response = await axios.put<CoachSharing>(
+        ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId),
+        request,
+      );
+      return response.data;
     },
 
     // ==================== INVITES ====================

@@ -625,6 +625,34 @@ test.describe('Group info — settings and consent', () => {
     expect(consentBodies[0]).toEqual({ consent: true });
   });
 
+  test('binds the coach-sharing switch to the caller own membership row', async ({ page }) => {
+    const sharingBodies: Array<Record<string, unknown>> = [];
+    await openGroupInfo(page, {}, async (p) => {
+      await p.route('**/api/groups/group-*/members/me/coach-sharing', async (route) => {
+        if (route.request().method() === 'PUT') {
+          const body = route.request().postDataJSON() as Record<string, unknown>;
+          sharingBodies.push(body);
+          await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+        } else {
+          // Joining granted it.
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ consent: true }),
+          });
+        }
+      });
+    });
+
+    const toggle = page.getByTestId('coach-sharing-switch');
+    await expect(toggle).toBeChecked();
+
+    await toggle.click();
+    await expect.poll(() => sharingBodies.length).toBe(1);
+    expect(sharingBodies[0]).toEqual({ consent: false });
+    await expect(toggle).not.toBeChecked();
+  });
+
   test('shows the weekly report and one row per flagged member', async ({ page }) => {
     await openGroupInfo(page);
 

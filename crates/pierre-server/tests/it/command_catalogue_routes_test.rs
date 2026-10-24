@@ -306,7 +306,6 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "/group coach",
         "/group respond",
         "/group digest",
-        "/group consent",
         "/coach invite",
     ] {
         assert!(
@@ -314,6 +313,10 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
             "{hidden} acts on the thread's group, and a solo thread has none, got {listed:?}"
         );
     }
+    assert!(
+        listed.contains(&"/group consent"),
+        "/group consent in a solo thread acts on the athlete's own groups (carnet#1168), got {listed:?}"
+    );
     assert!(
         listed.contains(&ANY_GROUP_COMMAND),
         "an owner belongs to a group, so {ANY_GROUP_COMMAND} stays listed, got {listed:?}"

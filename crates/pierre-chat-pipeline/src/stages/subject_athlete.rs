@@ -16,7 +16,9 @@
 //! ([`coached_athlete_access`]): a consent withdrawn, a member who left, a
 //! coach detached or an athlete now in two tenants ends the coach's access on
 //! the next turn. Refused, the prompt carries one line saying so and why, and
-//! nothing of the athlete. Granted, it carries the coach's view of them:
+//! nothing of the athlete — not even the thread's own earlier turns, whose
+//! tool results read them ([`resolve_withholding_history`], carnet#1168).
+//! Granted, it carries the coach's view of them:
 //!
 //! - who the athlete is, that the thread is the coach's private workspace for
 //!   their plan, and how drafts, publishing and conflicts work;
@@ -44,7 +46,7 @@ use pierre_core::errors::ErrorCode;
 use pierre_core::models::{ConversationSubject, TenantId};
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_database::database::ConversationRecord;
+use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use pierre_providers::backend_resolver::brand_name;
@@ -223,6 +225,28 @@ pub async fn resolve(
         view,
         today,
     })))
+}
+
+/// [`resolve`], and once the gates refuse — the athlete stopped sharing, left
+/// the group, or the coach was detached — keep of `history` only the row
+/// `current` names, the coach's new message (carnet#1168).
+///
+/// The thread stays the coach's own record to read, but what the athlete
+/// shared is no longer the agent's input: no earlier tool result that read
+/// them, no earlier reply quoting them. Prompt assembly withholds the
+/// thread's compaction summaries on the same refusal.
+pub async fn resolve_withholding_history(
+    repos: &RepositoryRegistry,
+    conv: &ConversationRecord,
+    sender: &str,
+    history: &mut Vec<MessageRecord>,
+    current: &str,
+) -> Option<SubjectTurn> {
+    let turn = resolve(repos, conv, sender).await;
+    if matches!(turn, Some(SubjectTurn::Refused(_))) {
+        history.retain(|row| row.id == current);
+    }
+    turn
 }
 
 /// The prompt block for the turn: one line when refused, the coach's view of

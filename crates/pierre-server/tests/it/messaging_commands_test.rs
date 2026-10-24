@@ -2497,10 +2497,11 @@ mod command_tests {
         );
     }
 
-    /// `/group consent yes` with no conversation-bound group falls back to the
-    /// user's first group and flips that membership's `peer_sharing_consent`.
+    /// `/group consent yes` from a direct message by a member of one group
+    /// flips that membership's `peer_sharing_consent`: their only group is no
+    /// guess.
     #[tokio::test]
-    async fn group_consent_handler_falls_back_to_first_group_without_conversation() {
+    async fn group_consent_from_a_direct_message_applies_to_a_lone_group() {
         let resources = create_test_server_resources().await.unwrap();
         let (user_id, tenant_id) = create_test_user(&resources, "consentfb@test.com").await;
         let agent_id = seed_agent(&resources, user_id, tenant_id, "Coach", "desc").await;
@@ -2554,7 +2555,171 @@ mod command_tests {
             .peer_sharing_consent;
         assert!(
             consent,
-            "fallback path must flip peer_sharing_consent on the first group"
+            "a direct message must flip peer_sharing_consent on the member's one group"
+        );
+    }
+
+    /// The caller's `coach_sharing_consent` in `group_id`.
+    async fn member_coach_consent(
+        resources: &ServerContext,
+        group_id: Uuid,
+        user_id: Uuid,
+    ) -> bool {
+        resources
+            .common
+            .repos
+            .groups
+            .get_member(&group_id.to_string(), user_id)
+            .await
+            .unwrap()
+            .expect("member row")
+            .coach_sharing_consent
+    }
+
+    /// A member of two groups, the second updated after the first, so a
+    /// `list_groups_for_user().first()` fallback would pick it. Both
+    /// memberships start with every sharing consent set to `consent`.
+    async fn two_group_member(
+        resources: &ServerContext,
+        email: &str,
+        consent: bool,
+    ) -> (Uuid, TenantId, Uuid, Uuid) {
+        let (user_id, tenant_id) = create_test_user(resources, email).await;
+        let agent_id = seed_agent(resources, user_id, tenant_id, "Coach", "desc").await;
+        let older = create_group_row(resources, tenant_id, &agent_id, user_id, "Track", true).await;
+        let newer =
+            create_group_row(resources, tenant_id, &agent_id, user_id, "Tri club", true).await;
+        for group in [older, newer] {
+            add_group_member(
+                resources,
+                group,
+                user_id,
+                tenant_id,
+                GroupRole::Member,
+                None,
+                consent,
+            )
+            .await;
+        }
+        (user_id, tenant_id, older, newer)
+    }
+
+    /// carnet#1168 D26: `/group consent coach no` from a direct message by a
+    /// member of several groups withdraws from every one of them, never from
+    /// only the group touched last, and names each in the reply.
+    #[tokio::test]
+    async fn coach_consent_withdrawal_from_a_direct_message_reaches_every_group() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, older, newer) =
+            two_group_member(&resources, "dmwithdraw@test.com", true).await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["coach".to_owned(), "no".to_owned()],
+            "/group consent coach no",
+            None,
+        );
+        let response = GroupConsentHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("Track") && response.text.contains("Tri club"),
+            "the reply must name every group it withdrew from, got: {}",
+            response.text
+        );
+        assert!(!member_coach_consent(&resources, older, user_id).await);
+        assert!(!member_coach_consent(&resources, newer, user_id).await);
+        assert!(
+            member_consent(&resources, older, user_id).await
+                && member_consent(&resources, newer, user_id).await,
+            "the coach withdrawal leaves peer sharing as it was"
+        );
+    }
+
+    /// carnet#1168 D26: `/group consent coach yes` from a direct message by a
+    /// member of several groups changes nothing and asks which group.
+    #[tokio::test]
+    async fn coach_consent_grant_from_a_direct_message_asks_which_group() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, older, newer) =
+            two_group_member(&resources, "dmgrant@test.com", false).await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["coach".to_owned(), "yes".to_owned()],
+            "/group consent coach yes",
+            None,
+        );
+        let response = GroupConsentHandler.execute(&ctx).await.unwrap();
+
+        assert!(
+            response.text.contains("Track") && response.text.contains("Tri club"),
+            "the question must list the member's groups, got: {}",
+            response.text
+        );
+        assert!(
+            !member_coach_consent(&resources, older, user_id).await
+                && !member_coach_consent(&resources, newer, user_id).await,
+            "a grant that names no group must write nothing"
+        );
+    }
+
+    /// The same holds for peer sharing: `/group consent no` from a direct
+    /// message withdraws from every group.
+    #[tokio::test]
+    async fn peer_consent_withdrawal_from_a_direct_message_reaches_every_group() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, older, newer) =
+            two_group_member(&resources, "dmpeer@test.com", true).await;
+
+        let ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["no".to_owned()],
+            "/group consent no",
+            None,
+        );
+        GroupConsentHandler.execute(&ctx).await.unwrap();
+
+        assert!(!member_consent(&resources, older, user_id).await);
+        assert!(!member_consent(&resources, newer, user_id).await);
+        assert!(
+            member_coach_consent(&resources, older, user_id).await
+                && member_coach_consent(&resources, newer, user_id).await,
+            "the peer withdrawal leaves coach sharing as it was"
+        );
+    }
+
+    /// A shared room that names no group (a Slack channel button carries no
+    /// conversation) refuses rather than acting on the group touched last.
+    #[tokio::test]
+    async fn group_consent_in_a_shared_room_naming_no_group_refuses() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user_id, tenant_id, older, newer) =
+            two_group_member(&resources, "roomnogroup@test.com", true).await;
+
+        let mut ctx = group_ctx(
+            &resources,
+            user_id,
+            tenant_id,
+            vec!["coach".to_owned(), "no".to_owned()],
+            "/group consent coach no",
+            None,
+        );
+        ctx.is_direct_message = false;
+        let err = GroupConsentHandler
+            .execute(&ctx)
+            .await
+            .expect_err("a shared room that names no group must refuse");
+        assert!(err.to_string().contains("not a member"), "got: {err}");
+        assert!(
+            member_coach_consent(&resources, older, user_id).await
+                && member_coach_consent(&resources, newer, user_id).await,
+            "a refused command must write nothing"
         );
     }
 

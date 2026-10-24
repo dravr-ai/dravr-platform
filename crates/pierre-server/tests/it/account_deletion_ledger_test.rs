@@ -442,6 +442,14 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
             .any(|copy| copy.starts_with("posthog_person:")),
         "{not_deleted:?}"
     );
+    // What a coach's own group chat holds about the account is named, not
+    // claimed deleted (carnet#1168).
+    assert!(
+        not_deleted
+            .iter()
+            .any(|copy| copy.starts_with("coach_group_chats:")),
+        "{not_deleted:?}"
+    );
     let first_tombstones: Vec<String> = serde_json::from_str(&a.tombstone_ids).unwrap();
     assert_eq!(
         first_tombstones.len(),

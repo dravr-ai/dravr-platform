@@ -131,7 +131,9 @@ pub struct PlatformCommandContext {
     /// in the app and for the command catalogue, where a solo thread is
     /// exactly that — the group commands resolve no group there and are
     /// refused (and hidden from the palette) rather than aimed at whichever
-    /// group the caller touched last.
+    /// group the caller touched last. `/group consent` reads neither way: in
+    /// any direct message it acts on all of the caller's groups or asks which
+    /// (`group::resolve_consent_targets`).
     pub ambient_group_fallback: bool,
     /// Pierre `chat_conversations.id` for this turn, when known.
     ///

@@ -28,6 +28,8 @@ export const {
   useRemoveCoach,
   useUpdateMemberRole,
   useUpdatePeerConsent,
+  useCoachSharing,
+  useSetCoachSharing,
   useGroupPermissions,
   useGroupWeeklyReport,
   useGroupHealthFlags,

@@ -49,9 +49,20 @@ pub(crate) struct TargetGroup {
     /// when the chat binding supplied the group, the caller's own tenant on the
     /// `list_groups_for_user` path (which reports no tenant).
     pub(crate) tenant_id: TenantId,
-    /// How the group was resolved, for the operator log line: either
-    /// `"conversation_group_id"` or `"list_groups_for_user_first"`.
+    /// How the group was resolved, for the operator log line:
+    /// `"conversation_group_id"`, `"list_groups_for_user_first"`, or
+    /// `"list_groups_for_user_all"` for a `/group consent` from a direct
+    /// message.
     pub(crate) source: &'static str,
+}
+
+/// The groups a `/group consent` decision applies to.
+pub(crate) enum ConsentTargets {
+    /// The chat names its group: the decision applies there.
+    Bound(TargetGroup),
+    /// A direct message names none: every group the caller belongs to, for
+    /// the handler to withdraw from all of them or ask which one to grant.
+    Direct(Vec<TargetGroup>),
 }
 
 /// Resolve the group bound to this turn's conversation.
@@ -114,10 +125,11 @@ async fn conversation_bound_group(
 /// at all. It spans tenants, applies no tenant filter and orders by
 /// `updated_at DESC`, so using it after a failed conversation lookup would
 /// silently point the command at whichever other group the caller touched last.
-/// For a privacy control such as `/group consent` a visible refusal is the
-/// safer failure, so a shared room that cannot name its group refuses — and so
-/// does a solo in-app thread, where the fallback is off and `/group invite` in
-/// a conversation bound to no group offers nothing instead of the wrong group.
+/// A visible refusal is the safer failure, so a shared room that cannot name
+/// its group refuses — and so does a solo in-app thread, where the fallback is
+/// off and `/group invite` in a conversation bound to no group offers nothing
+/// instead of the wrong group. `/group consent`, a privacy control, never takes
+/// the fallback at all: it resolves through [`resolve_consent_targets`].
 pub(crate) async fn resolve_target_group(
     ctx: &PlatformCommandContext,
 ) -> Result<TargetGroup, AppError> {
@@ -127,6 +139,56 @@ pub(crate) async fn resolve_target_group(
     find_target_group(ctx)
         .await?
         .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))
+}
+
+/// Resolve the groups a `/group consent` decision may apply to.
+///
+/// A conversation bound to a group names it, read exactly as
+/// [`resolve_target_group`] reads it. A direct message names none — the
+/// athlete's chat with the bot, or their personal thread in the app — and
+/// answers with every group the caller belongs to rather than the one they
+/// touched last: whether sharing stays on in the group the athlete meant must
+/// never depend on which group was updated most recently. A shared room that
+/// names no group refuses, as does a caller in no group.
+///
+/// # Errors
+///
+/// "Not a member" when no group resolves; the repository error when a lookup
+/// fails.
+pub(crate) async fn resolve_consent_targets(
+    ctx: &PlatformCommandContext,
+) -> Result<ConsentTargets, AppError> {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = ctx.locale.as_str();
+    let not_a_member = || AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]));
+
+    if let Some(conversation_id) = ctx.conversation_id.as_deref() {
+        if let Some(group) = conversation_bound_group(ctx, conversation_id).await? {
+            return Ok(ConsentTargets::Bound(group));
+        }
+    }
+    if !ctx.is_direct_message {
+        return Err(not_a_member());
+    }
+
+    let groups: Vec<TargetGroup> = ctx
+        .ctx
+        .repos()
+        .groups
+        .list_groups_for_user(ctx.user_id)
+        .await?
+        .into_iter()
+        .map(|group| TargetGroup {
+            id: group.id,
+            name: group.name,
+            tenant_id: ctx.tenant_id,
+            source: "list_groups_for_user_all",
+        })
+        .collect();
+    if groups.is_empty() {
+        return Err(not_a_member());
+    }
+    Ok(ConsentTargets::Direct(groups))
 }
 
 /// The same resolution as [`resolve_target_group`], reporting "no group" as
@@ -180,7 +242,9 @@ async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<Target
 ///   conversation's group is irrelevant. `/agent assign <agent-id>
 ///   <group-id>` checks the group the caller *typed*, which no
 ///   conversation-scoped fact can decide. `highest` answers all three,
-///   because holding a role anywhere means some invocation succeeds.
+///   because holding a role anywhere means some invocation succeeds. It
+///   answers `/group consent` in a direct message too, where the command acts
+///   on every group the caller belongs to ([`resolve_consent_targets`]).
 pub struct CallerGroupStanding {
     /// The caller's role in the group [`resolve_target_group`] names — `None`
     /// when no group resolves, or when the caller is not one of its members.
@@ -196,7 +260,9 @@ pub struct CallerGroupStanding {
     /// (solo) conversation rather than a shared room. What a command ACTS ON
     /// is unchanged by this flag — it exists for listing coherence: a command
     /// whose room variant renders identically to its private one in a DM
-    /// (`/plan share` beside `/plan`) is listed only where a room exists.
+    /// (`/plan share` beside `/plan`) is listed only where a room exists, and
+    /// `/group consent`, which a DM aims at the caller's own groups, is listed
+    /// there for a member of any group.
     pub is_direct_message: bool,
 }
 

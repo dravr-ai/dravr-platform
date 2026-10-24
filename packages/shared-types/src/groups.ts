@@ -139,6 +139,16 @@ export interface UpdatePeerConsentRequest {
   consent: boolean;
 }
 
+/**
+ * The caller's own coach sharing in a group, read and set under
+ * `/members/me/coach-sharing`: whether the group's human coach sees their
+ * training, plan and messages in the group's chat. Joining grants it; the
+ * member list the other members read never carries it.
+ */
+export interface CoachSharing {
+  consent: boolean;
+}
+
 /** Request to create an invite */
 export interface CreateInviteRequest {
   expires_in_days?: number;

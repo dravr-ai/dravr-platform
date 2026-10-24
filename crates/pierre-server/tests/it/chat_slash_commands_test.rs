@@ -1537,7 +1537,6 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
         "/group coach",
         "/group respond",
         "/group digest",
-        "/group consent",
         "/group members",
     ] {
         assert!(
@@ -1545,7 +1544,14 @@ async fn owner_in_a_solo_thread_is_not_offered_group_management() {
             "`{hidden}` acts on the thread's group, and a solo thread has none:\n{text}"
         );
     }
-    for shown in ["/group status", "/group leave", "/agent assign"] {
+    // `/group consent` in a solo thread withdraws from every group the athlete
+    // belongs to, or asks which one to grant (carnet#1168).
+    for shown in [
+        "/group status",
+        "/group leave",
+        "/agent assign",
+        "/group consent",
+    ] {
         assert!(
             text.contains(shown),
             "`{shown}` reads the athlete's own groups, so it stays listed:\n{text}"

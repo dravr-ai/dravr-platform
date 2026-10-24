@@ -32,6 +32,8 @@ import {
   useUpdateGroup,
   useUpdateMemberRole,
   useUpdatePeerConsent,
+  useCoachSharing,
+  useSetCoachSharing,
 } from '../../hooks/useGroups';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import { GroupInsightsSection } from './GroupInsightsSection';
@@ -151,6 +153,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { deactivateInvite } = useDeactivateInvite(groupId);
   const { updateGroup, isPending: isUpdatingGroup } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
+  // Whether the group's human coach sees the member's training: granted at
+  // join, so the member's own switch sits beside peer sharing (carnet#1168).
+  const showsCoachSharing = !!myMembership && !isGroupCoach;
+  const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
+  const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
+    useSetCoachSharing(groupId);
   const { updateRole } = useUpdateMemberRole(groupId);
   const { removeMember } = useRemoveMember(groupId);
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -332,6 +340,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       }
     },
     [updateConsent, t],
+  );
+
+  const handleCoachSharingChange = useCallback(
+    async (consent: boolean) => {
+      try {
+        await setCoachSharing(consent);
+      } catch (err) {
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
+      }
+    },
+    [setCoachSharing, t],
   );
 
   /**
@@ -694,9 +713,30 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     testID="peer-consent-switch"
                   />
                 }
-                last
+                last={!showsCoachSharing}
                 testID="peer-consent-row"
               />
+              {showsCoachSharing && (
+                <Row
+                  title={t('humanCoach.shareTraining')}
+                  subtitle={
+                    group?.coach_user_id
+                      ? t('humanCoach.shareTrainingHint')
+                      : t('humanCoach.shareTrainingPendingHint')
+                  }
+                  trailing={
+                    <Switch
+                      value={coachSharing?.consent ?? false}
+                      onValueChange={(value) => void handleCoachSharingChange(value)}
+                      disabled={!coachSharing || isSavingCoachSharing}
+                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      testID="coach-sharing-switch"
+                    />
+                  }
+                  last
+                  testID="coach-sharing-row"
+                />
+              )}
             </View>
           )}
         </CollapsibleSection>
