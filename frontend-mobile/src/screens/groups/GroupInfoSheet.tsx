@@ -8,7 +8,13 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert, ScrollView, Share, Switch, type ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { COACH_CONSENTS_KEYS, coachPlatformName, offeredConsents, weeklyVolumeFigure } from '@pierre/shared-constants';
+import {
+  COACH_CONSENTS_KEYS,
+  analyticsScopeLine,
+  coachPlatformName,
+  offeredConsents,
+  weeklyVolumeFigure,
+} from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
@@ -122,7 +128,8 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   // Held until the group resolves: before then a coach reads as a member.
   const memberSurfaces = !!group && !isCoachViewer;
 
-  const { stats, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
+  const { stats, scope: statsScope, isLoading: isLoadingStats } = useGroupStats(groupId, memberSurfaces);
+  const statsScopeLine = analyticsScopeLine(t, statsScope);
   const isAdmin = myMembership?.role === 'owner' || myMembership?.role === 'admin';
   // Only an owner or admin may list a group's invites; the route refuses anyone else.
   const { invites, isLoading: isLoadingInvites } = useGroupInvites(groupId, memberSurfaces && isAdmin);
@@ -770,6 +777,12 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               </Text>
             </View>
           </View>
+          {/* The stats, the weekly report and the health flags all cover the members who share with the reader. */}
+          {!isLoadingStats && statsScopeLine && (
+            <Text className="text-text-tertiary text-xs mt-1" testID="group-info-scope">
+              {statsScopeLine}
+            </Text>
+          )}
           <GroupInsightsSection groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
         </CollapsibleSection>
         )}

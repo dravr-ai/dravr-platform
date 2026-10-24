@@ -933,4 +933,28 @@ describe('GroupInfoSheet', () => {
     expect(mockGetCoachConsents).not.toHaveBeenCalled();
     expect(queryByTestId('coach-consents')).toBeNull();
   });
+
+  // The stats, the weekly report and the health flags all cover only the
+  // members who share with the reader, the owner included (carnet#1166).
+  it('says under the stats that they cover only the members who share with the reader', async () => {
+    (groupsApi.getStats as jest.Mock).mockResolvedValueOnce({
+      stats: {
+        total_members: 1,
+        active_members: 1,
+        avg_weekly_volume_km: 20,
+        avg_ctl: null,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 1, roster_members: 2 },
+    });
+    const view = renderSheet();
+    await act(async () => {
+      fireEvent.press(await view.findByTestId('group-info-analytics-toggle'));
+    });
+
+    expect(await view.findByTestId('group-info-scope')).toHaveTextContent(
+      'This report covers only the members who share their training with you (1 of 2).',
+    );
+  });
 });

@@ -122,6 +122,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
 
     return {
       stats: query.data?.stats ?? null,
+      scope: query.data?.scope ?? null,
       isLoading: query.isLoading,
       isError: query.isError,
       error: query.error,

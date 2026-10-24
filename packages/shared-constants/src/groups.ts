@@ -8,6 +8,7 @@ import { distanceInUnit, distanceSymbol, METRES_PER_KILOMETRE, type DistanceUnit
 import type {
   FreshMember,
   GroupAggregateStats,
+  GroupAnalyticsScope,
   GroupHealthFlag,
   GroupTrend,
 } from '@pierre/shared-types';
@@ -23,6 +24,7 @@ export const HEALTH_FLAG_DETAIL_KEY = {
 
 /** The corpus key for each line of the weekly report. */
 export const WEEKLY_REPORT_KEY = {
+  scope: 'groups.insightsScope',
   summary: 'groups.report.summaryDistance',
   fresh: 'groups.report.fresh',
   concern: 'groups.report.concern',
@@ -163,6 +165,23 @@ export function weeklyVolumeFigure(language: string, km: number, units: Distance
 /** A weekly volume in kilometres as the reader's `units` say it, unit included: `41.5 km`, `25.8 mi`. */
 export function weeklyVolume(language: string, km: number, units: DistanceUnit): string {
   return `${weeklyVolumeFigure(language, km, units)} ${distanceSymbol(units)}`;
+}
+
+/**
+ * The line saying a group's figures cover only the members who share their
+ * training with the reader, and how many of the group that is; `null` when
+ * they cover everyone. The server computes the stats, the weekly report and
+ * the health flags over that one set, whatever the reader's role in the
+ * group, so one line under the stats speaks for all three.
+ */
+export function analyticsScopeLine(t: Translate, scope: GroupAnalyticsScope | null): string | null {
+  if (!scope || scope.visible_members >= scope.roster_members) {
+    return null;
+  }
+  return t(WEEKLY_REPORT_KEY.scope, {
+    shown: scope.visible_members,
+    total: scope.roster_members,
+  });
 }
 
 /** The weekly report's opening sentence: who was active, and how far they went, in the reader's units. */

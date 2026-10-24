@@ -353,6 +353,7 @@ export type {
   GroupStatsResponse,
   GroupWeeklyReportResponse,
   GroupHealthFlagsResponse,
+  GroupAnalyticsScope,
   GroupPermissionsResponse,
   DelegationStatus,
   DelegationViewer,

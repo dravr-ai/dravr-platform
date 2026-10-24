@@ -104,6 +104,7 @@ const STATS: GroupStatsResponse = {
     flagged_members: 0,
     weekly_trend: 'stable',
   },
+  scope: { visible_members: 2, roster_members: 2 },
 };
 
 /** The tenant tier gate the digest scheduler reads, as the route serialises it. */
@@ -125,6 +126,7 @@ const REPORT: GroupWeeklyReportResponse = {
       weekly_trend: 'stable',
     },
   },
+  scope: { visible_members: 2, roster_members: 2 },
 };
 
 const HEALTH: GroupHealthFlagsResponse = {
@@ -145,6 +147,7 @@ const HEALTH: GroupHealthFlagsResponse = {
     },
   ],
   total: 2,
+  scope: { visible_members: 2, roster_members: 2 },
 };
 
 const INVITES: GroupInvitesResponse = {

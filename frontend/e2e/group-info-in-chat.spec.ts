@@ -172,6 +172,7 @@ const mockStats: GroupStatsResponse = {
     flagged_members: 1,
     weekly_trend: 'improving',
   },
+  scope: { visible_members: 5, roster_members: 5 },
 };
 
 // ============================================================================
@@ -318,7 +319,11 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ flags: mockHealthFlags, total: mockHealthFlags.length }),
+      body: JSON.stringify({
+        flags: mockHealthFlags,
+        total: mockHealthFlags.length,
+        scope: mockStats.scope,
+      }),
     });
   });
 
@@ -328,6 +333,7 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
         stats: mockStats.stats,
         fresh_members: [{ user_id: 'user-456', display_name: 'Alice Runner', form_pct: 12, tsb: 9 }],
       },
+      scope: mockStats.scope,
     };
     await route.fulfill({
       status: 200,

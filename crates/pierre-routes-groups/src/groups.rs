@@ -165,11 +165,27 @@ pub struct GroupMetadata {
     pub api_version: String,
 }
 
+/// Which members a group analytics response was computed over.
+///
+/// Every number, name and flag in `/stats`, `/report` and `/health` comes
+/// from the members whose training the caller may see — those who share it
+/// with them, plus the caller — so a client can say when that is fewer than
+/// the group holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnalyticsScope {
+    /// Members the response covers.
+    pub visible_members: usize,
+    /// Members the group holds.
+    pub roster_members: usize,
+}
+
 /// Response wrapper for group aggregate stats
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StatsResponse {
     /// Aggregate statistics
     pub stats: GroupAggregateStats,
+    /// The members the stats cover
+    pub scope: AnalyticsScope,
     /// Response metadata
     pub metadata: GroupMetadata,
 }
@@ -179,6 +195,8 @@ pub struct StatsResponse {
 pub struct WeeklyReportResponse {
     /// Weekly report data
     pub report: GroupWeeklyReport,
+    /// The members the report covers
+    pub scope: AnalyticsScope,
     /// Response metadata
     pub metadata: GroupMetadata,
 }
@@ -190,6 +208,8 @@ pub struct HealthFlagsResponse {
     pub flags: Vec<GroupHealthFlag>,
     /// Total count
     pub total: usize,
+    /// The members the flags were computed over
+    pub scope: AnalyticsScope,
     /// Response metadata
     pub metadata: GroupMetadata,
 }

@@ -30,7 +30,9 @@ mod group_weekly_digest_tests {
     use pierre_routes_groups::group_digest_scheduler::digest_params;
     use pierre_routes_groups::NotificationRoutes;
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
-    use pierre_services::notification_text::NotificationTextRenderer;
+    use pierre_services::notification_text::{
+        NotificationTextRenderer, PARAM_ROSTER_MEMBERS, PARAM_VISIBLE_MEMBERS,
+    };
     use serde_json::{Map, Value};
     use tokio_util::task::TaskTracker;
     use uuid::Uuid;
@@ -179,6 +181,42 @@ En forme :
             "{body}"
         );
         assert!(body.contains("• Luc: no activity for 10 days"), "{body}");
+    }
+
+    /// A manager's copy covers only the members who share with them
+    /// (carnet#1166). When that is fewer than the group holds it opens by
+    /// saying so, in the manager's own language; when it is everyone it opens
+    /// on the summary, as a row stored before the counts existed does.
+    #[test]
+    fn a_managers_copy_says_when_it_covers_fewer_members_than_the_group_holds() {
+        let scoped = |visible: u64, roster: u64| {
+            let mut params = params();
+            let object = params.as_object_mut().unwrap();
+            object.insert(PARAM_VISIBLE_MEMBERS.to_owned(), visible.into());
+            object.insert(PARAM_ROSTER_MEMBERS.to_owned(), roster.into());
+            params
+        };
+
+        let (_, french) = render("fr", &scoped(3, 5));
+        assert_eq!(
+            french,
+            format!(
+                "Ce récap ne couvre que les membres qui partagent leur entraînement avec toi \
+                 (3 sur 5).\n\n{FRENCH_BODY}"
+            ),
+            "a French manager's copy over three of five members opens on its scope"
+        );
+        let (_, english) = render("en", &scoped(3, 5));
+        assert!(
+            english.starts_with(
+                "This recap covers only the members who share their training with you \
+                 (3 of 5).\n\n2/3 members active"
+            ),
+            "an English manager reads the scope line in English: {english}"
+        );
+
+        let (_, everyone) = render("fr", &scoped(3, 3));
+        assert_eq!(everyone, FRENCH_BODY, "no scope line over the whole roster");
     }
 
     /// A manager on imperial units reads every distance in miles, from the

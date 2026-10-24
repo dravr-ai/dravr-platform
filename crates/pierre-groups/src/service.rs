@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -197,10 +196,9 @@ impl GroupService {
             .unwrap_or_default();
 
         // The group's human coach gets the same whole-group overview an admin
-        // sees, over the members who share with the coach — joining grants
-        // that, ADR-002 — rather than over the members who share with their
-        // peers. Every other requester reads the peer rule, so an agent never
-        // shows anyone data a member has not shared with them.
+        // gets. Either overview covers only the members who share with that
+        // requester (`visible_member_ids`), so an agent never shows anyone
+        // data a member has not shared with them.
         let is_coach = group.coach_user_id == Some(user_id);
         let is_admin = is_coach
             || members
@@ -211,19 +209,14 @@ impl GroupService {
         let member_count = members.len();
 
         // Build summary cards from the snapshots of the members who share with
-        // this requester (see `coach_sharing_user_ids` and
-        // `peer_sharing_user_ids`). The requester's own snapshot is always
-        // visible regardless of their own consent flags — they can see their
-        // own data even if they haven't opted in to sharing it.
+        // this requester. The requester's own snapshot is always visible
+        // regardless of their own consent flags — they can see their own data
+        // even if they haven't opted in to sharing it.
         let summarizer = self.tier.summarization_strategy();
-        let sharing_user_ids = if is_coach {
-            Self::coach_sharing_user_ids(&members)
-        } else {
-            Self::peer_sharing_user_ids(&group, &members)
-        };
+        let sharing_user_ids = Self::visible_member_ids(&group, &members, user_id);
         let visible_snapshots: Vec<&MemberFitnessSnapshot> = member_snapshots
             .iter()
-            .filter(|s| s.user_id == user_id || sharing_user_ids.contains(&s.user_id))
+            .filter(|s| sharing_user_ids.contains(&s.user_id))
             .collect();
         info!(
             group_id = %group.id,
@@ -998,44 +991,6 @@ impl GroupService {
             let pct = reading.form_pct?;
             (reading.band == FormBand::Fresh).then_some((s, pct))
         })
-    }
-
-    /// The members whose training the group's human coach may see: every
-    /// live member who has not revoked `coach_sharing_consent`.
-    ///
-    /// Joining a group grants it (ADR-002: membership is consent to share with
-    /// the coach) and `/group consent coach no` revokes it. The group's
-    /// `peer_data_sharing` switch does not apply: it governs what members see
-    /// of each other, never what their coach sees.
-    #[must_use]
-    fn coach_sharing_user_ids(members: &[GroupMember]) -> HashSet<Uuid> {
-        members
-            .iter()
-            .filter(|m| m.left_at.is_none() && m.coach_sharing_consent)
-            .map(|m| m.user_id)
-            .collect()
-    }
-
-    /// The members whose training the rest of the group may see.
-    ///
-    /// Per-member `peer_sharing_consent` is the source of truth between
-    /// members, so a subset can share while the rest stay private.
-    /// `peer_data_sharing` is the admin kill switch: when FALSE nobody
-    /// shares, whatever they consented to. Auto-bound groups default it to
-    /// TRUE so individual consent works without an extra step. The agent's
-    /// group context and the digest posted into the group's chat both read
-    /// this one rule; the group's human coach reads by
-    /// `coach_sharing_user_ids` instead.
-    #[must_use]
-    pub fn peer_sharing_user_ids(group: &CoachingGroup, members: &[GroupMember]) -> HashSet<Uuid> {
-        if !group.peer_data_sharing {
-            return HashSet::new();
-        }
-        members
-            .iter()
-            .filter(|m| m.peer_sharing_consent)
-            .map(|m| m.user_id)
-            .collect()
     }
 
     /// Build the weekly report from member snapshots: the aggregate stats and

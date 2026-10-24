@@ -226,20 +226,33 @@ export interface GroupInvitesResponse {
   invites: GroupInvite[];
 }
 
+/**
+ * Which members a group analytics response covers: those who share their
+ * training with the caller, plus the caller — whatever the caller's role —
+ * against how many the group holds.
+ */
+export interface GroupAnalyticsScope {
+  visible_members: number;
+  roster_members: number;
+}
+
 /** Response for group stats */
 export interface GroupStatsResponse {
   stats: GroupAggregateStats;
+  scope: GroupAnalyticsScope;
 }
 
 /** Response for a group's weekly report */
 export interface GroupWeeklyReportResponse {
   report: GroupWeeklyReport;
+  scope: GroupAnalyticsScope;
 }
 
 /** Response for a group's member health flags */
 export interface GroupHealthFlagsResponse {
   flags: GroupHealthFlag[];
   total: number;
+  scope: GroupAnalyticsScope;
 }
 
 /** Group creation permission check result */

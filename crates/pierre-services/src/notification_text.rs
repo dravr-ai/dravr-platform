@@ -24,13 +24,13 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE, KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK,
     KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
     KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP, KEY_GROUP_DIGEST_FRESH,
-    KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MEMBERS_HEADER,
-    KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE, KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV,
-    KEY_GROUP_DIGEST_ROOM_SCOPE, KEY_GROUP_DIGEST_SUMMARY_DISTANCE,
-    KEY_GROUP_DIGEST_TREND_DECLINING, KEY_GROUP_DIGEST_TREND_IMPROVING,
-    KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY, KEY_NOTIFICATION_PR_DISTANCE_10K,
-    KEY_NOTIFICATION_PR_DISTANCE_5K, KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON,
-    KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
+    KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
+    KEY_GROUP_DIGEST_MEMBERS_HEADER, KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE,
+    KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
+    KEY_GROUP_DIGEST_SUMMARY_DISTANCE, KEY_GROUP_DIGEST_TREND_DECLINING,
+    KEY_GROUP_DIGEST_TREND_IMPROVING, KEY_GROUP_DIGEST_TREND_STABLE, KEY_NOTIFICATION_CHANNEL_BODY,
+    KEY_NOTIFICATION_PR_DISTANCE_10K, KEY_NOTIFICATION_PR_DISTANCE_5K,
+    KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON, KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
 };
 use pierre_core::models::UnitSystem;
 use pierre_notifications::events::{action_label_key, NotificationEvent};
@@ -60,8 +60,13 @@ pub const PR_DISTANCE_MARATHON: &str = "marathon";
 /// chat: how many members share their training, which is the set every
 /// number and name in that copy was computed over.
 pub const PARAM_SHARED_MEMBERS: &str = "shared_members";
-/// Group-digest parameter carried beside [`PARAM_SHARED_MEMBERS`]: how many
-/// members the group holds.
+/// Group-digest parameter carried only by a manager's copy.
+///
+/// How many members share their training with that manager, themself
+/// included: the set every number and name in that copy was computed over.
+pub const PARAM_VISIBLE_MEMBERS: &str = "visible_members";
+/// Group-digest parameter carried beside [`PARAM_SHARED_MEMBERS`] or
+/// [`PARAM_VISIBLE_MEMBERS`]: how many members the group holds.
 pub const PARAM_ROSTER_MEMBERS: &str = "roster_members";
 
 /// Renders notification events as sentences in one locale and one unit
@@ -186,12 +191,14 @@ impl<'a> NotificationTextRenderer<'a> {
     /// shown as a key.
     ///
     /// The copy posted into the group's chat is computed over the members who
-    /// share their training, so every line — the all-clear included — is true
-    /// of that set. It opens with a line saying how many of the group that is
-    /// when it is not everyone, and is that line alone when it is nobody.
+    /// share their training, and each manager's copy over the members who
+    /// share with that manager, so every line — the all-clear included — is
+    /// true of that set. Either opens with a line saying how many of the
+    /// group that is when it is not everyone, and is that line alone when it
+    /// is nobody.
     fn group_digest_body(&self, params: &Map<String, Value>) -> String {
-        let scope = self.room_scope(params);
-        if params.get(PARAM_SHARED_MEMBERS).and_then(Value::as_u64) == Some(0) {
+        let scope = self.digest_scope(params);
+        if digest_coverage(params).is_some_and(|(_, covered)| covered == 0) {
             return scope.unwrap_or_default();
         }
         let mut lines: Vec<String> = scope
@@ -262,18 +269,15 @@ impl<'a> NotificationTextRenderer<'a> {
         lines.join("\n")
     }
 
-    /// The line saying how many members the chat copy of the digest covers,
-    /// when that is fewer than the group holds. `None` on the managers' copy,
-    /// which carries neither count because it covers everyone.
-    fn room_scope(&self, params: &Map<String, Value>) -> Option<String> {
-        let shared = params.get(PARAM_SHARED_MEMBERS).and_then(Value::as_u64)?;
+    /// The line saying how many members this copy of the digest covers, when
+    /// that is fewer than the group holds: the chat copy names the command
+    /// that joins it in, a manager's copy says it covers those who share with
+    /// them. `None` on a row stored before either count existed, which
+    /// covered everyone.
+    fn digest_scope(&self, params: &Map<String, Value>) -> Option<String> {
+        let (key, covered) = digest_coverage(params)?;
         let roster = params.get(PARAM_ROSTER_MEMBERS).and_then(Value::as_u64)?;
-        (shared < roster).then(|| {
-            self.line(
-                KEY_GROUP_DIGEST_ROOM_SCOPE,
-                &[&shared.to_string(), &roster.to_string()],
-            )
-        })
+        (covered < roster).then(|| self.line(key, &[&covered.to_string(), &roster.to_string()]))
     }
 
     /// One flagged member's line, or `None` for a concern code this build
@@ -322,6 +326,19 @@ impl<'a> NotificationTextRenderer<'a> {
             text.replace('.', ",")
         }
     }
+}
+
+/// How many members a group digest's copy covers, with the key of the line
+/// that says so: [`PARAM_SHARED_MEMBERS`] on the chat copy,
+/// [`PARAM_VISIBLE_MEMBERS`] on a manager's. `None` when the row carries
+/// neither.
+fn digest_coverage(params: &Map<String, Value>) -> Option<(&'static str, u64)> {
+    let count = |name: &str| params.get(name).and_then(Value::as_u64);
+    count(PARAM_SHARED_MEMBERS)
+        .map(|shared| (KEY_GROUP_DIGEST_ROOM_SCOPE, shared))
+        .or_else(|| {
+            count(PARAM_VISIBLE_MEMBERS).map(|visible| (KEY_GROUP_DIGEST_MANAGER_SCOPE, visible))
+        })
 }
 
 /// The objects stored under `params[name]`, skipping anything that is not one.

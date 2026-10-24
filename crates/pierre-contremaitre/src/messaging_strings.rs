@@ -1495,6 +1495,10 @@ pub const KEY_GROUP_DIGEST_ALL_CLEAR: &str = "notifications.group_digest.all_cle
 /// than all members share their training, and the whole body when none do.
 /// `{0}` members who share, `{1}` members.
 pub const KEY_GROUP_DIGEST_ROOM_SCOPE: &str = "notifications.group_digest.room_scope";
+/// Key: the opening line of a manager's digest when it covers fewer members
+/// than the group holds — only those who share their training with that
+/// manager. `{0}` members covered, `{1}` members.
+pub const KEY_GROUP_DIGEST_MANAGER_SCOPE: &str = "notifications.group_digest.manager_scope";
 
 /// Key: the "reply to your coach" action button. No format placeholders.
 pub const KEY_NOTIFICATION_ACTION_REPLY: &str = "notifications.action.reply";

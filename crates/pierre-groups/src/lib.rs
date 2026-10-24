@@ -32,6 +32,9 @@ mod context_alerts;
 /// Central group coaching service and context injection
 pub mod service;
 
+/// Who may see a member's training: the coach by coach sharing, anyone else by peer sharing
+mod sharing;
+
 /// Invite redemption: the checks an invite passes and a coach's attachment
 mod invites;
 

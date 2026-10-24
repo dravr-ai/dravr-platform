@@ -217,6 +217,7 @@ describe('GroupInfoPanel', () => {
         flagged_members: 0,
         weekly_trend: 'stable',
       },
+      scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.getPermissions).mockResolvedValue({
       can_create: true,
@@ -235,6 +236,7 @@ describe('GroupInfoPanel', () => {
           weekly_trend: 'stable',
         },
       },
+      scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.getHealthFlags).mockResolvedValue({
       flags: [
@@ -254,6 +256,7 @@ describe('GroupInfoPanel', () => {
         },
       ],
       total: 2,
+      scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
     vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
@@ -490,11 +493,8 @@ describe('GroupInfoPanel', () => {
     expect(screen.getByText('Nothing is sent.')).toBeInTheDocument();
 
     await user.selectOptions(select, 'managers');
-    expect(
-      screen.getByText(
-        "The owner and admins get the full recap on their own channels; nothing is posted in the group's chat.",
-      ),
-    ).toBeInTheDocument();
+    // Read from the catalogue: the hint's wording belongs to the corpus.
+    expect(screen.getByText(i18n.getFixedT('en')('groups.digestManagersHint'))).toBeInTheDocument();
     await user.click(screen.getByTestId('group-info-save-settings'));
 
     await waitFor(() =>
@@ -579,6 +579,28 @@ describe('GroupInfoPanel', () => {
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText('No activity for 11 days')).toBeInTheDocument();
     expect(screen.getByText('Health flags (2)')).toBeInTheDocument();
+    expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
+    // Both members share with the reader: nothing to say about scope.
+    expect(screen.queryByTestId('group-info-scope')).toBeNull();
+  });
+
+  it('says under the stats that they cover only the members who share with the reader, owner included', async () => {
+    vi.mocked(groupsApi.getStats).mockResolvedValueOnce({
+      stats: {
+        total_members: 2,
+        active_members: 2,
+        avg_weekly_volume_km: 41.5,
+        avg_ctl: 55,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 2, roster_members: 4 },
+    });
+    renderPanel();
+
+    expect(await screen.findByTestId('group-info-scope')).toHaveTextContent(
+      'This report covers only the members who share their training with you (2 of 4).',
+    );
     expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
   });
 

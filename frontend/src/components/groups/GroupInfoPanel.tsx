@@ -48,6 +48,7 @@ import CoachConsentsSection from './CoachConsentsSection';
 import type { GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 import {
   COACH_CONSENTS_KEYS,
+  analyticsScopeLine,
   coachPlatformName,
   offeredConsents,
   oneDecimal,
@@ -144,11 +145,12 @@ export default function GroupInfoPanel({
   // The coach's name as the server spells it: display name, else email.
   const coachName = group?.coach_user_id ? group.coach_display_name : null;
 
-  const { stats, isLoading: isStatsLoading } = useGroupStats(
+  const { stats, scope: statsScope, isLoading: isStatsLoading } = useGroupStats(
     groupId,
     // Held until the group resolves: before then a coach reads as a member.
     !!group && !isCoachViewer,
   );
+  const statsScopeLine = analyticsScopeLine(t, statsScope);
   const { connections: delegatedConnections, viewer: delegationViewer } = useDelegatedConnections(
     groupId,
     !!group?.coach_user_id,
@@ -624,6 +626,12 @@ export default function GroupInfoPanel({
           </div>
         ) : (
           <p className="text-sm text-outline">{t('groups.noStats')}</p>
+        )}
+        {/* The stats, the weekly report and the health flags all cover the members who share with the reader. */}
+        {!isStatsLoading && statsScopeLine && (
+          <p className="text-xs text-outline mt-2" data-testid="group-info-scope">
+            {statsScopeLine}
+          </p>
         )}
         <GroupInsightsPanel groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
       </Section>
