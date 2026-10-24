@@ -254,7 +254,7 @@ pub struct HomeActivity {
     /// line a figure summed over workouts owes (carnet#1154). Not on the wire:
     /// `attribution` already says it for the row itself.
     #[serde(skip)]
-    pub garmin_recorded: bool,
+    garmin_recorded: bool,
 }
 
 impl HomeActivity {

@@ -115,6 +115,7 @@ const THEMES = ['light', 'dark'] as const;
 async function setTheme(page: Page, theme: (typeof THEMES)[number]) {
   // The app switches on a `.dark` class, not prefers-color-scheme.
   await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
+  // Let the token transitions land before a screenshot samples the theme.
   await page.waitForTimeout(800);
 }
 

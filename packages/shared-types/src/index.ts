@@ -270,9 +270,10 @@ export {
 
 // The athlete Home page's weekly volume: distance, time and climbing per sport, week by week
 export type { SportVolume, TrainingVolumeResponse, VolumeWeek } from './training-volume.js';
-export type { GarminContribution } from './garmin-attribution.js';
-export { isGarminContribution } from './garmin-attribution.js';
 export { parseTrainingVolumeResponse } from './training-volume.js';
+
+// What Garmin-sourced data contributed to a Home figure, which decides the line beneath its title (carnet#1154)
+export type { GarminContribution } from './garmin-attribution.js';
 
 // How often the coach checks in on its own: daily, three a week, weekly or off (carnet#831)
 export type { CheckInCadence, CheckInPreference } from './check-in.js';

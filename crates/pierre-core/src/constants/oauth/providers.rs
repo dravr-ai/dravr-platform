@@ -10,6 +10,8 @@
 //! instead of the static `all()` function. The registry respects feature flags and includes
 //! externally registered providers.
 
+use serde::Serialize;
+
 /// Strava fitness provider identifier
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-strava` feature.
@@ -286,7 +288,7 @@ pub fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool 
 ///
 /// It decides the line Garmin's brand guidelines owe the figure: Garmin named
 /// as its distinct source, or as a contributing one (carnet#1154).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GarminContribution {
     /// Every workout behind the figure carries Garmin-sourced data.

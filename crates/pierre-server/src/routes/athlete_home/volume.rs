@@ -10,7 +10,7 @@ use axum::extract::State;
 use axum::Json;
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
-use pierre_core::constants::oauth_providers::garmin_contribution;
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
@@ -81,8 +81,8 @@ pub(super) async fn get_training_volume(
     };
 
     let distinct = distinct_rows(rows);
-    let workouts = workouts(&distinct);
-    let garmin_days: Vec<(NaiveDate, bool)> = workouts
+    let merged = workouts(&distinct);
+    let garmin_days: Vec<(NaiveDate, bool)> = merged
         .iter()
         .map(|w| {
             (
@@ -91,14 +91,11 @@ pub(super) async fn get_training_volume(
             )
         })
         .collect();
-    let sessions: Vec<_> = workouts
-        .into_iter()
-        .map(|workout| workout.session)
-        .collect();
+    let sessions: Vec<_> = merged.into_iter().map(|workout| workout.session).collect();
     let volume = volume_from_sessions(today, zone, &sessions, coverage);
     // Garmin's share of exactly the workouts the weeks count (carnet#1154).
     let garmin_contribution = volume.weeks.first().and_then(|first| {
-        garmin_contribution(
+        oauth_providers::garmin_contribution(
             garmin_days
                 .iter()
                 .filter(|(day, _)| (first.week_start..=today).contains(day))

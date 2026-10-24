@@ -34,7 +34,7 @@ use axum::Json;
 use chrono::{DateTime, Days, Duration, NaiveDate, NaiveTime, Utc};
 use chrono_tz::Tz;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
-use pierre_core::constants::oauth_providers::{garmin_contribution, GarminContribution};
+use pierre_core::constants::oauth_providers::{self, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::plan_card::{try_load_plan_weeks_between, WeekCard};
@@ -135,8 +135,9 @@ pub(super) async fn get_calendar(
     }
     let workouts = home_activities(served_rows(&resources, rows), usize::MAX);
     let activities = on_days(workouts, zone, from.max(history_start), to);
-    let garmin_contribution =
-        garmin_contribution(activities.iter().map(|day| day.activity.garmin_recorded));
+    let garmin_contribution = oauth_providers::garmin_contribution(
+        activities.iter().map(|day| day.activity.garmin_recorded),
+    );
 
     let plan_weeks =
         try_load_plan_weeks_between(repos, tenant_id, user_id, today, from, to).await?;
