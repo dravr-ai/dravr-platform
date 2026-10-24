@@ -594,6 +594,58 @@ async fn intervals_wellness_is_quoted_with_the_athletes_garmin_device() -> Resul
     Ok(())
 }
 
+/// Wellness a Garmin data source synced is quoted with Garmin's attribution
+/// and the model its source names, which Garmin's API spells without the
+/// brand (carnet#1154).
+#[tokio::test]
+async fn garmin_wellness_is_quoted_with_the_garmin_device_that_synced_it() -> Result<()> {
+    let executor = executor().await?;
+    let (user_id, tenant) = connected_user(&executor).await?;
+    let repos = executor.resources.repos();
+    let ds = repos
+        .data_sources
+        .upsert_data_source(
+            &tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                provider: "garmin".to_owned(),
+                device_model: Some("Forerunner 965".to_owned()),
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Watch,
+                original_source_name: None,
+            },
+        )
+        .await?;
+    let night = sleep(user_id, "garmin", &ds, 10, 8);
+    repos.sleep.upsert_sleep_session(&tenant, &night).await?;
+    let day = recovery(user_id, "garmin", &ds, night.end_datetime.date_naive());
+    repos
+        .recovery
+        .upsert_recovery_metrics(&tenant, &day)
+        .await?;
+
+    for (tool, rows) in [
+        ("get_sleep_sessions", "sessions"),
+        ("get_recovery_metrics", "metrics"),
+    ] {
+        let response = executor
+            .execute_tool(request(tool, json!({}), user_id, &tenant))
+            .await?;
+        assert!(response.success, "{:?}", response.error);
+        let body = response.result.unwrap();
+        assert_eq!(body["count"], 1, "{tool}: {body:#}");
+        assert_eq!(body[rows][0]["source_name"], "garmin", "{tool}: {body:#}");
+        assert_eq!(
+            body.get("attribution").and_then(Value::as_str),
+            Some("Garmin Forerunner 965"),
+            "{tool}: {body:#}"
+        );
+    }
+    Ok(())
+}
+
 /// The executor a chat turn builds inside its own provenance scope, over the
 /// same runtime as `base`.
 fn executor_in_turn(base: &UniversalToolExecutor) -> UniversalToolExecutor {
