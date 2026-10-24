@@ -1828,6 +1828,10 @@
     "used": "Usado",
     "verdictEmitted": "Veredicto emitido"
   },
+  "garminAttribution": {
+    "part": "Creado en parte con datos proporcionados por dispositivos Garmin.",
+    "sole": "Creado con datos proporcionados por dispositivos Garmin."
+  },
   "gear": {
     "title": "Zapatillas",
     "blurb": "Cada carrera, caminata o excursión suma su distancia al par con el que la hiciste: el que elegiste, si no el par fijado para ese deporte, si no el último que usaste.",

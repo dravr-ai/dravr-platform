@@ -1828,6 +1828,10 @@
     "used": "Verwendet",
     "verdictEmitted": "Urteil ausgegeben"
   },
+  "garminAttribution": {
+    "part": "Teilweise mit Daten von Garmin-Geräten erstellt.",
+    "sole": "Mit Daten von Garmin-Geräten erstellt."
+  },
   "gear": {
     "title": "Schuhe",
     "blurb": "Jeder Lauf, Spaziergang und jede Wanderung zählt zum Paar, in dem du unterwegs warst: dem gewählten, sonst dem für die Sportart angehefteten, sonst dem zuletzt genutzten.",

@@ -1828,6 +1828,10 @@
     "used": "Usado",
     "verdictEmitted": "Veredicto emitido"
   },
+  "garminAttribution": {
+    "part": "Criado em parte com dados fornecidos por dispositivos Garmin.",
+    "sole": "Criado com dados fornecidos por dispositivos Garmin."
+  },
   "gear": {
     "title": "Sapatilhas",
     "blurb": "Cada corrida, caminhada ou trilho soma a sua distância ao par com que foi feito: o que escolheste, senão o par fixado para esse desporto, senão o último que usaste.",

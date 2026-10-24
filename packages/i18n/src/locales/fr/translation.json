@@ -1828,6 +1828,10 @@
     "used": "Utilisé",
     "verdictEmitted": "Verdict émis"
   },
+  "garminAttribution": {
+    "part": "Créé en partie à partir de données fournies par des appareils Garmin.",
+    "sole": "Créé à partir de données fournies par des appareils Garmin."
+  },
   "gear": {
     "title": "Chaussures",
     "blurb": "Chaque course, marche ou randonnée ajoute sa distance à la paire portée : celle que tu as choisie, sinon la paire épinglée pour ce sport, sinon la dernière utilisée.",

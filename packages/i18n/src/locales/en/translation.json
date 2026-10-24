@@ -1828,6 +1828,10 @@
     "used": "Used",
     "verdictEmitted": "Verdict emitted"
   },
+  "garminAttribution": {
+    "part": "Created in part using data provided by Garmin devices.",
+    "sole": "Created using data provided by Garmin devices."
+  },
   "gear": {
     "title": "Shoes",
     "blurb": "Each run, walk or hike adds its distance to the pair it was done in: the one you chose, otherwise the pair you pinned for its sport, otherwise the one you used last.",
