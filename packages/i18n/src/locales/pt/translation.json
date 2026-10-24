@@ -1602,7 +1602,7 @@
     "calendarWriteGranted": "Pode colocar treinos no calendário",
     "calendarWriteHint": "Os treinos que {{coach}} planeia para ti no Dravr vão para o teu calendário {{platform}} e daí para os teus dispositivos. Podes desativar isto a qualquer momento.",
     "calendarWriteLabel": "Permitir que {{coach}} coloque treinos no teu calendário {{platform}}",
-    "coachConsentsHint": "{{coach}} lê o teu treino porque entraste neste grupo. Estas opções vão mais longe, e só tu as ativas ou desativas.",
+    "coachConsentsHint": "Estas opções vão além de partilhar o teu treino com {{coach}}, e só tu as ativas ou desativas.",
     "coachConsentsTitle": "O que o teu treinador humano pode fazer",
     "coachEmailMismatch": "A conta {{platform}} que ligaste usa um e-mail diferente da tua conta Dravr. Liga a conta {{platform}} registada com o teu e-mail Dravr.",
     "coachEmailMissing": "O {{platform}} não partilha nenhum e-mail da conta que ligaste, por isso o Dravr não consegue confirmar que é tua.",

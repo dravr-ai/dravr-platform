@@ -1602,7 +1602,7 @@
     "calendarWriteGranted": "Peut placer des séances dans son calendrier",
     "calendarWriteHint": "Les séances que {{coach}} te prépare dans Dravr vont dans ton calendrier {{platform}}, puis sur tes appareils. Tu peux désactiver ceci à tout moment.",
     "calendarWriteLabel": "Laisser {{coach}} placer des séances dans ton calendrier {{platform}}",
-    "coachConsentsHint": "{{coach}} lit ton entraînement parce que tu as rejoint ce groupe. Ces options vont plus loin, et toi seul les actives ou les désactives.",
+    "coachConsentsHint": "Ces options vont plus loin que le partage de ton entraînement avec {{coach}}, et toi seul les actives ou les désactives.",
     "coachConsentsTitle": "Ce que ton coach humain peut faire",
     "coachEmailMismatch": "Le compte {{platform}} que tu as connecté utilise un autre courriel que ton compte Dravr. Connecte le compte {{platform}} enregistré avec ton courriel Dravr.",
     "coachEmailMissing": "{{platform}} ne partage aucun courriel pour le compte que tu as connecté : Dravr ne peut pas vérifier qu'il est à toi.",

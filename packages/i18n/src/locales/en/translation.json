@@ -1602,7 +1602,7 @@
     "calendarWriteGranted": "Can put workouts on their calendar",
     "calendarWriteHint": "Workouts {{coach}} plans for you in Dravr go on your {{platform}} calendar, and from there to your devices. You can turn this off at any time.",
     "calendarWriteLabel": "Let {{coach}} put workouts on your {{platform}} calendar",
-    "coachConsentsHint": "{{coach}} reads your training because you joined this group. These go further, and only you turn them on or off.",
+    "coachConsentsHint": "These go further than sharing your training with {{coach}}, and only you turn them on or off.",
     "coachConsentsTitle": "What your human coach can do",
     "coachEmailMismatch": "The {{platform}} account you connected uses a different email than your Dravr account. Connect the {{platform}} account registered with your Dravr email.",
     "coachEmailMissing": "{{platform}} shares no email for the account you connected, so Dravr cannot tell it is yours.",
