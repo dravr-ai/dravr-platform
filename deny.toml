@@ -55,6 +55,51 @@ ignore = [
     # Next Review: 2026-11-23
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0387: crypto-bigint 0.5.5 - timing variability in
+    # operations intended to be constant-time
+    # -------------------------------------------------------------------------
+    # Severity: no CVSS score published; category crypto-failure (timing
+    # side channel)
+    # Crate: crypto-bigint 0.5.5 (the only version in Cargo.lock)
+    # Issue: subtraction, zero counting, division and Montgomery multiplication
+    # may branch on secret data, depending on compiler and target CPU, so a
+    # co-located observer could learn secret integers through timing. Fixed
+    # only in crypto-bigint >= 0.7.6; no 0.5.x release exists.
+    # Advisory: https://rustsec.org/advisories/RUSTSEC-2026-0387
+    #
+    # Risk Assessment: NONE reachable in our usage
+    # - crypto-bigint 0.5.5 enters only through jsonwebtoken's `rust_crypto`
+    #   feature (elliptic-curve 0.13 -> p256 / p384, the ES256 / ES384
+    #   algorithms). pierre-auth, pierre-middleware and dravr-tronc 6.2.1 all
+    #   enable it, so the crate is in the shipped build graph.
+    # - Every token Pierre signs or verifies is RS256 or HS256:
+    #   `Algorithm::RS256` / `Algorithm::HS256` are the only ones in crates/
+    #   and in dravr-tronc 6.2.1. Each `Validation::new(..)` allows only that
+    #   one algorithm, so jsonwebtoken refuses an ES256 / ES384 header before
+    #   any signature check, and every key is RSA or HMAC (`from_rsa_pem`,
+    #   `from_rsa_components`, `from_secret`). No ECDSA arithmetic runs in
+    #   jsonwebtoken.
+    # - The ECDSA we do run, App Attest
+    #   (crates/pierre-auth/src/oauth2_server/app_attest.rs: P-256 assertions,
+    #   a P-384 / P-256 certificate chain), goes through ring / webpki, not
+    #   crypto-bigint.
+    #
+    # Mitigation:
+    # - Remove when jsonwebtoken moves to p256 / p384 0.14 (elliptic-curve
+    #   0.14) and Cargo.lock resolves crypto-bigint >= 0.7.6; elliptic-curve
+    #   0.14.1 still accepts the affected 0.7.5.
+    # - Or switch jsonwebtoken to its `aws_lc_rs` backend, which drops p256
+    #   and p384. Cargo unifies features, so the switch has to land in
+    #   dravr-tronc as well as pierre-auth, pierre-middleware and pierre-server.
+    #   It does not clear RUSTSEC-2023-0071: pierre-auth depends on rsa
+    #   directly (key generation in crates/pierre-auth/src/admin/jwks.rs).
+    #
+    # Reviewed: 2026-10-24 — published 2026-10-23; jsonwebtoken 11.1.0, the
+    #   latest, still depends on p256 / p384 0.13, so no upgrade clears it.
+    # Next Review: 2026-11-24
+    "RUSTSEC-2026-0387",
 ]
 
 # Warn on yanked crates
