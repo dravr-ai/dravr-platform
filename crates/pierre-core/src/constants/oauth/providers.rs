@@ -282,10 +282,10 @@ pub fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool 
     source_attribution(source).is_some() || garmin_device(device_name)
 }
 
-/// How much of a figure derived from several workouts Garmin-sourced data
-/// makes up, which decides the line Garmin's brand guidelines owe it: Garmin
-/// named as the figure's distinct source, or as a contributing one
-/// (carnet#1154).
+/// How much of a figure derived from several workouts is Garmin-sourced.
+///
+/// It decides the line Garmin's brand guidelines owe the figure: Garmin named
+/// as its distinct source, or as a contributing one (carnet#1154).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GarminContribution {
@@ -295,9 +295,10 @@ pub enum GarminContribution {
     Part,
 }
 
-/// What Garmin contributed to a figure derived from `workouts`, each given as
-/// whether it carries Garmin-sourced data ([`garmin_recorded`] on any of its
-/// copies); `None` when none does.
+/// What Garmin contributed to a figure derived from `workouts`.
+///
+/// Each workout is given as whether it carries Garmin-sourced data
+/// ([`garmin_recorded`] on any of its copies); `None` when none does.
 #[must_use]
 pub fn garmin_contribution(workouts: impl IntoIterator<Item = bool>) -> Option<GarminContribution> {
     let (garmin, other) = workouts
@@ -583,8 +584,8 @@ mod tests {
         assert_eq!(garmin_contribution([false, false]), None);
         assert_eq!(garmin_contribution([]), None);
         assert_eq!(
-            serde_json::to_value(GarminContribution::Part).unwrap(),
-            serde_json::json!("part")
+            serde_json::to_value(GarminContribution::Part).ok(),
+            Some(serde_json::json!("part"))
         );
     }
 

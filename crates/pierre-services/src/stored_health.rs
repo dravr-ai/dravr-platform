@@ -148,20 +148,21 @@ fn garmin_rows_attribution<T: StoredHealthRecord>(
 }
 
 /// The attribution served rows owe, noted on the running derivation for the
-/// reply derived from them: that of their Garmin data sources, else that of
-/// the athlete's intervals.icu wellness when such a row is among them.
-async fn attribution_of<T: StoredHealthRecord>(
+/// reply derived from them.
+///
+/// That of their Garmin data sources (`garmin`, read off the rows before
+/// this awaits anything), else that of the athlete's intervals.icu wellness
+/// when such a row is among them.
+async fn attribution_of(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant: &TenantId,
-    records: &[T],
-    sources: &[DataSource],
+    garmin: Option<String>,
+    serves_intervals: bool,
 ) -> AppResult<Option<String>> {
-    let attribution = match garmin_rows_attribution(records, sources) {
+    let attribution = match garmin {
         Some(attribution) => Some(attribution),
-        None if serves_intervals(records) => {
-            intervals_wellness_attribution(repos, user_id, tenant).await?
-        }
+        None if serves_intervals => intervals_wellness_attribution(repos, user_id, tenant).await?,
         None => None,
     };
     if attribution.is_some() {
@@ -209,7 +210,9 @@ pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
     } else {
         ai_scope::filter_stored_health(terms, records, sources)
     };
-    let attribution = attribution_of(repos, user_id, tenant, &records, sources).await?;
+    let garmin = garmin_rows_attribution(&records, sources);
+    let attribution =
+        attribution_of(repos, user_id, tenant, garmin, serves_intervals(&records)).await?;
     Ok(StoredHealth {
         records,
         attribution,
