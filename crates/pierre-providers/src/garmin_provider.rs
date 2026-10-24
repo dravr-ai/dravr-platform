@@ -277,6 +277,10 @@ impl GarminProvider {
             summary.duration.map_or(0, utils::conversions::f64_to_u64),
             oauth_providers::GARMIN,
         )
+        // Garmin's brand guidelines owe an attribution on everything this
+        // provider serves, and every attribution path keys on `source`
+        // (carnet#1154); a source equal to the provider changes no terms.
+        .source(oauth_providers::GARMIN)
         .distance_meters_opt(summary.distance)
         .elevation_gain_opt(summary.elevation_gain)
         .average_speed_opt(summary.average_speed)
@@ -322,6 +326,8 @@ impl GarminProvider {
             row.duration.map_or(0, utils::conversions::f64_to_u64),
             oauth_providers::GARMIN,
         )
+        // As on the detail path: the attribution keys on `source`.
+        .source(oauth_providers::GARMIN)
         .distance_meters_opt(row.distance)
         .elevation_gain_opt(row.elevation_gain)
         .average_speed_opt(row.average_speed)
@@ -1008,5 +1014,24 @@ mod tests {
 
         assert_eq!(activity.normalized_power(), None);
         assert_eq!(activity.average_power(), Some(214));
+    }
+
+    /// Both conversion paths stamp the source the Garmin attribution keys on,
+    /// so a direct read shows "Garmin" like a relayed one (carnet#1154).
+    #[test]
+    fn every_converted_activity_carries_the_garmin_attribution() {
+        let row: GarminListRow = serde_json::from_value(list_row()).unwrap();
+        let listed = GarminProvider::convert_garmin_list_row(row).unwrap();
+        let response: GarminActivityResponse = serde_json::from_value(detail()).unwrap();
+        let detailed = GarminProvider::convert_garmin_activity(response).unwrap();
+
+        for activity in [listed, detailed] {
+            assert_eq!(activity.source(), Some(oauth_providers::GARMIN));
+            assert_eq!(
+                oauth_providers::activity_attribution(activity.source(), activity.device_name())
+                    .as_deref(),
+                Some(oauth_providers::GARMIN_ATTRIBUTION)
+            );
+        }
     }
 }
