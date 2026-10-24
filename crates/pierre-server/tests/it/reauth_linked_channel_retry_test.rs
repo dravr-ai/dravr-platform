@@ -497,11 +497,11 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
         ]),
     )
     .await;
-    f.connect("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
     f.link_chat("telegram", "tg-athlete-650").await;
     f.link_chat("whatsapp", "15145550650").await;
 
-    let notice = f.flag("sciotte_garmin").await;
+    let notice = f.flag("sciotte_coros").await;
     assert!(notice.claimed);
     assert_eq!(notice.chat_channels, 1, "only Telegram took the first send");
     assert_eq!(telegram_first.delivered.lock().unwrap().len(), 1);
@@ -522,7 +522,7 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
         "a linked chat has no session to record a message row in"
     );
     assert_eq!(entry["user_id"], f.user_id.to_string());
-    assert_eq!(entry["reauth_provider"], "sciotte_garmin");
+    assert_eq!(entry["reauth_provider"], "sciotte_coros");
     assert_eq!(entry["reauth_tenant_id"], f.tenant.to_string());
     let send_by = chrono::DateTime::parse_from_rfc3339(entry["expires_at"].as_str().unwrap())
         .unwrap()
@@ -539,7 +539,7 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
     assert_eq!(delivered.len(), 1, "delivered once on the retry");
     assert_eq!(delivered[0]["to"], "15145550650");
     let body = delivered[0]["text"].as_str().unwrap();
-    assert!(body.contains("Garmin"), "names the provider: {body}");
+    assert!(body.contains("COROS"), "names the provider: {body}");
 
     let target = f
         .runtime
@@ -556,7 +556,7 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
         );
     let claims = verify_link_token(&token, LINK_SECRET, "sciotte").unwrap();
-    assert_eq!(claims.tgt, "garmin");
+    assert_eq!(claims.tgt, "coros");
     assert_eq!(claims.channel, ChannelType::WhatsApp.to_string());
     assert_eq!(claims.sub, f.user_id.to_string());
 
@@ -636,10 +636,10 @@ async fn a_chat_that_keeps_refusing_is_given_up_after_the_max_attempts() {
         channels(&[(ChannelType::WhatsApp, Arc::clone(&whatsapp_retry))]),
     )
     .await;
-    f.connect("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
     f.link_chat("whatsapp", "15145550652").await;
 
-    f.flag("sciotte_garmin").await;
+    f.flag("sciotte_coros").await;
     let entry_id = f.pending().await[0]["id"].as_str().unwrap().to_owned();
 
     // The first pass takes the pending entry; each later pass is one retry.
@@ -683,8 +683,8 @@ async fn an_entry_past_its_link_expiry_is_given_up_unsent() {
         channels(&[(ChannelType::WhatsApp, Arc::clone(&whatsapp_retry))]),
     )
     .await;
-    f.connect("sciotte_garmin").await;
-    f.flag("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
+    f.flag("sciotte_coros").await;
 
     let entry_id = Uuid::new_v4().to_string();
     let user_id = f.user_id.to_string();
@@ -701,7 +701,7 @@ async fn an_entry_past_its_link_expiry_is_given_up_unsent() {
             expires_at: Some(Utc::now() - Duration::minutes(1)),
             reauth: Some(OutboundReauthGuard {
                 tenant_id: f.tenant,
-                provider: "sciotte_garmin",
+                provider: "sciotte_coros",
             }),
         })
         .await

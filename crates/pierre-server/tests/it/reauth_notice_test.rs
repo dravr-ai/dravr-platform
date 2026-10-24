@@ -19,8 +19,13 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
 use chrono::Utc;
+use pierre_contremaitre::messaging_strings::{
+    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_PAUSED,
+};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId};
+use pierre_core::models::{
+    ConnectionStatus, ConnectionType, ReauthMark, TenantId, SUPPORTED_LOCALES,
+};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
@@ -261,7 +266,7 @@ async fn a_sweep_flag_tells_the_athlete_once_in_the_app_and_on_every_linked_chat
 #[tokio::test]
 async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
     let f = fixture().await;
-    f.connect("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
     f.link_chat("whatsapp", "15145550102").await;
 
     f.runtime
@@ -270,13 +275,13 @@ async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
         .mark_needs_reauth(
             f.user_id,
             f.tenant,
-            "sciotte_garmin",
+            "sciotte_coros",
             Some("session_expired"),
             Utc::now(),
         )
         .await
         .unwrap();
-    let notice = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_garmin").await;
+    let notice = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_coros").await;
     assert!(notice.claimed);
     assert_eq!(notice.chat_channels, 1);
 
@@ -284,7 +289,7 @@ async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
     assert_eq!(chat.len(), 1);
     let (recipient, body) = &chat[0];
     assert_eq!(recipient, "15145550102");
-    assert!(body.contains("Garmin"), "names the provider: {body}");
+    assert!(body.contains("COROS"), "names the provider: {body}");
     assert!(!body.contains("sciotte"), "never the backend slug: {body}");
     assert!(
         body.contains("https://app.test/r/"),
@@ -306,13 +311,116 @@ async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
         );
     let claims = verify_link_token(&token, LINK_SECRET, "sciotte").unwrap();
-    assert_eq!(claims.tgt, "garmin", "opens the Garmin login");
+    assert_eq!(claims.tgt, "coros", "opens the COROS login");
     assert_eq!(
         claims.channel,
         ChannelType::WhatsApp.to_string(),
         "minted for the chat it was sent on"
     );
     assert_eq!(claims.sub, f.user_id.to_string());
+}
+
+/// Garmin's credential login is closed (carnet#1155), so an expired Garmin
+/// session's notice carries no link: it says the connection expired and that
+/// Garmin's sign-in is paused, and mints nothing.
+#[tokio::test]
+async fn a_closed_login_notice_says_sign_in_is_paused_and_carries_no_link() {
+    let f = fixture().await;
+    f.connect("sciotte_garmin").await;
+    f.link_chat("whatsapp", "15145550103").await;
+
+    f.runtime
+        .repos()
+        .provider_connections
+        .mark_needs_reauth(
+            f.user_id,
+            f.tenant,
+            "sciotte_garmin",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let notice = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_garmin").await;
+    assert!(notice.claimed, "the first notice claims the transition");
+    assert_eq!(notice.chat_channels, 1, "the linked chat is told");
+
+    let chat = f.chat();
+    assert_eq!(chat.len(), 1, "one message, on the linked chat: {chat:?}");
+    let (_, body) = &chat[0];
+    assert!(
+        is_garmin_paused_copy(body),
+        "the notice is the paused copy: {body}"
+    );
+    assert!(
+        !body.contains("https://app.test/r/"),
+        "no reconnect link for a closed login: {body}"
+    );
+}
+
+/// The backfill answers the conversation that asked when its notice reached
+/// no chat. For Garmin's closed credential login (carnet#1155) that answer is
+/// the paused copy with no link, rather than nothing at all.
+#[tokio::test]
+async fn a_closed_login_backfill_tells_the_asking_conversation_sign_in_is_paused() {
+    let f = fixture().await;
+    f.connect("sciotte_garmin").await;
+    let user = f.user_id.to_string();
+    let conversation = seed_conversation(&f.database, &user, f.tenant).await;
+    seed_session(
+        &f.database,
+        &user,
+        f.tenant,
+        "whatsapp",
+        "15145550106",
+        None,
+        &conversation,
+    )
+    .await;
+
+    backfill_session_expired(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte_garmin",
+        Some(&conversation),
+        Utc::now(),
+    )
+    .await;
+
+    assert_eq!(
+        f.status("sciotte_garmin").await,
+        ConnectionStatus::NeedsReauth,
+        "the expired session is flagged"
+    );
+    let chat = f.chat();
+    assert_eq!(
+        chat.len(),
+        1,
+        "answered in the conversation that asked: {chat:?}"
+    );
+    let (recipient, body) = &chat[0];
+    assert_eq!(
+        recipient, "15145550106",
+        "the answer reaches the asking chat"
+    );
+    assert!(
+        is_garmin_paused_copy(body),
+        "the answer is the paused copy: {body}"
+    );
+    assert!(
+        !body.contains("https://app.test/r/"),
+        "no reconnect link for a closed login: {body}"
+    );
+}
+
+/// Whether `body` is the paused reconnect copy naming Garmin, in any of the
+/// five locales the notifier may resolve for the chat.
+fn is_garmin_paused_copy(body: &str) -> bool {
+    let registry = MessagingStringsRegistry::new();
+    SUPPORTED_LOCALES
+        .iter()
+        .any(|locale| body == registry.render(KEY_PROVIDER_REAUTH_PAUSED, locale, &["Garmin"]))
 }
 
 /// Returning to `active` re-arms the notice: the next disconnect is told
@@ -361,7 +469,7 @@ async fn a_reconnect_rearms_the_notice_for_the_next_disconnect() {
 #[tokio::test]
 async fn a_backfill_flag_notices_once_and_answers_the_asking_conversation_on_repeats() {
     let f = fixture().await;
-    f.connect("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
     let user = f.user_id.to_string();
     let conversation = seed_conversation(&f.database, &user, f.tenant).await;
     seed_session(
@@ -380,7 +488,7 @@ async fn a_backfill_flag_notices_once_and_answers_the_asking_conversation_on_rep
             &f.runtime,
             f.user_id,
             f.tenant,
-            "sciotte_garmin",
+            "sciotte_coros",
             Some(&conversation),
             Utc::now(),
         )
@@ -388,7 +496,7 @@ async fn a_backfill_flag_notices_once_and_answers_the_asking_conversation_on_rep
 
     expire().await;
     assert_eq!(
-        f.status("sciotte_garmin").await,
+        f.status("sciotte_coros").await,
         ConnectionStatus::NeedsReauth
     );
     assert_eq!(
@@ -415,7 +523,7 @@ async fn a_backfill_flag_notices_once_and_answers_the_asking_conversation_on_rep
 #[tokio::test]
 async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
     let f = fixture().await;
-    f.connect("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
     let user = f.user_id.to_string();
     let conversation = seed_conversation(&f.database, &user, f.tenant).await;
     seed_session(
@@ -431,17 +539,17 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
 
     let backfill_began = Utc::now();
     sleep(StdDuration::from_millis(10)).await;
-    f.connect("sciotte_garmin").await;
+    f.connect("sciotte_coros").await;
     backfill_session_expired(
         &f.runtime,
         f.user_id,
         f.tenant,
-        "sciotte_garmin",
+        "sciotte_coros",
         Some(&conversation),
         backfill_began,
     )
     .await;
-    assert_eq!(f.status("sciotte_garmin").await, ConnectionStatus::Active);
+    assert_eq!(f.status("sciotte_coros").await, ConnectionStatus::Active);
     assert!(f.chat().is_empty(), "nothing reaches a reconnected athlete");
     assert_eq!(f.app_notices().await, []);
 
@@ -449,13 +557,13 @@ async fn a_backfill_leaves_a_connection_reconnected_since_it_began() {
         &f.runtime,
         f.user_id,
         f.tenant,
-        "sciotte_garmin",
+        "sciotte_coros",
         Some(&conversation),
         Utc::now(),
     )
     .await;
     assert_eq!(
-        f.status("sciotte_garmin").await,
+        f.status("sciotte_coros").await,
         ConnectionStatus::NeedsReauth
     );
     let chat = f.chat();

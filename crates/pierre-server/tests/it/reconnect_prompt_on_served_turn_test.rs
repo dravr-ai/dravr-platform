@@ -53,8 +53,8 @@ use pierre_chat_pipeline::{
     SurfaceRequest, TurnInput, TurnOrigin, TurnState, TurnTelemetry,
 };
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
-    KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
+    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_PAUSED, KEY_PROVIDER_REAUTH_REQUIRED,
+    KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::errors::AppError;
@@ -142,7 +142,7 @@ fn web_profile() -> SurfaceProfile {
 }
 
 /// Register a healthy Strava connection holding two real rides in the durable
-/// cache, then a Garmin connection with no session at all — elected last, so it
+/// cache, then a COROS connection with no session at all — elected last, so it
 /// is the primary the turn tries and fails to authenticate.
 async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     let (user_id, user) = create_test_user(&resources.agent.database)
@@ -197,7 +197,7 @@ async fn athlete_with_a_dead_primary(resources: &Arc<ServerContext>) -> (Uuid, T
         .common
         .repos
         .provider_connections
-        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
+        .register_connection(user_id, tenant, "coros", &ConnectionType::OAuth, None)
         .await
         .unwrap();
 
@@ -282,13 +282,13 @@ async fn a_served_turn_yields_the_siblings_data_and_a_clickable_reconnect_prompt
         .expect("the dead provider must still be surfaced for reconnection");
     assert_eq!(
         caveat.get("provider").and_then(Value::as_str),
-        Some("garmin"),
+        Some("coros"),
         "the model is addressed with the brand name, not the backend key"
     );
     assert_eq!(
         caveat.get("provider_slug").and_then(Value::as_str),
-        Some("sciotte_garmin"),
-        "the chat pipeline mints on the backend key: garmin's hosted login and \
+        Some("sciotte_coros"),
+        "the chat pipeline mints on the backend key: coros' hosted login and \
          an OAuth authorize round-trip are different routes"
     );
 
@@ -299,12 +299,12 @@ async fn a_served_turn_yields_the_siblings_data_and_a_clickable_reconnect_prompt
     }];
     assert_eq!(
         reconnect_offer_in_responses(&responses).as_deref(),
-        Some("sciotte_garmin"),
+        Some("sciotte_coros"),
         "the served window must raise the soft signal the recovery stage reads"
     );
 
     // And the recovery stage turns that slug into an offer with a real link.
-    let mut result = loop_result(None, Some("sciotte_garmin"));
+    let mut result = loop_result(None, Some("sciotte_coros"));
     let recovery = recover(&resources, user_id, tenant, &mut result).await;
 
     assert!(
@@ -315,11 +315,11 @@ async fn a_served_turn_yields_the_siblings_data_and_a_clickable_reconnect_prompt
         .prompt
         .expect("a served turn still offers the athlete a reconnect control");
     assert_eq!(
-        prompt.provider, "sciotte_garmin",
+        prompt.provider, "sciotte_coros",
         "the prompt names the dead connection"
     );
     assert_eq!(
-        prompt.display_name, "Garmin",
+        prompt.display_name, "COROS",
         "the control is labelled with the brand the athlete knows"
     );
     assert!(
@@ -341,7 +341,7 @@ async fn the_agent_answer_survives_the_reconnect_offer_on_a_served_turn() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
-    let mut result = loop_result(None, Some("sciotte_garmin"));
+    let mut result = loop_result(None, Some("sciotte_coros"));
     let recovery = recover(&resources, user_id, tenant, &mut result).await;
 
     assert!(
@@ -366,7 +366,7 @@ async fn the_agent_answer_survives_the_reconnect_offer_on_a_served_turn() {
     let appended = MessagingStringsRegistry::new().render(
         KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
         "fr",
-        &["Garmin"],
+        &["COROS"],
     );
     assert!(
         result.content.ends_with(&appended),
@@ -384,7 +384,7 @@ async fn the_agent_answer_survives_the_reconnect_offer_on_a_served_turn() {
         offer.text
     );
     assert!(
-        result.content.contains("Garmin"),
+        result.content.contains("COROS"),
         "the athlete is told which connection to restore, got: {}",
         result.content
     );
@@ -441,6 +441,34 @@ async fn a_failed_mint_on_a_served_turn_keeps_the_answer_and_drops_the_control()
 }
 
 // ============================================================================
+// A provider whose credential login is closed
+// ============================================================================
+
+/// Garmin's credential login is closed (carnet#1155): an expired Garmin
+/// session has no sign-in to link to, so the reply says the connection expired
+/// and that Garmin's sign-in is paused — no reconnect control, no link, and no
+/// invitation to reconnect from settings, where the sign-in is paused too.
+#[tokio::test]
+async fn an_expired_garmin_session_is_told_its_sign_in_is_paused_with_no_link() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+
+    let mut result = loop_result(Some("sciotte_garmin"), None);
+    let recovery = recover(&resources, user_id, tenant, &mut result).await;
+
+    assert!(
+        recovery.prompt.is_none(),
+        "no reconnect control for a closed login"
+    );
+    let expected =
+        MessagingStringsRegistry::new().render(KEY_PROVIDER_REAUTH_PAUSED, "fr", &["Garmin"]);
+    assert_eq!(
+        result.content, expected,
+        "the reply says Garmin's sign-in is paused, and nothing else"
+    );
+}
+
+// ============================================================================
 // The blank turn, unchanged
 // ============================================================================
 
@@ -451,7 +479,7 @@ async fn a_sole_dead_connection_still_blanks_to_the_reconnect_message() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
-    let mut result = loop_result(Some("sciotte_garmin"), None);
+    let mut result = loop_result(Some("sciotte_coros"), None);
     let recovery = recover(&resources, user_id, tenant, &mut result).await;
 
     assert!(
@@ -461,13 +489,13 @@ async fn a_sole_dead_connection_still_blanks_to_the_reconnect_message() {
     let prompt = recovery
         .prompt
         .expect("the blank path still mints a reconnect control");
-    assert_eq!(prompt.provider, "sciotte_garmin");
-    assert_eq!(prompt.display_name, "Garmin");
+    assert_eq!(prompt.provider, "sciotte_coros");
+    assert_eq!(prompt.display_name, "COROS");
 
     let expected = MessagingStringsRegistry::new().render(
         KEY_PROVIDER_REAUTH_REQUIRED,
         "fr",
-        &["Garmin", prompt.url.as_str()],
+        &["COROS", prompt.url.as_str()],
     );
     assert_eq!(
         result.content, expected,
@@ -545,13 +573,13 @@ async fn a_turn_carrying_both_signals_takes_the_blank_path() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
 
-    let mut result = loop_result(Some("sciotte_garmin"), Some("whoop"));
+    let mut result = loop_result(Some("sciotte_coros"), Some("whoop"));
     let recovery = recover(&resources, user_id, tenant, &mut result).await;
 
     assert!(recovery.owns_reply, "the hard signal wins");
     let prompt = recovery.prompt.expect("the blank path mints its control");
     assert_eq!(
-        prompt.provider, "sciotte_garmin",
+        prompt.provider, "sciotte_coros",
         "the provider that blanked the turn is the one to reconnect"
     );
     assert!(
@@ -641,7 +669,7 @@ async fn the_served_windows_reconnect_note_reaches_the_models_prompt() {
         .expect("the model must be told the window was served without a source");
     assert_eq!(
         caveat.get("provider").and_then(Value::as_str),
-        Some("garmin"),
+        Some("coros"),
         "the note names the dead connection in the athlete's own vocabulary"
     );
     let note = caveat
@@ -649,7 +677,7 @@ async fn the_served_windows_reconnect_note_reaches_the_models_prompt() {
         .and_then(Value::as_str)
         .expect("the note is prose the model can act on");
     assert!(
-        note.contains("served WITHOUT garmin") && note.contains("must re-authorize it"),
+        note.contains("served WITHOUT coros") && note.contains("must re-authorize it"),
         "the note has to say which source dropped and that it needs reconnecting: {note}"
     );
 
@@ -818,11 +846,11 @@ async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
     let (provider, display_name, url, text) = reconnect;
 
     assert_eq!(
-        provider, "sciotte_garmin",
+        provider, "sciotte_coros",
         "the control names the dead connection by the key the mint routes on"
     );
     assert_eq!(
-        display_name, "Garmin",
+        display_name, "COROS",
         "the control is labelled with the brand the athlete knows"
     );
     assert!(
@@ -1110,7 +1138,7 @@ async fn a_headless_turn_handed_to_the_text_loop_keeps_its_loopback_offer() {
     );
     assert_eq!(
         result.served_without_provider.as_deref(),
-        Some("sciotte_garmin"),
+        Some("sciotte_coros"),
         "the offer the loopback raised survives the hand-off"
     );
 }
@@ -1233,7 +1261,7 @@ fn envelope_state(result: &ToolLoopResult, recovery: AuthRecovery) -> TurnState 
 
 /// The payoff, on the path production actually runs.
 ///
-/// A Copilot ACP turn whose loopback served the window without Garmin must hand
+/// A Copilot ACP turn whose loopback served the window without COROS must hand
 /// the athlete a real reconnect control, not just whatever sentence the agent
 /// chose to write — and must still hand them the sibling's numbers underneath it.
 #[tokio::test]
@@ -1262,7 +1290,7 @@ async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
             .get("reconnect_required")
             .and_then(|c| c.get("provider_slug"))
             .and_then(Value::as_str),
-        Some("sciotte_garmin"),
+        Some("sciotte_coros"),
         "the served window names the dead backend for the mint to route on"
     );
 
@@ -1271,7 +1299,7 @@ async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
     let mut result = finish_headless_turn(&resources, user_id, tenant, &acp_turn).await;
     assert_eq!(
         result.served_without_provider.as_deref(),
-        Some("sciotte_garmin"),
+        Some("sciotte_coros"),
         "a headless turn must carry the soft signal its loopback raised"
     );
     assert_eq!(
@@ -1306,11 +1334,11 @@ async fn a_headless_turn_carries_the_reconnect_control_its_loopback_raised() {
         })
         .expect("the headless turn's envelope must carry the reconnect control");
     assert_eq!(
-        provider, "sciotte_garmin",
+        provider, "sciotte_coros",
         "the control names the dead connection by the key the mint routes on"
     );
     assert_eq!(
-        display_name, "Garmin",
+        display_name, "COROS",
         "the control is labelled with the brand the athlete knows"
     );
     assert!(
@@ -1361,7 +1389,7 @@ async fn a_headless_turn_drains_the_offer_it_consumed() {
     let first = finish_headless_turn(&resources, user_id, tenant, &acp_turn).await;
     assert_eq!(
         first.served_without_provider.as_deref(),
-        Some("sciotte_garmin"),
+        Some("sciotte_coros"),
         "the turn that raised the offer carries it"
     );
 

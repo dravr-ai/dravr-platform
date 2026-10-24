@@ -31,10 +31,10 @@ use std::sync::Arc;
 use helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_BACK, KEY_HOSTED_COMMON_CREDENTIALS_NOTE,
-    KEY_HOSTED_COMMON_EMAIL_LABEL, KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL,
-    KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOG_IN, KEY_HOSTED_COMMON_OTP_LABEL_NAMED,
-    KEY_HOSTED_COMMON_PASSWORD_LABEL, KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED,
-    KEY_HOSTED_COMMON_SIGN_IN_EXPIRED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
+    KEY_HOSTED_COMMON_EMAIL_LABEL, KEY_HOSTED_COMMON_LINKED_FROM, KEY_HOSTED_COMMON_LOG_IN,
+    KEY_HOSTED_COMMON_OTP_LABEL_NAMED, KEY_HOSTED_COMMON_PASSWORD_LABEL,
+    KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, KEY_HOSTED_COMMON_SIGN_IN_EXPIRED,
+    KEY_HOSTED_COMMON_SIGN_IN_PAUSED, KEY_HOSTED_COMMON_SIGN_IN_REJECTED,
     KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_SUBTITLE_NAMED, KEY_HOSTED_COMMON_YOUR_CHAT_APP, KEY_HOSTED_ERROR_HEADING,
     KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
@@ -655,7 +655,7 @@ async fn the_hosted_login_is_written_in_the_athletes_locale_in_all_five() {
             .get(
                 &format!(
                     "/providers/sciotte/login?token={}",
-                    fixture.login_token("garmin")
+                    fixture.login_token("coros")
                 ),
                 Some("ja"),
             )
@@ -664,10 +664,10 @@ async fn the_hosted_login_is_written_in_the_athletes_locale_in_all_five() {
         assert_lang(&body, locale, "the hosted login");
         assert_fully_rendered(&body, &format!("{locale} hosted login"));
         for (key, args) in [
-            (KEY_HOSTED_COMMON_SUBTITLE_NAMED, &["Garmin"][..]),
+            (KEY_HOSTED_COMMON_SUBTITLE_NAMED, &["COROS"][..]),
             (KEY_HOSTED_COMMON_LINKED_FROM, &["Telegram"]),
-            (KEY_HOSTED_COMMON_ACCOUNT_TITLE, &["Garmin"]),
-            (KEY_HOSTED_COMMON_CREDENTIALS_NOTE, &["Garmin"]),
+            (KEY_HOSTED_COMMON_ACCOUNT_TITLE, &["COROS"]),
+            (KEY_HOSTED_COMMON_CREDENTIALS_NOTE, &["COROS"]),
             (KEY_HOSTED_COMMON_LOG_IN, &[]),
         ] {
             assert!(
@@ -675,10 +675,10 @@ async fn the_hosted_login_is_written_in_the_athletes_locale_in_all_five() {
                 "{locale}: the hosted login shows {key}"
             );
         }
-        // Garmin takes an email or a username (carnet#873).
+        // COROS signs in with an email.
         assert!(body.contains(&format!(
             r#"<label for="email">{}</label>"#,
-            catalogue.html(KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL, &[])
+            catalogue.html(KEY_HOSTED_COMMON_EMAIL_LABEL, &[])
         )));
         let strings = script_strings(&body);
         for (name, text) in strings.as_object().expect("an object") {
@@ -687,6 +687,36 @@ async fn the_hosted_login_is_written_in_the_athletes_locale_in_all_five() {
                 "{locale}: script string {name} is empty"
             );
         }
+    }
+}
+
+/// A Garmin link minted before Garmin's credential login closed (carnet#1155)
+/// says, in the athlete's locale, why there is no form.
+#[tokio::test]
+async fn a_closed_garmin_login_says_so_in_the_athletes_locale_in_all_five() {
+    for locale in SUPPORTED_LOCALES {
+        let fixture = athlete(locale).await;
+        let catalogue = Catalogue::new(locale);
+        let body = fixture
+            .get(
+                &format!(
+                    "/providers/sciotte/login?token={}",
+                    fixture.login_token("garmin")
+                ),
+                Some("ja"),
+            )
+            .await;
+
+        assert_lang(&body, locale, "the closed Garmin login");
+        assert_fully_rendered(&body, &format!("{locale} closed Garmin login"));
+        assert!(
+            markup(&body).contains(&catalogue.html(KEY_HOSTED_COMMON_SIGN_IN_PAUSED, &["Garmin"])),
+            "{locale}: the page says Garmin's sign-in is paused: {body}"
+        );
+        assert!(
+            !body.contains("id=\"login-form\""),
+            "{locale}: no credentials form for a closed login"
+        );
     }
 }
 
@@ -803,7 +833,7 @@ impl Fixture {
                 "the hosted login",
                 format!(
                     "/providers/sciotte/login?token={}",
-                    self.login_token("garmin")
+                    self.login_token("coros")
                 ),
             ),
         ]
@@ -1008,7 +1038,7 @@ async fn the_code_step_is_worded_in_the_athletes_locale_in_all_five() {
             .get(
                 &format!(
                     "/providers/sciotte/login?token={}",
-                    fixture.login_token("garmin")
+                    fixture.login_token("coros")
                 ),
                 None,
             )
@@ -1019,8 +1049,7 @@ async fn the_code_step_is_worded_in_the_athletes_locale_in_all_five() {
             "{locale} hosted login"
         );
         assert!(
-            markup(&login)
-                .contains(&catalogue.html(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &["Garmin"])),
+            markup(&login).contains(&catalogue.html(KEY_HOSTED_COMMON_OTP_LABEL_NAMED, &["COROS"])),
             "{locale}: the hosted login's code label names the provider"
         );
     }
@@ -1084,7 +1113,7 @@ async fn a_failed_sign_in_is_worded_in_the_athletes_locale_in_all_five() {
             .get(
                 &format!(
                     "/providers/sciotte/login?token={}",
-                    fixture.login_token("garmin")
+                    fixture.login_token("coros")
                 ),
                 None,
             )
@@ -1093,15 +1122,15 @@ async fn a_failed_sign_in_is_worded_in_the_athletes_locale_in_all_five() {
         let strings = script_strings(&login);
         assert_eq!(
             strings["signInRejected"],
-            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_REJECTED, &["Garmin"])
+            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_REJECTED, &["COROS"])
         );
         assert_eq!(
             strings["signInUnavailable"],
-            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, &["Garmin"])
+            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE, &["COROS"])
         );
         assert_eq!(
             strings["signInChallenged"],
-            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, &["Garmin"])
+            catalogue.text(KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED, &["COROS"])
         );
         assert_eq!(strings["signInExpired"], expired);
         assert_eq!(
@@ -1123,7 +1152,7 @@ async fn a_failed_sign_in_is_worded_in_the_athletes_locale_in_all_five() {
 #[tokio::test]
 async fn a_lapsed_sign_in_is_refused_with_the_reason_the_page_reads() {
     let fixture = athlete("de").await;
-    let token = fixture.login_token("garmin");
+    let token = fixture.login_token("coros");
 
     for (path, body) in [
         (

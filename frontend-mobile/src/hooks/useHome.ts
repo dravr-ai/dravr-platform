@@ -44,7 +44,9 @@ export const { useRecentActivities, useActivityRoute, useTrainingPlan, useTraini
  * connection, so its activities stay as old as its last sync. The flag only
  * means something on a connected provider, so a disconnected one is never
  * named; and two rows can carry one name — the `sciotte` mirror and the
- * `strava` OAuth row are both "Strava" — so a name is listed once.
+ * `strava` OAuth row are both "Strava" — so a name is listed once. Nor is one
+ * whose sign-in is paused (`connect_paused`): it cannot be reconnected, and
+ * its Connections row says why.
  */
 export function useProviderConnected() {
   const query = useQuery({
@@ -62,7 +64,7 @@ export function useProviderConnected() {
   const needsReconnect = [
     ...new Set(
       (query.data?.providers ?? [])
-        .filter((provider) => provider.connected && provider.needs_reauth)
+        .filter((provider) => provider.connected && provider.needs_reauth && !provider.connect_paused)
         .map((provider) => provider.display_name),
     ),
   ];

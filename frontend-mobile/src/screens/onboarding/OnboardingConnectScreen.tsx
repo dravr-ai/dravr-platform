@@ -220,6 +220,8 @@ export function OnboardingConnectScreen() {
   }, [launchOAuth]);
 
   const handleConnect = (provider: ExtendedProviderStatus) => {
+    // A paused row has no sign-in to start.
+    if (provider.connect_paused) return;
     setConnectError(null);
     // An OAuth provider whose notice the account has not accepted (WHOOP's
     // owner authorization) states it first; its Continue resumes below.
@@ -284,6 +286,8 @@ export function OnboardingConnectScreen() {
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
+    // Its sign-in is closed: the row says so and offers nothing to tap.
+    const isPaused = Boolean(provider.connect_paused) && !isConnected;
 
     return (
       <View key={provider.provider} className="flex-row items-center px-4">
@@ -297,11 +301,15 @@ export function OnboardingConnectScreen() {
         >
           <View className="flex-1 min-w-0 py-2 mr-3">
             <Text className="text-base text-text-primary">{provider.display_name}</Text>
-            <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
-              {provider.description}
+            <Text
+              className="text-sm text-text-secondary mt-0.5"
+              numberOfLines={isPaused ? 3 : 1}
+              testID={isPaused ? `provider-connect-paused-${provider.provider}` : undefined}
+            >
+              {isPaused ? t('providers.connectPaused', { provider: provider.display_name }) : provider.description}
             </Text>
           </View>
-          {isConnected ? (
+          {isPaused ? null : isConnected ? (
             <View className="flex-row items-center gap-2">
               <View className="w-2 h-2 rounded-full bg-success" />
               <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>

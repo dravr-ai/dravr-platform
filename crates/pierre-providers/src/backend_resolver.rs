@@ -89,6 +89,27 @@ pub fn hosted_login_targets() -> Vec<&'static str> {
     MIRROR_PAIRS.iter().map(|(provider, _)| *provider).collect()
 }
 
+/// Mirror backends whose credential login is closed: no surface asks for the
+/// athlete's password for that provider any more, while a session stored
+/// before the closure keeps serving until the provider's official integration
+/// replaces it.
+///
+/// Garmin is the one entry: no new Garmin password is collected while the
+/// Garmin API integration is built (carnet#1155, Phase 0).
+const CREDENTIAL_LOGIN_CLOSED: [&str; 1] = [oauth_providers::SCIOTTE_GARMIN];
+
+/// Is the credential login for this provider closed? Accepts either half of a
+/// mirror pair (`garmin` or `sciotte_garmin`), as [`serving_backends`] does.
+///
+/// Every surface that would ask for the password reads it: the login route
+/// refuses, the connect cards and the hosted picker offer no sign-in, and no
+/// reconnect link to the hosted login is minted.
+#[must_use]
+pub fn credential_login_closed(provider: &str) -> bool {
+    let backend = mirror_backend_for(provider).unwrap_or(provider);
+    CREDENTIAL_LOGIN_CLOSED.contains(&backend)
+}
+
 /// The brand name an athlete reads for a provider slug, or `None` when no
 /// registered descriptor names it.
 ///
@@ -406,5 +427,33 @@ pub async fn coalesced_status(
         connected: false,
         backend_kind: BackendKind::None,
         delegation: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_garmin_has_a_closed_credential_login_by_either_name() {
+        assert!(
+            credential_login_closed(oauth_providers::GARMIN),
+            "the user-facing Garmin name reads as closed"
+        );
+        assert!(
+            credential_login_closed(oauth_providers::SCIOTTE_GARMIN),
+            "the Garmin mirror backend reads as closed"
+        );
+        for open in [
+            oauth_providers::STRAVA,
+            oauth_providers::SCIOTTE,
+            oauth_providers::TRAININGPEAKS,
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            oauth_providers::COROS,
+            oauth_providers::SCIOTTE_COROS,
+            oauth_providers::WHOOP,
+        ] {
+            assert!(!credential_login_closed(open), "{open} keeps its login");
+        }
     }
 }

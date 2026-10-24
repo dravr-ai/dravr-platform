@@ -208,7 +208,7 @@ async fn successful_push_does_not_enqueue() {
 }
 
 /// Parity for the OTHER proactive push: a failed provider-reauth NUDGE (the "your
-/// Garmin/Strava session expired, reconnect here" notice) must likewise be
+/// COROS/Strava session expired, reconnect here" notice) must likewise be
 /// persisted + enqueued for the retry worker, not warn-and-dropped. Same Meta
 /// 131047 out-of-24h-window failure mode as the completion push — and the reauth
 /// nudge is the one the user most needs: dropping it leaves them silently unable
@@ -234,14 +234,14 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
         &conversation_id,
     )
     .await;
-    // A connected sciotte_garmin: `mark_needs_reauth` UPDATEs an existing row, so
+    // A connected sciotte_coros: `mark_needs_reauth` UPDATEs an existing row, so
     // the connection must exist for the claim + nudge to fire.
     repos
         .provider_connections
         .register_connection(
             user_uuid,
             tenant_id,
-            "sciotte_garmin",
+            "sciotte_coros",
             &ConnectionType::OAuth,
             None,
         )
@@ -262,7 +262,7 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
     );
 
     notifier
-        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_coros")
         .await;
 
     // (a) Exactly one send attempt — the notifier itself must not retry; the

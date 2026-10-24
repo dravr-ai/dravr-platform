@@ -890,12 +890,13 @@ fn assert_hosted_login_handoff(result: &ToolResponse, provider: &str, mirror: &s
     );
 }
 
-/// Garmin's mirror is its only backend, so asking to connect it hands off to
-/// the hosted login whether or not a session row exists. With no row, this
-/// used to mint an OAuth URL for the uncredentialed Garmin API, which failed
-/// as an `oauth_configuration_error` the agent relayed as "Garmin is broken".
+/// Garmin's credential login is closed (carnet#1155), so there is no hosted
+/// login to hand off to: the agent is told Garmin cannot be connected right
+/// now, whether or not a session row exists. The auth-required signal would
+/// be answered as an expired connection, which an athlete who never connected
+/// does not have.
 #[tokio::test]
-async fn connect_provider_hands_garmin_to_the_hosted_login() {
+async fn connect_provider_says_garmin_sign_in_is_paused() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
@@ -907,8 +908,6 @@ async fn connect_provider_hands_garmin_to_the_hosted_login() {
     let no_row = tool
         .execute(&state, &ctx, json!({ "provider": "garmin" }))
         .await;
-    assert_hosted_login_handoff(&no_row, "garmin", oauth_providers::SCIOTTE_GARMIN);
-
     seed_token(
         &resources,
         user_id,
@@ -919,7 +918,24 @@ async fn connect_provider_hands_garmin_to_the_hosted_login() {
     let with_row = tool
         .execute(&state, &ctx, json!({ "provider": "garmin" }))
         .await;
-    assert_hosted_login_handoff(&with_row, "garmin", oauth_providers::SCIOTTE_GARMIN);
+
+    for result in [&no_row, &with_row] {
+        assert!(
+            result.is_error,
+            "no OAuth URL and no hand-off: {:?}",
+            result.structured_content
+        );
+        let data = structured(result);
+        assert!(
+            data.get("error_code").is_none(),
+            "no auth-required signal for a closed login: {data:?}"
+        );
+        let error = data.get("error").and_then(Value::as_str).unwrap_or("");
+        assert!(
+            error.contains("Garmin sign-in is paused"),
+            "the agent is told Garmin's sign-in is paused: {data:?}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -22,8 +22,8 @@ use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{Html, IntoResponse, Response};
 use pierre_contremaitre::hosted_strings::{
-    KEY_HOSTED_ERROR_GENERIC, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LINK_ALREADY_OPENED,
-    KEY_HOSTED_ERROR_MISSING_TOKEN,
+    KEY_HOSTED_COMMON_SIGN_IN_PAUSED, KEY_HOSTED_ERROR_GENERIC, KEY_HOSTED_ERROR_INVALID_LINK,
+    KEY_HOSTED_ERROR_LINK_ALREADY_OPENED, KEY_HOSTED_ERROR_MISSING_TOKEN,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -36,6 +36,7 @@ use crate::short_link::preferred_locale;
 use crate::AuthRoutesContext;
 use pierre_middleware::provider_link_token::{verify_link_token, ProviderLinkTokenClaims};
 use pierre_providers::backend_resolver;
+use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_notice::asks_for_notice;
 
@@ -164,6 +165,17 @@ pub async fn handle_sciotte_hosted_login_page(
     // acceptance asks again: the login refuses without it. Ids the token
     // cannot name leave the page to the login, which re-checks with its own.
     let backend = SciotteTarget::from_target_param(target).provider_name();
+    // A link minted before this provider's credential login closed shows why
+    // there is no form, rather than one the login would refuse.
+    if backend_resolver::credential_login_closed(backend) {
+        let strings = PageStrings::new(&resources.messaging_strings, locale);
+        let display = backend_resolver::brand_name(&global_registry(), backend).unwrap_or(target);
+        return Html(sciotte_hosted_templates::render_error_page(
+            &strings,
+            &strings.render(KEY_HOSTED_COMMON_SIGN_IN_PAUSED, &[display]),
+        ))
+        .into_response();
+    }
     let consent_required = match (Uuid::parse_str(&claims.sub), Uuid::parse_str(&claims.tid)) {
         (Ok(user_id), Ok(tenant_id)) => {
             asks_for_notice(&resources.repos, tenant_id, user_id, backend).await

@@ -468,3 +468,44 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 });
+
+describe('ProviderConnectionCards — a paused sign-in', () => {
+  const pausedLine = "Garmin sign-in is paused while we move to Garmin's official connection.";
+  const garminCard = (connected: boolean) => ({
+    provider: 'sciotte_garmin',
+    display_name: 'Garmin',
+    description: 'Garmin, as the server describes it',
+    requires_oauth: false,
+    connected,
+    needs_reauth: false,
+    capabilities: ['activities'],
+    consent_required: false,
+    connect_paused: true,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('says the sign-in is paused and opens no login when the row is tapped', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard(false)] });
+    const user = userEvent.setup();
+    renderCards();
+
+    expect(await screen.findByTestId('provider-connect-paused-sciotte_garmin')).toHaveTextContent(pausedLine);
+    expect(screen.queryByText('Garmin, as the server describes it')).toBeNull();
+
+    const row = screen.getByRole('button', { name: pausedLine });
+    expect(row).toBeDisabled();
+    await user.click(row);
+    expect(screen.queryByTestId('sciotte-modal')).toBeNull();
+  });
+
+  it('keeps a connected card connected, with no paused line', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard(true)] });
+    renderCards();
+
+    expect(await screen.findByText('Garmin, as the server describes it')).toBeInTheDocument();
+    expect(screen.queryByTestId('provider-connect-paused-sciotte_garmin')).toBeNull();
+  });
+});

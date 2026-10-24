@@ -795,6 +795,53 @@ describe('UserSettings Component', () => {
     });
   });
 
+  describe('Data Providers — a provider whose sign-in is paused', () => {
+    const pausedLine = "Garmin sign-in is paused while we move to Garmin's official connection.";
+    const garminCard = (overrides: { connected: boolean; needs_reauth: boolean }) => ({
+      provider: 'sciotte_garmin',
+      display_name: 'Garmin',
+      description: 'Garmin, as the server describes it',
+      requires_oauth: false,
+      capabilities: ['activities'],
+      consent_required: false,
+      connect_paused: true,
+      ...overrides,
+    });
+
+    it('offers no connect to a card that is not connected, and says why', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard({ connected: false, needs_reauth: false })] });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-connect-paused-sciotte_garmin')).toHaveTextContent(pausedLine);
+      const row = screen.getByTestId('provider-row-sciotte_garmin');
+      expect(within(row).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it('offers no reconnect to an expired session, but still lets it be disconnected', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard({ connected: true, needs_reauth: true })] });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-connect-paused-sciotte_garmin')).toHaveTextContent(pausedLine);
+      const row = screen.getByTestId('provider-row-sciotte_garmin');
+      expect(within(row).getAllByRole('button')).toEqual([screen.getByTestId('provider-disconnect-sciotte_garmin')]);
+    });
+
+    it('keeps a healthy connection as it is', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard({ connected: true, needs_reauth: false })] });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      expect(await screen.findByTestId('provider-disconnect-sciotte_garmin')).toBeInTheDocument();
+      expect(screen.getByText('Garmin, as the server describes it')).toBeInTheDocument();
+      expect(screen.queryByTestId('provider-connect-paused-sciotte_garmin')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Data Providers — a WHOOP no app of the server can authorize', () => {
     const whoopCard = (own_app_required: boolean) => ({
       provider: 'whoop',

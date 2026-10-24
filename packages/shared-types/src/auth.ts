@@ -332,6 +332,14 @@ export interface ExtendedProviderStatus {
    */
   consent_required: boolean;
   /**
+   * The card's only way in is a credential login that is closed (Garmin's,
+   * while the Garmin API integration is built): offer neither a connect nor a
+   * reconnect, and show `providers.connectPaused` instead. A connected card
+   * keeps serving from the session it already holds. Absent for every card
+   * that can still be connected.
+   */
+  connect_paused?: boolean;
+  /**
    * Connecting needs an OAuth app of the athlete's own: no app of theirs, of
    * their tenant's or of the server's can authorize this provider for them,
    * so an OAuth start would reach the provider with no client it knows. Open

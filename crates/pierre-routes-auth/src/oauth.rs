@@ -703,6 +703,7 @@ pub async fn compute_providers_status(
                 seats_left,
                 consent_required: notice_outstanding(resources, user_id, tenant_id, provider_name)
                     .await,
+                connect_paused: backend_resolver::credential_login_closed(provider_name),
                 own_app_required,
                 oauth_callback_url,
                 ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,

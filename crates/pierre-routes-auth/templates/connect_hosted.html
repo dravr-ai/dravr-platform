@@ -153,7 +153,7 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
+                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key'|'paused', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
                 // `notice` is shown before the credentials (sciotte) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -274,13 +274,17 @@
                     tag.className = 'pc-tag' + (p.connected ? ' connected' : '');
                     tag.textContent = p.connected
                         ? S.tagConnected
-                        : (p.kind === 'oauth'
-                            ? S.tagAuthorize
-                            : (p.kind === 'api_key'
-                                ? S.tagApiKey
-                                : identifierTag(p.login_identifier)));
+                        : (p.kind === 'paused'
+                            ? S.tagPaused
+                            : (p.kind === 'oauth'
+                                ? S.tagAuthorize
+                                : (p.kind === 'api_key'
+                                    ? S.tagApiKey
+                                    : identifierTag(p.login_identifier))));
                     btn.appendChild(tag);
-                    if (p.connected) {
+                    // A paused card's sign-in is closed: its description says
+                    // why, and it cannot be picked.
+                    if (p.connected || p.kind === 'paused') {
                         btn.disabled = true;
                     } else {
                         btn.addEventListener('click', () => pickProvider(p));

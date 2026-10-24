@@ -97,4 +97,17 @@ describe('useProviderConnection', () => {
 
     expect(result.current).toEqual({ loaded: true, connected: true, needsReconnect: [] });
   });
+
+  it('never names a provider whose sign-in is paused, since it cannot be reconnected', async () => {
+    api.getProvidersStatus.mockResolvedValue({
+      providers: [
+        { ...status('sciotte_garmin', 'Garmin', true, true), connect_paused: true },
+        status('coros', 'COROS', true, true),
+      ],
+    });
+    const { result } = renderHook(() => useProviderConnection(), { wrapper });
+    await flush();
+
+    expect(result.current.needsReconnect).toEqual(['COROS']);
+  });
 });

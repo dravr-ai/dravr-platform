@@ -498,8 +498,8 @@ async fn hosted_login_page(
 
 /// The hosted TrainingPeaks login states the exposure above the credentials
 /// and holds Log In until the box is ticked — until this account has accepted
-/// the notice, after which a reconnect goes straight to the form. Garmin never
-/// shows it.
+/// the notice, after which a reconnect goes straight to the form. A Garmin
+/// link shows no form at all: its credential login is closed.
 #[tokio::test]
 async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_it() {
     let (resources, user_id, tenant_id) = test_setup().await;
@@ -568,16 +568,18 @@ async fn hosted_login_shows_the_trainingpeaks_notice_until_the_account_accepts_i
     assert!(accepted.contains("consentRequired: false"));
     assert!(accepted.contains("id=\"consent-block\" hidden>"));
 
+    // Garmin's credential login is closed (carnet#1155): a hosted link minted
+    // before the closure says why there is no form, rather than showing one
+    // the login would refuse.
     let garmin = hosted_login_page(&resources, user_id, tenant_id, "garmin").await;
-    assert!(garmin.contains("consentRequired: false"));
-    // A Garmin Connect account from before email sign-in has a username, so
-    // the field takes either and is not typed `email` (carnet#873).
     assert!(
-        garmin.contains("<label for=\"email\">Email or username</label>")
-            && garmin.contains("type=\"text\" id=\"email\""),
-        "Garmin's login takes an email or a username"
+        garmin.contains("Garmin sign-in is paused while we move to Garmin"),
+        "the page says Garmin's sign-in is paused: {garmin}"
     );
-    assert!(garmin.contains("id=\"consent-block\" hidden>"));
+    assert!(
+        !garmin.contains("id=\"login-form\""),
+        "no credentials form for a closed login: {garmin}"
+    );
 }
 
 /// The COROS hosted login states COROS' own notice before an email field, and
@@ -690,6 +692,23 @@ async fn picker_asks_each_provider_for_its_own_notice() {
     // A Garmin Connect account from before Garmin moved to email sign-in
     // still has a username (carnet#873), so the card takes either.
     assert_eq!(garmin["login_identifier"], "email_or_username");
+    // Garmin's credential login is closed (carnet#1155): the card cannot be
+    // picked, and its line says why.
+    assert_eq!(
+        garmin["kind"], "paused",
+        "the Garmin card cannot be picked: {garmin}"
+    );
+    assert!(
+        garmin["description"]
+            .as_str()
+            .unwrap()
+            .starts_with("Garmin sign-in is paused while we move to Garmin"),
+        "the paused card says why: {garmin}"
+    );
+    assert!(
+        body.contains(r#""tagPaused":"Paused""#),
+        "the picker carries the paused card's tag"
+    );
     assert!(
         cards.iter().all(|c| c["provider"] != "coros"),
         "COROS' raw OAuth card, which Pierre cannot complete, is never offered"

@@ -15,11 +15,13 @@ use axum::Json;
 use dravr_sciotte::config::ScraperConfig;
 use dravr_sciotte::models::AuthSession;
 use pierre_cache::{Cache, CacheKey, CacheResource};
+use pierre_contremaitre::hosted_strings::KEY_HOSTED_COMMON_SIGN_IN_PAUSED;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::models::TenantId;
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_services::locale::resolve_user_locale;
 use pierre_services::provider_notice::require_notice_accepted;
 use pierre_services::scrape_session::{persist_sciotte_session, ScrapeSessionInstaller};
 use serde::{Deserialize, Serialize};
@@ -871,6 +873,50 @@ async fn require_provider_terms(
     .await
 }
 
+/// Refuse a sign-in to a provider whose credential login is closed
+/// ([`backend_resolver::credential_login_closed`]).
+///
+/// No surface offers that sign-in any more, so a request naming it comes from a
+/// link or an app build made before the closure. The refusal is worded in the
+/// caller's locale, under `InvalidInput` so the login modal and the hosted page
+/// show it verbatim (see `AppError::sanitized_message`).
+async fn require_credential_login_open(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    provider: &str,
+) -> Result<(), AppError> {
+    if !backend_resolver::credential_login_closed(provider) {
+        return Ok(());
+    }
+    info!(
+        user_id = %user_id,
+        provider = %provider,
+        "Sciotte sign-in refused: this provider's credential login is closed"
+    );
+    let locale = resolve_user_locale(resources.repos.users.as_ref(), user_id).await;
+    let display = backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
+    Err(AppError::invalid_input(resources.messaging_strings.render(
+        KEY_HOSTED_COMMON_SIGN_IN_PAUSED,
+        &locale,
+        &[display],
+    )))
+}
+
+/// [`require_credential_login_open`] for a parked sign-in's continuation: a
+/// refused flow is dropped, since no step of it may go on.
+async fn require_parked_login_open(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider: &str,
+) -> Result<(), AppError> {
+    let open = require_credential_login_open(resources, user_id, provider).await;
+    if open.is_err() {
+        forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+    }
+    open
+}
+
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
 pub async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
@@ -878,6 +924,15 @@ pub async fn handle_sciotte_login(
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+
+    // A provider whose credential login is closed is refused before anything
+    // else reads these credentials.
+    require_credential_login_open(
+        &resources,
+        user_id,
+        SciotteTarget::from_target_param(&request.target).provider_name(),
+    )
+    .await?;
 
     // A provider-specific link-token signs in only to the platform it was
     // minted for — it must not accept another platform's notice or store a
@@ -992,6 +1047,7 @@ pub async fn handle_sciotte_select_2fa(
     // that browser to this caller (see `require_remote_flow`). The remembered
     // provider names the platform for a *system* failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
+    require_parked_login_open(&resources, user_id, tenant_id, &provider).await?;
     let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, option = %request.option_id, "Selecting sciotte 2FA method (remote service)");
     let outcome = match remote.select_2fa(&request.option_id, &flow_id).await {
@@ -1052,6 +1108,7 @@ pub async fn handle_sciotte_submit_otp(
     // `require_remote_flow`); the provider names the platform for a *system*
     // failure alert.
     let (flow_id, provider) = require_remote_flow(&resources.cache, tenant_id, user_id).await?;
+    require_parked_login_open(&resources, user_id, tenant_id, &provider).await?;
     let remote = resources.provider_registry.require_sciotte_client()?;
     info!(user_id = %user_id, "Submitting sciotte OTP (remote service)");
     let outcome = match remote.submit_otp(&request.code, &flow_id).await {

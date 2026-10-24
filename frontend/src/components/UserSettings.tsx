@@ -781,6 +781,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     // user's answer in the group.
                     const delegation = provider.delegation;
                     const isDelegated = provider.connected && delegation?.status === 'confirmed';
+                    // Its sign-in is closed: no connect or reconnect, and the row
+                    // says why. A healthy connection keeps its usual actions.
+                    const isPaused =
+                      Boolean(provider.connect_paused) && (!provider.connected || provider.needs_reauth);
 
                     return (
                       <div
@@ -850,7 +854,16 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 )
                               )}
                             </div>
-                            <p className="text-xs text-on-surface-variant truncate">{description}</p>
+                            {isPaused ? (
+                              <p
+                                className="text-xs text-on-surface-variant"
+                                data-testid={`provider-connect-paused-${provider.provider}`}
+                              >
+                                {t('providers.connectPaused', { provider: provider.display_name })}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-on-surface-variant truncate">{description}</p>
+                            )}
                             {delegation?.status === 'proposed' && (
                               <p
                                 className="text-xs text-on-surface-variant mt-0.5"
@@ -915,6 +928,19 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   </Button>
                                 )}
                               </div>
+                            ) : isPaused ? (
+                              // No sign-in to offer; a dead session can still be removed.
+                              provider.connected && (
+                                <Button
+                                  variant="tertiary"
+                                  size="sm"
+                                  onClick={() => setProviderToDisconnect(provider.provider)}
+                                  className="text-error"
+                                  data-testid={`provider-disconnect-${provider.provider}`}
+                                >
+                                  {t('settingsUi.disconnect')}
+                                </Button>
+                              )
                             ) : provider.provider === 'intervals_icu' ? (
                               <Button
                                 variant="outline"

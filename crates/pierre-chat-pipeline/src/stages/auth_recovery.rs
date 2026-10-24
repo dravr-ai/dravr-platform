@@ -52,8 +52,9 @@ use crate::envelope::{ReconnectPrompt, ReplyBlockKind};
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
-    KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
+    MessagingStringsRegistry, KEY_PROVIDER_REAUTH_PAUSED, KEY_PROVIDER_REAUTH_REQUIRED,
+    KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK, KEY_PROVIDER_REAUTH_SERVED,
+    KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::ConnectionType;
@@ -169,6 +170,55 @@ impl ReconnectStanding {
     }
 }
 
+/// The facts of a turn that decide whether its reconnect offer may carry a link.
+struct LinklessTurn<'turn> {
+    user_id: Uuid,
+    provider_slug: &'turn str,
+    locale: &'turn str,
+    replaces_reply: bool,
+}
+
+impl LinklessTurn<'_> {
+    /// The sentence the turn gets without a link, or `None` when the reconnect
+    /// link may be minted.
+    ///
+    /// A provider whose credential login is closed has no sign-in to link to,
+    /// in a DM or a room alike: the athlete is told the connection expired and
+    /// that its sign-in is paused, never sent to settings to reconnect.
+    ///
+    /// A shared room never receives the link. The minted URL is a hosted login
+    /// scoped to ONE member's `(user, tenant, provider)`, and a room reply is
+    /// read — and tappable — by every member: another member landing on it
+    /// reaches the asker's provider reconnect, an account-integrity hazard.
+    /// The room gets the same sentence a failed mint renders, naming which
+    /// provider dropped; the athlete picks the actual link up in their own DM
+    /// or in the app, where the mint path is unchanged.
+    fn key(&self, bare_key: &'static str, is_direct_message: bool) -> Option<&'static str> {
+        if backend_resolver::credential_login_closed(self.provider_slug) {
+            info!(
+                user_id = %self.user_id,
+                provider = %self.provider_slug,
+                locale = %self.locale,
+                replaces_reply = self.replaces_reply,
+                "auth_recovery: credential login closed; the reconnect copy says sign-in is paused"
+            );
+            return Some(KEY_PROVIDER_REAUTH_PAUSED);
+        }
+        if !is_direct_message {
+            info!(
+                user_id = %self.user_id,
+                provider = %self.provider_slug,
+                locale = %self.locale,
+                replaces_reply = self.replaces_reply,
+                "auth_recovery_room_link_suppressed: shared-room turn gets the linkless \
+                 reconnect sentence; the user-scoped link is DM-only"
+            );
+            return Some(bare_key);
+        }
+        None
+    }
+}
+
 /// Apply provider re-auth recovery in place.
 ///
 /// On the hard signal (`result.pending_provider_auth_required`) mint a
@@ -207,25 +257,16 @@ pub async fn apply_auth_recovery(
     let (linked_key, bare_key) = standing.keys();
     let replaces_reply = standing.replaces_reply();
 
-    // A shared room never receives the link. The minted URL is a hosted login
-    // scoped to ONE member's `(user, tenant, provider)`, and a room reply is
-    // read — and tappable — by every member: another member landing on it
-    // reaches the asker's provider reconnect, an account-integrity hazard.
-    // The room gets the same sentence a failed mint renders, naming which
-    // provider dropped; the athlete picks the actual link up in their own DM
-    // or in the app, where the mint path below is unchanged.
-    if !input.is_direct_message {
-        info!(
-            user_id = %user_id,
-            provider = %provider_slug,
-            locale = %locale,
-            replaces_reply,
-            "auth_recovery_room_link_suppressed: shared-room turn gets the linkless \
-             reconnect sentence; the user-scoped link is DM-only"
-        );
+    let linkless = LinklessTurn {
+        user_id,
+        provider_slug: &provider_slug,
+        locale,
+        replaces_reply,
+    };
+    if let Some(key) = linkless.key(bare_key, input.is_direct_message) {
         return deliver_linkless_sentence(
             &deps,
-            bare_key,
+            key,
             locale,
             &display_name,
             replaces_reply,

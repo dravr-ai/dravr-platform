@@ -84,6 +84,8 @@ pub const KEY_HOSTED_COMMON_SIGN_IN_REJECTED: &str = "hosted.common.signInReject
 pub const KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE: &str = "hosted.common.signInUnavailable";
 /// Key: "`{0}` asked for an extra security check we can't complete automatically right now. Please try again in a little while."
 pub const KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED: &str = "hosted.common.signInChallenged";
+/// Key: "`{0}` sign-in is paused while we move to `{0}`'s official connection."
+pub const KEY_HOSTED_COMMON_SIGN_IN_PAUSED: &str = "hosted.common.signInPaused";
 /// Key: "This sign-in is no longer active. Please start the sign-in again." No format placeholders.
 pub const KEY_HOSTED_COMMON_SIGN_IN_EXPIRED: &str = "hosted.common.signInExpired";
 /// Key: "Try Again" No format placeholders.
@@ -109,6 +111,8 @@ pub const KEY_HOSTED_PICKER_BACK_TO_PROVIDERS: &str = "hosted.picker.backToProvi
 pub const KEY_HOSTED_PICKER_TAG_CONNECTED: &str = "hosted.picker.tagConnected";
 /// Key: "Authorize" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_AUTHORIZE: &str = "hosted.picker.tagAuthorize";
+/// Key: "Paused" No format placeholders.
+pub const KEY_HOSTED_PICKER_TAG_PAUSED: &str = "hosted.picker.tagPaused";
 /// Key: "Athlete ID / API key" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_API_KEY: &str = "hosted.picker.tagApiKey";
 /// Key: "Username / password" No format placeholders.

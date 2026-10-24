@@ -194,6 +194,27 @@ describe('ConnectionsScreen rows', () => {
     expect(screen.queryByText('Connected')).toBeNull();
   });
 
+  it('a provider whose sign-in is paused says so, and offers neither "Connect" nor "Reconnect"', async () => {
+    const pausedLine = "Garmin sign-in is paused while we move to Garmin's official connection.";
+    await renderWith([provider('sciotte_garmin', 'Garmin', { connect_paused: true })]);
+
+    expect(screen.getByTestId('provider-subtitle-sciotte_garmin')).toHaveTextContent(pausedLine);
+    expect(screen.queryByTestId('provider-action-sciotte_garmin')).toBeNull();
+  });
+
+  it('an expired session whose sign-in is paused reads "Expired" with no "Reconnect", in the row or its menu', async () => {
+    (Platform as { OS: string }).OS = 'ios';
+    await renderWith([
+      provider('sciotte_garmin', 'Garmin', { connected: true, needs_reauth: true, connect_paused: true }),
+    ]);
+
+    expect(screen.getByText('Expired')).toBeTruthy();
+    expect(screen.queryByTestId('provider-action-sciotte_garmin')).toBeNull();
+    fireEvent(screen.getByTestId('provider-row-sciotte_garmin'), 'longPress');
+    const spy = ActionSheetIOS.showActionSheetWithOptions as unknown as jest.Mock;
+    expect(spy.mock.calls[0][0]).toMatchObject({ title: 'Garmin', options: ['Disconnect', 'Cancel'] });
+  });
+
   it('pressing "Disconnect" asks for confirmation naming the provider', async () => {
     await renderWith([connectedWhoop]);
 

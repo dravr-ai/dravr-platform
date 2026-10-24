@@ -560,6 +560,15 @@ pub const KEY_PROVIDER_REAUTH_SERVED: &str = "messaging.provider.reauth_served";
 /// no URL placeholder.
 pub const KEY_PROVIDER_REAUTH_SERVED_NO_LINK: &str = "messaging.provider.reauth_served_no_link";
 
+/// Key: a connection expired for a provider whose credential login is closed
+/// (`backend_resolver::credential_login_closed`, carnet#1155).
+///
+/// The no-link copies send the athlete to settings to reconnect, which this
+/// provider cannot do: its sign-in is paused there too. This one says the
+/// connection expired and why it cannot be reconnected yet, on a blank turn
+/// and a served one alike. `{0}` = provider display name; no URL placeholder.
+pub const KEY_PROVIDER_REAUTH_PAUSED: &str = "messaging.provider.reauth_paused";
+
 /// Key: button label on the reconnect Card a card-rendering channel gets
 /// alongside the reauth sentence.
 ///
