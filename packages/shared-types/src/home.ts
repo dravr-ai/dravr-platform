@@ -2,6 +2,7 @@
 // ABOUTME: Mirrors the pierre-server `/api/me/...` handlers; each parser rejects a body of any other shape instead of rendering half of it
 
 import type { RouteView } from '@pierre/scene-types';
+import { isGarminContribution, type GarminContribution } from './garmin-attribution.js';
 import { isInstant } from './instant.js';
 import { isWorkoutPlan, type PlanDay, type PlanWeek, type WorkoutPlan } from './workout-plan.js';
 
@@ -282,6 +283,12 @@ export interface TrainingStatusResponse {
   load_ratio: TrainingLoadRatio | null;
   /** Lighter days today's form calls for; null when form cannot be judged. */
   recovery_days: number | null;
+  /**
+   * What Garmin-sourced data contributed to the figures; the section's title
+   * then carries the line Garmin's brand guidelines owe. Null when `form` is,
+   * or no workout behind the figures carries Garmin data.
+   */
+  garmin_contribution: GarminContribution | null;
 }
 
 /** `GET /api/me/training-plan?locale=xx`. */
@@ -330,6 +337,12 @@ export interface CalendarResponse {
    * plan. Look a day up with `planWeeksDayOn`.
    */
   plan_weeks: PlanWeek[] | null;
+  /**
+   * What Garmin-sourced data contributed to the workouts; a view summing
+   * them, such as the week strip's minutes, carries the line Garmin's brand
+   * guidelines owe beneath its title. Null when none carries Garmin data.
+   */
+  garmin_contribution: GarminContribution | null;
 }
 
 const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -757,10 +770,12 @@ export function parseTrainingStatusResponse(body: unknown): TrainingStatusRespon
   const form = body.form === null ? null : parseFormReading(body.form);
   const loadRatio = body.load_ratio === null ? null : parseLoadRatio(body.load_ratio);
   const recoveryDays = body.recovery_days;
+  const garminContribution = nullable(body.garmin_contribution, isGarminContribution);
   if (
     (body.form !== null && form === null) ||
     (body.load_ratio !== null && loadRatio === null) ||
-    !(recoveryDays === null || isWholeCount(recoveryDays))
+    !(recoveryDays === null || isWholeCount(recoveryDays)) ||
+    garminContribution === undefined
   ) {
     return null;
   }
@@ -778,6 +793,7 @@ export function parseTrainingStatusResponse(body: unknown): TrainingStatusRespon
     trend,
     load_ratio: loadRatio,
     recovery_days: recoveryDays,
+    garmin_contribution: garminContribution,
   };
 }
 
@@ -891,6 +907,10 @@ export function parseCalendarResponse(body: unknown): CalendarResponse | null {
     }
     planWeeks = body.plan_weeks;
   }
+  const garminContribution = nullable(body.garmin_contribution, isGarminContribution);
+  if (garminContribution === undefined) {
+    return null;
+  }
   return {
     today: body.today,
     from: body.from,
@@ -898,5 +918,6 @@ export function parseCalendarResponse(body: unknown): CalendarResponse | null {
     history_start: body.history_start,
     activities,
     plan_weeks: planWeeks,
+    garmin_contribution: garminContribution,
   };
 }

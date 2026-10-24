@@ -5,7 +5,7 @@
 // ABOUTME: Red if a week the server did not send is drawn, a filter leaks another sport's figures, or nothing stored reads as zeros
 
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
 import { UnitsContext } from '@pierre/ui-logic';
 import { HomeVolume } from '../src/screens/home/HomeVolume';
@@ -92,6 +92,7 @@ describe('HomeVolume', () => {
         { week_start: '2026-09-14', sports: [{ ...lift, activities: 1, duration_seconds: 2_700 }] },
         { week_start: '2026-09-21', sports: [{ ...lift, activities: 2, duration_seconds: 5_400 }] },
       ],
+      garmin_contribution: null,
     });
 
     expect(screen.getByTestId('home-volume-trend-label')).toHaveTextContent('Time per week, last 2 weeks');
@@ -100,7 +101,7 @@ describe('HomeVolume', () => {
   });
 
   it('says in words that one week is not yet a trend', () => {
-    const screen = renderVolume({ today: '2026-09-24', weeks: [VOLUME_RESPONSE.weeks[2]] });
+    const screen = renderVolume({ today: '2026-09-24', weeks: [VOLUME_RESPONSE.weeks[2]], garmin_contribution: null });
 
     expect(screen.getByTestId('home-volume-trend-short')).toHaveTextContent(
       'Your weekly trend shows up here as the weeks add up.',
@@ -109,10 +110,29 @@ describe('HomeVolume', () => {
   });
 
   it('says nothing is stored yet instead of drawing empty weeks', () => {
-    const screen = renderVolume({ today: '2026-09-24', weeks: [] });
+    const screen = renderVolume({ today: '2026-09-24', weeks: [], garmin_contribution: null });
 
     expect(screen.getByTestId('home-volume-empty')).toHaveTextContent(/No activities stored yet\./);
     expect(screen.queryByTestId('home-volume-week')).toBeNull();
+  });
+
+  // carnet#1154: Garmin's brand guidelines want the line directly beneath the title.
+  it.each([
+    ['sole', 'Created using data provided by Garmin devices.'],
+    ['part', 'Created in part using data provided by Garmin devices.'],
+  ] as const)("carries Garmin's line for a %s contribution directly beneath the title", (contribution, line) => {
+    const screen = renderVolume({ ...VOLUME_RESPONSE, garmin_contribution: contribution });
+
+    const [title, description] = within(screen.getByTestId('home-volume')).getAllByText(/./);
+    expect(title.props.children).toBe('Weekly volume');
+    expect(description.props.children).toBe(line);
+  });
+
+  it('carries no Garmin line when no workout it counts carries Garmin data', () => {
+    const screen = renderVolume(VOLUME_RESPONSE);
+
+    expect(screen.getByTestId('home-volume-distance')).toHaveTextContent('55.00 km');
+    expect(screen.queryByText(/Garmin/)).toBeNull();
   });
 
   it('offers a retry when the volume could not be read, and nothing while it loads', () => {

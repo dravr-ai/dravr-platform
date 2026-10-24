@@ -13,6 +13,7 @@ import {
   FORM_BAND_LABEL_KEY,
   TRAINING_STATUS_KEY,
   formLine,
+  garminContributionLine,
   loadRatioLine,
   recoveryLine,
   signedWhole,
@@ -182,7 +183,12 @@ export function HomeStatus({ response, isError, onRetry }: HomeStatusProps) {
   const form = response?.form ?? null;
 
   return (
-    <Section title={t(TRAINING_STATUS_KEY.heading)} testID="home-status">
+    <Section
+      title={t(TRAINING_STATUS_KEY.heading)}
+      // Garmin's line sits directly beneath the title (carnet#1154).
+      description={garminContributionLine(t, response?.garmin_contribution)}
+      testID="home-status"
+    >
       {response === null ? (
         isError && (
           <EmptyState

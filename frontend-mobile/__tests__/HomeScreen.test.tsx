@@ -327,6 +327,27 @@ describe('the training status', () => {
     );
   });
 
+  // carnet#1154: Garmin's brand guidelines want the line directly beneath the title.
+  it.each([
+    ['sole', 'Created using data provided by Garmin devices.'],
+    ['part', 'Created in part using data provided by Garmin devices.'],
+  ] as const)("carries Garmin's line for a %s contribution directly beneath the title", async (contribution, line) => {
+    mockGetTrainingStatus.mockResolvedValue({ ...STATUS_RESPONSE, garmin_contribution: contribution });
+    const screen = renderHome();
+
+    await screen.findByTestId('home-status-band');
+    const [title, description] = within(screen.getByTestId('home-status')).getAllByText(/./);
+    expect(title.props.children).toBe('Training status');
+    expect(description.props.children).toBe(line);
+  });
+
+  it('carries no Garmin line when no Garmin data went into the figures', async () => {
+    const screen = renderHome();
+
+    await screen.findByTestId('home-status-band');
+    expect(screen.getByTestId('home-status')).not.toHaveTextContent(/Garmin/);
+  });
+
   it('draws the trend in the measured width through the shared projection, and says it in words', async () => {
     const screen = renderHome();
 

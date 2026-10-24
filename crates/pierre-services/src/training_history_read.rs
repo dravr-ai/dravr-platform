@@ -35,12 +35,16 @@
 //! `upload` key, read in the same window, gated and merged with the rest, so a
 //! ride uploaded and also synced by a provider scores once.
 
+use std::collections::HashSet;
+
 use chrono::{Duration, NaiveDate, TimeZone, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
-use pierre_core::constants::oauth_providers::UPLOAD;
+use pierre_core::constants::oauth_providers::{
+    garmin_contribution, garmin_recorded, GarminContribution, UPLOAD,
+};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, DailyTrainingState, TenantId};
 use pierre_database::RepositoryRegistry;
@@ -109,6 +113,10 @@ pub struct TrainingHistoryRead {
     pub states: Vec<DailyTrainingState>,
     /// How much of the ask the stored history supported.
     pub coverage: HistoryCoverage,
+    /// What Garmin-sourced data contributed to the rows, which decides the
+    /// line Garmin's brand guidelines owe them (carnet#1154); `None` when no
+    /// row was computed or no workout behind them carries such data.
+    pub garmin: Option<GarminContribution>,
 }
 
 /// Read the athlete's configured timezone, if any.
@@ -154,6 +162,7 @@ pub async fn read_history_from_cache(
     let nothing_stored = TrainingHistoryRead {
         states: Vec::new(),
         coverage: HistoryCoverage::NoStoredActivities,
+        garmin: None,
     };
     let backends = resolve_compute_backends(sources.repos, tenant_id, user_id).await?;
     if backends.is_empty() {
@@ -168,6 +177,7 @@ pub async fn read_history_from_cache(
         return Ok(TrainingHistoryRead {
             states: Vec::new(),
             coverage: HistoryCoverage::Partial { trustworthy_from },
+            garmin: None,
         });
     }
     let states = compute_states(sources, tenant_id, user_id, &window, trustworthy_from, to).await?;
@@ -178,6 +188,7 @@ pub async fn read_history_from_cache(
         } else {
             HistoryCoverage::Partial { trustworthy_from }
         },
+        garmin: window.garmin,
     })
 }
 
@@ -272,6 +283,9 @@ pub struct StoredWindow {
     /// The athlete's civil date of the oldest of them; `None` when the read
     /// held nothing.
     pub oldest_stored: Option<NaiveDate>,
+    /// What Garmin-sourced data contributed to them: a session counts as
+    /// Garmin's when it, or any copy merged into it, carries such data.
+    pub garmin: Option<GarminContribution>,
 }
 
 /// Read the stored activities behind `[from, to]` and its warm-up, from every
@@ -326,7 +340,26 @@ pub async fn load_stored_window(
     // Gate first, then merge: a copy the reader may not see never lends its
     // values to one it may.
     let served = ai_scope::filter_activities(sources.terms, recordings);
-    let (activities, _) = merge_duplicates(served, &DedupConfig::from_env());
+    let garmin_copies: HashSet<String> = served
+        .iter()
+        .filter(|a| garmin_recorded(a.source(), a.device_name()))
+        .map(|a| a.id().to_owned())
+        .collect();
+    let (activities, report) = merge_duplicates(served, &DedupConfig::from_env());
+    let garmin = garmin_contribution(activities.iter().map(|session| {
+        garmin_copies.contains(session.id())
+            || garmin_recorded(session.source(), session.device_name())
+            || report
+                .groups
+                .iter()
+                .find(|group| group.canonical_id == session.id())
+                .is_some_and(|group| {
+                    group
+                        .fragment_ids
+                        .iter()
+                        .any(|id| garmin_copies.contains(id))
+                })
+    }));
     let oldest_stored = activities
         .iter()
         .map(|a: &Activity| local_date(a.start_date(), zone))
@@ -337,6 +370,7 @@ pub async fn load_stored_window(
         warmup,
         activities,
         oldest_stored,
+        garmin,
     })
 }
 

@@ -443,6 +443,63 @@ async fn nothing_is_answered_before_history_starts() {
     assert_eq!(placed(&body), [(ymd(history_start), "kept".to_owned())]);
 }
 
+/// A Garmin copy merged into another provider's workout attributes it,
+/// whichever copy the merger keeps (carnet#1154), and the span says what
+/// Garmin data contributed to the workouts it answers.
+#[tokio::test]
+async fn a_garmin_copy_attributes_its_workout_and_the_span_says_garmins_share() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "calendar-garmin").await;
+    let day = toronto_today() - Days::new(3);
+    let start = toronto_at(day, 8);
+    // The Strava copy is the longer one, so the merger keeps it.
+    let strava = ActivityBuilder::new("s-run", "Run", SportType::Run, start, 2_460, "strava")
+        .distance_meters(8_050.0)
+        .build();
+    let garmin = ActivityBuilder::new("g-run", "Run", SportType::Run, start, 2_400, "garmin")
+        .source("garmin")
+        .distance_meters(8_000.0)
+        .build();
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[strava],
+    )
+    .await;
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "garmin",
+        &[garmin],
+    )
+    .await;
+
+    let body = calendar(&resources, &athlete.token, day, day).await;
+    assert_eq!(body["activities"].as_array().unwrap().len(), 1, "{body}");
+    assert_eq!(
+        body["activities"][0]["activity"]["attribution"], "Garmin",
+        "{body}"
+    );
+    assert_eq!(body["garmin_contribution"], "sole", "{body}");
+
+    let other_day = day + Days::new(1);
+    cache(
+        &resources,
+        athlete.user_id,
+        athlete.tenant,
+        "strava",
+        &[run("phone", "strava", toronto_at(other_day, 8))],
+    )
+    .await;
+    let body = calendar(&resources, &athlete.token, day, other_day).await;
+    assert_eq!(body["garmin_contribution"], "part", "{body}");
+    let body = calendar(&resources, &athlete.token, other_day, other_day).await;
+    assert_eq!(body["garmin_contribution"], Value::Null, "{body}");
+}
+
 #[tokio::test]
 async fn a_span_longer_than_six_weeks_or_reversed_is_refused() {
     let resources = common::create_test_server_resources().await.unwrap();

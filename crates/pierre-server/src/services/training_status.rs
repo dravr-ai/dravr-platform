@@ -38,6 +38,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, NaiveDate};
 use dravr_cageux::training_load::{FormBand, TrainingLoad, TrainingLoadCalculator};
+use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_fitness_compute::{ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS};
@@ -67,6 +68,10 @@ pub struct TrainingStatus {
     /// Lighter days cageux recommends from today's form; `null` when form
     /// cannot be judged.
     pub recovery_days: Option<u32>,
+    /// What Garmin-sourced data contributed to the figures, which decides the
+    /// line Garmin's brand guidelines owe them (carnet#1154); `null` when
+    /// `form` is, or no workout behind them carries such data.
+    pub garmin_contribution: Option<GarminContribution>,
 }
 
 /// Form on one day, as a share of the athlete's own fitness.
@@ -119,7 +124,14 @@ pub async fn training_status(
 ) -> AppResult<TrainingStatus> {
     let (from, to) = status_window(today, configured_ctl_days(runtime));
     let read = read_history_from_cache(runtime, tenant_id, user_id, from, to).await?;
-    Ok(status_from_rows(today, &read.states))
+    let status = status_from_rows(today, &read.states);
+    // The figures shown owe Garmin's line; a card with no figure owes none
+    // (carnet#1154).
+    let garmin_contribution = status.form.and(read.garmin);
+    Ok(TrainingStatus {
+        garmin_contribution,
+        ..status
+    })
 }
 
 /// The span of the athlete's days the status reads: one chronic window of
@@ -182,6 +194,7 @@ pub fn status_from_rows(today: NaiveDate, rows: &[DailyTrainingState]) -> Traini
             trend: Vec::new(),
             load_ratio: None,
             recovery_days: None,
+            garmin_contribution: None,
         };
     };
     let reading = current.form_reading();
@@ -217,6 +230,7 @@ pub fn status_from_rows(today: NaiveDate, rows: &[DailyTrainingState]) -> Traini
             chronic_days: ACWR_CHRONIC_DAYS,
         }),
         recovery_days,
+        garmin_contribution: None,
     }
 }
 

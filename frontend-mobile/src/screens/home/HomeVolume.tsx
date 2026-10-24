@@ -12,6 +12,7 @@ import {
   ALL_SPORTS,
   TRAINING_VOLUME_KEY,
   activitiesLine,
+  garminContributionLine,
   volumeChartLabel,
   weekMinutesSeconds,
 } from '@pierre/shared-constants';
@@ -222,7 +223,12 @@ export function HomeVolume({ response, isError, onRetry }: HomeVolumeProps) {
   const { t } = useTranslation();
 
   return (
-    <Section title={t(TRAINING_VOLUME_KEY.heading)} testID="home-volume">
+    <Section
+      title={t(TRAINING_VOLUME_KEY.heading)}
+      // Garmin's line sits directly beneath the title (carnet#1154).
+      description={garminContributionLine(t, response?.garmin_contribution)}
+      testID="home-volume"
+    >
       {response === null ? (
         isError && (
           <EmptyState

@@ -105,6 +105,7 @@ export const STATUS_RESPONSE: TrainingStatusResponse = {
   ],
   load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
   recovery_days: 0,
+  garmin_contribution: null,
 };
 
 /** What the server answers when the stored history cannot stand behind today. */
@@ -114,6 +115,7 @@ export const THIN_STATUS_RESPONSE: TrainingStatusResponse = {
   trend: [],
   load_ratio: null,
   recovery_days: null,
+  garmin_contribution: null,
 };
 
 /**
@@ -136,6 +138,7 @@ export const VOLUME_RESPONSE: TrainingVolumeResponse = {
       ],
     },
   ],
+  garmin_contribution: null,
 };
 
 /** Google's reference polyline: (38.5, -120.2) → (40.7, -120.95) → (43.252, -126.453). */
@@ -389,5 +392,6 @@ export function calendarAnswer(
       plan === null
         ? null
         : plan.weeks.filter((week) => week.week_start <= to && addCivilDays(week.week_start, 6) >= from),
+    garmin_contribution: null,
   };
 }

@@ -16,6 +16,7 @@ function body(sport: Record<string, unknown> = RUN): Record<string, unknown> {
       { week_start: '2026-09-28', sports: [] },
       { week_start: '2026-10-05', sports: [sport] },
     ],
+    garmin_contribution: null,
   };
 }
 
@@ -25,7 +26,27 @@ describe('parseTrainingVolumeResponse', () => {
   });
 
   it('reads a body with no weeks: nothing is stored yet', () => {
-    expect(parseTrainingVolumeResponse({ today: '2026-10-07', weeks: [] })).toEqual({ today: '2026-10-07', weeks: [] });
+    expect(parseTrainingVolumeResponse({ today: '2026-10-07', weeks: [], garmin_contribution: null })).toEqual({
+      today: '2026-10-07',
+      weeks: [],
+      garmin_contribution: null,
+    });
+  });
+
+  it('keeps what Garmin contributed to the weeks, and reads an omitted contribution as none', () => {
+    for (const contribution of ['sole', 'part'] as const) {
+      expect(parseTrainingVolumeResponse({ ...body(), garmin_contribution: contribution })).toEqual({
+        ...body(),
+        garmin_contribution: contribution,
+      });
+    }
+    const { garmin_contribution: _omitted, ...older } = body();
+    expect(parseTrainingVolumeResponse(older)).toEqual(body());
+  });
+
+  it('rejects a Garmin contribution it has no line for', () => {
+    expect(parseTrainingVolumeResponse({ ...body(), garmin_contribution: 'all' })).toBeNull();
+    expect(parseTrainingVolumeResponse({ ...body(), garmin_contribution: false })).toBeNull();
   });
 
   it('rejects a body whose figure is missing rather than reading it as zero', () => {

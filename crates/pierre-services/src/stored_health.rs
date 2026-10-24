@@ -656,7 +656,12 @@ mod tests {
         );
     }
 
-    fn source_of(id: &str, provider: &str, source: Option<&str>, model: Option<&str>) -> DataSource {
+    fn source_of(
+        id: &str,
+        provider: &str,
+        source: Option<&str>,
+        model: Option<&str>,
+    ) -> DataSource {
         DataSource {
             id: id.to_owned(),
             user_id: "athlete".to_owned(),

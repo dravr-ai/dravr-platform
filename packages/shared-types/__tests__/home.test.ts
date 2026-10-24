@@ -364,6 +364,7 @@ const trainingStatus = {
   ],
   load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
   recovery_days: 0,
+  garmin_contribution: null,
 };
 
 /** What the route answers when the stored history cannot stand behind today. */
@@ -373,6 +374,7 @@ const thinHistory = {
   trend: [],
   load_ratio: null,
   recovery_days: null,
+  garmin_contribution: null,
 };
 
 describe('parseTrainingStatusResponse', () => {
@@ -391,6 +393,19 @@ describe('parseTrainingStatusResponse', () => {
         parsed: null,
       });
     }
+  });
+
+  it('keeps what Garmin contributed to the figures, and reads an omitted contribution as none', () => {
+    for (const contribution of ['sole', 'part'] as const) {
+      const status = { ...trainingStatus, garmin_contribution: contribution };
+      expect(parseTrainingStatusResponse(status)).toEqual(status);
+    }
+    expect(parseTrainingStatusResponse(without(trainingStatus, 'garmin_contribution'))).toEqual(trainingStatus);
+  });
+
+  it('refuses a Garmin contribution it has no line for', () => {
+    expect(parseTrainingStatusResponse({ ...trainingStatus, garmin_contribution: 'all' })).toBeNull();
+    expect(parseTrainingStatusResponse({ ...trainingStatus, garmin_contribution: true })).toBeNull();
   });
 
   it('refuses a band it has no words for, today or anywhere in the trend', () => {
@@ -466,6 +481,7 @@ describe('parseCalendarResponse', () => {
     history_start: '2026-03-29',
     activities: [{ date: '2026-09-20', activity: outdoorRide }],
     plan_weeks: [week],
+    garmin_contribution: null,
   };
 
   it('reads a body with workouts on their days and the plan weeks', () => {
@@ -475,6 +491,19 @@ describe('parseCalendarResponse', () => {
   it('reads a null plan_weeks as no plan, and refuses an omitted one', () => {
     expect(parseCalendarResponse({ ...calendar, plan_weeks: null })?.plan_weeks).toBeNull();
     expect(parseCalendarResponse(without(calendar, 'plan_weeks'))).toBeNull();
+  });
+
+  it('keeps what Garmin contributed to the workouts, and reads an omitted contribution as none', () => {
+    for (const contribution of ['sole', 'part'] as const) {
+      const body = { ...calendar, garmin_contribution: contribution };
+      expect(parseCalendarResponse(body)).toEqual(body);
+    }
+    expect(parseCalendarResponse(without(calendar, 'garmin_contribution'))).toEqual(calendar);
+  });
+
+  it('refuses a Garmin contribution it has no line for', () => {
+    expect(parseCalendarResponse({ ...calendar, garmin_contribution: 'all' })).toBeNull();
+    expect(parseCalendarResponse({ ...calendar, garmin_contribution: 1 })).toBeNull();
   });
 
   it('refuses a body whose dates, workouts or weeks are malformed', () => {

@@ -299,9 +299,7 @@ pub enum GarminContribution {
 /// whether it carries Garmin-sourced data ([`garmin_recorded`] on any of its
 /// copies); `None` when none does.
 #[must_use]
-pub fn garmin_contribution(
-    workouts: impl IntoIterator<Item = bool>,
-) -> Option<GarminContribution> {
+pub fn garmin_contribution(workouts: impl IntoIterator<Item = bool>) -> Option<GarminContribution> {
     let (garmin, other) = workouts
         .into_iter()
         .fold((false, false), |(garmin, other), recorded| {

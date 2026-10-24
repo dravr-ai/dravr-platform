@@ -33,6 +33,7 @@ function volume(overrides: Partial<TrainingVolumeResponse> = {}): TrainingVolume
       { week_start: '2026-09-28', sports: [] },
       { week_start: '2026-10-05', sports: [RIDE, RUN] },
     ],
+    garmin_contribution: null,
     ...overrides,
   };
 }
@@ -64,6 +65,29 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-time')).toHaveTextContent('3h 31m');
     expect(screen.getByTestId('home-volume-elevation')).toHaveTextContent('530 m');
     expect(screen.getByTestId('home-volume-count')).toHaveTextContent('3 activities');
+  });
+
+  // carnet#1154: Garmin's brand guidelines want the line directly beneath the title.
+  it.each([
+    ['sole', 'Created using data provided by Garmin devices.'],
+    ['part', 'Created in part using data provided by Garmin devices.'],
+  ] as const)("carries Garmin's line for a %s contribution directly beneath the title", async (contribution, line) => {
+    api.getTrainingVolume.mockResolvedValue(volume({ garmin_contribution: contribution }));
+    renderVolume();
+
+    const garmin = await screen.findByTestId('home-volume-garmin');
+    expect(garmin.textContent).toBe(line);
+    const heading = within(screen.getByTestId('home-volume')).getByRole('heading', { level: 3, name: 'Weekly volume' });
+    expect(heading.nextElementSibling).toContainElement(garmin);
+  });
+
+  it('carries no Garmin line when no workout it counts carries Garmin data', async () => {
+    api.getTrainingVolume.mockResolvedValue(volume());
+    renderVolume();
+
+    await screen.findByTestId('home-volume-distance');
+    expect(screen.queryByTestId('home-volume-garmin')).not.toBeInTheDocument();
+    expect(screen.getByTestId('home-volume')).not.toHaveTextContent('Garmin');
   });
 
   it('reads the week in miles and feet for an athlete on imperial units (carnet#835)', async () => {

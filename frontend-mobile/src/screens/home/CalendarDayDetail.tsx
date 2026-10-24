@@ -78,7 +78,14 @@ function ActivityLine({
         {activity.name}
       </Text>
       <Text className="text-xs text-text-secondary" numberOfLines={1}>
-        {[sportLabel(t, activity.sport_type), ...activityRowFigures(t, activity, language, unit)].join(' · ')}
+        {sportLabel(t, activity.sport_type)}
+        {/* Directly beneath the title, as served, ahead of the figures a narrow line may cut (carnet#1154). */}
+        {activity.attribution && (
+          <Text testID="calendar-activity-attribution">{` · ${activity.attribution}`}</Text>
+        )}
+        {activityRowFigures(t, activity, language, unit)
+          .map((figure) => ` · ${figure}`)
+          .join('')}
       </Text>
     </Pressable>
   );

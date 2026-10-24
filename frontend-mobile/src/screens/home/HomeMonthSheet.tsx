@@ -17,6 +17,7 @@ import {
   type WorkoutPlan,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { garminContributionLine } from '@pierre/shared-constants';
 import { EmptyState, Sheet } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useHomeCalendar } from '../../hooks/useHomeCalendar';
@@ -62,6 +63,8 @@ function MonthBody({
   const open = selected !== null && answer !== null ? calendarDay(answer, selected) : null;
   const canGoBack = historyStart === null || month > historyStart;
   const canGoForward = shiftMonth(month, 1) <= lastMonday(plan, today);
+  // The month's marks owe Garmin's line directly beneath the title (carnet#1154).
+  const garmin = garminContributionLine(t, answer?.garmin_contribution);
 
   const page = (months: number) => {
     setMonth((current) => shiftMonth(current, months));
@@ -99,6 +102,11 @@ function MonthBody({
           </Pressable>
         </View>
       </View>
+      {garmin !== undefined ? (
+        <Text className="text-sm text-text-secondary" testID="home-month-garmin">
+          {garmin}
+        </Text>
+      ) : null}
       <View className="flex-row mt-2" importantForAccessibility="no-hide-descendants">
         {grid[0].map((date) => (
           <Text key={date} className="flex-1 text-center text-xs text-text-secondary">

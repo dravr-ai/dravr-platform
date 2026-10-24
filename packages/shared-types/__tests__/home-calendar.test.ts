@@ -105,6 +105,7 @@ describe('calendarDay', () => {
         days: [{ date: '2026-09-24', sport: 'run', workout: 'Tempo', intensity: 'Z3', rest: false }],
       },
     ],
+    garmin_contribution: null,
   };
 
   it("gathers a day's workouts and what the plan holds on it", () => {

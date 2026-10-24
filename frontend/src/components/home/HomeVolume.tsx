@@ -11,6 +11,7 @@ import {
   ALL_SPORTS,
   TRAINING_VOLUME_KEY,
   activitiesLine,
+  garminContributionLine,
   volumeChartLabel,
   weekMinutesSeconds,
 } from '@pierre/shared-constants';
@@ -216,9 +217,16 @@ function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
 export function HomeVolume() {
   const { t } = useTranslation();
   const volume = useTrainingVolume();
+  // Garmin's line sits directly beneath the title (carnet#1154).
+  const garmin = garminContributionLine(t, volume.data?.garmin_contribution);
 
   return (
-    <Section title={t(TRAINING_VOLUME_KEY.heading)} headingLevel={3} data-testid="home-volume">
+    <Section
+      title={t(TRAINING_VOLUME_KEY.heading)}
+      description={garmin && <span data-testid="home-volume-garmin">{garmin}</span>}
+      headingLevel={3}
+      data-testid="home-volume"
+    >
       {volume.data === undefined ? (
         volume.isError ? (
           <EmptyState

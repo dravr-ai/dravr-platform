@@ -4,6 +4,8 @@
 // ABOUTME: The Home weekly volume wire shape — distance, time, climbing and sessions per sport for each of the last twelve weeks
 // ABOUTME: With its parser, so a malformed body is an error rather than a chart of invented zeros
 
+import { isGarminContribution, type GarminContribution } from './garmin-attribution.js';
+
 /** What one sport added up to in one week. */
 export interface SportVolume {
   /** The sport, as the activity cache spells it (`run`, `ride`, …). */
@@ -36,6 +38,12 @@ export interface TrainingVolumeResponse {
    * before the history begins is absent, never a zero.
    */
   weeks: VolumeWeek[];
+  /**
+   * What Garmin-sourced data contributed to the weeks; the section's title
+   * then carries the line Garmin's brand guidelines owe. Null when no workout
+   * they count carries Garmin data.
+   */
+  garmin_contribution: GarminContribution | null;
 }
 
 const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -80,6 +88,12 @@ export function parseTrainingVolumeResponse(body: unknown): TrainingVolumeRespon
   if (!isRecord(body) || typeof body.today !== 'string' || !CIVIL_DATE.test(body.today) || !Array.isArray(body.weeks)) {
     return null;
   }
+  // Read as null when omitted, as every attribution field is; a value the
+  // server does not name rejects the body.
+  const garminContribution = body.garmin_contribution ?? null;
+  if (garminContribution !== null && !isGarminContribution(garminContribution)) {
+    return null;
+  }
   const weeks: VolumeWeek[] = [];
   for (const entry of body.weeks) {
     if (
@@ -98,5 +112,5 @@ export function parseTrainingVolumeResponse(body: unknown): TrainingVolumeRespon
     }
     weeks.push({ week_start: entry.week_start, sports });
   }
-  return { today: body.today, weeks };
+  return { today: body.today, weeks, garmin_contribution: garminContribution };
 }

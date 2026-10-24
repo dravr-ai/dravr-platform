@@ -7,7 +7,7 @@
 import React from 'react';
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CalendarResponse, HomeActivity, TrainingPlanResponse } from '@pierre/shared-types';
+import type { CalendarResponse, GarminContribution, HomeActivity, TrainingPlanResponse } from '@pierre/shared-types';
 
 import {
   ACTIVITIES,
@@ -24,11 +24,26 @@ jest.mock('../src/services/api', () => ({
 
 import { HomeWeek } from '../src/screens/home/HomeWeek';
 
-function renderWeek(response: TrainingPlanResponse = PLAN_RESPONSE) {
+/** Garmin's line for each contribution, as the English corpus words it (carnet#1154). */
+const GARMIN_LINES = [
+  ['sole', 'Created using data provided by Garmin devices.'],
+  ['part', 'Created in part using data provided by Garmin devices.'],
+] as const;
+
+function renderWeek(
+  response: TrainingPlanResponse = PLAN_RESPONSE,
+  {
+    activities,
+    garminContribution = null,
+  }: { activities?: HomeActivity[]; garminContribution?: GarminContribution | null } = {},
+) {
   const openDraft = jest.fn();
   const openActivity = jest.fn<void, [HomeActivity]>();
   const plan = response.plan;
-  mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { plan }));
+  mockGetCalendar.mockImplementation(async (from, to) => ({
+    ...calendarAnswer(from, to, { plan, activities }),
+    garmin_contribution: garminContribution,
+  }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const screen = render(
     <QueryClientProvider client={client}>
@@ -59,6 +74,27 @@ describe('the week strip', () => {
     expect(screen.getByTestId('home-section-week')).toHaveTextContent(/^This week/);
     expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId('home-week-previous').props.accessibilityState).toEqual({ disabled: false });
+  });
+
+  it.each(GARMIN_LINES)(
+    "carries Garmin's line for a %s contribution beneath the week's title, ahead of the plan's focus",
+    async (contribution, line) => {
+      const { screen } = renderWeek(PLAN_RESPONSE, { garminContribution: contribution });
+      await weekOf(screen, '2026-09-21');
+
+      const [title, description] = within(screen.getByTestId('home-section-week')).getAllByText(/./);
+      expect(title.props.children).toBe('This week');
+      expect(description.props.children).toBe(`${line}\nThreshold`);
+    },
+  );
+
+  it("carries no Garmin line when no workout in the week's answer carries Garmin data", async () => {
+    const { screen } = renderWeek();
+    await weekOf(screen, '2026-09-21');
+
+    const [, description] = within(screen.getByTestId('home-section-week')).getAllByText(/./);
+    expect(description.props.children).toBe('Threshold');
+    expect(screen.queryByText(/Garmin/)).toBeNull();
   });
 
   it("shows last week's workouts on their days and opens each one's own view", async () => {
@@ -160,6 +196,58 @@ describe('the month sheet', () => {
       ),
     );
     expect(openActivity).toHaveBeenCalledWith(ACTIVITIES[1]);
+  });
+
+  it.each(GARMIN_LINES)(
+    "carries Garmin's line for a %s contribution beneath the month's title, ahead of the grid",
+    async (contribution, line) => {
+      const { screen } = renderWeek(PLAN_RESPONSE, { garminContribution: contribution });
+      await weekOf(screen, '2026-09-21');
+
+      fireEvent.press(screen.getByTestId('home-week-month'));
+      const title = await screen.findByTestId('home-month-title');
+      const garmin = await screen.findByTestId('home-month-garmin');
+      expect(garmin.props.children).toBe(line);
+      // After the title row, and the last thing read before the grid (its weekday letters are hidden from readers).
+      const texts = within(screen.getByTestId('home-month-scroll')).getAllByText(/./);
+      const at = texts.indexOf(garmin);
+      expect(at).toBeGreaterThan(texts.indexOf(title));
+      expect(texts[at + 1]).toBe(within(screen.getByTestId('home-month-grid')).getAllByText(/./)[0]);
+    },
+  );
+
+  it('carries no Garmin line on the month when no workout in its answer carries Garmin data', async () => {
+    const { screen } = renderWeek();
+    await weekOf(screen, '2026-09-21');
+
+    fireEvent.press(screen.getByTestId('home-week-month'));
+    await screen.findByTestId('home-month-title');
+    await waitFor(() =>
+      expect(within(screen.getByTestId('home-month-day-2026-09-20')).getByTestId('home-week-mark-done')).toBeTruthy(),
+    );
+    expect(screen.queryByTestId('home-month-garmin')).toBeNull();
+  });
+
+  it("names a workout's device beside its sport in the open day, as served, and nothing for a row without one", async () => {
+    const activities = ACTIVITIES.map((activity) =>
+      activity.id === 'i77' ? { ...activity, attribution: 'Garmin Forerunner 965' } : activity,
+    );
+    const { screen } = renderWeek(PLAN_RESPONSE, { activities });
+    await weekOf(screen, '2026-09-21');
+
+    fireEvent.press(screen.getByTestId('home-week-month'));
+    await screen.findByTestId('home-month-title');
+    await waitFor(() =>
+      expect(within(screen.getByTestId('home-month-day-2026-09-16')).getByTestId('home-week-mark-done')).toBeTruthy(),
+    );
+    fireEvent.press(screen.getByTestId('home-month-day-2026-09-16'));
+    const row = within(screen.getByTestId('home-month-detail')).getByTestId('calendar-activity-intervals_icu-i77');
+    expect(within(row).getByTestId('calendar-activity-attribution').props.children).toBe(' · Garmin Forerunner 965');
+    expect(row).toHaveTextContent(/^Morning trail\s*Trail running · Garmin Forerunner 965 · 12\.50 km/);
+
+    fireEvent.press(screen.getByTestId('home-month-day-2026-09-17'));
+    const plain = within(screen.getByTestId('home-month-detail')).getByTestId('calendar-activity-strava-9000');
+    expect(within(plain).queryByTestId('calendar-activity-attribution')).toBeNull();
   });
 
   it('pages to the next month', async () => {

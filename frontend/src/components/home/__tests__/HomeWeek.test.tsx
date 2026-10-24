@@ -12,7 +12,7 @@ import type { CalendarResponse, TrainingPlanResponse, WorkoutPlan } from '@pierr
 import { HomeWeek } from '../HomeWeek';
 import { activityViewRoute } from '../../activity/activityRoute';
 import { homePlan, TODAY } from './homeFixtures';
-import { calendarAnswer, HISTORY_START } from './calendarFixtures';
+import { calendarActivities, calendarAnswer, HISTORY_START } from './calendarFixtures';
 import {
   DRAFT_DATE,
   formatCivilDate,
@@ -27,11 +27,20 @@ vi.mock('../../../services/api', () => ({
   athleteApi: { getTrainingPlan: api.getTrainingPlan, getCalendar: api.getCalendar },
 }));
 
-function renderWeek(plan: WorkoutPlan | null = homePlan()) {
+/** Garmin's line for each contribution, as the English corpus words it (carnet#1154). */
+const GARMIN_LINES = [
+  ['sole', 'Created using data provided by Garmin devices.'],
+  ['part', 'Created in part using data provided by Garmin devices.'],
+] as const;
+
+function renderWeek(
+  plan: WorkoutPlan | null = homePlan(),
+  answer: Omit<NonNullable<Parameters<typeof calendarAnswer>[2]>, 'plan'> = {},
+) {
   const onOpenChatDraft = vi.fn();
   const onNavigate = vi.fn();
   api.getTrainingPlan.mockResolvedValue({ plan, today: TODAY });
-  api.getCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { plan }));
+  api.getCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { plan, ...answer }));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -69,6 +78,28 @@ describe('HomeWeek — this week', () => {
     expect(api.getCalendar).toHaveBeenCalledWith('2026-09-21', '2026-09-27');
   });
 
+  it.each(GARMIN_LINES)(
+    "carries Garmin's line for a %s contribution beneath the week's title, ahead of the plan's focus",
+    async (contribution, line) => {
+      renderWeek(homePlan(), { garminContribution: contribution });
+      await loadedStrip();
+
+      const garmin = screen.getByTestId('home-week-garmin');
+      expect(garmin.textContent).toBe(line);
+      const description = screen.getByRole('heading', { name: 'This week' }).nextElementSibling;
+      expect(description?.firstElementChild).toBe(garmin);
+      expect(description).toHaveTextContent('threshold volume');
+    },
+  );
+
+  it("carries no Garmin line when no workout in the week's answer carries Garmin data", async () => {
+    renderWeek();
+    await loadedStrip();
+
+    expect(screen.queryByTestId('home-week-garmin')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'This week' }).nextElementSibling?.textContent).toBe('threshold volume');
+  });
+
   it('keeps a rest day and a day the plan never reached apart', async () => {
     renderWeek();
     await loadedStrip();
@@ -93,6 +124,22 @@ describe('HomeWeek — this week', () => {
     expect(within(detail).getByText('Planned')).toBeInTheDocument();
     await userEvent.click(within(detail).getByTestId('calendar-activity-garmin-cal-3'));
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith(activityViewRoute('garmin', 'cal-3'));
+  });
+
+  it("names a workout's device beside its sport in the open day, as served, and nothing for a row without one", async () => {
+    const activities = calendarActivities().map((entry) =>
+      entry.activity.id === 'cal-3' ? { ...entry, activity: { ...entry.activity, attribution: 'Garmin Edge 840' } } : entry,
+    );
+    renderWeek(homePlan(), { activities });
+    await loadedStrip();
+
+    await userEvent.click(screen.getByTestId('home-week-day-2026-09-22'));
+    const detail = screen.getByTestId('home-week-detail');
+    const garminRow = within(detail).getByTestId('calendar-activity-garmin-cal-3');
+    expect(within(garminRow).getByTestId('calendar-activity-attribution').textContent).toBe(' · Garmin Edge 840');
+    expect(garminRow).toHaveTextContent(/^Evening spin\s*Ride · Garmin Edge 840 · /);
+    const stravaRow = within(detail).getByTestId('calendar-activity-strava-cal-2');
+    expect(within(stravaRow).queryByTestId('calendar-activity-attribution')).toBeNull();
   });
 
   it("opens today to the plan card's own row — steps and fuel — and drafts the question from it", async () => {
@@ -244,6 +291,37 @@ describe('HomeWeek — month sheet', () => {
     await userEvent.click(within(sheet).getByTestId('calendar-activity-strava-cal-2'));
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith(activityViewRoute('strava', 'cal-2'));
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it.each(GARMIN_LINES)(
+    "carries Garmin's line for a %s contribution beneath the month's title, ahead of the grid",
+    async (contribution, line) => {
+      renderWeek(homePlan(), { garminContribution: contribution });
+      await loadedStrip();
+
+      await userEvent.click(screen.getByTestId('home-week-month'));
+      const sheet = await screen.findByRole('dialog', { name: 'September 2026' });
+      const grid = within(sheet).getByTestId('home-month-grid');
+      await waitFor(() => expect(grid).toHaveAttribute('aria-busy', 'false'));
+      const garmin = within(sheet).getByTestId('home-month-garmin');
+      expect(garmin.textContent).toBe(line);
+      const title = within(sheet).getByRole('heading', { name: 'September 2026' });
+      expect(title.compareDocumentPosition(garmin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The first thing in the sheet's body, above the weekday letters and the grid.
+      expect(garmin.parentElement?.firstElementChild).toBe(garmin);
+      expect(garmin.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    },
+  );
+
+  it("carries no Garmin line on the month when no workout in its answer carries Garmin data", async () => {
+    renderWeek();
+    await loadedStrip();
+
+    await userEvent.click(screen.getByTestId('home-week-month'));
+    const sheet = await screen.findByRole('dialog', { name: 'September 2026' });
+    const grid = within(sheet).getByTestId('home-month-grid');
+    await waitFor(() => expect(grid).toHaveAttribute('aria-busy', 'false'));
+    expect(within(sheet).queryByTestId('home-month-garmin')).toBeNull();
   });
 
   it('pages to the next month', async () => {

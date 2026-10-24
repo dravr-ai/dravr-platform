@@ -49,7 +49,13 @@ export function calendarAnswer(
     plan = homePlan(),
     activities = calendarActivities(),
     historyStart = HISTORY_START,
-  }: { plan?: WorkoutPlan | null; activities?: Array<{ date: string; activity: HomeActivity }>; historyStart?: string } = {},
+    garminContribution = null,
+  }: {
+    plan?: WorkoutPlan | null;
+    activities?: Array<{ date: string; activity: HomeActivity }>;
+    historyStart?: string;
+    garminContribution?: CalendarResponse['garmin_contribution'];
+  } = {},
 ): CalendarResponse {
   return {
     today: TODAY,
@@ -61,5 +67,6 @@ export function calendarAnswer(
       plan === null
         ? null
         : plan.weeks.filter((week) => week.week_start <= to && addCivilDays(week.week_start, 6) >= from),
+    garmin_contribution: garminContribution,
   };
 }

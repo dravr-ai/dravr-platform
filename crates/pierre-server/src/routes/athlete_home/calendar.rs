@@ -34,6 +34,7 @@ use axum::Json;
 use chrono::{DateTime, Days, Duration, NaiveDate, NaiveTime, Utc};
 use chrono_tz::Tz;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
+use pierre_core::constants::oauth_providers::{garmin_contribution, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::plan_card::{try_load_plan_weeks_between, WeekCard};
@@ -90,6 +91,11 @@ pub struct CalendarResponse {
     /// The active plan's weeks overlapping the days read, in calendar order;
     /// `null` when the athlete has no active plan.
     pub plan_weeks: Option<Vec<WeekCard>>,
+    /// What Garmin-sourced data contributed to the workouts, which decides
+    /// the line Garmin's brand guidelines owe a view summing them, such as
+    /// the week strip's minutes (carnet#1154); `null` when none carries such
+    /// data.
+    pub garmin_contribution: Option<GarminContribution>,
 }
 
 pub(super) async fn get_calendar(
@@ -129,6 +135,8 @@ pub(super) async fn get_calendar(
     }
     let workouts = home_activities(served_rows(&resources, rows), usize::MAX);
     let activities = on_days(workouts, zone, from.max(history_start), to);
+    let garmin_contribution =
+        garmin_contribution(activities.iter().map(|day| day.activity.garmin_recorded));
 
     let plan_weeks =
         try_load_plan_weeks_between(repos, tenant_id, user_id, today, from, to).await?;
@@ -139,6 +147,7 @@ pub(super) async fn get_calendar(
         history_start,
         activities,
         plan_weeks,
+        garmin_contribution,
     }))
 }
 
@@ -230,6 +239,7 @@ mod tests {
             has_gps: true,
             summary_polyline: None,
             attribution: None,
+            garmin_recorded: false,
         }
     }
 
