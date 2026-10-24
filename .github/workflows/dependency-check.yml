@@ -23,7 +23,7 @@ jobs:
   check-dependencies:
     name: Check Outdated Dependencies
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # installs cargo-edit and cargo-audit, ~5 min
+    timeout-minutes: 30  # installs cargo-edit, ~5 min
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -43,8 +43,11 @@ jobs:
           key: deps-check-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: deps-check-
 
-      - name: Install cargo-edit and cargo-audit
-        run: cargo install cargo-edit cargo-audit --locked
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --locked
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
 
       - name: Check compatible upgrades
         id: compatible
@@ -73,8 +76,15 @@ jobs:
           # always 0 and the advisory branch below unreachable — a real RUSTSEC
           # finding read as a clean audit. The status is captured first and the
           # step kept alive with `set +e`, so a non-zero audit still reports.
+          #
+          # cargo deny, not cargo audit: deny.toml's [advisories] ignore list
+          # holds the reviewed exceptions, and the security-audit lane reads it
+          # the same way. cargo audit does not read that list, so it would
+          # refile every reviewed advisory each week (carnet#1122).
+          # `--color never` because cargo deny honours CARGO_TERM_COLOR=always
+          # (set above), which would put ANSI escapes into the issue body.
           set +e
-          OUTPUT=$(cargo audit 2>&1)
+          OUTPUT=$(cargo deny --color never check advisories 2>&1)
           EXIT_CODE=$?
           set -e
           {
@@ -94,7 +104,7 @@ jobs:
           HAS_UPDATES=false
 
           # Check if compatible output contains actual upgrades (look for "new req" column)
-          if echo "$COMPAT" | grep -qE '^\w.+\s+\d+\.\d+'; then
+          if echo "$COMPAT" | grep -qE '^\w.+\s+[0-9]+\.[0-9]+'; then
             HAS_UPDATES=true
           fi
 
