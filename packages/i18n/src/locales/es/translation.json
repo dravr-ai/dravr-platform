@@ -1328,10 +1328,13 @@
     },
     "group": {
       "coach_consent_updated": "Compartir tus datos con el coach humano de {1} está ahora {0}.",
+      "coach_consent_updated_all": "Compartir tus datos con el coach humano está ahora {0} en cada uno de tus grupos: {1}.",
       "coach_joined_notice": "{0} se unió a {1} y comparte contigo sus datos de entrenamiento.",
       "coach_sharing_named": "Tus datos de entrenamiento ahora se comparten con {0}, el coach humano del grupo. Para dejar de compartirlos: /group consent coach no",
       "coach_sharing_pending": "Tus datos de entrenamiento se compartirán con el coach humano del grupo en cuanto se asigne uno. Para dejar de compartirlos: /group consent coach no",
+      "consent_pick_group": "Estás en varios grupos: {0}. Para activar el uso compartido en uno de ellos, envía el comando en el chat de ese grupo o usa el interruptor en la información del grupo en la app.",
       "consent_updated": "Compartir tus datos con los demás miembros de {1} está ahora {0}.",
+      "consent_updated_all": "Compartir tus datos con los demás miembros está ahora {0} en cada uno de tus grupos: {1}.",
       "consent_usage": "Uso: /group consent yes|no (los demás miembros)  o  /group consent coach yes|no (el coach humano)",
       "create_forbidden": "La creación de grupos está reservada a los administradores de tu espacio.",
       "create_no_agent": "Elige primero el agente del grupo: /agent add @handle en este chat y vuelve a ejecutar /group create.",
@@ -2402,7 +2405,12 @@
       "conflictSeason": "La temporada de {{name}} se rehízo después de empezar este borrador, así que las semanas del borrador quizá ya no encajen.",
       "overwrite": "Publicar de todos modos",
       "consentRevoked": "{{name}} ha dejado de compartir sus datos contigo, así que ya no se puede cambiar su plan."
-    }
+    },
+    "shareTraining": "Compartir mi entrenamiento con mi coach",
+    "shareTrainingHint": "Tu coach ve tu entrenamiento, tu plan y tus mensajes en el chat de este grupo. Solo afecta a este grupo.",
+    "shareTrainingPendingHint": "Aún no hay coach. El coach que se una a este grupo verá tu entrenamiento, tu plan y tus mensajes en su chat.",
+    "sharingOnNotice": "Tu coach vuelve a ver tu entrenamiento en este grupo.",
+    "sharingOffNotice": "Tu coach ya no ve tu entrenamiento, tu plan ni tus mensajes en este grupo."
   },
   "impersonationLog": {
     "active": "Activa",

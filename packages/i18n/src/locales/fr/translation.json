@@ -1328,10 +1328,13 @@
     },
     "group": {
       "coach_consent_updated": "Le partage de tes données avec le coach humain de {1} est maintenant {0}.",
+      "coach_consent_updated_all": "Le partage de tes données avec le coach humain est maintenant {0} dans chacun de tes groupes : {1}.",
       "coach_joined_notice": "{0} a rejoint {1} et partage ses données d'entraînement avec toi.",
       "coach_sharing_named": "Tes données d'entraînement sont maintenant partagées avec {0}, le coach humain du groupe. Pour arrêter : /group consent coach no",
       "coach_sharing_pending": "Tes données d'entraînement seront partagées avec le coach humain du groupe dès qu'il sera rattaché. Pour arrêter : /group consent coach no",
+      "consent_pick_group": "Tu fais partie de plusieurs groupes : {0}. Pour activer le partage dans l'un d'eux, envoie la commande dans la discussion de ce groupe, ou utilise l'interrupteur dans les infos du groupe dans l'app.",
       "consent_updated": "Le partage de tes données avec les autres membres de {1} est maintenant {0}.",
+      "consent_updated_all": "Le partage de tes données avec les autres membres est maintenant {0} dans chacun de tes groupes : {1}.",
       "consent_usage": "Usage : /group consent yes|no (les autres membres)  ou  /group consent coach yes|no (le coach humain)",
       "create_forbidden": "La création de groupes est réservée aux admins de ton espace.",
       "create_no_agent": "Choisis d'abord l'agent du groupe : /agent add @handle dans cette discussion, puis relance /group create.",
@@ -2402,7 +2405,12 @@
       "conflictSeason": "La saison de {{name}} a été reconstruite après le début de ce brouillon : les semaines du brouillon risquent de ne plus s’y ajuster.",
       "overwrite": "Publier quand même",
       "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan ne peut plus être modifié."
-    }
+    },
+    "shareTraining": "Partager mon entraînement avec mon coach",
+    "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Ne s’applique qu’à ce groupe.",
+    "shareTrainingPendingHint": "Pas encore de coach. Le coach qui rejoindra ce groupe verra ton entraînement, ton plan et tes messages dans sa discussion.",
+    "sharingOnNotice": "Ton coach voit de nouveau ton entraînement dans ce groupe.",
+    "sharingOffNotice": "Ton coach ne voit plus ton entraînement, ton plan ni tes messages dans ce groupe."
   },
   "impersonationLog": {
     "active": "En cours",

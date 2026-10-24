@@ -1328,10 +1328,13 @@
     },
     "group": {
       "coach_consent_updated": "Sharing your data with the human coach of {1} is now {0}.",
+      "coach_consent_updated_all": "Sharing your data with the human coach is now {0} in each of your groups: {1}.",
       "coach_joined_notice": "{0} joined {1} and is sharing their training data with you.",
       "coach_sharing_named": "Your training data is now shared with {0}, the group's human coach. To stop sharing it: /group consent coach no",
       "coach_sharing_pending": "Your training data will be shared with the group's human coach as soon as one is attached. To stop sharing it: /group consent coach no",
+      "consent_pick_group": "You are in several groups: {0}. To turn sharing on in one of them, send the command in that group's chat, or use the switch in the group's info in the app.",
       "consent_updated": "Sharing your data with the other members of {1} is now {0}.",
+      "consent_updated_all": "Sharing your data with the other members is now {0} in each of your groups: {1}.",
       "consent_usage": "Usage: /group consent yes|no (the other members)  or  /group consent coach yes|no (the human coach)",
       "create_forbidden": "Group creation is reserved to your workspace's admins.",
       "create_no_agent": "Pick the group's agent first: /agent add @handle in this chat, then run /group create again.",
@@ -2402,7 +2405,12 @@
       "conflictSeason": "{{name}}'s season was rebuilt after this draft began, so the draft's weeks may no longer fit it.",
       "overwrite": "Publish anyway",
       "consentRevoked": "{{name}} stopped sharing with you, so their plan can't be changed."
-    }
+    },
+    "shareTraining": "Share my training with my coach",
+    "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",
+    "shareTrainingPendingHint": "No coach yet. The coach who joins this group will see your training, your plan and your messages in its chat.",
+    "sharingOnNotice": "Your coach sees your training in this group again.",
+    "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group."
   },
   "impersonationLog": {
     "active": "Active",
