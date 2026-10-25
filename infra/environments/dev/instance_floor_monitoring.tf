@@ -57,6 +57,9 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
           held by an idle browser tab — the June 2026 /ws incident)
         * a stuck request that never completes
         * an always-on subprocess that escaped its intended budget
+        * standing synthetic traffic: an uptime check or scheduler that calls
+          the service more often than its ~15 min idle window (the Oct 2026
+          sign-in uptime checks, which pinned the api and frontend for ~39 h)
 
       Investigate what is holding the instance open:
 
@@ -65,6 +68,13 @@ resource "google_monitoring_alert_policy" "instance_never_idle" {
           resource.labels.service_name="${var.service_name}-api" AND httpRequest.status=101' \
           --project ${var.project_id} --freshness=1h --limit 20 \
           --format="value(timestamp, httpRequest.requestUrl, httpRequest.userAgent)"
+
+        # Who is calling at all? Group the last hour's requests by user agent;
+        # an uptime check shows as GoogleStackdriverMonitoring-UptimeChecks.
+        gcloud logging read 'resource.type="cloud_run_revision" AND \
+          resource.labels.service_name="${var.service_name}-api" AND httpRequest.requestUrl:*' \
+          --project ${var.project_id} --freshness=1h --limit 500 \
+          --format="value(httpRequest.userAgent)" | sort | uniq -c | sort -rn | head
 
         # Confirm the floor from the billed metric:
         #   run.googleapis.com/container/billable_instance_time  (~86,400/day == 1 instance 24/7)

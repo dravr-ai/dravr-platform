@@ -242,10 +242,11 @@ locals {
 #
 # This guard used to sit on the sign-in uptime checks' alert policy. Those
 # checks were removed: hitting the site every few seconds kept the api and
-# frontend from ever scaling to zero, and with the api billing CPU while idle
-# (ADR-019) that doubled dev's daily Cloud Run cost. The same walk now runs
-# once after each deploy and each apply (first-party-sign-in-smoke.sh), and
-# first_party_sign_in_monitoring.tf still pages on any refused athlete.
+# frontend from ever scaling to zero, and with both billing CPU while idle
+# (cpu_idle = false) that roughly tripled dev's daily Cloud Run cost. The same
+# walk now runs once after each deploy and each apply
+# (first-party-sign-in-smoke.sh), and first_party_sign_in_monitoring.tf still
+# pages on any refused athlete.
 resource "terraform_data" "frontend_origins_accepted" {
   count = var.enable_frontend && var.frontend_base_url != "" ? 1 : 0
 
