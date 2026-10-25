@@ -41,10 +41,6 @@ clones the attached `../dravr-savoir`. If that fails, tell the user and work und
 - `bun` only for project dependencies, never `npm`/`yarn`/`pnpm` (conflicting lockfiles corrupt
   the project); `npm install -g` for global CLI tools is fine.
 - Port 8081 is reserved for the Pierre server; Expo runs on 8082.
-- No synthetic traffic to a Cloud Run service more often than its ~15 min idle window (any uptime
-  check is): it keeps the service up 24/7, and the dev frontend and api bill CPU while idle. Probe
-  after the deploy/apply that can break it instead. `check-keep-warm-traffic.sh` requires an
-  `# Idle-cost:` note on every uptime check and scheduler job: what it keeps warm, what that costs.
 - Never commit a secret, token or credential: they live in the git-ignored `.envrc`.
 - One test binary per crate: integration tests are modules of `tests/it/main.rs`. A new top-level
   `tests/*.rs` is only for a suite that writes the process environment.
