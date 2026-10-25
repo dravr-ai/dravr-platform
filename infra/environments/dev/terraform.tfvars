@@ -38,7 +38,8 @@ frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.
 # address for the AI chats. Both hostnames share one load balancer, one IP pair
 # and one bundle of forwarding rules, so the second costs nothing. Each one
 # serves the app, so each is accepted as a first-party sign-in origin and
-# probed by an uptime check (main.tf frontend_extra_origins, carnet#1152).
+# probed after every deploy and apply (main.tf frontend_extra_origins,
+# scripts/ci/first-party-sign-in-smoke.sh, carnet#1152).
 public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 
 # The MCP resource identifier (MCP_RESOURCE_URL). A client that dials

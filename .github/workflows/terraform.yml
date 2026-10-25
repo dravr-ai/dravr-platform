@@ -257,6 +257,20 @@ jobs:
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
         run: '"${GITHUB_WORKSPACE}/scripts/ci/wait-cloud-run-service-ready.sh" quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900'
 
+      # An apply is the other way, besides a deploy, to change the origins the
+      # api accepts (ALLOWED_MOBILE_REDIRECT_ORIGINS, FRONTEND_URL) or the URLs
+      # the frontend is served on, so it gets the same sign-in walk as
+      # publish-images.yml sign-in-smoke-dev (carnet#1145, carnet#1152). Once
+      # per apply rather than a standing uptime check: continuous probes kept
+      # the api and frontend from ever scaling to zero.
+      - name: Probe sign-in on every accepted and serving origin
+        working-directory: ${{ github.workspace }}
+        env:
+          SIGN_IN_SMOKE_SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          SIGN_IN_SMOKE_FRONTEND_SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
+          SIGN_IN_SMOKE_REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: ./scripts/ci/first-party-sign-in-smoke.sh
+
   # ---------------------------------------------------------------------------
   # Apply prod — MANUAL ONLY when enabled: workflow_dispatch(env=prod, action=apply).
   # Gated by required reviewers configured on the production GitHub Environment.

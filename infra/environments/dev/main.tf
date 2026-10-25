@@ -209,8 +209,8 @@ locals {
   # frontend_previous_origins carries; this is the deterministic one, built
   # from plan-known values because module.frontend depends on the backend's URL
   # and cannot feed the backend's env. Leaving it out refused web sign-in there
-  # (carnet#1152). sign_in_uptime_monitoring.tf asserts every frontend URL is
-  # accepted.
+  # (carnet#1152). terraform_data.frontend_origins_accepted below asserts every
+  # frontend URL is accepted.
   frontend_run_app_origin = "https://${var.service_name}-frontend-${data.google_project.current.number}.${var.region}.run.app"
 
   # Every public_domains hostname routes to the same frontend nginx and serves
@@ -226,13 +226,41 @@ locals {
   # (ALLOWED_MOBILE_REDIRECT_ORIGINS): the previous origins, every other
   # public_domains hostname, and the frontend's deterministic run.app URL.
   # Every hostname that serves the frontend is here by construction, which is
-  # what keeps each sign-in uptime check (sign_in_uptime_monitoring.tf) on an
-  # accepted origin.
+  # what lets scripts/ci/first-party-sign-in-smoke.sh probe each one as an
+  # accepted origin after every deploy and every apply.
   frontend_extra_origins = distinct(concat(
     var.frontend_previous_origins,
     local.frontend_public_domain_origins,
     var.enable_frontend ? [local.frontend_run_app_origin] : [],
   ))
+}
+
+# Cloud Run keeps serving the app on every run.app URL, and the web app signs
+# in from the one it was opened on: each must be a first-party origin, or web
+# sign-in there is refused (carnet#1145, carnet#1152). Checked at plan, and on
+# a fresh environment at apply, once the frontend's URLs are known.
+#
+# This guard used to sit on the sign-in uptime checks' alert policy. Those
+# checks were removed: hitting the site every few seconds kept the api and
+# frontend from ever scaling to zero, and with the api billing CPU while idle
+# (ADR-019) that doubled dev's daily Cloud Run cost. The same walk now runs
+# once after each deploy and each apply (first-party-sign-in-smoke.sh), and
+# first_party_sign_in_monitoring.tf still pages on any refused athlete.
+resource "terraform_data" "frontend_origins_accepted" {
+  count = var.enable_frontend && var.frontend_base_url != "" ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition = alltrue([
+        for url in module.frontend[0].service_urls :
+        contains(
+          [for origin in concat([var.frontend_base_url], local.frontend_extra_origins) : trimsuffix(origin, "/")],
+          trimsuffix(url, "/"),
+        )
+      ])
+      error_message = "A run.app URL of the frontend service is not a first-party origin, so web sign-in there is refused (carnet#1145, carnet#1152). Add it to frontend_previous_origins or local.frontend_extra_origins in main.tf."
+    }
+  }
 }
 
 module "backend" {

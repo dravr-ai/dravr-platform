@@ -22,7 +22,10 @@
 # That is what happened from 2026-10-07 to 2026-10-23: the previous run.app
 # frontend origin was refused for 16 days behind green CI, until an athlete
 # reported it (carnet#1145). This probe runs right after each deploy
-# (publish-images.yml sign-in-smoke-dev, carnet#1152).
+# (publish-images.yml sign-in-smoke-dev, carnet#1152) and each dev terraform
+# apply (terraform.yml apply-dev), the two changes that can refuse an origin.
+# It replaced continuous uptime checks, which hit the site every few seconds
+# and kept the api and frontend from ever scaling to zero.
 #
 # Two checks
 # ----------
@@ -32,8 +35,7 @@
 #    refusal follows from the config, and a refused request would page Slack
 #    through first_party_sign_in_monitoring.tf. Load-balancer hostnames
 #    (terraform public_domains) are not visible from Cloud Run; terraform
-#    accepts each one by construction, so check 2 probes them, and so do the
-#    uptime checks in sign_in_uptime_monitoring.tf.
+#    accepts each one by construction, so check 2 probes them.
 # 2. Behaviour: on every accepted origin, the request each app sends must be
 #    answered 303 to `/oauth2/login?client_id=<client>&…` on the origin it was
 #    sent to (the server writes a relative Location). A 400 is the refusal this
