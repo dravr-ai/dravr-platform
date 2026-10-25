@@ -168,6 +168,45 @@ jobs:
           echo "Image: ${{ needs.resolve-images.outputs.registry }}/frontend:${{ needs.resolve-images.outputs.short_sha }}"
 
   # ---------------------------------------------------------------------------
+  # First-party sign-in smoke (after the rolls)
+  # ---------------------------------------------------------------------------
+  # As publish-images.yml sign-in-smoke-dev: a redeploy can roll an api image
+  # that refuses the apps' own origins, or a frontend that stops proxying
+  # /oauth2/, and nothing else probes sign-in since the continuous uptime
+  # checks were removed (they kept dev from ever scaling to zero). Runs when
+  # either service rolled. Unauthenticated, it writes nothing.
+  sign-in-smoke:
+    name: First-Party Sign-In Smoke (dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # ~20 s
+    needs: [resolve-images, deploy-api, deploy-frontend]
+    if: ${{ !cancelled() && needs.resolve-images.outputs.gcp_configured == 'true' && (needs.deploy-api.result == 'success' || needs.deploy-frontend.result == 'success') }}
+
+    steps:
+      # Before auth: checkout cleans the workspace, which would delete the
+      # credentials file auth writes there.
+      - name: Checkout (smoke script)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/ci
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Probe sign-in on every accepted and serving origin
+        env:
+          SIGN_IN_SMOKE_SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          SIGN_IN_SMOKE_FRONTEND_SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
+          SIGN_IN_SMOKE_REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: ./scripts/ci/first-party-sign-in-smoke.sh
+
+  # ---------------------------------------------------------------------------
   # Update seed job images (without executing them)
   # ---------------------------------------------------------------------------
   # After both rolls, never beside them (carnet#696): the seed jobs open Cloud
@@ -285,7 +324,7 @@ jobs:
     name: Deployment Summary
     runs-on: ubuntu-latest
     timeout-minutes: 5  # writes the summary
-    needs: [deploy-api, deploy-frontend, update-seed-jobs, verify-seed-jobs]
+    needs: [deploy-api, deploy-frontend, sign-in-smoke, update-seed-jobs, verify-seed-jobs]
     if: always()
 
     steps:
@@ -294,11 +333,13 @@ jobs:
           echo "Deployment workflow completed"
           echo "Backend API deployment: ${{ needs.deploy-api.result }}"
           echo "Frontend deployment: ${{ needs.deploy-frontend.result }}"
+          echo "Sign-in smoke: ${{ needs.sign-in-smoke.result }}"
           echo "Seed job updates: ${{ needs.update-seed-jobs.result }}"
           echo "Seed job execution: ${{ needs.verify-seed-jobs.result }}"
 
           if [[ "${{ needs.deploy-api.result }}" == "success" && \
                 "${{ needs.deploy-frontend.result }}" == "success" && \
+                "${{ needs.sign-in-smoke.result }}" == "success" && \
                 "${{ needs.update-seed-jobs.result }}" == "success" && \
                 "${{ needs.verify-seed-jobs.result }}" == "success" ]]; then
             echo "All deployments completed successfully"

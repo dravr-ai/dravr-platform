@@ -28,8 +28,9 @@ frontend_base_url = "https://app.dravr.ai"
 # window is ledgered as frontend-dual-origin-window in feature-phases.yaml, so
 # the weekly phase review raises it when the date passes. Emptying it does not
 # stop Cloud Run serving the app on this URL, so web sign-in there would be
-# refused again (carnet#1152): plan fails on the sign-in probe's precondition
-# until the URL is accepted some other way or the run.app URLs are disabled.
+# refused again (carnet#1152): plan fails on the precondition of
+# terraform_data.frontend_origins_accepted (main.tf) until the URL is accepted
+# some other way or the run.app URLs are disabled.
 frontend_previous_origins = ["https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"]
 
 # First-party hostnames on a global external load balancer in front of the

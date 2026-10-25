@@ -22,8 +22,9 @@
 # That is what happened from 2026-10-07 to 2026-10-23: the previous run.app
 # frontend origin was refused for 16 days behind green CI, until an athlete
 # reported it (carnet#1145). This probe runs right after each deploy
-# (publish-images.yml sign-in-smoke-dev, carnet#1152) and each dev terraform
-# apply (terraform.yml apply-dev), the two changes that can refuse an origin.
+# (publish-images.yml sign-in-smoke-dev, carnet#1152; deploy-gcp.yml
+# sign-in-smoke for a manual redeploy) and each dev terraform apply
+# (terraform.yml apply-dev), the changes that can refuse an origin.
 # It replaced continuous uptime checks, which hit the site every few seconds
 # and kept the api and frontend from ever scaling to zero.
 #
