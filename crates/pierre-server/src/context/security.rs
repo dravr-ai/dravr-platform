@@ -7,6 +7,7 @@
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_middleware::redaction::RedactionConfig;
+use std::fmt;
 use std::sync::Arc;
 
 /// Security context containing security-related dependencies
@@ -24,6 +25,14 @@ pub struct SecurityContext {
     redaction_config: Arc<RedactionConfig>,
     oauth2_rate_limiter: Arc<OAuth2RateLimiter>,
     csrf_manager: Arc<CsrfTokenManager>,
+}
+
+impl fmt::Debug for SecurityContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecurityContext")
+            .field("redaction_config", &self.redaction_config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SecurityContext {

@@ -18,6 +18,7 @@ use pierre_services::analytics::{analytics, hash_id};
 use crate::{CommandHandler, PlatformCommandContext};
 
 /// Handler for `/privacy` — display current analytics consent status
+#[derive(Debug)]
 pub struct PrivacyStatusHandler;
 
 #[async_trait]
@@ -50,6 +51,7 @@ impl CommandHandler for PrivacyStatusHandler {
 }
 
 /// Handler for `/privacy on` — enable analytics consent
+#[derive(Debug)]
 pub struct PrivacyOnHandler;
 
 #[async_trait]
@@ -81,6 +83,7 @@ impl CommandHandler for PrivacyOnHandler {
 }
 
 /// Handler for `/privacy off` — disable analytics consent
+#[derive(Debug)]
 pub struct PrivacyOffHandler;
 
 #[async_trait]

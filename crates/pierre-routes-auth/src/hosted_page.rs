@@ -44,7 +44,7 @@ use crate::AuthRoutesContext;
 const LANG_PLACEHOLDER: &str = "{{LANG}}";
 
 /// The catalogue, read in one page's locale.
-pub struct PageStrings<'a> {
+pub(crate) struct PageStrings<'a> {
     registry: &'a MessagingStringsRegistry,
     locale: String,
 }
@@ -52,7 +52,7 @@ pub struct PageStrings<'a> {
 impl<'a> PageStrings<'a> {
     /// The catalogue as a page in `locale` reads it.
     #[must_use]
-    pub fn new(registry: &'a MessagingStringsRegistry, locale: impl Into<String>) -> Self {
+    pub(crate) fn new(registry: &'a MessagingStringsRegistry, locale: impl Into<String>) -> Self {
         Self {
             registry,
             locale: locale.into(),
@@ -61,32 +61,32 @@ impl<'a> PageStrings<'a> {
 
     /// The page's locale.
     #[must_use]
-    pub fn locale(&self) -> &str {
+    pub(crate) fn locale(&self) -> &str {
         &self.locale
     }
 
     /// The text of `key`, unescaped.
     #[must_use]
-    pub fn get(&self, key: &str) -> String {
+    pub(crate) fn get(&self, key: &str) -> String {
         self.registry.get(key, &self.locale)
     }
 
     /// The text of `key` with its positional slots filled, unescaped.
     #[must_use]
-    pub fn render(&self, key: &str, args: &[&str]) -> String {
+    pub(crate) fn render(&self, key: &str, args: &[&str]) -> String {
         self.registry.render(key, &self.locale, args)
     }
 
     /// The text of `key` with its slots filled, escaped for the page.
     #[must_use]
-    pub fn html(&self, key: &str, args: &[&str]) -> String {
+    pub(crate) fn html(&self, key: &str, args: &[&str]) -> String {
         escape_html_attribute(&self.render(key, args))
     }
 
     /// What the page calls the chat the athlete came from: the channel's own
     /// name, or the catalogue's "your chat app" for a slug that names none.
     #[must_use]
-    pub fn channel(&self, slug: &str) -> String {
+    pub(crate) fn channel(&self, slug: &str) -> String {
         channel_display_name(slug).map_or_else(
             || self.get(KEY_HOSTED_COMMON_YOUR_CHAT_APP),
             ToOwned::to_owned,
@@ -99,7 +99,7 @@ impl<'a> PageStrings<'a> {
     /// Renderers call this before substituting any request value, so a typed
     /// value that spells a placeholder is never expanded.
     #[must_use]
-    pub fn fill(&self, template: &str) -> String {
+    pub(crate) fn fill(&self, template: &str) -> String {
         let mut page = template.replace(LANG_PLACEHOLDER, &escape_html_attribute(&self.locale));
         for key in TEMPLATE_KEYS {
             let placeholder = format!("{{{{t:{key}}}}}");
@@ -118,7 +118,7 @@ impl<'a> PageStrings<'a> {
 /// name the channel link whose `/language` override the chat reply was worded
 /// by. A token whose tenant does not parse names no link, and the athlete's
 /// profile-wide locale answers.
-pub async fn locale_for_reader(
+pub(crate) async fn locale_for_reader(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
@@ -142,7 +142,7 @@ pub async fn locale_for_reader(
 
 /// The locale of the athlete `claims` names, or `None` when their subject is
 /// not a user id and there is nobody's preference to read.
-pub async fn locale_for_claims(
+pub(crate) async fn locale_for_claims(
     resources: &AuthRoutesContext,
     claims: &ProviderLinkTokenClaims,
 ) -> Option<String> {
@@ -157,7 +157,7 @@ pub async fn locale_for_claims(
 /// whose stored locale is the page's. Anything else — no token, an expired or
 /// forged one, a subject that is not a user id — leaves the browser's
 /// `Accept-Language`.
-pub async fn locale_for_token(
+pub(crate) async fn locale_for_token(
     resources: &AuthRoutesContext,
     token: Option<&str>,
     provider: &str,
@@ -180,7 +180,7 @@ pub async fn locale_for_token(
 /// escape (backslash, `u003c`) is the same character to the script and no tag
 /// to the parser.
 #[must_use]
-pub fn script_json(value: &Value) -> String {
+pub(crate) fn script_json(value: &Value) -> String {
     value.to_string().replace('<', "\\u003c")
 }
 

@@ -73,7 +73,7 @@ impl AgUiSink for NoopSink {
 /// Events are JSON-serialized once in the producer task and broadcast to
 /// every subscriber. Serialization errors are logged and dropped so the
 /// pipeline never fails a turn on an AG-UI encoding bug.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BroadcastSink {
     registry: RunRegistry,
     filter: AgUiEventFilter,

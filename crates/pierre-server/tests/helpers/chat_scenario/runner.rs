@@ -28,7 +28,7 @@ use super::format::{AssertionSpec, ChatScenario, ScenarioActivity, TurnSpec};
 use super::vocabulary_contract::VocabularyContractRegistry;
 
 /// Shared per-turn context passed to every asserter.
-pub struct TurnContext<'a> {
+pub(crate) struct TurnContext<'a> {
     /// The agent's textual reply for this turn.
     pub reply: &'a str,
     /// Names of tools invoked during this turn's pipeline run, in
@@ -48,7 +48,7 @@ pub struct TurnContext<'a> {
 ///
 /// Drivers own the fixture, the user-message → reply transformation,
 /// and any provider-state seeding/mutation. The runner is driver-agnostic.
-pub trait ScenarioDriver {
+pub(crate) trait ScenarioDriver {
     /// Seed the provider with the scenario's initial activities.
     /// Called once before the first turn.
     fn seed_initial_state(&mut self, provider: &str, activities: &[ScenarioActivity]);
@@ -103,14 +103,14 @@ pub trait ScenarioDriver {
 /// classified time in zone itself would be a second implementation of the
 /// kernel's classifier, free to disagree with the one that ships.
 #[derive(Debug, Clone, Default)]
-pub struct WrittenPlan {
+pub(crate) struct WrittenPlan {
     /// Weeks the athlete's active plan holds, soonest first.
     pub weeks: Vec<WrittenWeek>,
 }
 
 /// One saved week, as the eval needs to read it.
 #[derive(Debug, Clone)]
-pub struct WrittenWeek {
+pub(crate) struct WrittenWeek {
     /// Monday, `YYYY-MM-DD`.
     pub week_start: String,
     /// Days the week holds, rest days included.
@@ -124,7 +124,7 @@ pub struct WrittenWeek {
     pub tid: String,
 }
 
-pub struct DriverTurnOutput {
+pub(crate) struct DriverTurnOutput {
     pub reply: String,
     /// Tools the MODEL asked for on this turn, in invocation order. This is
     /// the only list [`AssertionSpec::ToolCalled`] grades.
@@ -154,7 +154,7 @@ pub struct DriverTurnOutput {
 
 /// Final report of a scenario run.
 #[derive(Debug)]
-pub struct ScenarioReport {
+pub(crate) struct ScenarioReport {
     pub scenario_name: String,
     pub locale: String,
     pub turn_failures: Vec<TurnFailure>,
@@ -171,7 +171,7 @@ pub struct ScenarioReport {
 
 /// A turn that produced no model output. Not a quality signal.
 #[derive(Debug)]
-pub struct InfraError {
+pub(crate) struct InfraError {
     pub turn_index: usize,
     pub user_message: String,
     pub error: String,
@@ -189,7 +189,7 @@ impl Display for InfraError {
 
 impl ScenarioReport {
     #[must_use]
-    pub fn passed(&self) -> bool {
+    pub(crate) fn passed(&self) -> bool {
         self.turn_failures.is_empty()
             && self.drift_findings.is_empty()
             && self.infra_errors.is_empty()
@@ -199,14 +199,14 @@ impl ScenarioReport {
     /// quality finding. Lets a caller separate "the eval says the coach is
     /// wrong" from "the eval could not run".
     #[must_use]
-    pub fn is_infra_failure(&self) -> bool {
+    pub(crate) fn is_infra_failure(&self) -> bool {
         !self.infra_errors.is_empty()
     }
 
     /// Render a multi-line human-readable failure summary. Empty
     /// string when the scenario passed.
     #[must_use]
-    pub fn failure_summary(&self) -> String {
+    pub(crate) fn failure_summary(&self) -> String {
         if self.passed() {
             return String::new();
         }
@@ -267,7 +267,7 @@ impl ScenarioReport {
 
 /// Per-turn failure bundle.
 #[derive(Debug)]
-pub struct TurnFailure {
+pub(crate) struct TurnFailure {
     pub turn_index: usize,
     pub user_message: String,
     pub reply: String,
@@ -290,7 +290,7 @@ pub struct TurnFailure {
 
 /// Run `scenario` against `driver` for every locale declared on the
 /// scenario, returning one report per locale.
-pub fn run_scenario<D: ScenarioDriver>(
+pub(crate) fn run_scenario<D: ScenarioDriver>(
     scenario: &ChatScenario,
     driver: &mut D,
     vocab: &VocabularyContractRegistry,
@@ -634,7 +634,7 @@ fn record_aggregate_claims(timeline: &mut ClaimTimeline, turn_index: usize, repl
 /// Used to exercise the runner's plumbing without booting the full
 /// chat pipeline. Production scenarios should use a `LiveScenarioDriver`
 /// once it lands (P3).
-pub struct MockScenarioDriver {
+pub(crate) struct MockScenarioDriver {
     pub canned_replies: Vec<String>,
     pub canned_tools: Vec<Vec<String>>,
     cursor: usize,
@@ -662,7 +662,7 @@ pub struct MockScenarioDriver {
 
 impl MockScenarioDriver {
     #[must_use]
-    pub fn new(canned_replies: Vec<String>, canned_tools: Vec<Vec<String>>) -> Self {
+    pub(crate) fn new(canned_replies: Vec<String>, canned_tools: Vec<Vec<String>>) -> Self {
         Self {
             canned_replies,
             canned_tools,
@@ -679,7 +679,7 @@ impl MockScenarioDriver {
 
     /// Simulate a provider that dies on turn 1 without reaching the model.
     #[must_use]
-    pub fn with_dispatch_errors(mut self, errors: Vec<Option<String>>) -> Self {
+    pub(crate) fn with_dispatch_errors(mut self, errors: Vec<Option<String>>) -> Self {
         self.canned_dispatch_errors = errors;
         self
     }
@@ -687,7 +687,7 @@ impl MockScenarioDriver {
     /// Simulate the live driver's pre-dispatch fetch: the turn's data is in
     /// context, but the model itself asked for nothing.
     #[must_use]
-    pub fn with_prefetched_tools(mut self, prefetched: Vec<Vec<String>>) -> Self {
+    pub(crate) fn with_prefetched_tools(mut self, prefetched: Vec<Vec<String>>) -> Self {
         self.canned_prefetched_tools = prefetched;
         self
     }
@@ -1178,7 +1178,11 @@ mod tests {
             vec![vec!["get_activities".to_owned()]],
         );
         let vocab = VocabularyContractRegistry::empty();
-        let _ = run_scenario(&scenario, &mut driver, &vocab);
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+        assert!(
+            reports.iter().all(|r| r.turn_failures.is_empty()),
+            "the scripted reply satisfies the turn"
+        );
         assert_eq!(
             driver.prefetch_allowed_log,
             vec![false],
@@ -1199,7 +1203,11 @@ mod tests {
             vec![vec![]],
         );
         let vocab = VocabularyContractRegistry::empty();
-        let _ = run_scenario(&scenario, &mut driver, &vocab);
+        let reports = run_scenario(&scenario, &mut driver, &vocab);
+        assert!(
+            reports.iter().all(|r| r.turn_failures.is_empty()),
+            "the scripted reply satisfies the turn"
+        );
         assert_eq!(
             driver.prefetch_allowed_log,
             vec![true],

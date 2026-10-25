@@ -379,7 +379,8 @@ fn mention_grammar_is_the_handle_grammar() {
         handles("@Recovery-Coach").is_empty(),
         "the grammar is CoachHandle::parse: lowercase only"
     );
-    assert_eq!(handles("no mention here"), [] as [String; 0]);
+    let found = handles("no mention here");
+    assert!(found.is_empty(), "expected empty, got {found:?}");
 }
 
 /// Only the resolved token goes, and the gap it leaves is closed.

@@ -304,6 +304,17 @@ pub struct ProviderRateLimiter {
     api_key_budgets: DashMap<String, Vec<Budget>>,
 }
 
+impl fmt::Debug for ProviderRateLimiter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderRateLimiter")
+            .field("budgets", &self.budgets)
+            .field("pools", &self.pools)
+            .field("grant_counts", &self.grant_counts)
+            .field("api_key_budgets", &self.api_key_budgets)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Whose windows a request is counted in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Holder {

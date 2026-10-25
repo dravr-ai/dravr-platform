@@ -45,13 +45,13 @@ fn function_calls_from(calls: Option<Vec<ToolCallRequest>>) -> Option<Vec<Functi
 
 /// Clone `request` with the tool declarations attached, so a provider reached
 /// through the trait's plain `complete()` still sees what it may call.
-pub fn with_tool_defs(request: &ChatRequest, tools: Option<Vec<Tool>>) -> ChatRequest {
+pub(crate) fn with_tool_defs(request: &ChatRequest, tools: Option<Vec<Tool>>) -> ChatRequest {
     tool_defs_from(tools).map_or_else(|| request.clone(), |defs| request.clone().with_tools(defs))
 }
 
 /// Lift a plain `ChatResponse` into the tool-carrying shape, preserving any
 /// tool calls the provider reported.
-pub fn with_tools_response(response: ChatResponse) -> ChatResponseWithTools {
+pub(crate) fn with_tools_response(response: ChatResponse) -> ChatResponseWithTools {
     ChatResponseWithTools {
         content: Some(response.content),
         model: response.model,

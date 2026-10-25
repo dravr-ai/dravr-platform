@@ -34,6 +34,7 @@
 //!    athlete.
 
 use pierre_core::permissions::scopes::OAuthScope;
+use std::fmt;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -171,6 +172,23 @@ pub struct CapabilityRecoveryDeps<'a> {
     pub reask_recorder: &'a Arc<dyn LlmCallRecorder>,
     /// Receives every call to the peer-claim verifier.
     pub verifier_recorder: &'a Arc<dyn LlmCallRecorder>,
+}
+
+impl fmt::Debug for CapabilityRecoveryDeps<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The transcript and the peers' data are athlete content: only their
+        // sizes print.
+        f.debug_struct("CapabilityRecoveryDeps")
+            .field("ctx", &self.ctx)
+            .field("llm_messages", &self.llm_messages.len())
+            .field("active_model", &self.active_model)
+            .field("peer_roster", &self.peer_roster.len())
+            .field("peer_blocks", &self.peer_blocks.len())
+            .field("locale", &self.locale)
+            .field("guided_walk", &self.guided_walk)
+            .field("seat", &self.seat)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Apply capability-failure recovery in place.

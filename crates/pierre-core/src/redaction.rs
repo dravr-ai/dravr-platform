@@ -175,7 +175,8 @@ mod tests {
     proptest! {
         #[test]
         fn any_input_is_handled_without_panicking(input in any::<String>()) {
-            let _ = redact_url(&input);
+            // The property is that it returns: no input panics.
+            drop(redact_url(&input));
         }
 
         #[test]

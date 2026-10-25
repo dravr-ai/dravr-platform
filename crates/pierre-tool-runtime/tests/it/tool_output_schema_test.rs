@@ -5603,7 +5603,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
     // A first prescription replaces nothing; a replacement says what it took
     // the place of. Both are ordinary.
     let first = serde_json::to_value(PrescribeWorkoutResult {
-        prescription_id: uuid::Uuid::nil(),
+        prescription_id: Uuid::nil(),
         provider: "intervals_icu".to_owned(),
         provider_event_id: "evt-1".to_owned(),
         replaced_prescription_id: None,

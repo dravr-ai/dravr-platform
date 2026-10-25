@@ -59,6 +59,7 @@ use crate::default_agent::group_default;
 ///
 /// Bundled rather than passed as loose arguments because every field travels
 /// together from the ingress layer down to the group row.
+#[derive(Debug)]
 pub struct ChannelChatBinding<'a> {
     /// Tenant that owns the channel — *not* necessarily the sender's home
     /// tenant. Group membership is cross-tenant by design.

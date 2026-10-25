@@ -97,7 +97,12 @@ fn main() {
     if run_bun(&sdk_path, &["run", "build"], "build the SDK") {
         // The stamp records what this bundle was built from; a failed write
         // only costs a rebuild next time.
-        let _ = fs::write(&stamp, &digest);
+        if let Err(e) = fs::write(&stamp, &digest) {
+            println!(
+                "cargo:warning=Could not write the SDK build stamp {}: {e}",
+                stamp.display()
+            );
+        }
         println!("cargo:warning=SDK built successfully: sdk/dist/cli.js");
     }
 }

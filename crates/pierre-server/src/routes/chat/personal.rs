@@ -35,7 +35,7 @@ use super::turn_response::message_response;
 /// `conversation` is `null` for an athlete who has none yet. Nothing is
 /// forged for a look: Home opens on its empty pane, and the first thing the
 /// athlete starts there — "+", a starter — opens the thread.
-pub async fn get_personal_thread(
+pub(super) async fn get_personal_thread(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
 ) -> Result<Response, AppError> {
@@ -62,7 +62,7 @@ pub async fn get_personal_thread(
 /// agent's welcome opens the topic unless the athlete is about to speak
 /// first. An athlete with no thread yet gets one, opened the way "+" always
 /// opened a thread: bound to their agent, with no guided walk. No cap applies.
-pub async fn open_personal_topic(
+pub(super) async fn open_personal_topic(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     headers: HeaderMap,
@@ -139,7 +139,7 @@ pub async fn open_personal_topic(
 /// topic, so the topic Start opens next finds it already welcomed.
 /// Best-effort: the step is the athlete's answer, and a welcome that cannot
 /// be written is logged.
-pub async fn welcome_onboarding_lead(
+pub(crate) async fn welcome_onboarding_lead(
     resources: &ServerContext,
     headers: &HeaderMap,
     user_id: Uuid,

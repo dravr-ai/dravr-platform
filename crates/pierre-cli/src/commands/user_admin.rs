@@ -21,7 +21,7 @@
 
 use secrecy::SecretString;
 use std::fmt::Write as _;
-use std::io::{self, Write as _};
+use std::io;
 
 use clap::Args;
 use pierre_core::errors::{AppError, AppResult};
@@ -31,7 +31,7 @@ use pierre_cli::remote::RemoteClient;
 
 /// How a listing is printed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
+pub(crate) enum OutputFormat {
     /// Aligned columns for a human.
     Table,
     /// One JSON object per line, for piping into `jq`.
@@ -48,7 +48,7 @@ impl OutputFormat {
     /// Returns [`AppError::invalid_input`] for an unknown format, naming the
     /// three that exist rather than silently falling back to a default — a
     /// typo'd `--format jsonl` should not quietly print a table.
-    pub fn parse(raw: &str) -> AppResult<Self> {
+    pub(crate) fn parse(raw: &str) -> AppResult<Self> {
         match raw.to_ascii_lowercase().as_str() {
             "table" => Ok(Self::Table),
             "json" => Ok(Self::Json),
@@ -76,49 +76,71 @@ fn field(user: &Value, key: &str) -> String {
 /// `header` is honoured only on the first page: a streamed listing prints as it
 /// pages, and repeating the header mid-stream would corrupt the CSV for anything
 /// consuming it.
-fn print_page(users: &[Value], format: OutputFormat, header: bool) {
-    let mut out = io::stdout().lock();
+fn print_page(users: &[Value], format: OutputFormat, header: bool) -> AppResult<()> {
+    stdout_written(write_page(&mut io::stdout().lock(), users, format, header))
+}
+
+/// Write one page to `out`; see [`print_page`].
+fn write_page(
+    out: &mut impl io::Write,
+    users: &[Value],
+    format: OutputFormat,
+    header: bool,
+) -> io::Result<()> {
     match format {
         OutputFormat::Table => {
             if header {
-                let _ = writeln!(
+                writeln!(
                     out,
                     "{:<38}  {:<13}  {:<38}  DISPLAY NAME",
                     "EMAIL", "TIER", "ID"
-                );
+                )?;
             }
             for u in users {
-                let _ = writeln!(
+                writeln!(
                     out,
                     "{:<38}  {:<13}  {:<38}  {}",
                     field(u, "email"),
                     field(u, "tier"),
                     field(u, "id"),
                     field(u, "display_name")
-                );
+                )?;
             }
         }
         OutputFormat::Json => {
             for u in users {
-                let _ = writeln!(out, "{u}");
+                writeln!(out, "{u}")?;
             }
         }
         OutputFormat::Csv => {
             if header {
-                let _ = writeln!(out, "{}", COLUMNS.join(","));
+                writeln!(out, "{}", COLUMNS.join(","))?;
             }
             for u in users {
                 // Display names are user-supplied and do contain commas.
                 let row: Vec<String> = COLUMNS.iter().map(|c| csv_cell(&field(u, c))).collect();
-                let _ = writeln!(out, "{}", row.join(","));
+                writeln!(out, "{}", row.join(","))?;
             }
         }
     }
-    let _ = out.flush();
+    out.flush()
+}
+
+/// Settle a listing's write to stdout.
+///
+/// A closed pipe (`| head`) is the reader choosing to stop, not a failure, so it
+/// ends the listing quietly; any other write error is reported.
+pub(crate) fn stdout_written(written: io::Result<()>) -> AppResult<()> {
+    match written {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => {
+            Err(AppError::internal(format!("cannot write to stdout: {e}")))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Filters and paging for a listing.
-pub struct GetUsersArgs {
+pub(crate) struct GetUsersArgs {
     /// Status to list (`all` for every account). `None` lets the server default to active.
     pub status: Option<String>,
     /// Tier filter, or `None` for every tier.
@@ -139,7 +161,7 @@ pub struct GetUsersArgs {
 /// is not swallowed: pages already printed stay printed, and the error names
 /// the page that failed, because silently ending a stream early looks exactly
 /// like reaching the end of the table.
-pub async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> AppResult<()> {
+pub(crate) async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> AppResult<()> {
     let mut cursor: Option<String> = None;
     let mut page_index = 0_usize;
     let mut printed = 0_usize;
@@ -169,7 +191,7 @@ pub async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> AppResult<
             .cloned()
             .unwrap_or_default();
 
-        print_page(&users, args.format, page_index == 0);
+        print_page(&users, args.format, page_index == 0)?;
         printed += users.len();
         page_index += 1;
 
@@ -207,7 +229,7 @@ pub async fn get_users(client: &RemoteClient, args: &GetUsersArgs) -> AppResult<
 ///
 /// Returns [`AppError::not_found`] when no user carries that email, rather than
 /// falling through and letting the server 404 on a path built from an email.
-pub async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult<String> {
+pub(crate) async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult<String> {
     if uuid::Uuid::parse_str(selector).is_ok() {
         return Ok(selector.to_owned());
     }
@@ -243,7 +265,7 @@ pub async fn resolve_user_id(client: &RemoteClient, selector: &str) -> AppResult
 
 /// `user disconnect` — disconnect one provider for a user.
 #[derive(Debug, Args)]
-pub struct DisconnectArgs {
+pub(crate) struct DisconnectArgs {
     /// Email (or user id) of the account
     #[arg(long)]
     pub email: String,
@@ -264,7 +286,7 @@ pub struct DisconnectArgs {
 /// `user clone-provider` — copy one account's scrape-session provider
 /// connection onto another.
 #[derive(Debug, Args)]
-pub struct CloneProviderArgs {
+pub(crate) struct CloneProviderArgs {
     /// Email (or user id) of the account whose session is copied
     #[arg(long)]
     pub from: String,
@@ -292,7 +314,7 @@ pub struct CloneProviderArgs {
 
 /// `user delete` — remove a user completely.
 #[derive(Debug, Args)]
-pub struct DeleteArgs {
+pub(crate) struct DeleteArgs {
     /// Email (or user id) of the account
     #[arg(long)]
     pub email: String,
@@ -317,7 +339,7 @@ pub struct DeleteArgs {
 
 /// `user reset-onboarding` — send a user back through onboarding.
 #[derive(Debug, Args)]
-pub struct ResetOnboardingArgs {
+pub(crate) struct ResetOnboardingArgs {
     /// Email (or user id) of the account
     #[arg(long)]
     pub email: String,
@@ -395,7 +417,7 @@ fn provider_entries(body: &Value, key: &str) -> Vec<Value> {
 ///
 /// Returns the client's error when the call fails, including the server's 404
 /// for a provider the user holds no connection to.
-pub async fn disconnect_provider(
+pub(crate) async fn disconnect_provider(
     client: &RemoteClient,
     user_id: &str,
     provider: &str,
@@ -418,7 +440,7 @@ pub async fn disconnect_provider(
 ///
 /// Returns the client's error when the call fails — including the server's
 /// refusal of an OAuth grant, a dead session or a token below super-admin.
-pub async fn clone_provider(
+pub(crate) async fn clone_provider(
     client: &RemoteClient,
     from: &str,
     to: &str,
@@ -449,7 +471,7 @@ pub async fn clone_provider(
 /// Returns [`AppError::invalid_input`] when not confirmed, and the client's
 /// error when a call fails — including the server's 409 naming the groups or
 /// operator records that must be reassigned first.
-pub async fn delete_user(
+pub(crate) async fn delete_user(
     client: &RemoteClient,
     user_id: &str,
     reason: Option<&str>,
@@ -514,7 +536,7 @@ before walking onboarding again.";
 ///
 /// Returns [`AppError::invalid_input`] when not confirmed, and the client's
 /// error when a call fails.
-pub async fn reset_onboarding(
+pub(crate) async fn reset_onboarding(
     client: &RemoteClient,
     user_id: &str,
     with_memory: bool,
@@ -608,7 +630,7 @@ pub async fn reset_onboarding(
 /// # Errors
 ///
 /// Returns the client's error when the fetch fails.
-pub async fn get_user(client: &RemoteClient, user_id: &str) -> AppResult<()> {
+pub(crate) async fn get_user(client: &RemoteClient, user_id: &str) -> AppResult<()> {
     let body: Value = client.get_json(&format!("/admin/users/{user_id}")).await?;
     println!(
         "{}",
@@ -624,7 +646,7 @@ pub async fn get_user(client: &RemoteClient, user_id: &str) -> AppResult<()> {
 /// Returns [`AppError::invalid_input`] for an unknown tier — rejected here as
 /// well as server-side so a typo costs a round trip, not a silent no-op — and
 /// the client's error when the write fails.
-pub async fn set_user_tier(
+pub(crate) async fn set_user_tier(
     client: &RemoteClient,
     user_id: &str,
     tier: &str,
@@ -659,7 +681,7 @@ pub async fn set_user_tier(
 ///
 /// Returns the client's error when the write fails, including the server's
 /// refusal of a token that is not super-admin.
-pub async fn set_user_manages_roster(
+pub(crate) async fn set_user_manages_roster(
     client: &RemoteClient,
     user_id: &str,
     manages_roster: bool,
@@ -693,7 +715,7 @@ const ALLOWED_COLUMNS: [&str; 6] = [
 ///
 /// Returns the client's error when the write fails, including the server's
 /// rejection of a malformed address.
-pub async fn allow_email(
+pub(crate) async fn allow_email(
     client: &RemoteClient,
     email: &str,
     note: Option<&str>,
@@ -723,7 +745,7 @@ pub async fn allow_email(
 
 /// What an allow asks about the invitation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Invite {
+pub(crate) enum Invite {
     /// No invitation.
     None,
     /// Issue a single-use invitation and mail it.
@@ -737,7 +759,7 @@ impl Invite {
     /// The invitation the `--send-invite` and `--print-link` flags ask for;
     /// clap refuses `--print-link` without `--send-invite`.
     #[must_use]
-    pub const fn from_flags(send_invite: bool, print_link: bool) -> Self {
+    pub(crate) const fn from_flags(send_invite: bool, print_link: bool) -> Self {
         match (send_invite, print_link) {
             (false, _) => Self::None,
             (true, false) => Self::Mail,
@@ -751,7 +773,7 @@ impl Invite {
 /// # Errors
 ///
 /// Returns the client's error when the delete fails.
-pub async fn disallow_email(client: &RemoteClient, email: &str) -> AppResult<()> {
+pub(crate) async fn disallow_email(client: &RemoteClient, email: &str) -> AppResult<()> {
     let encoded = urlencoding::encode(email);
     let body: Value = client
         .delete_json(&format!("/admin/pre-approved-emails/{encoded}"))
@@ -765,7 +787,7 @@ pub async fn disallow_email(client: &RemoteClient, email: &str) -> AppResult<()>
 /// # Errors
 ///
 /// Returns the client's error when the listing fails.
-pub async fn list_allowed(client: &RemoteClient, format: OutputFormat) -> AppResult<()> {
+pub(crate) async fn list_allowed(client: &RemoteClient, format: OutputFormat) -> AppResult<()> {
     let body: Value = client.get_json("/admin/pre-approved-emails").await?;
     let entries = body
         .get("data")
@@ -779,17 +801,25 @@ pub async fn list_allowed(client: &RemoteClient, format: OutputFormat) -> AppRes
         return Ok(());
     }
 
-    let mut out = io::stdout().lock();
+    stdout_written(write_allowed(&mut io::stdout().lock(), &entries, format))
+}
+
+/// Write the pre-approval listing to `out`; see [`list_allowed`].
+fn write_allowed(
+    out: &mut impl io::Write,
+    entries: &[Value],
+    format: OutputFormat,
+) -> io::Result<()> {
     match format {
         OutputFormat::Table => {
-            let _ = writeln!(out, "Pre-approved emails ({} total):", entries.len());
-            let _ = writeln!(
+            writeln!(out, "Pre-approved emails ({} total):", entries.len())?;
+            writeln!(
                 out,
                 "{:<36}  {:<10}  {:<17}  {:<28}  NOTE",
                 "EMAIL", "ACCOUNT", "ALLOWED AT", "ALLOWED BY"
-            );
-            for entry in &entries {
-                let _ = writeln!(
+            )?;
+            for entry in entries {
+                writeln!(
                     out,
                     "{:<36}  {:<10}  {:<17}  {:<28}  {}",
                     field(entry, "email"),
@@ -797,27 +827,26 @@ pub async fn list_allowed(client: &RemoteClient, format: OutputFormat) -> AppRes
                     allowed_at(entry),
                     operator_label(entry),
                     note_label(entry)
-                );
+                )?;
             }
         }
         OutputFormat::Json => {
-            for entry in &entries {
-                let _ = writeln!(out, "{entry}");
+            for entry in entries {
+                writeln!(out, "{entry}")?;
             }
         }
         OutputFormat::Csv => {
-            let _ = writeln!(out, "{}", ALLOWED_COLUMNS.join(","));
-            for entry in &entries {
+            writeln!(out, "{}", ALLOWED_COLUMNS.join(","))?;
+            for entry in entries {
                 let row: Vec<String> = ALLOWED_COLUMNS
                     .iter()
                     .map(|c| csv_cell(&field(entry, c)))
                     .collect();
-                let _ = writeln!(out, "{}", row.join(","));
+                writeln!(out, "{}", row.join(","))?;
             }
         }
     }
-    let _ = out.flush();
-    Ok(())
+    out.flush()
 }
 
 /// The server's own sentence for a write, falling back to the whole body when

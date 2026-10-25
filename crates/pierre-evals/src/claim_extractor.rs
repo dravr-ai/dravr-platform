@@ -13,6 +13,8 @@
 //! sentence boundaries and category-classifies via keyword matching, so it
 //! runs on every reply with no LLM call and no cost.
 
+use std::fmt;
+
 use pierre_memory::ClaimCategory;
 use serde::{Deserialize, Serialize};
 
@@ -31,7 +33,7 @@ pub enum ClaimSource {
 }
 
 /// A single claim extracted from an agent reply.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedClaim {
     /// The raw claim text.
     pub text: String,
@@ -39,6 +41,16 @@ pub struct ExtractedClaim {
     pub category: ClaimCategory,
     /// Where the claim text came from.
     pub source: ClaimSource,
+}
+
+impl fmt::Debug for ExtractedClaim {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractedClaim")
+            .field("text_len", &self.text.len())
+            .field("category", &self.category)
+            .field("source", &self.source)
+            .finish()
+    }
 }
 
 /// Minimum word count for a sentence to be treated as a verifiable claim.

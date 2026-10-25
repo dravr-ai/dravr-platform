@@ -174,6 +174,7 @@ fn schema_to_tool(schema: ToolSchema) -> Tool {
 ///
 /// MCP hands `instructions` to a client once, during the handshake, so an edit
 /// reaches an already-connected client when it reconnects, not mid-session.
+#[derive(Debug)]
 pub struct CatalogueInstructions {
     /// Shared server resources, for the prompt registry behind them.
     pub resources: Arc<ServerContext>,
@@ -203,6 +204,7 @@ impl InstructionsSource for CatalogueInstructions {
 /// RFC 9728 challenge; a valid credential over its request budget is a 429
 /// with `Retry-After`; a server-side failure while authenticating is a 500;
 /// an authenticated caller without tenant membership is a 403.
+#[derive(Debug)]
 pub struct PierreAuthHook {
     /// Shared server resources for auth + tenant resolution.
     pub resources: Arc<ServerContext>,
@@ -528,6 +530,7 @@ async fn settle_task(
 /// full post-auth flow (enablement, quota, execution, OAuth-notification
 /// augmentation, usage recording). The caller is already authenticated by
 /// [`PierreAuthHook`]; the context carries the resolved identity.
+#[derive(Debug)]
 pub struct PierreToolDispatcher {
     /// Shared server resources owning the tool registry + selection service.
     resources: Arc<ServerContext>,
@@ -854,6 +857,7 @@ fn parse_tenant_id(value: &str) -> Option<TenantId> {
 ///
 /// Serves `resources/*` and `prompts/*`; `initialize`/`ping`/`tools/*` are
 /// served by the engine. Anything else is left to the engine's -32601.
+#[derive(Debug)]
 pub struct PierreMethodHandler {
     /// Shared server resources backing resources/prompts.
     pub resources: Arc<ServerContext>,
@@ -923,10 +927,7 @@ impl PierreMethodHandler {
     ) -> JsonRpcResponse {
         debug!("Handling resources/read request");
 
-        let Some(uri) = params
-            .and_then(|p| p.get("uri"))
-            .and_then(serde_json::Value::as_str)
-        else {
+        let Some(uri) = params.and_then(|p| p.get("uri")).and_then(Value::as_str) else {
             return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Missing 'uri' parameter");
         };
 
@@ -967,10 +968,7 @@ impl PierreMethodHandler {
     fn handle_prompts_get(id: Option<Value>, params: Option<&Value>) -> JsonRpcResponse {
         debug!("Handling prompts/get request");
 
-        let Some(name) = params
-            .and_then(|p| p.get("name"))
-            .and_then(serde_json::Value::as_str)
-        else {
+        let Some(name) = params.and_then(|p| p.get("name")).and_then(Value::as_str) else {
             return JsonRpcResponse::error(id, ERROR_INVALID_PARAMS, "Missing 'name' parameter");
         };
 
@@ -999,7 +997,7 @@ impl PierreMethodHandler {
 fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
     params
         .and_then(|p| p.get("arguments"))
-        .and_then(serde_json::Value::as_object)
+        .and_then(Value::as_object)
         .map(|map| {
             map.iter()
                 .map(|(key, value)| {

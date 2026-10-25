@@ -39,6 +39,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// The athlete's personal thread is never left, nor is a coach's thread bound
 /// to one athlete: a reset there opens a new topic inside it instead (see
 /// [`open_thread_topic`]), and nothing is archived or forged.
+#[derive(Debug)]
 pub struct ResetHandler;
 
 #[async_trait]

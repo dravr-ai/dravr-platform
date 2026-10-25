@@ -16,7 +16,7 @@
 use pierre_core::errors::{AppError, AppResult};
 
 /// Read a column, naming it in the error.
-pub fn column<'r, R, T>(row: &'r R, name: &str) -> AppResult<T>
+pub(super) fn column<'r, R, T>(row: &'r R, name: &str) -> AppResult<T>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,

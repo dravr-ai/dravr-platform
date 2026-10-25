@@ -248,7 +248,7 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
     assert_ne!(retrieved_user1.id, retrieved_user2.id);
 
     // Test JWT generation
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let token1 = auth_manager.generate_token(&user1, &jwks_manager)?;
     let token2 = auth_manager.generate_token(&user2, &jwks_manager)?;
 
@@ -268,7 +268,7 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
 #[tokio::test]
 async fn test_authentication_middleware_integration() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let repos = Arc::clone(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         (*auth_manager).clone(),
@@ -317,7 +317,7 @@ async fn test_authentication_middleware_integration() -> Result<()> {
 async fn test_tenant_data_isolation() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
 
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     // Create multiple users
     let users = create_multiple_test_users(&database, &auth_manager, 3, &jwks_manager).await?;
@@ -445,7 +445,7 @@ async fn test_concurrent_user_operations() -> Result<()> {
             repos.users.create(&user).await?;
 
             // Generate token
-            let jwks_manager = common::get_shared_test_jwks();
+            let jwks_manager = get_shared_test_jwks();
             let token = am.generate_token(&user, &jwks_manager)?;
 
             // Validate token
@@ -514,7 +514,7 @@ async fn test_token_expiration_handling() -> Result<()> {
     let short_expiry_auth_manager = Arc::new(AuthManager::new(0)); // 0 hours expiry
 
     // Generate token with immediate expiration
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let expired_token = short_expiry_auth_manager.generate_token(&user, &jwks_manager)?;
 
     // Wait to ensure the token has expired
@@ -564,7 +564,7 @@ async fn test_invalid_token_handling() -> Result<()> {
         "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", // Valid format but wrong signature
     ];
 
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     for invalid_token in invalid_tokens {
         let result = auth_manager.validate_token(invalid_token, &jwks_manager);
@@ -614,7 +614,7 @@ async fn test_user_tier_management() -> Result<()> {
     assert_eq!(retrieved_enterprise.tier, UserTier::Enterprise);
 
     // Test JWT tokens include tier information
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let starter_token = auth_manager.generate_token(&starter_user, &jwks_manager)?;
     let pro_token = auth_manager.generate_token(&pro_user, &jwks_manager)?;
     let enterprise_token = auth_manager.generate_token(&enterprise_user, &jwks_manager)?;
@@ -634,7 +634,7 @@ async fn test_user_tier_management() -> Result<()> {
 async fn test_database_encryption_isolation() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
 
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     // Create users
     let users = create_multiple_test_users(&database, &auth_manager, 2, &jwks_manager).await?;
@@ -752,7 +752,7 @@ async fn test_session_state_management() -> Result<()> {
 #[tokio::test]
 async fn test_concurrent_authentication_operations() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let repos = Arc::clone(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         (*auth_manager).clone(),
@@ -814,7 +814,7 @@ async fn test_concurrent_authentication_operations() -> Result<()> {
 async fn test_memory_safety_concurrent_access() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
 
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     // Test concurrent access to shared resources
     let mut handles = Vec::new();
@@ -890,7 +890,7 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
 async fn test_user_provider_storage_concept() -> Result<()> {
     let (_server, _database, auth_manager) = create_test_multitenant_server().await?;
 
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     // Test the concept of user provider storage isolation
     // This simulates how the server would maintain separate provider instances per user
@@ -950,7 +950,7 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
         "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.invalid.signature",
     ];
 
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     for invalid_token in invalid_tokens {
         let result = auth_manager.validate_token(invalid_token, &jwks_manager);
@@ -976,7 +976,7 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
 
     // Create jwks_manager for token generation and validation
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
 
     // Test with a larger number of users to verify scalability
     let user_count = 50;

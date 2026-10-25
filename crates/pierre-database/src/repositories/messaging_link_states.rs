@@ -30,6 +30,8 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::Value;
@@ -125,7 +127,11 @@ macro_rules! complete_link_state_sql {
 pub(crate) use complete_link_state_sql;
 
 /// One `messaging_link_states` row, decoded.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Debug` is hand-written: the one-time code links a channel identity to an
+/// account, and the channel user id is a phone number on `WhatsApp` and SMS, so
+/// the code, that id and the sender's name print as `[REDACTED]`.
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct LinkStateRow {
     /// Row id.
     pub id: String,
@@ -149,6 +155,30 @@ pub(crate) struct LinkStateRow {
     pub expires_at: DateTime<Utc>,
     /// When the code was minted.
     pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for LinkStateRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkStateRow")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("channel_type", &self.channel_type)
+            .field("code", &"[REDACTED]")
+            .field("method", &self.method)
+            .field("used", &self.used)
+            .field(
+                "channel_user_id",
+                &self.channel_user_id.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "sender_name",
+                &self.sender_name.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("expires_at", &self.expires_at)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 impl LinkStateRow {
@@ -393,3 +423,39 @@ macro_rules! impl_link_state_functions {
     };
 }
 pub(crate) use impl_link_state_functions;
+
+#[cfg(test)]
+mod tests {
+    use super::LinkStateRow;
+    use chrono::Utc;
+
+    #[test]
+    fn a_link_state_row_never_prints_its_code_sender_or_name() {
+        let row = LinkStateRow {
+            id: "row-1".to_owned(),
+            tenant_id: "tenant-1".to_owned(),
+            user_id: None,
+            channel_type: "telegram".to_owned(),
+            code: "sentinel-linkcode-7f3a".to_owned(),
+            method: "deep_link".to_owned(),
+            used: false,
+            channel_user_id: Some("+15550007f3a".to_owned()),
+            sender_name: Some("sentinel-sender-7f3a".to_owned()),
+            expires_at: Utc::now(),
+            created_at: Utc::now(),
+        };
+        for printed in [format!("{row:?}"), format!("{row:#?}")] {
+            for secret in [
+                "sentinel-linkcode-7f3a",
+                "+15550007f3a",
+                "sentinel-sender-7f3a",
+            ] {
+                assert!(!printed.contains(secret), "{secret} leaked: {printed}");
+            }
+            assert!(
+                printed.contains("LinkStateRow"),
+                "the row names itself: {printed}"
+            );
+        }
+    }
+}

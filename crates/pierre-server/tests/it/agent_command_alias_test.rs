@@ -933,9 +933,10 @@ mod agent_alias {
     async fn drafting_an_agent_works_under_both_spellings_and_confirms_canonically() {
         let llm = RouterLlm::new();
         llm.set_turn_replies(&[PROPOSAL_JSON]);
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let (user_id, tenant_id, auth) =
             seed_user_tenant(&resources, "alias-create@test.com").await;
 
@@ -1175,9 +1176,10 @@ mod agent_alias {
     #[serial]
     async fn a_telegram_dm_answers_the_legacy_spelling_identically() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&["OK."]);
 

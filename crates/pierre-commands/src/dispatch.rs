@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::Arc;
 
 use dravr_canot::commands::{CommandMatcher, CommandRegistry, CommandResponse};
@@ -100,6 +101,29 @@ pub struct DispatchRequest<'a> {
     pub origin: TurnOrigin,
 }
 
+impl fmt::Debug for DispatchRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The text is the athlete's message or a command line carrying invite
+        // codes and confirm tokens; the sender is a phone number on some
+        // channels.
+        f.debug_struct("DispatchRequest")
+            .field("command_registry", &self.command_registry)
+            .field("command_handler_registry", &self.command_handler_registry)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("channel_type", &self.channel_type)
+            .field("locale", &self.locale)
+            .field("is_direct_message", &self.is_direct_message)
+            .field("ambient_group_fallback", &self.ambient_group_fallback)
+            .field("conversation_id", &self.conversation_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("sender_id", &self.sender_id.map(|_| "[REDACTED]"))
+            .field("text_len", &self.text.len())
+            .field("origin", &self.origin)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Outcome of a single dispatch attempt.
 ///
 /// Callers fan out on the variant:
@@ -135,6 +159,32 @@ pub enum DispatchOutcome {
         /// (carnet#840). The in-app clients re-read the thread to draw it.
         opened_topic: Option<String>,
     },
+}
+
+// A command's reply can carry a fresh group invite code: only sizes print.
+impl fmt::Debug for DispatchOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotACommand => f.write_str("NotACommand"),
+            Self::UnknownCommand { body } => f
+                .debug_struct("UnknownCommand")
+                .field("body_len", &body.len())
+                .finish(),
+            Self::Executed {
+                command_name,
+                response,
+                rotated_to,
+                opened_topic,
+            } => f
+                .debug_struct("Executed")
+                .field("command_name", command_name)
+                .field("response_text_len", &response.text.len())
+                .field("response_actions", &response.actions.len())
+                .field("rotated_to", rotated_to)
+                .field("opened_topic", opened_topic)
+                .finish(),
+        }
+    }
 }
 
 /// Try to execute `text` as a slash command.

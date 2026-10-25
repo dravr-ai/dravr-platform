@@ -57,6 +57,7 @@ use pierre_core::models::{DelegatedConnection, RosterAthlete};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver::sync_backend;
 use secrecy::ExposeSecret;
+use std::fmt;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -75,6 +76,15 @@ pub struct DelegatedWellness {
     /// The fields the athlete keeps private from the coach, which the sync
     /// files none of.
     pub private: PrivateWellness,
+}
+
+impl fmt::Debug for DelegatedWellness {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DelegatedWellness")
+            .field("credentials", &"[REDACTED]")
+            .field("private", &self.private)
+            .finish()
+    }
 }
 
 /// The wellness fields an athlete keeps private from their human coach on

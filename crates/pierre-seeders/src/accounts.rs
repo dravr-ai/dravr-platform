@@ -10,7 +10,7 @@ use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
 /// One seeded account, its email and the tenant it acts in.
-pub struct Account {
+pub(crate) struct Account {
     pub id: Uuid,
     pub email: String,
     pub tenant: TenantId,
@@ -22,7 +22,7 @@ pub struct Account {
 ///
 /// Returns a configuration error when no user has that email, when the user
 /// has no tenant, or when the stored tenant id is not a UUID.
-pub async fn account(repos: &RepositoryRegistry, email: &str) -> AppResult<Account> {
+pub(crate) async fn account(repos: &RepositoryRegistry, email: &str) -> AppResult<Account> {
     let user = repos
         .seeder
         .seed_find_user_by_email(email)

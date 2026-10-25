@@ -774,7 +774,7 @@ impl Fixture {
     async fn coach_season_with_a_phase(&self) {
         let today = Utc::now().date_naive();
         let monday = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(&self.res) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(self.coach.id.to_string())
             .with_tenant(self.coach.tenant.to_string())

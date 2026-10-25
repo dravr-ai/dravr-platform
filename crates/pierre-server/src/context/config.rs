@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::Arc;
 
 #[cfg(feature = "protocol-a2a")]
@@ -31,6 +32,15 @@ pub struct ConfigContext {
     #[cfg(feature = "protocol-a2a")]
     a2a_system_user_service: Arc<A2ASystemUserService>,
     admin_config: Option<Arc<AdminConfigService>>,
+}
+
+impl fmt::Debug for ConfigContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConfigContext")
+            .field("config", &self.config)
+            .field("admin_config", &self.admin_config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ConfigContext {

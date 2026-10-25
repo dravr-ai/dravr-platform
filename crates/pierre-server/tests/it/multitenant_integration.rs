@@ -382,7 +382,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     assert_eq!(user.user_status, UserStatus::Pending);
 
     // Create admin user and approve the user for testing
-    let admin_id = uuid::Uuid::new_v4();
+    let admin_id = Uuid::new_v4();
     let admin_user = User {
         id: admin_id,
         email: "admin@test.com".to_owned(),

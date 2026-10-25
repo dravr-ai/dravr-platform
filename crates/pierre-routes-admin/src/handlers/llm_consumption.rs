@@ -153,6 +153,7 @@ async fn primary_tenant_for_user<C: MiddlewareCtx>(
 }
 
 /// LLM consumption routes handler
+#[derive(Debug)]
 pub struct LlmConsumptionRoutes;
 
 impl LlmConsumptionRoutes {

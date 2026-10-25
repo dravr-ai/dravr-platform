@@ -373,7 +373,7 @@ async fn out_of_range_and_garbage_settings_are_clamped() {
         .expect("set ttl failed");
     assert_eq!(
         resolve_settings(db).await.ttl_minutes,
-        defaults::DEFAULT_LINK_TTL_MINUTES,
+        DEFAULT_LINK_TTL_MINUTES,
         "a non-numeric row must fall back to the compiled default"
     );
 }

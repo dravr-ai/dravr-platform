@@ -238,7 +238,7 @@ impl Fixture {
         conversation: &str,
         args: Value,
     ) -> Value {
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(&self.res) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(self.coach.id.to_string())
             .with_tenant(self.coach.tenant.to_string())
@@ -591,7 +591,7 @@ async fn reset_in_a_subject_thread_opens_a_topic_and_keeps_the_binding() {
         channel_type: "web".to_owned(),
         args: vec![],
         raw_text: "/reset".to_owned(),
-        ctx: Arc::<ServerContext>::clone(&fx.res) as Arc<dyn pierre_runtime_context::CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(&fx.res),
         locale: "en".to_owned(),
         is_direct_message: true,
         ambient_group_fallback: false,

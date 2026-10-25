@@ -189,7 +189,7 @@ impl ProviderFactory for Factory {
     }
 
     fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
-        self.delegated.then_some(self as &dyn DelegatedReads)
+        self.delegated.then_some(self)
     }
 }
 

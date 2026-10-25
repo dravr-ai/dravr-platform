@@ -64,7 +64,7 @@ where
 ///
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded.
-pub fn compaction_block_from_row<R>(row: &R) -> AppResult<CompactionBlock>
+pub(crate) fn compaction_block_from_row<R>(row: &R) -> AppResult<CompactionBlock>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -96,7 +96,7 @@ where
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded,
 /// or an internal error for an unknown scope or predicate code.
-pub fn user_fact_from_row<R>(row: &R) -> AppResult<UserFact>
+pub(crate) fn user_fact_from_row<R>(row: &R) -> AppResult<UserFact>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -151,7 +151,7 @@ where
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded,
 /// or an internal error for an unknown scope.
-pub fn agent_note_from_row<R>(row: &R) -> AppResult<AgentNote>
+pub(crate) fn agent_note_from_row<R>(row: &R) -> AppResult<AgentNote>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -184,7 +184,7 @@ where
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded,
 /// or an internal error for an unknown status.
-pub fn agent_followup_from_row<R>(row: &R) -> AppResult<AgentFollowup>
+pub(crate) fn agent_followup_from_row<R>(row: &R) -> AppResult<AgentFollowup>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -219,7 +219,7 @@ where
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded,
 /// or an internal error for an unknown status.
-pub fn agent_session_from_row<R>(row: &R) -> AppResult<AgentSession>
+pub(crate) fn agent_session_from_row<R>(row: &R) -> AppResult<AgentSession>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -253,7 +253,10 @@ where
 ///
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded.
-pub fn user_fact_metrics_from_rows<R>(aggregates: &R, kind_rows: &[R]) -> AppResult<UserFactMetrics>
+pub(crate) fn user_fact_metrics_from_rows<R>(
+    aggregates: &R,
+    kind_rows: &[R],
+) -> AppResult<UserFactMetrics>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,

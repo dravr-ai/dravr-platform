@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use secrecy::{ExposeSecret, SecretString};
-use std::fmt::Display;
+use std::fmt::{self, Display};
 use std::time::Duration;
 
 use axum::extract::State;
@@ -261,7 +261,7 @@ pub async fn forget_remote_flow(cache: &Cache, tenant_id: Uuid, user_id: Uuid) {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SciotteLoginRequest {
+pub(crate) struct SciotteLoginRequest {
     pub email: String,
     pub password: SecretString,
     /// How to sign in: the provider's own form (`email`, the default when the
@@ -284,13 +284,21 @@ fn default_target() -> String {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SciotteSelectTwoFactorRequest {
+pub(crate) struct SciotteSelectTwoFactorRequest {
     pub option_id: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SciotteOtpRequest {
+#[derive(Deserialize)]
+pub(crate) struct SciotteOtpRequest {
     pub code: String,
+}
+
+impl fmt::Debug for SciotteOtpRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SciotteOtpRequest")
+            .field("code", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// notify: scrape session established. One helper for both session-write
@@ -317,8 +325,8 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 /// the session (see [`warm_from_session`]).
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
-    user_id: uuid::Uuid,
-    tenant_id: uuid::Uuid,
+    user_id: Uuid,
+    tenant_id: Uuid,
     session: &AuthSession,
     provider_name: &str,
 ) -> Result<Response, AppError> {
@@ -581,7 +589,7 @@ fn emit_provider_linked_webhook(
 /// Channel context carried by a provider link-token — used to emit the
 /// post-back webhook after a successful connection.
 #[derive(Debug, Clone)]
-pub struct LinkContext {
+pub(crate) struct LinkContext {
     /// Channel slug the token was minted for (e.g. "slack")
     pub channel: String,
     /// Optional channel thread/DM id so the bot can reply in the original thread
@@ -650,7 +658,7 @@ fn try_verify_link_token_from_headers(
 /// matches the deployed `DRAVR_SCIOTTE_LOGIN_TIMEOUT` (set per-environment
 /// in Cloud Run).
 #[derive(Serialize)]
-pub struct SciotteConfigResponse {
+pub(crate) struct SciotteConfigResponse {
     /// Overall credential-login budget in seconds — the longest the UI
     /// should tell the user to wait before the server gives up.
     pub login_timeout_secs: u64,
@@ -662,7 +670,7 @@ pub struct SciotteConfigResponse {
 /// value reflects `DRAVR_SCIOTTE_LOGIN_TIMEOUT` from the environment (Cloud
 /// Run) with the crate default as the single fallback — no duplicated magic
 /// number on the client.
-pub async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
+pub(crate) async fn handle_sciotte_config() -> Json<SciotteConfigResponse> {
     Json(SciotteConfigResponse {
         login_timeout_secs: ScraperConfig::default().login_timeout_secs,
     })
@@ -918,7 +926,7 @@ async fn require_parked_login_open(
 }
 
 /// Credential-based login via the dedicated dravr-sciotte scraper service (ADR-021)
-pub async fn handle_sciotte_login(
+pub(crate) async fn handle_sciotte_login(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<SciotteLoginRequest>,
@@ -1035,7 +1043,7 @@ pub async fn handle_sciotte_login(
 }
 
 /// Select a 2FA method for a pending login
-pub async fn handle_sciotte_select_2fa(
+pub(crate) async fn handle_sciotte_select_2fa(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
@@ -1090,7 +1098,7 @@ pub async fn handle_sciotte_select_2fa(
 }
 
 /// Submit OTP code for a pending login
-pub async fn handle_sciotte_submit_otp(
+pub(crate) async fn handle_sciotte_submit_otp(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
@@ -1148,4 +1156,20 @@ pub async fn handle_sciotte_submit_otp(
         link_context.as_ref(),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sciotte_otp_request_debug_hides_code() {
+        let sentinel = "sentinel-otp-4b7d";
+        let request = SciotteOtpRequest {
+            code: sentinel.to_owned(),
+        };
+        let printed = format!("{request:?}");
+        assert!(!printed.contains(sentinel), "{printed}");
+        assert!(printed.contains("SciotteOtpRequest"), "{printed}");
+    }
 }

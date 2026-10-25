@@ -168,6 +168,7 @@ impl UserCache {
 /// [`TerraDataCache::with_config`] build an in-memory cache. Data is lost on
 /// restart — there is no database backing store. See the module-level docs for
 /// the full feature-gated / not-production-wired status.
+#[derive(Debug)]
 pub struct TerraDataCache {
     config: TerraDataCacheConfig,
     /// User data cache keyed by Terra user ID

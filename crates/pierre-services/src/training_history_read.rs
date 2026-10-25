@@ -51,6 +51,7 @@ use pierre_providers::activity_source::ActivitySourceRank;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use pierre_providers::{ai_scope, backend_resolver};
+use std::fmt;
 use uuid::Uuid;
 
 /// Read limit for a single deterministic read of a historical window from the
@@ -83,6 +84,15 @@ pub struct HistorySources<'a> {
     pub terms: &'a dyn ProviderTerms,
     /// The training-load algorithm configuration the series is scored by.
     pub algorithms: &'a AlgorithmConfig,
+}
+
+impl fmt::Debug for HistorySources<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HistorySources")
+            .field("repos", &self.repos)
+            .field("algorithms", &self.algorithms)
+            .finish_non_exhaustive()
+    }
 }
 
 /// How much of the requested window the stored activities could stand behind.
@@ -258,6 +268,7 @@ pub fn validate_window(from: NaiveDate, to: NaiveDate) -> AppResult<()> {
 
 /// The athlete's stored activities behind a window, with what computing from
 /// them needs.
+#[derive(Debug)]
 pub struct StoredWindow {
     /// The athlete's connections: the providers whose history this is, and
     /// which of them can still deliver more.
@@ -540,10 +551,10 @@ pub(crate) mod tests {
 
     /// The relay whose terms the tests read under: Nolio, as its API terms
     /// declare it (garmin allowed, strava existence only, zepp denied).
-    pub const RELAY: &str = "nolio";
+    pub(crate) const RELAY: &str = "nolio";
 
     /// Terms that know only the Nolio relay.
-    pub struct NolioTerms;
+    pub(crate) struct NolioTerms;
 
     impl ProviderTerms for NolioTerms {
         fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
@@ -556,18 +567,18 @@ pub(crate) mod tests {
     }
 
     /// Run `fut` the way a model reads on one of Dravr's own surfaces.
-    pub async fn as_model_read<F: Future>(fut: F) -> F::Output {
+    pub(crate) async fn as_model_read<F: Future>(fut: F) -> F::Output {
         ai_scope::serve_over(Transport::PlatformJob, ai_scope::for_model(fut)).await
     }
 
     /// An athlete with a database, a tenant and the relay connected.
-    pub struct Athlete {
+    pub(crate) struct Athlete {
         pub db: Database,
         pub user_id: Uuid,
         pub tenant: TenantId,
     }
 
-    pub async fn athlete() -> Athlete {
+    pub(crate) async fn athlete() -> Athlete {
         let db = create_test_db().await.unwrap();
         let user = create_test_user(&format!("{}@relay.test", Uuid::new_v4()), None);
         let user_id = db.repositories().users.create(&user).await.unwrap();
@@ -616,13 +627,13 @@ pub(crate) mod tests {
     }
 
     /// Noon UTC `days_ago` days before today.
-    pub fn noon(days_ago: i64) -> DateTime<Utc> {
+    pub(crate) fn noon(days_ago: i64) -> DateTime<Utc> {
         let day = Utc::now().date_naive() - Duration::days(days_ago);
         Utc.from_utc_datetime(&day.and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap()))
     }
 
     /// A relayed session recorded by `source`.
-    pub fn relayed(id: &str, name: &str, source: &str, start: DateTime<Utc>) -> Activity {
+    pub(crate) fn relayed(id: &str, name: &str, source: &str, start: DateTime<Utc>) -> Activity {
         ActivityBuilder::new(id, name, SportType::Run, start, 3_600, RELAY)
             .distance_meters(12_000.0)
             .average_heart_rate(160)
@@ -631,7 +642,7 @@ pub(crate) mod tests {
     }
 
     impl Athlete {
-        pub async fn cache(&self, activities: &[Activity]) {
+        pub(crate) async fn cache(&self, activities: &[Activity]) {
             self.db
                 .repositories()
                 .activity_cache
@@ -641,7 +652,7 @@ pub(crate) mod tests {
         }
 
         /// A garmin-sourced run every third day from `oldest_days_ago` to today.
-        pub async fn cache_garmin_history(&self, oldest_days_ago: i64) {
+        pub(crate) async fn cache_garmin_history(&self, oldest_days_ago: i64) {
             let runs: Vec<Activity> = (0..=oldest_days_ago)
                 .rev()
                 .filter(|d| d % 3 == 0)
@@ -651,7 +662,7 @@ pub(crate) mod tests {
         }
 
         /// A persisted rollup row for each day of `[from, to]` carrying `tsb`.
-        pub async fn persist_rollup(&self, from: NaiveDate, to: NaiveDate, tsb: f64) {
+        pub(crate) async fn persist_rollup(&self, from: NaiveDate, to: NaiveDate, tsb: f64) {
             let states: Vec<DailyTrainingState> = from
                 .iter_days()
                 .take_while(|d| *d <= to)

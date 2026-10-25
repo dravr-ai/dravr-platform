@@ -17,7 +17,7 @@ use super::{content_body_text, content_type_label};
 use crate::mcp::resources::ServerContext;
 
 /// The identifiers an outbound ledger row carries beyond the message itself.
-pub struct OutboundRowParams<'a> {
+pub(super) struct OutboundRowParams<'a> {
     /// Tenant that owns the session/conversation (the user's own tenant for a
     /// DM, the channel tenant for a shared room) — the tenant the whole turn
     /// reads under, matching the inbound row's filing.

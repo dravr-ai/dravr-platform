@@ -16,6 +16,7 @@
 //! evidence corpus and `pierre_evals` dependency are not built in every
 //! workspace configuration.
 
+use std::fmt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -376,6 +377,20 @@ pub struct ClaimVerificationParams<'a> {
     pub judge_recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
 }
 
+impl fmt::Debug for ClaimVerificationParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimVerificationParams")
+            .field("ctx", &self.ctx)
+            .field("renders_chips", &self.renders_chips)
+            .field("reply_len", &self.reply.len())
+            .field("config", &self.config)
+            .field("locale", &self.locale)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Result of running claim verification on an assistant reply.
 ///
 /// Callers must persist `pending_verdicts` after the assistant message is
@@ -393,6 +408,18 @@ pub struct ClaimVerificationOutcome {
     /// [`ClaimVerificationParams::renders_chips`] is set — which is exactly
     /// when [`Self::content`] was left without a caveat banner.
     pub chips: Vec<VerdictChip>,
+}
+
+// The reply and every claim quoted from it (the pending verdicts and the
+// chips) are model text: only the reply's size and the counts are printed.
+impl fmt::Debug for ClaimVerificationOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimVerificationOutcome")
+            .field("content_len", &self.content.len())
+            .field("pending_verdicts_len", &self.pending_verdicts.len())
+            .field("chips_len", &self.chips.len())
+            .finish()
+    }
 }
 
 /// Whether a reply the stage could not fully check is withheld.
@@ -552,7 +579,7 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     // The judge runs on its stage model when the provider is the platform's
     // head, and every claim it is asked about writes its own usage row.
     let judge: Option<ClaimJudge<'_>> = judge_provider.as_deref().map(|p| ClaimJudge {
-        provider: p as &dyn LlmProvider,
+        provider: p,
         system_prompt: judge_prompt.trim(),
         model: p.stage_model(LlmStage::ClaimJudge),
         recorder: judge_recorder,

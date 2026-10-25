@@ -26,6 +26,7 @@
 //! truly spans multiple views, it takes both view-structs (or, for the
 //! composition root, the full registry).
 
+use std::fmt;
 use std::sync::Arc;
 
 use crate::repositories::{
@@ -88,6 +89,12 @@ pub struct AuthRepos {
     pub delegated_connections: Arc<dyn DelegatedConnectionRepository>,
 }
 
+impl fmt::Debug for AuthRepos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthRepos").finish_non_exhaustive()
+    }
+}
+
 impl AuthRepos {
     /// Build an `AuthRepos` view from the master registry.
     ///
@@ -143,6 +150,12 @@ pub struct AgentRepos {
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
+}
+
+impl fmt::Debug for AgentRepos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentRepos").finish_non_exhaustive()
+    }
 }
 
 impl AgentRepos {
@@ -204,6 +217,12 @@ pub struct FitnessRepos {
     pub weather_cache: Arc<dyn WeatherCacheRepository>,
 }
 
+impl fmt::Debug for FitnessRepos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FitnessRepos").finish_non_exhaustive()
+    }
+}
+
 impl FitnessRepos {
     /// Build a `FitnessRepos` view from the master registry.
     #[must_use]
@@ -253,6 +272,12 @@ pub struct UsageRepos {
     pub subscriptions: Arc<dyn SubscriptionsRepository>,
 }
 
+impl fmt::Debug for UsageRepos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UsageRepos").finish_non_exhaustive()
+    }
+}
+
 impl UsageRepos {
     /// Build a `UsageRepos` view from the master registry.
     #[must_use]
@@ -284,6 +309,12 @@ pub struct ContentRepos {
     pub mobility: Arc<dyn MobilityRepository>,
     /// Seed-only database operations
     pub seeder: Arc<dyn SeederRepository>,
+}
+
+impl fmt::Debug for ContentRepos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ContentRepos").finish_non_exhaustive()
+    }
 }
 
 impl ContentRepos {

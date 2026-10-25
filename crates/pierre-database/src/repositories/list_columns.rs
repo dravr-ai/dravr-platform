@@ -33,7 +33,7 @@ fn list_column_error(col: &str, e: impl Display) -> AppError {
 
 /// The `SQLite` codec: a list binds as text in the column's encoding and
 /// reads back from it.
-pub struct TextList;
+pub(crate) struct TextList;
 
 impl TextList {
     /// Bind a list into a column that holds a JSON array: the array as a
@@ -78,7 +78,7 @@ impl TextList {
 /// Gated with the backend that uses it: without the `postgresql` feature the
 /// Postgres shells are not compiled, so neither is their half of the seam.
 #[cfg(feature = "postgresql")]
-pub struct NativeList;
+pub(crate) struct NativeList;
 
 #[cfg(feature = "postgresql")]
 impl NativeList {

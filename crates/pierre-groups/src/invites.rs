@@ -25,10 +25,10 @@ use crate::service::GroupService;
 use crate::setup_timing::record_member_joined;
 
 /// The most accounts one coach's signup code may approve (carnet#1128).
-pub const SIGNUP_INVITE_MAX_USES: i32 = 50;
+pub(crate) const SIGNUP_INVITE_MAX_USES: i32 = 50;
 
 /// The longest a coach's signup code stays redeemable, in days.
-pub const SIGNUP_INVITE_MAX_DAYS: i64 = 30;
+pub(crate) const SIGNUP_INVITE_MAX_DAYS: i64 = 30;
 
 /// Characters every invite and signup code is drawn from: no 0/O or 1/I, so
 /// a code read aloud or copied by hand survives. 32 symbols, 5 bits each.

@@ -137,6 +137,7 @@ async fn resolve_provider_for_user(
 
 /// `export_latest_snapshot` — IF / EF / VI / decoupling / zone-distribution
 /// snapshot for the user's most recent training window.
+#[derive(Debug)]
 pub struct ExportLatestSnapshotTool;
 
 #[async_trait]
@@ -224,6 +225,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
 
 /// `export_dossier` — composed athlete dossier (physiology, zones, goals,
 /// nutrition slots) for the authenticated user.
+#[derive(Debug)]
 pub struct ExportDossierTool;
 
 #[async_trait]

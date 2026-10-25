@@ -68,7 +68,7 @@ use tracing::{error, info};
 mod env_validation;
 use env_validation::{validate_guardian_settings, validate_required_environment};
 /// Command-line arguments for the Dravr MCP server
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(name = "pierre-mcp-server")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Dravr API - Multi-protocol fitness data API for LLMs")]
@@ -459,7 +459,7 @@ fn build_billing_provider() -> Option<Arc<dyn BillingProvider>> {
                 secret_fingerprint = %provider.client_fingerprint(),
                 "Stripe billing provider configured"
             );
-            Some(Arc::new(provider) as Arc<dyn BillingProvider>)
+            Some(Arc::new(provider))
         }
         Err(e) => {
             error!(

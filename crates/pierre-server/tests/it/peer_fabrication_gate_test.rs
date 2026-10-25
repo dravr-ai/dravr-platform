@@ -120,29 +120,22 @@ fn verdicts_parse_with_and_without_surrounding_prose() {
         ),
         vec!["4h30".to_owned(), "pas de distance".to_owned()]
     );
-    assert_eq!(
-        parse_unsupported_verdict(r#"{"unsupported": []}"#),
-        [] as [String; 0]
-    );
+    let found = parse_unsupported_verdict(r#"{"unsupported": []}"#);
+    assert!(found.is_empty(), "expected empty, got {found:?}");
 }
 
 /// Garbage fails OPEN — a flaky verifier must never cost the athlete a
 /// legitimate reply, so an unparseable verdict reads as "supported".
 #[test]
 fn unparseable_verdicts_fail_open() {
-    assert_eq!(parse_unsupported_verdict(""), [] as [String; 0]);
-    assert_eq!(
-        parse_unsupported_verdict("I could not check that."),
-        [] as [String; 0]
-    );
-    assert_eq!(
-        parse_unsupported_verdict("{not json at all]"),
-        [] as [String; 0]
-    );
-    assert_eq!(
-        parse_unsupported_verdict(r#"{"wrong_key": ["x"]}"#),
-        [] as [String; 0]
-    );
+    let found = parse_unsupported_verdict("");
+    assert!(found.is_empty(), "expected empty, got {found:?}");
+    let found = parse_unsupported_verdict("I could not check that.");
+    assert!(found.is_empty(), "expected empty, got {found:?}");
+    let found = parse_unsupported_verdict("{not json at all]");
+    assert!(found.is_empty(), "expected empty, got {found:?}");
+    let found = parse_unsupported_verdict(r#"{"wrong_key": ["x"]}"#);
+    assert!(found.is_empty(), "expected empty, got {found:?}");
 }
 
 /// The repair prompt is chat-shaped: no tool-result framing (which routed

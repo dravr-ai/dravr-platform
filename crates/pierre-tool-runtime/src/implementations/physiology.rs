@@ -916,6 +916,7 @@ pub struct SetPhysiologyResult {
 
 /// Saves the athlete's physiological measurements to the profile every
 /// personalised computation reads.
+#[derive(Debug)]
 pub struct SetPhysiologyTool;
 
 impl SetPhysiologyTool {

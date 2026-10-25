@@ -25,10 +25,10 @@ use tracing::warn;
 
 /// The most tokens a tool reply may estimate at: a fifth under Claude Code's
 /// 25,000 default, for the estimator's error and the protocol envelope.
-pub const REPLY_TOKEN_BUDGET: u32 = 20_000;
+pub(crate) const REPLY_TOKEN_BUDGET: u32 = 20_000;
 
 /// The sidecar a trimmed reply carries.
-pub const REPLY_BUDGET_KEY: &str = "reply_budget";
+pub(crate) const REPLY_BUDGET_KEY: &str = "reply_budget";
 
 /// Where the list a reply is trimmed in sits: a top-level key, or a key of an
 /// object under one.
@@ -65,7 +65,7 @@ impl ListPath {
 /// is sent as it is and logged: there is nothing in it to drop that the model
 /// could page back to.
 #[must_use]
-pub fn fit_reply(reply: Value) -> Value {
+pub(crate) fn fit_reply(reply: Value) -> Value {
     fit_reply_within(reply, REPLY_TOKEN_BUDGET)
 }
 

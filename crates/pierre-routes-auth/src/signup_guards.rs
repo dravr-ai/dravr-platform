@@ -49,7 +49,7 @@ fn human_check_failed() -> AppError {
 /// Turnstile widget minted. The token stays out of [`RegisterRequest`], which
 /// the doors without a browser form (the link page, in-chat sign-up) share.
 #[derive(Debug, Clone, Deserialize)]
-pub struct PublicRegisterRequest {
+pub(crate) struct PublicRegisterRequest {
     /// The account to create
     #[serde(flatten)]
     pub account: RegisterRequest,
@@ -66,7 +66,7 @@ pub struct PublicRegisterRequest {
 /// `GET /api/auth/signup-config`: what the register form needs before it is
 /// shown.
 #[derive(Debug, Clone, Serialize)]
-pub struct SignupConfigResponse {
+pub(crate) struct SignupConfigResponse {
     /// Whether a sign-up would be admitted right now: the kill switch is open
     /// and the 24-hour ceiling not reached
     pub open: bool,
@@ -77,7 +77,7 @@ pub struct SignupConfigResponse {
 
 /// The client a request from `peer` carrying `headers` came from, through the
 /// trusted proxies; `None` on a router served without `ConnectInfo`.
-pub fn client_address(
+pub(crate) fn client_address(
     limiter: &OAuth2RateLimiter,
     peer: PeerAddress,
     headers: &HeaderMap,
@@ -129,7 +129,7 @@ pub async fn meter_sign_up(limiter: &OAuth2RateLimiter, client: Option<IpAddr>) 
 ///
 /// Returns a permission-denied error ([`human_check_failed`]) when the
 /// token is missing or Cloudflare refused it.
-pub async fn pass_human_check(
+pub(crate) async fn pass_human_check(
     check: Option<&dyn HumanCheck>,
     token: Option<&str>,
     client: Option<IpAddr>,
@@ -158,7 +158,7 @@ pub async fn pass_human_check(
 ///
 /// `open` is the operator's bounds as a sign-up would meet them now
 /// ([`signup_refusal`], the decision the sign-up itself takes).
-pub async fn handle_signup_config(
+pub(crate) async fn handle_signup_config(
     State(resources): State<AuthRoutesContext>,
 ) -> Json<SignupConfigResponse> {
     let open = signup_refusal(resources.data.database(), resources.repos.users.as_ref())

@@ -43,6 +43,7 @@ const INSTRUMENTATION_SCOPE: &str = "pierre-logging";
 
 /// Live OpenTelemetry providers. Held for the process lifetime so batch
 /// exporters keep flushing; [`TelemetryHandle::shutdown`] drains them on exit.
+#[derive(Debug)]
 pub struct TelemetryHandle {
     tracer_provider: SdkTracerProvider,
     meter_provider: SdkMeterProvider,

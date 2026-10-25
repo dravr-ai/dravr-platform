@@ -2361,10 +2361,8 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
         vec![ids[1].clone(), ids[2].clone()]
     );
     assert_eq!(walk(Some(before), None, 10).await.len(), 2);
-    assert_eq!(
-        walk(Some(Utc::now() + Duration::hours(1)), None, 10).await,
-        [] as [String; 0]
-    );
+    let got = walk(Some(Utc::now() + Duration::hours(1)), None, 10).await;
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(walk(None, None, 1).await, vec![ids[1].clone()]);
     assert_eq!(
         manager

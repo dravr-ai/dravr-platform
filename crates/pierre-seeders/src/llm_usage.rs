@@ -30,7 +30,7 @@ use tracing::info;
 use uuid::Uuid;
 
 /// CLI arguments for the LLM usage seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// Admin email to look up the target tenant (uses first admin if not specified)
     #[arg(long)]

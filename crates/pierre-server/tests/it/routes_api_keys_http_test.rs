@@ -295,7 +295,7 @@ async fn test_list_api_keys_success() {
     let body: serde_json::Value = response.json();
     assert!(body["api_keys"].is_array());
     let keys = body["api_keys"].as_array().unwrap();
-    assert_ne!(keys.as_slice(), [] as [serde_json::Value; 0]);
+    assert!(!keys.is_empty(), "expected a non-empty value");
 
     // Verify key structure
     assert!(keys[0]["id"].is_string());

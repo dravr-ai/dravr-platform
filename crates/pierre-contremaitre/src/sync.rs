@@ -371,18 +371,13 @@ async fn sync_all_coaching_personas(
     Ok(result)
 }
 
-/// Perform a full sync: download manifest, compare hashes, fetch changed files.
+/// Read-only registries pushed into a Contremaitre sync.
 ///
-/// Called on server startup to load the latest prompts from the contremaitre
-/// repository. Files whose SHA-256 matches the registry are skipped.
-///
-/// # Errors
-///
-/// Read-only registries pushed into a Contremaitre sync. Bundled so the
-/// `full_sync` / `selective_sync` entry points don't carry a 7+-arg
+/// Bundled so the `full_sync` / `selective_sync` entry points don't carry a 7+-arg
 /// positional signature — both consumers thread the same six registries
 /// and only differ in the trailing `&dyn PromptStore` (and optional path
 /// filter for the selective variant).
+#[derive(Debug)]
 pub struct ContremaitreRegistries<'a> {
     /// Prompt template registry
     pub registry: &'a PromptRegistry,

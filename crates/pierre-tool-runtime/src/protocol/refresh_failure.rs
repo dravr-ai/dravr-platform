@@ -31,7 +31,7 @@ use serde_json::Value as JsonValue;
 /// generic markers, so a dead Strava grant is recorded as `invalid_grant` (its seat goes
 /// back to the pool) and a rejected client as `invalid_client` (the grant stays live and
 /// keeps its seat).
-pub fn classify_refresh_failure(reason: &str) -> Option<&'static str> {
+pub(super) fn classify_refresh_failure(reason: &str) -> Option<&'static str> {
     // Transient transport failures carry no status and recover on retry.
     const TRANSIENT_MARKERS: [&str; 4] = ["timed out", "timeout", "connection", "dns"];
     // Definitive OAuth-layer rejections of the refresh grant or client → require reconnect.

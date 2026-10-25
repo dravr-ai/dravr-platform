@@ -122,6 +122,7 @@ async fn create_provider(
 // ============================================================================
 
 /// Tool for analyzing training load using CTL/ATL/TSB metrics.
+#[derive(Debug)]
 pub struct AnalyzeTrainingLoadTool;
 
 #[async_trait]
@@ -188,6 +189,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
 // ============================================================================
 
 /// Tool for detecting training patterns and potential issues.
+#[derive(Debug)]
 pub struct DetectPatternsTool;
 
 #[async_trait]
@@ -260,6 +262,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
 // ============================================================================
 
 /// Tool for calculating an overall fitness score.
+#[derive(Debug)]
 pub struct CalculateFitnessScoreTool;
 
 #[async_trait]
@@ -348,6 +351,7 @@ const FAHRENHEIT_OFFSET: f64 = 32.0;
 const KMH_TO_MPH_FACTOR: f32 = 0.621_371;
 
 /// Tool for analyzing how weather conditions affected activity performance.
+#[derive(Debug)]
 pub struct AnalyzeWeatherImpactTool;
 
 #[async_trait]
@@ -576,6 +580,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
 // ============================================================================
 
 /// Tool for performing deep analysis of an individual activity.
+#[derive(Debug)]
 pub struct AnalyzeActivityTool;
 
 #[async_trait]
@@ -680,6 +685,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
 // ============================================================================
 
 /// Tool for getting AI-powered intelligence insights for an activity.
+#[derive(Debug)]
 pub struct GetActivityIntelligenceTool;
 
 #[async_trait]
@@ -747,6 +753,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
 // ============================================================================
 
 /// Tool for calculating custom fitness metrics from activity data.
+#[derive(Debug)]
 pub struct CalculateMetricsTool;
 
 #[async_trait]
@@ -832,6 +839,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
 // ============================================================================
 
 /// Tool for analyzing performance trends over time with statistical analysis.
+#[derive(Debug)]
 pub struct AnalyzePerformanceTrendsTool;
 
 #[async_trait]
@@ -911,6 +919,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
 // ============================================================================
 
 /// Tool for comparing an activity against similar activities or personal records.
+#[derive(Debug)]
 pub struct CompareActivitiesTool;
 
 #[async_trait]
@@ -996,6 +1005,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
 // ============================================================================
 
 /// Tool for generating personalized training recommendations based on recent activity.
+#[derive(Debug)]
 pub struct GenerateRecommendationsTool;
 
 #[async_trait]
@@ -1062,6 +1072,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
 // ============================================================================
 
 /// Tool for predicting future performance based on training history.
+#[derive(Debug)]
 pub struct PredictPerformanceTool;
 
 #[async_trait]

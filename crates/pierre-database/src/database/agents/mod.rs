@@ -12,9 +12,9 @@ pub use types::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-pub use crate::repositories::agent_rows::sqlite::row_to_agent;
-pub use crate::repositories::agent_rows::sqlite::row_to_agent_list_item;
-pub use crate::repositories::agent_rows::sqlite::row_to_agent_version;
+pub(crate) use crate::repositories::agent_rows::sqlite::row_to_agent;
+pub(crate) use crate::repositories::agent_rows::sqlite::row_to_agent_list_item;
+pub(crate) use crate::repositories::agent_rows::sqlite::row_to_agent_version;
 
 /// Compute hash of content for version tracking
 pub(crate) fn compute_content_hash(content: &serde_json::Value) -> String {

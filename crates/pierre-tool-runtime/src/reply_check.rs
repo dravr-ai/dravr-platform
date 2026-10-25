@@ -34,7 +34,7 @@ const UNCHECKED_REPLY_NOTE: &str = "Dravr checks the claims in replies it writes
 
 /// Mark a result whose caller writes its own reply from it: Dravr did not
 /// check that reply.
-pub fn note_unchecked_reply(response: &mut UniversalResponse) {
+pub(crate) fn note_unchecked_reply(response: &mut UniversalResponse) {
     let mut notes = Map::new();
     notes.insert(REPLY_CHECK_KEY.to_owned(), unchecked_reply_note());
     attach_notes(response, notes);

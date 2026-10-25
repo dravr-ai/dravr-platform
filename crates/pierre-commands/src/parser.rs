@@ -61,6 +61,7 @@ struct CommandFrontmatter {
 /// `CommandDefinition` is canonical in dravr-canot and carries no argument
 /// field, so the signatures travel next to it in a name-keyed index built
 /// from the very same markdown files — one catalog, one parse.
+#[derive(Debug)]
 pub struct CommandCatalog {
     /// Every command definition parsed from the catalog directory.
     pub definitions: Vec<CommandDefinition>,

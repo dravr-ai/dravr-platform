@@ -32,7 +32,6 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
-use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -437,7 +436,7 @@ async fn create_executor() -> Result<(Arc<UniversalToolExecutor>, Arc<ServerCont
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
     let executor = Arc::new(
-        UniversalToolExecutor::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+        UniversalToolExecutor::new(Arc::<ServerContext>::clone(&resources))
             .with_scopes(OAuthScope::self_grant()),
     );
     Ok((executor, resources))

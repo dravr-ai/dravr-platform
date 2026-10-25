@@ -76,7 +76,7 @@ pub struct ResponseMetadata {
 // ================================================================================================
 
 /// Fitness configuration routes handler
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FitnessConfigurationRoutes {
     resources: Arc<ServerContext>,
 }

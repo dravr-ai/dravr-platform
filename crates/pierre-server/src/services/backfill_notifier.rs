@@ -44,9 +44,8 @@
 //! notice may carry (carnet#734). The athlete still sees every session in the
 //! app's own activity views.
 
-use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
-use std::fmt::Write as _;
+use std::fmt;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
@@ -59,11 +58,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_REAUTH_PAUSED, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::format_local_day;
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
 use pierre_core::transport::Transport;
-use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::backends::MessagingRepository;
 use pierre_database::repositories::shorten_url;
 use pierre_database::repositories::OutboundReauthGuard;
@@ -76,7 +73,6 @@ use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::personal_thread::athlete_last_wrote_in_app;
-use pierre_tool_runtime::implementations::sport_labels::localized_sport_name;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -84,6 +80,9 @@ use uuid::Uuid;
 
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+
+mod format;
+use format::{format_activity_line, warmed_window_policy};
 
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::backfill_delivery::{ChannelDelivery, InAppDelivery, ResolvedRoute};
@@ -179,6 +178,15 @@ pub struct ServerBackfillNotifier {
     notifications: Option<Arc<NotificationService>>,
 }
 
+impl fmt::Debug for ServerBackfillNotifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerBackfillNotifier")
+            .field("admin_jwt_secret", &"[REDACTED]")
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
 impl ServerBackfillNotifier {
     /// Build the production notifier from the shared repository registry and the
     /// messaging-strings registry. The adapter resolver loads each tenant's
@@ -253,9 +261,7 @@ impl ServerBackfillNotifier {
         admin_jwt_secret: Arc<str>,
         base_url: String,
     ) -> Self {
-        let slot = Arc::new(OnceLock::new());
-        // Infallible: a freshly-created slot is empty.
-        let _ = slot.set(platform_post);
+        let slot = Arc::new(OnceLock::from(platform_post));
         Self {
             repos,
             strings,
@@ -791,44 +797,6 @@ impl ServerBackfillNotifier {
         .to_string();
         self.strings.render(KEY_BACKFILL_READY, locale, &[&count])
     }
-}
-
-/// The stamp of a backfill notice over `provider`'s warmed window: the
-/// provider's own terms, and those of any upstream source its rows relay
-/// (carnet#769).
-fn warmed_window_policy(provider: &str, warmed: &[Activity]) -> TransportPolicy {
-    let terms = global_registry();
-    TransportPolicy::from_first_party_only(
-        first_party_only(terms.as_ref(), provider, None)
-            || warmed
-                .iter()
-                .any(|a| first_party_only(terms.as_ref(), a.provider(), a.source())),
-    )
-}
-
-/// Render one activity as a compact `• name · day · sport · 10.0 km` line.
-/// Distance is shown in kilometres (one decimal) only when present. Pure
-/// formatting over the cheaply-available `Activity` accessors — no allocation
-/// beyond the returned line.
-fn format_activity_line(activity: &Activity, locale: &str, zone: Tz) -> String {
-    // The day on the athlete's calendar and the sport in their language, from
-    // the same helpers the activity list the agent reads uses: the notice is
-    // stored in the conversation the model reads back, so a UTC date or an
-    // English sport here would contradict that list.
-    let date = format_local_day(activity.start_date(), zone, locale);
-    let sport = localized_sport_name(activity.sport_type(), locale);
-    // The list is persisted in the conversation the model reads back, and the
-    // name is whatever the provider account's writers typed.
-    let name = display_line(activity.name(), ACTIVITY_NAME_MAX_CHARS);
-    let mut line = format!("• {name} · {date} · {sport}");
-    if let Some(meters) = activity.distance_meters() {
-        if meters > 0.0 {
-            // Infallible write into a String; the trait import is `as _` so the
-            // method resolves without exposing `Write` to the rest of the file.
-            let _ = write!(line, " · {:.1} km", meters / 1000.0);
-        }
-    }
-    line
 }
 
 #[async_trait]

@@ -555,6 +555,7 @@ pub struct PushReport {
 }
 
 /// Inputs of one push.
+#[derive(Debug)]
 pub struct PushPlanParams<'a> {
     /// Owning tenant.
     pub tenant: TenantId,

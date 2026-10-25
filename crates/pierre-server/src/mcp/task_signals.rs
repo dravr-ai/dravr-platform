@@ -24,6 +24,7 @@
 //! Delivery is best-effort. A notification sent while a listener reconnects is
 //! lost, which is why the settle follower still polls the store as a backstop.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -61,6 +62,12 @@ pub struct TaskSignals {
     bus: Option<Arc<dyn ListeningSignalBus>>,
 }
 
+impl fmt::Debug for TaskSignals {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TaskSignals").finish_non_exhaustive()
+    }
+}
+
 impl TaskSignals {
     /// The carrier `database` supports: Postgres `LISTEN/NOTIFY`, or none for
     /// SQLite, where the one process holds every run and the manager reaches
@@ -80,7 +87,7 @@ impl TaskSignals {
     #[must_use]
     pub fn install(&self, manager: TaskManager) -> TaskManager {
         match &self.bus {
-            Some(bus) => manager.with_signal_bus(Arc::clone(bus) as Arc<dyn TaskSignalBus>),
+            Some(bus) => manager.with_signal_bus(Arc::<dyn ListeningSignalBus>::clone(bus)),
             None => manager,
         }
     }
@@ -133,6 +140,7 @@ mod postgres {
     const RECONNECT_BACKOFF: Duration = Duration::from_secs(1);
 
     /// tronc's [`TaskSignalBus`] over Postgres `LISTEN/NOTIFY`.
+    #[derive(Debug)]
     pub struct PgTaskSignalBus {
         pool: Pool<Postgres>,
         /// Set once this process's listener is subscribed.

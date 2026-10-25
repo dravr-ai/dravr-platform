@@ -352,7 +352,7 @@ fn tool_payload(n: usize) -> String {
             )
         })
         .collect();
-    let structured: Vec<serde_json::Value> = (1..=n)
+    let structured: Vec<Value> = (1..=n)
         .map(|i| {
             serde_json::json!({
                 "id": format!("17836429807609663{i:03}"),
@@ -538,7 +538,7 @@ fn the_grounding_window_is_bounded_by_time_and_count_and_nothing_else() {
     );
 
     assert_eq!(
-        object.get("limit").and_then(serde_json::Value::as_u64),
+        object.get("limit").and_then(Value::as_u64),
         Some(30),
         "the declared count still bounds the window"
     );

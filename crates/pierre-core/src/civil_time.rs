@@ -381,7 +381,7 @@ pub fn is_date_only(instant: DateTime<Utc>) -> bool {
 /// registre#200 worse on exactly the provider the 2026-09-02 athlete used
 /// (registre#258).
 #[must_use]
-pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> chrono::NaiveDate {
+pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
     if is_date_only(instant) {
         return instant.date_naive();
     }
@@ -407,6 +407,6 @@ pub fn local_date(instant: DateTime<Utc>, zone: Tz) -> chrono::NaiveDate {
 /// Takes the instant rather than reading the clock itself so the boundary it
 /// exists for is testable.
 #[must_use]
-pub fn clock_date(instant: DateTime<Utc>, zone: Tz) -> chrono::NaiveDate {
+pub fn clock_date(instant: DateTime<Utc>, zone: Tz) -> NaiveDate {
     instant.with_timezone(&zone).date_naive()
 }

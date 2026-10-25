@@ -72,7 +72,7 @@ pub type FirstSyncSlot = Arc<OnceLock<Arc<dyn FirstSyncHook>>>;
 
 /// Whether the health sync backfills `provider` after a connect.
 #[cfg(feature = "health-sync")]
-pub fn health_sync_backfills(resources: &AuthRoutesContext, provider: &str) -> bool {
+pub(crate) fn health_sync_backfills(resources: &AuthRoutesContext, provider: &str) -> bool {
     resources
         .sync_orchestrator
         .as_ref()
@@ -83,7 +83,7 @@ pub fn health_sync_backfills(resources: &AuthRoutesContext, provider: &str) -> b
 /// landed or the error it ended on.
 #[cfg(feature = "health-sync")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackfillVerdict {
+pub(crate) enum BackfillVerdict {
     /// It landed records: the failure notices re-arm, and the athlete's data
     /// is in.
     Landed,
@@ -100,7 +100,9 @@ pub enum BackfillVerdict {
 /// Classify a finished connect backfill by the records it landed (created or
 /// updated) or the error it ended on.
 #[cfg(feature = "health-sync")]
-pub fn backfill_verdict(landed: Result<u32, &dravr_enforme::EnformeError>) -> BackfillVerdict {
+pub(crate) fn backfill_verdict(
+    landed: Result<u32, &dravr_enforme::EnformeError>,
+) -> BackfillVerdict {
     match landed {
         Ok(0) => BackfillVerdict::LandedNothing,
         Ok(_) => BackfillVerdict::Landed,
@@ -113,7 +115,7 @@ pub fn backfill_verdict(landed: Result<u32, &dravr_enforme::EnformeError>) -> Ba
 /// landing, for a provider the health sync does not backfill — the Strava
 /// mirror, whose pre-fetch is the only read a connect makes.
 #[cfg(feature = "health-sync")]
-pub fn spawn_prefetch_landing(
+pub(crate) fn spawn_prefetch_landing(
     resources: &AuthRoutesContext,
     user_id: &str,
     provider: &str,
@@ -153,7 +155,11 @@ pub fn spawn_prefetch_landing(
 /// Report an OAuth connect of a provider the health sync does not backfill —
 /// Strava and Wahoo are read on demand — so its first read can be made now
 /// rather than whenever the athlete next asks.
-pub fn spawn_on_demand_first_read(resources: &AuthRoutesContext, user_id: &str, provider: &str) {
+pub(crate) fn spawn_on_demand_first_read(
+    resources: &AuthRoutesContext,
+    user_id: &str,
+    provider: &str,
+) {
     let first_sync = Arc::clone(&resources.first_sync);
     if first_sync.get().is_none() {
         return;

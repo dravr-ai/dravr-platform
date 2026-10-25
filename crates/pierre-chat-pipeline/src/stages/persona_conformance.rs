@@ -55,6 +55,7 @@
 //! one.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
@@ -264,6 +265,16 @@ pub struct StyleEditor<'a> {
     pub model: &'a str,
     /// Receives the rewrite call's usage record; `None` records nothing.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+}
+
+impl fmt::Debug for StyleEditor<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StyleEditor")
+            .field("provider", &self.provider)
+            .field("prompts", &self.prompts)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Enforce a persona's output-format contract.

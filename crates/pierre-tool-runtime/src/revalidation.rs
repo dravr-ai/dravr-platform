@@ -58,6 +58,7 @@ pub fn revalidation_timeout(timeouts: &ServerTimeouts) -> Duration {
 ///
 /// Production code shares one registry via [`Self::global`]; tests construct
 /// isolated instances with [`Self::new`].
+#[derive(Debug)]
 pub struct RevalidationRegistry {
     in_flight: Arc<StdMutex<HashSet<(Uuid, TenantId)>>>,
 }
@@ -107,6 +108,7 @@ impl Default for RevalidationRegistry {
 
 /// Frees a claimed revalidation slot when dropped, including on panic or
 /// timeout, so a single failed refresh never wedges a user's slot shut.
+#[derive(Debug)]
 pub struct RevalidationGuard {
     in_flight: Arc<StdMutex<HashSet<(Uuid, TenantId)>>>,
     key: (Uuid, TenantId),

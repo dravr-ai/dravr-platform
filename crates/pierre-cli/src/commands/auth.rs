@@ -25,7 +25,7 @@ use pierre_cli::remote::{CachedCredentials, RemoteClient};
 ///
 /// # Errors
 /// Returns an error if the flow fails (unreachable server, denied, or expired).
-pub async fn login(server: String, no_browser: bool) -> AppResult<()> {
+pub(crate) async fn login(server: String, no_browser: bool) -> AppResult<()> {
     let result = run_device_login(&server, !no_browser).await?;
     let creds = CachedCredentials {
         server: server.clone(),
@@ -51,7 +51,7 @@ pub async fn login(server: String, no_browser: bool) -> AppResult<()> {
 ///
 /// # Errors
 /// Returns an error if the cache file exists but cannot be removed.
-pub fn logout() -> AppResult<()> {
+pub(crate) fn logout() -> AppResult<()> {
     if CachedCredentials::clear()? {
         println!("  Logged out; cached credentials removed.");
     } else {
@@ -64,7 +64,7 @@ pub fn logout() -> AppResult<()> {
 ///
 /// # Errors
 /// Returns an error if the cache exists but cannot be read.
-pub fn status() -> AppResult<()> {
+pub(crate) fn status() -> AppResult<()> {
     match CachedCredentials::load()? {
         Some(creds) => {
             println!("  Logged in to {}", creds.server);
@@ -85,7 +85,7 @@ pub fn status() -> AppResult<()> {
 ///
 /// # Errors
 /// Returns an error if no super-admin credentials are available or the call fails.
-pub async fn resolve(
+pub(crate) async fn resolve(
     user_code: String,
     server: Option<String>,
     token: Option<SecretString>,
@@ -112,7 +112,7 @@ pub async fn resolve(
 /// Returns an error when no token is available for the server, when the
 /// cached login belongs to a different server, or when the client cannot be
 /// built.
-pub fn admin_client(
+pub(crate) fn admin_client(
     server: Option<String>,
     token: Option<SecretString>,
 ) -> AppResult<RemoteClient> {

@@ -248,6 +248,7 @@ pub async fn handle_weekly(
 mod chat_post;
 
 /// Mount-helper for the coach review routes.
+#[derive(Debug)]
 pub struct CoachReplyRoutes;
 
 impl CoachReplyRoutes {

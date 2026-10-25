@@ -77,7 +77,7 @@ use uuid::Uuid;
         success = Empty,
     )
 )]
-pub async fn handle_oauth_callback(
+pub(crate) async fn handle_oauth_callback(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -287,7 +287,7 @@ fn callback_failure_response(
 ///
 /// Returns all available providers from the registry with their connection status.
 /// Uses `provider_connections` table as the single source of truth for connectivity.
-pub async fn handle_providers_status(
+pub(crate) async fn handle_providers_status(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
@@ -444,7 +444,7 @@ async fn own_app_required(
 /// # Errors
 /// Returns the repository's error when the tenant's or the athlete's app
 /// cannot be read.
-pub async fn authorizing_client_resolves(
+pub(crate) async fn authorizing_client_resolves(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -507,7 +507,7 @@ async fn card_ai_consent(
 ///
 /// # Errors
 /// Returns the repository's error when the user's connections cannot be read.
-pub async fn compute_providers_status(
+pub(crate) async fn compute_providers_status(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Option<Uuid>,
@@ -747,7 +747,7 @@ pub async fn compute_providers_status(
 /// browser navigations, so it rides the query string where the credential
 /// login sends it in the JSON body.
 #[derive(Debug, Default, Deserialize)]
-pub struct OAuthStartQuery {
+pub(crate) struct OAuthStartQuery {
     /// The athlete accepted the provider's notice on this attempt.
     #[serde(default)]
     pub tos_consent: bool,
@@ -764,7 +764,7 @@ pub struct OAuthStartQuery {
 ///
 /// # Errors
 /// Returns the precondition's refusal, or the store's error.
-pub async fn require_oauth_start_notice(
+pub(crate) async fn require_oauth_start_notice(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -798,7 +798,7 @@ pub async fn require_oauth_start_notice(
         user_id = Empty,
     )
 )]
-pub async fn handle_mobile_oauth_init(
+pub(crate) async fn handle_mobile_oauth_init(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -920,7 +920,7 @@ pub async fn handle_mobile_oauth_init(
         tenant_id = Empty,
     )
 )]
-pub async fn handle_oauth_authorize_redirect(
+pub(crate) async fn handle_oauth_authorize_redirect(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     Query(start): Query<OAuthStartQuery>,
@@ -975,7 +975,7 @@ pub async fn handle_oauth_authorize_redirect(
         tenant_id = Empty,
     )
 )]
-pub async fn handle_disconnect_provider_rest(
+pub(crate) async fn handle_disconnect_provider_rest(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -1028,7 +1028,7 @@ pub async fn handle_disconnect_provider_rest(
         tenant_id = Empty,
     )
 )]
-pub async fn handle_sync_provider(
+pub(crate) async fn handle_sync_provider(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -1115,7 +1115,7 @@ pub async fn handle_sync_provider(
 /// through the scrape pre-fetch instead, when the connect started one, and
 /// that is reported the same way.
 #[cfg(feature = "health-sync")]
-pub fn spawn_health_backfill(
+pub(crate) fn spawn_health_backfill(
     resources: &AuthRoutesContext,
     user_id: &str,
     provider: &str,

@@ -101,7 +101,7 @@ pub(super) async fn post_welcome_best_effort(
 }
 
 /// Create a new conversation.
-pub async fn create_conversation(
+pub(super) async fn create_conversation(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     headers: HeaderMap,
@@ -199,7 +199,7 @@ pub async fn create_conversation(
                 .agent
                 .admin_config
                 .as_deref()
-                .map(|c| c as &dyn AdminConfigLookup),
+                .map(|c| -> &dyn AdminConfigLookup { c }),
         ),
         &NewConversation {
             user_id: &user_id_str,
@@ -247,7 +247,7 @@ pub async fn create_conversation(
 /// `total` is the caller's real count, so a client knows whether a "load more"
 /// is owed; the page bounds are clamped server-side (see
 /// [`ListConversationsQuery::bounded`]).
-pub async fn list_conversations(
+pub(super) async fn list_conversations(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Query(query): Query<ListConversationsQuery>,
@@ -313,7 +313,7 @@ pub async fn list_conversations(
 }
 
 /// Fetch a single conversation by id (scoped to the caller's tenant).
-pub async fn get_conversation(
+pub(super) async fn get_conversation(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -344,7 +344,7 @@ pub async fn get_conversation(
 }
 
 /// Rename a conversation, returning the updated record.
-pub async fn update_conversation(
+pub(super) async fn update_conversation(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -388,7 +388,7 @@ pub async fn update_conversation(
 /// Deletion is the one conversation write reserved to the owner: a
 /// participant who was added to the thread is refused with 403 rather than
 /// the 404 a stranger gets, because for them the conversation does exist.
-pub async fn delete_conversation(
+pub(super) async fn delete_conversation(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,

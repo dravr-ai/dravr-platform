@@ -10,6 +10,7 @@
 //! security flags to prevent XSS, CSRF, and session hijacking attacks.
 
 use std::env;
+use std::fmt;
 
 use axum::http::{header, HeaderMap, HeaderValue};
 
@@ -29,6 +30,21 @@ pub struct SecureCookieConfig {
     pub same_site: SameSitePolicy,
     /// Cookie path
     pub path: String,
+}
+
+// The value is a session JWT, CSRF token or sign-in transaction: never printed.
+impl fmt::Debug for SecureCookieConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecureCookieConfig")
+            .field("name", &self.name)
+            .field("value", &"[REDACTED]")
+            .field("max_age_secs", &self.max_age_secs)
+            .field("http_only", &self.http_only)
+            .field("secure", &self.secure)
+            .field("same_site", &self.same_site)
+            .field("path", &self.path)
+            .finish()
+    }
 }
 
 /// `SameSite` cookie policy

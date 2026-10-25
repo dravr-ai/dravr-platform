@@ -30,6 +30,7 @@ use chrono::{DateTime, Utc};
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
+use std::fmt;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument};
@@ -48,6 +49,17 @@ pub struct GarminProvider {
     client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
+}
+
+impl fmt::Debug for GarminProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GarminProvider")
+            .field("config", &self.config)
+            .field("credentials", &self.credentials)
+            .field("client", &self.client)
+            .field("circuit_breaker", &self.circuit_breaker)
+            .finish_non_exhaustive()
+    }
 }
 
 impl GarminProvider {
@@ -453,7 +465,9 @@ impl FitnessProvider for GarminProvider {
     }
 
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        let _ = self.token_refresh_callback.set(callback);
+        if self.token_refresh_callback.set(callback).is_err() {
+            debug!("Garmin token refresh callback already set; keeping the first");
+        }
     }
 
     async fn is_authenticated(&self) -> bool {
@@ -856,6 +870,7 @@ impl GarminProvider {
 use super::core::ProviderFactory;
 
 /// Factory for creating Garmin provider instances
+#[derive(Debug)]
 pub struct GarminProviderFactory;
 
 impl ProviderFactory for GarminProviderFactory {

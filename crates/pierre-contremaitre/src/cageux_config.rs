@@ -66,6 +66,7 @@ pub struct CageuxConfigSnapshot {
 /// [`IntelligenceConfig::load`]. The contremaitre sync (when compiled in)
 /// replaces it with a `Contremaitre`-sourced snapshot once the overlay YAML
 /// has been fetched and validated.
+#[derive(Debug)]
 pub struct CageuxConfigRegistry {
     snapshot: ArcSwap<CageuxConfigSnapshot>,
 }

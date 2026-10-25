@@ -184,7 +184,7 @@ fn pace_sec_per_km(metres_per_second: Option<f64>) -> Option<f64> {
 ///
 /// An entry that is not a settings object is left out with a warning naming
 /// only its position.
-pub fn thresholds_from_settings(
+pub(crate) fn thresholds_from_settings(
     entries: Vec<Value>,
     primary_sport: Option<&SportType>,
 ) -> ProviderThresholds {

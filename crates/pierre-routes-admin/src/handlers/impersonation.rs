@@ -85,6 +85,7 @@ struct StartImpersonationRequestBody {
 }
 
 /// Impersonation routes - super admin only
+#[derive(Debug)]
 pub struct ImpersonationRoutes;
 
 impl ImpersonationRoutes {

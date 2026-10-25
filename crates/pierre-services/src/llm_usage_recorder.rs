@@ -23,6 +23,7 @@
 //! teardown cutting it, and a write that panics is logged rather than lost
 //! with its dropped handle.
 
+use std::fmt;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
@@ -47,6 +48,14 @@ pub struct LlmUsageSink {
     writes: TaskTracker,
 }
 
+impl fmt::Debug for LlmUsageSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LlmUsageSink")
+            .field("writes", &self.writes)
+            .finish_non_exhaustive()
+    }
+}
+
 impl LlmUsageSink {
     /// Rows written to `repo`, each write spawned on `writes`.
     #[must_use]
@@ -56,6 +65,7 @@ impl LlmUsageSink {
 }
 
 /// Per-call sink that persists one `llm_usage` row per LLM invocation.
+#[derive(Debug)]
 pub struct UsageRepoCallRecorder {
     sink: LlmUsageSink,
     tenant_id: String,

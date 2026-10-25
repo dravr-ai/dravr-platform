@@ -997,10 +997,8 @@ mod messaging_tests {
         use dravr_canot::channels::telegram::TelegramChannel;
 
         let mut registry = ChannelRegistry::new();
-        registry
-            .register(Arc::new(TelegramChannel::new("s1".to_owned())) as Arc<dyn MessagingChannel>);
-        let duplicate = registry
-            .register(Arc::new(TelegramChannel::new("s2".to_owned())) as Arc<dyn MessagingChannel>);
+        registry.register(Arc::new(TelegramChannel::new("s1".to_owned())));
+        let duplicate = registry.register(Arc::new(TelegramChannel::new("s2".to_owned())));
         assert!(!duplicate, "Duplicate registration should return false");
         assert_eq!(registry.len(), 1, "Registry should still have 1 entry");
     }
@@ -1011,9 +1009,8 @@ mod messaging_tests {
         use dravr_canot::channels::telegram::TelegramChannel;
 
         let mut registry = ChannelRegistry::new();
-        registry.register(Arc::new(SlackChannel::new("s".to_owned())) as Arc<dyn MessagingChannel>);
-        registry
-            .register(Arc::new(TelegramChannel::new("t".to_owned())) as Arc<dyn MessagingChannel>);
+        registry.register(Arc::new(SlackChannel::new("s".to_owned())));
+        registry.register(Arc::new(TelegramChannel::new("t".to_owned())));
 
         let types = registry.registered_channels();
         assert_eq!(types.len(), 2);

@@ -622,7 +622,7 @@ async fn test_user_login_success() -> Result<()> {
     };
 
     let register_response = auth_routes.register(register_request).await?;
-    let user_id = uuid::Uuid::parse_str(&register_response.user_id)?;
+    let user_id = Uuid::parse_str(&register_response.user_id)?;
 
     // Approve the user for testing
     database
@@ -913,7 +913,7 @@ async fn test_token_refresh_success() -> Result<()> {
 
     let register_response = auth_routes.register(register_request).await?;
     let user_id = register_response.user_id;
-    let user_uuid = uuid::Uuid::parse_str(&user_id)?;
+    let user_uuid = Uuid::parse_str(&user_id)?;
 
     // Approve the user for testing
     database
@@ -1170,7 +1170,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
     };
 
     let register_response = auth_routes.register(register_request).await?;
-    let user_id = uuid::Uuid::parse_str(&register_response.user_id)?;
+    let user_id = Uuid::parse_str(&register_response.user_id)?;
 
     // Approve the user for testing
     database
@@ -1999,7 +1999,7 @@ async fn test_concurrent_logins() -> Result<()> {
             display_name: Some(format!("Login User {i}")),
         };
         let register_response = auth_routes.register(request).await?;
-        let user_id = uuid::Uuid::parse_str(&register_response.user_id)?;
+        let user_id = Uuid::parse_str(&register_response.user_id)?;
 
         // Approve the user
         database

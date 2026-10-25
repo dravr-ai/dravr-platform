@@ -157,6 +157,7 @@ pub struct StoreLlmCredentialsRequest {
 /// 2. Tenant-level default (from `user_llm_credentials` table with `user_id = NULL`)
 /// 3. System-wide override (from `admin_config_overrides` table)
 /// 4. Environment variable fallback
+#[derive(Debug)]
 pub struct TenantLlmManager;
 
 impl TenantLlmManager {

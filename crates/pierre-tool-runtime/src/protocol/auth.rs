@@ -20,6 +20,7 @@ use pierre_providers::{credential_kind, CoreFitnessProvider, CredentialKind, OAu
 use secrecy::SecretString;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -129,6 +130,12 @@ impl OAuthError {
 /// Centralizes OAuth token management and reduces duplication across handlers
 pub struct AuthService {
     resources: Arc<dyn ToolRuntime>,
+}
+
+impl fmt::Debug for AuthService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthService").finish_non_exhaustive()
+    }
 }
 
 impl AuthService {

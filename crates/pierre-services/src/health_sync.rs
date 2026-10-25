@@ -38,7 +38,7 @@ use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::sync_backend;
 use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::coach_consents::link_consents;
@@ -327,7 +327,9 @@ impl PierreSyncStorage {
     /// Idempotent: only the first injection wins (subsequent calls are
     /// ignored, mirroring `OnceLock` semantics).
     pub fn set_credential_refresher(&self, refresher: Arc<dyn SyncCredentialRefresher>) {
-        let _ = self.refresher.set(refresher);
+        if self.refresher.set(refresher).is_err() {
+            debug!("credential refresher already injected; keeping the first");
+        }
     }
 
     /// Build a `SyncOrchestrator` backed by this adapter with default configuration.

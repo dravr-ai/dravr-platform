@@ -87,6 +87,7 @@ fn blocked_text(
 /// Handler for `/deleteaccount` — warn, then delete on the typed email. The
 /// account's Firebase identity goes with it, deleted server-side, since a chat
 /// channel holds no Firebase session.
+#[derive(Debug)]
 pub struct DeleteAccountHandler;
 
 #[async_trait]

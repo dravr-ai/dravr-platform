@@ -75,7 +75,7 @@ pub(super) const MAX_TREND_DAYS: u32 = 366;
 /// # Errors
 /// Returns `ProtocolError` if sleep data is missing or invalid
 // Long function: Protocol handler with async data fetching, HRV analysis, response formatting
-pub fn handle_analyze_sleep_quality(
+pub(crate) fn handle_analyze_sleep_quality(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
@@ -217,7 +217,7 @@ pub fn handle_analyze_sleep_quality(
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or calculation fails
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
-pub fn handle_calculate_recovery_score(
+pub(crate) fn handle_calculate_recovery_score(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
@@ -451,7 +451,7 @@ pub fn handle_calculate_recovery_score(
 /// # Errors
 /// Returns `ProtocolError` if required data is missing or analysis fails
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
-pub fn handle_suggest_rest_day(
+pub(crate) fn handle_suggest_rest_day(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
@@ -684,7 +684,7 @@ pub fn handle_suggest_rest_day(
 /// # Errors
 /// Returns `ProtocolError` if data is insufficient or analysis fails
 // Long function: Protocol handler inherently long due to trend calculation, statistics aggregation, response formatting
-pub fn handle_track_sleep_trends(
+pub(crate) fn handle_track_sleep_trends(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
@@ -892,7 +892,7 @@ pub fn handle_track_sleep_trends(
 /// # Errors
 /// Returns `ProtocolError` if required parameters are missing
 // Long function: Protocol handler inherently long due to async auth, param extraction, calculation, response formatting
-pub fn handle_optimize_sleep_schedule(
+pub(crate) fn handle_optimize_sleep_schedule(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

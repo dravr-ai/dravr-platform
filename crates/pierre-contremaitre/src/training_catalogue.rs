@@ -166,6 +166,7 @@ type EntryMap = HashMap<(CatalogueKind, String), CatalogueEntry>;
 ///
 /// Seeded with the compiled-in mirror; entries are overlaid by the
 /// contremaitre sync and revert to the seed when the overlay is removed.
+#[derive(Debug)]
 pub struct TrainingCatalogueRegistry {
     /// The live set the agent reads.
     entries: RwLock<EntryMap>,

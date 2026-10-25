@@ -34,6 +34,7 @@
 //! Garmin-recorded data it relays on its own terms.
 
 use std::collections::BTreeSet;
+use std::fmt;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -151,6 +152,14 @@ pub struct WithConsent<'a> {
     pub terms: &'a dyn ProviderTerms,
     /// Lowercase names of the providers whose AI consent is withheld.
     pub withheld: &'a BTreeSet<String>,
+}
+
+impl fmt::Debug for WithConsent<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WithConsent")
+            .field("withheld", &self.withheld)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderTerms for WithConsent<'_> {

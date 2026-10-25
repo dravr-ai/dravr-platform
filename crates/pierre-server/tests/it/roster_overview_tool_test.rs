@@ -228,7 +228,7 @@ mod roster_overview_tests {
     }
 
     async fn overview(resources: &Arc<ServerContext>, coach: &Coach, args: Value) -> Value {
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
         let ctx = ToolContext::new()
             .with_user(coach.user.to_string())
             .with_tenant(coach.tenant.to_string())

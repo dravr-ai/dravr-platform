@@ -67,6 +67,7 @@ const MAX_HOURS_PER_WEEK: f32 = 60.0;
 const MAX_SESSIONS_PER_WEEK: u8 = 21;
 
 /// The tool.
+#[derive(Debug)]
 pub struct RecommendPlanFlavourTool;
 
 /// What the agent passes: the questionnaire's answers, each optional where

@@ -23,7 +23,7 @@ const BOM: char = '\u{feff}';
 /// comma, a quote or a line break, with its quotes doubled. Ends in CRLF, the
 /// RFC 4180 record terminator.
 #[must_use]
-pub fn record(fields: &[&str]) -> String {
+pub(crate) fn record(fields: &[&str]) -> String {
     let mut out = fields
         .iter()
         .map(|field| {
@@ -51,7 +51,7 @@ const FORMULA_LEADS: [char; 6] = ['=', '+', '-', '@', '\t', '\r'];
 /// either as a formula: an error cell where the claim should be, or whatever a
 /// reply smuggled in evaluated on the grader's machine.
 #[must_use]
-pub fn spreadsheet_text(text: &str) -> Cow<'_, str> {
+pub(crate) fn spreadsheet_text(text: &str) -> Cow<'_, str> {
     if text.starts_with(FORMULA_LEADS) {
         Cow::Owned(format!("'{text}"))
     } else {
@@ -69,7 +69,7 @@ pub fn spreadsheet_text(text: &str) -> Cow<'_, str> {
 ///
 /// An invalid-input error when a quoted field is never closed: the file was
 /// cut short, and reading on would shift every later field.
-pub fn parse(text: &str) -> AppResult<Vec<Vec<String>>> {
+pub(crate) fn parse(text: &str) -> AppResult<Vec<Vec<String>>> {
     let text = text.strip_prefix(BOM).unwrap_or(text);
     let mut records: Vec<Vec<String>> = Vec::new();
     let mut current: Vec<String> = Vec::new();

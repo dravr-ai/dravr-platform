@@ -15,6 +15,7 @@
 mod calibration_turn_test;
 mod command_reply_replay_test;
 mod commitments_block_test;
+mod debug_redaction_test;
 mod embacle_transport_contract_test;
 mod first_reply_introduction_test;
 mod fortnight_rail_budget_test;

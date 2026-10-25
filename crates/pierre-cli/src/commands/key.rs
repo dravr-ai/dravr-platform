@@ -29,7 +29,7 @@ use tracing::info;
 /// `pierre-cli key <action>` subcommand.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum KeyCommand {
+pub(crate) enum KeyCommand {
     /// Rotate the Database Encryption Key (DEK) to a fresh active version
     RotateDek,
 
@@ -39,7 +39,7 @@ pub enum KeyCommand {
 
 /// Dispatch a key command. Self-contained: it performs its own key-management
 /// bootstrap because the re-wrap path must initialize with the *source* KEK.
-pub async fn dispatch(action: KeyCommand, database_url: &str) -> AppResult<()> {
+pub(crate) async fn dispatch(action: KeyCommand, database_url: &str) -> AppResult<()> {
     match action {
         KeyCommand::RotateDek => rotate_dek(database_url).await,
         KeyCommand::RewrapKek => rewrap_kek(database_url).await,

@@ -118,8 +118,7 @@ fn room_ctx(fix: &RoomFixture) -> PlatformCommandContext {
         channel_type: "telegram".to_owned(),
         args: vec![],
         raw_text: "/calibrate".to_owned(),
-        ctx: Arc::<ServerContext>::clone(&fix.resources)
-            as Arc<dyn pierre_runtime_context::CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(&fix.resources),
         locale: "en".to_owned(),
         is_direct_message: false,
         ambient_group_fallback: true,

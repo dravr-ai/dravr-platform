@@ -38,7 +38,7 @@ use pierre_services::locale::resolve_user_locale;
 use pierre_services::team_rules::{self, pick_members, TeamPick, TeamRule, TeamSignals};
 use pierre_tool_runtime::activity_fetch::fetch_recent_activities_all_providers;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use tracing::{field, warn, Span};
+use tracing::{debug, field, warn, Span};
 use uuid::Uuid;
 
 use super::proposal_lead::{
@@ -254,13 +254,16 @@ async fn load_sport_profile<C: ToolRuntime>(
 
     let profile = SportProfile::from_activities(&activities, config.window_days);
 
-    let _ = ToolRuntime::cache(ctx.as_ref())
+    if let Err(e) = ToolRuntime::cache(ctx.as_ref())
         .set(
             &cache_key,
             &profile,
             Duration::from_secs(config.profile_ttl_secs),
         )
-        .await;
+        .await
+    {
+        debug!(error = %e, "sport profile not cached; the next request recomputes it");
+    }
 
     Some(profile)
 }
@@ -328,7 +331,7 @@ pub(super) async fn handle_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
 /// and the LLM step degrade gracefully rather than erroring.
 pub async fn build_agent_proposal<C: AgentsCtx + MiddlewareCtx + ToolRuntime>(
     ctx: &Arc<C>,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
     tenant_id: TenantId,
     locale: &str,
 ) -> Result<AgentProposal, AppError> {

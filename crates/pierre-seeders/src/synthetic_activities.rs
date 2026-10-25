@@ -43,7 +43,7 @@ use tracing::info;
 use uuid::Uuid;
 
 /// CLI arguments for the synthetic activities seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// User email to seed activities for (default: user@example.com)
     #[arg(long, default_value = "user@example.com")]

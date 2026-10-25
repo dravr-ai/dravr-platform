@@ -106,12 +106,14 @@ mod properties {
     proptest! {
         #[test]
         fn any_string_decodes_without_panicking(input in any::<String>()) {
-            let _ = decode_polyline(&input);
+            // Only checks that decoding does not panic.
+            drop(decode_polyline(&input));
         }
 
         #[test]
         fn polyline_alphabet_noise_decodes_without_panicking(input in "[?-~]{0,64}") {
-            let _ = decode_polyline(&input);
+            // Only checks that decoding does not panic.
+            drop(decode_polyline(&input));
         }
 
         #[test]

@@ -86,6 +86,7 @@ struct Listing {
 /// `browse_agent_store` / `search_agent_store` tools use, so an agent ranks
 /// the same everywhere. Every agent on the card gets an install button;
 /// only a browse pages, since a search already returns its best matches.
+#[derive(Debug)]
 pub struct DiscoverHandler;
 
 impl DiscoverHandler {
@@ -218,6 +219,7 @@ impl CommandHandler for DiscoverHandler {
 /// the agent into a chat (`/agent add @handle`) or borrow it for one turn
 /// (`@handle` in a message). An agent already on the caller's list gets the
 /// same hint and no second copy.
+#[derive(Debug)]
 pub struct DiscoverInstallHandler;
 
 #[async_trait]

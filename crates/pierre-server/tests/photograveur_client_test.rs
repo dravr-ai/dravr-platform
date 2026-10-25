@@ -185,9 +185,13 @@ async fn the_press_request_carries_the_locale() {
         let (mut socket, _) = listener.accept().await.expect("one request"); // Safe: test harness
         let mut buf = vec![0u8; 16 * 1024];
         let n = socket.read(&mut buf).await.expect("readable"); // Safe: test harness
-        let _ = socket
-            .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
-            .await;
+
+        // The client may hang up first; the test checks what it received.
+        drop(
+            socket
+                .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n")
+                .await,
+        );
         String::from_utf8_lossy(&buf[..n]).into_owned()
     });
 
@@ -201,7 +205,10 @@ async fn the_press_request_carries_the_locale() {
         ],
         source_tool: "get_activities".to_owned(),
     });
-    let _ = client.press(&block, "light", "de").await;
+    assert!(
+        client.press(&block, "light", "de").await.is_err(),
+        "a 500 from photograveur must surface as an error"
+    );
 
     let request = captured.await.expect("the listener task finishes"); // Safe: test harness
     let head = request.split("\r\n\r\n").next().unwrap_or_default();

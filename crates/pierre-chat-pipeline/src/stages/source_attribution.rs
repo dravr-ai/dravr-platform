@@ -36,7 +36,7 @@ const ATTRIBUTION_SEPARATOR: &str = "\n\n";
 /// The attributions this turn's reply owes: those of everything the turn has
 /// served so far, as its provenance records them; none outside a tracked turn.
 #[must_use]
-pub fn owed_attributions() -> BTreeSet<&'static str> {
+pub(crate) fn owed_attributions() -> BTreeSet<&'static str> {
     ai_scope::current_provenance()
         .map(|provenance| provenance.attributions())
         .unwrap_or_default()
@@ -45,7 +45,7 @@ pub fn owed_attributions() -> BTreeSet<&'static str> {
 /// Whether the reply is the model's answer, which the turn's reads informed:
 /// not the platform's own reconnect, blocked-for-safety or confirmation text,
 /// which no insight is derived into.
-pub fn model_answered(result: &ToolLoopResult) -> bool {
+pub(crate) fn model_answered(result: &ToolLoopResult) -> bool {
     result.pending_provider_auth_required.is_none()
         && result.guardian_denied.is_none()
         && result.guardian_confirm.is_none()
@@ -55,7 +55,7 @@ pub fn model_answered(result: &ToolLoopResult) -> bool {
 /// Garmin and the model `answered`, in the reply's own language (else
 /// `locale`); unchanged otherwise, for an empty reply, or when the reply
 /// already ends with the line.
-pub fn attribute_reply(
+pub(crate) fn attribute_reply(
     ctx: &ChatPipelineContext,
     reply: String,
     owed: &BTreeSet<&'static str>,

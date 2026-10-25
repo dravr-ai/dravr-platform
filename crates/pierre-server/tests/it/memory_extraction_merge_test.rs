@@ -159,9 +159,9 @@ async fn run(
         reply: reply.to_owned(),
         seen: Mutex::new(String::new()),
     });
-    let provider = ChatProvider::Custom(Arc::clone(&extractor) as Arc<dyn LlmProvider>);
+    let provider = ChatProvider::Custom(Arc::<ScriptedExtractor>::clone(&extractor));
 
-    let outcome = extract_and_persist(
+    extract_and_persist(
         repos.memory.as_ref(),
         &provider,
         "SYSTEM",
@@ -209,7 +209,6 @@ async fn run(
             .into_iter()
             .filter(|f| f.kind == FactKind::Goal),
     );
-    let _ = outcome;
     (extractor, facts, user, tenant_id, resources)
 }
 
@@ -353,7 +352,7 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
             .to_owned(),
         seen: Mutex::new(String::new()),
     });
-    let provider = ChatProvider::Custom(Arc::clone(&extractor) as Arc<dyn LlmProvider>);
+    let provider = ChatProvider::Custom(Arc::<ScriptedExtractor>::clone(&extractor));
 
     extract_and_persist(
         repos.memory.as_ref(),
@@ -428,7 +427,7 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
             .to_owned(),
         seen: Mutex::new(String::new()),
     });
-    let provider = ChatProvider::Custom(Arc::clone(&extractor) as Arc<dyn LlmProvider>);
+    let provider = ChatProvider::Custom(Arc::<ScriptedExtractor>::clone(&extractor));
 
     extract_and_persist(
         repos.memory.as_ref(),

@@ -28,7 +28,7 @@ use tracing::{debug, warn};
 /// is expired or fails a claim check is refused with an authentication error
 /// (`auth_expired` for an expired one). A key set that cannot be fetched is
 /// an internal error: the token was never judged.
-pub async fn decode_google_signed<C: DeserializeOwned>(
+pub(crate) async fn decode_google_signed<C: DeserializeOwned>(
     keys: &GoogleKeySet,
     token: &str,
     validation: &Validation,

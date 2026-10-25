@@ -34,6 +34,7 @@ use super::models::{
 };
 
 /// Converter utilities for Terra to Pierre models
+#[derive(Debug)]
 pub struct TerraConverters;
 
 /// Extracted activity metrics from Terra data

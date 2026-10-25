@@ -35,6 +35,7 @@
 //! Mirroring is owned by a GitHub Action in `dravr-contremaitre` that
 //! `gsutil rsync`'s the repo to the bucket on every push to `main`.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -59,6 +60,14 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct GcsPromptStore {
     bucket: String,
     token_provider: Arc<dyn TokenProvider>,
+}
+
+impl fmt::Debug for GcsPromptStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GcsPromptStore")
+            .field("bucket", &self.bucket)
+            .finish_non_exhaustive()
+    }
 }
 
 impl GcsPromptStore {

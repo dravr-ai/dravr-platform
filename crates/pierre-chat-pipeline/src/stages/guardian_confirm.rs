@@ -41,7 +41,7 @@ use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 /// `locale` is the turn's resolved BCP-47 short code, taken from
 /// [`crate::SurfaceProfile::locale`] — resolution happened at the ingress
 /// boundary, so this stage renders rather than re-derives.
-pub fn apply_guardian_confirm(
+pub(crate) fn apply_guardian_confirm(
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
     locale: &str,
     result: &mut ToolLoopResult,

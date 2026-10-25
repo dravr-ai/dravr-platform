@@ -12,7 +12,7 @@ use uuid::Uuid;
 type Result<T> = AppResult<T>;
 
 /// Force-enable a specific MCP tool for a user (overrides plan + tenant gating).
-pub async fn enable(
+pub(crate) async fn enable(
     repos: &RepositoryRegistry,
     email: String,
     tool: String,
@@ -22,7 +22,7 @@ pub async fn enable(
 }
 
 /// Force-disable a specific MCP tool for a user.
-pub async fn disable(
+pub(crate) async fn disable(
     repos: &RepositoryRegistry,
     email: String,
     tool: String,
@@ -50,7 +50,7 @@ async fn set(
 }
 
 /// Remove a per-user tool override so the tool reverts to plan/tenant/default.
-pub async fn reset(repos: &RepositoryRegistry, email: String, tool: String) -> Result<()> {
+pub(crate) async fn reset(repos: &RepositoryRegistry, email: String, tool: String) -> Result<()> {
     let user_id = lookup_user(repos, &email).await?;
     let removed = admin_ops::remove_user_tool_override(repos, user_id, &tool).await?;
     if removed {
@@ -62,7 +62,7 @@ pub async fn reset(repos: &RepositoryRegistry, email: String, tool: String) -> R
 }
 
 /// List a user's explicit per-user tool overrides.
-pub async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user_id = lookup_user(repos, &email).await?;
     let overrides = admin_ops::list_user_tool_overrides(repos, user_id).await?;
 
@@ -89,7 +89,7 @@ pub async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
 }
 
 /// The id of the user with `email`, or not-found naming the email.
-pub async fn lookup_user(repos: &RepositoryRegistry, email: &str) -> Result<Uuid> {
+pub(crate) async fn lookup_user(repos: &RepositoryRegistry, email: &str) -> Result<Uuid> {
     repos
         .users
         .get_by_email(email)

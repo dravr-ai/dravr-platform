@@ -12,7 +12,7 @@ use pierre_core::models::a2a::TaskStatus;
 
 /// The error a column that will not decode surfaces as, named after the
 /// column so a corrupt row is locatable from the message.
-pub fn a2a_column_error(column: &str, e: &sqlx::Error) -> AppError {
+pub(crate) fn a2a_column_error(column: &str, e: &sqlx::Error) -> AppError {
     AppError::database(format!("a2a column {column}: {e}"))
 }
 
@@ -20,7 +20,7 @@ pub fn a2a_column_error(column: &str, e: &sqlx::Error) -> AppError {
 ///
 /// # Errors
 /// Returns an invalid-input error when the value does not fit an `i32`.
-pub fn i32_from_u32(value: u32) -> AppResult<i32> {
+pub(crate) fn i32_from_u32(value: u32) -> AppResult<i32> {
     i32::try_from(value)
         .map_err(|e| AppError::invalid_input(format!("Value {value} too large for i32: {e}")))
 }
@@ -29,7 +29,7 @@ pub fn i32_from_u32(value: u32) -> AppResult<i32> {
 ///
 /// # Errors
 /// Returns a database error when the count is negative or past `u32::MAX`.
-pub fn u32_from_count(value: i64, column: &str) -> AppResult<u32> {
+pub(crate) fn u32_from_count(value: i64, column: &str) -> AppResult<u32> {
     u32::try_from(value)
         .map_err(|e| AppError::database(format!("a2a count {column} = {value}: {e}")))
 }
@@ -38,14 +38,14 @@ pub fn u32_from_count(value: i64, column: &str) -> AppResult<u32> {
 ///
 /// # Errors
 /// Returns a database error when the total is negative.
-pub fn u64_from_sum(value: i64, column: &str) -> AppResult<u64> {
+pub(crate) fn u64_from_sum(value: i64, column: &str) -> AppResult<u64> {
     u64::try_from(value).map_err(|e| AppError::database(format!("a2a sum {column} = {value}: {e}")))
 }
 
 /// An average response time rounded to whole milliseconds; NaN, infinities
 /// and negatives read as zero, and anything past `u32::MAX` saturates.
 #[must_use]
-pub fn average_millis(value: f64) -> u32 {
+pub(crate) fn average_millis(value: f64) -> u32 {
     if value.is_nan() || value < 0.0 {
         0
     } else if value >= f64::from(u32::MAX) {
@@ -62,7 +62,7 @@ pub fn average_millis(value: f64) -> u32 {
 /// The filters one `list_tasks` call carries, each present only when the
 /// caller filters on it.
 #[derive(Clone, Copy)]
-pub struct TaskListing<'a> {
+pub(crate) struct TaskListing<'a> {
     /// The client, matched on the session token that keys the task (it
     /// carries the client id for a task created without a session).
     pub client_id: Option<&'a str>,
@@ -85,7 +85,7 @@ pub struct TaskListing<'a> {
 /// # Errors
 /// Returns an internal error if the clause cannot be written, which a
 /// `String` never refuses.
-pub fn list_tasks_sql(select: &str, listing: &TaskListing<'_>) -> AppResult<String> {
+pub(crate) fn list_tasks_sql(select: &str, listing: &TaskListing<'_>) -> AppResult<String> {
     let mut query = String::from(select);
     let mut conditions = Vec::new();
     let mut bind_count = 0;

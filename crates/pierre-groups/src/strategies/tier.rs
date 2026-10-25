@@ -130,6 +130,7 @@ pub(crate) enum OwnerGroupLimit {
 /// [`crate::GroupService::create_channel_group`] gate on — a cap of `0` there
 /// rejects creation outright, which is why this tier carries a real number
 /// rather than zero: every tenant is created on Starter.
+#[derive(Debug)]
 pub struct StarterTierStrategy;
 
 impl GroupTierStrategy for StarterTierStrategy {
@@ -173,6 +174,7 @@ impl GroupTierStrategy for StarterTierStrategy {
 /// Professional tier: one group per athlete, like Starter. The paid coach
 /// seat includes 15 athletes; each one above is billed per athlete on the
 /// coach's subscription instead of being refused.
+#[derive(Debug)]
 pub struct ProfessionalTierStrategy;
 
 impl GroupTierStrategy for ProfessionalTierStrategy {
@@ -214,6 +216,7 @@ impl GroupTierStrategy for ProfessionalTierStrategy {
 }
 
 /// Enterprise tier: unlimited groups, 50 members, all features
+#[derive(Debug)]
 pub struct EnterpriseTierStrategy;
 
 impl GroupTierStrategy for EnterpriseTierStrategy {

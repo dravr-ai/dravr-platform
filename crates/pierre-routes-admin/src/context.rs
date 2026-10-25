@@ -11,6 +11,7 @@
 //! fields and passes `Arc<AdminApiContext>` to the [`crate::routes::AdminRoutes`]
 //! constructor. No `Arc<ServerContext>` ever leaks into a handler.
 
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_auth::auth::AuthManager;
@@ -146,6 +147,49 @@ pub struct AdminApiContext {
     pub base_url: String,
 }
 
+impl fmt::Debug for AdminApiContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdminApiContext")
+            .field("database", &self.database)
+            .field("repos", &self.repos)
+            .field("auth_service", &self.auth_service)
+            .field("auth_manager", &self.auth_manager)
+            .field("admin_jwt_secret", &"[REDACTED]")
+            .field("jwks_manager", &self.jwks_manager)
+            .field(
+                "admin_api_key_monthly_limit",
+                &self.admin_api_key_monthly_limit,
+            )
+            .field("email_service", &self.email_service)
+            .field("frontend_url", &self.frontend_url)
+            .field("website_base_url", &self.website_base_url)
+            .field("background", &self.background)
+            .field("sign_in_limiter", &self.sign_in_limiter)
+            .field("firebase_identity", &self.firebase_identity)
+            .field("cache", &self.cache)
+            .field("harness_config_registry", &self.harness_config_registry)
+            .field("prompt_registry", &self.prompt_registry)
+            .field("tool_description_registry", &self.tool_description_registry)
+            .field("evidence_registry", &self.evidence_registry)
+            .field(
+                "messaging_strings_registry",
+                &self.messaging_strings_registry,
+            )
+            .field("cageux_config_registry", &self.cageux_config_registry)
+            .field("persona_contract_registry", &self.persona_contract_registry)
+            .field(
+                "training_catalogue_registry",
+                &self.training_catalogue_registry,
+            )
+            .field("contremaitre_config", &self.contremaitre_config)
+            .field("app_behavior", &self.app_behavior)
+            .field("human_check_configured", &self.human_check_configured)
+            .field("oauth", &self.oauth)
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Initial wiring required to construct an [`AdminApiContext`].
 ///
 /// Lives as a dedicated struct so [`AdminApiContext::new`] doesn't need a
@@ -185,6 +229,38 @@ pub struct AdminApiContextInit {
     pub contremaitre_config: Option<ContremaitreConfig>,
     /// App-behaviour config (auto-approval precedence)
     pub app_behavior: AppBehaviorConfig,
+}
+
+impl fmt::Debug for AdminApiContextInit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdminApiContextInit")
+            .field("database", &self.database)
+            .field("repos", &self.repos)
+            .field("jwt_secret", &"[REDACTED]")
+            .field("auth_manager", &self.auth_manager)
+            .field("jwks_manager", &self.jwks_manager)
+            .field(
+                "admin_api_key_monthly_limit",
+                &self.admin_api_key_monthly_limit,
+            )
+            .field("harness_config_registry", &self.harness_config_registry)
+            .field("prompt_registry", &self.prompt_registry)
+            .field("tool_description_registry", &self.tool_description_registry)
+            .field("evidence_registry", &self.evidence_registry)
+            .field(
+                "messaging_strings_registry",
+                &self.messaging_strings_registry,
+            )
+            .field("cageux_config_registry", &self.cageux_config_registry)
+            .field("persona_contract_registry", &self.persona_contract_registry)
+            .field(
+                "training_catalogue_registry",
+                &self.training_catalogue_registry,
+            )
+            .field("contremaitre_config", &self.contremaitre_config)
+            .field("app_behavior", &self.app_behavior)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AdminApiContext {

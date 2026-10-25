@@ -94,6 +94,7 @@ impl PlannedSession {
 /// every supersession — never churn the calendar, and a re-push updates the
 /// same entry. A prescription's key is its own ledger id, because two
 /// prescriptions on one date are two entries by design.
+#[derive(Debug)]
 pub struct CalendarKey;
 
 impl CalendarKey {

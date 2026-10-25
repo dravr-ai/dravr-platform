@@ -126,6 +126,7 @@ fn require_tenant_id(ctx: &ToolExecutionContext) -> AppResult<TenantId> {
 /// Tool for retrieving fitness configuration.
 ///
 /// Retrieves user-specific configuration if available, otherwise falls back to tenant default.
+#[derive(Debug)]
 pub struct GetFitnessConfigTool;
 
 #[async_trait]
@@ -221,6 +222,7 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
 // ============================================================================
 
 /// Tool for saving or updating fitness configuration.
+#[derive(Debug)]
 pub struct SetFitnessConfigTool;
 
 #[async_trait]
@@ -340,6 +342,7 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
 // ============================================================================
 
 /// Tool for listing available fitness configuration names.
+#[derive(Debug)]
 pub struct ListFitnessConfigsTool;
 
 #[async_trait]
@@ -432,6 +435,7 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
 // ============================================================================
 
 /// Tool for deleting a fitness configuration.
+#[derive(Debug)]
 pub struct DeleteFitnessConfigTool;
 
 #[async_trait]

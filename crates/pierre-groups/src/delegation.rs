@@ -27,6 +27,7 @@
 //! The link row is ended first. Should a release step fail after it, the
 //! member's read path still fails closed: it only follows a confirmed link.
 
+use std::fmt;
 use std::slice;
 use std::sync::Arc;
 
@@ -54,6 +55,12 @@ pub struct DelegationStore {
     provider_data: Arc<dyn ProviderDataRepository>,
     /// The groups and memberships a link's standing is read from.
     groups: Arc<dyn CoachingGroupRepository>,
+}
+
+impl fmt::Debug for DelegationStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DelegationStore").finish_non_exhaustive()
+    }
 }
 
 /// What became of a member's confirmed link the read path no longer follows

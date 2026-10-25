@@ -40,6 +40,7 @@
 
 #![warn(missing_docs)]
 
+use std::fmt;
 use std::sync::Arc;
 
 use axum::{
@@ -231,6 +232,34 @@ pub struct AuthRoutesContext {
     pub nonce_store: Arc<NonceStore<Cache>>,
 }
 
+impl fmt::Debug for AuthRoutesContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("AuthRoutesContext");
+        debug.field("auth_manager", &self.auth_manager);
+        debug.field("jwks_manager", &self.jwks_manager);
+        debug.field("csrf_manager", &self.csrf_manager);
+        debug.field("auth_middleware", &self.auth_middleware);
+        debug.field("repos", &self.repos);
+        debug.field("config", &self.config);
+        debug.field("data", &self.data);
+        debug.field("firebase_auth", &self.firebase_auth);
+        debug.field("email_service", &self.email_service);
+        debug.field("provider_registry", &self.provider_registry);
+        #[cfg(feature = "health-sync")]
+        debug.field("sync_orchestrator", &self.sync_orchestrator);
+        #[cfg(feature = "health-sync")]
+        debug.field("sync_failure_notices", &self.sync_failure_notices);
+        debug.field("cache", &self.cache);
+        debug.field("messaging_strings", &self.messaging_strings);
+        debug.field("rate_limiter", &self.rate_limiter);
+        debug.field("group_service", &self.group_service);
+        debug.field("admin_jwt_secret", &"[REDACTED]");
+        #[cfg(feature = "provider-sciotte")]
+        debug.field("nonce_store", &self.nonce_store);
+        debug.finish_non_exhaustive()
+    }
+}
+
 impl AuthRoutesContext {
     /// The account service for a route that may create an account: an
     /// account it leaves waiting for approval is also emailed to the
@@ -255,6 +284,7 @@ impl AuthRoutesContext {
 /// crate-level summary above. `Router<()>` is returned with the
 /// [`AuthRoutesContext`] already installed as state so the composition root
 /// can merge it directly into the main application router.
+#[derive(Debug)]
 pub struct AuthRoutes;
 
 impl AuthRoutes {

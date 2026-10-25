@@ -383,6 +383,7 @@ async fn live_prescription(
 
 /// `list_workout_templates` — the workout bank, filtered by purpose, phase
 /// and sport, with the athlete's own saved sessions after it.
+#[derive(Debug)]
 pub struct ListWorkoutTemplatesTool;
 
 #[async_trait]
@@ -609,6 +610,7 @@ fn session_schema() -> PropertySchema {
 
 /// `prescribe_workout` — push a workout to the athlete's calendar provider
 /// and record the prescription.
+#[derive(Debug)]
 pub struct PrescribeWorkoutTool;
 
 #[async_trait]
@@ -917,6 +919,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
 
 /// `withdraw_prescribed_workout` — remove one prescription from the athlete's
 /// calendar and mark it withdrawn in the ledger.
+#[derive(Debug)]
 pub struct WithdrawPrescribedWorkoutTool;
 
 #[async_trait]

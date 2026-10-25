@@ -1178,7 +1178,7 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let now = chrono::Utc::now();
+        let now = Utc::now();
 
         let mk_system = |title: &str| CreateSystemAgentRequest {
             title: title.to_owned(),
@@ -1334,7 +1334,7 @@ mod command_tests {
 
         let resources = create_test_server_resources().await.unwrap();
         let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
-        let now = chrono::Utc::now();
+        let now = Utc::now();
 
         let persona = resources
             .common

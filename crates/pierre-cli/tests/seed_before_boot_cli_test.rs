@@ -128,5 +128,6 @@ async fn a_database_seeded_with_ciphertext_before_its_first_boot_boots() {
     assert_eq!(jwks.get_active_key().unwrap().kid, stored[0].0);
 
     drop(database);
-    let _ = fs::remove_file(&path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
 }

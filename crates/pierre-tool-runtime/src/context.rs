@@ -58,7 +58,7 @@ tokio::task_local! {
     /// conversation under its own tenant alone misses the row on every room
     /// turn. Absent for MCP-direct / A2A / SSE calls and equal to the caller's
     /// tenant on DM and web turns.
-    pub static CONVERSATION_TENANT: Option<uuid::Uuid>;
+    pub static CONVERSATION_TENANT: Option<Uuid>;
 
     /// The agent the in-flight tool call's turn answers as.
     ///

@@ -28,6 +28,7 @@ use dravr_enforme::providers::sciotte_reader::{
 use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_app_error};
+use std::fmt;
 
 /// Reads daily summaries on the dravr-sciotte scraper service.
 ///
@@ -38,6 +39,13 @@ use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_
 #[derive(Clone)]
 pub struct SciotteServiceReader {
     client: Option<SciotteClient>,
+}
+
+impl fmt::Debug for SciotteServiceReader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SciotteServiceReader")
+            .finish_non_exhaustive()
+    }
 }
 
 impl SciotteServiceReader {

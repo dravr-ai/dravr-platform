@@ -66,7 +66,7 @@ const HEADING: &str = "\n\n## The athlete this thread works on\n\n";
 
 /// Why the coach may not act for the thread's athlete on this turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SubjectRefusal {
+pub(crate) enum SubjectRefusal {
     /// A coaching gate refused.
     Gate(CoachedAthleteRefusal),
     /// The gates could not be asked: the sender's id does not parse, or a
@@ -115,7 +115,7 @@ impl SubjectRefusal {
 /// The coach may act for the thread's athlete on this turn, and what of
 /// their plan the turn shows.
 #[derive(Debug)]
-pub struct GrantedSubject {
+pub(crate) struct GrantedSubject {
     access: CoachedAthleteAccess,
     coach: Uuid,
     /// The athlete's live season and the coach's draft over it; `None` when
@@ -126,24 +126,24 @@ pub struct GrantedSubject {
 
 impl GrantedSubject {
     /// The athlete's one home tenant, where their plan lives.
-    pub const fn tenant(&self) -> TenantId {
+    pub(crate) const fn tenant(&self) -> TenantId {
         self.access.tenant
     }
 
     /// The athlete.
-    pub const fn athlete(&self) -> Uuid {
+    pub(crate) const fn athlete(&self) -> Uuid {
         self.access.athlete_user_id
     }
 
     /// The athlete's civil date.
-    pub const fn today(&self) -> NaiveDate {
+    pub(crate) const fn today(&self) -> NaiveDate {
         self.today
     }
 
     /// The plan the turn's plan block shows: the coach's draft over the
     /// athlete's live weeks when the coach holds one, otherwise the
     /// athlete's live season; `None` with neither.
-    pub fn plan_shown(&self) -> Option<(&TrainingPlan, &[PlanWeek])> {
+    pub(crate) fn plan_shown(&self) -> Option<(&TrainingPlan, &[PlanWeek])> {
         let view = self.view.as_ref()?;
         match (&view.draft, &view.live) {
             (Some(draft), _) => Some((&draft.plan, draft.weeks.as_slice())),
@@ -155,7 +155,7 @@ impl GrantedSubject {
 
 /// What a turn in a coach's thread about one athlete may show of them.
 #[derive(Debug)]
-pub enum SubjectTurn {
+pub(crate) enum SubjectTurn {
     /// The gates let the coach act for the athlete.
     Granted(Box<GrantedSubject>),
     /// They no longer do.
@@ -165,7 +165,7 @@ pub enum SubjectTurn {
 /// Whether `sender` may act for `subject`'s athlete, asked of the coaching
 /// gates now. A repository failure refuses: nothing of the athlete is shown
 /// on a turn whose access could not be confirmed.
-pub async fn subject_access(
+pub(crate) async fn subject_access(
     repos: &RepositoryRegistry,
     subject: ConversationSubject,
     sender: &str,
@@ -198,7 +198,7 @@ pub async fn subject_access(
 
 /// The turn's standing in a coach's thread about one athlete, or `None` for
 /// every other conversation.
-pub async fn resolve(
+pub(crate) async fn resolve(
     repos: &RepositoryRegistry,
     conv: &ConversationRecord,
     sender: &str,
@@ -235,7 +235,7 @@ pub async fn resolve(
 /// shared is no longer the agent's input: no earlier tool result that read
 /// them, no earlier reply quoting them. Prompt assembly withholds the
 /// thread's compaction summaries on the same refusal.
-pub async fn resolve_withholding_history(
+pub(crate) async fn resolve_withholding_history(
     repos: &RepositoryRegistry,
     conv: &ConversationRecord,
     sender: &str,
@@ -251,7 +251,7 @@ pub async fn resolve_withholding_history(
 
 /// The prompt block for the turn: one line when refused, the coach's view of
 /// the athlete when granted.
-pub async fn block(ctx: &ChatPipelineContext, turn: &SubjectTurn) -> String {
+pub(crate) async fn block(ctx: &ChatPipelineContext, turn: &SubjectTurn) -> String {
     match turn {
         SubjectTurn::Refused(refused) => format!("{HEADING}{}", refused.line()),
         SubjectTurn::Granted(granted) => {

@@ -57,7 +57,7 @@ fn intervals_event_type(sport: &SportType) -> &'static str {
 /// it was written for, then the shared activity-type vocabulary for any other
 /// type. An event that states no type is a generic workout, the type
 /// [`intervals_event_type`] writes for a sport it has no name for.
-pub fn event_sport(event_type: Option<&str>) -> SportType {
+pub(crate) fn event_sport(event_type: Option<&str>) -> SportType {
     match event_type.map(str::trim).unwrap_or_default() {
         "Ride" => SportType::Ride,
         "VirtualRide" => SportType::VirtualRide,
@@ -296,7 +296,7 @@ fn render_description(session: &PlannedSession) -> String {
 }
 
 /// The `EventEx` body Intervals.icu expects for a session.
-pub fn event_body(session: &PlannedSession) -> serde_json::Value {
+pub(crate) fn event_body(session: &PlannedSession) -> serde_json::Value {
     let start_date_local = format!("{}T00:00:00", session.date.format("%Y-%m-%d"));
     match session.kind {
         PlannedSessionKind::Workout => {
@@ -327,7 +327,7 @@ pub fn event_body(session: &PlannedSession) -> serde_json::Value {
 /// An Intervals.icu event id as it appears in a URL path. Provider ids are the
 /// integers the create call returned; anything else never came from this
 /// provider and must not be interpolated into a path.
-pub fn event_id_segment(provider_event_id: &str) -> AppResult<i64> {
+pub(crate) fn event_id_segment(provider_event_id: &str) -> AppResult<i64> {
     provider_event_id.trim().parse::<i64>().map_err(|_| {
         AppError::invalid_input(format!(
             "'{provider_event_id}' is not an intervals.icu event id"
@@ -338,20 +338,20 @@ pub fn event_id_segment(provider_event_id: &str) -> AppResult<i64> {
 /// Minimal shape of the Intervals.icu calendar event create response — we
 /// only need the generated event id to record against the ledger row.
 #[derive(Debug, Deserialize)]
-pub struct CreatedEvent {
+pub(crate) struct CreatedEvent {
     pub id: i64,
 }
 
 /// Shape of the `PUT /events/bulk-delete` response.
 #[derive(Debug, Deserialize)]
-pub struct DeleteEventsResponse {
+pub(crate) struct DeleteEventsResponse {
     #[serde(rename = "eventsDeleted", default)]
     pub events_deleted: u64,
 }
 
 /// Calendar event row from Intervals.icu (`/api/v1/athlete/{id}/events`).
 #[derive(Debug, Clone, Deserialize)]
-pub struct IntervalsIcuEvent {
+pub(crate) struct IntervalsIcuEvent {
     /// Event id.
     pub id: i64,
     /// Event date (`YYYY-MM-DD` for races, full ISO 8601 for sessions).
@@ -372,7 +372,7 @@ impl IntervalsIcuEvent {
     ///
     /// Returns an error when `start_date_local` does not begin with a civil
     /// date — an event the calendar cannot place on a day cannot be reconciled.
-    pub fn calendar_event_ref(self) -> AppResult<CalendarEventRef> {
+    pub(crate) fn calendar_event_ref(self) -> AppResult<CalendarEventRef> {
         let day = self.start_date_local.get(..10).unwrap_or_default();
         let date = NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|e| {
             AppError::external_service(

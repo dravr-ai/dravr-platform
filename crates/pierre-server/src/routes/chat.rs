@@ -65,6 +65,7 @@ pub use turn_response::{
 };
 
 /// Chat routes handler.
+#[derive(Debug)]
 pub struct ChatRoutes;
 
 impl ChatRoutes {

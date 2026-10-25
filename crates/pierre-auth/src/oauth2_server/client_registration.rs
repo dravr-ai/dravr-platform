@@ -22,6 +22,7 @@ use pierre_database::backends::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
 use secrecy::SecretString;
 use std::env;
+use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -29,6 +30,13 @@ use uuid::Uuid;
 /// OAuth 2.0 Client Registration Manager
 pub struct ClientRegistrationManager {
     oauth2: Arc<dyn OAuth2ServerRepository>,
+}
+
+impl fmt::Debug for ClientRegistrationManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientRegistrationManager")
+            .finish_non_exhaustive()
+    }
 }
 
 impl ClientRegistrationManager {
@@ -234,7 +242,7 @@ impl ClientRegistrationManager {
     /// Check if client is expired
     fn check_client_expiry(
         client_id: &str,
-        expires_at: Option<chrono::DateTime<Utc>>,
+        expires_at: Option<DateTime<Utc>>,
     ) -> Result<(), OAuth2Error> {
         if let Some(expires_at) = expires_at {
             if Utc::now() > expires_at {

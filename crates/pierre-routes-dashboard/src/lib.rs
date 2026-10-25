@@ -46,6 +46,7 @@ const fn default_days() -> u32 {
 }
 
 /// Dashboard routes
+#[derive(Debug)]
 pub struct DashboardRoutes;
 
 impl DashboardRoutes {

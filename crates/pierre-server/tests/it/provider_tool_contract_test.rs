@@ -312,7 +312,11 @@ async fn a_contract_provider_that_calls_nothing_answers_directly() {
 
     assert_eq!(result.content, "Bonjour.");
     assert_eq!(result.tool_calls_count, 0);
-    assert_eq!(result.tools_called, [] as [String; 0]);
+    assert!(
+        result.tools_called.is_empty(),
+        "expected empty, got {:?}",
+        result.tools_called
+    );
 }
 
 /// A `{"parameters": {...}}` argument envelope is lifted before dispatch, so

@@ -434,17 +434,17 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
     // provider. Point it at a closed local port so the fetch fails at once and
     // the tool reports progress over zero activities, instead of the suite
     // reaching out to strava.com.
-    common::init_server_config();
-    common::init_test_http_clients();
+    init_server_config();
+    init_test_http_clients();
 
-    let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_api_base("strava", "http://127.0.0.1:1/api/v3"),
-    )
+    let resources = create_test_server_resources_with_config(test_server_config_with_api_base(
+        "strava",
+        "http://127.0.0.1:1/api/v3",
+    ))
     .await?;
     let database = resources.agent.database.clone();
     let (user_id, _user, tenant_id) =
-        common::create_test_user_with_plan(&database, "goal-tracker@example.com", "starter")
-            .await?;
+        create_test_user_with_plan(&database, "goal-tracker@example.com", "starter").await?;
 
     // The dispatch chokepoint refuses provider-requiring tools for an athlete
     // with no data source at all, which would short-circuit before the goal
@@ -539,17 +539,17 @@ async fn test_track_progress_finds_a_goal_created_by_set_goal() -> Result<()> {
 async fn test_set_goal_defaults_its_timeframe_and_refuses_what_it_cannot_measure() -> Result<()> {
     // track_progress builds a real Strava provider after the goal lookup;
     // pointing it at a closed port makes that fetch fail at once.
-    common::init_server_config();
-    common::init_test_http_clients();
+    init_server_config();
+    init_test_http_clients();
 
-    let resources = common::create_test_server_resources_with_config(
-        common::test_server_config_with_api_base("strava", "http://127.0.0.1:1/api/v3"),
-    )
+    let resources = create_test_server_resources_with_config(test_server_config_with_api_base(
+        "strava",
+        "http://127.0.0.1:1/api/v3",
+    ))
     .await?;
     let database = resources.agent.database.clone();
     let (user_id, _user, tenant_id) =
-        common::create_test_user_with_plan(&database, "goal-defaults@example.com", "starter")
-            .await?;
+        create_test_user_with_plan(&database, "goal-defaults@example.com", "starter").await?;
     let now = Utc::now();
     database
         .repositories()

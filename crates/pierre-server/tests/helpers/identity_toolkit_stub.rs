@@ -18,14 +18,14 @@ use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
 /// The Firebase project the stub serves.
-pub const PROJECT: &str = "dravr-test-firebase";
+pub(crate) const PROJECT: &str = "dravr-test-firebase";
 
 /// The access token the stub's metadata endpoint mints.
-pub const ACCESS_TOKEN: &str = "ya29.firebase-admin";
+pub(crate) const ACCESS_TOKEN: &str = "ya29.firebase-admin";
 
 /// How the stub answers every `accounts:delete`.
 #[derive(Debug, Clone, Copy)]
-pub enum Answer {
+pub(crate) enum Answer {
     /// 200: the user was deleted.
     Deleted,
     /// 400 `USER_NOT_FOUND`: there was no such user.
@@ -36,7 +36,7 @@ pub enum Answer {
 
 /// One `accounts:delete` as the stand-in received it.
 #[derive(Debug, Clone)]
-pub struct DeleteCall {
+pub(crate) struct DeleteCall {
     /// The project in the request path.
     pub project: String,
     /// The `Authorization` header the call carried.
@@ -46,7 +46,7 @@ pub struct DeleteCall {
 }
 
 /// The stand-in: answers every delete with `answer` and keeps the calls.
-pub struct IdentityToolkitStub {
+pub(crate) struct IdentityToolkitStub {
     answer: Mutex<Answer>,
     calls: Mutex<Vec<DeleteCall>>,
 }
@@ -54,7 +54,7 @@ pub struct IdentityToolkitStub {
 impl IdentityToolkitStub {
     /// A stand-in answering every delete with `answer`.
     #[must_use]
-    pub fn answering(answer: Answer) -> Arc<Self> {
+    pub(crate) fn answering(answer: Answer) -> Arc<Self> {
         Arc::new(Self {
             answer: Mutex::new(answer),
             calls: Mutex::new(Vec::new()),
@@ -63,19 +63,19 @@ impl IdentityToolkitStub {
 
     /// Answer every later delete with `answer`: Identity Toolkit coming back
     /// from an outage, or going down.
-    pub fn set_answer(&self, answer: Answer) {
+    pub(crate) fn set_answer(&self, answer: Answer) {
         *self.answer.lock().expect("mutex") = answer;
     }
 
     /// Every `accounts:delete` so far, in order.
     #[must_use]
-    pub fn calls(&self) -> Vec<DeleteCall> {
+    pub(crate) fn calls(&self) -> Vec<DeleteCall> {
         self.calls.lock().expect("mutex").clone()
     }
 
     /// Serve the stand-in from a local listener and return the Firebase
     /// config that points the server at it.
-    pub async fn serve(self: &Arc<Self>) -> FirebaseConfig {
+    pub(crate) async fn serve(self: &Arc<Self>) -> FirebaseConfig {
         async fn token() -> impl IntoResponse {
             Json(
                 json!({ "access_token": ACCESS_TOKEN, "expires_in": 3600, "token_type": "Bearer" }),

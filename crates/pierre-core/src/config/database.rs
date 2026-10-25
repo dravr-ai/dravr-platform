@@ -60,14 +60,14 @@ pub struct PostgresPoolConfig {
 mod defaults {
     /// Five minutes: a connection idle that long is closed, so a quiet
     /// instance does not hold database slots it is not using
-    pub const IDLE_TIMEOUT_SECS: u64 = 300;
+    pub(super) const IDLE_TIMEOUT_SECS: u64 = 300;
     /// Ten minutes: a connection is closed and replaced after that long,
     /// however busy it is
-    pub const MAX_LIFETIME_SECS: u64 = 600;
+    pub(super) const MAX_LIFETIME_SECS: u64 = 600;
     /// `SQLx`'s own default statement cache size
-    pub const STATEMENT_CACHE_CAPACITY: usize = 100;
+    pub(super) const STATEMENT_CACHE_CAPACITY: usize = 100;
     /// One minute of queueing for a free connection at boot
-    pub const BOOT_WAIT_SECS: u64 = 60;
+    pub(super) const BOOT_WAIT_SECS: u64 = 60;
 }
 
 impl Default for PostgresPoolConfig {

@@ -436,7 +436,7 @@ impl World {
     /// `get_planned_workouts` as `who` in their own tenant, from Dravr's web
     /// app: its payload, and whether it refused.
     async fn call(&self, who: Person, args: Value) -> (Value, bool) {
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(&self.res) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(who.id.to_string())
             .with_tenant(who.tenant.to_string())

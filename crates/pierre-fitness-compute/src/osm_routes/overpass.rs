@@ -276,6 +276,7 @@ impl EndpointWalk {
 }
 
 /// Sends one Overpass query to the public instances until one answers.
+#[derive(Debug)]
 pub(super) struct OverpassClient {
     client: &'static SharedHttpClient,
     endpoints: Vec<String>,
@@ -508,8 +509,11 @@ mod tests {
                      content-length: {}\r\nconnection: close\r\n\r\n{body}",
                     body.len()
                 );
-                let _ = socket.write_all(response.as_bytes()).await;
-                let _ = socket.shutdown().await;
+                // The stub has nobody to report a write failure to; each test
+                // asserts on what the client received.
+                if socket.write_all(response.as_bytes()).await.is_ok() {
+                    drop(socket.shutdown().await);
+                }
             }
             Reply::Hang => sleep(Duration::from_secs(30)).await,
         }

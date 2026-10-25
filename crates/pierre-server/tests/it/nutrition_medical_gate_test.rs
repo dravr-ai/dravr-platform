@@ -627,7 +627,10 @@ fn nutrition_recommendations_withhold_figures_for_a_flagged_athlete() {
         answer.meal_suggestions.is_empty(),
         "every suggestion carries gram counts"
     );
-    assert_ne!(answer.recommendations, [] as [String; 0]);
+    assert!(
+        !answer.recommendations.is_empty(),
+        "expected a non-empty value"
+    );
     for line in &answer.recommendations {
         assert!(
             !states_an_amount(line),

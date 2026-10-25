@@ -78,7 +78,7 @@ use pierre_services::auth::AuthService;
         success = Empty,
     )
 )]
-pub async fn handle_oauth2_token(
+pub(crate) async fn handle_oauth2_token(
     State(resources): State<AuthRoutesContext>,
     request: Result<Form<OAuth2TokenRequest>, FormRejection>,
 ) -> Result<Response, AppError> {

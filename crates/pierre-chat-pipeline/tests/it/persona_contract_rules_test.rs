@@ -65,10 +65,8 @@ fn unrounded_decimal_violates_round_numbers() {
 
 #[test]
 fn rounded_decimal_and_bare_integer_pass() {
-    assert_eq!(
-        rules(ROUND, CoachingPersona::Casual, "About 5.2 hours.", None),
-        [] as [String; 0]
-    );
+    let leftover = rules(ROUND, CoachingPersona::Casual, "About 5.2 hours.", None);
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
     assert!(
         rules(
             ROUND,
@@ -106,15 +104,13 @@ fn hedge_next_to_a_number_violates_exact_numbers() {
 
 #[test]
 fn committed_number_passes_exact_numbers() {
-    assert_eq!(
-        rules(
-            EXACT,
-            CoachingPersona::PowerAthlete,
-            "Ride 250 watts for 40 minutes.",
-            None
-        ),
-        [] as [String; 0]
+    let leftover = rules(
+        EXACT,
+        CoachingPersona::PowerAthlete,
+        "Ride 250 watts for 40 minutes.",
+        None,
     );
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 #[test]
@@ -156,15 +152,13 @@ fn verdict_without_ladder_anchor_violates() {
 
 #[test]
 fn verdict_with_ladder_anchor_passes() {
-    assert_eq!(
-        rules(
-            LADDER,
-            CoachingPersona::PowerAthlete,
-            "Modify today's session. P2 — reduce volume, keep intensity.",
-            None
-        ),
-        [] as [String; 0]
+    let leftover = rules(
+        LADDER,
+        CoachingPersona::PowerAthlete,
+        "Modify today's session. P2 — reduce volume, keep intensity.",
+        None,
     );
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 #[test]
@@ -209,15 +203,13 @@ fn numeric_claim_without_framework_violates() {
 
 #[test]
 fn numeric_claim_with_allowlisted_framework_passes() {
-    assert_eq!(
-        rules(
-            CITE,
-            CoachingPersona::PowerAthlete,
-            "Your FTP is 265 watts (Coggan).",
-            None
-        ),
-        [] as [String; 0]
+    let leftover = rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Your FTP is 265 watts (Coggan).",
+        None,
     );
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 #[test]
@@ -290,15 +282,13 @@ fn a_model_metric_named_in_words_needs_a_citation_in_any_locale() {
 
 #[test]
 fn the_conjunction_if_is_not_the_intensity_factor() {
-    assert_eq!(
-        rules(
-            CITE,
-            CoachingPersona::PowerAthlete,
-            "Ride 40 minutes, and stop if your legs fade.",
-            None
-        ),
-        [] as [String; 0]
+    let leftover = rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Ride 40 minutes, and stop if your legs fade.",
+        None,
     );
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 // ------------------------------------------------------- required label:value block
@@ -396,15 +386,13 @@ fn trimp_needs_a_banister_citation() {
         found.contains(&"require_framework_citation_per_numeric".to_owned()),
         "an uncited TRIMP must fire, got {found:?}"
     );
-    assert_eq!(
-        rules(
-            CITE,
-            CoachingPersona::PowerAthlete,
-            "Ton TRIMP de la semaine est 412 (Banister).",
-            None
-        ),
-        [] as [String; 0]
+    let leftover = rules(
+        CITE,
+        CoachingPersona::PowerAthlete,
+        "Ton TRIMP de la semaine est 412 (Banister).",
+        None,
     );
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 // --------------------------------------------------------- structured block size
@@ -429,10 +417,8 @@ fn oversized_structured_block_violates() {
 #[test]
 fn block_within_cap_passes() {
     let reply = "Distance: 42 km\nTime: 3h30\nPace: 5:00";
-    assert_eq!(
-        rules(BLOCK, CoachingPersona::Enthusiast, reply, None),
-        [] as [String; 0]
-    );
+    let leftover = rules(BLOCK, CoachingPersona::Enthusiast, reply, None);
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 // ------------------------------------------------------- acronym first-use gloss

@@ -919,7 +919,7 @@ async fn test_register_and_login_flow() {
         .await
         .expect("Failed to create admin token");
     // Step 1: Register a new user (with admin auth)
-    let email = format!("flowtest{}@example.com", uuid::Uuid::new_v4());
+    let email = format!("flowtest{}@example.com", Uuid::new_v4());
     let password = "securePassword123";
 
     let register_request = json!({

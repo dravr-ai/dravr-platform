@@ -27,9 +27,10 @@ mod respond_mode_tests {
     /// `mode` owned by a linked, provider-connected member.
     async fn room_in(mode: GroupRespondMode) -> (Arc<CommandE2e>, RoomE2e, Member) {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         let owner = e2e.linked_member(true).await;
         let room = RoomE2e::bind_room(Arc::clone(&e2e), GROUP_CHAT_ID, mode, &owner).await;

@@ -87,7 +87,8 @@ fn missing_placeholders_reports_the_absent_ones() {
 fn missing_placeholders_returns_empty_when_all_present() {
     let required = ["{{A}}", "{{B}}"];
     let content = "{{A}} and then {{B}}";
-    assert_eq!(missing_placeholders(content, &required), [] as [&str; 0]);
+    let got = missing_placeholders(content, &required);
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }
 
 #[test]
@@ -110,12 +111,14 @@ fn unsubstituted_placeholders_finds_multiple() {
 fn unsubstituted_placeholders_ignores_lowercase_or_mixed() {
     // JSON examples and lowercase tokens must NOT trigger.
     let assembled = "{{ \"key\": \"value\" }} and {{ foo_bar }} and {{Mixed}}";
-    assert_eq!(unsubstituted_placeholders(assembled), [] as [String; 0]);
+    let got = unsubstituted_placeholders(assembled);
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }
 
 #[test]
 fn unsubstituted_placeholders_ignores_empty_braces() {
-    assert_eq!(unsubstituted_placeholders("{{}} alone"), [] as [String; 0]);
+    let got = unsubstituted_placeholders("{{}} alone");
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }
 
 #[test]
@@ -129,7 +132,8 @@ fn unsubstituted_placeholders_handles_underscore_and_digits() {
 #[test]
 fn unsubstituted_placeholders_empty_when_clean() {
     let assembled = "fully substituted prompt with no braces";
-    assert_eq!(unsubstituted_placeholders(assembled), [] as [String; 0]);
+    let got = unsubstituted_placeholders(assembled);
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }
 
 #[test]

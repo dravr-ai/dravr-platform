@@ -9,7 +9,7 @@ use pierre_core::errors::{AppError, AppResult};
 
 /// The error a column that will not decode surfaces as, named after the
 /// column so a corrupt row is locatable from the message.
-pub fn messaging_column_error(column: &str, e: &sqlx::Error) -> AppError {
+pub(crate) fn messaging_column_error(column: &str, e: &sqlx::Error) -> AppError {
     AppError::database(format!("messaging column {column}: {e}"))
 }
 
@@ -17,7 +17,7 @@ pub fn messaging_column_error(column: &str, e: &sqlx::Error) -> AppError {
 ///
 /// # Errors
 /// Returns an invalid-input error when the text is not an RFC 3339 instant.
-pub fn instant_from_rfc3339(text: &str) -> AppResult<DateTime<Utc>> {
+pub(crate) fn instant_from_rfc3339(text: &str) -> AppResult<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(text)
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| AppError::invalid_input(format!("Invalid RFC 3339 instant '{text}': {e}")))

@@ -53,7 +53,7 @@ use super::format::{ChatScenario, ProviderState, TurnSpec};
 
 /// On-disk trace representation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelegramTrace {
+pub(crate) struct TelegramTrace {
     pub name: String,
     /// Single locale per trace — Telegram conversations are
     /// authored in one language at a time. Use `locales: [..]` in
@@ -70,7 +70,7 @@ pub struct TelegramTrace {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TraceTurn {
+pub(crate) struct TraceTurn {
     pub user: String,
     #[serde(default)]
     pub trigger_sync_before_turn: bool,
@@ -96,7 +96,7 @@ pub struct TraceTurn {
 /// # Errors
 ///
 /// Returns the underlying I/O or JSON parse error.
-pub fn load_trace(path: &Path) -> Result<ChatScenario, TraceLoadError> {
+pub(crate) fn load_trace(path: &Path) -> Result<ChatScenario, TraceLoadError> {
     let raw = fs::read_to_string(path).map_err(|e| TraceLoadError::Io {
         path: path.to_owned(),
         source: e,
@@ -145,7 +145,7 @@ fn project(trace: TelegramTrace) -> ChatScenario {
 }
 
 #[derive(Debug)]
-pub enum TraceLoadError {
+pub(crate) enum TraceLoadError {
     Io {
         path: PathBuf,
         source: io::Error,

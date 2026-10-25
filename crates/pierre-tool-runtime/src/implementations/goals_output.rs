@@ -226,7 +226,7 @@ pub(crate) struct FeasibilityResponseParams<'a> {
 
 /// Build feasibility analysis response payload.
 pub(crate) fn build_feasibility_payload(
-    params: &FeasibilityResponseParams,
+    params: &FeasibilityResponseParams<'_>,
 ) -> GoalFeasibilityResult {
     let months = f64::from(params.effective_timeframe) / DAYS_PER_MONTH_APPROX;
     let adjusted_target = if params.feasible {
@@ -289,7 +289,7 @@ pub(crate) struct ProgressResponseParams<'a> {
 }
 
 /// Build progress tracking response payload.
-pub(crate) fn build_progress_payload(params: &ProgressResponseParams) -> TrackProgressResult {
+pub(crate) fn build_progress_payload(params: &ProgressResponseParams<'_>) -> TrackProgressResult {
     let total_distance_km = params
         .relevant_activities
         .iter()

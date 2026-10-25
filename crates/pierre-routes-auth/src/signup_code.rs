@@ -41,7 +41,7 @@ const TOO_MANY_CODES: &str = "Too many codes tried from this network. Please wai
 
 /// Body of `POST /api/user/signup-code/redeem`.
 #[derive(Deserialize)]
-pub struct RedeemSignupCodeRequest {
+pub(crate) struct RedeemSignupCodeRequest {
     /// The code as the person typed it
     pub code: SecretString,
 }
@@ -53,7 +53,7 @@ pub struct RedeemSignupCodeRequest {
 ///
 /// Returns a rate-limit error past the window's allowance, and a
 /// resource-unavailable error when the limiter cannot count the attempt.
-pub async fn meter_signup_code(
+pub(crate) async fn meter_signup_code(
     limiter: &OAuth2RateLimiter,
     client: Option<IpAddr>,
 ) -> AppResult<()> {
@@ -81,7 +81,7 @@ pub async fn meter_signup_code(
 /// Join an account a coach's code approved to the coach's group. Returns
 /// whether it joined, `None` for an admin's code. A join that fails (the group
 /// is full or archived since) leaves the account as the code made it.
-pub async fn join_coach_group(
+pub(crate) async fn join_coach_group(
     resources: &AuthRoutesContext,
     redeemed: &RedeemedSignupCode,
     user_id: Uuid,
@@ -115,7 +115,7 @@ pub async fn join_coach_group(
 /// Returns an authentication error without a valid first-party session, a
 /// rate-limit error past the per-address allowance, and every error
 /// [`pierre_services::auth::AuthService::redeem_signup_code`] returns.
-pub async fn handle_redeem_signup_code(
+pub(crate) async fn handle_redeem_signup_code(
     State(resources): State<AuthRoutesContext>,
     peer: PeerAddress,
     headers: HeaderMap,

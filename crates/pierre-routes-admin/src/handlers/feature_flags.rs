@@ -335,6 +335,7 @@ pub async fn handle_admin_clear_user_override(
 /// Mount-helper for the self-read endpoint. The admin routes are wired
 /// directly inside [`crate::AdminRoutes::cookie_admin_routes`] to inherit
 /// the cookie-admin middleware.
+#[derive(Debug)]
 pub struct FeatureFlagsRoutes;
 
 impl FeatureFlagsRoutes {

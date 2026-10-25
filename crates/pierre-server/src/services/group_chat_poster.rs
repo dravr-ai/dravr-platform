@@ -35,6 +35,7 @@
 //! closes the week after one attempt, since a resend would repeat parts
 //! already delivered.
 
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -55,6 +56,13 @@ pub struct ServerGroupChatPoster {
     /// with the other proactive senders so every outbound path builds its
     /// channel the same way.
     resolver: Arc<dyn AdapterResolver>,
+}
+
+impl fmt::Debug for ServerGroupChatPoster {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerGroupChatPoster")
+            .finish_non_exhaustive()
+    }
 }
 
 impl ServerGroupChatPoster {

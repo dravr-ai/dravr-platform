@@ -109,7 +109,7 @@ impl<'de> Deserialize<'de> for LoggingConfig {
         impl<'de> Visitor<'de> for LoggingConfigVisitor {
             type Value = LoggingConfig;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("struct LoggingConfig")
             }
 

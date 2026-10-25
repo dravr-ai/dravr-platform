@@ -41,6 +41,7 @@ const FORMAT: &str = "v1";
 const KEY_LABEL: &[u8] = b"pierre-known-device-signing-key-v1";
 
 /// Signs and checks known-device cookies.
+#[derive(Debug)]
 pub struct KnownDeviceKey {
     key: hmac::Key,
 }

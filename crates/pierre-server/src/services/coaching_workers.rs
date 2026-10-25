@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use pierre_core::ai_policy::ProviderTerms;
+use pierre_providers::registry::ProviderRegistry;
 use pierre_services::archetype_aggregation::spawn_archetype_aggregation;
 use pierre_services::commitment_sweep::{
     spawn_commitment_sweep, ActivityRefresher, CommitmentReporter,
@@ -51,7 +51,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
         Arc::clone(&resources.common.repos),
         resources.common.chat_provider.as_ref().map(Arc::clone),
         Arc::clone(&resources.mcp.prompt_registry),
-        Arc::clone(&resources.fitness.provider_registry) as Arc<dyn ProviderTerms>,
+        Arc::<ProviderRegistry>::clone(&resources.fitness.provider_registry),
         Arc::clone(&resources.fitness.cageux_config_registry),
         resources.common.turns.tracker(),
     );
@@ -86,7 +86,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
         use pierre_a2a::reaper::{reap_stale_tasks, REAP_INTERVAL, STALE_AFTER};
         use pierre_runtime_context::A2ACtx;
         use pierre_services::periodic::spawn_periodic;
-        let ctx: Arc<dyn A2ACtx> = Arc::clone(resources) as Arc<dyn A2ACtx>;
+        let ctx: Arc<dyn A2ACtx> = Arc::<ServerContext>::clone(resources);
         spawn_periodic(
             "a2a task reaper",
             REAP_INTERVAL,
@@ -109,7 +109,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
     {
         use pierre_tool_runtime::activity_backfill_resume::start_activity_backfill_resume;
         use pierre_tool_runtime::runtime::ToolRuntime;
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
         start_activity_backfill_resume(runtime, Arc::clone(&resources.common.repos.worker_runs));
     }
 

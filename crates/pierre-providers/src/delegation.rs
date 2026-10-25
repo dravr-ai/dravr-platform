@@ -127,10 +127,9 @@ pub trait DelegatedReads: Send + Sync {
     /// or the error of building the provider.
     fn create_delegated_calendar_writer(
         &self,
-        config: ProviderConfig,
-        athlete_id: &str,
+        _config: ProviderConfig,
+        _athlete_id: &str,
     ) -> AppResult<Box<dyn FitnessProvider>> {
-        let _ = (config, athlete_id);
         Err(AppError::invalid_input(
             "This platform does not let a coach write a coached athlete's calendar",
         ))

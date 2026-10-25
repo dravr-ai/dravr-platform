@@ -610,7 +610,11 @@ mod tests {
 
         let adjudication = grades("adjudication", &[("C01", Grade::False)]);
         let report = score(&key, &[ana, ben], Some(&adjudication)).unwrap();
-        assert_eq!(report.disputed, [] as [String; 0]);
+        assert!(
+            report.disputed.is_empty(),
+            "expected empty, got {:?}",
+            report.disputed
+        );
         assert_eq!(report.silent_miss.denominator, 4);
     }
 

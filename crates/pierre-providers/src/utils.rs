@@ -12,6 +12,7 @@ use chrono::{TimeZone, Utc};
 use reqwest::StatusCode;
 use secrecy::SecretString;
 use serde::Deserialize;
+use std::fmt;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
@@ -333,7 +334,7 @@ pub const fn no_vendor_error(_status: StatusCode, _body: &str) -> Option<AppErro
 pub const WHOOP_REFRESH_EXTRA_FORM: &[(&str, &str)] = &[("scope", "offline")];
 
 /// One `OAuth2` refresh, with the vendor differences the standard flow leaves open.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct RefreshRequest<'a> {
     /// The provider's token endpoint.
     pub token_url: &'a str,
@@ -347,6 +348,19 @@ pub struct RefreshRequest<'a> {
     pub provider_name: &'a str,
     /// Fields the vendor requires beyond the four standard ones.
     pub extra_form: &'a [(&'a str, &'a str)],
+}
+
+impl fmt::Debug for RefreshRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RefreshRequest")
+            .field("token_url", &self.token_url)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("refresh_token", &"[REDACTED]")
+            .field("provider_name", &self.provider_name)
+            .field("extra_form", &self.extra_form)
+            .finish()
+    }
 }
 
 impl<'a> RefreshRequest<'a> {

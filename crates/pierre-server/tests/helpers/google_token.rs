@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 /// The claims a Cloud Tasks token carries, as the verifier reads them.
 #[derive(Debug, Clone, Serialize)]
-pub struct GoogleClaims {
+pub(crate) struct GoogleClaims {
     pub iss: String,
     pub aud: String,
     pub sub: String,
@@ -44,7 +44,7 @@ impl GoogleClaims {
     /// A token Cloud Tasks would mint for `audience` on behalf of `service_account`,
     /// valid for an hour.
     #[must_use]
-    pub fn cloud_tasks(audience: &str, service_account: &str) -> Self {
+    pub(crate) fn cloud_tasks(audience: &str, service_account: &str) -> Self {
         let now = now_secs();
         Self {
             iss: "https://accounts.google.com".to_owned(),
@@ -60,7 +60,7 @@ impl GoogleClaims {
 
 /// Seconds since the epoch, as a JWT counts them.
 #[must_use]
-pub fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the clock is after 1970")
@@ -68,7 +68,7 @@ pub fn now_secs() -> u64 {
 }
 
 /// One signing identity: an RSA key and the key id its JWK is published under.
-pub struct TestSigner {
+pub(crate) struct TestSigner {
     key: RsaKeyPair,
     encoding_key: EncodingKey,
     /// The `kid` this signer's JWK is published under.
@@ -78,7 +78,7 @@ pub struct TestSigner {
 impl TestSigner {
     /// Generate a fresh 2048-bit key under a fresh key id.
     #[must_use]
-    pub fn generate() -> Self {
+    pub(crate) fn generate() -> Self {
         let kid = format!("test-kid-{}", Uuid::new_v4().simple());
         let key = RsaKeyPair::generate_with_key_size(&kid, 2048).expect("RSA key");
         let encoding_key = key.encoding_key().expect("encoding key");
@@ -92,20 +92,20 @@ impl TestSigner {
     /// This signer's public key as the JWK set publishes it: modulus and
     /// exponent, base64url.
     #[must_use]
-    pub fn jwk(&self) -> JsonWebKey {
+    pub(crate) fn jwk(&self) -> JsonWebKey {
         self.key.to_jwk().expect("JWK")
     }
 
     /// Mint `claims` under this signer's key and key id.
     #[must_use]
-    pub fn mint(&self, claims: &impl Serialize) -> String {
+    pub(crate) fn mint(&self, claims: &impl Serialize) -> String {
         self.mint_with_kid(claims, &self.kid)
     }
 
     /// Mint `claims` under this signer's key but a chosen key id — the way to
     /// present a token the published set cannot vouch for.
     #[must_use]
-    pub fn mint_with_kid(&self, claims: &impl Serialize, kid: &str) -> String {
+    pub(crate) fn mint_with_kid(&self, claims: &impl Serialize, kid: &str) -> String {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some(kid.to_owned());
         self.mint_with_header(claims, &header)
@@ -114,7 +114,7 @@ impl TestSigner {
     /// Mint `claims` with no key id in the header at all — a token no key set
     /// could ever vouch for.
     #[must_use]
-    pub fn mint_without_kid(&self, claims: &impl Serialize) -> String {
+    pub(crate) fn mint_without_kid(&self, claims: &impl Serialize) -> String {
         self.mint_with_header(claims, &Header::new(Algorithm::RS256))
     }
 
@@ -124,13 +124,13 @@ impl TestSigner {
 
     /// Serve this signer's JWK from a local listener, the shape of
     /// `https://www.googleapis.com/oauth2/v3/certs`.
-    pub async fn serve_jwks(&self) -> KeySetServer {
+    pub(crate) async fn serve_jwks(&self) -> KeySetServer {
         serve_key_set(vec![self.jwk()]).await
     }
 }
 
 /// A local stand-in for a Google JWK set endpoint.
-pub struct KeySetServer {
+pub(crate) struct KeySetServer {
     /// Where the set is served.
     pub url: String,
     fetches: Arc<AtomicUsize>,
@@ -139,13 +139,13 @@ pub struct KeySetServer {
 impl KeySetServer {
     /// How many times the set has been fetched.
     #[must_use]
-    pub fn fetches(&self) -> usize {
+    pub(crate) fn fetches(&self) -> usize {
         self.fetches.load(Ordering::SeqCst)
     }
 }
 
 /// Serve `keys` as a JWK set from a local listener, counting every fetch.
-pub async fn serve_key_set(keys: Vec<JsonWebKey>) -> KeySetServer {
+pub(crate) async fn serve_key_set(keys: Vec<JsonWebKey>) -> KeySetServer {
     /// The set to serve and the fetch counter, shared with every request task.
     struct Served {
         set: JsonWebKeySet,
@@ -175,7 +175,7 @@ pub async fn serve_key_set(keys: Vec<JsonWebKey>) -> KeySetServer {
 
 /// A key-set URL nothing listens on: a fetch from it fails to connect.
 #[must_use]
-pub fn unreachable_key_set_url() -> String {
+pub(crate) fn unreachable_key_set_url() -> String {
     let port = StdTcpListener::bind("127.0.0.1:0")
         .expect("bind")
         .local_addr()

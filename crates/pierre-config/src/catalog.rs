@@ -78,6 +78,7 @@ pub enum ParameterType {
 }
 
 /// Catalog builder for creating the configuration catalog
+#[derive(Debug)]
 pub struct CatalogBuilder;
 
 impl CatalogBuilder {

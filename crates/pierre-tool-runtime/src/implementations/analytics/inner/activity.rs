@@ -101,25 +101,22 @@ fn generate_activity_insights(
 /// `HashMap` with metadata key-value pairs
 fn build_intelligence_metadata(
     activity_id: &str,
-    user_uuid: uuid::Uuid,
+    user_uuid: Uuid,
     tenant_id: Option<String>,
-) -> HashMap<String, serde_json::Value> {
+) -> HashMap<String, Value> {
     let mut metadata = HashMap::new();
     metadata.insert(
         "activity_id".to_owned(),
-        serde_json::Value::String(activity_id.to_owned()),
+        Value::String(activity_id.to_owned()),
     );
-    metadata.insert(
-        "user_id".to_owned(),
-        serde_json::Value::String(user_uuid.to_string()),
-    );
+    metadata.insert("user_id".to_owned(), Value::String(user_uuid.to_string()));
     metadata.insert(
         "tenant_id".to_owned(),
-        tenant_id.map_or(serde_json::Value::Null, serde_json::Value::String),
+        tenant_id.map_or(Value::Null, Value::String),
     );
     metadata.insert(
         "analysis_type".to_owned(),
-        serde_json::Value::String("intelligence".to_owned()),
+        Value::String("intelligence".to_owned()),
     );
     metadata
 }
@@ -128,13 +125,10 @@ fn build_intelligence_metadata(
 fn create_intelligence_response(
     activity: &Activity,
     activity_id: &str,
-    user_uuid: uuid::Uuid,
+    user_uuid: Uuid,
     tenant_id: Option<String>,
     hr_zones: &AthleteHrZones,
-) -> (
-    ActivityIntelligenceResult,
-    HashMap<String, serde_json::Value>,
-) {
+) -> (ActivityIntelligenceResult, HashMap<String, Value>) {
     let (insights, recommendations) = generate_activity_insights(activity, hr_zones.as_ref().ok());
     // The reason is carried only when there was a heart rate to grade.
     let hr_zones_unavailable = activity
@@ -198,7 +192,7 @@ fn create_intelligence_response(
 async fn fetch_and_analyze_activity(
     provider: Box<dyn FitnessProvider>,
     activity_id: &str,
-    user_uuid: uuid::Uuid,
+    user_uuid: Uuid,
     tenant_id: Option<String>,
     hr_zones: &AthleteHrZones,
     output_format: OutputFormat,
@@ -313,7 +307,7 @@ async fn fetch_and_analyze_activity(
 ///
 /// # Errors
 /// Returns `ProtocolError` if `activity_id` parameter is missing or validation fails
-pub fn handle_get_activity_intelligence(
+pub(crate) fn handle_get_activity_intelligence(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
@@ -525,7 +519,7 @@ fn create_activity_metadata(
 /// registry (`UniversalToolExecutor::execute_tool`) rather than calling the
 /// analytics handler function directly, so `analyze_activity` reaches the
 /// handler through whatever `McpTool` impl is registered for it.
-pub async fn process_activity_analysis(
+pub(crate) async fn process_activity_analysis(
     executor: &UniversalToolExecutor,
     mut request: UniversalRequest,
     activity_id: &str,

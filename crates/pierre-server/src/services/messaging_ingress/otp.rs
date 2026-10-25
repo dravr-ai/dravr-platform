@@ -171,9 +171,7 @@ pub(super) async fn handle_otp_flow(
             .get_active_otp_link_state(tenant_id, channel, sender_id)
             .await
         {
-            let _ = db
-                .invalidate_otp_link_states(tenant_id, channel, sender_id)
-                .await;
+            invalidate_otp_flows(db, tenant_id, channel, sender_id, "on cancel").await;
             return Some(otp_reply(
                 channel_type,
                 sender_id,
@@ -472,9 +470,7 @@ async fn handle_otp_mismatch(
         .unwrap_or(MAX_OTP_ATTEMPTS);
 
     if attempts >= MAX_OTP_ATTEMPTS {
-        let _ = db
-            .invalidate_otp_link_states(tenant_id, channel, sender_id)
-            .await;
+        invalidate_otp_flows(db, tenant_id, channel, sender_id, "after max attempts").await;
         return otp_reply(
             channel_type,
             sender_id,
@@ -553,9 +549,14 @@ async fn create_verified_channel_link(
     }
 
     // Mark the OTP link state as used
-    let _ = db_msg
-        .invalidate_otp_link_states(params.tenant_id, params.channel, params.sender_id)
-        .await;
+    invalidate_otp_flows(
+        db_msg,
+        params.tenant_id,
+        params.channel,
+        params.sender_id,
+        "after verification",
+    )
+    .await;
 
     stamp_verified_after_otp(params.resources, user.id).await;
 
@@ -709,9 +710,7 @@ pub async fn start_otp_flow(
 ) -> OutgoingMessage {
     // Invalidate any existing OTP flows for this sender before starting a new one
     let channel_str = channel_type.to_string();
-    let _ = db
-        .invalidate_otp_link_states(tenant_id, &channel_str, sender_id)
-        .await;
+    invalidate_otp_flows(db, tenant_id, &channel_str, sender_id, "before a new flow").await;
 
     let code = generate_link_code();
     let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
@@ -906,4 +905,23 @@ async fn create_chat_originated_user(
             }
             e
         })
+}
+
+/// Invalidate the sender's OTP link states, logging a failure.
+///
+/// A failed invalidation leaves a flow live until it expires, so it is a
+/// warning. The sender id is a phone number or handle and stays out of the log.
+async fn invalidate_otp_flows(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel: &str,
+    sender_id: &str,
+    when: &str,
+) {
+    if let Err(e) = db
+        .invalidate_otp_link_states(tenant_id, channel, sender_id)
+        .await
+    {
+        warn!(tenant_id = %tenant_id, channel, when, error = %e, "could not invalidate OTP link states");
+    }
 }

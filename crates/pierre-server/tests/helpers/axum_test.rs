@@ -17,7 +17,7 @@ use tokio::time::timeout;
 use tower::ServiceExt;
 
 /// Helper to build and execute HTTP requests against Axum routers
-pub struct AxumTestRequest {
+pub(crate) struct AxumTestRequest {
     method: Method,
     uri: String,
     headers: Vec<(String, String)>,
@@ -26,7 +26,7 @@ pub struct AxumTestRequest {
 
 impl AxumTestRequest {
     /// Create a new GET request
-    pub fn get(uri: &str) -> Self {
+    pub(crate) fn get(uri: &str) -> Self {
         Self {
             method: Method::GET,
             uri: uri.to_owned(),
@@ -36,7 +36,7 @@ impl AxumTestRequest {
     }
 
     /// Create a new POST request
-    pub fn post(uri: &str) -> Self {
+    pub(crate) fn post(uri: &str) -> Self {
         Self {
             method: Method::POST,
             uri: uri.to_owned(),
@@ -48,7 +48,7 @@ impl AxumTestRequest {
     /// Create a new DELETE request
     /// Note: Used by `routes_api_keys_http_test.rs`, but not all tests use it
     #[allow(dead_code)]
-    pub fn delete(uri: &str) -> Self {
+    pub(crate) fn delete(uri: &str) -> Self {
         Self {
             method: Method::DELETE,
             uri: uri.to_owned(),
@@ -60,7 +60,7 @@ impl AxumTestRequest {
     /// Create a new PUT request
     /// Note: Used by configuration and fitness tests, but not all tests use it
     #[allow(dead_code)]
-    pub fn put(uri: &str) -> Self {
+    pub(crate) fn put(uri: &str) -> Self {
         Self {
             method: Method::PUT,
             uri: uri.to_owned(),
@@ -70,13 +70,13 @@ impl AxumTestRequest {
     }
 
     /// Add a header to the request
-    pub fn header(mut self, key: &str, value: &str) -> Self {
+    pub(crate) fn header(mut self, key: &str, value: &str) -> Self {
         self.headers.push((key.to_owned(), value.to_owned()));
         self
     }
 
     /// Add JSON body to the request
-    pub fn json<T: Serialize>(mut self, data: &T) -> Self {
+    pub(crate) fn json<T: Serialize>(mut self, data: &T) -> Self {
         self.body = Some(serde_json::to_string(data).expect("Failed to serialize JSON"));
         self.headers.push((
             header::CONTENT_TYPE.as_str().to_owned(),
@@ -87,7 +87,7 @@ impl AxumTestRequest {
 
     /// Add plain text body to the request with `text/plain` content type
     #[allow(dead_code)]
-    pub fn text(mut self, body: &str) -> Self {
+    pub(crate) fn text(mut self, body: &str) -> Self {
         self.body = Some(body.to_owned());
         self.headers.push((
             header::CONTENT_TYPE.as_str().to_owned(),
@@ -99,7 +99,7 @@ impl AxumTestRequest {
     /// Add URL-encoded form body to the request (`OAuth2` token and login forms)
     /// Note: not every test uses it
     #[allow(dead_code)]
-    pub fn form<T: Serialize>(mut self, data: &T) -> Self {
+    pub(crate) fn form<T: Serialize>(mut self, data: &T) -> Self {
         self.body = Some(serde_urlencoded::to_string(data).expect("Failed to serialize form"));
         self.headers.push((
             header::CONTENT_TYPE.as_str().to_owned(),
@@ -109,7 +109,7 @@ impl AxumTestRequest {
     }
 
     /// Execute the request against an Axum router
-    pub async fn send(self, app: Router) -> AxumTestResponse {
+    pub(crate) async fn send(self, app: Router) -> AxumTestResponse {
         let mut builder = Request::builder().method(self.method).uri(self.uri);
 
         for (key, value) in self.headers {
@@ -134,7 +134,7 @@ impl AxumTestRequest {
     /// SSE endpoints return infinite streams, so we can't read the full body.
     /// This method validates connection establishment and initial response headers only.
     #[allow(dead_code)]
-    pub async fn send_sse(self, app: Router) -> AxumTestResponse {
+    pub(crate) async fn send_sse(self, app: Router) -> AxumTestResponse {
         let mut builder = Request::builder().method(self.method).uri(self.uri);
 
         for (key, value) in self.headers {
@@ -157,7 +157,7 @@ impl AxumTestRequest {
 }
 
 /// Wrapper around Axum HTTP response for testing
-pub struct AxumTestResponse {
+pub(crate) struct AxumTestResponse {
     status: StatusCode,
     headers: HeaderMap,
     body: Vec<u8>,
@@ -212,25 +212,25 @@ impl AxumTestResponse {
     }
 
     /// Get the response status code as u16 for easy assertion
-    pub const fn status(&self) -> u16 {
+    pub(crate) const fn status(&self) -> u16 {
         self.status.as_u16()
     }
 
     /// Get the response status code as `StatusCode`
-    pub const fn status_code(&self) -> StatusCode {
+    pub(crate) const fn status_code(&self) -> StatusCode {
         self.status
     }
 
     /// Get a response header value as a string slice, if present and valid UTF-8.
     #[allow(dead_code)]
-    pub fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers.get(name).and_then(|v| v.to_str().ok())
     }
 
     /// Every value of a response header, in order — a response may carry
     /// several `Set-Cookie` headers.
     #[allow(dead_code)]
-    pub fn header_all(&self, name: &str) -> Vec<&str> {
+    pub(crate) fn header_all(&self, name: &str) -> Vec<&str> {
         self.headers
             .get_all(name)
             .iter()
@@ -241,27 +241,27 @@ impl AxumTestResponse {
     /// The response body as text, leaving the response readable — for a test
     /// that asserts on the page and on the headers of one response.
     #[allow(dead_code)]
-    pub fn body_text(&self) -> String {
+    pub(crate) fn body_text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
 
     /// Get the response body as bytes
-    pub fn bytes(self) -> Vec<u8> {
+    pub(crate) fn bytes(self) -> Vec<u8> {
         self.body
     }
 
     /// Get the response body as a JSON value
-    pub fn json<T: DeserializeOwned>(self) -> T {
+    pub(crate) fn json<T: DeserializeOwned>(self) -> T {
         serde_json::from_slice(&self.body).expect("Failed to deserialize JSON response")
     }
 
     /// Get the response body as a string
-    pub fn text(self) -> String {
+    pub(crate) fn text(self) -> String {
         String::from_utf8(self.body).expect("Failed to decode response as UTF-8")
     }
 
     /// Assert that the status code matches
-    pub fn assert_status(self, expected: StatusCode) -> Self {
+    pub(crate) fn assert_status(self, expected: StatusCode) -> Self {
         assert_eq!(
             self.status, expected,
             "Expected status {}, got {}",

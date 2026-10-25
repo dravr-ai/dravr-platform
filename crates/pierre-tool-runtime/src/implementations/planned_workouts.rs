@@ -177,6 +177,7 @@ enum CalendarRead {
 
 /// Tool reading the workouts a training calendar plans: the caller's own, or
 /// a coached athlete's for their human coach.
+#[derive(Debug)]
 pub struct GetPlannedWorkoutsTool;
 
 #[async_trait]

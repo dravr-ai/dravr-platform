@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::accounts::Account;
 
 /// What a seeded group is called and what its agent is told.
-pub struct GroupSpec<'a> {
+pub(crate) struct GroupSpec<'a> {
     /// The group's name, which its threads are titled after.
     pub name: &'a str,
     /// The group's description.
@@ -35,7 +35,7 @@ pub struct GroupSpec<'a> {
 /// # Errors
 ///
 /// Returns the repository error from the coached-groups read.
-pub async fn coaches_group_named(
+pub(crate) async fn coaches_group_named(
     repos: &RepositoryRegistry,
     coach: &Account,
     name: &str,
@@ -61,7 +61,7 @@ pub async fn coaches_group_named(
 /// # Errors
 ///
 /// Returns the repository error from the agent, group, coach or member writes.
-pub async fn seed_coached_group(
+pub(crate) async fn seed_coached_group(
     repos: &RepositoryRegistry,
     spec: &GroupSpec<'_>,
     owner: &Account,

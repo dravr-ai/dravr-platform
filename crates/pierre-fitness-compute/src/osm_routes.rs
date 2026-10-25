@@ -219,6 +219,7 @@ pub enum RouteSource {
 // ============================================================================
 
 /// Service for discovering routes and trails near a location
+#[derive(Debug)]
 pub struct RouteDiscoveryService {
     overpass: OverpassClient,
 }

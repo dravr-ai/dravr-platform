@@ -745,6 +745,17 @@ pub(crate) async fn run_recorded_turn(
     rx.await.ok()
 }
 
+/// Finish a row that can never be dispatched, logging a failure to do so.
+async fn finish_undispatchable(
+    repo: &dyn ResumableTurnRepository,
+    tenant_id: TenantId,
+    row_id: &str,
+) {
+    if let Err(e) = repo.finish_resumable_turn(tenant_id, row_id).await {
+        warn!(error = %e, row_id, "undispatchable turn could not be finished; it will be retried");
+    }
+}
+
 /// Rebuild the dispatch a row describes.
 ///
 /// A row that can never be dispatched — malformed ids, no channel config, a
@@ -761,27 +772,31 @@ pub(crate) async fn rebuild_dispatch(
     let repo = resources.common.repos.resumable_turns.as_ref();
 
     let Some((channel_type, turn_id)) = parse_row_ids(&row) else {
-        let _ = repo.finish_resumable_turn(session_tenant_id, &row.id).await;
+        finish_undispatchable(repo, session_tenant_id, &row.id).await;
         return None;
     };
 
-    let adapter =
-        match load_adapter(resources, adapters, channel_type, channel_tenant_id, &row).await {
-            AdapterLookup::Built(adapter) => adapter,
-            AdapterLookup::Unusable => {
-                let _ = repo.finish_resumable_turn(session_tenant_id, &row.id).await;
-                return None;
+    let adapter = match load_adapter(resources, adapters, channel_type, channel_tenant_id, &row)
+        .await
+    {
+        AdapterLookup::Built(adapter) => adapter,
+        AdapterLookup::Unusable => {
+            finish_undispatchable(repo, session_tenant_id, &row.id).await;
+            return None;
+        }
+        AdapterLookup::Unavailable => {
+            if let Err(e) = repo
+                .release_resumable_turn(session_tenant_id, &row.id, now_ms())
+                .await
+            {
+                warn!(error = %e, row_id = %row.id, "turn could not be released for the next run; its lease will lapse");
             }
-            AdapterLookup::Unavailable => {
-                let _ = repo
-                    .release_resumable_turn(session_tenant_id, &row.id, now_ms())
-                    .await;
-                return None;
-            }
-        };
+            return None;
+        }
+    };
 
     let Some(auth_result) = authenticate_sender(resources, channel_tenant_id, &row).await else {
-        let _ = repo.finish_resumable_turn(session_tenant_id, &row.id).await;
+        finish_undispatchable(repo, session_tenant_id, &row.id).await;
         return None;
     };
 

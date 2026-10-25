@@ -40,13 +40,13 @@ use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_subscriber::layer::{Context, Filter};
 
 /// Target of the summary lines the reporter writes. Never throttled itself.
-pub const THROTTLE_TARGET: &str = "pierre_logging::throttle";
+pub(crate) const THROTTLE_TARGET: &str = "pierre_logging::throttle";
 
 /// Length of one throttle window.
-pub const THROTTLE_WINDOW: Duration = Duration::from_secs(10);
+pub(crate) const THROTTLE_WINDOW: Duration = Duration::from_secs(10);
 
 /// Events one callsite may write per window before the rest are dropped.
-pub const DEFAULT_THROTTLE_BURST: u64 = 100;
+pub(crate) const DEFAULT_THROTTLE_BURST: u64 = 100;
 
 /// One callsite's counts for the current window.
 struct CallsiteCount {
@@ -134,7 +134,7 @@ impl ThrottleState {
 /// Clones share their counts, so the filter and its [`ThrottleReporter`] see
 /// the same windows.
 #[derive(Clone)]
-pub struct CallsiteThrottle {
+pub(crate) struct CallsiteThrottle {
     state: Arc<ThrottleState>,
 }
 
@@ -142,7 +142,7 @@ impl CallsiteThrottle {
     /// A throttle letting `burst` events per callsite through each `window`;
     /// a `burst` of `0` lets everything through.
     #[must_use]
-    pub fn new(burst: u64, window: Duration) -> Self {
+    pub(crate) fn new(burst: u64, window: Duration) -> Self {
         Self {
             state: Arc::new(ThrottleState {
                 burst,
@@ -155,7 +155,7 @@ impl CallsiteThrottle {
 
     /// The reporter that writes this throttle's summaries.
     #[must_use]
-    pub fn reporter(&self) -> ThrottleReporter {
+    pub(crate) fn reporter(&self) -> ThrottleReporter {
         ThrottleReporter {
             state: Arc::clone(&self.state),
         }
@@ -186,14 +186,14 @@ impl<S: Subscriber> Filter<S> for CallsiteThrottle {
 ///
 /// An event written from inside a filter is dropped (the dispatcher is busy
 /// with the event being filtered), so the summaries come from outside it.
-pub struct ThrottleReporter {
+pub(crate) struct ThrottleReporter {
     state: Arc<ThrottleState>,
 }
 
 impl ThrottleReporter {
     /// Writes a summary for every callsite that dropped lines since the last
     /// call, and returns how many callsites it reported.
-    pub fn report(&self) -> usize {
+    pub(crate) fn report(&self) -> usize {
         let drained = self.state.drain();
         for (metadata, dropped) in &drained {
             tracing::warn!(
@@ -215,7 +215,7 @@ impl ThrottleReporter {
     /// # Errors
     ///
     /// Returns the OS error when the thread cannot be spawned.
-    pub fn spawn(self) -> io::Result<()> {
+    pub(crate) fn spawn(self) -> io::Result<()> {
         thread::Builder::new()
             .name("log-throttle".to_owned())
             .spawn(move || loop {

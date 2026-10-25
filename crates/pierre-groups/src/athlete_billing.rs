@@ -16,6 +16,7 @@
 //! [`ensure_room`](AthleteBilling::ensure_room), the cap, and
 //! [`sync`](AthleteBilling::sync), the charge.
 
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::billing::{BillingProvider, ExtraAthletesRequest};
@@ -63,6 +64,12 @@ pub struct AthleteBilling {
     subscriptions: Arc<dyn SubscriptionsRepository>,
     /// The process-wide billing provider, shared with the billing routes.
     provider: Arc<dyn BillingProvider>,
+}
+
+impl fmt::Debug for AthleteBilling {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AthleteBilling").finish_non_exhaustive()
+    }
 }
 
 impl AthleteBilling {

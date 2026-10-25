@@ -69,7 +69,7 @@ use crate::AuthRoutesContext;
 
 /// The form the hosted Intervals.icu page posts.
 #[derive(Deserialize)]
-pub struct IntervalsIcuConnectForm {
+pub(crate) struct IntervalsIcuConnectForm {
     /// The signed connect link-token the page was opened with.
     #[serde(default)]
     pub token: String,
@@ -158,7 +158,7 @@ fn link_error_page(
 
 /// GET `/providers/connect/intervals_icu?token=...` — the authorization and
 /// the API-key form.
-pub async fn handle_intervals_icu_form_page(
+pub(crate) async fn handle_intervals_icu_form_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Query(query): Query<ConnectPageQuery>,
@@ -193,7 +193,7 @@ pub async fn handle_intervals_icu_form_page(
 }
 
 /// POST `/providers/connect/intervals_icu` — validate, store, and redirect.
-pub async fn handle_intervals_icu_form_submit(
+pub(crate) async fn handle_intervals_icu_form_submit(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Form(form): Form<IntervalsIcuConnectForm>,

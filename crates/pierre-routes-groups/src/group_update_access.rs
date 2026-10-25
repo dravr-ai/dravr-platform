@@ -30,7 +30,7 @@ use crate::groups::GroupRoutes;
 ///
 /// Returns `PermissionDenied` or `NotFound` as described, or the repository
 /// error when the membership or the group cannot be read.
-pub async fn authorize_group_update<C: GroupsCtx + MiddlewareCtx>(
+pub(crate) async fn authorize_group_update<C: GroupsCtx + MiddlewareCtx>(
     resources: &Arc<C>,
     group_id: &str,
     user_id: Uuid,

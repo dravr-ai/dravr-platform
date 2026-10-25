@@ -58,6 +58,7 @@ const INGREDIENT_UNITS: &str =
 // ============================================================================
 
 /// Tool for getting recipe constraints and macro targets.
+#[derive(Debug)]
 pub struct GetRecipeConstraintsTool;
 
 #[async_trait]
@@ -155,6 +156,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
 // ============================================================================
 
 /// Tool for validating recipe nutrition via USDA.
+#[derive(Debug)]
 pub struct ValidateRecipeTool;
 
 #[async_trait]
@@ -251,6 +253,7 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
 // ============================================================================
 
 /// Tool for saving a recipe.
+#[derive(Debug)]
 pub struct SaveRecipeTool;
 
 #[async_trait]
@@ -428,6 +431,7 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
 // ============================================================================
 
 /// Tool for listing user's recipes.
+#[derive(Debug)]
 pub struct ListRecipesTool;
 
 #[async_trait]
@@ -462,7 +466,7 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
             },
         );
         let schema = object_schema_with_format(properties, None);
-        answers_with::<Formatted<inner::ListRecipesResult>>(tool_definition(
+        answers_with::<Formatted<ListRecipesResult>>(tool_definition(
             "list_recipes",
             "List your saved recipes",
             schema,
@@ -492,6 +496,7 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
 // ============================================================================
 
 /// Tool for getting a specific recipe.
+#[derive(Debug)]
 pub struct GetRecipeTool;
 
 #[async_trait]
@@ -507,7 +512,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeTool {
             },
         );
         let schema = object_schema_with_format(properties, Some(vec!["recipe_id".to_owned()]));
-        answers_with::<Formatted<inner::RecipeDetail>>(tool_definition(
+        answers_with::<Formatted<RecipeDetail>>(tool_definition(
             "get_recipe",
             "Get details of a specific recipe",
             schema,
@@ -537,6 +542,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeTool {
 // ============================================================================
 
 /// Tool for deleting a recipe.
+#[derive(Debug)]
 pub struct DeleteRecipeTool;
 
 #[async_trait]
@@ -582,6 +588,7 @@ impl McpTool<dyn ToolRuntime> for DeleteRecipeTool {
 // ============================================================================
 
 /// Tool for searching recipes.
+#[derive(Debug)]
 pub struct SearchRecipesTool;
 
 #[async_trait]
@@ -613,7 +620,7 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
             },
         );
         let schema = object_schema_with_format(properties, Some(vec!["query".to_owned()]));
-        answers_with::<Formatted<inner::SearchRecipesResult>>(tool_definition(
+        answers_with::<Formatted<SearchRecipesResult>>(tool_definition(
             "search_recipes",
             "Search your recipes by name, tags, or description",
             schema,

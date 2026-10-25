@@ -362,6 +362,7 @@ pub struct GroupMemberActivitiesResult {
 }
 
 /// Fetch a consenting group member's activities (consent-gated peer fetch).
+#[derive(Debug)]
 pub struct GetGroupMemberActivitiesTool;
 
 #[async_trait]

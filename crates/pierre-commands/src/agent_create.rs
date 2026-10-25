@@ -84,6 +84,7 @@ impl From<AgentProposal> for ParkedProposal {
 ///
 /// Listed for every caller: drafting needs nothing but a conversation with
 /// messages in it, and creating needs nothing a group standing can see.
+#[derive(Debug)]
 pub struct AgentCreateHandler;
 
 #[async_trait]

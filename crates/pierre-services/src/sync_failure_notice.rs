@@ -20,6 +20,7 @@
 //! never told twice. The provider's own error text never reaches the athlete;
 //! it is logged where the failure happened.
 
+use std::fmt;
 use std::sync::Arc;
 
 #[cfg(feature = "health-sync")]
@@ -42,6 +43,14 @@ pub struct SyncFailureNotices {
     /// Where the notice is dispatched. `None` when the deployment runs without
     /// the notification backend: failures are then only claimed and logged.
     service: Option<Arc<NotificationService>>,
+}
+
+impl fmt::Debug for SyncFailureNotices {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SyncFailureNotices")
+            .field("service", &self.service)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SyncFailureNotices {

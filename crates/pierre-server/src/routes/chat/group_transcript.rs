@@ -46,7 +46,7 @@ const MAX_TRANSCRIPT_LIMIT: i64 = 200;
 
 /// Query parameters for the transcript read.
 #[derive(Debug, Deserialize)]
-pub struct TranscriptQuery {
+pub(super) struct TranscriptQuery {
     /// Maximum entries to return (newest window; clamped to `1..=200`).
     #[serde(default)]
     pub limit: Option<i64>,
@@ -58,7 +58,7 @@ pub struct TranscriptQuery {
 
 /// One member row of the group roster.
 #[derive(Debug, Serialize)]
-pub struct TranscriptMemberResponse {
+pub(super) struct TranscriptMemberResponse {
     /// Member user id
     pub user_id: String,
     /// Display name, else email — the same source as the members listing
@@ -74,7 +74,7 @@ pub struct TranscriptMemberResponse {
 /// An entry the consent rule withholds from the caller keeps its id, speaker
 /// and time — its place in the room — and carries no author and no words.
 #[derive(Debug, Serialize)]
-pub struct TranscriptEntryResponse {
+pub(super) struct TranscriptEntryResponse {
     /// Entry id — the cursor for the page before it
     pub id: String,
     /// `member`, `coach` (the agent), or `correction` (the group's human
@@ -105,7 +105,7 @@ pub struct TranscriptEntryResponse {
 
 /// The reply a coach's correction is linked to.
 #[derive(Debug, Serialize)]
-pub struct CorrectedReplyResponse {
+pub(super) struct CorrectedReplyResponse {
     /// The reply's transcript entry id: its room row on another member's thread
     pub entry_id: String,
     /// The reply's `chat_messages` row: its own row on the thread of the
@@ -158,7 +158,7 @@ impl TranscriptEntryResponse {
 
 /// Response for the group transcript read.
 #[derive(Debug, Serialize)]
-pub struct GroupTranscriptResponse {
+pub(super) struct GroupTranscriptResponse {
     /// The group whose room this is
     pub group_id: String,
     /// Every active member, consented or not — membership is never hidden
@@ -169,7 +169,7 @@ pub struct GroupTranscriptResponse {
 }
 
 /// Read the group's shared room transcript as the authenticated member.
-pub async fn get_group_transcript(
+pub(super) async fn get_group_transcript(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(group_id): Path<String>,

@@ -164,12 +164,11 @@ fn a_parameter_the_handler_defaults_is_not_required() {
         assert_eq!(required(&tool), vec!["activity_id"], "{}", tool.name);
         assert!(description(&tool, "provider").contains("Defaults to configured provider"));
     }
-    assert_eq!(
-        required(&def!(AnalyzePerformanceTrendsTool)),
-        [] as [String; 0]
-    );
+    let got = required(&def!(AnalyzePerformanceTrendsTool));
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert!(description(&def!(AnalyzePerformanceTrendsTool), "metric").contains("'pace' (default)"));
-    assert_eq!(required(&def!(RefreshProviderDataTool)), [] as [String; 0]);
+    let got = required(&def!(RefreshProviderDataTool));
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert!(description(&def!(RefreshProviderDataTool), "provider").contains("'all' (the default)"));
 }
 

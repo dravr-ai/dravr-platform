@@ -143,7 +143,8 @@ async fn api_key_list_and_usage_show_a_keys_tools_most_called_first() {
         .expect("get_activities listed");
     assert!(athlete < activities, "most-called first:\n{stdout}");
 
-    let _ = fs::remove_file(&path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
 }
 
 #[tokio::test]
@@ -171,7 +172,8 @@ async fn api_key_usage_refuses_a_key_that_belongs_to_someone_else() {
         "the refusal names the key: {stderr}"
     );
 
-    let _ = fs::remove_file(&path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
 }
 
 #[tokio::test]
@@ -192,5 +194,6 @@ async fn api_key_usage_refuses_an_empty_window() {
     assert_ne!(code, 0, "a zero-day window must be refused");
     assert!(stderr.contains("--days must be at least 1"), "{stderr}");
 
-    let _ = fs::remove_file(&path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
 }

@@ -32,6 +32,7 @@
 
 #![warn(missing_docs)]
 
+use std::fmt;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
@@ -93,6 +94,20 @@ pub struct WebAdminContext {
     pub tool_selection: Arc<ToolSelectionService>,
     /// The LLM provider chain the server read at boot (`ServerConfig::llm_chain`).
     pub llm_chain: LlmChain,
+}
+
+impl fmt::Debug for WebAdminContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WebAdminContext")
+            .field("auth_manager", &self.auth_manager)
+            .field("jwks_manager", &self.jwks_manager)
+            .field("csrf_manager", &self.csrf_manager)
+            .field("auth_middleware", &self.auth_middleware)
+            .field("repos", &self.repos)
+            .field("data", &self.data)
+            .field("llm_chain", &self.llm_chain)
+            .finish_non_exhaustive()
+    }
 }
 
 #[async_trait::async_trait]
@@ -224,6 +239,7 @@ pub struct UserUsageResponse {
 }
 
 /// Web admin routes - accessible via browser for admin users
+#[derive(Debug)]
 pub struct WebAdminRoutes;
 
 impl WebAdminRoutes {

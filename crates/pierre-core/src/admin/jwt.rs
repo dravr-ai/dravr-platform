@@ -77,12 +77,13 @@ use crate::errors::AppError;
 /// and secret management. The struct is stateless; all operations use
 /// either static methods or the `JwtSigner` trait for signing.
 #[cfg(feature = "admin-jwt")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AdminJwtManager {}
 
 /// Groups the authorization-boundary fields for admin JWT generation so
 /// the `generate_token` signature stays within clippy's argument limit.
 #[cfg(feature = "admin-jwt")]
+#[derive(Debug)]
 pub struct TokenScope<'a> {
     /// Whether the token carries super-admin privileges.
     pub is_super_admin: bool,

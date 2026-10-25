@@ -83,7 +83,8 @@ async fn stand_in(login: (u16, Value)) -> (SciotteClient, Arc<Mutex<Vec<Seen>>>)
                 "HTTP/1.1 {status} Stub\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            // The client may hang up first; the test checks what it received.
+            drop(stream.write_all(response.as_bytes()).await);
         }
     });
     let client = SciotteClient::new(&base, None).expect("a loopback client needs no audience"); // Safe: loopback URL

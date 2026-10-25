@@ -10,7 +10,7 @@
 //! or on the waiting screen is approved. `list` shows every code, coaches'
 //! included, with the accounts that came in on each; `revoke` withdraws one.
 
-use std::io::{self, Write as _};
+use std::io;
 
 use clap::{Subcommand, ValueEnum};
 use pierre_core::errors::AppResult;
@@ -21,14 +21,14 @@ use uuid::Uuid;
 use pierre_cli::remote::RemoteClient;
 
 use super::auth::admin_client;
-use super::user_admin::OutputFormat;
+use super::user_admin::{stdout_written, OutputFormat};
 
 /// Admin API path of the signup codes.
 const CODES_PATH: &str = "/admin/signup-codes";
 
 /// Which kind of code `revoke` names: the admin API path segment.
 #[derive(Clone, Copy, ValueEnum)]
-pub enum CodeKind {
+pub(crate) enum CodeKind {
     /// A code an admin minted
     Admin,
     /// A coach's approving group invite
@@ -47,7 +47,7 @@ impl CodeKind {
 
 /// Verbs for `user code`.
 #[derive(Subcommand)]
-pub enum CodeCommand {
+pub(crate) enum CodeCommand {
     /// Mint a signup code: whoever enters it is approved. Printed once.
     Mint {
         /// Cohort or reason, shown in the listing
@@ -102,7 +102,7 @@ pub enum CodeCommand {
 /// # Errors
 ///
 /// Returns the client's error when the request fails or the server refuses it.
-pub async fn run(action: CodeCommand) -> AppResult<()> {
+pub(crate) async fn run(action: CodeCommand) -> AppResult<()> {
     match action {
         CodeCommand::Mint {
             note,
@@ -176,24 +176,27 @@ async fn list(client: &RemoteClient, format: OutputFormat) -> AppResult<()> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let mut out = io::stdout().lock();
+    stdout_written(write_codes(&mut io::stdout().lock(), &codes, format))
+}
+
+/// Print the listing in the requested format.
+fn write_codes(out: &mut impl io::Write, codes: &[Value], format: OutputFormat) -> io::Result<()> {
     if !matches!(format, OutputFormat::Table) {
-        for code in &codes {
-            let _ = writeln!(out, "{code}");
+        for code in codes {
+            writeln!(out, "{code}")?;
         }
         return Ok(());
     }
     if codes.is_empty() {
-        let _ = writeln!(out, "No signup codes");
-        return Ok(());
+        return writeln!(out, "No signup codes");
     }
-    let _ = writeln!(out, "Signup codes ({} total):", codes.len());
-    let _ = writeln!(
+    writeln!(out, "Signup codes ({} total):", codes.len())?;
+    writeln!(
         out,
         "{:<36}  {:<5}  {:<6}  {:<5}  {:<9}  {:<20}  {:<28}  NOTE",
         "ID", "KIND", "ENDS", "LIVE", "USES", "EXPIRES", "MINTED BY"
-    );
-    for code in &codes {
+    )?;
+    for code in codes {
         let uses = format!(
             "{}/{}",
             text(code.get("use_count"), "0"),
@@ -204,7 +207,7 @@ async fn list(client: &RemoteClient, format: OutputFormat) -> AppResult<()> {
         } else {
             "no"
         };
-        let _ = writeln!(
+        writeln!(
             out,
             "{:<36}  {:<5}  …{:<5}  {:<5}  {:<9}  {:<20}  {:<28}  {}",
             text(code.get("id"), "-"),
@@ -215,19 +218,19 @@ async fn list(client: &RemoteClient, format: OutputFormat) -> AppResult<()> {
             text(code.get("expires_at"), "never"),
             text(code.get("created_by_email"), "-"),
             text(code.get("note"), ""),
-        );
+        )?;
         for who in code
             .get("redeemed_by")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
         {
-            let _ = writeln!(
+            writeln!(
                 out,
                 "      ↳ {} ({})",
                 text(who.get("email"), "-"),
                 text(who.get("status"), "-")
-            );
+            )?;
         }
     }
     Ok(())

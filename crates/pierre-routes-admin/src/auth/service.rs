@@ -11,6 +11,7 @@
 //!
 //! This module provides authentication and authorization functionality for admin services.
 
+use std::fmt;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -31,6 +32,15 @@ pub struct AdminAuthService {
     admin: Arc<dyn AdminRepository>,
     jwt_manager: AdminJwtManager,
     jwks_manager: Arc<JwksManager>,
+}
+
+impl fmt::Debug for AdminAuthService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdminAuthService")
+            .field("jwt_manager", &self.jwt_manager)
+            .field("jwks_manager", &self.jwks_manager)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AdminAuthService {

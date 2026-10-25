@@ -61,7 +61,7 @@ const GRADING_KEY_FILE: &str = "grading-key.json";
 
 /// `pierre-cli harness <subcommand>` dispatch.
 #[derive(Subcommand)]
-pub enum HarnessCommand {
+pub(crate) enum HarnessCommand {
     /// Backfill `claim_verdicts` from historical `chat_messages`.
     ///
     /// Runs the pure-Rust heuristic verification pipeline
@@ -240,7 +240,7 @@ fn read_file(path: &Path) -> AppResult<String> {
 /// An invalid-input error for an unreadable file, a key that does not parse, a
 /// `--grades` value that is not `NAME=PATH`, or a sheet [`read_grades`] or
 /// [`score`] refuses.
-pub fn score_grades(
+pub(crate) fn score_grades(
     key: &Path,
     grades: &[String],
     adjudication: Option<&Path>,
@@ -286,7 +286,7 @@ pub fn score_grades(
 ///
 /// Returns an error when the tenant id is malformed or when the
 /// underlying backfill service propagates a database error.
-pub async fn dispatch(
+pub(crate) async fn dispatch(
     command: HarnessCommand,
     repos: &RepositoryRegistry,
     database: &Database,

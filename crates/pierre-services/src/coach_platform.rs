@@ -62,7 +62,7 @@ use crate::trainingpeaks_accounts::{
 
 /// What a roster read is given: the coach, their stored credential, and the
 /// account role recorded on their connection (`None` while never read).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct RosterRead<'a> {
     /// Repositories the read records what it learns in.
     pub repos: &'a RepositoryRegistry,

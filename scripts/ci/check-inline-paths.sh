@@ -57,7 +57,9 @@ HITS=$(
             # exposed, and a path inside an import is not an inline path —
             # clippy::absolute_paths never fires on `use`, so reporting it
             # blocks a push for a line whose only fix is to stop importing.
-            /^[[:space:]]*(pub[[:space:]]+)?use[[:space:]]/ {
+            # Restricted visibility counts too: `pub(crate) use`, which
+            # rustc unreachable_pub asks for, is still a use declaration.
+            /^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?use[[:space:]]/ {
                 depth = gsub(/\{/, "{") - gsub(/\}/, "}")
                 if (depth > 0) in_use = 1
                 next

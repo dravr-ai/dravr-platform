@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::mem;
 use std::sync::Arc;
 
@@ -34,6 +35,12 @@ use crate::core::{
 pub struct AiGovernedProvider {
     inner: Box<dyn FitnessProvider>,
     policies: Arc<dyn ProviderTerms>,
+}
+
+impl fmt::Debug for AiGovernedProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AiGovernedProvider").finish_non_exhaustive()
+    }
 }
 
 impl AiGovernedProvider {

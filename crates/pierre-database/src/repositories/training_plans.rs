@@ -33,6 +33,7 @@ pub use draft::{
 /// A new plan outline to persist. Saving supersedes the athlete's current
 /// active outline (whole-row supersession, never mutation), so there is no
 /// separate "update" call.
+#[derive(Debug)]
 pub struct SaveTrainingPlanParams<'a> {
     /// Owning tenant.
     pub tenant_id: &'a str,
@@ -73,6 +74,7 @@ pub struct SaveTrainingPlanParams<'a> {
 /// Mirrors [`SaveTrainingPlanParams`] minus the identity fields the bundle
 /// already carries — the bundle applies one tenant, user and author to outline
 /// and weeks alike.
+#[derive(Debug)]
 pub struct PlanOutlineInput<'a> {
     /// Snapshot of the goal race at plan time.
     pub goal_race: &'a GoalRace,
@@ -105,6 +107,7 @@ pub struct PlanOutlineInput<'a> {
 /// Carries no `plan_id`: the bundle resolves the plan (fresh outline insert or
 /// existing active plan) once and attaches every week to it inside the same
 /// transaction, so a week can only ever land on a plan this tenant + user owns.
+#[derive(Debug)]
 pub struct PlanWeekInput<'a> {
     /// Civil date of the week's first day, `YYYY-MM-DD`.
     pub week_start: &'a str,
@@ -121,6 +124,7 @@ pub struct PlanWeekInput<'a> {
 /// A whole atomic save: an optional outline plus zero or more weeks, all
 /// committed in a single transaction (see
 /// [`TrainingPlanRepository::save_plan_bundle`]).
+#[derive(Debug)]
 pub struct SavePlanBundleParams<'a> {
     /// Owning tenant.
     pub tenant_id: &'a str,
@@ -154,6 +158,7 @@ pub struct SavePlanBundleParams<'a> {
 /// Result of [`TrainingPlanRepository::save_plan_bundle`]: the active plan the
 /// weeks attached to, the weeks saved, and the outline this save superseded
 /// (when an outline was created).
+#[derive(Debug)]
 pub struct SavedPlanBundle {
     /// The active plan (freshly created, or the existing one weeks attached to).
     pub plan: TrainingPlan,
@@ -336,6 +341,7 @@ pub trait TrainingPlanRepository: Send + Sync {
 // ============================================================================
 
 /// Raw `training_plans` row as read from either backend.
+#[derive(Debug)]
 pub struct TrainingPlanRow {
     /// `id` column.
     pub id: String,
@@ -384,6 +390,7 @@ pub struct TrainingPlanRow {
 }
 
 /// Raw `training_plan_weeks` row as read from either backend.
+#[derive(Debug)]
 pub struct PlanWeekRow {
     /// `id` column.
     pub id: String,

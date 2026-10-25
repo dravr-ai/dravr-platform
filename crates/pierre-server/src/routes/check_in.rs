@@ -100,6 +100,7 @@ async fn put_check_in(
 }
 
 /// Mount-helper for the check-in cadence endpoints.
+#[derive(Debug)]
 pub struct CheckInRoutes;
 
 impl CheckInRoutes {

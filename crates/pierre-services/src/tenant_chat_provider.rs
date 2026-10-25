@@ -15,6 +15,7 @@
 //! database on every turn while letting a settings change take effect promptly.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -44,6 +45,13 @@ struct CachedProvider {
 #[derive(Clone, Default)]
 pub struct TenantChatProviderCache {
     inner: Arc<RwLock<HashMap<(TenantId, Uuid), CachedProvider>>>,
+}
+
+impl fmt::Debug for TenantChatProviderCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TenantChatProviderCache")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Result of a cache lookup: a fresh entry (carrying the resolved provider, or

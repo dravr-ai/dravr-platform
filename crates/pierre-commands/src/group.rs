@@ -245,6 +245,7 @@ async fn find_target_group(ctx: &PlatformCommandContext) -> Result<Option<Target
 ///   because holding a role anywhere means some invocation succeeds. It
 ///   answers `/group consent` in a direct message too, where the command acts
 ///   on every group the caller belongs to ([`resolve_consent_targets`]).
+#[derive(Debug)]
 pub struct CallerGroupStanding {
     /// The caller's role in the group [`resolve_target_group`] names — `None`
     /// when no group resolves, or when the caller is not one of its members.
@@ -347,6 +348,7 @@ const fn role_label_key(role: GroupRole) -> &'static str {
 }
 
 /// Handler for `/group` — list user's groups
+#[derive(Debug)]
 pub struct GroupListHandler;
 
 #[async_trait]
@@ -389,6 +391,7 @@ impl CommandHandler for GroupListHandler {
 }
 
 /// Handler for `/group status` — aggregate stats
+#[derive(Debug)]
 pub struct GroupStatusHandler;
 
 #[async_trait]
@@ -469,6 +472,7 @@ impl CommandHandler for GroupStatusHandler {
 /// member with their role; a name that cannot be read renders as the
 /// localized "unknown". The agent and the coach hold no membership row, so
 /// the header counts the members alone.
+#[derive(Debug)]
 pub struct GroupMembersHandler;
 
 #[async_trait]
@@ -636,6 +640,7 @@ fn file_invite(
 }
 
 /// Handler for `/group invite` — generate invite link
+#[derive(Debug)]
 pub struct GroupInviteHandler;
 
 impl GroupInviteHandler {
@@ -682,6 +687,7 @@ impl CommandHandler for GroupInviteHandler {
 /// (`coaching_groups.coach_user_id`) — the attachment `/group invite agent`
 /// creates — leaving the AI persona untouched, and is the only way to undo it
 /// from chat.
+#[derive(Debug)]
 pub struct GroupCoachHandler;
 
 impl GroupCoachHandler {
@@ -845,6 +851,7 @@ impl CommandHandler for GroupCoachHandler {
 /// restores the answer-everything default. Replies in plain text so it does
 /// not depend on the `tools-groups`-gated messaging strings (mirrors
 /// `/group agent`).
+#[derive(Debug)]
 pub struct GroupRespondHandler;
 
 impl GroupRespondHandler {
@@ -956,6 +963,7 @@ impl CommandHandler for GroupRespondHandler {
 ///
 /// The tenant tier stays the ceiling: the mode is stored whatever the group's
 /// plan, and the reply says so when that plan sends nothing.
+#[derive(Debug)]
 pub struct GroupDigestHandler;
 
 #[async_trait]
@@ -1083,6 +1091,7 @@ async fn plan_excludes_digest(ctx: &PlatformCommandContext, group: &CoachingGrou
 }
 
 /// Handler for `/group leave` — leave the group
+#[derive(Debug)]
 pub struct GroupLeaveHandler;
 
 #[async_trait]

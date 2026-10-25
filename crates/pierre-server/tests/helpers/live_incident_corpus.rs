@@ -48,7 +48,7 @@ use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 /// Slack signing secret for the synthetic workspace this lane drives.
-pub const SIGNING_SECRET: &str = "live_incident_eval_secret";
+pub(crate) const SIGNING_SECRET: &str = "live_incident_eval_secret";
 
 /// How far past the server's turn watchdog the lane keeps waiting: room for
 /// the turn to start behind the webhook's acknowledgement and for the
@@ -74,19 +74,19 @@ const TURN_WAIT_MARGIN: Duration = Duration::from_secs(120);
 /// `EMBACLE_SDK_PROMPT_TIMEOUT_SECS` re-runs on the `claude_code` tier, so
 /// one healthy turn can run past every per-tier cap. The watchdog is the one
 /// bound every tier and every transport runs under.
-pub fn turn_timeout() -> Duration {
+pub(crate) fn turn_timeout() -> Duration {
     turn_timeout_under(&lane_timeouts())
 }
 
 /// [`turn_timeout`] for a server under `timeouts`.
-pub fn turn_timeout_under(timeouts: &ServerTimeouts) -> Duration {
+pub(crate) fn turn_timeout_under(timeouts: &ServerTimeouts) -> Duration {
     turn_watchdog(timeouts).saturating_add(TURN_WAIT_MARGIN)
 }
 
 /// The time bounds the lane's servers run under: the operator's, read from
 /// the environment as a deployed server reads them at startup, so the lane
 /// waits out the same watchdog its servers apply.
-pub fn lane_timeouts() -> ServerTimeouts {
+pub(crate) fn lane_timeouts() -> ServerTimeouts {
     ServerTimeouts::from_env()
 }
 
@@ -94,18 +94,18 @@ pub fn lane_timeouts() -> ServerTimeouts {
 /// judge's ground truth cannot drift apart — a ground truth that disagrees
 /// with the data is worse than none, because it makes the judge confidently
 /// wrong instead of merely uninformed.
-pub const SUNDAY_RIDE_KM: f64 = 200.0;
+pub(crate) const SUNDAY_RIDE_KM: f64 = 200.0;
 /// The seeded Sunday ride's duration, in hours.
-pub const SUNDAY_RIDE_HOURS: u64 = 7;
+pub(crate) const SUNDAY_RIDE_HOURS: u64 = 7;
 /// The peer's seeded run, in seconds. 53 minutes, from the live incident.
-pub const PEER_RUN_SECONDS: u64 = 3_180;
+pub(crate) const PEER_RUN_SECONDS: u64 = 3_180;
 /// The peer's seeded run, in metres. 6.1 km, from the live incident.
-pub const PEER_RUN_METRES: f64 = 6_100.0;
+pub(crate) const PEER_RUN_METRES: f64 = 6_100.0;
 /// The pace those two imply, as the agent reported it in the incident. The
 /// judge's ledger computes each run's pace itself; the offline guards check
 /// that this is the arithmetic of the two constants above and that the
 /// ledger line for the run carries it.
-pub const PEER_RUN_PACE: &str = "8min41/km";
+pub(crate) const PEER_RUN_PACE: &str = "8min41/km";
 
 /// How many weeks of ordinary training the fixture seeds behind the Sunday
 /// twin. The weekly-summary and chart episodes ask across weeks, so the
@@ -140,21 +140,21 @@ fn peer_run_metres(day: i64) -> f64 {
 }
 
 /// The athlete's display name, on the roster and in the judge's ledger.
-pub const ATHLETE_DISPLAY: &str = "JF";
+pub(crate) const ATHLETE_DISPLAY: &str = "JF";
 /// The peer the group turns name, by his canonical roster spelling.
-pub const PEER_DISPLAY: &str = "Philippe Tremblay";
+pub(crate) const PEER_DISPLAY: &str = "Philippe Tremblay";
 /// The peer's second, short-form roster identity.
-pub const PHIL_ALIAS_DISPLAY: &str = "Phil";
+pub(crate) const PHIL_ALIAS_DISPLAY: &str = "Phil";
 
 /// The athlete's provider connections, in registration order.
 ///
 /// The order is load-bearing: the activity-source election takes the last
 /// registration as the primary, and [`ATHLETE_LIVE_CONNECTION`] is the only
 /// one with a credential behind it (see `seed_fixture`).
-pub const ATHLETE_CONNECTIONS: &[&str] = &["whoop", "strava", "sciotte"];
+pub(crate) const ATHLETE_CONNECTIONS: &[&str] = &["whoop", "strava", "sciotte"];
 /// The one connection the fixture holds a credential for: the athlete's
 /// sciotte session, seeded against the scraper stand-in.
-pub const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
+pub(crate) const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
 /// The connections each peer-side roster identity holds — Philippe and his
 /// «Phil» alias alike — none with a token behind it.
 ///
@@ -162,15 +162,15 @@ pub const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
 /// only of JF's connections, so when a fetch of Philippe's tokenless Strava
 /// flagged it and the group context told the agent he had to reconnect, the
 /// judge graded that true statement as invented (carnet#1037).
-pub const PEER_CONNECTIONS: &[&str] = &["strava"];
+pub(crate) const PEER_CONNECTIONS: &[&str] = &["strava"];
 
 /// The name every seeded run carries, in the activity cache, the scraper
 /// stand-in and the judge's ledger alike.
-pub const SEEDED_RUN_NAME: &str = "Course";
+pub(crate) const SEEDED_RUN_NAME: &str = "Course";
 
 /// The title of the fixture's one system agent, the coach every DM episode
 /// talks to and the name `first_reply_introduction` must hear.
-pub const EVAL_COACH_TITLE: &str = "Eval Coach";
+pub(crate) const EVAL_COACH_TITLE: &str = "Eval Coach";
 
 /// The instant the fixture's activity history is measured back from.
 ///
@@ -201,7 +201,7 @@ fn seeded_day_at(days_ago: i64, hour: u32, minute: u32) -> DateTime<Utc> {
 }
 
 /// When the Sunday ride twin started, on both providers that recorded it.
-pub fn sunday_ride_start() -> DateTime<Utc> {
+pub(crate) fn sunday_ride_start() -> DateTime<Utc> {
     seeded_day_at(days_since_sunday(), 7, 30)
 }
 
@@ -217,7 +217,7 @@ const WEEKLY_START_SHIFT_MINUTES: u32 = 11;
 /// hand-written copies, the judge's copy carried distance ranges and no
 /// dates: a correct «12 km en 1h10 hier» for JF read to it as invented,
 /// because nothing it was shown put a run of JF's on yesterday.
-pub struct SeededRun {
+pub(crate) struct SeededRun {
     pub id: String,
     pub days_ago: i64,
     pub start: DateTime<Utc>,
@@ -227,7 +227,7 @@ pub struct SeededRun {
 
 /// The athlete's ordinary runs: [`ATHLETE_RUN_DAYS`] of each of the last
 /// [`FIXTURE_WEEKS`] weeks, Sunday skipped (see `seed_activities`).
-pub fn athlete_runs() -> Vec<SeededRun> {
+pub(crate) fn athlete_runs() -> Vec<SeededRun> {
     weekly_runs(
         "eval-run",
         &ATHLETE_RUN_DAYS,
@@ -240,7 +240,7 @@ pub fn athlete_runs() -> Vec<SeededRun> {
 
 /// The peer's runs: yesterday's, the one the agent invented over on 08-22,
 /// then [`PEER_RUN_DAYS`] of each of the last [`FIXTURE_WEEKS`] weeks.
-pub fn peer_runs() -> Vec<SeededRun> {
+pub(crate) fn peer_runs() -> Vec<SeededRun> {
     let mut runs = vec![SeededRun {
         id: "eval-peer-run".to_owned(),
         days_ago: 1,
@@ -300,7 +300,7 @@ fn weekly_runs(
 /// deterministic check cannot itself drift. [`Expect::Honest`] is the one
 /// judged variant, reserved for fabrication, which has no substring.
 #[derive(Debug, Clone, Copy)]
-pub enum Expect {
+pub(crate) enum Expect {
     /// The delivered body carries at least this many characters.
     ///
     /// The 08-22 degenerate turn delivered «by Dravr.» — 9 characters
@@ -357,7 +357,7 @@ impl Expect {
     /// prose that is reworded every call, so it cannot key a finding: the
     /// same defect would look like a different one each pass and never
     /// reach the reproduce threshold.
-    pub const fn kind(self) -> &'static str {
+    pub(crate) const fn kind(self) -> &'static str {
         match self {
             Self::NonEmpty { .. } => "too_short",
             Self::NoneOf(_) => "banned_phrase",
@@ -379,13 +379,13 @@ impl Expect {
     /// length, which is a style choice — a correct 100-character answer is
     /// not the 9-character «by Dravr.» degenerate turn, and the banned
     /// phrases catch that turn on their own.
-    pub const fn gates(self) -> bool {
+    pub(crate) const fn gates(self) -> bool {
         !matches!(self, Self::Honest { .. } | Self::NonEmpty { .. })
     }
 }
 
 /// One user turn plus what the reply must satisfy.
-pub struct Turn {
+pub(crate) struct Turn {
     pub user: &'static str,
     pub expect: &'static [Expect],
 }
@@ -395,7 +395,7 @@ pub struct Turn {
 /// Multi-turn because several incidents only exist as a *sequence*: the
 /// fabrication of 08-22 was a claim followed by a challenge, and the reply
 /// that mattered was the second one.
-pub struct Episode {
+pub(crate) struct Episode {
     pub name: &'static str,
     /// The live incident this episode is the permanent record of.
     pub incident: &'static str,
@@ -407,7 +407,7 @@ pub struct Episode {
 
 /// Output-mechanics self-talk. An agent discussing its own formatting has
 /// leaked its scaffolding into the room (Telegram, 2026-08-23).
-pub const NARRATION_LEAKS: &[&str] = &[
+pub(crate) const NARRATION_LEAKS: &[&str] = &[
     "real newlines",
     "let me fix the split",
     "newlines",
@@ -417,14 +417,14 @@ pub const NARRATION_LEAKS: &[&str] = &[
 
 /// The apology the empty-repair bug delivered when it accepted a blank
 /// repair as a clean one.
-pub const LOST_TURN: &[&str] = &[
+pub(crate) const LOST_TURN: &[&str] = &[
     "je n'ai pas réussi à formuler une réponse",
     "i could not formulate",
 ];
 
 /// Wording that means the agent failed to resolve a roster member it can
 /// see. The typo must not become a stranger.
-pub const UNKNOWN_PEER: &[&str] = &[
+pub(crate) const UNKNOWN_PEER: &[&str] = &[
     "je ne connais pas",
     "qui est phile",
     "aucun membre",
@@ -440,7 +440,7 @@ pub const UNKNOWN_PEER: &[&str] = &[
 /// to list unguarded: the first live run reproduced «je n'ai pas réussi à
 /// formuler une réponse» on three episodes and only ONE of them had thought
 /// to ban it.
-pub const UNIVERSAL: &[Expect] = &[
+pub(crate) const UNIVERSAL: &[Expect] = &[
     Expect::NonEmpty { min_chars: 20 },
     Expect::NoneOf(LOST_TURN),
     Expect::NoneOf(NARRATION_LEAKS),
@@ -449,11 +449,11 @@ pub const UNIVERSAL: &[Expect] = &[
 ];
 
 /// The 9-character synthesis of 2026-08-22 09:03, and its siblings.
-pub const DEGENERATE: &[&str] = &["by dravr.", "by dravr\n"];
+pub(crate) const DEGENERATE: &[&str] = &["by dravr.", "by dravr\n"];
 
 /// The corpus. Every entry is a turn shape that actually failed in front of
 /// an athlete; none of them is hypothetical.
-pub const CORPUS: &[Episode] = &[
+pub(crate) const CORPUS: &[Episode] = &[
     Episode {
         name: "group_chart_ask",
         incident: "2026-08-22 09:03 «by Dravr.» / 2026-08-23 18:05 chart dropped by the repair",
@@ -668,7 +668,7 @@ pub const CORPUS: &[Episode] = &[
 
 /// A statement about the model: the corpus reproduced a regression.
 #[derive(Debug)]
-pub struct Finding {
+pub(crate) struct Finding {
     pub episode: &'static str,
     pub incident: &'static str,
     pub turn_index: usize,
@@ -689,7 +689,7 @@ struct FindingKey {
 }
 
 /// Findings split by what the lane may conclude from them.
-pub struct Classified<'a> {
+pub(crate) struct Classified<'a> {
     /// Reproduced in at least a majority of passes, and gating: these red.
     pub reproduced: Vec<(usize, &'a Finding)>,
     /// Seen, but in too few passes to separate from model sampling.
@@ -704,7 +704,7 @@ pub struct Classified<'a> {
 /// real model calls, so the rule deciding red-vs-green would otherwise be
 /// the one part of the lane that nothing verifies — and it is the part that
 /// decides whether anybody trusts the lane at all.
-pub fn classify_findings(findings: &[Finding], attempts: usize) -> Classified<'_> {
+pub(crate) fn classify_findings(findings: &[Finding], attempts: usize) -> Classified<'_> {
     // Majority of passes, so a defect must beat a coin flip to red the
     // lane: 2 of 3, and 1 of 1 when a local run drives a single pass.
     let threshold = attempts.div_ceil(2);
@@ -750,7 +750,7 @@ pub fn classify_findings(findings: &[Finding], attempts: usize) -> Classified<'_
 // -----------------------------------------------------------------------
 
 /// The athlete the corpus runs against, plus the peer the group turns name.
-pub struct Fixture {
+pub(crate) struct Fixture {
     /// The seeded athlete every episode speaks as.
     pub athlete: Uuid,
     pub athlete_tenant: TenantId,
@@ -775,7 +775,7 @@ impl Fixture {
     /// room path: the episode runs in a one-member group the ingress creates
     /// for the "room", its thread forged with no agent, and
     /// `first_reply_introduction` cannot pass (carnet#894).
-    pub fn slack_message_event(&self, channel: &str, text: &str) -> Value {
+    pub(crate) fn slack_message_event(&self, channel: &str, text: &str) -> Value {
         let channel_type = if channel == self.dm_channel {
             "im"
         } else {
@@ -897,7 +897,7 @@ async fn wire_slack(
 /// - **A duplicate roster identity.** The group holds "Phil" *and*
 ///   "Philippe Tremblay", which is what the first live gate turn hit within
 ///   one minute of going up.
-pub async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
+pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     let (athlete, tenant) =
         create_athlete(resources, "eval-athlete@dravr.test", ATHLETE_DISPLAY).await;
     let (peer, _) = create_athlete(resources, "eval-peer@dravr.test", PEER_DISPLAY).await;
@@ -1230,7 +1230,7 @@ fn seeded_run_activity(run: &SeededRun) -> Activity {
 
 /// Days back to the most recent Sunday, so "dimanche" always names a day
 /// the fixture actually holds regardless of when the lane runs.
-pub fn days_since_sunday() -> i64 {
+pub(crate) fn days_since_sunday() -> i64 {
     use chrono::Datelike;
     let weekday = fixture_clock().weekday().num_days_from_sunday();
     if weekday == 0 {
@@ -1255,7 +1255,7 @@ pub fn days_since_sunday() -> i64 {
 /// connection state of every roster member and the activity names are stated
 /// too: the agent sees both, and a judge that has not been told them reads
 /// them as invention.
-pub fn ground_truth() -> String {
+pub(crate) fn ground_truth() -> String {
     let sunday = start_label(days_since_sunday(), sunday_ride_start());
     let mut truth = format!(
         "Today is {today}. Every activity the fixture holds, and nothing else:\n\
@@ -1306,7 +1306,7 @@ pub fn ground_truth() -> String {
 /// One member's connections as the ledger states them: «Connections of
 /// Philippe Tremblay: Strava connected, no token.» `live` names the one
 /// connection with a credential behind it, if any.
-pub fn connections_line(display: &str, connections: &[&str], live: Option<&str>) -> String {
+pub(crate) fn connections_line(display: &str, connections: &[&str], live: Option<&str>) -> String {
     let states: Vec<String> = connections
         .iter()
         .map(|provider| connection_state(provider, live == Some(*provider)))
@@ -1315,7 +1315,7 @@ pub fn connections_line(display: &str, connections: &[&str], live: Option<&str>)
 }
 
 /// One connection as the ledger states it.
-pub fn connection_state(provider: &str, holds_token: bool) -> String {
+pub(crate) fn connection_state(provider: &str, holds_token: bool) -> String {
     let label = match provider {
         "strava" => "Strava",
         "whoop" => "WHOOP",
@@ -1331,7 +1331,7 @@ pub fn connection_state(provider: &str, holds_token: bool) -> String {
 /// The line the group context's Connection alerts carry for a member whose
 /// `providers` were flagged for reconnection — the format
 /// `pierre_groups::context_alerts` renders.
-pub fn reconnect_alert(display: &str, providers: &[&str]) -> String {
+pub(crate) fn reconnect_alert(display: &str, providers: &[&str]) -> String {
     format!("{display} needs to reconnect: {}", providers.join(", "))
 }
 

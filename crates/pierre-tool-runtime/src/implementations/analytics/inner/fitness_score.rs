@@ -55,7 +55,7 @@ struct RecoveryAdjustmentInfo {
 /// - <50 (Poor): -10% penalty (0.90)
 async fn fetch_and_calculate_recovery_adjustment(
     executor: &UniversalToolExecutor,
-    user_uuid: uuid::Uuid,
+    user_uuid: Uuid,
     tenant_id: Option<&str>,
     sleep_provider_name: &str,
     analysis: &mut FitnessScoreResult,
@@ -448,7 +448,7 @@ fn calculate_trend(activities: &[Activity]) -> &'static str {
 /// - `provider` (optional): Activity provider (default: configured default)
 /// - `sleep_provider` (optional): Sleep/recovery provider for cross-provider analysis
 /// - `timeframe` (optional): `month` (default), `quarter`, `year`, or `all_time`
-pub fn handle_calculate_fitness_score(
+pub(crate) fn handle_calculate_fitness_score(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

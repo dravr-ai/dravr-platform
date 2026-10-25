@@ -152,7 +152,7 @@ async fn test_get_configuration_catalog_e2e() {
     let categories = result["catalog"]["categories"]
         .as_array()
         .expect("Categories should be array");
-    assert_ne!(categories.as_slice(), [] as [serde_json::Value; 0]);
+    assert!(!categories.is_empty(), "expected a non-empty value");
 
     // Check that we have some expected category names
     let category_names: Vec<&str> = categories
@@ -198,7 +198,7 @@ async fn test_get_configuration_profiles_e2e() {
     let profiles = result["profiles"]
         .as_array()
         .expect("Profiles should be array");
-    assert_ne!(profiles.as_slice(), [] as [serde_json::Value; 0]);
+    assert!(!profiles.is_empty(), "expected a non-empty value");
 
     // Check that we have the expected profile types
     let profile_names: Vec<&str> = profiles

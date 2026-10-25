@@ -9,7 +9,7 @@ use pierre_core::constants::ports::DEFAULT_HTTP_PORT;
 use secrecy::ExposeSecret;
 
 /// Display a generated token with important security warnings
-pub fn display_generated_token(token: &GeneratedAdminToken) {
+pub(crate) fn display_generated_token(token: &GeneratedAdminToken) {
     println!("\nComplete Admin Token Generated Successfully!");
     println!("{}", "=".repeat(80));
     println!("Key TOKEN DETAILS:");
@@ -76,7 +76,7 @@ pub fn display_generated_token(token: &GeneratedAdminToken) {
 }
 
 /// Display admin user creation success message
-pub fn display_admin_user_success(email: &str, name: &str, super_admin: bool) {
+pub(crate) fn display_admin_user_success(email: &str, name: &str, super_admin: bool) {
     let role_str = if super_admin { "Super Admin" } else { "Admin" };
     println!("\nSuccess {role_str} User Created Successfully!");
     println!("{}", "=".repeat(50));

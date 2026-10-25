@@ -19,6 +19,8 @@
 //! same way — persisted on the row, laid out as the envelope's actions — so a
 //! reload shows the buttons the live turn did.
 
+use std::fmt;
+
 use pierre_core::errors::AppResult;
 use pierre_core::models::AddMessageParams;
 use pierre_core::uuid_utils::parse_uuid;
@@ -93,6 +95,21 @@ pub struct DeterministicReplyInputs<'a> {
     pub user_message: MessageRecord,
     /// Conversation the turn belongs to.
     pub conv: &'a ConversationRecord,
+}
+
+// The turn and the persisted user message carry the athlete's own words: only
+// their ids and the message's length print.
+impl fmt::Debug for DeterministicReplyInputs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeterministicReplyInputs")
+            .field("turn_id", &self.input.turn_id)
+            .field("profile", &self.profile)
+            .field("active_model", &self.active_model)
+            .field("user_message_id", &self.user_message.id)
+            .field("user_message_len", &self.user_message.content.len())
+            .field("conversation_id", &self.conv.id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Answer the turn with platform-authored text, skipping the LLM entirely.

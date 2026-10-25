@@ -46,7 +46,7 @@ use crate::AuthRoutesContext;
 
 /// Body of `POST /api/user/import-tombstones/clear`.
 #[derive(Debug, Default, Deserialize)]
-pub struct ClearTombstoneRequest {
+pub(crate) struct ClearTombstoneRequest {
     /// The tombstone a refusal named; absent, the one naming the account's
     /// own email.
     #[serde(default)]
@@ -66,7 +66,7 @@ pub struct ClearTombstoneRequest {
 /// asked for before the account proved its address, a not-found error for a
 /// tombstone that does not exist or whose identity this account does not
 /// hold, and a database error when a read or the clear fails.
-pub async fn handle_clear_import_tombstone(
+pub(crate) async fn handle_clear_import_tombstone(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     body: Option<Json<ClearTombstoneRequest>>,

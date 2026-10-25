@@ -34,7 +34,7 @@ use pierre_core::errors::{AppError, AppResult};
 /// Max guesses against one link token, right or wrong, before it
 /// self-invalidates (per-token brute-force lockout, CWE-307). Every token
 /// table shares it.
-pub const LINK_TOKEN_MAX_ATTEMPTS: i64 = 5;
+pub(crate) const LINK_TOKEN_MAX_ATTEMPTS: i64 = 5;
 
 /// The guess statement of a token table: spend one attempt on the live row
 /// behind selector `$1` while it is unexpired at `$2` and under the cap `$3`,
@@ -56,7 +56,7 @@ macro_rules! link_token_guess_sql {
 pub(crate) use link_token_guess_sql;
 
 /// One `<selector>.<verifier>` token table, as [`consume_link_token`] runs it.
-pub struct LinkTokenTable {
+pub(crate) struct LinkTokenTable {
     /// The guess, built with [`link_token_guess_sql`]: `$1` selector, `$2`
     /// now, `$3` the cap
     pub guess_sql: &'static str,
@@ -82,7 +82,7 @@ impl LinkTokenTable {
     /// # Errors
     ///
     /// The table's uniform invalid-token error on a mismatch.
-    pub fn check_verifier(&self, stored_hash: &str, verifier_hash: &str) -> AppResult<()> {
+    pub(crate) fn check_verifier(&self, stored_hash: &str, verifier_hash: &str) -> AppResult<()> {
         if secrets_equal(stored_hash.as_bytes(), verifier_hash.as_bytes()) {
             Ok(())
         } else {
@@ -91,7 +91,7 @@ impl LinkTokenTable {
     }
 
     /// A database failure at `step` of consuming one of this table's tokens.
-    pub fn database_error(&self, step: &str, error: &sqlx::Error) -> AppError {
+    pub(crate) fn database_error(&self, step: &str, error: &sqlx::Error) -> AppError {
         AppError::database(format!("Failed to {step} {}: {error}", self.what))
     }
 }

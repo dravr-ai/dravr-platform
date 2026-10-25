@@ -131,7 +131,7 @@ async fn a_providerless_general_ask_keeps_the_answer_and_names_no_provider() {
         requests: Mutex::new(Vec::new()),
         models: vec!["data-first-model".to_owned()],
     });
-    let chat_provider = ChatProvider::Custom(Arc::clone(&provider) as Arc<dyn LlmProvider>);
+    let chat_provider = ChatProvider::Custom(Arc::<DataFirstProvider>::clone(&provider));
     let executor = Arc::new(
         UniversalToolExecutor::new(resources)
             .with_scopes(OAuthScope::self_grant())

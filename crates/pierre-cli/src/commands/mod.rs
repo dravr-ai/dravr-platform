@@ -4,24 +4,24 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-pub mod api_key;
-pub mod auth;
-pub mod canary;
-pub mod config;
-pub mod deletion;
-pub mod drift;
+pub(crate) mod api_key;
+pub(crate) mod auth;
+pub(crate) mod canary;
+pub(crate) mod config;
+pub(crate) mod deletion;
+pub(crate) mod drift;
 #[cfg(feature = "tools-verification")]
-pub mod harness;
-pub mod key;
-pub mod provider_data;
-pub mod seed;
-pub mod settings;
-pub mod signup_code;
-pub mod strava_pool;
-pub mod strava_webhook;
-pub mod tenant;
-pub mod token;
-pub mod tool;
-pub mod user;
-pub mod user_admin;
-pub mod zones;
+pub(crate) mod harness;
+pub(crate) mod key;
+pub(crate) mod provider_data;
+pub(crate) mod seed;
+pub(crate) mod settings;
+pub(crate) mod signup_code;
+pub(crate) mod strava_pool;
+pub(crate) mod strava_webhook;
+pub(crate) mod tenant;
+pub(crate) mod token;
+pub(crate) mod tool;
+pub(crate) mod user;
+pub(crate) mod user_admin;
+pub(crate) mod zones;

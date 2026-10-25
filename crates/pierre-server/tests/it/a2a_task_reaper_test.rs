@@ -52,7 +52,7 @@ async fn register_client(resources: &Arc<ServerContext>) -> String {
 async fn a_task_left_working_past_the_threshold_is_failed_and_its_subscriber_released() {
     let resources = create_test_server_resources().await.expect("resources");
     let client_id = register_client(&resources).await;
-    let ctx: Arc<dyn A2ACtx> = Arc::clone(&resources) as Arc<dyn A2ACtx>;
+    let ctx: Arc<dyn A2ACtx> = Arc::<ServerContext>::clone(&resources);
     let repos = A2ACtx::repos(resources.as_ref());
 
     // The orphan: submitted, moved to working, then its runner died.
@@ -143,7 +143,7 @@ async fn a_task_left_working_past_the_threshold_is_failed_and_its_subscriber_rel
 async fn a_reap_with_nothing_stale_touches_nothing() {
     let resources = create_test_server_resources().await.expect("resources");
     let client_id = register_client(&resources).await;
-    let ctx: Arc<dyn A2ACtx> = Arc::clone(&resources) as Arc<dyn A2ACtx>;
+    let ctx: Arc<dyn A2ACtx> = Arc::<ServerContext>::clone(&resources);
     let repos = A2ACtx::repos(resources.as_ref());
 
     let task = repos

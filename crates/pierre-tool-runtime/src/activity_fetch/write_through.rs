@@ -29,6 +29,7 @@ use crate::runtime::ToolRuntime;
 
 /// How a write-through lands: the retention its prune keeps, and the read
 /// the rows came from, which decides whether they count as a sync.
+#[derive(Debug)]
 pub struct WriteThrough<'a> {
     /// The per-transaction prune window: after the upsert, rows older than
     /// `now - retention_days` are garbage-collected.

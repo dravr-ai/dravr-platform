@@ -13,6 +13,7 @@
 //! one, because the environment is shared by every test in a binary.
 
 mod admin_role_test;
+mod debug_redaction_test;
 mod device_flow_test;
 mod pierre_cli_test;
 mod remote_token_target_test;

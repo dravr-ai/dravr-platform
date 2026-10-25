@@ -34,6 +34,7 @@ use std::sync::Arc;
 use tracing::info;
 
 /// Routes for user OAuth app management
+#[derive(Debug)]
 pub struct UserOAuthAppRoutes;
 
 /// Request to register a new OAuth app for a user

@@ -44,7 +44,7 @@ pub async fn super_admin_emails(users: &dyn UserRepository) -> AppResult<Vec<Str
 
 /// Emails every super-admin when a new account waits for approval
 /// (carnet#1056), next to the `user.pending_approval` Slack ping.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PendingSignupMail {
     /// The process's one Resend service, shared with every other mailer the
     /// server context hands out and with each request's account service.

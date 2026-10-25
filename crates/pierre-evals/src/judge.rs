@@ -18,6 +18,7 @@
 //!   asked to return a structured supported / contradicted / unverifiable
 //!   judgement.
 
+use std::fmt;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
@@ -189,6 +190,15 @@ pub struct ClaimJudge<'a> {
     pub model: Option<&'a str>,
     /// Receives one usage record per judged claim; `None` records nothing.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+}
+
+impl fmt::Debug for ClaimJudge<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClaimJudge")
+            .field("system_prompt", &self.system_prompt)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Judge a single claim with the configured LLM provider — the bullshit

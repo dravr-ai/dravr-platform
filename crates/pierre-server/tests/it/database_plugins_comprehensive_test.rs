@@ -168,7 +168,7 @@ async fn test_strava_token_operations() -> Result<()> {
     assert!(initial_token.is_none());
 
     // Update token
-    let expires_at = Utc::now() + chrono::Duration::hours(6);
+    let expires_at = Utc::now() + Duration::hours(6);
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -253,7 +253,7 @@ async fn test_whoop_token_operations() -> Result<()> {
     assert!(initial_token.is_none());
 
     // Update token
-    let expires_at = Utc::now() + chrono::Duration::hours(8);
+    let expires_at = Utc::now() + Duration::hours(8);
     let oauth_token = UserOAuthToken::new(
         user_id,
         "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -564,7 +564,7 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
     ];
 
     for (access_token, refresh_token) in special_tokens {
-        let expires_at = Utc::now() + chrono::Duration::hours(1);
+        let expires_at = Utc::now() + Duration::hours(1);
 
         // Store Strava token
         let oauth_token = UserOAuthToken::new(
@@ -657,8 +657,7 @@ async fn test_database_error_scenarios() -> Result<()> {
         .api_keys
         .update_last_used(&fake_key_id)
         .await;
-    // Should either succeed (no-op) or fail gracefully
-    let _ = result;
+    assert!(result.is_ok(), "a missing key is a no-op: {result:?}");
 
     let fake_user_id = Uuid::new_v4();
     let result = db
@@ -666,8 +665,7 @@ async fn test_database_error_scenarios() -> Result<()> {
         .api_keys
         .deactivate(&fake_key_id, fake_user_id)
         .await;
-    // Should either succeed (no-op) or fail gracefully
-    let _ = result;
+    assert!(result.is_ok(), "a missing key is a no-op: {result:?}");
 
     Ok(())
 }
@@ -820,7 +818,7 @@ async fn test_database_connection_reuse() -> Result<()> {
         // Each operation should work with the same connection
         db.repositories().users.update_last_active(user_id).await?;
 
-        let token_expires = Utc::now() + chrono::Duration::hours(i);
+        let token_expires = Utc::now() + Duration::hours(i);
         let oauth_token = UserOAuthToken::new(
             user_id,
             "00000000-0000-0000-0000-000000000000".to_owned(),
@@ -907,7 +905,7 @@ mod postgres_tests {
 
         for (i, tier) in tiers.iter().enumerate() {
             let mut user = User::new(
-                format!("postgres_user_{}_{}@example.com", i, uuid::Uuid::new_v4()),
+                format!("postgres_user_{}_{}@example.com", i, Uuid::new_v4()),
                 "secure_password_123".to_owned(),
                 Some(format!("PostgreSQL User {i}")),
             );
@@ -952,7 +950,7 @@ mod postgres_tests {
         let db = create_test_db().await?;
 
         let user = User::new(
-            format!("postgres_api_test_{}@example.com", uuid::Uuid::new_v4()),
+            format!("postgres_api_test_{}@example.com", Uuid::new_v4()),
             "password".to_owned(),
             None,
         );
@@ -1045,13 +1043,13 @@ mod postgres_tests {
         let db = create_test_db().await?;
 
         let user = User::new(
-            format!("postgres_token_test_{}@example.com", uuid::Uuid::new_v4()),
+            format!("postgres_token_test_{}@example.com", Uuid::new_v4()),
             "password".to_owned(),
             None,
         );
         let user_id = db.repositories().users.create(&user).await?;
 
-        let expires_at = Utc::now() + chrono::Duration::hours(2);
+        let expires_at = Utc::now() + Duration::hours(2);
 
         // Test Strava token operations
         let strava_oauth_token = UserOAuthToken::new(
@@ -1174,10 +1172,7 @@ mod postgres_tests {
             let db_clone = db.clone();
             handles.push(tokio::spawn(async move {
                 let user = User::new(
-                    format!(
-                        "postgres_concurrent_{}_{i}@example.com",
-                        uuid::Uuid::new_v4()
-                    ),
+                    format!("postgres_concurrent_{}_{i}@example.com", Uuid::new_v4()),
                     "password".to_owned(),
                     Some(format!("PostgreSQL Concurrent User {i}")),
                 );
@@ -1236,7 +1231,7 @@ mod postgres_tests {
 
         // Create a test user first for foreign key reference
         let user = User::new(
-            format!("postgres_jwt_test_{}@example.com", uuid::Uuid::new_v4()),
+            format!("postgres_jwt_test_{}@example.com", Uuid::new_v4()),
             "password".to_owned(),
             None,
         );
@@ -1299,8 +1294,7 @@ mod postgres_tests {
             .api_keys
             .deactivate(&fake_key_id, fake_user_id)
             .await;
-        // Should succeed as no-op or fail gracefully
-        let _ = result;
+        assert!(result.is_ok(), "a missing key is a no-op: {result:?}");
 
         Ok(())
     }
@@ -1319,7 +1313,7 @@ mod postgres_tests {
             handles.push(tokio::spawn(async move {
                 // Simple operation that uses the database connection
                 let user = User::new(
-                    format!("pool_test_{}_{i}@example.com", uuid::Uuid::new_v4()),
+                    format!("pool_test_{}_{i}@example.com", Uuid::new_v4()),
                     "password".to_owned(),
                     None,
                 );

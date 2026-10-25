@@ -15,7 +15,7 @@
 use crate::models::StatsCoverage;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
-use dravr_sciotte::client::{ClientError, ConfigError, SciotteClient};
+use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityComment as SciotteComment, ActivityParams, AthleteId,
     AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap,
@@ -24,16 +24,16 @@ use dravr_sciotte::models::{
 use pierre_core::untrusted::fence_athlete_text;
 use secrecy::ExposeSecret;
 use std::env;
-use std::str::FromStr;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use crate::core::{
     no_recorded_samples, planned_workouts_unsupported, ActivityQueryParams, FitnessProvider,
-    OAuth2Credentials, ProviderConfig, ProviderFactory,
+    OAuth2Credentials, ProviderConfig,
 };
-use crate::delegation::{coach_credential_expired, DelegatedReads};
+use crate::delegation::coach_credential_expired;
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     activity::{Lap, Split},
@@ -50,6 +50,13 @@ use crate::spi::{
     SciotteTrainingPeaksDescriptor,
 };
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
+
+mod factory;
+
+pub use factory::{
+    startup_client, SciotteCorosProviderFactory, SciotteGarminProviderFactory,
+    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
+};
 
 /// What a provider's own login form accepts as the account.
 ///
@@ -247,6 +254,17 @@ pub struct SciotteProvider {
     /// identity token. `None` when the server started with no service
     /// configured: every remote call then reports that.
     client: Option<SciotteClient>,
+}
+
+impl fmt::Debug for SciotteProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SciotteProvider")
+            .field("config", &self.config)
+            .field("provider_name", &self.provider_name)
+            .field("subject", &self.subject)
+            .field("head_complete", &self.head_complete)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SciotteProvider {
@@ -935,179 +953,6 @@ impl FitnessProvider for SciotteProvider {
             .iter()
             .map(planned_workout_from_trainingpeaks)
             .collect())
-    }
-}
-
-/// The server's one sciotte client, built once at startup.
-///
-/// Built from the service's `remote_url` and `audience` as the server's
-/// configuration read them at startup (`DRAVR_SCIOTTE_REMOTE_URL`,
-/// `DRAVR_SCIOTTE_AUDIENCE`), and handed to
-/// [`ProviderRegistry::with_sciotte_client`](crate::registry::ProviderRegistry::with_sciotte_client),
-/// which shares it with every sciotte call. `None` when no service is
-/// configured, and — logged once here — when the configured one cannot be
-/// built, including a service off loopback with no audience, which would
-/// refuse every request: every call to the service then reports it
-/// unconfigured.
-#[must_use]
-pub fn startup_client(remote_url: Option<&str>, audience: Option<&str>) -> Option<SciotteClient> {
-    let base_url = remote_url?;
-    match SciotteClient::new(base_url, audience) {
-        Ok(client) => Some(client),
-        Err(ClientError::Config(ConfigError::AudienceRequired { .. })) => {
-            warn!(
-                "The sciotte service is configured without an audience; disabling the \
-                 sciotte client rather than sending requests the service will refuse"
-            );
-            None
-        }
-        Err(e) => {
-            error!(
-                error = %e,
-                "The sciotte client could not be built; scraper calls will report the service unconfigured"
-            );
-            None
-        }
-    }
-}
-
-/// Factory for Strava — Sciotte provider
-///
-/// Every factory holds a clone of the server's one [`SciotteClient`] (`None`
-/// when no scraper service is configured), so each provider it builds shares
-/// that client's connection pool and identity-token cache.
-pub struct SciotteProviderFactory {
-    client: Option<SciotteClient>,
-}
-
-impl SciotteProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
-    #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
-    }
-}
-
-impl ProviderFactory for SciotteProviderFactory {
-    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(SciotteProvider::new(
-            config,
-            SciotteTarget::Strava,
-            self.client.clone(),
-        )))
-    }
-
-    fn supported_providers(&self) -> &'static [&'static str] {
-        &["sciotte"]
-    }
-}
-
-/// Factory for Garmin Connect — Sciotte provider
-pub struct SciotteGarminProviderFactory {
-    client: Option<SciotteClient>,
-}
-
-impl SciotteGarminProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
-    #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
-    }
-}
-
-impl ProviderFactory for SciotteGarminProviderFactory {
-    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(SciotteProvider::new(
-            config,
-            SciotteTarget::Garmin,
-            self.client.clone(),
-        )))
-    }
-
-    fn supported_providers(&self) -> &'static [&'static str] {
-        &["sciotte_garmin"]
-    }
-}
-
-/// Factory for TrainingPeaks — Sciotte provider
-pub struct SciotteTrainingPeaksProviderFactory {
-    client: Option<SciotteClient>,
-}
-
-impl SciotteTrainingPeaksProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
-    #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
-    }
-}
-
-impl ProviderFactory for SciotteTrainingPeaksProviderFactory {
-    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(SciotteProvider::new(
-            config,
-            SciotteTarget::TrainingPeaks,
-            self.client.clone(),
-        )))
-    }
-
-    fn supported_providers(&self) -> &'static [&'static str] {
-        &["sciotte_trainingpeaks"]
-    }
-
-    // A coach account there has no calendar of its own and reads each athlete
-    // on its roster by that athlete's id.
-    fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
-        Some(self)
-    }
-}
-
-impl DelegatedReads for SciotteTrainingPeaksProviderFactory {
-    fn check_athlete_id(&self, athlete_id: &str) -> AppResult<()> {
-        AthleteId::from_str(athlete_id)
-            .map(drop)
-            .map_err(|e| AppError::invalid_input(e.to_string()))
-    }
-
-    fn create_delegated(
-        &self,
-        config: ProviderConfig,
-        athlete_id: &str,
-    ) -> AppResult<Box<dyn FitnessProvider>> {
-        let athlete =
-            AthleteId::from_str(athlete_id).map_err(|e| AppError::invalid_input(e.to_string()))?;
-        Ok(Box::new(SciotteProvider::delegated(
-            config,
-            athlete,
-            self.client.clone(),
-        )))
-    }
-}
-
-/// Factory for COROS Training Hub — Sciotte provider
-pub struct SciotteCorosProviderFactory {
-    client: Option<SciotteClient>,
-}
-
-impl SciotteCorosProviderFactory {
-    /// A factory whose providers call the scraper service through `client`.
-    #[must_use]
-    pub const fn new(client: Option<SciotteClient>) -> Self {
-        Self { client }
-    }
-}
-
-impl ProviderFactory for SciotteCorosProviderFactory {
-    fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>> {
-        Ok(Box::new(SciotteProvider::new(
-            config,
-            SciotteTarget::Coros,
-            self.client.clone(),
-        )))
-    }
-
-    fn supported_providers(&self) -> &'static [&'static str] {
-        &["sciotte_coros"]
     }
 }
 

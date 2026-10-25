@@ -19,6 +19,7 @@ use pierre_core::models::{
 use pierre_database::repositories::UserToolOverrideRepository;
 use pierre_database::{AuthRepos, RepositoryRegistry, UsageRepos};
 use std::collections::HashMap;
+use std::fmt;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -62,6 +63,15 @@ pub struct ToolSelectionService {
     cache_ttl: Duration,
     /// Global tool selection configuration from environment
     config: ToolSelectionConfig,
+}
+
+impl fmt::Debug for ToolSelectionService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ToolSelectionService")
+            .field("cache_ttl", &self.cache_ttl)
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ToolSelectionService {

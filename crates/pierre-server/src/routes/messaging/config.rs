@@ -28,7 +28,7 @@ use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
 /// Request body for upserting a channel configuration
 #[derive(Debug, Deserialize)]
-pub struct UpsertChannelConfigBody {
+pub(super) struct UpsertChannelConfigBody {
     /// Whether this channel is enabled for the tenant
     pub enabled: bool,
     /// Channel-specific credentials (API key, bot token, signing secret, etc.)
@@ -39,7 +39,7 @@ pub struct UpsertChannelConfigBody {
 
 /// Response body for a channel configuration
 #[derive(Debug, Serialize)]
-pub struct ChannelConfigResponse {
+pub(super) struct ChannelConfigResponse {
     /// Channel type identifier
     pub channel: String,
     /// Whether this channel is enabled
@@ -105,7 +105,7 @@ async fn require_tenant_owner_or_admin(
 }
 
 /// List all channel configurations for the authenticated tenant
-pub async fn list_channel_configs(
+pub(super) async fn list_channel_configs(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
@@ -127,7 +127,7 @@ pub async fn list_channel_configs(
 /// A messaging channel the tenant has configured and a user can connect to — with
 /// no credentials exposed. Backs the onboarding channel-picker (step 3).
 #[derive(Debug, Serialize)]
-pub struct AvailableChannel {
+pub(super) struct AvailableChannel {
     /// Channel id (`telegram`, `whatsapp`, `slack`, `discord`, `messenger`).
     pub channel: String,
     /// User-facing name.
@@ -164,7 +164,7 @@ const ALL_CHANNELS: [ChannelType; 5] = [
 ///
 /// Returns `AppError` when authentication fails, no tenant can be resolved, or a
 /// channel-config read errors.
-pub async fn list_available_channels(
+pub(super) async fn list_available_channels(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
@@ -220,7 +220,7 @@ pub async fn list_available_channels(
 }
 
 /// Get a specific channel configuration
-pub async fn get_channel_config(
+pub(super) async fn get_channel_config(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
@@ -246,7 +246,7 @@ pub async fn get_channel_config(
 }
 
 /// Create or update a channel configuration
-pub async fn upsert_channel_config(
+pub(super) async fn upsert_channel_config(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
@@ -361,7 +361,7 @@ pub async fn upsert_channel_config(
 }
 
 /// Delete a channel configuration
-pub async fn delete_channel_config(
+pub(super) async fn delete_channel_config(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,

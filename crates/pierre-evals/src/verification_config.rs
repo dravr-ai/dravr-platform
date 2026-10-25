@@ -268,6 +268,7 @@ pub trait ContradictionPolicy: Send + Sync {
 }
 
 /// Default policy: defer to the agent's existing [`VerificationFallback`].
+#[derive(Debug)]
 pub struct InheritConfigPolicy;
 
 impl ContradictionPolicy for InheritConfigPolicy {
@@ -285,6 +286,7 @@ impl ContradictionPolicy for InheritConfigPolicy {
 
 /// Record-only policy: the verdict reaches the admin trail and the human coach,
 /// never the athlete.
+#[derive(Debug)]
 pub struct AuditOnlyPolicy;
 
 impl ContradictionPolicy for AuditOnlyPolicy {
@@ -298,6 +300,7 @@ impl ContradictionPolicy for AuditOnlyPolicy {
 }
 
 /// User-facing policy: always append a warning banner for a non-supported verdict.
+#[derive(Debug)]
 pub struct UserWarnPolicy;
 
 impl ContradictionPolicy for UserWarnPolicy {

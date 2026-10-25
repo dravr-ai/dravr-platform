@@ -21,20 +21,17 @@
 //! - `ShowAgentTool` - Show a hidden agent
 //! - `ListHiddenAgentsTool` - List hidden agents
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::agents_audience::{activate_visible_agent, visible_to_caller};
+use super::agents_audience::visible_to_caller;
 use super::agents_output::{
-    activate_agent_payload, active_agent_payload, create_agent_payload, get_agent_payload,
-    list_agents_payload, list_hidden_agents_payload, search_agents_payload, update_agent_payload,
-    ActivateAgentResult, CreateAgentResult, DeactivateAgentResult, DeleteAgentResult,
-    GetActiveAgentResult, GetAgentResult, HideAgentResult, ListAgentsResult,
-    ListHiddenAgentsResult, SearchAgentsResult, ShowAgentResult, ToggleAgentFavoriteResult,
-    UpdateAgentResult,
+    create_agent_payload, get_agent_payload, list_agents_payload, search_agents_payload,
+    update_agent_payload, CreateAgentResult, DeleteAgentResult, GetAgentResult, ListAgentsResult,
+    SearchAgentsResult, ToggleAgentFavoriteResult, UpdateAgentResult,
 };
 use super::agents_tool_shape::{
     category_property, destructive_annotations, extract_format, read_only_annotations,
@@ -42,8 +39,8 @@ use super::agents_tool_shape::{
 };
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
-    answers_with, apply_format, format_property, object_schema, object_schema_with_format,
-    ok_typed, tool_definition, tool_result_to_response, Formatted,
+    answers_with, apply_format, object_schema, object_schema_with_format, ok_typed,
+    tool_definition, tool_result_to_response, Formatted,
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -55,14 +52,23 @@ use pierre_core::models::agents::{
     AgentCategory, CreateAgentRequest, ListAgentsFilter, UpdateAgentRequest,
 };
 use pierre_core::models::TenantId;
-use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// Activate / deactivate / get-active agent tools.
+mod activation;
+/// Hide / show / list-hidden agent tools.
+mod visibility;
+
+pub use activation::{ActivateAgentTool, DeactivateAgentTool, GetActiveAgentTool};
+pub use visibility::{HideAgentTool, ListHiddenAgentsTool, ShowAgentTool};
 
 // ============================================================================
 // ListAgentsTool
 // ============================================================================
 
 /// Tool for listing available AI agents.
+#[derive(Debug)]
 pub struct ListAgentsTool;
 
 #[async_trait]
@@ -200,6 +206,7 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
 // ============================================================================
 
 /// Tool for creating a custom AI agent.
+#[derive(Debug)]
 pub struct CreateAgentTool;
 
 #[async_trait]
@@ -348,6 +355,7 @@ impl McpTool<dyn ToolRuntime> for CreateAgentTool {
 // ============================================================================
 
 /// Tool for getting agent details.
+#[derive(Debug)]
 pub struct GetAgentTool;
 
 #[async_trait]
@@ -418,6 +426,7 @@ impl McpTool<dyn ToolRuntime> for GetAgentTool {
 // ============================================================================
 
 /// Tool for updating agent settings.
+#[derive(Debug)]
 pub struct UpdateAgentTool;
 
 #[async_trait]
@@ -566,6 +575,7 @@ impl McpTool<dyn ToolRuntime> for UpdateAgentTool {
 // ============================================================================
 
 /// Tool for deleting an agent.
+#[derive(Debug)]
 pub struct DeleteAgentTool;
 
 #[async_trait]
@@ -640,6 +650,7 @@ impl McpTool<dyn ToolRuntime> for DeleteAgentTool {
 // ============================================================================
 
 /// Tool for toggling agent favorite status.
+#[derive(Debug)]
 pub struct ToggleAgentFavoriteTool;
 
 #[async_trait]
@@ -717,6 +728,7 @@ impl McpTool<dyn ToolRuntime> for ToggleAgentFavoriteTool {
 // ============================================================================
 
 /// Tool for searching agents.
+#[derive(Debug)]
 pub struct SearchAgentsTool;
 
 #[async_trait]
@@ -807,378 +819,6 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
 
             let payload = search_agents_payload(query, &agents, offset, limit);
             ok_typed("search_agents", apply_format(payload, format))
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// ActivateAgentTool
-// ============================================================================
-
-/// Tool for activating an agent.
-pub struct ActivateAgentTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for ActivateAgentTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "agent_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("ID of the agent to activate".to_owned()),
-                ..Default::default()
-            },
-        );
-        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
-
-        answers_with::<ActivateAgentResult>(tool_definition(
-            "activate_agent",
-            "Activate an agent for personalized training guidance",
-            schema,
-            Some(write_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let ctx = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
-
-            let agent_id = args
-                .get("agent_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
-
-            let agent = activate_visible_agent(&ctx, agent_id, tenant_id)
-                .await
-                .map_err(|e| AppError::internal(format!("Failed to activate coach: {e}")))?;
-
-            agent.map_or_else(
-                || {
-                    Ok(ToolResult::error(json!({
-                        "error": format!("Agent not found: {agent_id}"),
-                    })))
-                },
-                |c| ok_typed("activate_agent", activate_agent_payload(&c)),
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// DeactivateAgentTool
-// ============================================================================
-
-/// Tool for deactivating the current agent.
-pub struct DeactivateAgentTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for DeactivateAgentTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(BTreeMap::new()),
-            required: None,
-            ..Default::default()
-        };
-
-        answers_with::<DeactivateAgentResult>(tool_definition(
-            "deactivate_agent",
-            "Deactivate the current agent and return to default AI guidance",
-            schema,
-            Some(write_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        _args: Value,
-    ) -> ToolResponse {
-        let ctx = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let user_id = ctx.user_id;
-            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
-
-            let manager = ctx.resources.agents_manager();
-            let deactivated = manager
-                .deactivate_agent(user_id, tenant_id)
-                .await
-                .map_err(|e| AppError::internal(format!("Failed to deactivate coach: {e}")))?;
-
-            ok_typed("deactivate_agent", DeactivateAgentResult { deactivated })
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// GetActiveAgentTool
-// ============================================================================
-
-/// Tool for getting the currently active agent.
-pub struct GetActiveAgentTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for GetActiveAgentTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(BTreeMap::from([("format".to_owned(), format_property())])),
-            required: None,
-            ..Default::default()
-        };
-
-        answers_with::<Formatted<GetActiveAgentResult>>(tool_definition(
-            "get_active_agent",
-            "Get the currently active agent",
-            schema,
-            Some(read_only_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let ctx = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let format = extract_format(&args);
-            let user_id = ctx.user_id;
-            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
-
-            let manager = ctx.resources.agents_manager();
-            let agent = manager
-                .get_active_agent(user_id, tenant_id)
-                .await
-                .map_err(|e| AppError::internal(format!("Failed to get active coach: {e}")))?;
-
-            let payload = active_agent_payload(agent.as_ref());
-            ok_typed("get_active_agent", apply_format(payload, format))
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// HideAgentTool
-// ============================================================================
-
-/// Tool for hiding an agent from listings.
-pub struct HideAgentTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for HideAgentTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "agent_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("ID of the agent to hide".to_owned()),
-                ..Default::default()
-            },
-        );
-        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
-
-        answers_with::<HideAgentResult>(tool_definition(
-            "hide_agent",
-            "Hide an agent from listings",
-            schema,
-            Some(write_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let ctx = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-        let user_id = ctx.user_id;
-
-        let agent_id = args
-            .get("agent_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
-
-        let manager = ctx.resources.agents_manager();
-        let success = manager
-            .hide_agent(agent_id, user_id, TenantId::from_uuid(ctx.require_tenant()?))
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to hide coach: {e}")))?;
-
-        if success {
-            ok_typed(
-                "hide_agent",
-                HideAgentResult {
-                    agent_id: agent_id.to_owned(),
-                    is_hidden: true,
-                },
-            )
-        } else {
-            Ok(ToolResult::error(json!({
-                "error": "Agent cannot be hidden (only system or assigned agents can be hidden)",
-                "agent_id": agent_id,
-                "is_hidden": false,
-            })))
-        }
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// ShowAgentTool
-// ============================================================================
-
-/// Tool for showing a hidden agent.
-pub struct ShowAgentTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for ShowAgentTool {
-    fn definition(&self) -> Tool {
-        let mut properties = HashMap::new();
-        properties.insert(
-            "agent_id".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some("ID of the agent to show".to_owned()),
-                ..Default::default()
-            },
-        );
-        let schema = object_schema(properties, Some(vec!["agent_id".to_owned()]));
-
-        answers_with::<ShowAgentResult>(tool_definition(
-            "show_agent",
-            "Show a previously hidden agent",
-            schema,
-            Some(write_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let ctx = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            ctx.require_tenant()?; // A gate, not a key — see `AgentsRepository::show_agent`.
-
-            let agent_id = args
-                .get("agent_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| AppError::invalid_input("Missing required parameter: agent_id"))?;
-
-            let manager = ctx.resources.agents_manager();
-            let success = manager
-                .show_agent(agent_id, ctx.user_id)
-                .await
-                .map_err(|e| AppError::internal(format!("Failed to show coach: {e}")))?;
-
-            ok_typed(
-                "show_agent",
-                ShowAgentResult {
-                    agent_id: agent_id.to_owned(),
-                    is_hidden: false,
-                    removed_preference: success,
-                },
-            )
-        }
-        .await;
-        tool_result_to_response(result)
-    }
-}
-
-// ============================================================================
-// ListHiddenAgentsTool
-// ============================================================================
-
-/// Tool for listing hidden agents.
-pub struct ListHiddenAgentsTool;
-
-#[async_trait]
-impl McpTool<dyn ToolRuntime> for ListHiddenAgentsTool {
-    fn definition(&self) -> Tool {
-        let schema = JsonSchema {
-            schema_type: "object".to_owned(),
-            properties: Some(BTreeMap::from([("format".to_owned(), format_property())])),
-            required: None,
-            ..Default::default()
-        };
-
-        answers_with::<Formatted<ListHiddenAgentsResult>>(tool_definition(
-            "list_hidden_agents",
-            "List all hidden agents",
-            schema,
-            Some(read_only_annotations()),
-        ))
-    }
-
-    fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
-    }
-
-    async fn execute(
-        &self,
-        state: &Arc<dyn ToolRuntime>,
-        ctx: &ToolContext,
-        args: Value,
-    ) -> ToolResponse {
-        let ctx = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async move {
-            let format = extract_format(&args);
-            let user_id = ctx.user_id;
-            let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
-
-            let manager = ctx.resources.agents_manager();
-            let agents = manager
-                .list_hidden_agents(user_id, tenant_id)
-                .await
-                .map_err(|e| AppError::internal(format!("Failed to list hidden coaches: {e}")))?;
-
-            let payload = list_hidden_agents_payload(&agents);
-            ok_typed("list_hidden_agents", apply_format(payload, format))
         }
         .await;
         tool_result_to_response(result)

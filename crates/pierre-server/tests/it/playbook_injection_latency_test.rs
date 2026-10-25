@@ -30,6 +30,7 @@
 
 use pierre_core::transport::TransportPolicy;
 use std::collections::HashSet;
+use std::hint::black_box;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -151,8 +152,8 @@ async fn time_one_injection(
     phase.priors += t.elapsed();
 
     let t = Instant::now();
-    let _ = render_archetype_block(&priors, &playbooks);
-    let _ = block;
+    // Keep the rendered blocks alive so the timing covers the real work.
+    black_box((render_archetype_block(&priors, &playbooks), block));
     phase.render += t.elapsed();
 }
 
@@ -347,7 +348,7 @@ async fn real_inject_playbooks_latency() {
     let mut cold = Duration::ZERO;
     for _ in 0..iters {
         let t = Instant::now();
-        let _ = inject_playbooks(
+        let prompt = inject_playbooks(
             repos.playbooks.as_ref(),
             repos.activity_cache.as_ref(),
             &t_str,
@@ -357,6 +358,7 @@ async fn real_inject_playbooks_latency() {
         )
         .await;
         cold += t.elapsed();
+        assert!(prompt.starts_with("base-prompt"), "the base prompt leads");
     }
 
     // Established: has playbooks (skips the cold-start activity read).
@@ -369,7 +371,7 @@ async fn real_inject_playbooks_latency() {
     let mut established = Duration::ZERO;
     for _ in 0..iters {
         let t = Instant::now();
-        let _ = inject_playbooks(
+        let prompt = inject_playbooks(
             repos_b.playbooks.as_ref(),
             repos_b.activity_cache.as_ref(),
             &tb,
@@ -379,6 +381,7 @@ async fn real_inject_playbooks_latency() {
         )
         .await;
         established += t.elapsed();
+        assert!(prompt.starts_with("base-prompt"), "the base prompt leads");
     }
 
     eprintln!("\n── REAL inject_playbooks (SQLite in-memory, avg over {iters} iters) ──");

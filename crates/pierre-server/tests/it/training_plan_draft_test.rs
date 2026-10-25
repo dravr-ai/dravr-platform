@@ -209,7 +209,7 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
     conversation: Option<&str>,
     args: Value,
 ) -> Value {
-    let runtime: Arc<dyn ToolRuntime> = Arc::clone(res) as Arc<dyn ToolRuntime>;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(res);
     let ctx = tool_context(who);
     CONVERSATION_ID
         .scope(conversation.map(ToOwned::to_owned), async {
@@ -357,8 +357,7 @@ impl Fixture {
             channel_type: "telegram".to_owned(),
             args: vec![],
             raw_text: "/plan".to_owned(),
-            ctx: Arc::<ServerContext>::clone(&self.res)
-                as Arc<dyn pierre_runtime_context::CommandCtx>,
+            ctx: Arc::<ServerContext>::clone(&self.res),
             locale: "en".to_owned(),
             is_direct_message: true,
             ambient_group_fallback: true,

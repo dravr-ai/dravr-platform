@@ -46,9 +46,11 @@ use crate::agent_create::{create_from_claimed_proposal, AGENT_PROPOSAL_ACTION};
 use crate::{CommandHandler, PlatformCommandContext};
 
 /// Handler for `/confirm <id>` — approve and execute a parked action.
+#[derive(Debug)]
 pub struct ConfirmHandler;
 
 /// Handler for `/deny <id>` — cancel a parked action.
+#[derive(Debug)]
 pub struct DenyHandler;
 
 #[async_trait]

@@ -310,7 +310,7 @@ pub struct AppError {
     pub request_id: Option<String>,
     /// Optional structured details for client consumption (e.g., quota limit info).
     /// Boxed to keep `AppError` within clippy's `result_large_err` threshold.
-    pub details: Option<Box<serde_json::Value>>,
+    pub details: Option<Box<Value>>,
 }
 
 impl AppError {
@@ -410,7 +410,7 @@ impl AppError {
     }
 }
 
-impl fmt::Display for AppError {
+impl Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.code.description(), self.message)
     }
@@ -456,7 +456,7 @@ pub struct ErrorResponse {
     pub request_id: Option<String>,
     /// Structured error details for programmatic consumption (e.g., quota info)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
+    pub details: Option<Value>,
     /// RFC3339 timestamp when the error occurred
     pub timestamp: String,
 }

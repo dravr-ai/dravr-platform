@@ -51,7 +51,7 @@ fn cache_page_len() -> usize {
 /// finished in between. Backpressure lives on the dedicated service (ADR-021
 /// Phase 4 cutover); the registry keeps this platform from pressing one
 /// session with several reads at once.
-pub fn spawn_activity_prefetch(
+pub(crate) fn spawn_activity_prefetch(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -78,7 +78,7 @@ pub fn spawn_activity_prefetch(
 
 /// Register the pre-fetch of `user_id`'s `provider_name` connection, or `None`
 /// (logged) when one is already in flight.
-pub fn begin_prefetch(
+pub(crate) fn begin_prefetch(
     user_id: Uuid,
     tenant_id: Uuid,
     provider_name: &str,
@@ -97,7 +97,7 @@ pub fn begin_prefetch(
 
 /// The pre-fetch of `user_id`'s `provider_name` connection still running, to
 /// wait on; `None` when none is.
-pub fn prefetch_in_flight(
+pub(crate) fn prefetch_in_flight(
     user_id: Uuid,
     tenant_id: Uuid,
     provider_name: &str,
@@ -107,7 +107,7 @@ pub fn prefetch_in_flight(
 }
 
 /// The connection a pre-fetch reads, and the session it reads through.
-pub struct PrefetchTarget {
+pub(crate) struct PrefetchTarget {
     /// The athlete.
     pub user_id: Uuid,
     /// The tenant the connection lives in.
@@ -122,7 +122,7 @@ pub struct PrefetchTarget {
 /// session signed in to, then publish them on `ticket` to every reader
 /// waiting on the pre-fetch. Every failure is logged: the cache is only
 /// warmed, and a waiting reader then reads live.
-pub async fn prefetch_activities(
+pub(crate) async fn prefetch_activities(
     registry: Arc<ProviderRegistry>,
     cache: Arc<Cache>,
     target: PrefetchTarget,

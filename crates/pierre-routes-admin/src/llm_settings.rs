@@ -168,6 +168,7 @@ pub fn base_url_allowed(base_url: &str, allowlist: &[String]) -> bool {
 }
 
 /// LLM settings routes container
+#[derive(Debug)]
 pub struct LlmSettingsRoutes;
 
 impl LlmSettingsRoutes {

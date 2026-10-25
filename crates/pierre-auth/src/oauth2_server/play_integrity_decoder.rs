@@ -23,6 +23,7 @@
 //! ([`DecodeError::Unavailable`], treated as absent evidence). Neither the
 //! token nor Google's error body is ever logged.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -78,6 +79,15 @@ pub struct GooglePlayIntegrityDecoder {
     /// because the trait object is handed in by the caller, which may keep
     /// its own handle (a test reads what its provider was asked)
     token_provider: Arc<dyn TokenProvider>,
+}
+
+impl fmt::Debug for GooglePlayIntegrityDecoder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GooglePlayIntegrityDecoder")
+            .field("api_url", &self.api_url)
+            .field("package_name", &self.package_name)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Deserialize)]

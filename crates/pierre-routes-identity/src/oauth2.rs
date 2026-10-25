@@ -43,6 +43,7 @@ use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use pierre_services::auth::AuthService;
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
+use std::fmt;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::task::spawn_blocking;
 use tracing::{debug, error, info, trace, warn};
@@ -124,7 +125,25 @@ pub struct OAuth2Context {
     pub strings: Arc<MessagingStringsRegistry>,
 }
 
+impl fmt::Debug for OAuth2Context {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2Context")
+            .field("database", &self.database)
+            .field("auth_manager", &self.auth_manager)
+            .field("jwks_manager", &self.jwks_manager)
+            .field("config", &self.config)
+            .field("rate_limiter", &self.rate_limiter)
+            .field("refresh_token_expiry_days", &self.refresh_token_expiry_days)
+            .field("csrf_manager", &self.csrf_manager)
+            .field("accounts", &self.accounts)
+            .field("google_sign_in", &self.google_sign_in)
+            .field("strings", &self.strings)
+            .finish_non_exhaustive()
+    }
+}
+
 /// OAuth 2.0 routes implementation
+#[derive(Debug)]
 pub struct OAuth2Routes;
 
 impl OAuth2Routes {

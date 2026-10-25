@@ -18,6 +18,7 @@ use serde_json::Value;
 use tracing::debug;
 
 /// Protocol converter for translating between protocol formats
+#[derive(Debug)]
 pub struct ProtocolConverter;
 
 impl ProtocolConverter {

@@ -38,6 +38,7 @@ pub struct UsageQuery {
 }
 
 /// API key management routes
+#[derive(Debug)]
 pub struct ApiKeyRoutes;
 
 impl ApiKeyRoutes {

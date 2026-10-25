@@ -27,6 +27,7 @@
 //! applying — the same shape as a filter that no-ops on the path nobody
 //! exercises.
 
+use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -121,6 +122,20 @@ pub struct TurnToolSurface {
     /// (carnet#1070) — are left out of the listing, and the executor this
     /// surface calls through refuses them as well.
     seat: TurnSeat,
+}
+
+impl fmt::Debug for TurnToolSurface {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TurnToolSurface")
+            .field("tool_registry", &self.tool_registry)
+            .field("executor", &self.executor)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("budget", &self.budget)
+            .field("calls", &self.calls)
+            .field("seat", &self.seat)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TurnToolSurface {
@@ -336,6 +351,15 @@ pub struct HostedToolBridge {
     tool_registry: Arc<ToolRegistry>,
     repos: Arc<RepositoryRegistry>,
     tool_runtime: Arc<dyn ToolRuntime>,
+}
+
+impl fmt::Debug for HostedToolBridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostedToolBridge")
+            .field("enabled", &self.enabled)
+            .field("tool_registry", &self.tool_registry)
+            .finish_non_exhaustive()
+    }
 }
 
 impl HostedToolBridge {

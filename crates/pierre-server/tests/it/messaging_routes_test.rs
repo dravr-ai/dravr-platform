@@ -76,10 +76,8 @@ mod messaging_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();
-        assert_eq!(
-            body["channels"].as_array().unwrap().as_slice(),
-            [] as [serde_json::Value; 0]
-        );
+        let got = body["channels"].as_array().unwrap();
+        assert!(got.is_empty(), "expected empty, got {got:?}");
     }
 
     #[tokio::test]

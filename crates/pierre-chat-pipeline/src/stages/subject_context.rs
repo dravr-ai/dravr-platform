@@ -10,6 +10,8 @@
 //! decision that the sender is not the subject (the coach's seat, see
 //! [`super::group_subject`]) skips them together rather than stage by stage.
 
+use std::fmt;
+
 use pierre_services::memory_facts::SentenceRenderer;
 use uuid::Uuid;
 
@@ -37,6 +39,19 @@ pub struct SubjectContextInputs<'a> {
     pub user_timezone: Option<&'a str>,
 }
 
+// The turn carries the athlete's message: only its id prints.
+impl fmt::Debug for SubjectContextInputs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SubjectContextInputs")
+            .field("turn_id", &self.input.turn_id)
+            .field("profile", &self.profile)
+            .field("user_uuid", &self.user_uuid)
+            .field("turn_agent_id", &self.turn_agent_id)
+            .field("user_timezone", &self.user_timezone)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The subject's own athlete context, as [`inject_subject_context`] built it.
 pub struct SubjectContext {
     /// The system prompt with the subject's blocks appended.
@@ -46,6 +61,17 @@ pub struct SubjectContext {
     /// The provider freshness hint, sent with the turn clock rather than in
     /// the cached prompt (see [`super::refresh`]).
     pub freshness_hint: Option<String>,
+}
+
+// The prompt holds the athlete's facts, notes and plan: only its length prints.
+impl fmt::Debug for SubjectContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SubjectContext")
+            .field("prompt_len", &self.prompt.len())
+            .field("pending_followup_ids", &self.pending_followup_ids)
+            .field("freshness_hint", &self.freshness_hint)
+            .finish()
+    }
 }
 
 /// Append the subject's own athlete context to `base_prompt`.

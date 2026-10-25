@@ -112,12 +112,10 @@ mod strava_seat_reclaim_tests {
                     {
                         return;
                     }
-                    let _ = stream
-                        .write_all(
-                            b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-                        )
-                        .await;
-                    let _ = stream.shutdown().await;
+                    let ok = b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+                    // The client may hang up first; the test checks what it received.
+                    drop(stream.write_all(ok).await);
+                    drop(stream.shutdown().await);
                 }
             });
             Self { url, requests: rx }
@@ -187,7 +185,7 @@ mod strava_seat_reclaim_tests {
                 NotificationService::from_postgres(db.pool().clone(), TaskTracker::new())
             }
         }
-        .with_channel_sink(Arc::clone(&channel) as Arc<dyn NotificationChannelSink>)
+        .with_channel_sink(Arc::<LinkedChannel>::clone(&channel))
         .with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
             Arc::clone(&resources.common.repos),
             Arc::clone(&resources.fitness.persona_contract_registry),
@@ -708,7 +706,11 @@ mod strava_seat_reclaim_tests {
         assert_eq!(action_of(&pass, first), Some(ReclaimAction::AwaitLead));
         assert_eq!(warned_users(&pass), vec![second.user_id]);
         assert_eq!(pass.reclaimed, []);
-        assert_eq!(stub.received(), [] as [String; 0]);
+        assert!(
+            stub.received().is_empty(),
+            "expected empty, got {:?}",
+            stub.received()
+        );
         assert_eq!(
             notifications_of(&resources, first).await.len(),
             1,
@@ -820,7 +822,11 @@ mod strava_seat_reclaim_tests {
         for kept in [returning, back_for_good] {
             assert!(holds_strava_token(&resources, kept).await);
         }
-        assert_eq!(stub.received(), [] as [String; 0]);
+        assert!(
+            stub.received().is_empty(),
+            "expected empty, got {:?}",
+            stub.received()
+        );
     }
 
     /// An athlete who uses Dravr only from an MCP client — a connector's
@@ -1110,7 +1116,11 @@ mod strava_seat_reclaim_tests {
             Some((stale_at.timestamp_millis(), true))
         );
         assert_eq!(notifications_of(&resources, reconnected).await.len(), 3);
-        assert_eq!(stub.received(), [] as [String; 0]);
+        assert!(
+            stub.received().is_empty(),
+            "expected empty, got {:?}",
+            stub.received()
+        );
     }
 
     /// Activity is read again right before each disconnect. An athlete who
@@ -1328,7 +1338,11 @@ mod strava_seat_reclaim_tests {
         assert_eq!(action_of(&pass, web_only), Some(ReclaimAction::Unreached));
         assert_eq!(action_of(&pass, next), Some(ReclaimAction::Unreached));
         assert_eq!(pass.reclaimed, []);
-        assert_eq!(stub.received(), [] as [String; 0]);
+        assert!(
+            stub.received().is_empty(),
+            "expected empty, got {:?}",
+            stub.received()
+        );
         assert!(holds_strava_token(&resources, web_only).await);
         assert_eq!(
             notifications_of(&resources, web_only).await.len(),
@@ -1377,7 +1391,11 @@ mod strava_seat_reclaim_tests {
         assert!(warning_of(&resources, muted).await.is_none());
         assert!(notifications_of(&resources, muted).await.is_empty());
         assert_eq!(channel.lock_sent(), []);
-        assert_eq!(stub.received(), [] as [String; 0]);
+        assert!(
+            stub.received().is_empty(),
+            "expected empty, got {:?}",
+            stub.received()
+        );
 
         notifications
             .upsert_notification_preference(&preference(true))

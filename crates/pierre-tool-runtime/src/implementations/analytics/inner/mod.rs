@@ -25,19 +25,22 @@ mod training_load;
 /// Performance trend analysis handler
 mod trends;
 
-pub use activity::handle_get_activity_intelligence;
-pub use activity::process_activity_analysis;
-pub use compare::handle_compare_activities;
+pub(crate) use activity::handle_get_activity_intelligence;
+pub(crate) use activity::process_activity_analysis;
+pub(crate) use compare::handle_compare_activities;
 pub use fitness_score::calculate_fitness_metrics;
-pub use fitness_score::handle_calculate_fitness_score;
-pub use metrics::handle_calculate_metrics;
-pub use patterns::handle_detect_patterns;
-pub use performance::handle_predict_performance;
-pub use recommendations::{
-    generate_training_recommendations, handle_generate_recommendations, recovery_actions_for,
-};
+pub(crate) use fitness_score::handle_calculate_fitness_score;
+pub(crate) use metrics::handle_calculate_metrics;
+pub(crate) use patterns::handle_detect_patterns;
+pub(crate) use performance::handle_predict_performance;
+// One name per line: the crate re-exports some of these and keeps others
+// crate-private, and a grouped `use` can carry only one visibility.
+pub use recommendations::generate_training_recommendations;
+pub(crate) use recommendations::handle_generate_recommendations;
+pub use recommendations::recovery_actions_for;
 pub use recommendations_nutrition::{
     generate_nutrition_recommendations, load_nutrition_athlete, NutritionAthlete,
 };
-pub use training_load::{analyze_detailed_training_load, handle_analyze_training_load};
-pub use trends::handle_analyze_performance_trends;
+pub use training_load::analyze_detailed_training_load;
+pub(crate) use training_load::handle_analyze_training_load;
+pub(crate) use trends::handle_analyze_performance_trends;

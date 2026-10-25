@@ -112,8 +112,10 @@ mod tests {
 
     #[test]
     fn satellite_resources_are_trimmed_deduplicated_and_kept_in_order() {
-        assert_eq!(resolve_satellite_resources(None), [] as [String; 0]);
-        assert_eq!(resolve_satellite_resources(Some(" , ")), [] as [String; 0]);
+        let got = resolve_satellite_resources(None);
+        assert!(got.is_empty(), "expected empty, got {got:?}");
+        let got = resolve_satellite_resources(Some(" , "));
+        assert!(got.is_empty(), "expected empty, got {got:?}");
         assert_eq!(
             resolve_satellite_resources(Some(
                 " https://commere.dravr.ai/mcp/ ,https://enforme.dravr.ai/mcp,\

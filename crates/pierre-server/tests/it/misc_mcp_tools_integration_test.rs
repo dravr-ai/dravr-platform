@@ -465,10 +465,8 @@ async fn test_recall_user_memory_empty() -> Result<()> {
     assert!(resp.success, "recall should succeed: {:?}", resp.error);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 0);
-    assert_eq!(
-        result["facts"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let found = result["facts"].as_array().unwrap();
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     Ok(())
 }
 

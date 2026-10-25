@@ -53,14 +53,14 @@ use tracing::{error, info, warn};
 /// `pierre-cli check-drift <domain>` subcommand.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum DriftCommand {
+pub(crate) enum DriftCommand {
     /// Compare contremaitre agent files to the `agents` table.
     Agents(AgentsArgs),
 }
 
 /// CLI arguments for `pierre-cli check-drift agents`.
 #[derive(clap::Args)]
-pub struct AgentsArgs {
+pub(crate) struct AgentsArgs {
     /// Path to the cloned contremaitre `prompts/agents` tree.
     ///
     /// Set via the flag or `$PIERRE_AGENTS_DIR`. The Cloud Run drift-check
@@ -75,7 +75,7 @@ pub struct AgentsArgs {
 /// Returns a non-zero exit (via `AppError`) when drift is detected — the
 /// Cloud Run Job failure log-based metric picks it up and the
 /// `dravr-mcp-server-job-failures` alert policy fires.
-pub async fn dispatch(action: DriftCommand, database_url: &str) -> AppResult<()> {
+pub(crate) async fn dispatch(action: DriftCommand, database_url: &str) -> AppResult<()> {
     match action {
         DriftCommand::Agents(args) => run_agents(args, database_url).await,
     }

@@ -20,6 +20,7 @@
 //! carries this sign-in's nonce.
 
 use secrecy::ExposeSecret;
+use std::fmt;
 use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -81,6 +82,16 @@ pub struct GoogleSignInStart {
     pub authorization_url: String,
 }
 
+impl fmt::Debug for GoogleSignInStart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GoogleSignInStart")
+            .field("state", &"[REDACTED]")
+            .field("nonce", &"[REDACTED]")
+            .field("code_verifier", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
 /// The Google account an ID token proved.
 #[derive(Debug, Clone)]
 pub struct GoogleIdentity {
@@ -123,6 +134,14 @@ pub struct GoogleOidcClient {
     config: GoogleSignInConfig,
     /// Google's ID-token signing keys, cached across sign-ins
     keys: GoogleKeySet,
+}
+
+impl fmt::Debug for GoogleOidcClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GoogleOidcClient")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl GoogleOidcClient {

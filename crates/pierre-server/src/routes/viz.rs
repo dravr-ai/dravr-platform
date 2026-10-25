@@ -291,6 +291,7 @@ async fn load_block(
 }
 
 /// Routes for chart images.
+#[derive(Debug)]
 pub struct VizRoutes;
 
 impl VizRoutes {

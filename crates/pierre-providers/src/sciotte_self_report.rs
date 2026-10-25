@@ -30,7 +30,7 @@ use crate::trainingpeaks_self_report::{feel_from_trainingpeaks, rpe_from_trainin
 /// - Strava states only the exertion, as the slider's band label ("Hard") or
 ///   its number; a band becomes its midpoint: `strava_self_report`. A feel
 ///   rank on a Strava row is no Strava rating and is ignored.
-pub fn self_report(
+pub(crate) fn self_report(
     sciotte: &SciotteActivity,
     target: SciotteTarget,
 ) -> (Option<f32>, Option<Feel>) {

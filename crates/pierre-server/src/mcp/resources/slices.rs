@@ -109,6 +109,7 @@ use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 #[cfg(feature = "client-messaging")]
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
 use std::sync::OnceLock;
@@ -190,6 +191,25 @@ pub struct CommonSlice {
     pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
 }
 
+impl fmt::Debug for CommonSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("CommonSlice");
+        d.field("turns", &self.turns)
+            .field("turn_runner", &self.turn_runner)
+            .field("photograveur", &self.photograveur)
+            .field("config", &self.config)
+            .field("redaction_config", &self.redaction_config)
+            .field("chat_provider", &self.chat_provider)
+            .field("pruning_abort_handle", &self.pruning_abort_handle);
+        #[cfg(feature = "client-notifications")]
+        d.field("scheduler_abort_handle", &self.scheduler_abort_handle);
+        #[cfg(feature = "client-messaging")]
+        d.field("command_registry", &self.command_registry)
+            .field("command_arg_specs", &self.command_arg_specs);
+        d.finish_non_exhaustive()
+    }
+}
+
 /// Authentication and authorization subsystem.
 ///
 /// Holds auth manager, JWKS, auth middleware, CSRF, Firebase, the `OAuth2` rate
@@ -225,6 +245,14 @@ pub struct AuthSlice {
     pub repos: AuthRepos,
 }
 
+impl fmt::Debug for AuthSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthSlice")
+            .field("admin_jwt_secret", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Agent generation context.
 ///
 /// `database` is retained for lifecycle (migrations, encryption key updates),
@@ -238,6 +266,14 @@ pub struct AgentSlice {
     pub admin_config: Option<Arc<AdminConfigService>>,
     /// Agent-domain repository view (projection of [`CommonSlice::repos`]).
     pub repos: AgentRepos,
+}
+
+impl fmt::Debug for AgentSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentSlice")
+            .field("admin_config", &self.admin_config)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Fitness data and intelligence subsystem.
@@ -268,6 +304,22 @@ pub struct FitnessSlice {
     pub repos: FitnessRepos,
 }
 
+impl fmt::Debug for FitnessSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("FitnessSlice");
+        d.field("guardian_config_registry", &self.guardian_config_registry)
+            .field("persona_contract_registry", &self.persona_contract_registry);
+        #[cfg(feature = "health-sync")]
+        d.field("sync_orchestrator", &self.sync_orchestrator)
+            .field("sync_storage", &self.sync_storage)
+            .field(
+                "sync_scheduler_abort_handle",
+                &self.sync_scheduler_abort_handle,
+            );
+        d.finish_non_exhaustive()
+    }
+}
+
 /// Push-notification transports.
 #[derive(Clone)]
 pub struct SseSlice {
@@ -276,6 +328,12 @@ pub struct SseSlice {
     pub sse_manager: Arc<SseManager>,
     /// AG-UI run registry — chat pipeline publishes per-run broadcast channels here.
     pub agui_registry: Arc<AgUiRunRegistry>,
+}
+
+impl fmt::Debug for SseSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SseSlice").finish_non_exhaustive()
+    }
 }
 
 /// Agent-to-agent protocol subsystem.
@@ -289,6 +347,12 @@ pub struct A2ASlice {
     pub a2a_system_user_service: Arc<A2ASystemUserService>,
 }
 
+impl fmt::Debug for A2ASlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("A2ASlice").finish_non_exhaustive()
+    }
+}
+
 /// Billing subsystem.
 #[derive(Clone)]
 pub struct BillingSlice {
@@ -296,6 +360,12 @@ pub struct BillingSlice {
     pub billing_provider: Arc<dyn BillingProvider>,
     /// Usage-domain repository view (projection of [`CommonSlice::repos`]).
     pub repos: UsageRepos,
+}
+
+impl fmt::Debug for BillingSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BillingSlice").finish_non_exhaustive()
+    }
 }
 
 /// MCP tool dispatch internals.
@@ -339,4 +409,13 @@ pub struct McpSlice {
     pub first_sync: pierre_routes_auth::FirstSyncSlot,
     /// Contremaitre configuration for GitHub sync and webhook verification.
     pub contremaitre_config: Option<ContremaitreConfig>,
+}
+
+impl fmt::Debug for McpSlice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpSlice")
+            .field("tool_registry", &self.tool_registry)
+            .field("tool_selection", &self.tool_selection)
+            .finish_non_exhaustive()
+    }
 }

@@ -43,7 +43,7 @@ use serde_json::json;
 use std::env;
 use std::io;
 use std::sync::{Arc, LazyLock, OnceLock};
-use tracing::info;
+use tracing::{debug, info};
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
@@ -68,7 +68,9 @@ static ANALYTICS_PROVIDER: OnceLock<Arc<dyn AnalyticsProvider>> = OnceLock::new(
 /// Call once before [`init_from_env`]. Subsequent calls are ignored (the slot
 /// is set-once), so a re-init in tests can't clobber the live provider.
 pub fn set_analytics_provider(provider: Arc<dyn AnalyticsProvider>) {
-    let _ = ANALYTICS_PROVIDER.set(provider);
+    if ANALYTICS_PROVIDER.set(provider).is_err() {
+        debug!("analytics provider already registered; keeping the first");
+    }
 }
 
 /// Process-wide [`NotifyEnricher`] for the `NotifyLayer`.
@@ -85,7 +87,9 @@ static NOTIFY_ENRICHER: OnceLock<Arc<dyn NotifyEnricher>> = OnceLock::new();
 ///
 /// Call once before [`init_from_env`]. Subsequent calls are ignored (set-once).
 pub fn set_notify_enricher(enricher: Arc<dyn NotifyEnricher>) {
-    let _ = NOTIFY_ENRICHER.set(enricher);
+    if NOTIFY_ENRICHER.set(enricher).is_err() {
+        debug!("notify enricher already registered; keeping the first");
+    }
 }
 
 /// Process-wide [`NotifyActions`] for the `NotifyLayer`.
@@ -100,7 +104,9 @@ static NOTIFY_ACTIONS: OnceLock<Arc<dyn NotifyActions>> = OnceLock::new();
 ///
 /// Call once before [`init_from_env`]. Subsequent calls are ignored (set-once).
 pub fn set_notify_actions(actions: Arc<dyn NotifyActions>) {
-    let _ = NOTIFY_ACTIONS.set(actions);
+    if NOTIFY_ACTIONS.set(actions).is_err() {
+        debug!("notify actions already registered; keeping the first");
+    }
 }
 
 /// Host identity for outbound alerts: the Cloud Run revision name when
@@ -306,7 +312,9 @@ impl LoggingConfig {
                 let tracer = handle.tracer();
                 // `set` only errors if a handle is already installed (double
                 // init); the first pipeline stays authoritative.
-                let _ = TELEMETRY_HANDLE.set(handle);
+                if TELEMETRY_HANDLE.set(handle).is_err() {
+                    debug!("telemetry handle already installed; keeping the first");
+                }
                 Some(tracer)
             }
             Ok(None) => None,

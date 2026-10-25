@@ -35,7 +35,7 @@ use crate::{ChatPipelineContext, TurnInput};
 ///
 /// Returns the error reading the thread's transport policy, or an unparsable
 /// sender id.
-pub async fn scope_history(
+pub(crate) async fn scope_history(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,

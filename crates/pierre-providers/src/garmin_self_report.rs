@@ -49,7 +49,7 @@ use crate::models::Feel;
 /// Garmin's `directWorkoutRpe`, carried as its decimal string, as a CR-10
 /// rating, or `None` when the string is not a number inside 10–100.
 #[must_use]
-pub fn rpe_from_garmin(rpe: &str) -> Option<f32> {
+pub(crate) fn rpe_from_garmin(rpe: &str) -> Option<f32> {
     let stored: f32 = rpe.trim().parse().ok()?;
     (10.0..=100.0).contains(&stored).then(|| stored / 10.0)
 }
@@ -58,7 +58,7 @@ pub fn rpe_from_garmin(rpe: &str) -> Option<f32> {
 /// the nearest of its five steps, with **100 as the best** (Very Strong). Any
 /// score past 100 maps to `None`.
 #[must_use]
-pub const fn feel_from_garmin(score: u8) -> Option<Feel> {
+pub(crate) const fn feel_from_garmin(score: u8) -> Option<Feel> {
     match score {
         0..=12 => Some(Feel::Weak),
         13..=37 => Some(Feel::Poor),

@@ -178,9 +178,7 @@ async fn empty_rows_yield_empty_breakdown() {
     assert_eq!(body["summary"]["total_invocations"], 0);
     assert_eq!(body["summary"]["unique_tools"], 0);
     assert_eq!(body["summary"]["turns_with_tools"], 0);
-    assert_eq!(
-        body["breakdown"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let got = body["breakdown"].as_array().unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(body["days"], 7);
 }

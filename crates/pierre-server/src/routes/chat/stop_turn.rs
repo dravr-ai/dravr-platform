@@ -76,7 +76,7 @@ pub struct StopTurnResponse {
 /// Returns `ResourceNotFound` when the conversation is not the caller's, and
 /// database errors when the conversation cannot be read or the notice cannot
 /// be written.
-pub async fn stop_turn(
+pub(super) async fn stop_turn(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,

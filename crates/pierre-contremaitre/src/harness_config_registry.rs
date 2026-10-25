@@ -74,6 +74,7 @@ pub struct HarnessConfigSnapshot {
 /// lock-free and return an `Arc` clone or a `Copy` value, so they are safe
 /// to call from the hot chat-turn path. Writes (`install`) are
 /// expected only on admin PUT — a couple per day at most.
+#[derive(Debug)]
 pub struct HarnessConfigRegistry {
     snapshot: ArcSwap<HarnessConfigSnapshot>,
 }

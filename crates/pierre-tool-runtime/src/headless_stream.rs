@@ -10,7 +10,7 @@ use pierre_core::errors::AppError;
 use pierre_core::prompt_fingerprint::{detect_canary_in_response, extract_canary_marker};
 use pierre_llm::ChatRequest;
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink, TurnProgress};
-use tracing::warn;
+use tracing::{trace, warn};
 
 use crate::tool_execution::{TOOL_CALL_CLOSE, TOOL_CALL_OPEN};
 
@@ -238,13 +238,14 @@ pub async fn forward_headless_stream(
                 // or the pipeline aborted) — treat as a benign no-op so the ACP
                 // session keeps draining and the run still completes cleanly.
                 if let Some(text) = prose.push(&delta).and_then(|t| blocks.push(&t)) {
-                    let _ = sink.send(TurnEvent::ProseDelta(text));
+                    deliver(sink, TurnEvent::ProseDelta(text));
                 }
             }
             HeadlessStreamEvent::ToolCall(tc) => {
-                let _ = sink.send(TurnEvent::Progress(TurnProgress::tool(
-                    tc.id, tc.title, tc.status,
-                )));
+                deliver(
+                    sink,
+                    TurnEvent::Progress(TurnProgress::tool(tc.id, tc.title, tc.status)),
+                );
             }
             HeadlessStreamEvent::Done(response) => {
                 final_response = Some(response);
@@ -262,7 +263,7 @@ pub async fn forward_headless_stream(
         .chain(blocks.flush())
         .collect::<String>();
     if !tail.is_empty() {
-        let _ = sink.send(TurnEvent::ProseDelta(tail));
+        deliver(sink, TurnEvent::ProseDelta(tail));
     }
 
     final_response.ok_or_else(|| {
@@ -271,6 +272,16 @@ pub async fn forward_headless_stream(
             "converse_stream completed without a Done event",
         )
     })
+}
+
+/// Send one event, tracing a receiver that has gone away.
+///
+/// The drain carries on regardless so the run still completes; the event's
+/// content stays out of the log.
+fn deliver(sink: &TurnEventSink, event: TurnEvent) {
+    if sink.send(event).is_err() {
+        trace!("turn stream receiver dropped; event not delivered");
+    }
 }
 
 #[cfg(test)]

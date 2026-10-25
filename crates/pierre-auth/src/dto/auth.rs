@@ -12,6 +12,7 @@
 use pierre_core::models::{DelegationStatus, ProviderAccountRole, UserStatus};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// User registration request
 #[derive(Debug, Clone, Deserialize)]
@@ -284,6 +285,16 @@ pub struct AcceptInvitationRequest {
     pub display_name: Option<String>,
 }
 
+impl fmt::Debug for AcceptInvitationRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AcceptInvitationRequest")
+            .field("token", &"[REDACTED]")
+            .field("password", &"[REDACTED]")
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
 /// Request to initiate a self-service password reset
 ///
 /// Sends a 6-digit code to the user's email address. Always returns success
@@ -345,7 +356,7 @@ pub struct LogoutRequest {
 /// `code`, `redirect_uri` and `code_verifier` belong to the code grant and
 /// `refresh_token` to the refresh grant, so each is optional here and the
 /// handler requires the ones its grant needs.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct OAuth2TokenRequest {
     /// Grant type - `authorization_code` to redeem a first-party sign-in,
     /// `refresh_token` to exchange one
@@ -373,6 +384,27 @@ pub struct OAuth2TokenRequest {
     /// The Android app's Play Integrity token, requested over the SHA-256 of
     /// the code (carnet#810); never beside the App Attest fields
     pub play_integrity_token: Option<SecretString>,
+}
+
+impl fmt::Debug for OAuth2TokenRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2TokenRequest")
+            .field("grant_type", &self.grant_type)
+            .field("code", &self.code.as_ref().map(|_| "[REDACTED]"))
+            .field("redirect_uri", &self.redirect_uri)
+            .field(
+                "code_verifier",
+                &self.code_verifier.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("refresh_token", &self.refresh_token)
+            .field("client_id", &self.client_id)
+            .field("scope", &self.scope)
+            .field("app_attest_key_id", &self.app_attest_key_id)
+            .field("app_attest_attestation", &self.app_attest_attestation)
+            .field("app_attest_assertion", &self.app_attest_assertion)
+            .field("play_integrity_token", &self.play_integrity_token)
+            .finish()
+    }
 }
 
 /// `OAuth2` token response per RFC 6749 Section 5.1
@@ -414,7 +446,7 @@ pub struct OAuth2ErrorResponse {
 }
 
 /// OAuth authorization response for provider auth URLs
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct OAuthAuthorizationResponse {
     /// URL to redirect user to for OAuth authorization
     pub authorization_url: String,
@@ -424,6 +456,18 @@ pub struct OAuthAuthorizationResponse {
     pub instructions: String,
     /// How long the authorization URL is valid (minutes)
     pub expires_in_minutes: i64,
+}
+
+impl fmt::Debug for OAuthAuthorizationResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuthAuthorizationResponse")
+            // The URL carries `state` in its query string.
+            .field("authorization_url", &"[REDACTED]")
+            .field("state", &"[REDACTED]")
+            .field("instructions", &self.instructions)
+            .field("expires_in_minutes", &self.expires_in_minutes)
+            .finish()
+    }
 }
 
 /// Connection status for fitness providers

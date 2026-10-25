@@ -79,6 +79,7 @@ pub struct EstimateVo2maxResult {
 /// Body weight and age default to the stored profile when the athlete does
 /// not restate them, and the response names which inputs came from there so
 /// the agent can say so.
+#[derive(Debug)]
 pub struct EstimateVo2maxTool;
 
 /// The field-test methods the tool accepts, in the spelling the schema

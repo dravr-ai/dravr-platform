@@ -146,8 +146,8 @@ pub(crate) fn get_store_manager<C: AgentsCtx>(ctx: &Arc<C>) -> &dyn StoreListing
 }
 
 /// Build metadata for agent responses.
-pub(crate) fn build_metadata() -> types::AgentsMetadata {
-    types::AgentsMetadata {
+pub(crate) fn build_metadata() -> AgentsMetadata {
+    AgentsMetadata {
         timestamp: Utc::now().to_rfc3339(),
         api_version: "1.0".to_owned(),
     }

@@ -140,7 +140,7 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         is_admin: false,
         role: UserRole::User,
         approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
+        approved_at: Some(Utc::now()),
         created_at: Utc::now(),
         last_active: Utc::now(),
         firebase_uid: None,

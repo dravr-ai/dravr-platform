@@ -178,7 +178,7 @@ personas:
 
         let sink = Arc::new(RecordingSink::default());
         let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
+            .with_channel_sink(Arc::<RecordingSink>::clone(&sink))
             .with_policy_gate(Arc::new(StubGate {
                 policy: casual_policy(true),
             }));
@@ -231,7 +231,7 @@ personas:
         let (user, tenant) = seed_user(&resources, "gate_reach@example.com").await;
         let sink = Arc::new(RecordingSink::default());
         let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
+            .with_channel_sink(Arc::<RecordingSink>::clone(&sink))
             .with_policy_gate(Arc::new(StubGate {
                 policy: casual_policy(true),
             }));
@@ -274,7 +274,7 @@ personas:
 
         let sink = Arc::new(RecordingSink::default());
         let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
+            .with_channel_sink(Arc::<RecordingSink>::clone(&sink))
             .with_policy_gate(Arc::new(StubGate {
                 policy: casual_policy(false),
             }));
@@ -348,7 +348,7 @@ personas:
 
         let sink = Arc::new(RecordingSink::default());
         let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
+            .with_channel_sink(Arc::<RecordingSink>::clone(&sink))
             .with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
                 Arc::clone(&resources.common.repos),
                 registry,

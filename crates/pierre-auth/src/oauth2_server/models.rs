@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use http::StatusCode;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 /// The error code a throttled OAuth endpoint answers with, alongside HTTP 429.
@@ -60,7 +61,7 @@ pub struct ClientRegistrationResponse {
 }
 
 /// OAuth 2.0 Authorization Request
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct AuthorizeRequest {
     /// Response type (code, token)
     pub response_type: String,
@@ -81,8 +82,23 @@ pub struct AuthorizeRequest {
     pub resource: Option<String>,
 }
 
+impl fmt::Debug for AuthorizeRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizeRequest")
+            .field("response_type", &self.response_type)
+            .field("client_id", &self.client_id)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("scope", &self.scope)
+            .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("resource", &self.resource)
+            .finish()
+    }
+}
+
 /// OAuth 2.0 Authorization Response
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct AuthorizeResponse {
     /// Authorization code
     pub code: String,
@@ -90,8 +106,17 @@ pub struct AuthorizeResponse {
     pub state: Option<String>,
 }
 
+impl fmt::Debug for AuthorizeResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthorizeResponse")
+            .field("code", &"[REDACTED]")
+            .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
 /// OAuth 2.0 Token Request
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct TokenRequest {
     /// Grant type (`authorization_code`, `client_credentials`, `refresh_token`)
     pub grant_type: String,
@@ -112,6 +137,25 @@ pub struct TokenRequest {
     /// RFC 8707 resource indicator: the resource server the access token is
     /// for. Must fall within what the code or refresh token was authorized for.
     pub resource: Option<String>,
+}
+
+impl fmt::Debug for TokenRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenRequest")
+            .field("grant_type", &self.grant_type)
+            .field("code", &self.code.as_ref().map(|_| "[REDACTED]"))
+            .field("redirect_uri", &self.redirect_uri)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &self.client_secret)
+            .field("scope", &self.scope)
+            .field("refresh_token", &self.refresh_token)
+            .field(
+                "code_verifier",
+                &self.code_verifier.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("resource", &self.resource)
+            .finish()
+    }
 }
 
 /// OAuth 2.0 Token Response

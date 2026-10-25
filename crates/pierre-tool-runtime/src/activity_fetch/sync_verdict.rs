@@ -88,6 +88,7 @@ pub fn sync_backoff_until(
 
 /// What one live read of a provider's list produced, and whether it counts
 /// as a sync.
+#[derive(Debug)]
 pub struct HeadRead {
     /// The activities the provider answered with.
     pub activities: Vec<Activity>,
@@ -159,6 +160,7 @@ pub(super) async fn read_provider_head(
 
 /// One live list read, before it is made: whose, of which provider, for
 /// which window, and when the attempt began.
+#[derive(Debug)]
 pub struct LiveRead<'a> {
     /// The provider key the athlete's connection and cache rows use.
     pub provider_slug: &'a str,

@@ -24,6 +24,7 @@ use uuid::Uuid;
 /// lint. The `trigger`/`intervention`/`outcome_metric` describe the playbook so
 /// the upsert can create it on first observation; `label` + `at` are the new
 /// outcome.
+#[derive(Debug)]
 pub struct RecordedOutcome<'a> {
     /// Owning tenant.
     pub tenant_id: &'a str,
@@ -248,6 +249,7 @@ pub struct PlaybookAggInput {
 
 /// Parameters for upserting one recomputed archetype prior. Counts are summed
 /// across athletes; `distinct_user_count` is the k-anonymity guard.
+#[derive(Debug)]
 pub struct ArchetypePriorUpsert<'a> {
     /// Non-identifying archetype bucket.
     pub archetype_key: &'a str,

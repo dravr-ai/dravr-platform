@@ -168,6 +168,7 @@ impl CatalogueTier {
 /// The package first, then the registry. Built per call by
 /// [`PackagedCatalogue::new`]; a plan with no agent, or an agent with no
 /// published package, reads the registry alone.
+#[derive(Debug)]
 pub struct PackagedCatalogue<'a> {
     catalogue: &'a TrainingCatalogueRegistry,
     package: Option<AgentPackage>,

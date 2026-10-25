@@ -40,6 +40,7 @@
 use pierre_core::permissions::scopes::OAuthScope;
 use std::collections::HashSet;
 use std::env;
+use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration as StdDuration;
 
@@ -217,6 +218,19 @@ pub struct ActivityBackfillJob {
     /// channel that asked. `None` for MCP-direct / A2A / SSE callers with no
     /// conversation, which get no push.
     pub pierre_conversation_id: Option<String>,
+}
+
+impl fmt::Debug for ActivityBackfillJob {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActivityBackfillJob")
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("tenant_id_str", &self.tenant_id_str)
+            .field("provider_name", &self.provider_name)
+            .field("query_params", &self.query_params)
+            .field("pierre_conversation_id", &self.pierre_conversation_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Record a backfill in the job ledger, then spawn it as a bounded background

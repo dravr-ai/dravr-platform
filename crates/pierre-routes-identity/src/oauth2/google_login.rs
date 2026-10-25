@@ -23,6 +23,7 @@
 //! is a cross-site top-level navigation that `Strict` would not send it on.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -79,6 +80,14 @@ pub struct GoogleSignIn {
     pub oidc: Arc<GoogleOidcClient>,
     /// AES-256-GCM sealing of the browser-bound transaction cookie
     pub security: Arc<dyn SecurityRepository>,
+}
+
+impl fmt::Debug for GoogleSignIn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GoogleSignIn")
+            .field("oidc", &self.oidc)
+            .finish_non_exhaustive()
+    }
 }
 
 /// One sign-in between the start and the callback, sealed into the cookie.

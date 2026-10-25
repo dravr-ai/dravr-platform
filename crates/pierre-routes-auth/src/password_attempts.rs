@@ -21,7 +21,7 @@ use uuid::Uuid;
 ///
 /// Returns a resource-unavailable error when the limiter cannot count the
 /// attempt: an uncounted guess is refused rather than let through.
-pub async fn meter_password_attempt(
+pub(crate) async fn meter_password_attempt(
     limiter: &OAuth2RateLimiter,
     user_id: Uuid,
 ) -> AppResult<Option<u32>> {

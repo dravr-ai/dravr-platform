@@ -378,7 +378,7 @@ async fn test_execute_nonexistent_tool() {
         .expect("Failed to create test resources");
     // Seed a user so the resources fixture matches the sibling execution tests;
     // this case only inspects the registry, so the ids are intentionally unused.
-    let _ = create_test_user(&resources.agent.database)
+    create_test_user(&resources.agent.database)
         .await
         .expect("Failed to create test user");
 

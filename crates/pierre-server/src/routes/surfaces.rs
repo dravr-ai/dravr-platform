@@ -106,6 +106,7 @@ pub struct SurfaceCapabilityRow {
 }
 
 /// Router for the capability catalogue.
+#[derive(Debug)]
 pub struct SurfaceRoutes;
 
 impl SurfaceRoutes {

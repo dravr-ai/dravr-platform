@@ -19,6 +19,7 @@
 //! session's index in it ([`upload_activity_id`]), so the same file uploaded
 //! twice names the same activities.
 
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -73,6 +74,16 @@ pub struct UploadProvider {
     files: Arc<dyn UploadedActivityFileRepository>,
     user_id: Uuid,
     tenant_id: TenantId,
+}
+
+impl fmt::Debug for UploadProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UploadProvider")
+            .field("config", &self.config)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl UploadProvider {

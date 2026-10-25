@@ -55,6 +55,7 @@
 //! back to the status's warm-up floor, deduplicated per provider and bounded
 //! by the rail's own limits.
 
+use std::fmt;
 use std::future::Future;
 use std::sync::{Arc, Weak};
 
@@ -107,6 +108,14 @@ pub struct FirstSyncPoster {
     post: Arc<dyn PlatformPost>,
     /// Resolves a DM's channel to its adapter and config.
     resolver: Arc<dyn AdapterResolver>,
+}
+
+impl fmt::Debug for FirstSyncPoster {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FirstSyncPoster")
+            .field("ctx", &self.ctx)
+            .finish_non_exhaustive()
+    }
 }
 
 impl FirstSyncPoster {

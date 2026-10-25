@@ -13,6 +13,7 @@
 
 use chrono::{Datelike, Duration, Utc, Weekday};
 use serde::Serialize;
+use std::fmt;
 use tracing::debug;
 
 use pierre_core::errors::AppResult;
@@ -41,6 +42,13 @@ pub struct LimitCheckResult {
 pub struct UsageCounterService<'a> {
     repo: &'a dyn UsageCounterRepository,
     config: &'a dyn AdminConfigLookup,
+}
+
+impl fmt::Debug for UsageCounterService<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UsageCounterService")
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> UsageCounterService<'a> {

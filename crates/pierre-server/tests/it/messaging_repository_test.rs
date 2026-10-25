@@ -311,7 +311,7 @@ async fn test_tenant_isolation_channel_config() {
         .list_channel_configs(tenant_b)
         .await
         .unwrap();
-    assert_eq!(configs_b, [] as [serde_json::Value; 0]);
+    assert!(configs_b.is_empty(), "expected empty, got {configs_b:?}");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -628,7 +628,7 @@ async fn test_enqueue_and_claim_due_outbound() {
     // Create session + message first (FK constraint)
     create_test_message(&db, "msg-q1", "session-q1", tenant_id, &user_id, "CM_Q1").await;
 
-    let user_id = uuid::Uuid::new_v4().to_string();
+    let user_id = Uuid::new_v4().to_string();
     db.repositories()
         .messaging
         .enqueue_outbound(&EnqueueOutboundParams {

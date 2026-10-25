@@ -77,7 +77,7 @@ impl SignInAttempt {
 /// their own: never in the server's in-memory cache, whose entries include the
 /// link-token burn markers that unauthenticated traffic must not be able to
 /// evict.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OAuth2RateLimiter {
     /// The store every replica counts into; an `Arc` because it is the
     /// server's one Redis-backed cache, shared with every handler that caches

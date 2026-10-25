@@ -78,7 +78,11 @@ async fn dossier_with_no_underlying_data_returns_empty_shell() {
     assert!(dossier.physiology.is_none());
     assert!(dossier.hr_zones.is_none());
     assert!(dossier.power_zones.is_none());
-    assert_eq!(dossier.goals, [] as [serde_json::Value; 0]);
+    assert!(
+        dossier.goals.is_empty(),
+        "expected empty, got {:?}",
+        dossier.goals
+    );
     assert!(dossier.nutrition.is_none());
 }
 

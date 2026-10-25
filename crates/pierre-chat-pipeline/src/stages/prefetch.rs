@@ -34,6 +34,7 @@
 //! the `source_ids`/`llm_messages` vectors compaction consumes.
 
 use std::borrow::Cow;
+use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
@@ -253,7 +254,7 @@ pub fn build_prefetch_params(activities_req: &ActivityDataRequirements) -> serde
     // default newest-first ordering, so the prefetched batch shows the
     // most recent activities up to `count`.
     if let Some(seconds) = activities_req.time_frame_seconds() {
-        let now = chrono::Utc::now().timestamp();
+        let now = Utc::now().timestamp();
         let after = now - seconds;
         params["after"] = serde_json::Value::Number(serde_json::Number::from(after));
         params["before"] = serde_json::Value::Number(serde_json::Number::from(now));
@@ -694,6 +695,19 @@ pub struct ActivityRefreshInputs<'a> {
     pub tenant_id: TenantId,
     /// Whether a guided conversational flow owns this turn.
     pub guided_flow_active: bool,
+}
+
+impl fmt::Debug for ActivityRefreshInputs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The history is the athlete's conversation: only its length prints.
+        f.debug_struct("ActivityRefreshInputs")
+            .field("history_len", &self.history.len())
+            .field("agent_slug", &self.agent_ctx.map(|agent| &agent.slug))
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("guided_flow_active", &self.guided_flow_active)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The agent's startup query as the `User` message that carries it.

@@ -194,8 +194,8 @@ mod group_digest_room_tests {
                 Arc::clone(&resources.common.repos),
                 Arc::clone(&resources.mcp.messaging_strings_registry),
             )))
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
-            let runtime: Arc<dyn ToolRuntime> = Arc::clone(&resources) as Arc<dyn ToolRuntime>;
+            .with_channel_sink(Arc::<RecordingSink>::clone(&sink));
+            let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
             Self {
                 resources,
                 runtime,
@@ -210,7 +210,7 @@ mod group_digest_room_tests {
                 &self.resources,
                 &self.runtime,
                 Some(&self.service),
-                Some(self.poster.as_ref() as &dyn GroupChatPoster),
+                Some(self.poster.as_ref()),
                 now,
             )
             .await
@@ -567,7 +567,11 @@ mod group_digest_room_tests {
             posts[0].2, "-100222",
             "the off group's chat is never posted to"
         );
-        assert_eq!(h.sink.recipients(), [] as [Uuid; 0]);
+        assert!(
+            h.sink.recipients().is_empty(),
+            "expected empty, got {:?}",
+            h.sink.recipients()
+        );
         for person in [quiet_owner, quiet_member] {
             assert!(
                 h.digest_rows(person, tenant).await.is_empty(),
@@ -651,7 +655,8 @@ mod group_digest_room_tests {
                 rows[0]
             );
         }
-        assert_eq!(h.digest_rows(member, tenant).await, [] as [String; 0]);
+        let got = h.digest_rows(member, tenant).await;
+        assert!(got.is_empty(), "expected empty, got {got:?}");
     }
 
     /// The group's human coach is also its owner, as onboarding and

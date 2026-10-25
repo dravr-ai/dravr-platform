@@ -90,6 +90,7 @@ impl DrainReport {
 /// Cloned handles share one tracker: `Arc<InFlightTurns>` on the server
 /// context is the only instance, and the webhook route, the dispatcher and
 /// the signal handler all reach the same counters through it.
+#[derive(Debug)]
 pub struct InFlightTurns {
     tracker: TaskTracker,
     drain: CancellationToken,
@@ -478,10 +479,10 @@ mod tests {
             let user_id = Uuid::new_v4();
             let turns = Arc::new(InFlightTurns::new());
             let sink = Arc::new(SlowChannelSink::default());
-            let service = Arc::new(
-                notification_service(&db, &turns)
-                    .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>),
-            );
+            let channel_sink: Arc<dyn NotificationChannelSink> =
+                Arc::<SlowChannelSink>::clone(&sink);
+            let service =
+                Arc::new(notification_service(&db, &turns).with_channel_sink(channel_sink));
 
             let (stop, stopped) = oneshot::channel::<()>();
             let draining = Arc::clone(&turns);

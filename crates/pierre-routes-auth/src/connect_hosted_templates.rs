@@ -51,7 +51,7 @@ const INTERVALS_ICU_LABEL: &str = "Intervals.icu";
 /// strings the page's script sets go into the `<script>` as JSON, so neither
 /// is ever markup.
 #[must_use]
-pub fn render_connect_page(
+pub(crate) fn render_connect_page(
     strings: &PageStrings<'_>,
     link_token: &str,
     channel: &str,
@@ -127,7 +127,7 @@ pub fn render_connect_page(
 /// reason shown in the page's alert banner, which stays hidden when it is
 /// empty.
 #[must_use]
-pub fn render_intervals_icu_form(
+pub(crate) fn render_intervals_icu_form(
     strings: &PageStrings<'_>,
     link_token: &str,
     channel: &str,
@@ -177,7 +177,7 @@ pub fn render_intervals_icu_form(
 /// Render the connect success page (reuses the Sciotte success template, which
 /// is provider-agnostic beyond its label).
 #[must_use]
-pub fn render_connect_success_page(
+pub(crate) fn render_connect_success_page(
     strings: &PageStrings<'_>,
     channel: &str,
     target: &str,
@@ -188,6 +188,6 @@ pub fn render_connect_success_page(
 /// Render the connect error page (reuses the Sciotte error template) with the
 /// catalogue's `message_key` as its message.
 #[must_use]
-pub fn render_connect_error_page(strings: &PageStrings<'_>, message_key: &str) -> String {
+pub(crate) fn render_connect_error_page(strings: &PageStrings<'_>, message_key: &str) -> String {
     sciotte_hosted_templates::render_error_page(strings, &strings.get(message_key))
 }

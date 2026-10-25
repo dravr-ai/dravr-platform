@@ -111,7 +111,7 @@ impl EmbacleLlmProvider for Scripted {
         // A 429 refuses the stream before it opens, exactly as the HTTP
         // client does; an answer is a stream this test never consumes.
         self.outcome()
-            .map(|_| Box::pin(stream::empty()) as ChatStream)
+            .map(|_| -> ChatStream { Box::pin(stream::empty()) })
     }
 
     async fn health_check(&self) -> Result<bool, RunnerError> {

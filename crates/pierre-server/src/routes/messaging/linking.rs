@@ -20,6 +20,7 @@ use rand::Rng;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -31,7 +32,7 @@ mod link_account;
 use super::templates;
 use crate::mcp::resources::ServerContext;
 use destination::build_linking_url;
-pub use destination::can_complete_a_link;
+pub(crate) use destination::can_complete_a_link;
 use link_account::resolve_user_from_form;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
@@ -45,8 +46,8 @@ const LINK_CODE_LENGTH: usize = 32;
 const CODE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /// Query parameters for channel linking callback
-#[derive(Debug, Deserialize)]
-pub struct LinkCallbackQuery {
+#[derive(Deserialize)]
+pub(crate) struct LinkCallbackQuery {
     /// State parameter containing the linking verification code
     pub state: Option<String>,
     /// Channel-specific user ID, when the caller already knows it.
@@ -61,9 +62,20 @@ pub struct LinkCallbackQuery {
     pub display_name: Option<String>,
 }
 
+impl fmt::Debug for LinkCallbackQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkCallbackQuery")
+            .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
+            .field("channel_user_id", &self.channel_user_id)
+            .field("code", &self.code.as_ref().map(|_| "[REDACTED]"))
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
 /// Response body for a channel link initiation
-#[derive(Debug, Serialize)]
-pub struct LinkInitResponse {
+#[derive(Serialize)]
+pub(crate) struct LinkInitResponse {
     /// Channel type
     pub channel: String,
     /// Linking method used
@@ -79,9 +91,23 @@ pub struct LinkInitResponse {
     pub qr_svg: Option<String>,
 }
 
+impl fmt::Debug for LinkInitResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkInitResponse")
+            .field("channel", &self.channel)
+            .field("method", &self.method)
+            .field("code", &self.code.as_ref().map(|_| "[REDACTED]"))
+            // The deep link embeds the code, and the QR encodes that link.
+            .field("linking_url", &"[REDACTED]")
+            .field("expires_at", &self.expires_at)
+            .field("qr_svg", &self.qr_svg.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
 /// Response body for a linked channel
 #[derive(Debug, Serialize)]
-pub struct ChannelLinkResponse {
+pub(crate) struct ChannelLinkResponse {
     /// Channel type
     pub channel: String,
     /// Channel-specific user identifier
@@ -103,7 +129,7 @@ async fn resolve_tenant_id(
 }
 
 /// Generate a cryptographically random linking code
-pub fn generate_link_code() -> String {
+pub(crate) fn generate_link_code() -> String {
     let mut rng = rand::rng();
     (0..LINK_CODE_LENGTH)
         .map(|_| {
@@ -122,7 +148,7 @@ fn qr_svg_for(url: &str) -> Option<String> {
     use qrcode::QrCode;
     let code = QrCode::new(url.as_bytes()).ok()?;
     Some(
-        code.render::<svg::Color>()
+        code.render::<svg::Color<'_>>()
             .min_dimensions(220, 220)
             .quiet_zone(true)
             .build(),
@@ -141,7 +167,7 @@ fn qr_svg_for(url: &str) -> Option<String> {
 /// the webhook resolves its tenant from the same config row and consumes the
 /// code with `consume_link_state(code, bot_tenant)`, so a state stored anywhere
 /// else is a code the bot can never redeem.
-pub async fn init_channel_link(
+pub(crate) async fn init_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
@@ -246,7 +272,7 @@ pub async fn init_channel_link(
 ///
 /// Handles OAuth callback or deep-link verification completion.
 /// Consumes the verification code and creates a permanent channel link.
-pub async fn link_callback(
+pub(crate) async fn link_callback(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     Query(query): Query<LinkCallbackQuery>,
@@ -352,7 +378,7 @@ pub async fn link_callback(
 /// while the athlete lives in their own. Each row names the person it belongs
 /// to and the id comes from the verified session, so only the caller's own
 /// links are ever returned.
-pub async fn list_channel_links(
+pub(crate) async fn list_channel_links(
     State(resources): State<Arc<ServerContext>>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, AppError> {
@@ -395,7 +421,7 @@ pub async fn list_channel_links(
 /// the athlete asked to be unlinked from the channel, not from one bot's copy.
 /// Another user's rows are never reachable: the lookup is keyed on the
 /// session's own user id.
-pub async fn delete_channel_link(
+pub(crate) async fn delete_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
@@ -449,8 +475,8 @@ pub async fn delete_channel_link(
 // ════════════════════════════════════════════════════════════════
 
 /// Form data submitted from the channel link login/register page
-#[derive(Debug, Deserialize)]
-pub struct ChannelLinkAuthForm {
+#[derive(Deserialize)]
+pub(crate) struct ChannelLinkAuthForm {
     /// The link code from the hidden form field
     pub code: String,
     /// Email address
@@ -463,11 +489,23 @@ pub struct ChannelLinkAuthForm {
     pub display_name: Option<String>,
 }
 
+impl fmt::Debug for ChannelLinkAuthForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChannelLinkAuthForm")
+            .field("code", &"[REDACTED]")
+            .field("email", &self.email)
+            .field("password", &self.password)
+            .field("action", &self.action)
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
 /// GET /messaging/link/:code
 ///
 /// Renders the login/register page for a webhook-initiated channel link.
 /// Public endpoint, no authentication required.
-pub async fn channel_link_page(
+pub(crate) async fn channel_link_page(
     State(resources): State<Arc<ServerContext>>,
     Path(code): Path<String>,
 ) -> impl IntoResponse {
@@ -490,7 +528,7 @@ pub async fn channel_link_page(
 /// Handles login or registration from the channel link page.
 /// On success, completes the link and renders the success page.
 /// On failure, re-renders the login page with an error message.
-pub async fn channel_link_auth(
+pub(crate) async fn channel_link_auth(
     State(resources): State<Arc<ServerContext>>,
     peer: PeerAddress,
     headers: HeaderMap,
@@ -860,4 +898,53 @@ pub async fn exchange_code_for_identity(
             warn!(channel = %channel, "identity response carried no user id");
             AppError::internal("Could not read the account identity")
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SENTINEL: &str = "sentinel-link-secret-9c1e";
+
+    #[test]
+    fn link_callback_query_debug_hides_state_and_code() {
+        let query = LinkCallbackQuery {
+            state: Some(format!("{SENTINEL}-state")),
+            channel_user_id: Some("U1".to_owned()),
+            code: Some(format!("{SENTINEL}-code")),
+            display_name: None,
+        };
+        let printed = format!("{query:?}");
+        assert!(!printed.contains(SENTINEL), "{printed}");
+        assert!(printed.contains("LinkCallbackQuery"), "{printed}");
+    }
+
+    #[test]
+    fn link_init_response_debug_hides_code_link_and_qr() {
+        let response = LinkInitResponse {
+            channel: "telegram".to_owned(),
+            method: "deep_link".to_owned(),
+            code: Some(SENTINEL.to_owned()),
+            linking_url: format!("https://t.me/bot?start={SENTINEL}"),
+            expires_at: "2026-01-01T00:00:00Z".to_owned(),
+            qr_svg: Some(format!("<svg><desc>{SENTINEL}</desc></svg>")),
+        };
+        let printed = format!("{response:?}");
+        assert!(!printed.contains(SENTINEL), "{printed}");
+        assert!(printed.contains("LinkInitResponse"), "{printed}");
+    }
+
+    #[test]
+    fn channel_link_auth_form_debug_hides_code_and_password() {
+        let form = ChannelLinkAuthForm {
+            code: format!("{SENTINEL}-code"),
+            email: "athlete@example.com".to_owned(),
+            password: SecretString::from(format!("{SENTINEL}-password")),
+            action: "login".to_owned(),
+            display_name: None,
+        };
+        let printed = format!("{form:?}");
+        assert!(!printed.contains(SENTINEL), "{printed}");
+        assert!(printed.contains("ChannelLinkAuthForm"), "{printed}");
+    }
 }

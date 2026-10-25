@@ -47,6 +47,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::fmt;
 
 use dravr_tronc::iam::GoogleKeySet;
 use jsonwebtoken::{Algorithm, Validation};
@@ -130,6 +131,14 @@ pub struct FirebaseAuth {
     config: FirebaseConfig,
     /// Public keys behind the Firebase `securetoken@system` JWK set
     keys: GoogleKeySet,
+}
+
+impl fmt::Debug for FirebaseAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FirebaseAuth")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
 }
 
 impl FirebaseAuth {

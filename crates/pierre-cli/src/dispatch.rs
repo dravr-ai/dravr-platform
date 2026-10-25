@@ -24,7 +24,7 @@ use crate::{AuthCommand, Result, StravaPoolCommand, UserCommand};
 /// Returns the command's own error; an unreachable arm would mean the caller
 /// routed a database-backed variant here, which the match at the call site
 /// prevents.
-pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
+pub(crate) async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
     match action {
         UserCommand::Get {
             selector,
@@ -140,7 +140,7 @@ pub async fn dispatch_remote_user(action: UserCommand) -> AppResult<()> {
     }
 }
 
-pub async fn dispatch_auth(action: AuthCommand) -> Result<()> {
+pub(crate) async fn dispatch_auth(action: AuthCommand) -> Result<()> {
     match action {
         AuthCommand::Login { server, no_browser } => {
             commands::auth::login(server, no_browser).await
@@ -160,7 +160,7 @@ pub async fn dispatch_auth(action: AuthCommand) -> Result<()> {
     }
 }
 
-pub async fn dispatch_strava_pool(action: StravaPoolCommand) -> Result<()> {
+pub(crate) async fn dispatch_strava_pool(action: StravaPoolCommand) -> Result<()> {
     match action {
         StravaPoolCommand::Add {
             client_id,

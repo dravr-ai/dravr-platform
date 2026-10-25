@@ -25,6 +25,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// locales before anything is written. A conversation with no channel link
 /// (the web and mobile apps) has nothing to pin: the app's own language is
 /// set in Settings, and the reply says so.
+#[derive(Debug)]
 pub struct LanguageHandler;
 
 #[async_trait]

@@ -43,9 +43,9 @@ use tokio::time::{sleep, Instant};
 use uuid::Uuid;
 
 /// The `WhatsApp` business account id the fixture channel config carries.
-pub const WA_BUSINESS_ID: &str = "wa_drain_test_business_id";
+pub(crate) const WA_BUSINESS_ID: &str = "wa_drain_test_business_id";
 /// The `WhatsApp` phone number id the fixture channel config carries.
-pub const WA_PHONE_NUMBER_ID: &str = "15550000003";
+pub(crate) const WA_PHONE_NUMBER_ID: &str = "15550000003";
 
 /// Far longer than any test's drain or watchdog budget: a turn parked on this
 /// must be ended by the interruption, never by the provider returning.
@@ -53,7 +53,7 @@ const NEVER: Duration = Duration::from_mins(10);
 
 /// A provider that never answers, standing in for the ACP session the
 /// 2026-08-26 turn was parked on when its instance was drained.
-pub struct HangingProvider;
+pub(crate) struct HangingProvider;
 
 #[async_trait]
 impl LlmProvider for HangingProvider {
@@ -102,7 +102,7 @@ impl LlmProvider for HangingProvider {
 /// is a test step rather than a call count because on a slow database the
 /// drain can land before the first run ever reaches the provider, and a
 /// count-based hang would then park the resumed run instead.
-pub struct ParkedProvider {
+pub(crate) struct ParkedProvider {
     released: AtomicBool,
     calls: AtomicUsize,
     answer: String,
@@ -110,7 +110,7 @@ pub struct ParkedProvider {
 
 impl ParkedProvider {
     /// The reply every call made after [`Self::release`] returns.
-    pub fn answering(answer: &str) -> Self {
+    pub(crate) fn answering(answer: &str) -> Self {
         Self {
             released: AtomicBool::new(false),
             calls: AtomicUsize::new(0),
@@ -120,12 +120,12 @@ impl ParkedProvider {
 
     /// Let every call from here on answer: the instance the turn was parked
     /// on is gone, and the next instance's provider is a working one.
-    pub fn release(&self) {
+    pub(crate) fn release(&self) {
         self.released.store(true, Ordering::SeqCst);
     }
 
     /// How many LLM calls the provider has received so far.
-    pub fn calls(&self) -> usize {
+    pub(crate) fn calls(&self) -> usize {
         self.calls.load(Ordering::SeqCst)
     }
 
@@ -191,7 +191,7 @@ impl LlmProvider for ParkedProvider {
 }
 
 /// Meta's webhook signature for `body` under `secret`.
-pub fn compute_whatsapp_sig(secret: &str, body: &[u8]) -> String {
+pub(crate) fn compute_whatsapp_sig(secret: &str, body: &[u8]) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(body);
     format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
@@ -199,7 +199,7 @@ pub fn compute_whatsapp_sig(secret: &str, body: &[u8]) -> String {
 
 /// An Active user with a tenant and a synthetic provider, so the turn
 /// clears the status and onboarding gates and reaches the pipeline.
-pub async fn create_active_user(resources: &ServerContext, email: &str) -> (Uuid, TenantId) {
+pub(crate) async fn create_active_user(resources: &ServerContext, email: &str) -> (Uuid, TenantId) {
     let password_hash =
         spawn_blocking(|| bcrypt::hash("DrainPin123!", bcrypt::DEFAULT_COST).unwrap())
             .await
@@ -254,7 +254,7 @@ pub async fn create_active_user(resources: &ServerContext, email: &str) -> (Uuid
 }
 
 /// Store the `WhatsApp` channel config the webhook route verifies against.
-pub async fn setup_whatsapp_config(
+pub(crate) async fn setup_whatsapp_config(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     secret: &str,
@@ -279,7 +279,7 @@ pub async fn setup_whatsapp_config(
 
 /// Link `sender_id` on `WhatsApp` to the athlete, so the webhook resolves a
 /// session and dispatches a turn instead of prompting to link.
-pub async fn link_channel(
+pub(crate) async fn link_channel(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -300,7 +300,11 @@ pub async fn link_channel(
 }
 
 /// One inbound `WhatsApp` text message in Meta's webhook shape.
-pub fn whatsapp_text_payload(sender_id: &str, msg_id: &str, text: &str) -> serde_json::Value {
+pub(crate) fn whatsapp_text_payload(
+    sender_id: &str,
+    msg_id: &str,
+    text: &str,
+) -> serde_json::Value {
     json!({
         "object": "whatsapp_business_account",
         "entry": [{
@@ -329,7 +333,7 @@ pub fn whatsapp_text_payload(sender_id: &str, msg_id: &str, text: &str) -> serde
 /// Outbound bodies stored for the sender's session, oldest first. A reply
 /// whose live send fails in tests is still persisted alongside its
 /// retry-queue entry, so a notice or an answer is observable here either way.
-pub async fn outbound_bodies(
+pub(crate) async fn outbound_bodies(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     sender_id: &str,
@@ -355,7 +359,7 @@ pub async fn outbound_bodies(
 }
 
 /// Wait until the in-flight tracker sees a turn, or give up after ten seconds.
-pub async fn wait_for_a_tracked_turn(resources: &ServerContext) -> bool {
+pub(crate) async fn wait_for_a_tracked_turn(resources: &ServerContext) -> bool {
     for _ in 0..100 {
         if !resources.common.turns.is_empty() {
             return true;
@@ -366,7 +370,7 @@ pub async fn wait_for_a_tracked_turn(resources: &ServerContext) -> bool {
 }
 
 /// Wait until every tracked turn has finished, or give up after `budget`.
-pub async fn wait_for_turns_to_finish(resources: &ServerContext, budget: Duration) -> bool {
+pub(crate) async fn wait_for_turns_to_finish(resources: &ServerContext, budget: Duration) -> bool {
     let deadline = Instant::now() + budget;
     while Instant::now() < deadline {
         if resources.common.turns.is_empty() {

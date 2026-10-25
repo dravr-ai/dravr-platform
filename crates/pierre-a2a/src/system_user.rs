@@ -11,6 +11,7 @@ use pierre_config::constants::get_server_config;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::User;
 use pierre_database::backends::UserRepository;
+use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -18,6 +19,13 @@ use uuid::Uuid;
 /// Service for managing A2A system users
 pub struct A2ASystemUserService {
     users: Arc<dyn UserRepository>,
+}
+
+impl fmt::Debug for A2ASystemUserService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("A2ASystemUserService")
+            .finish_non_exhaustive()
+    }
 }
 
 impl A2ASystemUserService {

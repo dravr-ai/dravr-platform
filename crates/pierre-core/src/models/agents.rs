@@ -895,6 +895,7 @@ pub struct StoreAdminStats {
 }
 
 /// Request to create a system agent
+#[derive(Debug)]
 pub struct CreateSystemAgentRequest {
     /// Display title
     pub title: String,

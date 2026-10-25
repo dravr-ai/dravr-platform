@@ -51,7 +51,7 @@ use crate::models::{CalendarKey, PlannedWorkout, PlannedWorkoutBuilder};
 
 /// The `fields` a pairing read asks `GET /activities` for: the activity's id
 /// and the planned event it completed.
-pub const PAIRING_FIELDS: &str = "id,paired_event_id";
+pub(crate) const PAIRING_FIELDS: &str = "id,paired_event_id";
 
 /// The words a hidden event's title starts with on a coach's read.
 const HIDDEN_LABEL: &str = "Hidden from athlete";
@@ -59,7 +59,7 @@ const HIDDEN_LABEL: &str = "Hidden from athlete";
 /// Who reads a planned calendar, which decides what it shows of the events
 /// the athlete's coach keeps hidden from the athlete.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlannedReader {
+pub(crate) enum PlannedReader {
     /// The athlete whose calendar it is, through their own key or a
     /// delegated link: an event hidden from them is left out.
     Athlete,
@@ -89,7 +89,7 @@ const PLANNED_CATEGORIES: [(&str, Entry); 4] = [
 
 /// The `category` query of a planned read: every kept category,
 /// comma-separated.
-pub fn planned_categories() -> String {
+pub(crate) fn planned_categories() -> String {
     PLANNED_CATEGORIES.map(|(category, _)| category).join(",")
 }
 
@@ -120,7 +120,7 @@ impl Entry {
 /// another type reads as absent rather than failing the entry. Shared by
 /// every Intervals.icu wire shape decoded entry by entry (the planned events,
 /// the sport settings).
-pub fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+pub(crate) fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
     T: DeserializeOwned,
@@ -166,7 +166,7 @@ struct IntervalsIcuPlannedEvent {
 /// A calendar event a planned read keeps: a workout or a race with an id and
 /// a civil date, not Dravr's own, and shown to its reader.
 #[derive(Debug)]
-pub struct PlannedEvent {
+pub(crate) struct PlannedEvent {
     id: i64,
     date: NaiveDate,
     entry: Entry,
@@ -190,7 +190,7 @@ pub struct PlannedEvent {
 /// [`PLANNED_CATEGORIES`] (the upstream filter is not relied on), one of
 /// Dravr's own pushes, and, on the athlete's read, one hidden from the
 /// athlete are left out silently.
-pub fn planned_events(entries: Vec<Value>, reader: PlannedReader) -> Vec<PlannedEvent> {
+pub(crate) fn planned_events(entries: Vec<Value>, reader: PlannedReader) -> Vec<PlannedEvent> {
     entries
         .into_iter()
         .enumerate()
@@ -252,7 +252,7 @@ impl PlannedEvent {
     /// absent. The start time is not set: Intervals.icu states a naive
     /// athlete-local time, which no UTC instant can be read from without the
     /// athlete's offset.
-    pub fn into_workout(self, completed: &HashMap<i64, String>) -> PlannedWorkout {
+    pub(crate) fn into_workout(self, completed: &HashMap<i64, String>) -> PlannedWorkout {
         let event = self.event;
         let title = self.entry.title(event.name.as_deref());
         PlannedWorkoutBuilder::new(
@@ -296,7 +296,7 @@ fn civil_date(start_date_local: Option<&str>) -> Option<NaiveDate> {
 /// Whether a window starting `after` can hold a workout already done, as of
 /// `today` in UTC: a day of slack covers an athlete whose own calendar runs
 /// ahead of UTC. A window wholly in the future spends no pairing request.
-pub fn may_hold_done_workouts(after: NaiveDate, today: NaiveDate) -> bool {
+pub(crate) fn may_hold_done_workouts(after: NaiveDate, today: NaiveDate) -> bool {
     today
         .checked_add_days(Days::new(1))
         .is_none_or(|tomorrow| after <= tomorrow)
@@ -307,7 +307,7 @@ pub fn may_hold_done_workouts(after: NaiveDate, today: NaiveDate) -> bool {
 /// leaves null values out, so an unpaired activity carries no
 /// `paired_event_id` at all.
 #[derive(Debug, Deserialize)]
-pub struct IntervalsIcuActivityPairing {
+pub(crate) struct IntervalsIcuActivityPairing {
     id: String,
     #[serde(default)]
     paired_event_id: Option<i64>,
@@ -316,7 +316,9 @@ pub struct IntervalsIcuActivityPairing {
 /// The activity that completed each planned event, by event id, under the
 /// activity id Dravr knows the activity by. When two activities name one
 /// event, the first listed wins.
-pub fn completed_by_event(pairings: Vec<IntervalsIcuActivityPairing>) -> HashMap<i64, String> {
+pub(crate) fn completed_by_event(
+    pairings: Vec<IntervalsIcuActivityPairing>,
+) -> HashMap<i64, String> {
     let mut completed = HashMap::new();
     for pairing in pairings {
         if let Some(event) = pairing.paired_event_id {

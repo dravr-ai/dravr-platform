@@ -282,6 +282,7 @@ fn refusal(reason: &str, message: &str) -> ToolResult {
 
 /// `publish_training_plan` — a coach's draft of a coached athlete's plan made
 /// live, or thrown away.
+#[derive(Debug)]
 pub struct PublishTrainingPlanTool;
 
 #[async_trait]

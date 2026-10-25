@@ -310,6 +310,7 @@ fn miss_refusal(miss: &MemberMiss, query: &str) -> ToolResult {
 
 /// Ask a member of a group the caller coaches to confirm a coaching-platform
 /// link, from chat.
+#[derive(Debug)]
 pub struct ProposeAthleteLinkTool;
 
 #[async_trait]

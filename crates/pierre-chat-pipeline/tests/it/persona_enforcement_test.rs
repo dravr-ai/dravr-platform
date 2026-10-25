@@ -329,7 +329,7 @@ async fn the_editor_reads_its_instructions_from_the_catalogue() {
     let prompts = PromptRegistry::new();
     let reply = "Run 5k easy today, and remember to hydrate well afterwards.";
 
-    let _ = enforce_conformance(
+    let repaired = enforce_conformance(
         StyleEditor {
             provider: Some(&provider),
             prompts: &prompts,
@@ -343,12 +343,13 @@ async fn the_editor_reads_its_instructions_from_the_catalogue() {
         false,
     )
     .await;
+    assert_eq!(repaired, REWRITTEN, "the editor's rewrite is delivered");
     prompts.update_system_prompt(
         "persona_style_editor",
         "EDITED persona={{PERSONA}}\n{{RULES}}\n".to_owned(),
         "sha-edited".to_owned(),
     );
-    let _ = enforce_conformance(
+    let repaired = enforce_conformance(
         StyleEditor {
             provider: Some(&provider),
             prompts: &prompts,
@@ -362,6 +363,7 @@ async fn the_editor_reads_its_instructions_from_the_catalogue() {
         false,
     )
     .await;
+    assert_eq!(repaired, REWRITTEN, "the editor's rewrite is delivered");
 
     let instructions = seen.lock().expect("capture lock").clone();
     assert_eq!(instructions.len(), 2, "two repair requests");

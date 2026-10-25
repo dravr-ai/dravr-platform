@@ -77,7 +77,7 @@ pub async fn resolve_group_context(
         return Ok((None, Vec::new()));
     };
 
-    let member_ids: Vec<uuid::Uuid> = ctx
+    let member_ids: Vec<Uuid> = ctx
         .repos
         .groups
         .list_members(gid)

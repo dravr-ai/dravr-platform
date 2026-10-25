@@ -27,7 +27,7 @@ use super::dto::{MessageFeedbackEntry, UpsertFeedbackRequest};
 /// refreshes the optional reason. Ownership is enforced in the repository — the
 /// write only lands when the message belongs to a conversation the caller owns
 /// in this tenant, otherwise a 404 is returned.
-pub async fn upsert_feedback(
+pub(super) async fn upsert_feedback(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path((conversation_id, message_id)): Path<(String, String)>,
@@ -71,7 +71,7 @@ pub async fn upsert_feedback(
 ///
 /// Idempotent: returns 204 even when there was no feedback to remove, so a
 /// client optimistically clearing a rating never sees a spurious 404.
-pub async fn delete_feedback(
+pub(super) async fn delete_feedback(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path((conversation_id, message_id)): Path<(String, String)>,

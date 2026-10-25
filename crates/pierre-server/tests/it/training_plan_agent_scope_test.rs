@@ -390,8 +390,7 @@ async fn athlete_plan_command(fx: &Fixture) -> String {
         channel_type: "telegram".to_owned(),
         args: vec![],
         raw_text: "/plan".to_owned(),
-        ctx: Arc::<ServerContext>::clone(&fx.resources)
-            as Arc<dyn pierre_runtime_context::CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(&fx.resources),
         locale: "en".to_owned(),
         is_direct_message: true,
         ambient_group_fallback: true,

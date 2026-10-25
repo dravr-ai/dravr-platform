@@ -369,7 +369,7 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
     conversation: Option<String>,
     args: Value,
 ) -> (Value, bool) {
-    let runtime: Arc<dyn ToolRuntime> = Arc::clone(res) as Arc<dyn ToolRuntime>;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(res);
     let ctx = ToolContext::new()
         .with_user(who.id.to_string())
         .with_tenant(who.tenant.to_string())

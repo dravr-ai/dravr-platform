@@ -18,7 +18,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use pierre_core::errors::ErrorCode;
-use pierre_mcp_server::constants::{init_server_config, oauth_providers};
+use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
@@ -28,23 +28,14 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use url::form_urlencoded;
 
-/// Ensure HTTP clients and server config are initialized only once across all tests
-static INIT_HTTP_CLIENTS: Once = Once::new();
-static INIT_SERVER_CONFIG: Once = Once::new();
-
 fn ensure_http_clients_initialized() {
-    // Initialize server config first (required for provider defaults)
-    INIT_SERVER_CONFIG.call_once(|| {
-        let _ = init_server_config();
-    });
-
-    INIT_HTTP_CLIENTS.call_once(|| {
-        common::init_test_http_clients();
-    });
+    // Server config first (required for provider defaults)
+    common::init_server_config();
+    common::init_test_http_clients();
 }
 
 #[test]
@@ -186,7 +177,8 @@ fn test_garmin_provider_scopes() {
     ensure_http_clients_initialized();
     let provider = GarminProvider::new();
     // Garmin's scope is fixed server-side: the provider requests none.
-    assert_eq!(provider.config().default_scopes, [] as [String; 0]);
+    let got = &provider.config().default_scopes;
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }
 
 #[test]

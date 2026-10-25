@@ -34,6 +34,7 @@ use pierre_database::repositories::{OAuthTokenRepository, ProviderConnectionRepo
 use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::OAuth2Credentials;
+use std::fmt;
 use uuid::Uuid;
 
 use crate::coach_platform::{with_key_budget, CoachPlatform};
@@ -55,6 +56,7 @@ pub enum CoachReadRefusal {
 }
 
 /// A member's read served through their coach's credential.
+#[derive(Debug)]
 pub struct CoachRead {
     /// The confirmed link the read goes through.
     pub link: DelegatedConnection,
@@ -66,6 +68,7 @@ pub struct CoachRead {
 }
 
 /// How a member's read of a coaching platform is served.
+#[derive(Debug)]
 pub enum MemberRead {
     /// A credential of the member's own serves it: no link is read.
     OwnCredential,
@@ -169,6 +172,12 @@ pub struct OwnLogins<'a> {
     pub(crate) tokens: &'a dyn OAuthTokenRepository,
     /// The member's provider connections, delegated ones among them.
     pub(crate) connections: &'a dyn ProviderConnectionRepository,
+}
+
+impl fmt::Debug for OwnLogins<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OwnLogins").finish_non_exhaustive()
+    }
 }
 
 impl<'a> OwnLogins<'a> {

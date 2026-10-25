@@ -17,6 +17,7 @@
 //! [`ChatRepoToolMessageRecorder`]).
 
 use pierre_providers::ai_scope;
+use std::fmt;
 use std::mem;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -86,6 +87,7 @@ pub(crate) fn usage_sink(ctx: &ChatPipelineContext) -> LlmUsageSink {
 /// be stored ([`Self::persist_held`]): such a reply may be withheld, and a
 /// withheld post writes nothing to the athlete's thread — not even the tool
 /// preamble that led up to it (carnet#831).
+#[derive(Debug)]
 pub struct ChatRepoToolMessageRecorder {
     rows: ToolRoundRows,
     /// The rounds a platform-composed turn holds, each with the policy it was
@@ -156,6 +158,16 @@ struct ToolRoundRows {
     conversation_id: String,
     user_id: String,
     tenant_id: TenantId,
+}
+
+impl fmt::Debug for ToolRoundRows {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ToolRoundRows")
+            .field("conversation_id", &self.conversation_id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ToolRoundRows {

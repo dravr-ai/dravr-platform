@@ -367,22 +367,18 @@ impl OnboardingState {
     /// sleep hygiene.
     #[must_use]
     pub fn start_now_column(flow: GuidedFlow) -> String {
-        serde_json::to_string(&Self::start(chrono::Utc::now().to_rfc3339(), flow)).unwrap_or_else(
-            |_| {
-                match flow {
-                    GuidedFlow::Pillars => r#"{"active":true,"started_at":"","flow":"pillars"}"#,
-                    GuidedFlow::Calibration => {
-                        r#"{"active":true,"started_at":"","flow":"calibration"}"#
-                    }
-                    GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
-                    GuidedFlow::Season => r#"{"active":true,"started_at":"","flow":"season"}"#,
-                    GuidedFlow::Fortnight => {
-                        r#"{"active":true,"started_at":"","flow":"fortnight"}"#
-                    }
+        serde_json::to_string(&Self::start(Utc::now().to_rfc3339(), flow)).unwrap_or_else(|_| {
+            match flow {
+                GuidedFlow::Pillars => r#"{"active":true,"started_at":"","flow":"pillars"}"#,
+                GuidedFlow::Calibration => {
+                    r#"{"active":true,"started_at":"","flow":"calibration"}"#
                 }
-                .to_owned()
-            },
-        )
+                GuidedFlow::Intake => r#"{"active":true,"started_at":"","flow":"intake"}"#,
+                GuidedFlow::Season => r#"{"active":true,"started_at":"","flow":"season"}"#,
+                GuidedFlow::Fortnight => r#"{"active":true,"started_at":"","flow":"fortnight"}"#,
+            }
+            .to_owned()
+        })
     }
 
     /// Parse from the stored JSON column. Returns `None` on absent/invalid.

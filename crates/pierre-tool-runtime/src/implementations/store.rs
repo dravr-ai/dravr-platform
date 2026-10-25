@@ -181,6 +181,7 @@ fn limit_arg(args: &Value) -> u32 {
 }
 
 /// Browse published agents in the Agent Store.
+#[derive(Debug)]
 pub struct BrowseAgentStoreTool;
 
 #[async_trait]
@@ -289,6 +290,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
 }
 
 /// Search published agents in the Agent Store.
+#[derive(Debug)]
 pub struct SearchAgentStoreTool;
 
 #[async_trait]
@@ -371,6 +373,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
 }
 
 /// Install a published agent from the Agent Store.
+#[derive(Debug)]
 pub struct InstallAgentFromStoreTool;
 
 #[async_trait]

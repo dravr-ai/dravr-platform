@@ -35,7 +35,6 @@ mod group_transcript_tests {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::chat::ChatRoutes;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
-    use pierre_services::channel_adapters::ChannelAdapterFactory;
     use serde_json::{json, Value};
     use serial_test::serial;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -410,11 +409,7 @@ mod group_transcript_tests {
     }
 
     /// POST a Telegram group-chat webhook update built from `message`.
-    async fn post_group_message(
-        scenario: &Scenario,
-        update_id: i64,
-        message: serde_json::Value,
-    ) -> StatusCode {
+    async fn post_group_message(scenario: &Scenario, update_id: i64, message: Value) -> StatusCode {
         // The offline factory builds the REAL Telegram adapter and wraps it, so
         // signature verification and payload parsing are the production ones and
         // only the outbound send is captured. Without this the turn attempts a
@@ -423,7 +418,7 @@ mod group_transcript_tests {
         // straight through the 10s budget the waits below allow (run 33462729445).
         let router = MessagingRoutes::routes_with_adapters(
             Arc::clone(&scenario.resources),
-            Arc::clone(&scenario.adapters) as Arc<dyn ChannelAdapterFactory>,
+            Arc::<OfflineSendAdapters>::clone(&scenario.adapters),
         );
         let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
             .header("content-type", "application/json")
@@ -436,7 +431,7 @@ mod group_transcript_tests {
 
     /// A group message addressed to the bot (a reply to one of its messages),
     /// which dispatches a turn even in mentions mode.
-    fn addressed_message(message_id: i64, from_id: i64, text: &str) -> serde_json::Value {
+    fn addressed_message(message_id: i64, from_id: i64, text: &str) -> Value {
         json!({
             "message_id": message_id,
             "from": { "id": from_id, "first_name": "Member" },
@@ -451,7 +446,7 @@ mod group_transcript_tests {
     }
 
     /// An unaddressed group message — ambient room chatter.
-    fn ambient_message(message_id: i64, from_id: i64, text: &str) -> serde_json::Value {
+    fn ambient_message(message_id: i64, from_id: i64, text: &str) -> Value {
         json!({
             "message_id": message_id,
             "from": { "id": from_id, "first_name": "Member" },

@@ -38,8 +38,14 @@ fn test_agent_card_structure() {
         !card.supported_interfaces.is_empty(),
         "Agent card must declare at least one interface"
     );
-    assert_ne!(card.default_input_modes, [] as [String; 0]);
-    assert_ne!(card.default_output_modes, [] as [String; 0]);
+    assert!(
+        !card.default_input_modes.is_empty(),
+        "expected a non-empty value"
+    );
+    assert!(
+        !card.default_output_modes.is_empty(),
+        "expected a non-empty value"
+    );
     assert!(!card.skills.is_empty());
 
     // Interfaces are preference-ordered; JSONRPC is preferred, HTTP+JSON is
@@ -103,7 +109,7 @@ fn test_agent_card_skill_examples_are_executable_data_parts() {
             skill.id
         );
         for example in &skill.examples {
-            let parsed: serde_json::Value = serde_json::from_str(example).unwrap_or_else(|e| {
+            let parsed: Value = serde_json::from_str(example).unwrap_or_else(|e| {
                 panic!("skill {} example is not a JSON data part: {e}", skill.id)
             });
             assert_eq!(

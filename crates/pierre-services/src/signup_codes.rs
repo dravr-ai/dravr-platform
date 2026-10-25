@@ -23,6 +23,7 @@
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::fmt;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -86,6 +87,15 @@ pub struct MintedSignupCode {
     pub code: String,
     /// The stored record
     pub record: SignupCode,
+}
+
+impl fmt::Debug for MintedSignupCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MintedSignupCode")
+            .field("code", &"[REDACTED]")
+            .field("record", &self.record)
+            .finish()
+    }
 }
 
 /// What an admin asks for when minting a code.

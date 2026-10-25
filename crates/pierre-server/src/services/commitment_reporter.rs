@@ -45,6 +45,7 @@
 //! tainted source; an activity titled with an injection payload can move a
 //! count, and moving a count is all it can ever do.
 
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -142,6 +143,13 @@ pub struct ServerCommitmentReporter {
     /// App-push fallback for athletes with no open channel session.
     #[cfg(feature = "client-notifications")]
     notifications: Option<Arc<NotificationService>>,
+}
+
+impl fmt::Debug for ServerCommitmentReporter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerCommitmentReporter")
+            .finish_non_exhaustive()
+    }
 }
 
 impl ServerCommitmentReporter {

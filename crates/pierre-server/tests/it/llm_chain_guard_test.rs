@@ -377,10 +377,15 @@ async fn test_chain_opens_circuit_after_provider_faults() {
     let secondary_count_when_open = secondary_calls.load(Ordering::SeqCst);
 
     // With the circuit open, the next call must skip the primary entirely.
-    let _ = chain
+    let response = chain
         .complete(&req)
         .await
         .expect("post-open call should be served by secondary");
+    assert!(
+        response.content.contains("mock-secondary-ok"),
+        "post-open call should be served by secondary, got: {}",
+        response.content
+    );
     assert_eq!(
         primary_calls.load(Ordering::SeqCst),
         primary_count_when_open,

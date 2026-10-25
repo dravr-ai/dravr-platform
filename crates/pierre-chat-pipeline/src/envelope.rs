@@ -32,6 +32,7 @@
 //! prose }` shape, and it lives here rather than at each egress so it cannot
 //! drift into "both" again.
 
+use std::fmt;
 use std::fmt::Write as _;
 
 use pierre_core::models::{ConversationTurnId, ACTIONS_BLOCK_TYPE};
@@ -111,7 +112,7 @@ pub struct AssistantTurn {
 /// cannot: [`build_envelope`] gates every variant on the matching
 /// [`crate::BlockSupport`] field and folds the content into
 /// [`ReplyBlock::Prose`] otherwise.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ReplyBlock {
     /// Natural-language coaching text, in the surface's
     /// [`crate::ProseFormat`].
@@ -187,6 +188,60 @@ pub enum ReplyBlock {
         /// What the notice is about.
         kind: NoticeKind,
     },
+}
+
+// A scene image URL is signed and its token is the only authorization, and a
+// reconnect URL (also inside its text) is a bearer link: neither is printed.
+// Prose is the model's reply and an activity list the athlete's own data:
+// only their sizes are printed.
+impl fmt::Debug for ReplyBlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Prose { text } => f
+                .debug_struct("Prose")
+                .field("text_len", &text.len())
+                .finish(),
+            Self::Scene { specs } => f.debug_struct("Scene").field("specs", specs).finish(),
+            Self::SceneImage {
+                url: _,
+                mime_type,
+                caption,
+            } => f
+                .debug_struct("SceneImage")
+                .field("url", &"[REDACTED]")
+                .field("mime_type", mime_type)
+                .field("caption", caption)
+                .finish(),
+            Self::WorkoutPlan { plan, coach_draft } => f
+                .debug_struct("WorkoutPlan")
+                .field("plan", plan)
+                .field("coach_draft", coach_draft)
+                .finish(),
+            Self::ActivityList { text } => f
+                .debug_struct("ActivityList")
+                .field("text_len", &text.len())
+                .finish(),
+            Self::Verdicts { chips } => f.debug_struct("Verdicts").field("chips", chips).finish(),
+            Self::Actions { title, actions } => f
+                .debug_struct("Actions")
+                .field("title", title)
+                .field("actions", actions)
+                .finish(),
+            Self::Reconnect {
+                provider,
+                display_name,
+                url: _,
+                text: _,
+            } => f
+                .debug_struct("Reconnect")
+                .field("provider", provider)
+                .field("display_name", display_name)
+                .field("url", &"[REDACTED]")
+                .field("text", &"[REDACTED]")
+                .finish(),
+            Self::Notice { kind } => f.debug_struct("Notice").field("kind", kind).finish(),
+        }
+    }
 }
 
 /// The wire discriminator of one [`ReplyBlock`] variant.
@@ -281,7 +336,7 @@ impl ReplyBlock {
 /// types: the envelope is compiled whether or not the `tools-verification`
 /// feature is on, and a client renders a label and a severity, not a verdict
 /// record.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct VerdictChip {
     /// The claim's own sentence, verbatim, so the athlete can challenge the
     /// specific thing that was flagged.
@@ -289,6 +344,15 @@ pub struct VerdictChip {
     /// `true` when the claim violated a deterministic bound, `false` when it
     /// merely had no supporting evidence.
     pub contradicted: bool,
+}
+
+impl fmt::Debug for VerdictChip {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VerdictChip")
+            .field("claim_len", &self.claim.len())
+            .field("contradicted", &self.contradicted)
+            .finish()
+    }
 }
 
 /// A control attached to a reply.
@@ -459,7 +523,7 @@ pub struct TurnTelemetry {
 /// is carried as its own field so a surface with
 /// [`crate::BlockSupport::reconnect_cta`] renders a control instead of asking
 /// the athlete to pick a link out of a sentence.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ReconnectPrompt {
     /// Provider slug the athlete has to re-authorize.
     pub provider: String,
@@ -469,6 +533,18 @@ pub struct ReconnectPrompt {
     pub url: String,
     /// Localized sentence, with the URL already substituted in.
     pub text: String,
+}
+
+// The URL, and the sentence it is substituted into, is a bearer link.
+impl fmt::Debug for ReconnectPrompt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReconnectPrompt")
+            .field("provider", &self.provider)
+            .field("display_name", &self.display_name)
+            .field("url", &"[REDACTED]")
+            .field("text", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Everything one turn produced, before the surface's capabilities are read.

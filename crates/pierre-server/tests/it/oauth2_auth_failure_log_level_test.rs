@@ -562,7 +562,7 @@ async fn a_forged_jwt_warns_and_never_pages() {
 
 // ── The OAuth login page ─────────────────────────────────────────────────────
 
-fn oauth2_routes(resources: &Arc<ServerContext>) -> axum::Router {
+fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
     let context = OAuth2Context {
         database: resources.agent.database.clone(),
         oauth2_server: resources.common.repos.oauth2_server.clone(),

@@ -213,6 +213,7 @@ struct TeamOfferLinks {
 }
 
 /// Who a reply's next steps are for, and where they are read.
+#[derive(Debug)]
 pub struct StepsFor<'a> {
     /// The athlete the reply answers.
     pub user_id: Uuid,
@@ -633,10 +634,8 @@ mod tests {
 
     #[test]
     fn the_season_leads_to_the_fortnight_only_once_it_is_laid_out() {
-        assert_eq!(
-            picked(StepsAfter::SeasonWalk, &pillars_done()),
-            [] as [String; 0]
-        );
+        let got = picked(StepsAfter::SeasonWalk, &pillars_done());
+        assert!(got.is_empty(), "expected empty, got {got:?}");
         assert_eq!(picked(StepsAfter::SeasonWalk, &planned()), ["fortnight"]);
     }
 
@@ -663,10 +662,8 @@ mod tests {
             weeks_of_data: 1,
             ..pillars_done()
         };
-        assert_eq!(
-            picked(StepsAfter::FirstAnalysis, &one_week),
-            [] as [String; 0]
-        );
+        let got = picked(StepsAfter::FirstAnalysis, &one_week);
+        assert!(got.is_empty(), "expected empty, got {got:?}");
     }
 
     #[test]

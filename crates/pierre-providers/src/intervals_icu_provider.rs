@@ -329,7 +329,7 @@ struct IntervalsIcuAthlete {
 }
 
 /// What a provider built for a coached athlete writes of theirs.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SubjectWrites {
     /// Nothing: every calendar write is refused before it is sent.
     Nothing,
@@ -338,6 +338,7 @@ enum SubjectWrites {
 }
 
 /// Provider implementation for Intervals.icu.
+#[derive(Debug)]
 pub struct IntervalsIcuProvider {
     config: ProviderConfig,
     /// Stored credentials. `access_token` holds the bearer token or the API
@@ -723,7 +724,7 @@ impl IntervalsIcuProvider {
         let response = send_traced(req, "get_streams", &url).await.map_err(|e| {
             AppError::external_service("intervals_icu", format!("get_streams: {e}"))
         })?;
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
+        if response.status() == StatusCode::NOT_FOUND {
             return Ok(Some(no_recorded_samples()));
         }
         if !response.status().is_success() {

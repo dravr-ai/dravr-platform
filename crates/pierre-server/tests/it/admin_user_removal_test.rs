@@ -131,8 +131,9 @@ impl RevokeStub {
                 if tx.send(raw).is_err() {
                     return;
                 }
-                let _ = stream.write_all(response.as_bytes()).await;
-                let _ = stream.shutdown().await;
+                // The client may hang up first; the test checks what it received.
+                drop(stream.write_all(response.as_bytes()).await);
+                drop(stream.shutdown().await);
             }
         });
         Self { url, requests: rx }
@@ -1921,14 +1922,12 @@ async fn delete_clears_a_users_messaging_history() {
         assert_eq!(rows_removed[table], 1, "{table} is cleared: {body}");
     }
     assert!(repos.users.get_global(user_id).await.unwrap().is_none());
-    assert_eq!(
-        repos
-            .messaging
-            .get_session_messages(&session_id, tenant_id, 10, 0)
-            .await
-            .unwrap(),
-        [] as [Value; 0]
-    );
+    let leftover = repos
+        .messaging
+        .get_session_messages(&session_id, tenant_id, 10, 0)
+        .await
+        .unwrap();
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 }
 
 /// An agent its author shares with the tenant, or one another user talks to,
@@ -2480,14 +2479,12 @@ fn the_reference_gate_follows_cascades_from_cleared_tables_and_reads_columns() {
         ),
         vec!["message_marks.message_id -> chat_messages".to_owned()]
     );
-    assert_eq!(
-        unhandled_references(
-            &behind_a_cascade,
-            &["message_marks", "chat_conversations"],
-            DELETION_BLOCKERS_SQL
-        ),
-        [] as [String; 0]
+    let leftover = unhandled_references(
+        &behind_a_cascade,
+        &["message_marks", "chat_conversations"],
+        DELETION_BLOCKERS_SQL,
     );
+    assert!(leftover.is_empty(), "expected empty, got {leftover:?}");
 
     // The blockers read chat_conversations for its agent, not for any other
     // column: a second reference from it is not refused by that read.

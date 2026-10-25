@@ -25,6 +25,8 @@
 //!
 //! [`TurnEnvelope`]: pierre_chat_pipeline::TurnEnvelope
 
+use std::fmt;
+
 use dravr_canot::rich_text::{escape_markdown, parse_markdown, render_plain};
 use pierre_chat_pipeline::suggestions::suggestion_lines;
 use pierre_chat_pipeline::{
@@ -92,6 +94,17 @@ pub struct RenderedReply {
     /// Everything that follows the prose, in reply order: charts the channel
     /// fetches, and the reconnect control where the channel draws controls.
     pub attachments: Vec<MessageContent>,
+}
+
+// Attachments carry signed chart URLs and reconnect links, and the prose is
+// the reply itself: only their sizes are printed.
+impl fmt::Debug for RenderedReply {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RenderedReply")
+            .field("prose_messages", &self.prose.len())
+            .field("attachments", &self.attachments.len())
+            .finish()
+    }
 }
 
 impl RenderedReply {

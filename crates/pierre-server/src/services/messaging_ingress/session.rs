@@ -209,7 +209,7 @@ pub(super) async fn forge_fresh_session_conversation(
 /// The dated stamp a forged thread falls back to when it has neither a room
 /// nor an agent to be named after, in the athlete's stored language and
 /// timezone.
-pub async fn fresh_title_fallback(resources: &ServerContext, user_id: &str) -> String {
+pub(crate) async fn fresh_title_fallback(resources: &ServerContext, user_id: &str) -> String {
     let user = match Uuid::parse_str(user_id) {
         Ok(id) => resources
             .common

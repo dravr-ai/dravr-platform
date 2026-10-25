@@ -51,7 +51,7 @@ use pierre_database::repositories::ChatRepository;
 use pierre_llm::TokenUsage;
 use serde_json::Value;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::envelope::{build_envelope, QuotaState, TurnEnvelope, TurnState, TurnTelemetry};
 use crate::hooks::PipelineHooks;
@@ -282,7 +282,9 @@ impl TurnStop {
 pub(crate) fn question_stored(hooks: &PipelineHooks<'_>, question: &MessageRecord) {
     if let Some(stop) = &hooks.stop {
         // Set once per turn; a second call has nothing to add.
-        let _ = stop.question.set(question.clone());
+        if stop.question.set(question.clone()).is_err() {
+            debug!("turn question already recorded; keeping the first");
+        }
     }
 }
 

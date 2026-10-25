@@ -12,6 +12,7 @@ use crate::intervals_icu_roster::check_athlete_id;
 
 /// Factory that builds [`IntervalsIcuProvider`] instances for the
 /// [`ProviderRegistry`](crate::registry::ProviderRegistry).
+#[derive(Debug)]
 pub struct IntervalsIcuProviderFactory;
 
 impl ProviderFactory for IntervalsIcuProviderFactory {

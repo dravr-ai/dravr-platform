@@ -14,6 +14,7 @@ use pierre_services::strava_seat_reclaim::{start_strava_seat_reclaimer, StravaSe
 use pierre_services::user_removal::ProviderDisconnector;
 use tracing::warn;
 
+use crate::config::admin::AdminConfigService;
 use crate::mcp::resources::ServerContext;
 
 /// Start the Strava seat reclaimer.
@@ -32,7 +33,7 @@ pub fn start_seat_reclaim_worker(resources: &Arc<ServerContext>) {
         warn!("admin config service unavailable: the Strava seat reclaimer is not started, since its policy lives there");
         return;
     };
-    let config: Arc<dyn AdminConfigLookup> = Arc::clone(admin_config) as Arc<dyn AdminConfigLookup>;
+    let config: Arc<dyn AdminConfigLookup> = Arc::<AdminConfigService>::clone(admin_config);
     let disconnector: Arc<dyn ProviderDisconnector> = Arc::new(OAuthService::new(
         resources.data(),
         Arc::clone(&resources.common.config),

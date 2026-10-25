@@ -63,6 +63,7 @@ const SLEEP_DATA_FIELDS: &str = "Fields: date (YYYY-MM-DD or RFC 3339) and durat
 // ============================================================================
 
 /// Tool for analyzing sleep quality from sleep data.
+#[derive(Debug)]
 pub struct AnalyzeSleepQualityTool;
 
 #[async_trait]
@@ -156,6 +157,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
 // ============================================================================
 
 /// Tool for calculating holistic recovery score.
+#[derive(Debug)]
 pub struct CalculateRecoveryScoreTool;
 
 #[async_trait]
@@ -260,6 +262,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
 // ============================================================================
 
 /// Tool for AI-powered rest day recommendation.
+#[derive(Debug)]
 pub struct SuggestRestDayTool;
 
 #[async_trait]
@@ -363,6 +366,7 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
 // ============================================================================
 
 /// Tool for tracking sleep trends over time.
+#[derive(Debug)]
 pub struct TrackSleepTrendsTool;
 
 #[async_trait]
@@ -467,6 +471,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
 // ============================================================================
 
 /// Tool for recommending optimal sleep schedule.
+#[derive(Debug)]
 pub struct OptimizeSleepScheduleTool;
 
 #[async_trait]

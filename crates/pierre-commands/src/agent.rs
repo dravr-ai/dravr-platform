@@ -39,6 +39,7 @@ const MAX_AGENT_BUTTONS: usize = 8;
 /// agents they never installed are deliberately absent — `/discover` is the
 /// catalogue, this is the shelf — so every entry here can be added to a
 /// conversation, and each carries the `@handle` that does it.
+#[derive(Debug)]
 pub struct AgentListHandler;
 
 #[async_trait]
@@ -151,6 +152,7 @@ fn add_postback(agent: &Agent) -> String {
 /// Listed for every caller: in a personal conversation it always works, and
 /// the group-thread refusal is decided by a role no group standing can see
 /// without also knowing whether the conversation is personal.
+#[derive(Debug)]
 pub struct AgentAddHandler;
 
 #[async_trait]
@@ -356,6 +358,7 @@ async fn bind_conversation_agent(
 /// the conversation row and the selection pointer — a messaging thread
 /// re-applies the pointer on every inbound turn, so clearing the row alone
 /// would bring the agent back with the athlete's next message.
+#[derive(Debug)]
 pub struct AgentRemoveHandler;
 
 #[async_trait]
@@ -427,6 +430,7 @@ impl CommandHandler for AgentRemoveHandler {
 /// Both run [`issue_group_invite`], so whoever redeems the code is attached
 /// as the group's human coach either way. Bringing a Dravr agent into a
 /// conversation is `/agent add`, not this.
+#[derive(Debug)]
 pub struct CoachInviteHandler;
 
 #[async_trait]
@@ -443,6 +447,7 @@ impl CommandHandler for CoachInviteHandler {
 }
 
 /// Handler for `/agent assign <agent_id> <group_id>` — bind an agent to a specific group
+#[derive(Debug)]
 pub struct AgentAssignHandler;
 
 impl AgentAssignHandler {

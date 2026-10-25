@@ -658,7 +658,7 @@ impl Athlete {
                 }]
             })
             .collect();
-        let written: Vec<PlanWeekInput> = starts
+        let written: Vec<PlanWeekInput<'_>> = starts
             .iter()
             .zip(&days)
             .map(|(start, days)| PlanWeekInput {

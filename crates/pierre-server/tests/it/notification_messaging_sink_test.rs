@@ -122,8 +122,9 @@ mod sink_tests {
             .id;
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
+        let service =
+            notification_service(&resources.agent.database)
+                .with_channel_sink(Arc::<RecordingSink>::clone(&sink));
 
         let outcome = service
             .dispatch_with_tier(
@@ -170,8 +171,9 @@ mod sink_tests {
             .id;
 
         let sink = Arc::new(RecordingSink::default());
-        let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
+        let service =
+            notification_service(&resources.agent.database)
+                .with_channel_sink(Arc::<RecordingSink>::clone(&sink));
 
         // The athlete turned the category off. Messaging must respect that —
         // a sink that routed around it would be a second delivery ladder with
@@ -317,8 +319,9 @@ mod sink_tests {
         };
 
         let sink = Arc::new(RecordingSink::default());
-        let linked = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>);
+        let linked =
+            notification_service(&resources.agent.database)
+                .with_channel_sink(Arc::<RecordingSink>::clone(&sink));
         let delivery = linked.dispatch_event(&event, PushTier::P1).await.unwrap();
         assert_eq!(delivery.channels, 1, "{delivery:?}");
         assert!(delivery.reached_outside_the_app());

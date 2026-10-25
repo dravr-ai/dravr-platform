@@ -287,9 +287,7 @@ async fn dispatch_notification(
 /// since the last tick has elapsed rather than one interval after boot.
 pub fn start_followup_scheduler(
     repo: Arc<dyn HarnessMemoryRepository>,
-    #[cfg(feature = "client-notifications")] notification_service: Option<
-        Arc<pierre_notifications::NotificationService>,
-    >,
+    #[cfg(feature = "client-notifications")] notification_service: Option<Arc<NotificationService>>,
     ledger: Arc<dyn WorkerRunRepository>,
 ) {
     spawn_periodic(

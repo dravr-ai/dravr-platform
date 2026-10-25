@@ -115,6 +115,7 @@ impl CircuitBreakerConfig {
 ///
 /// All state is managed with atomic operations, making this safe for concurrent access
 /// without requiring mutex locks.
+#[derive(Debug)]
 pub struct CircuitBreaker {
     /// Provider name for logging and error messages
     provider_name: String,

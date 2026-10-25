@@ -30,7 +30,7 @@ struct EnvValidation {
 ///
 /// Fails fast with clear error messages if critical variables are missing.
 /// This prevents cryptic errors later in the startup process.
-pub fn validate_required_environment() -> Result<()> {
+pub(crate) fn validate_required_environment() -> Result<()> {
     // The env-backed master key (LocalKekProvider) is unnecessary once the GCP Cloud
     // KMS KEK is compiled in and configured: the DEK is wrapped by KMS, so
     // KeyManager::configured_kek_provider never reads PIERRE_MASTER_ENCRYPTION_KEY.
@@ -178,7 +178,7 @@ pub fn validate_required_environment() -> Result<()> {
 /// operator arming `GUARDIAN_MODE=enforce` who typed `enfroce` would otherwise
 /// run `observe`). The Guardian is a security control; an unrecognized value
 /// is a configuration error, not something to paper over with a default.
-pub fn validate_guardian_settings(settings: &GuardianSettings) -> Result<()> {
+pub(crate) fn validate_guardian_settings(settings: &GuardianSettings) -> Result<()> {
     let bad_guardian = guardian::validate_settings(settings);
     if !bad_guardian.is_empty() {
         let detail = bad_guardian

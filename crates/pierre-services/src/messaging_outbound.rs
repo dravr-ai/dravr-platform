@@ -67,6 +67,13 @@ pub struct OutboundRetryContext<'a> {
     pub adapters: &'a dyn ChannelAdapterFactory,
 }
 
+impl fmt::Debug for OutboundRetryContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OutboundRetryContext")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Start the background outbound retry worker
 ///
 /// Spawns a tokio task that polls the outbound queue every `POLL_INTERVAL` seconds
@@ -194,8 +201,8 @@ enum Sendability {
 fn parse_entry_fields(entry: &Value) -> EntryFields<'_> {
     let turn_uuid = entry["turn_id"]
         .as_str()
-        .and_then(|s| uuid::Uuid::parse_str(s).ok())
-        .unwrap_or_else(uuid::Uuid::nil);
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .unwrap_or_else(Uuid::nil);
     EntryFields {
         entry_id: Claimed {
             id: entry["id"].as_str().unwrap_or_default(),

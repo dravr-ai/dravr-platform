@@ -67,7 +67,8 @@ fn spawn_scraper_stub(listener: TcpListener) {
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            // The client may hang up first; the test checks what it received.
+            drop(stream.write_all(response.as_bytes()).await);
         }
     });
 }

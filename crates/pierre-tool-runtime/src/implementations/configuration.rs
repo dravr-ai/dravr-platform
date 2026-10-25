@@ -476,6 +476,7 @@ pub(crate) fn validate_parameter_relationships(
 // ============================================================================
 
 /// Tool for getting the complete configuration catalog.
+#[derive(Debug)]
 pub struct GetConfigurationCatalogTool;
 
 #[async_trait]
@@ -524,6 +525,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
 // ============================================================================
 
 /// Tool for getting available configuration profile templates.
+#[derive(Debug)]
 pub struct GetConfigurationProfilesTool;
 
 #[async_trait]
@@ -583,6 +585,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
 // ============================================================================
 
 /// Tool for retrieving the current user's configuration.
+#[derive(Debug)]
 pub struct GetUserConfigurationTool;
 
 #[async_trait]
@@ -647,6 +650,7 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
 // ============================================================================
 
 /// Tool for updating the user's configuration.
+#[derive(Debug)]
 pub struct UpdateUserConfigurationTool;
 
 #[async_trait]
@@ -748,6 +752,7 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
 // ============================================================================
 
 /// Tool for calculating personalized training zones.
+#[derive(Debug)]
 pub struct CalculatePersonalizedZonesTool;
 
 #[async_trait]
@@ -966,6 +971,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
 // ============================================================================
 
 /// Tool for validating configuration parameters.
+#[derive(Debug)]
 pub struct ValidateConfigurationTool;
 
 #[async_trait]

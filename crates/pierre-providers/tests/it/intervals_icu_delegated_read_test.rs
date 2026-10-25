@@ -201,8 +201,9 @@ async fn spawn_api(seen: Seen) -> String {
                     "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
                 );
-                let _ = socket.write_all(response.as_bytes()).await;
-                let _ = socket.flush().await;
+                // The client may hang up first; the test checks what it received.
+                drop(socket.write_all(response.as_bytes()).await);
+                drop(socket.flush().await);
             });
         }
     });

@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::helpers::display::display_admin_user_success;
 
 /// Non-identity attributes of the account `create` establishes.
-pub struct AdminUserOptions {
+pub(crate) struct AdminUserOptions {
     /// Update the account instead of refusing when the email already exists
     pub force: bool,
     /// Grant the `super_admin` role rather than plain `admin`
@@ -39,7 +39,7 @@ pub struct AdminUserOptions {
 }
 
 /// Create or update admin user for frontend login
-pub async fn create(
+pub(crate) async fn create(
     repos: &RepositoryRegistry,
     email: String,
     password: String,
@@ -324,7 +324,7 @@ async fn initialize_admin_jwt_secret(repos: &RepositoryRegistry) -> Result<()> {
 /// Operates directly on the database — no HTTP layer involved. The `set_admin_status`
 /// repo method handles the privilege transition. To promote to super-admin, use
 /// `pierre-cli user create --email X --password Y --force --super-admin` instead.
-pub async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = repos
         .users
         .get_by_email(&email)
@@ -351,7 +351,7 @@ pub async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
 ///
 /// Super-admins cannot be demoted via this command to prevent accidental privilege loss;
 /// super-admin demotion requires direct DB intervention.
-pub async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = repos
         .users
         .get_by_email(&email)
@@ -380,7 +380,7 @@ pub async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
 /// and records the admin-override marker so a later Stripe webhook cannot
 /// clobber it. Delegates to the shared [`admin_ops::set_user_tier`] so the CLI,
 /// the web admin route, and the super-admin token route share one implementation.
-pub async fn set_tier(
+pub(crate) async fn set_tier(
     repos: &RepositoryRegistry,
     email: String,
     tier: String,
@@ -415,7 +415,7 @@ pub async fn set_tier(
 
 /// Clear a user's admin tier override so the billing webhook drives the tier
 /// again. Leaves `users.tier` as-is.
-pub async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = repos
         .users
         .get_by_email(&email)
@@ -436,7 +436,7 @@ pub async fn clear_tier(repos: &RepositoryRegistry, email: String) -> Result<()>
 /// are nullable for exactly this service-actor case). A repository error is
 /// logged instead of silently collapsing to `None` — a silent `.ok()` here
 /// masked the broken `get_first_admin_user` SELECT for a full day.
-pub async fn admin_actor(repos: &RepositoryRegistry) -> Option<Uuid> {
+pub(crate) async fn admin_actor(repos: &RepositoryRegistry) -> Option<Uuid> {
     match repos.users.get_first_admin_user().await {
         Ok(user) => user.map(|u| u.id),
         Err(e) => {
@@ -458,7 +458,7 @@ async fn lookup(repos: &RepositoryRegistry, email: &str) -> Result<User> {
 /// Approve a pending user (status → active) and provision their default
 /// MCP token. Mirrors the super-admin web approve (global scope, no tenant
 /// attach — tenant assignment is the tenant-scoped web flow's concern).
-pub async fn approve(
+pub(crate) async fn approve(
     repos: &RepositoryRegistry,
     email: String,
     reason: Option<String>,
@@ -481,7 +481,7 @@ pub async fn approve(
 }
 
 /// Suspend a user (status → suspended); they can no longer log in.
-pub async fn suspend(
+pub(crate) async fn suspend(
     repos: &RepositoryRegistry,
     email: String,
     reason: Option<String>,
@@ -504,7 +504,7 @@ pub async fn suspend(
 
 /// Issue a one-time password reset token for a user and print it for
 /// out-of-band delivery. Only the token's hash is stored server-side.
-pub async fn reset_password(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn reset_password(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = lookup(repos, &email).await?;
     let token = admin_ops::issue_password_reset_token(repos, user.id, "pierre-cli").await?;
     let minutes = admin_ops::PASSWORD_RESET_TTL_SECONDS / 60;
@@ -516,7 +516,7 @@ pub async fn reset_password(repos: &RepositoryRegistry, email: String) -> Result
 
 /// Set a per-user monthly rate-limit override. An omitted cap means no
 /// monthly ceiling for the user, whatever its tier.
-pub async fn set_rate_limit(
+pub(crate) async fn set_rate_limit(
     repos: &RepositoryRegistry,
     email: String,
     monthly: Option<u32>,
@@ -532,7 +532,7 @@ pub async fn set_rate_limit(
 }
 
 /// Clear a per-user rate-limit override; the user reverts to tier defaults.
-pub async fn clear_rate_limit(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn clear_rate_limit(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = lookup(repos, &email).await?;
     let removed = admin_ops::clear_user_rate_limit_override(repos, user.id).await?;
     if removed {
@@ -544,7 +544,7 @@ pub async fn clear_rate_limit(repos: &RepositoryRegistry, email: String) -> Resu
 }
 
 /// Parse a feature-flag key or fail listing the valid ones.
-pub fn parse_feature_key(key: &str) -> Result<FeatureKey> {
+pub(crate) fn parse_feature_key(key: &str) -> Result<FeatureKey> {
     FeatureKey::from_str(key).map_err(|_| {
         let valid: Vec<&str> = FeatureKey::ALL.iter().map(|k| k.as_str()).collect();
         AppError::invalid_input(format!(
@@ -555,7 +555,7 @@ pub fn parse_feature_key(key: &str) -> Result<FeatureKey> {
 }
 
 /// Set a per-user feature-flag override (wins over the tenant default).
-pub async fn set_feature(
+pub(crate) async fn set_feature(
     repos: &RepositoryRegistry,
     email: String,
     key: String,
@@ -577,7 +577,11 @@ pub async fn set_feature(
 }
 
 /// Clear a per-user feature-flag override; the tenant default applies again.
-pub async fn clear_feature(repos: &RepositoryRegistry, email: String, key: String) -> Result<()> {
+pub(crate) async fn clear_feature(
+    repos: &RepositoryRegistry,
+    email: String,
+    key: String,
+) -> Result<()> {
     let user = lookup(repos, &email).await?;
     let feature_key = parse_feature_key(&key)?;
     let removed = repos
@@ -599,7 +603,7 @@ pub async fn clear_feature(repos: &RepositoryRegistry, email: String, key: Strin
 }
 
 /// List a user's explicit per-user feature-flag overrides.
-pub async fn list_features(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn list_features(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = lookup(repos, &email).await?;
     let overrides = repos.feature_flags.list_user_overrides(user.id).await?;
     if overrides.is_empty() {
@@ -615,7 +619,7 @@ pub async fn list_features(repos: &RepositoryRegistry, email: String) -> Result<
 }
 
 /// List all admin users, printing email and role
-pub async fn list_admins(repos: &RepositoryRegistry) -> Result<()> {
+pub(crate) async fn list_admins(repos: &RepositoryRegistry) -> Result<()> {
     let admins = repos.users.list_admins().await?;
 
     if admins.is_empty() {

@@ -155,7 +155,7 @@ impl FakeScraper {
             answer: Box::new(answer),
             asked: Mutex::new(Vec::new()),
         });
-        let reader: Arc<dyn DailySummaryReader> = Arc::clone(&fake) as Arc<dyn DailySummaryReader>;
+        let reader: Arc<dyn DailySummaryReader> = Arc::<Self>::clone(&fake);
         (fake, reader)
     }
 }
@@ -513,7 +513,7 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
         repos.provider_connections.clone(),
         repos.groups.clone(),
         Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
-        Arc::new(NoopNotifier) as Arc<dyn SyncNotifier>,
+        Arc::new(NoopNotifier),
     );
 
     let status = service
@@ -554,7 +554,8 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Seen, status: &'static str, b
                 "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            // The client may hang up first; the test checks what it received.
+            drop(stream.write_all(response.as_bytes()).await);
         }
     });
 }
@@ -611,7 +612,8 @@ async fn stub_service_missing_the_session(
                 "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            // The client may hang up first; the test checks what it received.
+            drop(stream.write_all(response.as_bytes()).await);
         }
     });
     (seen, reader_for(addr))

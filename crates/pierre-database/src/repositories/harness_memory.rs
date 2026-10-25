@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
+
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::transport::TransportPolicy;
@@ -65,6 +67,27 @@ pub struct UpsertUserFactParams<'a> {
     pub transport_policy: TransportPolicy,
 }
 
+// The object is the athlete's own words: only its length prints.
+impl fmt::Debug for UpsertUserFactParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpsertUserFactParams")
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("agent_id", &self.agent_id)
+            .field("scope", &self.scope)
+            .field("kind", &self.kind)
+            .field("pillar", &self.pillar)
+            .field("predicate_code", &self.predicate_code)
+            .field("object_len", &self.object.len())
+            .field("confidence", &self.confidence)
+            .field("source", &self.source)
+            .field("valid_until", &self.valid_until)
+            .field("source_msg_id", &self.source_msg_id)
+            .field("transport_policy", &self.transport_policy)
+            .finish()
+    }
+}
+
 /// What [`HarnessMemoryRepository::approve_user_fact`] did with a draft.
 #[derive(Debug, Clone)]
 pub enum ApproveFactOutcome {
@@ -97,6 +120,22 @@ pub struct InsertCompactionBlockParams<'a> {
     pub transport_policy: TransportPolicy,
 }
 
+// The summary condenses the athlete's conversation: only its length prints.
+impl fmt::Debug for InsertCompactionBlockParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InsertCompactionBlockParams")
+            .field("tenant_id", &self.tenant_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("summary_len", &self.summary.len())
+            .field("summary_tokens", &self.summary_tokens)
+            .field("original_tokens", &self.original_tokens)
+            .field("first_message_id", &self.first_message_id)
+            .field("last_message_id", &self.last_message_id)
+            .field("transport_policy", &self.transport_policy)
+            .finish()
+    }
+}
+
 /// Parameters for creating an agent note via the harness memory tools.
 pub struct InsertAgentNoteParams<'a> {
     /// Tenant that owns the note.
@@ -115,6 +154,21 @@ pub struct InsertAgentNoteParams<'a> {
     pub transport_policy: TransportPolicy,
 }
 
+// The note is the agent's free text about the athlete: only its length prints.
+impl fmt::Debug for InsertAgentNoteParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InsertAgentNoteParams")
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("agent_id", &self.agent_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("scope", &self.scope)
+            .field("content_len", &self.content.len())
+            .field("transport_policy", &self.transport_policy)
+            .finish()
+    }
+}
+
 /// Parameters for scheduling an agent followup.
 pub struct InsertAgentFollowupParams<'a> {
     /// Tenant that owns the followup.
@@ -131,6 +185,21 @@ pub struct InsertAgentFollowupParams<'a> {
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
     /// The stamp of what the row is derived from (carnet#769).
     pub transport_policy: TransportPolicy,
+}
+
+// The reminder is free text promised to the athlete: only its length prints.
+impl fmt::Debug for InsertAgentFollowupParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InsertAgentFollowupParams")
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("agent_id", &self.agent_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("content_len", &self.content.len())
+            .field("due_at", &self.due_at)
+            .field("transport_policy", &self.transport_policy)
+            .finish()
+    }
 }
 
 /// Coaching harness memory repository (Tier 0 foundations).

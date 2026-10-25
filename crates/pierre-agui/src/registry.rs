@@ -35,6 +35,7 @@ use crate::AGUI_RUN_REPLAY_BUFFER_SIZE;
 use dashmap::DashMap;
 use pierre_core::constants::network_config::SSE_BROADCAST_CHANNEL_SIZE;
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
@@ -89,6 +90,17 @@ pub struct RunSubscription {
     pub receiver: broadcast::Receiver<String>,
 }
 
+// The backlog is the run's emitted events, the streamed reply among them:
+// only its length prints.
+impl fmt::Debug for RunSubscription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RunSubscription")
+            .field("backlog", &self.backlog.len())
+            .field("receiver", &self.receiver)
+            .finish()
+    }
+}
+
 /// Internal entry per registered run: the broadcast sender and the
 /// bounded replay buffer.
 struct RunSlot {
@@ -103,6 +115,14 @@ struct RunSlot {
 #[derive(Clone, Default)]
 pub struct RunRegistry {
     inner: Arc<RunRegistryInner>,
+}
+
+impl fmt::Debug for RunRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RunRegistry")
+            .field("runs", &self.inner.channels.len())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Default)]
@@ -242,6 +262,7 @@ impl RunRegistry {
 /// code can call `.send(...)` directly, but the common path is to
 /// hand the scope over to the chat pipeline as part of `AgUiRun` and
 /// let it drop when the turn completes.
+#[derive(Debug)]
 pub struct RunScope {
     registry: RunRegistry,
     run_id: String,

@@ -71,6 +71,7 @@ pub struct DraftOwner<'a> {
 /// A save into a coach's draft: an optional outline plus zero or more weeks,
 /// committed in one transaction
 /// ([`save_draft_bundle`](super::TrainingPlanRepository::save_draft_bundle)).
+#[derive(Debug)]
 pub struct SaveDraftParams<'a> {
     /// Whose draft.
     pub owner: DraftOwner<'a>,
@@ -91,6 +92,7 @@ pub struct SaveDraftParams<'a> {
 }
 
 /// Result of [`save_draft_bundle`](super::TrainingPlanRepository::save_draft_bundle).
+#[derive(Debug)]
 pub struct SavedDraftBundle {
     /// The draft as it stands after the save.
     pub draft: PlanDraft,
@@ -134,6 +136,7 @@ pub struct DraftPreview {
 }
 
 /// A publish request ([`publish_draft`](super::TrainingPlanRepository::publish_draft)).
+#[derive(Debug)]
 pub struct PublishDraftParams<'a> {
     /// Whose draft.
     pub owner: DraftOwner<'a>,
@@ -145,6 +148,7 @@ pub struct PublishDraftParams<'a> {
 }
 
 /// A draft that is now the athlete's live plan.
+#[derive(Debug)]
 pub struct PublishedDraft {
     /// The draft row, now in status `published`.
     pub draft_id: String,
@@ -160,6 +164,7 @@ pub struct PublishedDraft {
 }
 
 /// What [`publish_draft`](super::TrainingPlanRepository::publish_draft) came to.
+#[derive(Debug)]
 pub enum DraftPublish {
     /// The draft is live.
     Published(PublishedDraft),
@@ -172,7 +177,7 @@ pub enum DraftPublish {
 
 /// The coach's open draft of the athlete's plan. The one-draft index
 /// guarantees at most one row.
-pub const DRAFT_PLAN_SQL: &str = concat!(
+pub(crate) const DRAFT_PLAN_SQL: &str = concat!(
     "SELECT ",
     plan_columns!(),
     " FROM training_plans \
@@ -184,7 +189,7 @@ pub const DRAFT_PLAN_SQL: &str = concat!(
 /// save and a publish, run one after the other. A save stamps `updated_at`
 /// with `$4`; a publish passes NULL and leaves it, so a refused publish
 /// reports the draft as the coach last saved it.
-pub const CLAIM_DRAFT_SQL: &str = concat!(
+pub(crate) const CLAIM_DRAFT_SQL: &str = concat!(
     "UPDATE training_plans SET updated_at = COALESCE($4, updated_at) \
      WHERE tenant_id = $1 AND user_id = $2 AND drafted_by_user_id = $3 AND status = 'draft' \
      RETURNING ",
@@ -193,7 +198,7 @@ pub const CLAIM_DRAFT_SQL: &str = concat!(
 
 /// Open a draft whose outline the coach lays (`outline_drafted`), over the
 /// live season `$17` when there is one.
-pub const INSERT_DRAFT_SQL: &str = concat!(
+pub(crate) const INSERT_DRAFT_SQL: &str = concat!(
     "INSERT INTO training_plans (",
     plan_columns!(),
     ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', NULL, $10, $11, $11, $12, $13, $14, $15, \
@@ -204,7 +209,7 @@ pub const INSERT_DRAFT_SQL: &str = concat!(
 /// Open a draft over the athlete's live season by copying its outline
 /// verbatim — the JSON is carried, never re-encoded — with the copy's stamp
 /// at least as strict as `$5`. Inserts nothing when there is no live season.
-pub const INSERT_DRAFT_FROM_LIVE_SQL: &str = concat!(
+pub(crate) const INSERT_DRAFT_FROM_LIVE_SQL: &str = concat!(
     "INSERT INTO training_plans (",
     plan_columns!(),
     ") SELECT $1, tenant_id, user_id, author_agent_id, goal_fact_id, goal_race_json, races_json, \
@@ -218,7 +223,7 @@ pub const INSERT_DRAFT_FROM_LIVE_SQL: &str = concat!(
 /// Re-lay the outline of the coach's open draft `$1`, in place: a draft is
 /// the coach's workspace until it is published or discarded, and its id is
 /// how a client tells one draft from the next.
-pub const RELAY_DRAFT_OUTLINE_SQL: &str = concat!(
+pub(crate) const RELAY_DRAFT_OUTLINE_SQL: &str = concat!(
     "UPDATE training_plans SET author_agent_id = $4, goal_fact_id = $5, goal_race_json = $6, \
      races_json = $7, strategy = $8, phases_json = $9, source_conversation_id = $10, \
      flavour_json = $11, season_start = $12, season_end = $13, \
@@ -231,7 +236,7 @@ pub const RELAY_DRAFT_OUTLINE_SQL: &str = concat!(
 
 /// The athlete's live version of one week (`$3`): the row a draft week is
 /// written over, when the live season has one.
-pub const LIVE_WEEK_ID_SQL: &str = "SELECT w.id FROM training_plan_weeks w \
+pub(crate) const LIVE_WEEK_ID_SQL: &str = "SELECT w.id FROM training_plan_weeks w \
      JOIN training_plans p ON p.id = w.plan_id AND p.tenant_id = w.tenant_id \
      AND p.user_id = w.user_id AND p.status = 'active' \
      WHERE w.tenant_id = $1 AND w.user_id = $2 AND w.week_start = $3 AND w.status = 'active'";
@@ -239,7 +244,7 @@ pub const LIVE_WEEK_ID_SQL: &str = "SELECT w.id FROM training_plan_weeks w \
 /// The weeks of the coach's open draft `$3`, the draft's own version of each.
 /// The parent must be `$4`'s open draft of this athlete, so neither another
 /// coach's draft nor a live season's weeks come back.
-pub const LIST_DRAFT_WEEKS_SQL: &str = concat!(
+pub(crate) const LIST_DRAFT_WEEKS_SQL: &str = concat!(
     "SELECT ",
     week_columns!(),
     " FROM training_plan_weeks \
@@ -255,7 +260,7 @@ pub const LIST_DRAFT_WEEKS_SQL: &str = concat!(
 /// a draft supersedes a live row — later ones supersede the draft's own — so
 /// this asks whether the live row is still the one the draft began the week
 /// from.
-pub const DRAFT_WEEK_CONFLICTS_SQL: &str = "SELECT d.week_start FROM training_plan_weeks d \
+pub(crate) const DRAFT_WEEK_CONFLICTS_SQL: &str = "SELECT d.week_start FROM training_plan_weeks d \
      JOIN training_plan_weeks live ON live.tenant_id = d.tenant_id AND live.user_id = d.user_id \
      AND live.week_start = d.week_start AND live.plan_id = $4 AND live.status = 'active' \
      WHERE d.tenant_id = $1 AND d.user_id = $2 AND d.plan_id = $3 AND d.status = 'active' \
@@ -265,18 +270,18 @@ pub const DRAFT_WEEK_CONFLICTS_SQL: &str = "SELECT d.week_start FROM training_pl
      ORDER BY d.week_start ASC";
 
 /// Mark a draft published, as its content goes live in the same transaction.
-pub const PUBLISHED_DRAFT_SQL: &str = "UPDATE training_plans \
+pub(crate) const PUBLISHED_DRAFT_SQL: &str = "UPDATE training_plans \
      SET status = 'published', updated_at = $4 \
      WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND status = 'draft'";
 
 /// Throw the coach's open draft away, returning its id.
-pub const DISCARD_DRAFT_SQL: &str = "UPDATE training_plans \
+pub(crate) const DISCARD_DRAFT_SQL: &str = "UPDATE training_plans \
      SET status = 'discarded', updated_at = $4 \
      WHERE tenant_id = $1 AND user_id = $2 AND drafted_by_user_id = $3 AND status = 'draft' \
      RETURNING id";
 
 /// The outline a draft save carries, in the shape the outline encoder reads.
-pub const fn draft_outline_params<'a>(
+pub(crate) const fn draft_outline_params<'a>(
     params: &SaveDraftParams<'a>,
     outline: &PlanOutlineInput<'a>,
 ) -> SaveTrainingPlanParams<'a> {
@@ -300,7 +305,7 @@ pub const fn draft_outline_params<'a>(
 /// The error an insert opening a draft meets. The one-draft index means a
 /// concurrent save opened the coach's draft while this one ran: the
 /// transaction rolls back and nothing is written.
-pub fn draft_insert_error(e: &sqlx::Error) -> AppError {
+pub(crate) fn draft_insert_error(e: &sqlx::Error) -> AppError {
     if e.as_database_error()
         .is_some_and(DatabaseError::is_unique_violation)
     {

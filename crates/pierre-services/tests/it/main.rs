@@ -17,6 +17,7 @@ mod advice_capture_test;
 mod agent_prerequisites_test;
 mod archetype_aggregation_test;
 mod commitment_sweep_test;
+mod debug_redaction_test;
 mod fact_sentence_test;
 mod fortnight_decision_test;
 mod llm_probe_skip_test;

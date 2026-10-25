@@ -21,6 +21,7 @@ use pierre_database::backends::factory::Database;
 use tracing::error;
 
 /// Resolved auto-approval settings combining env var and database state
+#[derive(Debug)]
 pub struct AutoApprovalSettings {
     /// True when new user registrations are auto-approved
     pub enabled: bool,

@@ -44,6 +44,7 @@ pub struct UsageDataPoint {
 }
 
 /// Route handlers for the admin dashboard and metrics
+#[derive(Debug)]
 pub struct DashboardRoutes<C: DashboardCtx> {
     resources: Arc<C>,
 }

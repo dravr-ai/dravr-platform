@@ -50,7 +50,7 @@ use crate::AuthRoutesContext;
 
 /// Request body for linking an Intervals.icu account.
 #[derive(Debug, Deserialize)]
-pub struct IntervalsIcuLinkRequest {
+pub(crate) struct IntervalsIcuLinkRequest {
     /// Athlete id (e.g. `i123456`) — addresses the athlete-scoped API path.
     /// It is *not* the HTTP Basic username; Intervals.icu wants the literal
     /// string `API_KEY` there.
@@ -143,7 +143,7 @@ async fn authenticate(
 /// Returns [`AppError`] when the request is unauthenticated, the body is
 /// missing fields, the provider is unavailable (feature not compiled in), or
 /// Intervals.icu rejects the credentials.
-pub async fn handle_intervals_icu_link(
+pub(crate) async fn handle_intervals_icu_link(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<IntervalsIcuLinkRequest>,
@@ -184,7 +184,7 @@ pub async fn handle_intervals_icu_link(
 /// Returns [`IntervalsLinkError`] when a field is empty, the provider is
 /// unavailable (feature not compiled in), Intervals.icu rejects the
 /// credentials, or the token or connection cannot be stored.
-pub async fn link_intervals_icu_account(
+pub(crate) async fn link_intervals_icu_account(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -374,7 +374,7 @@ fn spawn_coach_access_probe(resources: &AuthRoutesContext, user_id: Uuid, tenant
 /// # Errors
 ///
 /// Returns [`AppError`] when the request is unauthenticated or the delete fails.
-pub async fn handle_intervals_icu_disconnect(
+pub(crate) async fn handle_intervals_icu_disconnect(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {

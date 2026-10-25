@@ -6,6 +6,8 @@
 
 //! Turn input and output types for [`super::run`].
 
+use std::fmt;
+
 use pierre_core::models::{ConversationTurnId, InputSource, TenantId, TurnOrigin};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -22,9 +24,20 @@ pub struct UserMessageResult {
     pub conversation: ConversationRecord,
 }
 
+// The message is the athlete's own words: only ids and its length print.
+impl fmt::Debug for UserMessageResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UserMessageResult")
+            .field("message_id", &self.message.id)
+            .field("message_len", &self.message.content.len())
+            .field("conversation_id", &self.conversation.id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// A group room's recent transcript, rendered for the system prompt, with the
 /// stamp of the entries it was rendered from (carnet#769).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AmbientContext {
     /// The rendered block.
     pub text: String,
@@ -33,13 +46,22 @@ pub struct AmbientContext {
     pub transport_policy: TransportPolicy,
 }
 
+impl fmt::Debug for AmbientContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AmbientContext")
+            .field("text_len", &self.text.len())
+            .field("transport_policy", &self.transport_policy)
+            .finish()
+    }
+}
+
 /// Input to a single pipeline turn.
 ///
 /// `conversation_tenant_id` is used for conversation/message DB lookups.
 /// `tool_tenant_id` is used for tool execution (OAuth, activities, etc.).
 /// These may differ when a messaging user belongs to a different tenant
 /// than the bot that owns the channel webhook.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TurnInput {
     /// Identifier of the conversation the turn is appending to.
     pub conversation_id: String,
@@ -108,6 +130,28 @@ pub struct TurnInput {
     /// Set by [`crate::turn_service::execute`] when it resolves the tap;
     /// `None` for a turn that ends nothing, which offers no step.
     pub steps_after: Option<StepsAfter>,
+}
+
+// The athlete's message and the room transcript are athlete text: only the
+// message's size and whether a transcript rode along are printed.
+impl fmt::Debug for TurnInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TurnInput")
+            .field("conversation_id", &self.conversation_id)
+            .field("user_id", &self.user_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("tool_tenant_id", &self.tool_tenant_id)
+            .field("is_direct_message", &self.is_direct_message)
+            .field("content_len", &self.content.len())
+            .field("origin", &self.origin)
+            .field("input_source", &self.input_source)
+            .field("turn_id", &self.turn_id)
+            .field("has_ambient_context", &self.ambient_context.is_some())
+            .field("quota", &self.quota)
+            .field("mentioned_agent", &self.mentioned_agent)
+            .field("steps_after", &self.steps_after)
+            .finish()
+    }
 }
 
 impl TurnInput {

@@ -36,7 +36,7 @@ const RECEIPT_PAGE: usize = 1000;
 /// `pierre-cli deletion` — the account-deletion ledger.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum DeletionCommand {
+pub(crate) enum DeletionCommand {
     /// Recompute the whole deletion receipt chain and report its first broken link (super-admin)
     VerifyReceipts {
         /// Server base URL (defaults to the cached login)
@@ -89,7 +89,7 @@ pub enum DeletionCommand {
 /// for an answer of an unexpected shape, an internal error naming the first
 /// broken link when the chain does not verify, and an invalid-input error
 /// for a clear not confirmed with `--yes`.
-pub async fn dispatch(command: DeletionCommand) -> AppResult<()> {
+pub(crate) async fn dispatch(command: DeletionCommand) -> AppResult<()> {
     match command {
         DeletionCommand::VerifyReceipts { server, token } => {
             let client = admin_client(server, token)?;

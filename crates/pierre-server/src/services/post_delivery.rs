@@ -46,7 +46,7 @@ use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurf
 
 /// The athlete a post is for.
 #[derive(Debug, Clone, Copy)]
-pub struct PostAthlete {
+pub(crate) struct PostAthlete {
     /// The athlete the turn runs as.
     pub user_id: Uuid,
     /// The athlete's own tenant, where their threads and DM sessions live.
@@ -54,7 +54,7 @@ pub struct PostAthlete {
 }
 
 /// The linked messaging DM a post can be written into right now.
-pub struct OpenDm {
+pub(crate) struct OpenDm {
     /// The messaging session the DM belongs to.
     session_id: String,
     /// The Pierre conversation the DM's turns are stored in.
@@ -73,7 +73,7 @@ impl OpenDm {
     /// Whether the DM writes into the athlete's personal thread (carnet#840),
     /// so a post made there is the in-app post as well: the app shows that
     /// thread, and a second post into it would say the same thing twice.
-    pub async fn shares_personal_thread(
+    pub(crate) async fn shares_personal_thread(
         &self,
         resources: &ServerContext,
         athlete: PostAthlete,
@@ -96,7 +96,7 @@ impl OpenDm {
 }
 
 /// The athlete's linked DMs as a post sees them now.
-pub struct LinkedDms {
+pub(crate) struct LinkedDms {
     /// The DM they last wrote from among those that may be written to
     /// unprompted, if any.
     pub open: Option<OpenDm>,
@@ -118,7 +118,7 @@ struct InAppThread {
 ///
 /// `None` when nothing was attempted — no instruction in that locale, or no
 /// thread could be read or forged; otherwise whether the reply was stored.
-pub async fn post_in_app(
+pub(crate) async fn post_in_app(
     resources: &ServerContext,
     post: &dyn PlatformPost,
     athlete: PostAthlete,
@@ -160,7 +160,7 @@ pub async fn post_in_app(
 /// `None` when nothing was attempted — no instruction in that locale;
 /// otherwise whether the reply was stored in the DM's conversation. A stored
 /// reply whose send failed is queued for the outbound retry worker.
-pub async fn post_to_dm(
+pub(crate) async fn post_to_dm(
     resources: &ServerContext,
     post: &dyn PlatformPost,
     resolver: &dyn AdapterResolver,
@@ -259,7 +259,7 @@ async fn personal_thread(resources: &ServerContext, athlete: PostAthlete) -> Opt
 /// The athlete's linked DMs at `now`: the one they last wrote from among
 /// those whose channel may be written to unprompted, and the channels held by
 /// a closed window.
-pub async fn linked_dms(
+pub(crate) async fn linked_dms(
     resources: &ServerContext,
     athlete: PostAthlete,
     now: DateTime<Utc>,

@@ -216,6 +216,7 @@ fn best_effort<T>(result: AppResult<T>, what: &str) -> Option<T> {
 }
 
 /// `push_training_plan` — the athlete's active plan onto their calendar.
+#[derive(Debug)]
 pub struct PushTrainingPlanTool;
 
 #[async_trait]

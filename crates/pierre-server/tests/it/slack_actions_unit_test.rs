@@ -340,13 +340,15 @@ mod parse_properties {
     proptest! {
         #[test]
         fn any_body_is_parsed_without_panicking(body in vec(any::<u8>(), 0..512)) {
-            let _ = parse_slack_action(&body);
+            // Only checks that parsing does not panic.
+            drop(parse_slack_action(&body));
         }
 
         #[test]
         fn any_form_encoded_payload_is_parsed_without_panicking(payload in any::<String>()) {
             let body = format!("payload={}", urlencoding::encode(&payload));
-            let _ = parse_slack_action(body.as_bytes());
+            // Only checks that parsing does not panic.
+            drop(parse_slack_action(body.as_bytes()));
         }
 
         #[test]
@@ -365,7 +367,8 @@ mod parse_properties {
                 "container": { "message_ts": ts },
             });
             let body = format!("payload={}", urlencoding::encode(&payload.to_string()));
-            let _ = parse_slack_action(body.as_bytes());
+            // Only checks that parsing does not panic.
+            drop(parse_slack_action(body.as_bytes()));
         }
     }
 }

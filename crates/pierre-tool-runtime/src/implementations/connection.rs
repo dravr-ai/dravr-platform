@@ -12,6 +12,7 @@
 //! - `DisconnectProviderTool` - Disconnect and revoke OAuth tokens
 
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -327,7 +328,7 @@ fn destructive_annotations() -> ToolAnnotations {
 // ============================================================================
 
 /// What `connect_provider` answers with.
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Serialize, JsonSchema)]
 pub struct ConnectProviderResult {
     /// The provider being connected.
     pub provider: String,
@@ -342,6 +343,20 @@ pub struct ConnectProviderResult {
     /// Always `pending_authorization`: the URL is issued, nothing is connected
     /// until the athlete comes back through the callback.
     pub status: String,
+}
+
+impl fmt::Debug for ConnectProviderResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConnectProviderResult")
+            .field("provider", &self.provider)
+            // The URL carries `state` in its query string.
+            .field("authorization_url", &"[REDACTED]")
+            .field("state", &"[REDACTED]")
+            .field("instructions", &self.instructions)
+            .field("expires_in_minutes", &self.expires_in_minutes)
+            .field("status", &self.status)
+            .finish()
+    }
 }
 
 /// One provider's connection state, as reported inside the all-providers map.
@@ -445,6 +460,7 @@ pub struct DisconnectProviderResult {
 ///
 /// Generates an authorization URL that the user can visit to authenticate
 /// with the provider. Supports optional redirect URL for mobile app flows.
+#[derive(Debug)]
 pub struct ConnectProviderTool;
 
 #[async_trait]
@@ -671,6 +687,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
 /// Tool for checking the connection status of fitness providers.
 ///
 /// Can check a single provider's status or all supported providers.
+#[derive(Debug)]
 pub struct GetConnectionStatusTool;
 
 #[async_trait]
@@ -826,6 +843,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
 // ============================================================================
 
 /// Tool for disconnecting from a fitness provider by removing OAuth tokens.
+#[derive(Debug)]
 pub struct DisconnectProviderTool;
 
 #[async_trait]
@@ -935,3 +953,25 @@ pub fn create_connection_tools() -> Vec<Box<dyn RuntimeTool>> {
 crate::declare_security!(DisconnectProviderTool => IRREVERSIBLE);
 crate::declare_security!(ConnectProviderTool => empty);
 crate::declare_security!(GetConnectionStatusTool => empty);
+
+#[cfg(test)]
+mod tests {
+    use super::ConnectProviderResult;
+
+    #[test]
+    fn a_connect_provider_result_never_prints_its_oauth_state() {
+        let result = ConnectProviderResult {
+            provider: "strava".to_owned(),
+            authorization_url:
+                "https://www.strava.com/oauth/authorize?state=sentinel-oauth-state-7f3a".to_owned(),
+            state: "sentinel-oauth-state-7f3a".to_owned(),
+            instructions: "Open the link".to_owned(),
+            expires_in_minutes: 10,
+            status: "pending_authorization".to_owned(),
+        };
+        for printed in [format!("{result:?}"), format!("{result:#?}")] {
+            assert!(!printed.contains("sentinel-oauth-state-7f3a"), "{printed}");
+            assert!(printed.contains("ConnectProviderResult"), "{printed}");
+        }
+    }
+}

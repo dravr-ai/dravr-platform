@@ -46,14 +46,14 @@ use tracing::warn;
 use uuid::Uuid;
 
 /// What a team offer's postback opens with: `ta:<choice>:<pillar>`.
-pub const TEAM_OFFER_PREFIX: &str = "ta:";
+pub(crate) const TEAM_OFFER_PREFIX: &str = "ta:";
 
 /// What an offered pillar's exposure id opens with: `team_offer_<pillar>`.
 const EXPOSURE_PREFIX: &str = "team_offer_";
 
 /// Which of the offer's two links was tapped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TeamOfferChoice {
+pub(crate) enum TeamOfferChoice {
     /// "Add X to my team".
     Add,
     /// "Not now".
@@ -79,7 +79,7 @@ impl TeamOfferChoice {
 
     /// The link's place within the offer: "Add" first, "Not now" second.
     #[must_use]
-    pub const fn position(self) -> usize {
+    pub(crate) const fn position(self) -> usize {
         match self {
             Self::Add => 0,
             Self::NotNow => 1,
@@ -89,13 +89,13 @@ impl TeamOfferChoice {
 
 /// The postback the `choice` link of an offer on `pillar` sends.
 #[must_use]
-pub fn encode(choice: TeamOfferChoice, pillar: Pillar) -> String {
+pub(crate) fn encode(choice: TeamOfferChoice, pillar: Pillar) -> String {
     format!("{TEAM_OFFER_PREFIX}{}:{}", choice.as_str(), pillar.as_str())
 }
 
 /// `<choice>:<pillar>` after [`TEAM_OFFER_PREFIX`]; `None` for anything else.
 #[must_use]
-pub fn parse(rest: &str) -> Option<(TeamOfferChoice, Pillar)> {
+pub(crate) fn parse(rest: &str) -> Option<(TeamOfferChoice, Pillar)> {
     let (choice, pillar) = rest.split_once(':')?;
     Some((TeamOfferChoice::parse(choice)?, Pillar::parse(pillar)?))
 }
@@ -103,12 +103,12 @@ pub fn parse(rest: &str) -> Option<(TeamOfferChoice, Pillar)> {
 /// The starter-exposure id an offer on `pillar` is recorded under, and the
 /// suggestion id analytics reports it as.
 #[must_use]
-pub fn exposure_id(pillar: Pillar) -> String {
+pub(crate) fn exposure_id(pillar: Pillar) -> String {
     format!("{EXPOSURE_PREFIX}{}", pillar.as_str())
 }
 
 /// Who an offer is for, and the thread it is made in.
-pub struct OfferFor<'a> {
+pub(crate) struct OfferFor<'a> {
     /// The athlete.
     pub user_id: Uuid,
     /// The athlete's own tenant, where their team and exposures live.
@@ -121,7 +121,7 @@ pub struct OfferFor<'a> {
 
 /// An agent the wrap-up offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OfferedAgent {
+pub(crate) struct OfferedAgent {
     /// The newly covered pillar the agent answers.
     pub pillar: Pillar,
     /// The agent's name in the athlete's language.
@@ -182,7 +182,7 @@ async fn localized_name(repos: &RepositoryRegistry, mut agent: Agent, locale: &s
 ///
 /// Best-effort: an athlete whose exposures or Store cannot be read is
 /// offered nothing, so a pillar is never offered twice on a guess.
-pub async fn pick(
+pub(crate) async fn pick(
     repos: &RepositoryRegistry,
     offer_for: &OfferFor<'_>,
     covered: &[Pillar],
@@ -247,7 +247,7 @@ async fn agent_to_offer(
 }
 
 /// Record that the offer on `pillar` was shown, so it is not made again.
-pub async fn record_shown(
+pub(crate) async fn record_shown(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
@@ -285,7 +285,7 @@ async fn record_tapped(
 /// "Add" joins the agent when it still qualifies — idempotently, so a second
 /// tap confirms again — and answers that the agent may not join otherwise.
 /// "Not now" records the dismissal.
-pub async fn answer(
+pub(crate) async fn answer(
     repos: &RepositoryRegistry,
     strings: &MessagingStringsRegistry,
     offer_for: &OfferFor<'_>,

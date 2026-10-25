@@ -63,6 +63,7 @@ pub struct PlanDenial {
 }
 
 /// Runs a verified [`Workflow`] against the shared executor.
+#[derive(Debug)]
 pub struct WorkflowExecutor<'a> {
     executor: &'a UniversalToolExecutor,
     user_id: &'a str,

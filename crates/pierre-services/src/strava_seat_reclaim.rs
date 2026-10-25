@@ -61,6 +61,7 @@
 
 use pierre_core::transport::TransportPolicy;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -421,6 +422,16 @@ pub struct StravaSeatReclaimer {
     /// The athlete notification path; `None` in a build without notifications,
     /// where no warning can be sent and so nothing is ever reclaimed.
     notifications: Option<Arc<NotificationService>>,
+}
+
+impl fmt::Debug for StravaSeatReclaimer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StravaSeatReclaimer")
+            .field("repos", &self.repos)
+            .field("oauth", &self.oauth)
+            .field("notifications", &self.notifications)
+            .finish_non_exhaustive()
+    }
 }
 
 impl StravaSeatReclaimer {

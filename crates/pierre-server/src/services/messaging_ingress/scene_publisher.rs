@@ -36,7 +36,7 @@ use crate::mcp::resources::ServerContext;
 /// Shared by every path that mints a chart for a channel — the live reply and
 /// the backfill push that re-asks a question once the history has loaded — so
 /// the two paint the same athlete the same way.
-pub async fn athlete_color_scheme(resources: &ServerContext, user_id: Uuid) -> ColorScheme {
+pub(crate) async fn athlete_color_scheme(resources: &ServerContext, user_id: Uuid) -> ColorScheme {
     match resources.common.repos.users.get_global(user_id).await {
         Ok(Some(user)) => ColorScheme::resolve(user.theme.as_deref()),
         Ok(None) => ColorScheme::default(),
@@ -48,7 +48,7 @@ pub async fn athlete_color_scheme(resources: &ServerContext, user_id: Uuid) -> C
 }
 
 /// Mints one signed image URL per stored chart spec.
-pub struct MessagingScenePublisher {
+pub(crate) struct MessagingScenePublisher {
     /// Server context supplying the public base URL, the signing secret and
     /// whether a press service is configured at all.
     resources: Arc<ServerContext>,
@@ -65,7 +65,7 @@ pub struct MessagingScenePublisher {
 impl MessagingScenePublisher {
     /// Build a publisher for one turn's channel and athlete.
     #[must_use]
-    pub const fn new(
+    pub(crate) const fn new(
         resources: Arc<ServerContext>,
         render: RenderCapabilities,
         theme: ColorScheme,

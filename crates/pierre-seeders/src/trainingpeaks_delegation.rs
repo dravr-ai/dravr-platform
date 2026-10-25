@@ -69,7 +69,7 @@ pub const ATHLETE_ID: &str = "900001";
 pub const ATHLETE_NAME: &str = "Alex Athlete";
 
 /// CLI arguments for the `TrainingPeaks` delegated-connection seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// The group's human coach, who proposes the link
     #[arg(long, default_value = "alice@acme.com")]

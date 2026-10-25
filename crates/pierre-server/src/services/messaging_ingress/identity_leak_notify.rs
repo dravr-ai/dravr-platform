@@ -29,6 +29,7 @@ use tracing::info;
 /// 2026-08-05 Telegram break the two differed for a single turn, and an
 /// operator triaging from the alert could not reach the conversation — which is
 /// why the conversation and turn ids ride along.
+#[derive(Debug)]
 pub struct LeakContext<'a> {
     /// Tenant the conversation was written under.
     pub conversation_tenant_id: TenantId,

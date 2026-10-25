@@ -35,8 +35,8 @@ fn tmp_dir(suffix: &str) -> PathBuf {
     let n = TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut dir = temp_dir();
     dir.push(format!("pierre-eval-harness-{suffix}-{pid}-{n}"));
-    // Recreate to ensure a clean slate across runs.
-    let _ = fs::remove_dir_all(&dir);
+    // Recreate for a clean slate across runs; usually there is nothing to remove.
+    drop(fs::remove_dir_all(&dir));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -122,7 +122,13 @@ fn browse_fixtures_returns_empty_on_missing_dir() {
     // Verify the function returns an empty response instead of erroring.
     let mut dir = temp_dir();
     dir.push("pierre-eval-harness-does-not-exist-xyzzy");
-    let _ = fs::remove_dir_all(&dir);
+    // The removal fails when the dir is already gone; absence is what counts.
+    drop(fs::remove_dir_all(&dir));
+    assert!(
+        !dir.exists(),
+        "precondition: {} must not exist",
+        dir.display()
+    );
 
     let response = browse_fixtures_from(&dir).expect("missing dir should yield empty response");
     assert_eq!(response.fixture_count, 0);

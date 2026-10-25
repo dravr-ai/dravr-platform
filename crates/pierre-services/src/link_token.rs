@@ -17,6 +17,7 @@ use pierre_config::constants::password_reset;
 use rand::distr::Alphanumeric;
 use rand::Rng;
 use sha2::{Digest, Sha256};
+use std::fmt;
 
 /// A freshly generated link token: what to persist plus what to deliver.
 pub struct GeneratedLinkToken {
@@ -26,6 +27,16 @@ pub struct GeneratedLinkToken {
     pub verifier_hash: String,
     /// The full `<selector>.<verifier>` token to deliver to the user (never stored).
     pub token: String,
+}
+
+impl fmt::Debug for GeneratedLinkToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GeneratedLinkToken")
+            .field("selector", &self.selector)
+            .field("verifier_hash", &self.verifier_hash)
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
 }
 
 fn random_alnum(len: usize) -> String {

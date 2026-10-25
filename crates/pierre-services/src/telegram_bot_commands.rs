@@ -83,7 +83,7 @@ const MAX_COMMAND_LEN: usize = 32;
 /// Names must be 1-32 characters of lowercase letters, digits and underscores;
 /// descriptions 1-256 characters.
 #[must_use]
-pub fn telegram_command_payload(commands: &[(String, String)]) -> Vec<serde_json::Value> {
+pub fn telegram_command_payload(commands: &[(String, String)]) -> Vec<Value> {
     commands
         .iter()
         .filter(|(name, description)| {
@@ -122,7 +122,7 @@ pub enum CommandScope {
 impl CommandScope {
     /// The `scope` object Telegram expects, or `None` for the default scope,
     /// which is expressed by omitting the field entirely.
-    fn payload(self) -> Option<serde_json::Value> {
+    fn payload(self) -> Option<Value> {
         match self {
             Self::Default => None,
             Self::AllGroupChats => Some(json!({ "type": "all_group_chats" })),

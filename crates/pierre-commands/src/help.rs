@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -75,6 +76,16 @@ pub struct HelpHandler {
     /// catalogue parse as the definitions. Marked when `/help` is read in a
     /// shared room so a member can tell whose data a command touches.
     personal: HashSet<String>,
+}
+
+impl fmt::Debug for HelpHandler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HelpHandler")
+            .field("registry", &self.registry)
+            .field("arg_specs", &self.arg_specs)
+            .field("personal", &self.personal)
+            .finish_non_exhaustive()
+    }
 }
 
 impl HelpHandler {

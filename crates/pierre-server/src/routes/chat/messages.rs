@@ -48,7 +48,7 @@ const MAX_TOPICS: i64 = 200;
 
 /// Query parameters for a window of the transcript.
 #[derive(Debug, Deserialize)]
-pub struct MessagesQuery {
+pub(super) struct MessagesQuery {
     /// Messages to return (clamped to `1..=200`; 100 when absent).
     #[serde(default)]
     pub limit: Option<i64>,
@@ -65,7 +65,7 @@ pub struct MessagesQuery {
 /// next list. An older window moves nothing. The marker write is
 /// best-effort — the rows are what the caller asked for, and a marker that
 /// failed to move costs one spurious badge, not the transcript.
-pub async fn get_messages(
+pub(super) async fn get_messages(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -170,7 +170,7 @@ pub async fn get_messages(
 /// List a conversation's topics, newest first, as a participant: one per
 /// divider, plus the thread's opening. History draws them as the stretches of
 /// the personal thread, each titled with the athlete's first words in it.
-pub async fn list_topics(
+pub(super) async fn list_topics(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,

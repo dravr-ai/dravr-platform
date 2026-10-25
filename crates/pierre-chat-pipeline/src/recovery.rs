@@ -184,7 +184,7 @@ fn apply_identity_reask_reply(response: ChatResponse, result: &mut ToolLoopResul
 }
 
 /// Bundled inputs for [`run_recovery_and_post_process`].
-pub struct RecoveryAndPostProcessInputs<'a> {
+pub(crate) struct RecoveryAndPostProcessInputs<'a> {
     pub ctx: &'a ChatPipelineContext,
     pub input: &'a TurnInput,
     pub profile: &'a SurfaceProfile,
@@ -213,7 +213,7 @@ pub struct RecoveryAndPostProcessInputs<'a> {
 /// The second element is the reconnect prompt whenever the re-auth stage minted
 /// one — blanked turn and sibling-served turn alike. It rides out separately so
 /// the envelope can draw a control on a surface that renders one.
-pub async fn run_recovery_and_post_process(
+pub(crate) async fn run_recovery_and_post_process(
     inputs: RecoveryAndPostProcessInputs<'_>,
     result: &mut ToolLoopResult,
     hooks: &PipelineHooks<'_>,

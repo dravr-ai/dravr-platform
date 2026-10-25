@@ -107,6 +107,7 @@ use pierre_tools_core::ToolResult;
 ///
 /// Supports filtering by sport type, date ranges, pagination, and
 /// different output modes (summary/detailed) and formats (json/toon).
+#[derive(Debug)]
 pub struct GetActivitiesTool;
 
 #[async_trait]

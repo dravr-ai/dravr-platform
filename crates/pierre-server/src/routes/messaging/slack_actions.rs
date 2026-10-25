@@ -613,6 +613,7 @@ const COACH_ACCESS_REQUESTED_EVENT: &str = "coach_access.requested";
 /// [`parse_action_id`] reads followed by the id the tap acts on — the waiting
 /// account's `user_id`, the coach-access `request_id`; an event without it
 /// gets no buttons, since a tap could not say what it acts on.
+#[derive(Debug)]
 pub struct OpsDecisionActions;
 
 impl NotifyActions for OpsDecisionActions {

@@ -78,7 +78,6 @@ mod reset_locale {
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_runtime_context::CommandCtx;
     use pierre_services::first_run::{self, FINISH_PROFILE};
     use serial_test::serial;
     use std::sync::atomic::Ordering;
@@ -146,9 +145,10 @@ mod reset_locale {
     #[serial]
     async fn reset_confirmation_speaks_the_athletes_locale() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let registry = &e2e.resources.mcp.messaging_strings_registry;
@@ -197,9 +197,10 @@ mod reset_locale {
     #[serial]
     async fn reset_walk_interrupted_note_speaks_the_athletes_locale() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let registry = &e2e.resources.mcp.messaging_strings_registry;
@@ -246,9 +247,10 @@ mod reset_locale {
     #[serial]
     async fn reset_on_a_dm_opens_a_topic_in_the_personal_thread() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let (member, session, baseline) = primed_en_member(&e2e).await;
@@ -261,7 +263,8 @@ mod reset_locale {
         e2e.send_dm(&member, "How was my week?").await;
         let spoken = e2e.wait_outbound_for_session(&session, baseline + 1).await;
 
-        let _ = reset_bodies(&e2e, &member, &session, spoken).await;
+        let bodies = reset_bodies(&e2e, &member, &session, spoken).await;
+        assert!(!bodies.is_empty(), "the reset is acknowledged");
 
         let after = e2e
             .conversation_id(&member, member.home_tenant, &member.channel_user_id)
@@ -415,9 +418,10 @@ mod reset_locale {
     #[serial]
     async fn reset_moves_the_room_session_onto_a_fresh_conversation_and_keeps_the_old_one() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let (room, member, session, baseline, before) = primed_room_member(&e2e).await;
@@ -436,7 +440,11 @@ mod reset_locale {
                 .mcp
                 .messaging_strings_registry
                 .render(KEY_RESET_CONFIRM, "en", &[]);
-        let _ = room_reset_bodies(&room, &member, &session, baseline, &confirm).await;
+        let bodies = room_reset_bodies(&room, &member, &session, baseline, &confirm).await;
+        assert!(
+            bodies.iter().any(|b| b.contains(&confirm)),
+            "the room hears the reset confirmation: {bodies:?}"
+        );
 
         let after = room
             .conversation_id(&member)
@@ -516,9 +524,10 @@ mod reset_locale {
     #[serial]
     async fn reset_at_the_cap_archives_the_old_thread_and_opens_a_fresh_one() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
@@ -583,9 +592,10 @@ mod reset_locale {
     #[serial]
     async fn reset_over_the_cap_is_refused_and_leaves_the_old_thread_active() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let owned = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap() + 1;
@@ -689,9 +699,10 @@ mod reset_locale {
     #[serial]
     async fn a_dm_into_the_archived_personal_thread_reactivates_it_at_the_cap() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let (member, session, baseline) = primed_en_member(&e2e).await;
@@ -765,9 +776,10 @@ mod reset_locale {
     #[serial]
     async fn commands_into_an_archived_thread_at_the_cap_decide_per_command() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let (room, member, session, baseline, before) = member_on_archived_thread(&e2e, 0).await;
@@ -893,7 +905,7 @@ mod reset_locale {
             channel_type: "telegram".to_owned(),
             args: vec![],
             raw_text: "/reset".to_owned(),
-            ctx: Arc::<ServerContext>::clone(&e2e.resources) as Arc<dyn CommandCtx>,
+            ctx: Arc::<ServerContext>::clone(&e2e.resources),
             locale: "en".to_owned(),
             is_direct_message: false,
             ambient_group_fallback: true,
@@ -971,9 +983,10 @@ mod reset_locale {
     #[serial]
     async fn reset_whose_repoint_fails_removes_the_fresh_thread_and_restores_the_old_one() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
@@ -1021,9 +1034,10 @@ mod reset_locale {
     #[serial]
     async fn reset_whose_repoint_and_cleanup_both_fail_still_restores_the_old_thread() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
 
         let cap = usize::try_from(DEFAULT_MAX_ACTIVE_CONVERSATIONS).unwrap();
@@ -1117,9 +1131,10 @@ mod reset_locale {
     #[serial]
     async fn reset_of_an_agent_thread_sends_the_agent_welcome_after_the_confirmation() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         let en_confirm = e2e
             .resources

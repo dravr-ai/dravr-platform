@@ -23,7 +23,7 @@ static CHAIN_GUARD_USERS: Mutex<()> = Mutex::const_new(());
 
 /// Waits for every other chain test to finish, then resets `CHAIN_GUARD`.
 /// Keep the returned guard alive until the test ends.
-pub async fn fresh_chain_guard() -> MutexGuard<'static, ()> {
+pub(crate) async fn fresh_chain_guard() -> MutexGuard<'static, ()> {
     let held = CHAIN_GUARD_USERS.lock().await;
     CHAIN_GUARD.record_primary_success();
     let healthy = GithubRateLimit {

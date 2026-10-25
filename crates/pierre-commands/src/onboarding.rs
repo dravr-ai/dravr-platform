@@ -89,6 +89,7 @@ fn unknown_pillar_error(arg: &str) -> AppError {
 /// from there — the opener points the athlete at a direct message for those
 /// two. The walk state and opener land on the conversation row's own tenant
 /// (the channel tenant in a room); the athlete's facts stay under their own.
+#[derive(Debug)]
 pub struct PillarsHandler;
 
 #[async_trait]

@@ -27,6 +27,7 @@ use crate::mcp::resources::ServerContext;
 use crate::services::memory_facts::{approve_fact_handler, forget_fact_handler, get_facts_handler};
 
 /// User-facing harness memory routes.
+#[derive(Debug)]
 pub struct MemoryRoutes;
 
 impl MemoryRoutes {

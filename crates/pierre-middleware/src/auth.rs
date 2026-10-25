@@ -202,7 +202,7 @@ fn settle(checked: Checked) -> AppResult<AuthResult> {
 /// API-key path also reports the admitted key, whose usage row the
 /// request-budget layer writes with the request's outcome (see
 /// [`crate::rate_limiting`]).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct McpAuthMiddleware {
     auth_manager: AuthManager,
     api_key_manager: ApiKeyManager,

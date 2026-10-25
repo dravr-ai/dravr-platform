@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
+use std::fmt;
 
 use pierre_core::models::TenantId;
 use serde_json::Value;
@@ -37,6 +38,24 @@ pub struct UpsertChannelConfigParams<'a> {
     pub is_active: bool,
 }
 
+impl fmt::Debug for UpsertChannelConfigParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpsertChannelConfigParams")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("channel_type", &self.channel_type)
+            .field("api_key", &"[REDACTED]")
+            .field("api_secret", &"[REDACTED]")
+            .field("webhook_secret", &"[REDACTED]")
+            .field("verify_token", &"[REDACTED]")
+            .field("account_id", &self.account_id)
+            .field("phone_number", &self.phone_number)
+            .field("bot_token", &"[REDACTED]")
+            .field("is_active", &self.is_active)
+            .finish()
+    }
+}
+
 /// Parameters for creating a messaging session
 pub struct CreateSessionParams<'a> {
     /// Unique session identifier
@@ -53,6 +72,21 @@ pub struct CreateSessionParams<'a> {
     pub channel_conversation_id: Option<&'a str>,
     /// Pierre conversation identifier
     pub pierre_conversation_id: Option<&'a str>,
+}
+
+// The channel user id is a phone number on WhatsApp and SMS: never printed.
+impl fmt::Debug for CreateSessionParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateSessionParams")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("channel_type", &self.channel_type)
+            .field("channel_user_id", &"[REDACTED]")
+            .field("channel_conversation_id", &self.channel_conversation_id)
+            .field("pierre_conversation_id", &self.pierre_conversation_id)
+            .finish()
+    }
 }
 
 /// The connection a queued reconnect notice is about.
@@ -92,6 +126,23 @@ pub struct EnqueueOutboundParams<'a> {
     pub reauth: Option<OutboundReauthGuard<'a>>,
 }
 
+// The payload is the message itself, and a reconnect notice carries a bearer
+// link: only its length is printed.
+impl fmt::Debug for EnqueueOutboundParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EnqueueOutboundParams")
+            .field("id", &self.id)
+            .field("message_id", &self.message_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("channel_type", &self.channel_type)
+            .field("payload_len", &self.payload.len())
+            .field("expires_at", &self.expires_at)
+            .field("reauth", &self.reauth)
+            .finish()
+    }
+}
+
 /// Parameters for inserting a messaging message
 pub struct InsertMessageParams<'a> {
     /// Unique message identifier
@@ -122,6 +173,27 @@ pub struct InsertMessageParams<'a> {
     /// error apologies). An emoji reaction on the channel message resolves
     /// through this id to the shared per-message feedback write.
     pub chat_message_id: Option<&'a str>,
+}
+
+// Bodies and raw payloads hold athlete messages, sender phone numbers and
+// reconnect links: only their lengths are printed, and the sender is hidden.
+impl fmt::Debug for InsertMessageParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InsertMessageParams")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("session_id", &self.session_id)
+            .field("direction", &self.direction)
+            .field("channel_type", &self.channel_type)
+            .field("channel_message_id", &self.channel_message_id)
+            .field("sender_id", &"[REDACTED]")
+            .field("content_type", &self.content_type)
+            .field("content_body_len", &self.content_body.map(str::len))
+            .field("correlation_id", &self.correlation_id)
+            .field("raw_payload_len", &self.raw_payload.map(str::len))
+            .field("chat_message_id", &self.chat_message_id)
+            .finish()
+    }
 }
 
 /// The resolved target of an inbound emoji reaction: the assistant chat
@@ -166,6 +238,25 @@ pub struct CreateLinkStateParams<'a> {
     pub expires_at: &'a str,
 }
 
+impl fmt::Debug for CreateLinkStateParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateLinkStateParams")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("channel_type", &self.channel_type)
+            .field("code", &"[REDACTED]")
+            .field("method", &self.method)
+            .field(
+                "channel_user_id",
+                &self.channel_user_id.map(|_| "[REDACTED]"),
+            )
+            .field("sender_name", &self.sender_name.map(|_| "[REDACTED]"))
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
 /// Parameters for creating a permanent channel link
 pub struct CreateChannelLinkParams<'a> {
     /// Unique link identifier
@@ -180,6 +271,20 @@ pub struct CreateChannelLinkParams<'a> {
     pub channel_user_id: &'a str,
     /// Human-readable display name from the platform
     pub display_name: Option<&'a str>,
+}
+
+// The channel user id is a phone number on WhatsApp and SMS: never printed.
+impl fmt::Debug for CreateChannelLinkParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CreateChannelLinkParams")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("channel_type", &self.channel_type)
+            .field("channel_user_id", &"[REDACTED]")
+            .field("display_name", &self.display_name.map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 /// Multi-channel messaging gateway repository

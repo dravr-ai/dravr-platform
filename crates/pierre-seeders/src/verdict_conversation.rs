@@ -54,7 +54,7 @@ pub const EVIDENCE_REF: &str = "doi:10.1111/sms.12104";
 const EXISTING_SCAN: i64 = 200;
 
 /// CLI arguments for the verdict conversation seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// The athlete who owns the conversation
     #[arg(long, default_value = "verdicttest@pierre.dev")]

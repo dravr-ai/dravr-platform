@@ -371,7 +371,7 @@ fn api_tier(tier: &Arc<ScriptedApi>) -> EmbacleProvider {
 
 /// The Copilot tier as a chain tier, reachable as a turn provider.
 fn sdk_tier(tier: &Arc<ScriptedSdk>) -> EmbacleProvider {
-    let turn_provider: Arc<dyn HeadlessTurnProvider> = Arc::clone(tier) as _;
+    let turn_provider: Arc<dyn HeadlessTurnProvider> = Arc::<ScriptedSdk>::clone(tier);
     EmbacleProvider::from_turn_provider(turn_provider, "GitHub Copilot (SDK)")
 }
 
@@ -1175,7 +1175,7 @@ impl HeadlessTurnProvider for TextCallingSdk {
 #[tokio::test]
 async fn a_text_tool_call_from_the_copilot_sdk_runs_the_tool_instead_of_falling_through() {
     let sdk = TextCallingSdk::new();
-    let turn_provider: Arc<dyn HeadlessTurnProvider> = Arc::clone(&sdk) as _;
+    let turn_provider: Arc<dyn HeadlessTurnProvider> = Arc::<TextCallingSdk>::clone(&sdk);
     let chain = ChatProvider::Embacle(EmbacleProvider::from_turn_provider(
         turn_provider,
         "GitHub Copilot (SDK)",

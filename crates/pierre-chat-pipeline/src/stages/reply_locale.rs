@@ -25,7 +25,7 @@ use crate::language::detect_locale;
 ///    settled once at the ingress boundary from the user's input, the
 ///    channel link, and `users.locale`. Honored verbatim whenever the
 ///    reply's own language is inconclusive.
-pub fn resolve_banner_locale(reply: &str, locale: &str) -> String {
+pub(crate) fn resolve_banner_locale(reply: &str, locale: &str) -> String {
     detect_locale(reply).map_or_else(|| locale.to_owned(), str::to_owned)
 }
 

@@ -47,7 +47,7 @@ use crate::tool_loop_telemetry::{
 
 /// What the API loop's calls have spent so far in this turn.
 #[derive(Debug)]
-pub struct LoopSpend {
+pub(crate) struct LoopSpend {
     /// Every call's tokens, discarded answers included: they were billed.
     pub usage: TokenUsage,
     /// Calls made so far, numbering each one's `llm_usage` row.
@@ -65,7 +65,7 @@ impl Default for LoopSpend {
 
 impl LoopSpend {
     /// The tokens spent, or `None` before any call reported a figure.
-    pub fn reported(&self) -> Option<TokenUsage> {
+    pub(crate) fn reported(&self) -> Option<TokenUsage> {
         (self.usage.total_tokens > 0).then(|| self.usage.clone())
     }
 
@@ -92,7 +92,7 @@ impl LoopSpend {
 ///
 /// [`ApiLoopError::Head`] when either call fails, carrying the rounds done
 /// before it, so the turn re-runs on the chain's tail.
-pub async fn iteration_response(
+pub(crate) async fn iteration_response(
     params: &ToolLoopParams<'_>,
     llm_messages: &[ChatMessage],
     iteration: usize,

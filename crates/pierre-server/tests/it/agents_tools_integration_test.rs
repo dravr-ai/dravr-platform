@@ -1074,10 +1074,8 @@ async fn test_search_agents_no_results() -> Result<()> {
     let result = response.result.unwrap();
 
     assert_eq!(result["returned_count"].as_u64().unwrap(), 0);
-    assert_eq!(
-        result["results"].as_array().unwrap().as_slice(),
-        [] as [serde_json::Value; 0]
-    );
+    let got = result["results"].as_array().unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 
     Ok(())
 }

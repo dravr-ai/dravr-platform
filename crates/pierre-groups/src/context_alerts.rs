@@ -20,7 +20,9 @@ use pierre_core::models::groups::MemberFitnessSnapshot;
 /// Gated identically to the snapshot cards: callers pass only
 /// visible/consenting members, so neither section can leak a hidden member's
 /// state. A member's own reconnect link is delivered out-of-band — never here.
-pub fn connection_and_staleness_alerts(visible_snapshots: &[&MemberFitnessSnapshot]) -> String {
+pub(crate) fn connection_and_staleness_alerts(
+    visible_snapshots: &[&MemberFitnessSnapshot],
+) -> String {
     // Connection alerts: name any visible member whose provider connection died
     // so the agent reports the dead provider instead of treating it as merely
     // quiet.

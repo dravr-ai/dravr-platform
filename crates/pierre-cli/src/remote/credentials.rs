@@ -18,6 +18,7 @@ use std::process;
 
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 /// Directory under the user's home that holds pierre-cli state.
 const CONFIG_DIR: &str = ".pierre";
@@ -153,11 +154,22 @@ fn write_owner_only(path: &Path, body: &[u8]) -> AppResult<()> {
         file.sync_all()
     });
     if let Err(e) = written {
-        let _ = fs::remove_file(&staging);
+        discard_staging(&staging);
         return Err(failed("write", &staging, e));
     }
     fs::rename(&staging, path).map_err(|e| {
-        let _ = fs::remove_file(&staging);
+        discard_staging(&staging);
         failed("replace", path, e)
     })
+}
+
+/// Best-effort removal of a staging file; the write error is what gets reported.
+fn discard_staging(staging: &Path) {
+    if let Err(e) = fs::remove_file(staging) {
+        debug!(
+            path = %staging.display(),
+            error = %e,
+            "could not remove the credentials staging file"
+        );
+    }
 }

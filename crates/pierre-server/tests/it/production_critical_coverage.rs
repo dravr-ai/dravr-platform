@@ -62,7 +62,7 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
     repos.users.create(&user).await?;
 
     // Generate real JWT token
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let token = server.auth_manager().generate_token(&user, &jwks_manager)?;
 
     // Test real MCP tools/list request
@@ -170,7 +170,7 @@ async fn test_admin_auth_flow() -> Result<()> {
     repos.users.create(&admin_user).await?;
 
     // Test token generation for admin
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let admin_token = auth_manager.generate_token(&admin_user, &jwks_manager)?;
     assert_ne!(admin_token, "");
 
@@ -226,7 +226,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
     }
 
     // Test that each user gets their own isolated context
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     for user in &users {
         let token = server.auth_manager().generate_token(user, &jwks_manager)?;
         assert_ne!(token, "");
@@ -345,7 +345,7 @@ async fn test_production_rate_limiting() -> Result<()> {
 
     let repos = database.repositories();
     repos.users.create(&user).await?;
-    let jwks_manager = common::get_shared_test_jwks();
+    let jwks_manager = get_shared_test_jwks();
     let _token = auth_manager.generate_token(&user, &jwks_manager)?;
 
     // The budget the auth gate computes for this user: the Starter tier's

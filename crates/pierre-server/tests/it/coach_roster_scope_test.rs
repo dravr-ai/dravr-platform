@@ -253,14 +253,12 @@ async fn a_user_who_coaches_no_group_has_an_empty_roster() {
     let s = seeded().await;
     let repos = s.db.repositories();
 
-    assert_eq!(
-        repos
-            .groups
-            .list_athletes_coached_by(s.stranger)
-            .await
-            .unwrap(),
-        [] as [Uuid; 0]
-    );
+    let got = repos
+        .groups
+        .list_athletes_coached_by(s.stranger)
+        .await
+        .unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert!(coach_roster_scope(repos.groups.as_ref(), s.stranger)
         .await
         .unwrap()
@@ -303,14 +301,12 @@ async fn detaching_the_coach_takes_the_group_off_their_roster() {
         .await
         .unwrap());
 
-    assert_eq!(
-        repos
-            .groups
-            .list_athletes_coached_by(s.coach)
-            .await
-            .unwrap(),
-        [] as [Uuid; 0]
-    );
+    let got = repos
+        .groups
+        .list_athletes_coached_by(s.coach)
+        .await
+        .unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert!(coach_roster_scope(repos.groups.as_ref(), s.coach)
         .await
         .unwrap()

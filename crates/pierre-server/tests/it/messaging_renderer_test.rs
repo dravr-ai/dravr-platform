@@ -263,7 +263,7 @@ mod slack {
         let payload = renderer().render(&msg).unwrap();
         assert_eq!(payload["channel"], "recipient-123");
         let blocks = payload["blocks"].as_array().unwrap();
-        assert_ne!(blocks.as_slice(), [] as [serde_json::Value; 0]);
+        assert!(!blocks.is_empty(), "expected a non-empty value");
         // Text should be in a section block
         let text_block = &blocks[0];
         assert_eq!(text_block["type"], "section");
@@ -337,10 +337,8 @@ mod telegram {
         assert!(payload["text"].as_str().unwrap().contains("Training Plan"));
         let keyboard = &payload["reply_markup"]["inline_keyboard"];
         assert!(keyboard.is_array());
-        assert_ne!(
-            keyboard.as_array().unwrap().as_slice(),
-            [] as [serde_json::Value; 0]
-        );
+        let got = keyboard.as_array().unwrap();
+        assert!(!got.is_empty(), "expected a non-empty value");
     }
 
     #[test]

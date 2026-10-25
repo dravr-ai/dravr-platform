@@ -28,6 +28,7 @@ use crate::protocol_types::StreamResponse;
 const CHANNEL_CAPACITY: usize = 64;
 
 /// Per-task broadcast hub for A2A streaming events.
+#[derive(Debug)]
 pub struct TaskEventBus {
     /// task id → live broadcast sender. Entry removal closes all receivers.
     channels: RwLock<HashMap<String, broadcast::Sender<StreamResponse>>>,

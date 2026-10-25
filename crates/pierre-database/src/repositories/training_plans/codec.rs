@@ -30,7 +30,7 @@ fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<DateTime<Utc>> {
 
 /// Map a raw outline row to the domain type. Shared by both backends so JSON
 /// and enum parsing live in exactly one place.
-pub fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<TrainingPlan> {
+pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<TrainingPlan> {
     let goal_race: GoalRace = serde_json::from_str(&row.goal_race_json)
         .map_err(|e| AppError::database(format!("training plan goal_race_json: {e}")))?;
     let races: Vec<GoalRace> = serde_json::from_str(&row.races_json)
@@ -72,7 +72,7 @@ pub fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<TrainingPlan> {
 /// Map a raw outline row of a coach's draft to a [`PlanDraft`]. A draft row
 /// names its coach (the schema refuses one that does not), so a row without
 /// one is corruption.
-pub fn plan_draft_from_row(mut row: TrainingPlanRow) -> AppResult<PlanDraft> {
+pub(crate) fn plan_draft_from_row(mut row: TrainingPlanRow) -> AppResult<PlanDraft> {
     let drafted_by_user_id = row.drafted_by_user_id.take().ok_or_else(|| {
         AppError::database(format!("training plan draft {} names no coach", row.id))
     })?;
@@ -87,7 +87,7 @@ pub fn plan_draft_from_row(mut row: TrainingPlanRow) -> AppResult<PlanDraft> {
 }
 
 /// Map a raw week row to the domain type. Shared by both backends.
-pub fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
+pub(crate) fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
     let days: Vec<PlannedDay> = serde_json::from_str(&row.days_json)
         .map_err(|e| AppError::database(format!("plan week days_json: {e}")))?;
     let status = WeekStatus::parse(&row.status)
@@ -122,7 +122,7 @@ pub fn plan_week_from_row(row: PlanWeekRow) -> AppResult<PlanWeek> {
 
 /// Serialized column values for an outline insert, shared by both backends
 /// so the JSON encoding happens once and identically.
-pub struct PlanInsertValues {
+pub(crate) struct PlanInsertValues {
     /// New row id.
     pub id: String,
     /// The outline's author as stored (`''` for no agent).
@@ -141,7 +141,9 @@ pub struct PlanInsertValues {
 }
 
 /// Build the serialized insert values for [`SaveTrainingPlanParams`].
-pub fn plan_insert_values(params: &SaveTrainingPlanParams<'_>) -> AppResult<PlanInsertValues> {
+pub(crate) fn plan_insert_values(
+    params: &SaveTrainingPlanParams<'_>,
+) -> AppResult<PlanInsertValues> {
     let goal_race_json = serde_json::to_string(params.goal_race)
         .map_err(|e| AppError::internal(format!("serialize goal race: {e}")))?;
     let races_json = params
@@ -168,7 +170,7 @@ pub fn plan_insert_values(params: &SaveTrainingPlanParams<'_>) -> AppResult<Plan
 }
 
 /// Serialized column values for a week insert, shared by both backends.
-pub struct WeekInsertValues {
+pub(crate) struct WeekInsertValues {
     /// New row id.
     pub id: String,
     /// Serialized day rows.
@@ -184,7 +186,7 @@ pub struct WeekInsertValues {
 /// reject with a driver error. An index read back from a stored row never
 /// passes through here: [`PlanWeekRow::phase_index`] is already the column's
 /// width, and a row past it fails its decode as a database error.
-pub fn phase_index_column(index: Option<u32>) -> AppResult<Option<i32>> {
+pub(crate) fn phase_index_column(index: Option<u32>) -> AppResult<Option<i32>> {
     index.map(i32::try_from).transpose().map_err(|_| {
         AppError::invalid_input(format!(
             "phase_index out of range: {index:?} exceeds the column's width"
@@ -194,7 +196,7 @@ pub fn phase_index_column(index: Option<u32>) -> AppResult<Option<i32>> {
 
 /// Build the serialized insert values for one
 /// [`PlanWeekInput`](super::PlanWeekInput)'s day rows.
-pub fn week_insert_values(days: &[PlannedDay]) -> AppResult<WeekInsertValues> {
+pub(crate) fn week_insert_values(days: &[PlannedDay]) -> AppResult<WeekInsertValues> {
     let days_json = serde_json::to_string(days)
         .map_err(|e| AppError::internal(format!("serialize plan days: {e}")))?;
     Ok(WeekInsertValues {
@@ -206,7 +208,7 @@ pub fn week_insert_values(days: &[PlannedDay]) -> AppResult<WeekInsertValues> {
 
 /// Fields of a freshly persisted outline row, shared so both backends
 /// construct the returned [`TrainingPlan`] identically.
-pub struct BuiltPlan<'a> {
+pub(crate) struct BuiltPlan<'a> {
     /// New row id.
     pub id: String,
     /// Owning tenant.
@@ -243,7 +245,7 @@ pub struct BuiltPlan<'a> {
 
 /// Construct the [`TrainingPlan`] returned after an insert. Shared by both
 /// backends and by the bundle path so the mapping lives in one place.
-pub fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
+pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
     let created = epoch_to_datetime(b.now, "created_at")?;
     Ok(TrainingPlan {
         id: b.id,
@@ -268,7 +270,7 @@ pub fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
 }
 
 /// Fields of a freshly persisted week row, shared across backends.
-pub struct BuiltWeek<'a> {
+pub(crate) struct BuiltWeek<'a> {
     /// New row id.
     pub id: String,
     /// Owning tenant.
@@ -296,7 +298,7 @@ pub struct BuiltWeek<'a> {
 }
 
 /// Construct the [`PlanWeek`] returned after an insert. Shared by both backends.
-pub fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
+pub(crate) fn built_plan_week(b: BuiltWeek<'_>) -> AppResult<PlanWeek> {
     let created = epoch_to_datetime(b.now, "created_at")?;
     Ok(PlanWeek {
         id: b.id,

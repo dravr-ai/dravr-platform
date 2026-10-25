@@ -46,6 +46,7 @@ pub const ACTIVE_WEEKS: usize = 2;
 const DAYS_PER_WEEK: u64 = 7;
 
 /// One week chosen by [`select_active_weeks`], with the dates it spans.
+#[derive(Debug)]
 pub struct SelectedWeek<'a> {
     /// The stored week row.
     pub week: &'a PlanWeek,
@@ -96,6 +97,7 @@ pub fn fortnight_is_covered(weeks: &[PlanWeek], today: NaiveDate) -> bool {
 }
 
 /// Which stored weeks are still live, and how many were held back.
+#[derive(Debug)]
 pub struct WeekSelection<'a> {
     /// The selected weeks in calendar order, at most `limit` of them.
     pub weeks: Vec<SelectedWeek<'a>>,
@@ -128,7 +130,7 @@ pub fn select_active_weeks<'a>(
         let Some(start) = parse_plan_date(&week.week_start) else {
             continue;
         };
-        let Some(end) = start.checked_add_days(chrono::Days::new(6)) else {
+        let Some(end) = start.checked_add_days(Days::new(6)) else {
             continue;
         };
         if end < today {

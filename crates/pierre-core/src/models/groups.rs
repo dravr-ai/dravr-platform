@@ -520,7 +520,10 @@ pub struct CorrectedReply {
 }
 
 /// An invite code for joining a group
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is hand-written: the code is a bearer credential (whoever holds it
+/// joins the group), so it prints as `[REDACTED]`.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GroupInvite {
     /// Unique invite identifier
     pub id: Uuid,
@@ -549,6 +552,25 @@ pub struct GroupInvite {
     pub approves_signup: bool,
     /// When the invite was created
     pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for GroupInvite {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroupInvite")
+            .field("id", &self.id)
+            .field("group_id", &self.group_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("code", &"[REDACTED]")
+            .field("kind", &self.kind)
+            .field("created_by", &self.created_by)
+            .field("expires_at", &self.expires_at)
+            .field("max_uses", &self.max_uses)
+            .field("use_count", &self.use_count)
+            .field("is_active", &self.is_active)
+            .field("approves_signup", &self.approves_signup)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 // ============================================================================

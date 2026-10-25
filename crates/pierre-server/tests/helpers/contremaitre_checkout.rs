@@ -22,7 +22,7 @@ use std::path::PathBuf;
 /// test blocks on the package-cache lock whenever another cargo process is
 /// alive — which in CI is always. The checkout is present wherever this
 /// compiles, because building the workspace required fetching it.
-pub fn contremaitre_tree() -> PathBuf {
+pub(crate) fn contremaitre_tree() -> PathBuf {
     if let Ok(root) = env::var("DRAVR_CONTREMAITRE_ROOT") {
         return PathBuf::from(root);
     }

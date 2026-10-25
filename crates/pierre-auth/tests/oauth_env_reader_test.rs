@@ -78,7 +78,11 @@ fn the_startup_reader_resolves_provider_settings() {
     // Default scopes are the provider's.
     assert_eq!(server.strava.scopes, vec!["activity:read_all"]);
     // Garmin's scope is fixed server-side: none is requested by default.
-    assert_eq!(server.garmin.scopes, [] as [String; 0]);
+    assert!(
+        server.garmin.scopes.is_empty(),
+        "expected empty, got {:?}",
+        server.garmin.scopes
+    );
     assert_eq!(
         server.whoop.scopes,
         vec![

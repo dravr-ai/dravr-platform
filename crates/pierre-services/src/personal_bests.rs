@@ -58,6 +58,7 @@ use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
 use pierre_providers::registry::global_registry;
 use std::cmp::Reverse;
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -213,6 +214,14 @@ pub struct PersonalBests {
     service: Option<Arc<NotificationService>>,
     /// The worker ledger, where the lease on each athlete's measuring lives.
     leases: Arc<dyn WorkerRunRepository>,
+}
+
+impl fmt::Debug for PersonalBests {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PersonalBests")
+            .field("service", &self.service)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PersonalBests {

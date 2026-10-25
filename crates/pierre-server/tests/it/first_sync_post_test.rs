@@ -24,7 +24,6 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_FIRST_SYNC_PROMPT;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, TenantId, SUPPORTED_LOCALES};
@@ -84,12 +83,10 @@ async fn fixture_over(post: RecordingPost, config: ServerConfig) -> Fixture {
     let (user_id, tenant_id) = seed_user(&resources.agent.database).await;
     let post = Arc::new(post);
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
-    let resolver = Arc::new(FakeResolver::new(
-        Arc::clone(&channel) as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(&channel)));
     let poster = FirstSyncPoster::new(
         Arc::downgrade(&resources),
-        Arc::clone(&post) as Arc<dyn PlatformPost>,
+        Arc::<RecordingPost>::clone(&post),
         resolver,
     );
     Fixture {
@@ -484,10 +481,10 @@ async fn the_first_post_runs_where_the_shutdown_drain_sees_it() {
     });
     let poster = FirstSyncPoster::new(
         Arc::downgrade(&fx.resources),
-        Arc::clone(&counting) as Arc<dyn PlatformPost>,
-        Arc::new(FakeResolver::new(
-            Arc::clone(&fx.channel) as Arc<dyn MessagingChannel>
-        )),
+        Arc::<CountingPost>::clone(&counting),
+        Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(
+            &fx.channel,
+        ))),
     );
 
     poster.data_landed(fx.user_id, fx.tenant_id, "whoop").await;

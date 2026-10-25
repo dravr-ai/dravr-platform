@@ -9,6 +9,7 @@ use pierre_core::billing::BillingProvider;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
 use pierre_tool_runtime::RuntimeTool;
+use std::fmt;
 use std::sync::Arc;
 
 use crate::services::turn_runner::TurnRunner;
@@ -62,6 +63,16 @@ pub struct ServerContextOptions {
     /// and passes it here. Unset, turns run in-process through the in-flight
     /// tracker, which is what local stacks and tests want.
     pub turn_runner: Option<Arc<TurnRunner>>,
+}
+
+impl fmt::Debug for ServerContextOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerContextOptions")
+            .field("rsa_key_size_bits", &self.rsa_key_size_bits)
+            .field("chat_provider", &self.chat_provider)
+            .field("turn_runner", &self.turn_runner)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ServerContextOptions {

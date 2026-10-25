@@ -34,7 +34,7 @@ const MAX_ATHLETE_ID_CHARS: usize = 32;
 /// where a missing, `null` or unexpected value reads as unreported instead
 /// of failing every athlete's entry.
 #[derive(Debug, Deserialize)]
-pub struct IntervalsIcuRosterEntry {
+pub(crate) struct IntervalsIcuRosterEntry {
     id: String,
     #[serde(default)]
     name: Option<String>,
@@ -121,7 +121,7 @@ impl IntervalsIcuRosterEntry {
 ///
 /// An entry whose id a delegated read would refuse ([`check_athlete_id`]) is
 /// left out: no link could ever read it.
-pub fn coach_roster(own_id: &str, entries: Vec<IntervalsIcuRosterEntry>) -> CoachRoster {
+pub(crate) fn coach_roster(own_id: &str, entries: Vec<IntervalsIcuRosterEntry>) -> CoachRoster {
     let mut account_email = None;
     let mut athletes = Vec::new();
     for entry in entries {
@@ -157,7 +157,7 @@ pub fn coach_roster(own_id: &str, entries: Vec<IntervalsIcuRosterEntry>) -> Coac
 ///
 /// Returns an invalid-input error for an empty, overlong or non-alphanumeric
 /// id.
-pub fn check_athlete_id(athlete_id: &str) -> AppResult<()> {
+pub(crate) fn check_athlete_id(athlete_id: &str) -> AppResult<()> {
     let valid = !athlete_id.is_empty()
         && athlete_id.len() <= MAX_ATHLETE_ID_CHARS
         && athlete_id.bytes().all(|b| b.is_ascii_alphanumeric());

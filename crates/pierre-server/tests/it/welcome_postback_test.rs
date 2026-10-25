@@ -471,7 +471,7 @@ async fn three_untapped_showings_retire_a_starter() {
 async fn examples_wait_for_the_agents_prerequisites() {
     let fx = past_finish_profile("uc-prereq@test.com").await;
     let id = Uuid::new_v4().to_string();
-    let now = chrono::Utc::now();
+    let now = Utc::now();
     fx.resources
         .common
         .repos

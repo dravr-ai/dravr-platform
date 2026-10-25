@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::constant_time::configured_secret;
@@ -49,6 +50,18 @@ pub struct ContremaitreConfig {
     pub gcs_bucket: Option<String>,
     /// Shared secret for HMAC-SHA256 webhook signature verification
     pub webhook_secret: String,
+}
+
+impl fmt::Debug for ContremaitreConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ContremaitreConfig")
+            .field("repo", &self.repo)
+            .field("branch", &self.branch)
+            .field("github_pat", &"[REDACTED]")
+            .field("gcs_bucket", &self.gcs_bucket)
+            .field("webhook_secret", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl ContremaitreConfig {

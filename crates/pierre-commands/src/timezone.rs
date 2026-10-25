@@ -20,6 +20,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// prompt / activity start times render in UTC. This command lets them set it
 /// once. The argument is validated as a known IANA name before any write so
 /// junk never reaches the database the prompt resolver reads back.
+#[derive(Debug)]
 pub struct TimezoneHandler;
 
 #[async_trait]

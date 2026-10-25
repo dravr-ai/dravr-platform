@@ -30,6 +30,7 @@ fn capabilities_list(json: &str) -> AppResult<Vec<String>> {
 
 /// The `SQLite` seed codec: the usage tables key on the seed's uuid and
 /// `a2a_clients.capabilities` is JSON text.
+#[derive(Debug)]
 pub struct TextSeedColumns;
 
 impl TextSeedColumns {
@@ -60,6 +61,7 @@ impl TextSeedColumns {
 /// Gated with the backend that uses it: without the `postgresql` feature the
 /// Postgres shell is not compiled, so neither is its half of the seam.
 #[cfg(feature = "postgresql")]
+#[derive(Debug)]
 pub struct NativeSeedColumns;
 
 #[cfg(feature = "postgresql")]

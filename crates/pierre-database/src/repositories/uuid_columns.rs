@@ -32,6 +32,7 @@ fn uuid_column_error(col: &str, e: impl Display) -> AppError {
 
 /// The `SQLite` codec: a uuid binds as its hyphenated text and reads back
 /// from a `TEXT` column, matching the schema those tables declare there.
+#[derive(Debug)]
 pub struct TextUuid;
 
 impl TextUuid {
@@ -110,6 +111,7 @@ impl TextUuid {
 /// Gated with the backend that uses it: without the `postgresql` feature the
 /// Postgres shells are not compiled, so neither is their half of the seam.
 #[cfg(feature = "postgresql")]
+#[derive(Debug)]
 pub struct NativeUuid;
 
 #[cfg(feature = "postgresql")]

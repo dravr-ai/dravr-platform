@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::fmt::Write as _;
 use std::future::Future;
 use std::sync::Arc;
@@ -94,6 +95,16 @@ pub struct RefreshService {
     /// field.
     #[cfg(feature = "health-sync")]
     sse_manager: Arc<dyn SyncNotifier>,
+}
+
+impl fmt::Debug for RefreshService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("RefreshService");
+        debug.field("repos", &self.repos);
+        #[cfg(feature = "health-sync")]
+        debug.field("sync_orchestrator", &self.sync_orchestrator);
+        debug.finish_non_exhaustive()
+    }
 }
 
 impl RefreshService {
@@ -673,7 +684,9 @@ impl RefreshService {
                             created_at: Utc::now(),
                             read_at: None,
                         };
-                        let _ = sse.send_notification(user_id, &notification).await;
+                        if let Err(e) = sse.send_notification(user_id, &notification).await {
+                            tracing::debug!(%user_id, error = %e, "sync failure notification not delivered over SSE");
+                        }
                     }
                 }
             });

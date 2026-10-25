@@ -24,7 +24,7 @@ use pierre_providers::registry::global_registry;
 use pierre_providers::request_budget::in_background;
 use tokio::task::AbortHandle;
 use tokio::time::timeout;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::{
@@ -373,7 +373,7 @@ async fn sync_provider_users(
 /// running then is dropped and counted as a failure, and the cycle moves on
 /// to the next athlete.
 async fn sync_single_user_within(
-    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    orchestrator: &Arc<SyncOrchestrator>,
     repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
@@ -463,10 +463,13 @@ async fn record_landed_sync(
 ) {
     let backend = sync_backend(provider_name);
     if let Some(tenant) = token_tenant(repos, user_uuid, &backend).await {
-        let _ = repos
+        if let Err(e) = repos
             .oauth_tokens
             .update_provider_last_sync(user_uuid, tenant, &backend, Utc::now())
-            .await;
+            .await
+        {
+            warn!(%user_uuid, provider = %backend, error = %e, "could not stamp last_sync after a landed sync");
+        }
         notices.sync_landed(user_uuid, tenant, &backend).await;
     }
 }
@@ -580,9 +583,12 @@ async fn send_sync_notification(
             created_at: Utc::now(),
             read_at: None,
         };
-        let _ = sse_manager
+        if let Err(e) = sse_manager
             .send_notification(user_uuid, &notification)
-            .await;
+            .await
+        {
+            debug!(%user_uuid, error = %e, "sync result notification not delivered over SSE");
+        }
     }
 }
 

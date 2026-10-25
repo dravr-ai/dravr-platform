@@ -35,7 +35,7 @@ pub struct MarkReadRequest {
 /// covers changes nothing, so two tabs racing cannot resurrect unread rows.
 /// A stranger, and a message id that is not in this conversation, both get
 /// 404 — the existence of a thread is never disclosed to someone outside it.
-pub async fn mark_read(
+pub(super) async fn mark_read(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -72,7 +72,7 @@ pub async fn mark_read(
 ///
 /// Every `user`/`assistant` row counts as unread again until the thread is
 /// opened. Idempotent for a participant; a stranger gets 404.
-pub async fn mark_unread(
+pub(super) async fn mark_unread(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,

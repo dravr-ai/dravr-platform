@@ -73,14 +73,14 @@ const HIDDEN_FROM_PICKER: &[&str] = &["synthetic", "synthetic_sleep"];
 
 /// Query parameters for the hosted connect page.
 #[derive(Debug, Deserialize)]
-pub struct ConnectPageQuery {
+pub(crate) struct ConnectPageQuery {
     /// The signed connect link-token authorizing this page.
     pub token: Option<SecretString>,
 }
 
 /// Query parameters for the hosted OAuth-init endpoint.
 #[derive(Debug, Deserialize)]
-pub struct ConnectOAuthInitQuery {
+pub(crate) struct ConnectOAuthInitQuery {
     /// The signed connect link-token authorizing the OAuth start.
     pub token: Option<SecretString>,
     /// The athlete ticked the provider's notice on the picker (WHOOP's owner
@@ -91,7 +91,7 @@ pub struct ConnectOAuthInitQuery {
 
 /// Query parameters for the connect success page.
 #[derive(Debug, Deserialize)]
-pub struct ConnectSuccessQuery {
+pub(crate) struct ConnectSuccessQuery {
     /// Originating channel slug (for "return to {channel}" copy).
     pub channel: Option<String>,
     /// Provider/target label shown on the success page.
@@ -151,7 +151,7 @@ struct ConnectProviderCard {
 /// Verify a connect-scoped link-token. A narrow per-provider token (e.g. a
 /// Canot-minted `provider:sciotte:login`) is rejected here — only a connect
 /// token may drive the picker and the OAuth-init endpoint.
-pub fn validate_connect_token(
+pub(crate) fn validate_connect_token(
     resources: &AuthRoutesContext,
     token: &str,
 ) -> Result<ProviderLinkTokenClaims, AppError> {
@@ -282,7 +282,7 @@ fn error_page(resources: &AuthRoutesContext, locale: &str, message_key: &str) ->
 }
 
 /// GET `/providers/connect?token=...` — the hosted provider picker.
-pub async fn handle_connect_hosted_page(
+pub(crate) async fn handle_connect_hosted_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Query(query): Query<ConnectPageQuery>,
@@ -354,7 +354,7 @@ pub async fn handle_connect_hosted_page(
 /// mints the authorize URL via the shared [`OAuthService`], and 302-redirects
 /// the browser to the provider's consent screen. The existing session-less
 /// callback completes the exchange.
-pub async fn handle_connect_oauth_init(
+pub(crate) async fn handle_connect_oauth_init(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     Query(query): Query<ConnectOAuthInitQuery>,
@@ -447,7 +447,7 @@ fn log_oauth_init_failure(provider: &str, user_id: &dyn Display, e: &AppError) {
 ///
 /// The picker and the Intervals.icu form send the connect token along, so the
 /// page is written in the locale of the athlete it names.
-pub async fn handle_connect_hosted_success_page(
+pub(crate) async fn handle_connect_hosted_success_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Query(query): Query<ConnectSuccessQuery>,

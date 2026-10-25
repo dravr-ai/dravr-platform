@@ -295,6 +295,7 @@ impl RateLimiter {
 }
 
 /// USDA `FoodData` Central API Client
+#[derive(Debug)]
 pub struct UsdaClient {
     config: UsdaClientConfig,
     http_client: &'static SharedHttpClient,

@@ -37,6 +37,7 @@ use crate::tool_loop_io::{GuardianConfirmRequest, GuardianDenial};
 /// `AppError::ProviderAuthRequired`. The signal travels separately
 /// because `FunctionResponse` drops the underlying
 /// `UniversalResponse::metadata` to keep the LLM-visible payload minimal.
+#[derive(Debug)]
 pub struct ExecutedFunctionCalls {
     /// LLM-visible function responses, one per call in input order.
     pub responses: Vec<FunctionResponse>,

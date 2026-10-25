@@ -31,6 +31,7 @@ use secrecy::SecretString;
 // Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
 use pierre_database::AuthRepos;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
@@ -48,6 +49,17 @@ pub struct A2AClientManager {
     repos: AuthRepos,
     system_user_service: Arc<A2ASystemUserService>,
     active_sessions: Arc<RwLock<HashMap<String, A2ASession>>>,
+}
+
+impl fmt::Debug for A2AClientManager {
+    /// Omits `active_sessions`: its keys and each session's `id` are the
+    /// bearer session tokens.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("A2AClientManager")
+            .field("repos", &self.repos)
+            .field("system_user_service", &self.system_user_service)
+            .finish_non_exhaustive()
+    }
 }
 
 impl A2AClientManager {
@@ -117,11 +129,11 @@ impl A2AClientManager {
                 .filter(|email| !email.is_empty())
                 .map(ToOwned::to_owned),
             is_active: true,
-            created_at: chrono::Utc::now(),
+            created_at: Utc::now(),
             permissions: vec!["read_activities".into()], // Default permissions
             rate_limit_requests: DEFAULT_BURST_LIMIT * 10,
             rate_limit_window_seconds: HOUR_SECONDS as u32,
-            updated_at: chrono::Utc::now(),
+            updated_at: Utc::now(),
         };
 
         // Store the client with its OAuth2 registration and API key
@@ -320,7 +332,7 @@ impl A2AClientManager {
     /// Returns an error if database query fails
     pub async fn list_all_clients(&self) -> Result<Vec<A2AClient>, A2AError> {
         // For system-wide listing, we use nil UUID to get all clients
-        let system_user_id = uuid::Uuid::nil();
+        let system_user_id = Uuid::nil();
         self.repos
             .a2a
             .list_clients(&system_user_id)
@@ -482,9 +494,7 @@ impl A2AClientManager {
             let sessions = self.active_sessions.read().await;
             sessions
                 .values()
-                .filter(|session| {
-                    session.client_id == client_id && session.expires_at > chrono::Utc::now()
-                })
+                .filter(|session| session.client_id == client_id && session.expires_at > Utc::now())
                 .cloned()
                 .collect::<Vec<A2ASession>>()
         };

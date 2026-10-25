@@ -47,7 +47,7 @@ use super::dto::{ConversationResponse, OpenSubjectThreadRequest};
 /// athlete's name, never a room, never their personal thread, outside their
 /// conversation cap. No welcome opens it — the group's agent greets athletes,
 /// and this thread's reader is their coach.
-pub async fn open_subject_thread(
+pub(super) async fn open_subject_thread(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(athlete_user_id): Path<String>,

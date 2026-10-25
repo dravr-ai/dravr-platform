@@ -6,6 +6,7 @@
 
 #![cfg(feature = "client-messaging")]
 
+use std::fmt;
 use std::sync::Arc;
 
 use dravr_canot::channel::MessagingChannel;
@@ -104,6 +105,21 @@ pub struct RoomEchoSettlement<'a> {
     pub user_id: &'a str,
     /// Channel-native id of the caller, for their locale.
     pub sender_id: &'a str,
+}
+
+impl fmt::Debug for RoomEchoSettlement<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RoomEchoSettlement")
+            .field("resources", &self.resources)
+            .field("tenant_id", &self.tenant_id)
+            .field("channel", &self.channel)
+            .field("channel_type", &self.channel_type)
+            .field("room_id", &self.room_id)
+            .field("channel_message_id", &self.channel_message_id)
+            .field("user_id", &self.user_id)
+            .field("sender_id", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Remove the command echo, and say where the answer went if it could not be.

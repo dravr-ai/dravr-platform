@@ -87,6 +87,7 @@ pub async fn fact_belongs_to_user(
 /// facts it supersedes must wait until the save has committed — a hard delete
 /// before a failed transaction erases the athlete's standing goal for a plan
 /// that was never stored.
+#[derive(Debug)]
 pub struct GoalFactConvergence {
     /// The fact the plan links to.
     pub fact_id: String,

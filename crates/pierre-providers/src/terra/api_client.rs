@@ -44,6 +44,7 @@ impl Default for TerraApiConfig {
 }
 
 /// Terra API client for REST operations
+#[derive(Debug)]
 pub struct TerraApiClient {
     config: TerraApiConfig,
     client: &'static SharedHttpClient,

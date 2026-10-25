@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use dravr_canot::channel::MessagingChannel;
 use pierre_chat_pipeline::stages::activity_fold::shape_for_fold;
 use pierre_chat_pipeline::{AssistantTurn, ReplyBlock};
 use pierre_core::models::messaging::{ChannelType, MessageContent};
@@ -69,9 +68,7 @@ async fn push_routes_to_originating_chat() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -138,9 +135,7 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -460,9 +455,7 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
     seed_channel_link(&db, &user_id, bot_tenant, "telegram", "tg_user_777").await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -622,9 +615,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let chart_url = "https://dev.dravr.ai/api/viz/signed-token.png";
     let post = Arc::new(FakePost {
         body: "Voici la comparaison.\n\n⟦viz:0⟧\n\nLe vrai contraste : en 2023 t'étais un pur coureur de trail."
@@ -752,9 +743,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     // The model refused without ever calling `get_activities`.
     let post = Arc::new(FakePost::prose(
         "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.",
@@ -866,9 +855,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     // Written in markdown, as the fallback chain does when the persona rewrite
     // cannot run; the channel must receive the words without the markers.
     let post = Arc::new(FakePost::prose("## Septembre\n\n**5 918 m** de D+.", true));
@@ -967,9 +954,7 @@ async fn push_prepends_activity_list_to_agent_reply() {
     let folded = shape_for_fold(Some(activity_list), &strings(), "fr")
         .expect("a non-empty list must shape into prose");
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let post = Arc::new(FakePost::prose(
         &format!("{folded}\n\nAnalyse: belle progression sur tes longues sorties."),
         true,
@@ -1071,9 +1056,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
         );
     }
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let folded =
         shape_for_fold(Some(&list), &strings(), "fr").expect("a long list must shape into prose");
     let post = Arc::new(FakePost::prose(&format!("{folded}\n\nAnalyse."), true));
@@ -1148,9 +1131,7 @@ async fn push_for_moved_session_sends_nothing() {
         .unwrap();
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -1216,9 +1197,7 @@ async fn push_is_tenant_scoped() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -1289,9 +1268,7 @@ async fn push_sends_warmed_activity_list() {
     seed_activity_cache(&db, user_uuid, tenant_id, &acts).await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -1362,9 +1339,7 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
 
     // No cache rows seeded — the warmed-window read returns empty.
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -1430,9 +1405,7 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),
@@ -1525,9 +1498,7 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let post = Arc::new(FakePost::prose(
         "En 2022 tu as surtout couru en montagne.",
         true,
@@ -1615,9 +1586,7 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let post = Arc::new(FakePost::prose("unused", false));
     let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
         repos.clone(),
@@ -1681,9 +1650,7 @@ async fn push_still_drops_a_reset_messaging_thread() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),
@@ -1784,9 +1751,7 @@ async fn push_answers_in_an_adopted_personal_thread_when_asked_in_the_app() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),
@@ -1859,9 +1824,7 @@ async fn push_body_is_rendered_in_the_users_locale() {
     .await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),

@@ -56,6 +56,7 @@ use pierre_tools_core::ToolResult;
 /// of thumb. Like `estimate_vo2max` this estimates and does not write:
 /// `set_physiology` stays the profile's only writer and the reply names the
 /// field to save.
+#[derive(Debug)]
 pub struct EstimateLactateThresholdsTool;
 
 /// The intensity units the tool accepts, in the spelling the schema

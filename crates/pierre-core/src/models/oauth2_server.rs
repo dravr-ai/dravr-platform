@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use uuid::Uuid;
@@ -57,7 +59,10 @@ pub struct OAuth2ClientSweep {
 /// (deleted) when the CLI's token poll mints the admin token. Timestamps are
 /// Unix epoch seconds to match the `device_authorization` table; the raw
 /// `device_code` is never stored, only its SHA-256 hash.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is hand-written: the `user_code` approves the flow at the
+/// verification page, so it prints as `[REDACTED]`.
+#[derive(Clone)]
 pub struct DeviceAuthorization {
     /// SHA-256 hex of the raw `device_code` (the raw code is never persisted).
     pub device_code_hash: String,
@@ -73,8 +78,24 @@ pub struct DeviceAuthorization {
     pub expires_at: i64,
 }
 
+impl fmt::Debug for DeviceAuthorization {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeviceAuthorization")
+            .field("device_code_hash", &self.device_code_hash)
+            .field("user_code", &"[REDACTED]")
+            .field("status", &self.status)
+            .field("approved_by", &self.approved_by)
+            .field("created_at", &self.created_at)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
 /// OAuth 2.0 Authorization Code
-#[derive(Debug, Clone)]
+///
+/// `Debug` is hand-written: the code is exchangeable for a token and the
+/// state is the CSRF secret, so both print as `[REDACTED]`.
+#[derive(Clone)]
 pub struct OAuth2AuthCode {
     /// The authorization code value
     pub code: String,
@@ -101,6 +122,25 @@ pub struct OAuth2AuthCode {
     /// RFC 8707 resource the authorization was bound to — the audience of the
     /// access token this code is exchanged for. `None` when the request named none.
     pub resource: Option<String>,
+}
+
+impl fmt::Debug for OAuth2AuthCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2AuthCode")
+            .field("code", &"[REDACTED]")
+            .field("client_id", &self.client_id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("scope", &self.scope)
+            .field("expires_at", &self.expires_at)
+            .field("used", &self.used)
+            .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("resource", &self.resource)
+            .finish()
+    }
 }
 
 /// OAuth 2.0 Refresh Token
@@ -132,7 +172,10 @@ pub struct OAuth2RefreshToken {
 }
 
 /// OAuth 2.0 State for CSRF Protection
-#[derive(Debug, Clone)]
+///
+/// `Debug` is hand-written: the state value is the CSRF secret, so it prints
+/// as `[REDACTED]`.
+#[derive(Clone)]
 pub struct OAuth2State {
     /// Unique state value for CSRF protection
     pub state: String,
@@ -156,4 +199,22 @@ pub struct OAuth2State {
     pub expires_at: DateTime<Utc>,
     /// Whether this state has been consumed
     pub used: bool,
+}
+
+impl fmt::Debug for OAuth2State {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2State")
+            .field("state", &"[REDACTED]")
+            .field("client_id", &self.client_id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("scope", &self.scope)
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("created_at", &self.created_at)
+            .field("expires_at", &self.expires_at)
+            .field("used", &self.used)
+            .finish()
+    }
 }

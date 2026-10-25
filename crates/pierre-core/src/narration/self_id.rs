@@ -112,7 +112,7 @@ fn self_identified_tool_match(folded: &str, dash_breaks: &[usize]) -> Option<Ide
 /// Sits past the end of [`IDENTITY_NARRATION_PATTERNS`] so telemetry can tell a
 /// structural hit from a table hit, and so [`identity_leak_context`] knows not
 /// to look the index up in the table.
-pub const SELF_ID_PATTERN_INDEX: usize = usize::MAX;
+pub(super) const SELF_ID_PATTERN_INDEX: usize = usize::MAX;
 /// Full identity-leak match: the pattern table first, then the structural pass.
 ///
 /// Lives here rather than in `narration.rs` so the whole matcher reads in one

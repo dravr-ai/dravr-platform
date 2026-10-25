@@ -33,6 +33,7 @@ use pierre_runtime_context::MiddlewareCtx;
 ///
 /// - `auth.user_id` — the authenticated user's UUID
 /// - `auth.into_inner()` — consume the extractor to get the full [`AuthResult`]
+#[derive(Debug)]
 pub struct AuthenticatedUser(pub AuthResult);
 
 impl Deref for AuthenticatedUser {

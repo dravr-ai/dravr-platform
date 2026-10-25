@@ -155,7 +155,10 @@ fn bench_cache_get(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..1000 {
             let key = make_cache_key(i);
-            let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
+            cache
+                .set(&key, &payload, Duration::from_hours(1))
+                .await
+                .unwrap();
         }
     });
 
@@ -166,7 +169,7 @@ fn bench_cache_get(c: &mut Criterion) {
             let key = make_cache_key(key_index % 1000);
             key_index = key_index.wrapping_add(1);
             rt.block_on(async {
-                let _: Option<TestPayload> = cache.get(black_box(&key)).await.unwrap();
+                black_box::<Option<TestPayload>>(cache.get(black_box(&key)).await.unwrap());
             });
         });
     });
@@ -178,7 +181,7 @@ fn bench_cache_get(c: &mut Criterion) {
             let key = make_cache_key(key_index);
             key_index = key_index.wrapping_add(1);
             rt.block_on(async {
-                let _: Option<TestPayload> = cache.get(black_box(&key)).await.unwrap();
+                black_box::<Option<TestPayload>>(cache.get(black_box(&key)).await.unwrap());
             });
         });
     });
@@ -202,8 +205,11 @@ fn bench_cache_invalidate(c: &mut Criterion) {
         b.iter(|| {
             let key = make_cache_key(0);
             rt.block_on(async {
-                let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
-                let _ = cache.invalidate(black_box(&key)).await;
+                cache
+                    .set(&key, &payload, Duration::from_hours(1))
+                    .await
+                    .unwrap();
+                cache.invalidate(black_box(&key)).await.unwrap();
             });
         });
     });
@@ -222,7 +228,10 @@ fn bench_cache_invalidate(c: &mut Criterion) {
             rt.block_on(async {
                 for i in 0..100 {
                     let key = make_cache_key(i);
-                    let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
+                    cache
+                        .set(&key, &payload, Duration::from_hours(1))
+                        .await
+                        .unwrap();
                 }
             });
 
@@ -230,7 +239,7 @@ fn bench_cache_invalidate(c: &mut Criterion) {
             for _ in 0..iters {
                 let pattern = CacheKey::tenant_pattern(tenant_id, "benchmark");
                 rt.block_on(async {
-                    let _ = cache.invalidate_pattern(black_box(&pattern)).await;
+                    cache.invalidate_pattern(black_box(&pattern)).await.unwrap();
                 });
             }
             start.elapsed()
@@ -297,15 +306,18 @@ fn bench_cache_activities(c: &mut Criterion) {
     // Pre-populate and benchmark retrieval
     let retrieval_key = make_cache_key(99999);
     rt.block_on(async {
-        let _ = cache
+        cache
             .set(&retrieval_key, &activities_medium, Duration::from_hours(1))
-            .await;
+            .await
+            .unwrap();
     });
 
     group.bench_function("get_100_activities", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let _: Option<Vec<Activity>> = cache.get(black_box(&retrieval_key)).await.unwrap();
+                black_box::<Option<Vec<Activity>>>(
+                    cache.get(black_box(&retrieval_key)).await.unwrap(),
+                );
             });
         });
     });
@@ -329,7 +341,10 @@ fn bench_cache_concurrent(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..1000 {
             let key = make_cache_key(i);
-            let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
+            cache
+                .set(&key, &payload, Duration::from_hours(1))
+                .await
+                .unwrap();
         }
     });
 
@@ -343,13 +358,13 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                         let cache = cache.clone();
                         let key = make_cache_key(i % 1000);
                         tokio::spawn(async move {
-                            let _: Option<TestPayload> = cache.get(&key).await.unwrap();
+                            black_box::<Option<TestPayload>>(cache.get(&key).await.unwrap());
                         })
                     })
                     .collect();
 
                 for handle in handles {
-                    let _ = handle.await;
+                    handle.await.unwrap();
                 }
             });
         });
@@ -368,7 +383,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                     let cache = cache.clone();
                     let key = make_cache_key(i % 1000);
                     handles.push(tokio::spawn(async move {
-                        let _: Option<TestPayload> = cache.get(&key).await.unwrap();
+                        black_box::<Option<TestPayload>>(cache.get(&key).await.unwrap());
                     }));
                 }
 
@@ -378,12 +393,15 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                     let key = make_cache_key(write_index + i);
                     let payload = payload.clone();
                     handles.push(tokio::spawn(async move {
-                        let _ = cache.set(&key, &payload, Duration::from_hours(1)).await;
+                        cache
+                            .set(&key, &payload, Duration::from_hours(1))
+                            .await
+                            .unwrap();
                     }));
                 }
 
                 for handle in handles {
-                    let _ = handle.await;
+                    handle.await.unwrap();
                 }
             });
             write_index = write_index.wrapping_add(10);

@@ -77,7 +77,7 @@ static INIT_SERVER_CONFIG: Once = Once::new();
 /// rather than discovering the placeholder in a pricing warning: no backend
 /// serves this id, so a live turn built with it is graded against whatever the
 /// provider fell back to and costed at zero.
-pub const PLACEHOLDER_LLM_MODEL: &str = "mock-model";
+pub(crate) const PLACEHOLDER_LLM_MODEL: &str = "mock-model";
 
 /// Bcrypt cost the fixture users below are hashed at.
 ///
@@ -87,10 +87,10 @@ pub const PLACEHOLDER_LLM_MODEL: &str = "mock-model";
 /// authenticate exactly as before — they just stop paying
 /// `bcrypt::DEFAULT_COST` (12), which is about a second per user at the test
 /// profile's opt-level, once per created user in over a hundred test files.
-pub const TEST_BCRYPT_COST: u32 = 4;
+pub(crate) const TEST_BCRYPT_COST: u32 = 4;
 
 /// Initialize server configuration for tests (call once per test process)
-pub fn init_server_config() {
+pub(crate) fn init_server_config() {
     INIT_SERVER_CONFIG.call_once(|| {
         // Force CI mode for the whole test process. Tests that boot a live
         // server via `ServerConfig::from_env()` (mcp_protocol_comprehensive,
@@ -122,7 +122,12 @@ pub fn init_server_config() {
         env::set_var("PIERRE_GARMIN_CLIENT_ID", "test_garmin_client_id");
         env::set_var("PIERRE_GARMIN_CLIENT_SECRET", "test_garmin_client_secret");
 
-        let _ = constants::init_server_config();
+        // Err when another caller set it first; either way it must be set now.
+        drop(constants::init_server_config());
+        assert!(
+            constants::get_server_config().is_some(),
+            "server config did not initialize from the test environment"
+        );
     });
 }
 
@@ -136,7 +141,7 @@ static SHARED_TEST_JWKS: LazyLock<Arc<JwksManager>> = LazyLock::new(|| {
 });
 
 /// Initialize quiet logging for tests (call once per test process)
-pub fn init_test_logging() {
+pub(crate) fn init_test_logging() {
     INIT_LOGGER.call_once(|| {
         // Check for TEST_LOG environment variable to control test logging level
         let log_level = match env::var("TEST_LOG").as_deref() {
@@ -165,7 +170,7 @@ pub fn init_test_logging() {
 /// or indirectly through providers or other components that make HTTP requests.
 ///
 /// Safe to call multiple times - initialization happens only once due to `Once` guard.
-pub fn init_test_http_clients() {
+pub(crate) fn init_test_http_clients() {
     INIT_HTTP_CLIENTS.call_once(|| {
         utils::http_client::initialize_http_clients(HttpClientConfig::default());
     });
@@ -178,28 +183,30 @@ pub fn init_test_http_clients() {
 /// factory in `pierre_test_support::db`. Tests never spell a
 /// database URL themselves; that is how this suite ran `SQLite` under the
 /// `PostgreSQL` banner for fourteen months.
-pub async fn create_test_database() -> Result<Arc<Database>> {
+pub(crate) async fn create_test_database() -> Result<Arc<Database>> {
     create_test_database_with_key(generate_encryption_key().to_vec()).await
 }
 
 /// Standard test database setup with custom encryption key
-pub async fn create_test_database_with_key(encryption_key: Vec<u8>) -> Result<Arc<Database>> {
+pub(crate) async fn create_test_database_with_key(
+    encryption_key: Vec<u8>,
+) -> Result<Arc<Database>> {
     init_test_logging();
     Ok(Arc::new(create_test_db_with_key(encryption_key).await?))
 }
 
 /// Get shared test JWKS manager (reused across all tests for performance)
-pub fn get_shared_test_jwks() -> Arc<JwksManager> {
+pub(crate) fn get_shared_test_jwks() -> Arc<JwksManager> {
     SHARED_TEST_JWKS.clone()
 }
 
 /// Create test authentication manager
-pub fn create_test_auth_manager() -> Arc<AuthManager> {
+pub(crate) fn create_test_auth_manager() -> Arc<AuthManager> {
     Arc::new(AuthManager::new(24))
 }
 
 /// Create test authentication middleware
-pub fn create_test_auth_middleware(
+pub(crate) fn create_test_auth_middleware(
     auth_manager: &Arc<AuthManager>,
     database: &Database,
 ) -> Arc<McpAuthMiddleware> {
@@ -214,7 +221,7 @@ pub fn create_test_auth_middleware(
 }
 
 /// Create test cache with background cleanup disabled
-pub async fn create_test_cache() -> Result<Cache> {
+pub(crate) async fn create_test_cache() -> Result<Cache> {
     let cache_config = CacheConfig {
         max_entries: 1000,
         redis_url: None,
@@ -228,7 +235,7 @@ pub async fn create_test_cache() -> Result<Cache> {
 }
 
 /// Create a standard test user
-pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
+pub(crate) async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
     // Create a proper bcrypt hash for the default test password "password123"
     let password_hash = bcrypt::hash("password123", TEST_BCRYPT_COST)?;
 
@@ -269,7 +276,10 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
 }
 
 /// Create a test user with custom email
-pub async fn create_test_user_with_email(database: &Database, email: &str) -> Result<(Uuid, User)> {
+pub(crate) async fn create_test_user_with_email(
+    database: &Database,
+    email: &str,
+) -> Result<(Uuid, User)> {
     let (user_id, user, _tenant_id) =
         create_test_user_with_plan(database, email, "starter").await?;
     Ok((user_id, user))
@@ -279,7 +289,7 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
 ///
 /// Returns the tenant id too — group tests need a plan whose tier enables
 /// group coaching (`professional`/`enterprise`); `starter` has groups disabled.
-pub async fn create_test_user_with_plan(
+pub(crate) async fn create_test_user_with_plan(
     database: &Database,
     email: &str,
     plan: &str,
@@ -328,7 +338,7 @@ pub async fn create_test_user_with_plan(
 /// Route handlers require `active_tenant_id` in the JWT claims to resolve the
 /// user's tenant. This helper looks up the user's tenant from the database and
 /// includes it in the generated token.
-pub async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) -> String {
+pub(crate) async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) -> String {
     let repos = resources.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
@@ -346,7 +356,10 @@ pub async fn generate_test_token(resources: &Arc<ServerContext>, user: &User) ->
 /// that drives them as an integration authenticates with this instead of
 /// [`generate_test_token`]. It never carries `admin`, which is not delegable:
 /// a test that needs admin tools over `/mcp` uses [`issue_test_api_key`].
-pub async fn generate_delegated_test_token(resources: &ServerContext, user: &User) -> String {
+pub(crate) async fn generate_delegated_test_token(
+    resources: &ServerContext,
+    user: &User,
+) -> String {
     let repos = resources.agent.database.repositories();
     let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
@@ -355,7 +368,7 @@ pub async fn generate_delegated_test_token(resources: &ServerContext, user: &Use
 
 /// [`generate_delegated_test_token`] with an explicit active tenant (`None`
 /// leaves the user's default tenant to be resolved per request).
-pub fn delegated_test_token_for_tenant(
+pub(crate) fn delegated_test_token_for_tenant(
     resources: &ServerContext,
     user_id: Uuid,
     tenant_id: Option<String>,
@@ -385,7 +398,11 @@ pub fn delegated_test_token_for_tenant(
 ///
 /// The athlete's own credential, so it carries the self grant: the one way a
 /// test reaches an admin tool over `/mcp` for a global admin.
-pub async fn issue_test_api_key(database: &Database, user_id: Uuid, name: &str) -> Result<String> {
+pub(crate) async fn issue_test_api_key(
+    database: &Database,
+    user_id: Uuid,
+    name: &str,
+) -> Result<String> {
     let request = CreateApiKeyRequest {
         name: name.to_owned(),
         description: Some("Test API key".to_owned()),
@@ -399,7 +416,11 @@ pub async fn issue_test_api_key(database: &Database, user_id: Uuid, name: &str) 
 }
 
 /// Create a test API key for a user (returns API key string)
-pub fn create_test_api_key(_database: &Database, user_id: Uuid, name: &str) -> Result<String> {
+pub(crate) fn create_test_api_key(
+    _database: &Database,
+    user_id: Uuid,
+    name: &str,
+) -> Result<String> {
     let request = CreateApiKeyRequest {
         name: name.to_owned(),
         description: Some("Test API key".to_owned()),
@@ -414,7 +435,7 @@ pub fn create_test_api_key(_database: &Database, user_id: Uuid, name: &str) -> R
 }
 
 /// Create a test API key and store it in the database (returns `ApiKey` object)
-pub async fn create_and_store_test_api_key(
+pub(crate) async fn create_and_store_test_api_key(
     database: &Database,
     user_id: Uuid,
     name: &str,
@@ -436,7 +457,7 @@ pub async fn create_and_store_test_api_key(
 
 /// Complete test environment setup
 /// Returns (database, `auth_manager`, `auth_middleware`, `user_id`, `api_key`)
-pub async fn setup_test_environment() -> Result<(
+pub(crate) async fn setup_test_environment() -> Result<(
     Arc<Database>,
     Arc<AuthManager>,
     Arc<McpAuthMiddleware>,
@@ -455,14 +476,16 @@ pub async fn setup_test_environment() -> Result<(
 
 /// Lightweight test environment for simple tests
 /// Returns (database, `user_id`)
-pub async fn setup_simple_test_environment() -> Result<(Arc<Database>, Uuid)> {
+pub(crate) async fn setup_simple_test_environment() -> Result<(Arc<Database>, Uuid)> {
     let database = create_test_database().await?;
     let (user_id, _user) = create_test_user(&database).await?;
     Ok((database, user_id))
 }
 
 /// Test environment with custom user tier
-pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Database>, Uuid)> {
+pub(crate) async fn setup_test_environment_with_tier(
+    tier: UserTier,
+) -> Result<(Arc<Database>, Uuid)> {
     let database = create_test_database().await?;
     let mut user = User::new(
         "test@example.com".to_owned(),
@@ -479,7 +502,7 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
 
 /// Create test `ServerContext` with all components properly initialized
 /// This replaces individual resource creation for proper architectural patterns
-pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
+pub(crate) async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
     Box::pin(create_test_server_resources_inner(None, Vec::new(), None)).await
 }
 
@@ -489,7 +512,7 @@ pub async fn create_test_server_resources() -> Result<Arc<ServerContext>> {
 /// Tests that need the chat pipeline to actually run (for example the
 /// conversation-turn E2E) use this to wire a deterministic mock so the
 /// pipeline writes real `llm_usage` rows without touching the network.
-pub async fn create_test_server_resources_with_llm(
+pub(crate) async fn create_test_server_resources_with_llm(
     provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerContext>> {
     Box::pin(create_test_server_resources_inner(
@@ -509,7 +532,7 @@ pub async fn create_test_server_resources_with_llm(
 /// routes to it via the registry, the stub returns canned data, and
 /// the summary row records `tools_called` with the real pipeline-
 /// populated value rather than a direct `llm_usage` seed.
-pub async fn create_test_server_resources_with_llm_and_tools(
+pub(crate) async fn create_test_server_resources_with_llm_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
@@ -530,7 +553,7 @@ pub async fn create_test_server_resources_with_llm_and_tools(
 /// Returns a boxed future: a `ServerConfig` is about 16 KB, so an `async fn`
 /// holding one by value sits past clippy's `large_futures` limit in every
 /// caller.
-pub fn create_test_server_resources_with_config(config: ServerConfig) -> BoxedServerContext {
+pub(crate) fn create_test_server_resources_with_config(config: ServerConfig) -> BoxedServerContext {
     Box::pin(create_test_server_resources_inner(
         None,
         Vec::new(),
@@ -539,12 +562,13 @@ pub fn create_test_server_resources_with_config(config: ServerConfig) -> BoxedSe
 }
 
 /// The future a config-taking helper returns, boxed so callers stay small.
-pub type BoxedServerContext = Pin<Box<dyn Future<Output = Result<Arc<ServerContext>>> + Send>>;
+pub(crate) type BoxedServerContext =
+    Pin<Box<dyn Future<Output = Result<Arc<ServerContext>>> + Send>>;
 
 /// A key manager over a local KEK holding `mek`, so a test supplies its key
 /// material directly instead of through the process environment.
 #[must_use]
-pub fn bootstrap_keys(mek: [u8; 32]) -> (KeyManager, [u8; 32]) {
+pub(crate) fn bootstrap_keys(mek: [u8; 32]) -> (KeyManager, [u8; 32]) {
     KeyManager::bootstrap_with(Box::new(LocalKekProvider::from_mek(
         MasterEncryptionKey::from_bytes(mek),
     )))
@@ -562,13 +586,13 @@ pub fn bootstrap_keys(mek: [u8; 32]) -> (KeyManager, [u8; 32]) {
 /// providers builds its config from the environment's chain and refuses the
 /// placeholder — `live_incident_corpus_test` does.
 #[must_use]
-pub fn placeholder_llm_chain() -> LlmChain {
+pub(crate) fn placeholder_llm_chain() -> LlmChain {
     LlmChain::parse(&format!("gemini={PLACEHOLDER_LLM_MODEL}"))
 }
 
 /// The config every test server runs with unless the test supplies its own.
 #[must_use]
-pub fn test_server_config() -> ServerConfig {
+pub(crate) fn test_server_config() -> ServerConfig {
     ServerConfig {
         llm_chain: placeholder_llm_chain(),
         oauth: test_oauth_config(),
@@ -586,7 +610,7 @@ pub fn test_server_config() -> ServerConfig {
 /// configures its own: a Strava app and a Garmin app, with each provider's
 /// default scopes.
 #[must_use]
-pub fn test_oauth_config() -> OAuthConfig {
+pub(crate) fn test_oauth_config() -> OAuthConfig {
     OAuthConfig {
         strava: OAuthProviderConfig::for_provider(
             "strava",
@@ -604,13 +628,13 @@ pub fn test_oauth_config() -> OAuthConfig {
 
 /// The `client_id` of the Strava app [`test_oauth_config`] gives every test
 /// server.
-pub const TEST_STRAVA_CLIENT_ID: &str = "test_strava_client_id";
+pub(crate) const TEST_STRAVA_CLIENT_ID: &str = "test_strava_client_id";
 
 /// [`test_server_config`] with `provider`'s server-level app holding these
 /// credentials and the provider's default scopes, every other setting as the
 /// default test server has it.
 #[must_use]
-pub fn test_server_config_with_app(
+pub(crate) fn test_server_config_with_app(
     provider: &str,
     client_id: &str,
     client_secret: &str,
@@ -625,7 +649,7 @@ pub fn test_server_config_with_app(
 /// # Panics
 ///
 /// Panics for a provider the server holds no app for.
-pub fn set_server_app(
+pub(crate) fn set_server_app(
     config: &mut ServerConfig,
     provider: &str,
     client_id: &str,
@@ -651,7 +675,7 @@ pub fn set_server_app(
 
 /// Point `provider`'s endpoints in `config` at a stand-in: each `Some` replaces
 /// the provider's default when the server builds its provider registry.
-pub fn set_provider_endpoints(
+pub(crate) fn set_provider_endpoints(
     config: &mut ServerConfig,
     provider: &str,
     endpoints: ProviderEndpointOverride,
@@ -665,7 +689,7 @@ pub fn set_provider_endpoints(
 /// [`test_server_config`] under the operator's `GUARDIAN_*` overrides
 /// `guardian`, as startup would have read them.
 #[must_use]
-pub fn test_server_config_with_guardian(guardian: GuardianSettings) -> ServerConfig {
+pub(crate) fn test_server_config_with_guardian(guardian: GuardianSettings) -> ServerConfig {
     ServerConfig {
         guardian,
         ..test_server_config()
@@ -674,7 +698,7 @@ pub fn test_server_config_with_guardian(guardian: GuardianSettings) -> ServerCon
 
 /// [`test_server_config`] with `provider`'s API reached at `api_base`.
 #[must_use]
-pub fn test_server_config_with_api_base(provider: &str, api_base: &str) -> ServerConfig {
+pub(crate) fn test_server_config_with_api_base(provider: &str, api_base: &str) -> ServerConfig {
     let mut config = test_server_config();
     set_provider_endpoints(
         &mut config,
@@ -690,7 +714,7 @@ pub fn test_server_config_with_api_base(provider: &str, api_base: &str) -> Serve
 /// [`test_server_config`] with the sciotte scraper service at `url`, for a
 /// test that stands the service in on loopback (where no audience is needed).
 #[must_use]
-pub fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
+pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
     let mut config = test_server_config();
     config.external_services.sciotte = SciotteServiceConfig {
         remote_url: Some(url.to_owned()),
@@ -701,7 +725,7 @@ pub fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
 
 /// [`create_test_server_resources_with_config`] with the sciotte scraper
 /// service at `url`.
-pub fn create_test_server_resources_with_sciotte(url: &str) -> BoxedServerContext {
+pub(crate) fn create_test_server_resources_with_sciotte(url: &str) -> BoxedServerContext {
     create_test_server_resources_with_config(test_server_config_with_sciotte(url))
 }
 
@@ -709,7 +733,7 @@ pub fn create_test_server_resources_with_sciotte(url: &str) -> BoxedServerContex
 ///
 /// Returns a boxed future for the same reason as
 /// [`create_test_server_resources_with_config`].
-pub fn create_test_server_resources_with_llm_and_config(
+pub(crate) fn create_test_server_resources_with_llm_and_config(
     provider: Arc<dyn LlmProvider + 'static>,
     config: ServerConfig,
 ) -> BoxedServerContext {
@@ -725,7 +749,7 @@ pub fn create_test_server_resources_with_llm_and_config(
 ///
 /// Returns a boxed future for the same reason as
 /// [`create_test_server_resources_with_config`].
-pub fn create_test_server_resources_with_chat_provider_and_config(
+pub(crate) fn create_test_server_resources_with_chat_provider_and_config(
     provider: Arc<dyn LlmProvider + 'static>,
     config: ServerConfig,
 ) -> BoxedServerContext {
@@ -748,7 +772,7 @@ pub fn create_test_server_resources_with_chat_provider_and_config(
 /// identity re-ask shipped inert in 48175a705 — two green e2e tests, zero live
 /// executions. Tests covering code that resolves a provider should use THIS
 /// helper.
-pub async fn create_test_server_resources_with_chat_provider(
+pub(crate) async fn create_test_server_resources_with_chat_provider(
     provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerContext>> {
     Box::pin(create_test_server_resources_inner_full(
@@ -762,7 +786,7 @@ pub async fn create_test_server_resources_with_chat_provider(
 
 /// [`create_test_server_resources_with_chat_provider`] plus extra runtime
 /// tools, for a turn on the chat route that has to run a tool round.
-pub async fn create_test_server_resources_with_chat_provider_and_tools(
+pub(crate) async fn create_test_server_resources_with_chat_provider_and_tools(
     provider: Arc<dyn LlmProvider + 'static>,
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
 ) -> Result<Arc<ServerContext>> {
@@ -793,7 +817,7 @@ async fn create_test_server_resources_inner(
 /// object gets "Headless tool loop requires a Copilot turn provider but
 /// provider is not a CLI provider" and silently exercises a different path than
 /// production. Anything driving the real ACP path must come through here.
-pub async fn create_test_server_resources_with_real_chat_provider(
+pub(crate) async fn create_test_server_resources_with_real_chat_provider(
     provider: Arc<ChatProvider>,
 ) -> Result<Arc<ServerContext>> {
     Box::pin(create_test_server_resources_inner_typed(
@@ -811,7 +835,7 @@ pub async fn create_test_server_resources_with_real_chat_provider(
 ///
 /// Returns a boxed future for the same reason as
 /// [`create_test_server_resources_with_config`].
-pub fn create_test_server_resources_with_real_chat_provider_and_config(
+pub(crate) fn create_test_server_resources_with_real_chat_provider_and_config(
     provider: Arc<ChatProvider>,
     config: ServerConfig,
 ) -> BoxedServerContext {
@@ -873,7 +897,7 @@ async fn create_test_server_resources_inner_typed(
 /// # Errors
 ///
 /// Returns an error if the context cannot be assembled.
-pub async fn create_sibling_server_resources_with_chat_provider(
+pub(crate) async fn create_sibling_server_resources_with_chat_provider(
     sibling_of: &ServerContext,
     chat_provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerContext>> {
@@ -889,7 +913,7 @@ pub async fn create_sibling_server_resources_with_chat_provider(
 /// # Errors
 ///
 /// Returns an error if the context cannot be assembled.
-pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
+pub(crate) async fn create_sibling_server_resources_with_chat_provider_and_runner(
     sibling_of: &ServerContext,
     chat_provider: Arc<dyn LlmProvider + 'static>,
     turn_runner: Option<Arc<TurnRunner>>,
@@ -915,7 +939,7 @@ pub async fn create_sibling_server_resources_with_chat_provider_and_runner(
 /// # Errors
 ///
 /// Returns an error if the context cannot be assembled.
-pub async fn create_test_server_resources_with_chat_provider_and_runner(
+pub(crate) async fn create_test_server_resources_with_chat_provider_and_runner(
     provider: Arc<dyn LlmProvider + 'static>,
     turn_runner: Arc<TurnRunner>,
 ) -> Result<Arc<ServerContext>> {
@@ -935,7 +959,7 @@ pub async fn create_test_server_resources_with_chat_provider_and_runner(
 /// [`create_test_server_resources`] with a caller-supplied billing provider in
 /// place of the in-tree `DummyProvider`, for a test that reads what the
 /// platform asked the provider to bill.
-pub async fn create_test_server_resources_with_billing_provider(
+pub(crate) async fn create_test_server_resources_with_billing_provider(
     billing_provider: Arc<dyn BillingProvider>,
 ) -> Result<Arc<ServerContext>> {
     let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
@@ -1006,8 +1030,8 @@ async fn create_test_server_resources_over(
 
 /// Complete test environment setup using `ServerContext` pattern
 /// Returns (`server_resources`, `user_id`, `api_key`)
-pub async fn setup_server_resources_test_environment() -> Result<(Arc<ServerContext>, Uuid, String)>
-{
+pub(crate) async fn setup_server_resources_test_environment(
+) -> Result<(Arc<ServerContext>, Uuid, String)> {
     let resources = create_test_server_resources().await?;
     let (user_id, _user) = create_test_user(&resources.agent.database).await?;
     let api_key = create_test_api_key(&resources.agent.database, user_id, "test-key")?;
@@ -1038,14 +1062,14 @@ use pierre_llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, StreamC
 use std::collections::HashMap;
 
 /// Mock USDA client for testing (no API calls)
-pub struct MockUsdaClient {
+pub(crate) struct MockUsdaClient {
     mock_foods: HashMap<u64, FoodDetails>,
 }
 
 impl MockUsdaClient {
     /// Create a new mock client with predefined test data
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut mock_foods = HashMap::new();
 
         // Mock food: Chicken breast (FDC ID: 171_477)
@@ -1131,7 +1155,7 @@ impl MockUsdaClient {
     ///
     /// # Errors
     /// Returns `AppError::InvalidInput` if query is empty
-    pub fn search_foods(
+    pub(crate) fn search_foods(
         &self,
         query: &str,
         _page_size: u32,
@@ -1161,7 +1185,7 @@ impl MockUsdaClient {
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if food with given FDC ID doesn't exist
-    pub fn get_food_details(&self, fdc_id: u64) -> Result<FoodDetails, AppError> {
+    pub(crate) fn get_food_details(&self, fdc_id: u64) -> Result<FoodDetails, AppError> {
         self.mock_foods
             .get(&fdc_id)
             .cloned()
@@ -1184,38 +1208,39 @@ use tokio::time::{sleep, Duration};
 
 /// Handle for SDK bridge process that cleans up automatically on drop
 /// Ensures subprocess is terminated when test completes
-pub struct SdkBridgeHandle {
+pub(crate) struct SdkBridgeHandle {
     process: Child,
     port: u16,
 }
 
 impl SdkBridgeHandle {
     /// Get the server port this bridge is connected to
-    pub const fn port(&self) -> u16 {
+    pub(crate) const fn port(&self) -> u16 {
         self.port
     }
 
     /// Get mutable reference to stdin for sending requests
-    pub fn stdin(&mut self) -> Option<&mut ChildStdin> {
+    pub(crate) fn stdin(&mut self) -> Option<&mut ChildStdin> {
         self.process.stdin.as_mut()
     }
 
     /// Get mutable reference to stdout for reading responses
-    pub fn stdout(&mut self) -> Option<&mut ChildStdout> {
+    pub(crate) fn stdout(&mut self) -> Option<&mut ChildStdout> {
         self.process.stdout.as_mut()
     }
 
     /// Get mutable reference to stderr for reading errors
-    pub fn stderr(&mut self) -> Option<&mut ChildStderr> {
+    pub(crate) fn stderr(&mut self) -> Option<&mut ChildStderr> {
         self.process.stderr.as_mut()
     }
 }
 
 impl Drop for SdkBridgeHandle {
     fn drop(&mut self) {
-        // Kill the SDK bridge process when handle is dropped
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        // Kill the SDK bridge process when handle is dropped; it may already
+        // have exited, so both calls are best-effort.
+        drop(self.process.kill());
+        drop(self.process.wait());
     }
 }
 
@@ -1228,7 +1253,7 @@ impl Drop for SdkBridgeHandle {
 ///
 /// # Errors
 /// Returns error if SDK bridge binary not found or process fails to start
-pub async fn spawn_sdk_bridge(jwt_token: &str, server_port: u16) -> Result<SdkBridgeHandle> {
+pub(crate) async fn spawn_sdk_bridge(jwt_token: &str, server_port: u16) -> Result<SdkBridgeHandle> {
     // Find SDK CLI entry point (dist/cli.js - built from TypeScript)
     // SDK lives at workspace root, not in the crate directory
     let sdk_path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1300,7 +1325,7 @@ pub async fn spawn_sdk_bridge(jwt_token: &str, server_port: u16) -> Result<SdkBr
 ///
 /// # Errors
 /// Returns error if stdio communication fails or server returns error
-pub fn send_sdk_stdio_request(
+pub(crate) fn send_sdk_stdio_request(
     sdk_bridge: &mut SdkBridgeHandle,
     method: &str,
     params: &serde_json::Value,
@@ -1308,7 +1333,7 @@ pub fn send_sdk_stdio_request(
     use std::io::{BufRead, BufReader, Write};
 
     // Build JSON-RPC 2.0 request
-    let request_id = uuid::Uuid::new_v4().to_string();
+    let request_id = Uuid::new_v4().to_string();
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": request_id,
@@ -1372,7 +1397,7 @@ pub fn send_sdk_stdio_request(
 ///
 /// # Errors
 /// Returns error if HTTP request fails or server returns error
-pub async fn send_http_mcp_request(
+pub(crate) async fn send_http_mcp_request(
     url: &str,
     method: &str,
     params: serde_json::Value,
@@ -1424,7 +1449,10 @@ pub async fn send_http_mcp_request(
 ///
 /// # Errors
 /// Returns error if user creation or token generation fails
-pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Result<(User, String)> {
+pub(crate) async fn create_test_tenant(
+    resources: &ServerContext,
+    email: &str,
+) -> Result<(User, String)> {
     // Create test user with specified email
     let (_user_id, user) = create_test_user_with_email(&resources.agent.database, email).await?;
 
@@ -1454,7 +1482,7 @@ pub async fn create_test_tenant(resources: &ServerContext, email: &str) -> Resul
 ///
 /// # Errors
 /// Returns error if user creation fails
-pub async fn create_test_mcp_tenant(
+pub(crate) async fn create_test_mcp_tenant(
     resources: &ServerContext,
     email: &str,
 ) -> Result<(User, String)> {
@@ -1478,7 +1506,7 @@ pub async fn create_test_mcp_tenant(
 /// # Errors
 /// Returns error if user/tenant creation, provider registration, or token
 /// generation fails.
-pub async fn create_test_tenant_with_provider(
+pub(crate) async fn create_test_tenant_with_provider(
     resources: &ServerContext,
     email: &str,
 ) -> Result<(User, String)> {
@@ -1502,19 +1530,19 @@ pub async fn create_test_tenant_with_provider(
 }
 
 /// Handle for HTTP MCP server that cleans up automatically on drop
-pub struct HttpServerHandle {
+pub(crate) struct HttpServerHandle {
     task_handle: JoinHandle<()>,
     port: u16,
 }
 
 impl HttpServerHandle {
     /// Get the port the server is listening on
-    pub const fn port(&self) -> u16 {
+    pub(crate) const fn port(&self) -> u16 {
         self.port
     }
 
     /// Get the base URL for making HTTP requests to this server
-    pub fn base_url(&self) -> String {
+    pub(crate) fn base_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
     }
 }
@@ -1557,7 +1585,9 @@ fn find_available_port() -> u16 {
 ///
 /// # Errors
 /// Returns error if server cannot be started
-pub async fn spawn_http_mcp_server(resources: &Arc<ServerContext>) -> Result<HttpServerHandle> {
+pub(crate) async fn spawn_http_mcp_server(
+    resources: &Arc<ServerContext>,
+) -> Result<HttpServerHandle> {
     let port = find_available_port();
 
     // Clone Arc for moving into spawned task (Arc enables sharing across tasks)
@@ -1590,7 +1620,7 @@ pub async fn spawn_http_mcp_server(resources: &Arc<ServerContext>) -> Result<Htt
 ///
 /// Allows tests to control LLM responses without making actual API calls.
 /// Configured with predetermined responses for validation testing.
-pub struct TestLlmProvider {
+pub(crate) struct TestLlmProvider {
     /// Pre-configured JSON response that will be returned by `complete()`
     response: String,
     /// Model name to return (stored to satisfy lifetime requirements)
@@ -1601,7 +1631,7 @@ pub struct TestLlmProvider {
 impl TestLlmProvider {
     /// Create a provider that returns a "valid" verdict
     #[must_use]
-    pub fn valid() -> Self {
+    pub(crate) fn valid() -> Self {
         Self {
             response: r#"{"verdict": "valid", "reason": "Content meets quality standards"}"#
                 .to_owned(),
@@ -1612,7 +1642,7 @@ impl TestLlmProvider {
 
     /// Create a provider that returns a "rejected" verdict with custom reason
     #[must_use]
-    pub fn rejected(reason: &str) -> Self {
+    pub(crate) fn rejected(reason: &str) -> Self {
         Self {
             response: format!(r#"{{"verdict": "rejected", "reason": "{reason}"}}"#),
             model_name: "test-model-v1".to_owned(),
@@ -1622,7 +1652,7 @@ impl TestLlmProvider {
 
     /// Create a provider that returns an "improved" verdict with enhanced content
     #[must_use]
-    pub fn improved(improved_content: &str, reason: &str) -> Self {
+    pub(crate) fn improved(improved_content: &str, reason: &str) -> Self {
         Self {
             response: format!(
                 r#"{{"verdict": "improved", "reason": "{reason}", "improved_content": "{improved_content}"}}"#
@@ -1634,7 +1664,7 @@ impl TestLlmProvider {
 
     /// Create a provider with a custom JSON response
     #[must_use]
-    pub fn with_response(response: String) -> Self {
+    pub(crate) fn with_response(response: String) -> Self {
         Self {
             response,
             model_name: "test-model-v1".to_owned(),

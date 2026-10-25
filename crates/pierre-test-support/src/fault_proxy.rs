@@ -48,6 +48,7 @@ pub enum Fault {
 /// A relay on `127.0.0.1` in front of `upstream`, with a switchable fault.
 ///
 /// Dropping the proxy stops accepting and severs every live connection.
+#[derive(Debug)]
 pub struct FaultProxy {
     addr: SocketAddr,
     fault: Arc<Mutex<Fault>>,
@@ -181,7 +182,9 @@ mod tests {
             while let Ok((mut socket, _)) = listener.accept().await {
                 tokio::spawn(async move {
                     let (mut read, mut write) = socket.split();
-                    let _ = copy(&mut read, &mut write).await;
+                    // The echo ends when either side hangs up; how it ended is
+                    // the proxy's concern, not the upstream's.
+                    drop(copy(&mut read, &mut write).await);
                 });
             }
         });

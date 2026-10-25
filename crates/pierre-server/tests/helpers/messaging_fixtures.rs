@@ -42,16 +42,16 @@ use uuid::Uuid;
 // unused in that test binary; the allowance sits on this one line rather than
 // on each includer's whole `mod messaging_fixtures`.
 #[path = "db_fixtures.rs"]
-pub mod db_fixtures;
+pub(crate) mod db_fixtures;
 #[allow(unused_imports)]
-pub use db_fixtures::{create_test_db, seed_user};
+pub(crate) use db_fixtures::{create_test_db, seed_user};
 
 /// Create a real `chat_conversations` row and return its id.
 ///
 /// `messaging_sessions.pierre_conversation_id` has a FK to
 /// `chat_conversations(id)`, so a session seeded with a non-null conversation id
 /// needs the conversation to exist first.
-pub async fn seed_conversation(db: &Database, user_id: &str, tenant_id: TenantId) -> String {
+pub(crate) async fn seed_conversation(db: &Database, user_id: &str, tenant_id: TenantId) -> String {
     db.repositories()
         .chat
         .create_conversation(user_id, tenant_id, "test", "test-model", None, None)
@@ -62,7 +62,7 @@ pub async fn seed_conversation(db: &Database, user_id: &str, tenant_id: TenantId
 
 /// Seed a messaging session that points at `conversation_id` on the given
 /// channel + chat. Returns the session id.
-pub async fn seed_session(
+pub(crate) async fn seed_session(
     db: &Database,
     user_id: &str,
     tenant_id: TenantId,
@@ -94,7 +94,7 @@ pub async fn seed_session(
 /// This is the row the notifier reverse-looks-up (`get_channel_link_tenant`) to
 /// discover which tenant owns the channel config when the DM session itself
 /// lives under a different (user) tenant.
-pub async fn seed_channel_link(
+pub(crate) async fn seed_channel_link(
     db: &Database,
     user_id: &str,
     tenant_id: TenantId,
@@ -119,7 +119,7 @@ pub async fn seed_channel_link(
 
 /// Build a cached activity with an explicit `start_date` so a test can place it
 /// inside the backfill window `[after_ts, now]` the notifier reads.
-pub fn cached_activity(id: &str, name: &str, age_days: i64) -> Activity {
+pub(crate) fn cached_activity(id: &str, name: &str, age_days: i64) -> Activity {
     ActivityBuilder::new(
         id.to_owned(),
         name.to_owned(),
@@ -134,7 +134,7 @@ pub fn cached_activity(id: &str, name: &str, age_days: i64) -> Activity {
 
 /// Seed the durable activity cache for `(user, tenant, "strava")` with the given
 /// activities, mirroring how the backfill warms the cache before the push fires.
-pub async fn seed_activity_cache(
+pub(crate) async fn seed_activity_cache(
     db: &Database,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -148,7 +148,7 @@ pub async fn seed_activity_cache(
 }
 
 /// Build the default messaging strings registry used by the notifier.
-pub fn strings() -> Arc<MessagingStringsRegistry> {
+pub(crate) fn strings() -> Arc<MessagingStringsRegistry> {
     Arc::new(MessagingStringsRegistry::new())
 }
 
@@ -157,7 +157,7 @@ pub fn strings() -> Arc<MessagingStringsRegistry> {
 ///
 /// The `channel_type` is parameterizable (default `Telegram`) so render/route
 /// tests can drive the same fake as a `WhatsApp`/Slack/etc. channel.
-pub struct CapturingChannel {
+pub(crate) struct CapturingChannel {
     /// Channel identity this fake reports via `channel_type()`.
     pub channel_type: ChannelType,
     /// Every outbound message a `send` routed through, in order.
@@ -185,7 +185,7 @@ impl Default for CapturingChannel {
 
 impl CapturingChannel {
     /// Build a capturing channel that reports the given channel type.
-    pub fn for_channel(channel_type: ChannelType) -> Self {
+    pub(crate) fn for_channel(channel_type: ChannelType) -> Self {
         Self {
             channel_type,
             ..Self::default()
@@ -193,7 +193,7 @@ impl CapturingChannel {
     }
 
     /// Queue the receipt ids the next sends return, in order.
-    pub fn stub_receipt_ids<I: IntoIterator<Item = Option<String>>>(&self, ids: I) {
+    pub(crate) fn stub_receipt_ids<I: IntoIterator<Item = Option<String>>>(&self, ids: I) {
         self.receipt_ids.lock().unwrap().extend(ids);
     }
 }
@@ -263,7 +263,7 @@ impl MessagingChannel for CapturingChannel {
 ///
 /// The `channel_type` is parameterizable (default `WhatsApp`, the channel the
 /// 24h-window rule applies to).
-pub struct FailingChannel {
+pub(crate) struct FailingChannel {
     /// Channel identity this fake reports via `channel_type()`.
     pub channel_type: ChannelType,
     /// Every outbound message a `send` attempted, recorded before the error.
@@ -281,7 +281,7 @@ impl Default for FailingChannel {
 
 impl FailingChannel {
     /// Build a failing channel that reports the given channel type.
-    pub fn for_channel(channel_type: ChannelType) -> Self {
+    pub(crate) fn for_channel(channel_type: ChannelType) -> Self {
         Self {
             channel_type,
             attempts: Mutex::new(Vec::new()),
@@ -355,7 +355,7 @@ impl MessagingChannel for FailingChannel {
 ///
 /// Holds `Arc<dyn MessagingChannel>` so it can wrap either a [`CapturingChannel`]
 /// or a [`FailingChannel`].
-pub struct FakeResolver {
+pub(crate) struct FakeResolver {
     /// The adapter every `resolve` hands back.
     pub channel: Arc<dyn MessagingChannel>,
     /// Every `(tenant, channel)` pair the notifier asked to resolve, in order.
@@ -363,7 +363,7 @@ pub struct FakeResolver {
 }
 
 impl FakeResolver {
-    pub fn new(adapter: Arc<dyn MessagingChannel>) -> Self {
+    pub(crate) fn new(adapter: Arc<dyn MessagingChannel>) -> Self {
         Self {
             channel: adapter,
             resolved: Mutex::new(Vec::new()),

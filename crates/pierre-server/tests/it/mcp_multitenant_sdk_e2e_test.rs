@@ -22,9 +22,9 @@ use crate::common;
 /// Helper to make a `get_activities` request for a tenant via SDK stdio
 fn make_tenant_sdk_get_activities_request(
     mut sdk_bridge: common::SdkBridgeHandle,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
     tenant_name: &str,
-) -> Result<(uuid::Uuid, serde_json::Value)> {
+) -> Result<(Uuid, serde_json::Value)> {
     let result = common::send_sdk_stdio_request(
         &mut sdk_bridge,
         "tools/call",

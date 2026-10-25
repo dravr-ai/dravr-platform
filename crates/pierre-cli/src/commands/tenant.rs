@@ -27,7 +27,7 @@ type Result<T> = AppResult<T>;
 /// The tenant is resolved from the user's email: if the user belongs to exactly
 /// one tenant it is used, otherwise `--tenant-id` must disambiguate. Delegates
 /// to the shared [`admin_ops::set_tenant_plan`].
-pub async fn set_plan(
+pub(crate) async fn set_plan(
     repos: &RepositoryRegistry,
     email: String,
     plan: String,
@@ -105,7 +105,7 @@ async fn required_actor(repos: &RepositoryRegistry) -> Result<Uuid> {
 /// Force-enable or force-disable a tool for a whole tenant via the same
 /// `ToolSelectionService` write path the web and token surfaces use.
 /// Effective on the live server after its tenant cache expires (~5 min).
-pub async fn set_tool(
+pub(crate) async fn set_tool(
     repos: &Arc<RepositoryRegistry>,
     email: String,
     tool: String,
@@ -128,7 +128,7 @@ pub async fn set_tool(
 }
 
 /// Remove a tenant tool override so the tool reverts to plan/catalog default.
-pub async fn reset_tool(
+pub(crate) async fn reset_tool(
     repos: &Arc<RepositoryRegistry>,
     email: String,
     tool: String,
@@ -146,7 +146,7 @@ pub async fn reset_tool(
 }
 
 /// List the tenant's effective tools with the source of each decision.
-pub async fn list_tools(
+pub(crate) async fn list_tools(
     repos: &Arc<RepositoryRegistry>,
     email: String,
     tenant_id: Option<String>,
@@ -175,7 +175,7 @@ pub async fn list_tools(
 }
 
 /// Set a tenant-default feature flag (per-user overrides still win).
-pub async fn set_feature(
+pub(crate) async fn set_feature(
     repos: &RepositoryRegistry,
     email: String,
     key: String,
@@ -198,7 +198,7 @@ pub async fn set_feature(
 }
 
 /// Clear a tenant-default feature flag; the built-in default applies again.
-pub async fn clear_feature(
+pub(crate) async fn clear_feature(
     repos: &RepositoryRegistry,
     email: String,
     key: String,
@@ -225,7 +225,7 @@ pub async fn clear_feature(
 }
 
 /// List a tenant's explicit feature-flag defaults.
-pub async fn list_features(
+pub(crate) async fn list_features(
     repos: &RepositoryRegistry,
     email: String,
     tenant_id: Option<String>,
@@ -248,7 +248,7 @@ pub async fn list_features(
 }
 
 /// The tenant's own OAuth app for one provider, as an operator configures it.
-pub struct OAuthAppSettings {
+pub(crate) struct OAuthAppSettings {
     /// Provider the app belongs to (`strava`, `whoop`, ...).
     pub provider: String,
     /// The app's public client id.
@@ -267,7 +267,7 @@ pub struct OAuthAppSettings {
 /// argument, so it stays out of the shell history and the process list, and
 /// it is never printed. The repository encrypts it at rest, bound to the
 /// tenant and provider, exactly as the connect flow's read path decrypts it.
-pub async fn set_oauth_app(
+pub(crate) async fn set_oauth_app(
     repos: &RepositoryRegistry,
     email: String,
     tenant_id: Option<String>,
@@ -323,7 +323,7 @@ fn read_secret_line(input: &mut impl BufRead) -> Result<String> {
 /// `pierre-cli tenant` subcommands: plan, tool overrides, feature flags, OAuth apps.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum TenantCommand {
+pub(crate) enum TenantCommand {
     /// Set a tenant's plan (unlocks plan-gated tools via `tool_catalog.min_plan`)
     SetPlan {
         /// Email of a user in the target tenant
@@ -486,7 +486,7 @@ pub enum TenantCommand {
 ///
 /// # Errors
 /// Returns the subcommand's error.
-pub async fn dispatch(repos: &Arc<RepositoryRegistry>, action: TenantCommand) -> Result<()> {
+pub(crate) async fn dispatch(repos: &Arc<RepositoryRegistry>, action: TenantCommand) -> Result<()> {
     match action {
         TenantCommand::SetPlan {
             email,

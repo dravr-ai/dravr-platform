@@ -918,7 +918,10 @@ fn test_tsb_only_recovery_score_fresh() {
     );
 
     // Should have limitations noted
-    assert_ne!(recovery.limitations, [] as [String; 0]);
+    assert!(
+        !recovery.limitations.is_empty(),
+        "expected a non-empty value"
+    );
     assert!(recovery
         .limitations
         .iter()
@@ -1006,7 +1009,10 @@ fn test_tsb_only_rest_day_recommendation_rest_needed() {
         "TSB-only confidence should be <= 75%, got {}",
         recommendation.confidence
     );
-    assert_ne!(recommendation.primary_reasons, [] as [String; 0]);
+    assert!(
+        !recommendation.primary_reasons.is_empty(),
+        "expected a non-empty value"
+    );
     // Should note it's TSB-only assessment
     assert!(recommendation
         .supporting_factors
@@ -1051,7 +1057,7 @@ fn test_tsb_only_insights_generated() {
     let recovery = result.unwrap();
 
     // Should have insights about TSB-only mode
-    assert_ne!(recovery.insights, [] as [String; 0]);
+    assert!(!recovery.insights.is_empty(), "expected a non-empty value");
     assert!(recovery
         .insights
         .iter()

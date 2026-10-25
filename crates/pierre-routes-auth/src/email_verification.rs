@@ -44,7 +44,7 @@ use pierre_services::link_token::{generate_link_token, split_link_token};
 ///
 /// Returns `true` when a link was actually sent, so callers can tell the client
 /// whether to expect mail.
-pub async fn issue_verification_email(
+pub(crate) async fn issue_verification_email(
     resources: &AuthRoutesContext,
     user_id: uuid::Uuid,
     email: &str,
@@ -173,7 +173,7 @@ async fn mint_verification_url(
 
 /// Query string for `GET /api/auth/verify-email`.
 #[derive(Debug, serde::Deserialize)]
-pub struct VerifyEmailQuery {
+pub(crate) struct VerifyEmailQuery {
     /// The `<selector>.<verifier>` token from the emailed link.
     pub token: Option<SecretString>,
 }
@@ -233,7 +233,7 @@ async fn claim_token(resources: &AuthRoutesContext, token: Option<&str>) -> Opti
 /// Never returns `Err`: every outcome is a redirect carrying a status the SPA
 /// renders, because the caller is a mail client following a link and cannot do
 /// anything useful with a JSON error body.
-pub async fn handle_verify_email(
+pub(crate) async fn handle_verify_email(
     State(resources): State<AuthRoutesContext>,
     Query(query): Query<VerifyEmailQuery>,
 ) -> Response {
@@ -293,7 +293,7 @@ pub async fn handle_verify_email(
 
 /// Request body for `POST /api/auth/resend-verification`.
 #[derive(Debug, serde::Deserialize)]
-pub struct ResendVerificationRequest {
+pub(crate) struct ResendVerificationRequest {
     /// Address to re-send the confirmation link to.
     pub email: String,
 }
@@ -312,7 +312,7 @@ pub struct ResendVerificationRequest {
 /// Returns `AppError` for a malformed email and for a request past its
 /// address's window; every account-state outcome is a 200 with the neutral
 /// message.
-pub async fn handle_resend_verification(
+pub(crate) async fn handle_resend_verification(
     State(resources): State<AuthRoutesContext>,
     peer: PeerAddress,
     headers: HeaderMap,

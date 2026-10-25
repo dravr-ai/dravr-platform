@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -57,6 +58,7 @@ pub const DEFAULT_REQUESTED_MEMBERS: i32 = 20;
 /// Everything else about creation — tier gate, member clamp, owner
 /// membership, the `group.created` emission — is shared, so this carries only
 /// what actually differs.
+#[derive(Debug)]
 pub struct ChannelGroupSpec<'a> {
     /// Human-readable group name, from the inbound chat title when the
     /// channel supplies one (Telegram `chat.title`, Discord `channel.name`).
@@ -95,6 +97,15 @@ pub struct GroupService {
     /// above it. Shared (`Arc`) with the billing webhook, which re-applies the
     /// charge when a subscription changes.
     athlete_billing: Arc<AthleteBilling>,
+}
+
+impl fmt::Debug for GroupService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroupService")
+            .field("delegation", &self.delegation)
+            .field("athlete_billing", &self.athlete_billing)
+            .finish_non_exhaustive()
+    }
 }
 
 impl GroupService {

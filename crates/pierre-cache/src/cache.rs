@@ -21,7 +21,7 @@ use crate::{CacheConfig, CacheKey, CacheProvider, WindowCount};
 
 /// Cache backend enum for pluggable implementations
 #[non_exhaustive]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum CacheBackend {
     InMemory(InMemoryCache),
     #[cfg(feature = "redis")]
@@ -29,7 +29,7 @@ enum CacheBackend {
 }
 
 /// Unified cache interface supporting both in-memory and Redis backends
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Cache {
     inner: CacheBackend,
 }

@@ -51,6 +51,7 @@ use pierre_core::errors::AppError;
 use pierre_services::channel_adapters::{ChannelAdapterFactory, ConfigChannelAdapters};
 
 /// Messaging gateway routes handler
+#[derive(Debug)]
 pub struct MessagingRoutes;
 
 impl MessagingRoutes {

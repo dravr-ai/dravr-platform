@@ -14,6 +14,7 @@ use pierre_memory::commitments::{Commitment, CommitmentOutcome, CommitmentStatus
 ///
 /// Bundled into a struct rather than a wide argument list, matching the
 /// repository's param-struct convention.
+#[derive(Debug)]
 pub struct SweptVerdict<'a> {
     /// Owning tenant — every write is scoped to it.
     pub tenant_id: &'a str,

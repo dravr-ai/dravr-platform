@@ -44,7 +44,7 @@ use std::sync::Arc;
 
 /// Routing pieces resolved for a proactive notice: where to deliver it plus
 /// which tenant owns the channel config/adapter.
-pub struct ResolvedRoute {
+pub(crate) struct ResolvedRoute {
     /// Messaging-session id (the `id` column of `messaging_sessions`). Carried so
     /// a send failure can persist the dropped notice as an outbound message row
     /// under this session before queuing it for retry — exactly as the
@@ -68,7 +68,7 @@ pub struct ResolvedRoute {
 }
 
 /// Sends a proactive notice out through a messaging channel's adapter.
-pub struct ChannelDelivery<'a> {
+pub(crate) struct ChannelDelivery<'a> {
     /// Repository registry — the retry queue for a dropped notice.
     pub repos: &'a RepositoryRegistry,
     /// Resolves `(tenant, channel)` to an adapter plus its config.
@@ -88,7 +88,7 @@ impl ChannelDelivery<'_> {
     /// message each, exactly as the live reply path orders them. Every part
     /// carries one fresh proactive turn id, not the originating turn's, so a
     /// split notice still reads as one turn in the transcript.
-    pub async fn send(
+    pub(crate) async fn send(
         &self,
         route: ResolvedRoute,
         user_id: Uuid,
@@ -197,7 +197,7 @@ impl ChannelDelivery<'_> {
 }
 
 /// Writes a completion notice into a first-party conversation.
-pub struct InAppDelivery<'a> {
+pub(crate) struct InAppDelivery<'a> {
     /// Repository registry — the conversation the notice is persisted into.
     pub repos: &'a RepositoryRegistry,
     /// Localized strings for the app-notification title and body.
@@ -229,7 +229,7 @@ impl InAppDelivery<'_> {
     /// take the unread badge with it. And it fans the reply out to a bound
     /// group's shared transcript, where one athlete's own activity history is
     /// not what the room asked for.
-    pub async fn deliver(
+    pub(crate) async fn deliver(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -270,7 +270,13 @@ impl InAppDelivery<'_> {
 
     /// Raise only the app notification, for a notice the chat pipeline has
     /// already stored in the conversation as the agent's own answer.
-    pub async fn ping(&self, user_id: Uuid, tenant_id: TenantId, locale: &str, count: usize) {
+    pub(crate) async fn ping(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        locale: &str,
+        count: usize,
+    ) {
         self.push_app_notification(user_id, tenant_id, locale, count, self.transport_policy)
             .await;
     }

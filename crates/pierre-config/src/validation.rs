@@ -15,6 +15,7 @@ use super::runtime::ConfigValue;
 use pierre_core::models::UserPhysiologicalProfile;
 
 /// Configuration validator
+#[derive(Debug)]
 pub struct ConfigValidator {
     /// Safety constraints
     safety_rules: Vec<SafetyRule>,

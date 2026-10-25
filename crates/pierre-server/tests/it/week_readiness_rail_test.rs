@@ -492,7 +492,7 @@ async fn a_plan_that_stops_covering_the_athlete_says_so() -> Result<()> {
     let state = &asked.result.expect("a plan")["state"];
     let gaps: Vec<&str> = state["coverage_gaps"]
         .as_array()
-        .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     assert!(
         gaps.contains(&"uncovered_today"),
@@ -716,7 +716,7 @@ async fn the_template_bank_says_how_a_session_grows() -> Result<()> {
     // the agent invented the step.
     let order: Vec<&str> = threshold["progression"]["order"]
         .as_array()
-        .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
+        .map(|a| a.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
     assert_eq!(
         order,

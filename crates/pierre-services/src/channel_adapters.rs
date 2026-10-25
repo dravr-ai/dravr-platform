@@ -69,6 +69,7 @@ pub trait ChannelAdapterFactory: Send + Sync {
 
 /// The production factory: the adapter is whatever the tenant's stored config
 /// says it is, built by the canot factory.
+#[derive(Debug)]
 pub struct ConfigChannelAdapters;
 
 impl ChannelAdapterFactory for ConfigChannelAdapters {

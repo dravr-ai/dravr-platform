@@ -76,6 +76,7 @@ pub use group::{caller_group_standing, CallerGroupStanding};
 pub use parser::{load_command_catalog, CommandCatalog};
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 use tracing::warn;
@@ -174,6 +175,27 @@ pub struct PlatformCommandContext {
     /// `pierre-runtime-context` → `pierre-tool-runtime` →
     /// `pierre-runtime-context`. Concrete type is the same `ServerContext`.
     pub tool_runtime: Arc<dyn ToolRuntime>,
+}
+
+impl fmt::Debug for PlatformCommandContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The typed command line carries invite codes and single-use confirm
+        // tokens, and the sender is a phone number on some channels.
+        f.debug_struct("PlatformCommandContext")
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("channel_type", &self.channel_type)
+            .field("args", &self.args.len())
+            .field("raw_text", &"[REDACTED]")
+            .field("locale", &self.locale)
+            .field("is_direct_message", &self.is_direct_message)
+            .field("ambient_group_fallback", &self.ambient_group_fallback)
+            .field("conversation_id", &self.conversation_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("sender_id", &self.sender_id.as_ref().map(|_| "[REDACTED]"))
+            .field("rotation", &self.rotation)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The conversation a handler moved the athlete onto, or the topic it opened
@@ -319,6 +341,13 @@ pub trait CommandHandler: Send + Sync {
 /// command strings to definitions).
 pub struct CommandHandlerRegistry {
     handlers: HashMap<String, Arc<dyn CommandHandler>>,
+}
+
+impl fmt::Debug for CommandHandlerRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CommandHandlerRegistry")
+            .finish_non_exhaustive()
+    }
 }
 
 impl CommandHandlerRegistry {

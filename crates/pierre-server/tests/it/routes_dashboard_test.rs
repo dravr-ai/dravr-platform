@@ -586,7 +586,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
             AuthResult {
                 scopes: OAuthScope::self_grant(),
                 client_id: None,
-                user_id: uuid::Uuid::nil(),
+                user_id: Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                     impersonation: None,
@@ -604,7 +604,7 @@ async fn test_get_usage_analytics_invalid_auth() -> Result<()> {
             AuthResult {
                 scopes: OAuthScope::self_grant(),
                 client_id: None,
-                user_id: uuid::Uuid::nil(),
+                user_id: Uuid::nil(),
                 auth_method: AuthMethod::JwtToken {
                     tier: "premium".to_owned(),
                     impersonation: None,

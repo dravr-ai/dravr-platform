@@ -90,6 +90,7 @@ pub enum ChatProvider {
 /// One configured tier of the chain as it came out of construction: `built`
 /// is `Ok` with the provider, or `Err` with the reason it is missing (logged,
 /// never fatal while another tier built).
+#[derive(Debug)]
 pub struct ChainTier {
     /// The provider the chain entry names.
     pub kind: LlmProviderType,

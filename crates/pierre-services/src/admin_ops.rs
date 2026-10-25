@@ -28,6 +28,7 @@ pub use overrides::*;
 // =========================================================================
 
 /// A user's monthly request budget as the admin views report it
+#[derive(Debug)]
 pub struct UserRateLimits {
     /// Target user ID
     pub user_id: String,
@@ -72,7 +73,7 @@ impl UserRateLimits {
 }
 
 /// A single tool usage entry with computed percentage
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ToolUsageEntry {
     /// Tool name as recorded in usage logs
     pub tool_name: String,
@@ -83,6 +84,7 @@ pub struct ToolUsageEntry {
 }
 
 /// Aggregated user activity over a time period
+#[derive(Debug)]
 pub struct UserActivityResult {
     /// Target user ID
     pub user_id: String,
@@ -95,7 +97,7 @@ pub struct UserActivityResult {
 }
 
 /// An agent installed by a user (admin User Details panel).
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct InstalledAgentSummary {
     /// Installed agent ID
     pub agent_id: String,
@@ -108,7 +110,7 @@ pub struct InstalledAgentSummary {
 }
 
 /// A coaching group a user belongs to (admin User Details panel).
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct UserGroupSummary {
     /// Group ID
     pub group_id: String,
@@ -124,7 +126,7 @@ pub struct UserGroupSummary {
 
 /// Per-user enrichments rendered by the admin User Details drawer:
 /// coaching persona, default agent, installed agents, joined groups.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct UserAdminProfile {
     /// Target user ID
     pub user_id: String,
@@ -142,7 +144,7 @@ pub struct UserAdminProfile {
 }
 
 /// A single LLM call record for the admin activity feed
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct LlmCallEntry {
     /// Call record ID
     pub id: String,
@@ -163,7 +165,7 @@ pub struct LlmCallEntry {
 }
 
 /// A single conversation record for the admin activity feed
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ConversationEntry {
     /// Conversation ID
     pub id: String,
@@ -176,6 +178,7 @@ pub struct ConversationEntry {
 }
 
 /// Summary statistics for the admin dashboard
+#[derive(Debug)]
 pub struct ActivitySummary {
     /// Conversations active in the last 15 minutes
     pub active_conversations: i64,
@@ -188,6 +191,7 @@ pub struct ActivitySummary {
 }
 
 /// Full recent activity payload for the admin dashboard
+#[derive(Debug)]
 pub struct RecentActivityResult {
     /// Most recent LLM call records
     pub recent_llm_calls: Vec<LlmCallEntry>,
@@ -434,6 +438,7 @@ pub async fn approve_user(
 // =========================================================================
 
 /// Outcome of an admin privilege change (promote or demote)
+#[derive(Debug)]
 pub struct AdminPrivilegeChangeResult {
     /// Updated user ID
     pub user_id: String,
@@ -446,7 +451,7 @@ pub struct AdminPrivilegeChangeResult {
 }
 
 /// Admin user summary for the admins listing
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct AdminUserSummary {
     /// User ID
     pub id: String,

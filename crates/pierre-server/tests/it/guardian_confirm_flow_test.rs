@@ -32,7 +32,6 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{ClaimOutcome, PendingGuardianAction};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_runtime_context::CommandCtx;
 use pierre_tool_runtime::guardian::{
     Decision, ExternalSendAllowlist, Guardian, GuardianMode, GuardianPolicy, PlanMode,
     TaintedDestructive, TurnKey, TurnState,
@@ -99,7 +98,7 @@ fn command_ctx(
         channel_type: "web".to_owned(),
         args: vec![pending_id.to_owned()],
         raw_text: format!("/confirm {pending_id}"),
-        ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(resources),
         locale: "en".to_owned(),
         is_direct_message: true,
         ambient_group_fallback: false,
@@ -107,7 +106,7 @@ fn command_ctx(
         conversation_tenant_id: tenant,
         sender_id: None,
         rotation: ConversationRotation::default(),
-        tool_runtime: Arc::<ServerContext>::clone(resources) as Arc<dyn ToolRuntime>,
+        tool_runtime: Arc::<ServerContext>::clone(resources),
     }
 }
 

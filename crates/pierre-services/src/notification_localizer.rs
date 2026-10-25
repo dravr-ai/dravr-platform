@@ -31,6 +31,7 @@ use crate::notification_text::NotificationTextRenderer;
 use crate::units::resolve_user_units;
 
 /// Renders a dispatched event in the recipient's stored locale.
+#[derive(Debug)]
 pub struct UserLocaleNotificationLocalizer {
     /// Repository registry — supplies the user row carrying the locale.
     repos: Arc<RepositoryRegistry>,

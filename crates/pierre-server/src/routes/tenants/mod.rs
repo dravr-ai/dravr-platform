@@ -81,6 +81,7 @@ pub struct UserTenantInfo {
 }
 
 /// Tenant management routes
+#[derive(Debug)]
 pub struct TenantRoutes;
 
 impl TenantRoutes {

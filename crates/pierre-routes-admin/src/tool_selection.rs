@@ -21,6 +21,7 @@
 //! operator belongs to — which is how a console session of a plain Admin
 //! reaches the tenants it administers.
 
+use std::fmt;
 use std::sync::Arc;
 
 use axum::{
@@ -81,6 +82,14 @@ pub struct ToolSelectionContext {
     pub repos: Arc<RepositoryRegistry>,
 }
 
+impl fmt::Debug for ToolSelectionContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ToolSelectionContext")
+            .field("repos", &self.repos)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Response wrapper for tool selection endpoints
 #[derive(Debug, Serialize)]
 pub struct ToolSelectionResponse<T> {
@@ -113,6 +122,7 @@ pub struct GlobalDisabledToolsResponse {
 }
 
 /// Tool selection admin routes
+#[derive(Debug)]
 pub struct ToolSelectionRoutes;
 
 impl ToolSelectionRoutes {

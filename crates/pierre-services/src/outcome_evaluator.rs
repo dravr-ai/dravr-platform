@@ -51,7 +51,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::judge::{ask_for_json, judge_request};
 use pierre_llm::stage::LlmStage;
-use pierre_llm::{ChatProvider, LlmProvider};
+use pierre_llm::ChatProvider;
 use pierre_memory::playbooks::{LabelSource, OutcomeLabel, OutcomeMetric, PendingAdvice};
 use pierre_providers::ai_scope;
 use serde::Deserialize;
@@ -498,9 +498,7 @@ async fn run_judge(
         ConversationTurnId::new(),
         LlmStage::OutcomeEvaluation.call_type(),
     ));
-    match ask_for_json::<JudgeVerdict>(provider as &dyn LlmProvider, &request, Some(&recorder))
-        .await
-    {
+    match ask_for_json::<JudgeVerdict>(provider, &request, Some(&recorder)).await {
         Ok(v) => Some(OutcomeLabel::parse_lenient(&v.verdict)),
         Err(e) => {
             warn!(error = %e, "outcome LLM judge failed; falling back to heuristic");
@@ -703,6 +701,7 @@ mod tests {
     use super::*;
     use crate::training_history_read::tests::{athlete, noon, relayed, Athlete, NolioTerms, RELAY};
     use pierre_core::models::{DataSource, DeviceType};
+    use pierre_llm::LlmProvider;
 
     /// A judge that records every user message it is asked about.
     struct RecordingJudge {

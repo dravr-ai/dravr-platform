@@ -50,7 +50,6 @@ use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
 use pierre_tool_runtime::protocol::auth::AuthService;
-use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use tokio::net::TcpListener;
@@ -339,7 +338,7 @@ async fn an_oauth_link_reads_with_its_bearer_token() {
     let (user_id, tenant_id) = linked_user(&resources, "icu-bearer@example.com").await;
     complete_oauth_link(&resources, user_id, tenant_id).await;
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let provider = auth
         .create_authenticated_provider(PROVIDER, user_id, Some(&tenant_id.to_string()))
         .await
@@ -365,7 +364,7 @@ async fn an_api_key_link_still_reads_with_basic_auth() {
     let (user_id, tenant_id) = linked_user(&resources, "icu-key@example.com").await;
     seed_api_key_link(&resources, user_id, tenant_id).await;
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let provider = auth
         .create_authenticated_provider(PROVIDER, user_id, Some(&tenant_id.to_string()))
         .await
@@ -615,7 +614,7 @@ async fn two_oauth_athletes_reads_spend_one_pool_of_the_servers_app() {
     complete_oauth_link(&resources, second_id, second_tenant).await;
     let app = budget_counter_key(PROVIDER, CLIENT_ID);
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let first = auth
         .create_authenticated_provider(PROVIDER, first_id, Some(&first_tenant.to_string()))
         .await
@@ -656,7 +655,7 @@ async fn an_api_key_links_reads_stop_at_the_keys_window() {
     seed_api_key_link(&resources, user_id, tenant_id).await;
     let key = api_key_counter_key(PROVIDER, KEY_ATHLETE);
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let provider = auth
         .create_authenticated_provider(PROVIDER, user_id, Some(&tenant_id.to_string()))
         .await

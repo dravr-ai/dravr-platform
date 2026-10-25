@@ -312,14 +312,14 @@ async fn context_with_mock_whoop() -> (Arc<ServerContext>, Arc<MockWhoop>) {
     let mock = Arc::new(MockWhoop::new());
     let storage = Arc::new(PierreSyncStorage::new(&context.common.repos));
     let deps = Arc::new(SyncDeps {
-        sleep: Arc::clone(&storage) as _,
-        recovery: Arc::clone(&storage) as _,
-        health: Arc::clone(&storage) as _,
-        time_series: Arc::clone(&storage) as _,
-        data_sources: Arc::clone(&storage) as _,
-        cursors: Arc::clone(&storage) as _,
-        credentials: Arc::clone(&storage) as _,
-        connections: storage as _,
+        sleep: Arc::<PierreSyncStorage>::clone(&storage),
+        recovery: Arc::<PierreSyncStorage>::clone(&storage),
+        health: Arc::<PierreSyncStorage>::clone(&storage),
+        time_series: Arc::<PierreSyncStorage>::clone(&storage),
+        data_sources: Arc::<PierreSyncStorage>::clone(&storage),
+        cursors: Arc::<PierreSyncStorage>::clone(&storage),
+        credentials: Arc::<PierreSyncStorage>::clone(&storage),
+        connections: storage,
     });
     let mut providers: HashMap<String, Box<dyn SyncProvider>> = HashMap::new();
     providers.insert(

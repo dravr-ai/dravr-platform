@@ -96,7 +96,7 @@ pub(crate) enum SuggestionSource {
 impl SuggestionSource {
     /// The analytics value for this source.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Static => "static",
             Self::State => "state",
@@ -149,7 +149,7 @@ pub(crate) enum Postback {
 impl Postback {
     /// The value a control carries for this suggestion.
     #[must_use]
-    pub fn encode(&self) -> String {
+    pub(crate) fn encode(&self) -> String {
         match self {
             Self::Example { position, index } => format!("{EXAMPLE_PREFIX}{position}:{index}"),
             Self::UseCase { position, id } => use_case_postback(*position, id),
@@ -161,7 +161,7 @@ impl Postback {
 
     /// Parse a turn's text as a suggestion postback; `None` for anything else.
     #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
+    pub(crate) fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if let Some(rest) = text.strip_prefix(EXAMPLE_PREFIX) {
             let (position, index) = rest.split_once(':')?;
@@ -190,7 +190,7 @@ impl Postback {
     /// `ex:<index>` for an example, or `team_offer_<pillar>` for an offer's
     /// link — the same whichever slot it was offered in.
     #[must_use]
-    pub fn use_case(&self) -> String {
+    pub(crate) fn use_case(&self) -> String {
         match self {
             Self::Example { index, .. } => format!("{EXAMPLE_PREFIX}{index}"),
             Self::TeamOffer { pillar, .. } => team_offer::exposure_id(*pillar),
@@ -202,7 +202,7 @@ impl Postback {
 
     /// The slot the suggestion was shown in.
     #[must_use]
-    pub const fn position(&self) -> usize {
+    pub(crate) const fn position(&self) -> usize {
         match self {
             Self::Example { position, .. }
             | Self::UseCase { position, .. }
@@ -214,7 +214,7 @@ impl Postback {
 
     /// Where the suggestion's words came from.
     #[must_use]
-    pub const fn source(&self) -> SuggestionSource {
+    pub(crate) const fn source(&self) -> SuggestionSource {
         match self {
             Self::Example { .. } => SuggestionSource::Static,
             // A Getting started row is chosen from the athlete's first run.
@@ -231,7 +231,7 @@ impl Postback {
     /// whichever surface showed it; a showing names its own placement
     /// ([`SuggestionEvent::surface`]).
     #[must_use]
-    pub const fn surface(&self) -> &'static str {
+    pub(crate) const fn surface(&self) -> &'static str {
         match self {
             Self::Example { .. } | Self::UseCase { .. } => SURFACE_AGENT_WELCOME,
             Self::NextStep { .. } | Self::TeamOffer { .. } => SURFACE_NEXT_STEP,
@@ -241,7 +241,7 @@ impl Postback {
 
     /// How a turn this suggestion resolved into was produced.
     #[must_use]
-    pub const fn input_source(&self) -> InputSource {
+    pub(crate) const fn input_source(&self) -> InputSource {
         match self {
             Self::Example { .. } | Self::UseCase { .. } | Self::GettingStarted { .. } => {
                 InputSource::UseCase
@@ -253,7 +253,7 @@ impl Postback {
     /// The catalogue entry the suggestion stands for; `None` for an example
     /// or an offer's link.
     #[must_use]
-    pub fn catalogue_id(&self) -> Option<&str> {
+    pub(crate) fn catalogue_id(&self) -> Option<&str> {
         match self {
             Self::Example { .. } | Self::TeamOffer { .. } => None,
             Self::UseCase { id, .. }
@@ -522,6 +522,7 @@ pub(crate) async fn record_tap(
 
 /// Who tapped a starter or a next step on a channel that routes commands
 /// itself.
+#[derive(Debug)]
 pub struct CommandTap {
     /// The athlete who tapped.
     pub user_id: Uuid,
@@ -616,6 +617,7 @@ pub fn report_getting_started_shown(
 }
 
 /// Who an empty thread's starters are offered to, and where.
+#[derive(Debug)]
 pub struct EmptyThreadOffer<'a> {
     /// The athlete's tenant.
     pub tenant_id: TenantId,

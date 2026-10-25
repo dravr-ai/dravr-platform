@@ -38,6 +38,7 @@ use tracing::debug;
 use crate::routes::viz::{VizTarget, VizToken};
 
 /// What the egress needs to turn one reply's blocks into media.
+#[derive(Debug)]
 pub struct VizDelivery<'a> {
     /// Conversation, user, tenant and message ids the tokens point at.
     pub target: VizTarget,

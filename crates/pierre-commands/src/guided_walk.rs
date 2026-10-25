@@ -84,6 +84,7 @@ fn typed_command(raw_text: &str) -> &str {
 /// What distinguishes one fixed-list walk from another at start time. The
 /// sequence itself — supersede, record, snapshot, activate, open — is the
 /// same for every flow whose topics come from a list.
+#[derive(Debug)]
 pub struct WalkSpec<'a> {
     /// The flow being started.
     pub flow: GuidedFlow,

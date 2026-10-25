@@ -210,14 +210,15 @@ fn bench_tss_calculation(c: &mut Criterion) {
         let calculator = TrainingLoadCalculator::new(Utc::now().date_naive());
         b.iter(|| {
             for activity in black_box(&activities) {
-                let _ = calculator.calculate_tss(
+                // Only the timing matters; the result is discarded.
+                drop(black_box(calculator.calculate_tss(
                     activity,
                     Some(250.0),
                     Some(165.0),
                     Some(185.0),
                     Some(50.0),
                     Some(70.0),
-                );
+                )));
             }
         });
     });
@@ -255,7 +256,8 @@ fn bench_metrics_calculation(c: &mut Criterion) {
         );
         b.iter(|| {
             for activity in black_box(&activities) {
-                let _ = calculator.calculate_metrics(activity);
+                // Only the timing matters; the result is discarded.
+                drop(black_box(calculator.calculate_metrics(activity)));
             }
         });
     });

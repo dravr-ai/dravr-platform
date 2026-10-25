@@ -13,7 +13,7 @@ use pierre_core::models::{Activity, SportType};
 
 /// Predefined batch sizes for benchmark scenarios
 #[derive(Debug, Clone, Copy)]
-pub enum ActivityBatchSize {
+pub(crate) enum ActivityBatchSize {
     /// Small dataset (10 activities) - quick benchmarks
     Small,
     /// Medium dataset (100 activities) - typical user
@@ -22,7 +22,7 @@ pub enum ActivityBatchSize {
 
 impl ActivityBatchSize {
     #[must_use]
-    pub const fn count(self) -> usize {
+    pub(crate) const fn count(self) -> usize {
         match self {
             Self::Small => 10,
             Self::Medium => 100,
@@ -174,7 +174,7 @@ fn build_activity(
 
 /// Generate a batch of activities for benchmarking
 #[must_use]
-pub fn generate_activities(size: ActivityBatchSize) -> Vec<Activity> {
+pub(crate) fn generate_activities(size: ActivityBatchSize) -> Vec<Activity> {
     let config = BenchmarkConfig::default();
     (0..size.count())
         .map(|i| generate_activity(i, &config))

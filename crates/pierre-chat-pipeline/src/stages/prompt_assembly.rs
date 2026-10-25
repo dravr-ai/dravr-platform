@@ -807,8 +807,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     let plan_withheld = interview_owns_turn || !input.is_direct_message;
     let base_prompt = match subject_turn.as_ref() {
         None => {
-            let athlete_today =
-                clock_date(chrono::Utc::now(), resolve_zone(user_timezone.as_deref()));
+            let athlete_today = clock_date(Utc::now(), resolve_zone(user_timezone.as_deref()));
             inject_training_plan(
                 ctx.plan_prompt_sources(),
                 &input.tool_tenant_id.to_string(),

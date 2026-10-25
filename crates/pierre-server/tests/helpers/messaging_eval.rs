@@ -173,7 +173,7 @@ const DEFAULT_WEIGHT_KG: f64 = 70.0;
 /// runs, and passed to [`assert_citation_grounded`] to verify the
 /// agent's reply cites these numbers rather than hallucinating.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CitationFixture {
+pub(crate) struct CitationFixture {
     /// Number of activities in the evaluation window.
     pub activity_count: u32,
     /// Total distance in kilometers across the evaluation window.
@@ -201,7 +201,7 @@ impl CitationFixture {
     /// when the calculator can't derive TSS for any activity (no HR,
     /// no power, no FTP baseline) all three default to `0.0`.
     #[must_use]
-    pub fn from_activities(activities: &[Activity]) -> Self {
+    pub(crate) fn from_activities(activities: &[Activity]) -> Self {
         Self::from_activities_with_physiology(
             activities,
             DEFAULT_FTP_WATTS,
@@ -219,7 +219,7 @@ impl CitationFixture {
     /// the CTL/ATL/TSB enough to make the asserter's tolerance band
     /// misleading.
     #[must_use]
-    pub fn from_activities_with_physiology(
+    pub(crate) fn from_activities_with_physiology(
         activities: &[Activity],
         ftp_watts: f64,
         lthr_bpm: f64,
@@ -269,7 +269,7 @@ impl CitationFixture {
 /// absolute tolerance because TSB is frequently `0` or negative and
 /// a percentage would divide by zero or flip sign.
 #[derive(Debug, Clone, Copy)]
-pub struct Tolerances {
+pub(crate) struct Tolerances {
     /// Relative tolerance for distance claims, as a fraction
     /// (0.02 = ±2%).
     pub distance_pct: f64,
@@ -282,7 +282,7 @@ impl Tolerances {
     /// the reply text is author-controlled and should match the
     /// fixture exactly.
     #[must_use]
-    pub const fn strict() -> Self {
+    pub(crate) const fn strict() -> Self {
         Self {
             distance_pct: 0.001,
             training_load_abs: 0.5,
@@ -293,7 +293,7 @@ impl Tolerances {
     /// model rounds distances to whole kilometers and CTL/ATL to the
     /// nearest integer.
     #[must_use]
-    pub const fn loose() -> Self {
+    pub(crate) const fn loose() -> Self {
         Self {
             distance_pct: 0.05,
             training_load_abs: 2.0,
@@ -303,7 +303,7 @@ impl Tolerances {
 
 /// Which training-load metric a mismatch refers to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TrainingLoadMetric {
+pub(crate) enum TrainingLoadMetric {
     /// Chronic Training Load (42-day EMA of TSS).
     Ctl,
     /// Acute Training Load (7-day EMA of TSS).
@@ -315,7 +315,7 @@ pub enum TrainingLoadMetric {
 impl TrainingLoadMetric {
     /// Short label suitable for panic messages and debug output.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Ctl => "CTL",
             Self::Atl => "ATL",
@@ -326,7 +326,7 @@ impl TrainingLoadMetric {
 
 /// Reason a citation-grounding assertion failed.
 #[derive(Debug, Clone, PartialEq)]
-pub enum CitationMismatch {
+pub(crate) enum CitationMismatch {
     /// The reply cited an activity count that did not match the
     /// fixture. Counts are always asserted exactly.
     ActivityCountWrong {
@@ -362,7 +362,7 @@ pub enum CitationMismatch {
 
 /// Reason a guardrail assertion failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GuardrailMismatch {
+pub(crate) struct GuardrailMismatch {
     /// The (normalized) reply text that was checked.
     pub reply: String,
     /// The (normalized) expected guardrail substring.
@@ -431,7 +431,7 @@ fn normalize(text: &str) -> String {
 /// # Errors
 ///
 /// Returns [`CitationMismatch`] describing the first disagreement.
-pub fn assert_citation_grounded(
+pub(crate) fn assert_citation_grounded(
     reply: &str,
     fixture: &CitationFixture,
     tolerances: Tolerances,
@@ -526,7 +526,7 @@ pub fn assert_citation_grounded(
 
 /// Reason the tool-called assertion failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolNotCalled {
+pub(crate) struct ToolNotCalled {
     /// MCP tool name the assertion expected to see.
     pub expected: String,
     /// Tools that were actually invoked during the turn.
@@ -535,7 +535,7 @@ pub struct ToolNotCalled {
 
 /// Reason a latency-budget assertion failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LatencyOverBudget {
+pub(crate) struct LatencyOverBudget {
     /// Observed end-to-end latency for the turn.
     pub observed_ms: i64,
     /// Caller-supplied budget.
@@ -544,7 +544,7 @@ pub struct LatencyOverBudget {
 
 /// Reason a token-budget assertion failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokensOverBudget {
+pub(crate) struct TokensOverBudget {
     /// Observed total tokens for the turn.
     pub observed: i64,
     /// Caller-supplied budget.
@@ -561,7 +561,7 @@ pub struct TokensOverBudget {
 ///
 /// Returns [`ToolNotCalled`] containing the expected tool name and the
 /// actual list when the expected tool is absent.
-pub fn assert_tool_called(
+pub(crate) fn assert_tool_called(
     turn_data: &serde_json::Value,
     expected_tool: &str,
 ) -> Result<(), ToolNotCalled> {
@@ -596,7 +596,7 @@ pub fn assert_tool_called(
 ///
 /// Returns [`LatencyOverBudget`] when the observed latency exceeds
 /// `budget_ms`.
-pub fn assert_latency_ms_at_most(
+pub(crate) fn assert_latency_ms_at_most(
     turn_data: &serde_json::Value,
     budget_ms: u64,
 ) -> Result<(), LatencyOverBudget> {
@@ -623,7 +623,7 @@ pub fn assert_latency_ms_at_most(
 ///
 /// Returns [`TokensOverBudget`] when the observed total exceeds
 /// `budget`.
-pub fn assert_tokens_at_most(
+pub(crate) fn assert_tokens_at_most(
     turn_data: &serde_json::Value,
     budget: u64,
 ) -> Result<(), TokensOverBudget> {
@@ -650,7 +650,7 @@ pub fn assert_tokens_at_most(
 /// Returns [`GuardrailMismatch`] containing both the normalized reply
 /// and normalized expected substring when the expected text is not
 /// found.
-pub fn assert_guardrail(reply: &str, expected: &str) -> Result<(), GuardrailMismatch> {
+pub(crate) fn assert_guardrail(reply: &str, expected: &str) -> Result<(), GuardrailMismatch> {
     let n_reply = normalize(reply);
     let n_expected = normalize(expected);
     n_reply.contains(&n_expected).ok_or(GuardrailMismatch {
@@ -668,13 +668,13 @@ pub fn assert_guardrail(reply: &str, expected: &str) -> Result<(), GuardrailMism
 /// [`assert_no_framework_citations`] and
 /// [`assert_has_framework_citation_per_numeric`]. Drift here will
 /// cascade — keep aligned with `prompts/personas/power_athlete.md`.
-pub const FRAMEWORK_ANCHORS: &[&str] = &[
+pub(crate) const FRAMEWORK_ANCHORS: &[&str] = &[
     "Banister", "Coggan", "Foster", "Gabbett", "Seiler", "Treff", "Mujika", "Issurin", "Racinais",
 ];
 
 /// Catches a `Casual` reply that drifted into `PowerAthlete`-style citations.
 #[derive(Debug, PartialEq, Eq)]
-pub struct FrameworkCitationFound {
+pub(crate) struct FrameworkCitationFound {
     /// Anchor name actually present in the reply.
     pub anchor: String,
     /// Reply window (40 chars on each side of the hit) for the failure message.
@@ -686,7 +686,7 @@ pub struct FrameworkCitationFound {
 /// numeric claims the reply made; `cited_count` is how many of them
 /// landed within the same sentence as a framework anchor.
 #[derive(Debug, PartialEq)]
-pub struct UncitedNumerics {
+pub(crate) struct UncitedNumerics {
     /// Total numeric claims observed in the reply.
     pub numeric_count: usize,
     /// Numeric claims paired to a framework anchor in the same sentence.
@@ -698,7 +698,7 @@ pub struct UncitedNumerics {
 /// Catches a `Casual` reply that emitted the dated-line activity report
 /// format reserved for `PowerAthlete`.
 #[derive(Debug, PartialEq, Eq)]
-pub struct LineByLineBlockFound {
+pub(crate) struct LineByLineBlockFound {
     /// First two block lines, for the failure message.
     pub head: String,
 }
@@ -706,11 +706,11 @@ pub struct LineByLineBlockFound {
 /// Catches a `PowerAthlete` reply that skipped the dated-line activity
 /// report block — the format is the persona's defining anchor.
 #[derive(Debug, PartialEq, Eq)]
-pub struct LineByLineBlockMissing;
+pub(crate) struct LineByLineBlockMissing;
 
 /// Catches a `Casual` reply that ran past the persona's word budget.
 #[derive(Debug, PartialEq, Eq)]
-pub struct WordCountOver {
+pub(crate) struct WordCountOver {
     /// Configured ceiling.
     pub max_words: usize,
     /// Word count the reply actually produced.
@@ -729,7 +729,7 @@ pub struct WordCountOver {
 ///
 /// Returns [`FrameworkCitationFound`] naming the offending anchor and
 /// the surrounding context.
-pub fn assert_no_framework_citations(reply: &str) -> Result<(), FrameworkCitationFound> {
+pub(crate) fn assert_no_framework_citations(reply: &str) -> Result<(), FrameworkCitationFound> {
     for anchor in FRAMEWORK_ANCHORS {
         if let Some(idx) = reply.find(anchor) {
             let lo = idx.saturating_sub(40);
@@ -763,7 +763,7 @@ pub fn assert_no_framework_citations(reply: &str) -> Result<(), FrameworkCitatio
 ///
 /// Returns [`UncitedNumerics`] with the observed counts when the
 /// citation ratio falls below `min_ratio`.
-pub fn assert_has_framework_citation_per_numeric(
+pub(crate) fn assert_has_framework_citation_per_numeric(
     reply: &str,
     min_ratio: f64,
 ) -> Result<(), UncitedNumerics> {
@@ -861,7 +861,7 @@ fn count_numerics_in_sentence(sentence: &str) -> usize {
 /// # Errors
 ///
 /// Returns [`LineByLineBlockFound`] with the offending block's head.
-pub fn assert_no_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockFound> {
+pub(crate) fn assert_no_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockFound> {
     let lines: Vec<&str> = reply.lines().collect();
     for window in lines.windows(2) {
         if is_dated_pipe_line(window[0]) && is_dated_pipe_line(window[1]) {
@@ -881,7 +881,7 @@ pub fn assert_no_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockFo
 ///
 /// Returns [`LineByLineBlockMissing`] when no two consecutive dated
 /// pipe-delimited lines appear in the reply.
-pub fn assert_has_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockMissing> {
+pub(crate) fn assert_has_line_by_line_block(reply: &str) -> Result<(), LineByLineBlockMissing> {
     let lines: Vec<&str> = reply.lines().collect();
     for window in lines.windows(2) {
         if is_dated_pipe_line(window[0]) && is_dated_pipe_line(window[1]) {
@@ -914,7 +914,7 @@ fn is_dated_pipe_line(line: &str) -> bool {
 ///
 /// Returns [`WordCountOver`] with the configured ceiling and observed
 /// length when the reply is too long.
-pub fn assert_word_count_under(reply: &str, max_words: usize) -> Result<(), WordCountOver> {
+pub(crate) fn assert_word_count_under(reply: &str, max_words: usize) -> Result<(), WordCountOver> {
     let actual_words = reply.split_whitespace().count();
     (actual_words <= max_words).ok_or(WordCountOver {
         max_words,
@@ -1287,7 +1287,11 @@ mod tests {
         let turn = json!({ "turn_id": "x", "total_tokens": 0_i64 });
         let err = assert_tool_called(&turn, "get_activities")
             .expect_err("missing tools_called must not silently pass");
-        assert_eq!(err.actual, [] as [String; 0]);
+        assert!(
+            err.actual.is_empty(),
+            "expected empty, got {:?}",
+            err.actual
+        );
     }
 
     #[test]

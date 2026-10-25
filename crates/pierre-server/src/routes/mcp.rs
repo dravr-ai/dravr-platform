@@ -42,7 +42,7 @@ use crate::mcp::{
 };
 
 /// MCP routes state for the discovery endpoint.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct McpRoutesState {
     resources: Arc<ServerContext>,
     /// The same allowlist `POST /mcp` gates on, taken from the built server so
@@ -51,6 +51,7 @@ pub struct McpRoutesState {
 }
 
 /// MCP routes implementation
+#[derive(Debug)]
 pub struct McpRoutes;
 
 impl McpRoutes {

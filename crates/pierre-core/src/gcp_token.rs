@@ -25,6 +25,7 @@
 //! for a token minted for exactly those scopes (its `scopes` query parameter).
 //! Each provider caches the token for its own scope set.
 
+use std::fmt;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -77,6 +78,15 @@ pub struct MetadataTokenProvider {
     /// them; `None` mints the service account's default scopes.
     scopes: Option<String>,
     cached: Mutex<Option<CachedToken>>,
+}
+
+impl fmt::Debug for MetadataTokenProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MetadataTokenProvider")
+            .field("token_url", &self.token_url)
+            .field("scopes", &self.scopes)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone)]

@@ -85,11 +85,7 @@ fn sorted_values(result: &Value, key: &str, field: &str) -> Vec<String> {
 }
 
 /// Create a test request with user ID
-fn create_test_request(
-    tool_name: &str,
-    parameters: serde_json::Value,
-    user_id: Uuid,
-) -> UniversalRequest {
+fn create_test_request(tool_name: &str, parameters: Value, user_id: Uuid) -> UniversalRequest {
     UniversalRequest {
         tool_name: tool_name.to_owned(),
         parameters,

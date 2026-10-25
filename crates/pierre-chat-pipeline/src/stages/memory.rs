@@ -44,7 +44,7 @@ use crate::ChatPipelineContext;
 
 /// What the plan block is rendered from: the stored plan, the agent's
 /// package, and the catalogue whose templates the phase header names.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PlanPromptSources<'a> {
     /// The athlete's stored plans, and the agent rows and artefacts the
     /// package is read from.

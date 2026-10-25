@@ -42,7 +42,6 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_memory::training_plans::{
     FlavourSelection, GoalRace, PlanPhase, PlannedDay, RacePriority, SelectedBy,
 };
-use pierre_runtime_context::CommandCtx;
 use pierre_services::plan_card::flavour_label;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -261,7 +260,7 @@ async fn plan_command_today(resources: &Arc<ServerContext>, athlete: &Athlete) -
         channel_type: "telegram".to_owned(),
         args: vec!["today".to_owned()],
         raw_text: "/plan today".to_owned(),
-        ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(resources),
         locale: "en".to_owned(),
         is_direct_message: true,
         ambient_group_fallback: true,

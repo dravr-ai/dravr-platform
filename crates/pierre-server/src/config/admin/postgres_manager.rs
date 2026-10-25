@@ -27,6 +27,7 @@ use sqlx::postgres::PgRow;
 use sqlx::PgPool;
 
 /// PostgreSQL-backed admin configuration manager
+#[derive(Debug)]
 pub struct PostgresAdminConfigManager {
     pool: PgPool,
 }

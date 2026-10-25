@@ -18,6 +18,7 @@ use pierre_contremaitre::messaging_strings::{
 use crate::{CommandHandler, PlatformCommandContext};
 
 /// Handler for `/status` — account summary
+#[derive(Debug)]
 pub struct StatusHandler;
 
 #[async_trait]

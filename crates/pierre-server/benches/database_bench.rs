@@ -91,7 +91,7 @@ fn bench_user_create(c: &mut Criterion) {
             rt.block_on(async {
                 for _ in 0..10 {
                     let user = generate_test_user();
-                    let _ = db.create(&user).await;
+                    db.create(&user).await.unwrap();
                 }
             });
         });
@@ -116,7 +116,7 @@ fn bench_user_lookup(c: &mut Criterion) {
             let user = generate_test_user();
             user_ids.push(user.id);
             user_emails.push(user.email.clone());
-            let _ = db.create(&user).await;
+            db.create(&user).await.unwrap();
         }
     });
 
@@ -163,7 +163,7 @@ fn bench_pagination(c: &mut Criterion) {
     rt.block_on(async {
         for _ in 0..500 {
             let user = generate_test_user();
-            let _ = db.create(&user).await;
+            db.create(&user).await.unwrap();
         }
     });
 
@@ -236,7 +236,7 @@ fn bench_user_update(c: &mut Criterion) {
         for _ in 0..100 {
             let user = generate_test_user();
             user_ids.push(user.id);
-            let _ = db.create(&user).await;
+            db.create(&user).await.unwrap();
         }
     });
 
@@ -287,7 +287,7 @@ fn bench_aggregation(c: &mut Criterion) {
         rt.block_on(async {
             for _ in 0..user_count {
                 let user = generate_test_user();
-                let _ = db.create(&user).await;
+                db.create(&user).await.unwrap();
             }
         });
 
@@ -314,7 +314,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
         for _ in 0..100 {
             let user = generate_test_user();
             user_ids.push(user.id);
-            let _ = db.create(&user).await;
+            db.create(&user).await.unwrap();
         }
     });
 
@@ -332,7 +332,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                     .collect();
 
                 for handle in handles {
-                    let _ = handle.await;
+                    black_box(handle.await.unwrap().unwrap());
                 }
             });
         });
@@ -362,10 +362,10 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                 }
 
                 for handle in read_handles {
-                    let _ = handle.await;
+                    black_box(handle.await.unwrap().unwrap());
                 }
                 for handle in write_handles {
-                    let _ = handle.await;
+                    handle.await.unwrap().unwrap();
                 }
             });
         });

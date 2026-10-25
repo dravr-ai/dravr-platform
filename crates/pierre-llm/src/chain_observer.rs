@@ -37,7 +37,7 @@ use crate::served_tier::{record_served_tier, ServedTier};
 const PRIMARY: usize = 0;
 
 /// The platform-side observer a chain is built with.
-pub struct ChainObserver {
+pub(crate) struct ChainObserver {
     /// `Some` on the outermost chain; `None` on the tail a headless re-run
     /// walks, so its hops are reported but never counted against the primary.
     guard: Option<&'static ChainGuard>,
@@ -51,7 +51,7 @@ impl ChainObserver {
     /// records on [`CHAIN_GUARD`]. `copilot_tiers` says, by position, which
     /// tiers spend the Copilot GitHub token.
     #[must_use]
-    pub fn guarded(copilot_tiers: Vec<bool>) -> Self {
+    pub(crate) fn guarded(copilot_tiers: Vec<bool>) -> Self {
         Self {
             guard: Some(&CHAIN_GUARD),
             copilot_tiers,
@@ -60,7 +60,7 @@ impl ChainObserver {
 
     /// The observer for a tail chain: reports every hop, touches no guard.
     #[must_use]
-    pub const fn unguarded() -> Self {
+    pub(crate) const fn unguarded() -> Self {
         Self {
             guard: None,
             copilot_tiers: Vec::new(),

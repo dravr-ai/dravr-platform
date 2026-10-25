@@ -23,6 +23,7 @@ use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
+use std::fmt;
 use std::{
     collections::HashMap,
     convert::AsRef,
@@ -115,6 +116,15 @@ pub struct ProviderRegistry {
     /// service configured) makes every scrape report the service missing.
     #[cfg(feature = "provider-sciotte")]
     sciotte_client: Option<SciotteClient>,
+}
+
+impl fmt::Debug for ProviderRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderRegistry")
+            .field("default_configs", &self.default_configs)
+            .field("request_limiter", &self.request_limiter)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ProviderRegistry {

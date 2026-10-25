@@ -41,7 +41,7 @@ use uuid::Uuid;
 const DEMO_USER_PASSWORD: &str = "DemoUser123!";
 
 /// CLI arguments for the demo data seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// Admin email to assign primary data to (uses first admin if not specified)
     #[arg(long)]

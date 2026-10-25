@@ -73,6 +73,7 @@ pub trait GroupSummarizationStrategy: Send + Sync {
 
 /// Minimal one-line roster cards (~50 tokens per member).
 /// Best for large groups (15+ members).
+#[derive(Debug)]
 pub struct RosterCardSummarizer;
 
 impl RosterCardSummarizer {
@@ -183,6 +184,7 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
 
 /// Weekly digest with key workouts and trends (~200 tokens per member).
 /// Best for medium groups (5-15 members).
+#[derive(Debug)]
 pub struct WeeklyDigestSummarizer;
 
 #[async_trait]
@@ -332,6 +334,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
 
 /// Auto-selects detail level based on group size and token budget.
 /// Default strategy for most use cases.
+#[derive(Debug)]
 pub struct AdaptiveSummarizer {
     /// Maximum total tokens to allocate for group context
     token_budget: usize,

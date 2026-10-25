@@ -49,7 +49,7 @@ impl CacheEntry {
 /// The Arc is required because the cleanup task (spawned in `new_with_config`) needs shared
 /// ownership of the store to remove expired entries concurrently.
 /// `LruCache` provides O(1) eviction by automatically removing least-recently-used entries.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InMemoryCache {
     store: Arc<RwLock<LruCache<String, CacheEntry>>>,
     shutdown_tx: Option<Arc<mpsc::Sender<()>>>,

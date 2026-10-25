@@ -29,7 +29,7 @@ use crate::AuthRoutesContext;
 ///
 /// A page with no verified user has no stored locale to read — this redirect,
 /// and a hosted connect page whose link-token is missing or invalid.
-pub fn preferred_locale(headers: &HeaderMap) -> &'static str {
+pub(crate) fn preferred_locale(headers: &HeaderMap) -> &'static str {
     locale_from_accept_language(
         headers
             .get(header::ACCEPT_LANGUAGE)
@@ -81,7 +81,7 @@ fn short_link_gone_html(locale: &str) -> String {
 ///
 /// Returns `404` with a friendly page when the code is unknown or expired, and
 /// `500` when the store read fails.
-pub async fn handle_short_link_redirect(
+pub(crate) async fn handle_short_link_redirect(
     State(context): State<AuthRoutesContext>,
     headers: HeaderMap,
     Path(code): Path<String>,

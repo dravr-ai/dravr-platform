@@ -31,7 +31,7 @@ use crate::db_fixtures;
 use secrecy::SecretString;
 
 use std::borrow::Cow;
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use db_fixtures::seed_user;
@@ -46,7 +46,6 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_server::constants::init_server_config;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::whoop_provider::WhoopProvider;
 use pierre_services::health_sync::PierreSyncStorage;
@@ -77,8 +76,6 @@ const SQLITE_MIGRATION: &str =
 #[cfg(feature = "postgresql")]
 const POSTGRES_MIGRATION: &str =
     include_str!("../../../../migrations_pg/20260924183901_whoop_proprietary_scores_withheld.sql");
-
-static HTTP_INIT: Once = Once::new();
 
 /// A migrated test database whose key is a valid AES-256 key, so the token
 /// rows the sync adapter reads can be written.
@@ -621,23 +618,23 @@ async fn serve_once(body: String) -> String {
             return;
         };
         let mut buf = vec![0_u8; 8192];
-        let _ = stream.read(&mut buf).await;
+        // Drain the request; its content is not checked.
+        drop(stream.read(&mut buf).await);
         let response = format!(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
             body.len()
         );
-        let _ = stream.write_all(response.as_bytes()).await;
-        let _ = stream.shutdown().await;
+        // The client may hang up first; the test checks what it received.
+        drop(stream.write_all(response.as_bytes()).await);
+        drop(stream.shutdown().await);
     });
     base
 }
 
 #[tokio::test]
 async fn a_whoop_workout_reaches_the_activity_model_without_its_strain() {
-    HTTP_INIT.call_once(|| {
-        let _ = init_server_config();
-        common::init_test_http_clients();
-    });
+    common::init_server_config();
+    common::init_test_http_clients();
     let workout = serde_json::json!({
         "id": "5b8e1c2a-0000-4000-8000-000000000539",
         "start": "2026-09-21T11:00:00.000Z",

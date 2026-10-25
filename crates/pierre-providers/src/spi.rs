@@ -553,6 +553,7 @@ impl fmt::Debug for ProviderBundle {
 
 /// Strava provider descriptor
 #[cfg(feature = "provider-strava")]
+#[derive(Debug)]
 pub struct StravaDescriptor;
 
 #[cfg(feature = "provider-strava")]
@@ -608,6 +609,7 @@ impl ProviderDescriptor for StravaDescriptor {
 
 /// Garmin provider descriptor
 #[cfg(feature = "provider-garmin")]
+#[derive(Debug)]
 pub struct GarminDescriptor;
 
 #[cfg(feature = "provider-garmin")]
@@ -679,6 +681,7 @@ impl ProviderDescriptor for GarminDescriptor {
 /// and body measurements through their v2 Developer API (v1 was
 /// decommissioned by WHOOP in October 2025).
 #[cfg(feature = "provider-whoop")]
+#[derive(Debug)]
 pub struct WhoopDescriptor;
 
 #[cfg(feature = "provider-whoop")]
@@ -777,6 +780,7 @@ impl ProviderDescriptor for WhoopDescriptor {
 /// until official documentation is received. Apply for access at:
 /// <https://support.coros.com/hc/en-us/articles/17085887816340>
 #[cfg(feature = "provider-coros")]
+#[derive(Debug)]
 pub struct CorosDescriptor;
 
 #[cfg(feature = "provider-coros")]
@@ -844,6 +848,7 @@ impl ProviderDescriptor for CorosDescriptor {
 /// and extract activity data from fitness platform HTML pages (Strava, Garmin, etc.).
 /// It does not use OAuth — authentication happens via a streamed browser login session.
 #[cfg(feature = "provider-sciotte")]
+#[derive(Debug)]
 pub struct SciotteDescriptor;
 
 #[cfg(feature = "provider-sciotte")]
@@ -900,6 +905,7 @@ impl ProviderDescriptor for SciotteDescriptor {
 
 /// Sciotte Garmin Connect web scraping provider descriptor
 #[cfg(feature = "provider-sciotte")]
+#[derive(Debug)]
 pub struct SciotteGarminDescriptor;
 
 #[cfg(feature = "provider-sciotte")]
@@ -959,6 +965,7 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
 /// round trip per workout on the scraper service, the same N+1 the Garmin and
 /// Strava mirrors ration. The planned read is one scraper call per window.
 #[cfg(feature = "provider-sciotte")]
+#[derive(Debug)]
 pub struct SciotteTrainingPeaksDescriptor;
 
 #[cfg(feature = "provider-sciotte")]
@@ -1013,6 +1020,7 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
 
 /// Sciotte COROS Training Hub web scraping provider descriptor
 #[cfg(feature = "provider-sciotte")]
+#[derive(Debug)]
 pub struct SciotteCorosDescriptor;
 
 #[cfg(feature = "provider-sciotte")]
@@ -1073,6 +1081,7 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
 /// stays for coaches and power users. Its tokens never expire and it has no
 /// refresh grant, so a refused token is a reconnect.
 #[cfg(feature = "provider-intervals-icu")]
+#[derive(Debug)]
 pub struct IntervalsIcuDescriptor;
 
 #[cfg(feature = "provider-intervals-icu")]

@@ -13,7 +13,7 @@ type Result<T> = AppResult<T>;
 
 /// Optional flags for the `generate` CLI command that don't map to
 /// positional parameters.
-pub struct GenerateTokenOpts {
+pub(crate) struct GenerateTokenOpts {
     /// Custom permissions (comma-separated)
     pub permissions: Option<String>,
     /// Scope the token to a specific tenant (UUID)
@@ -25,7 +25,7 @@ use tracing::{error, info, warn};
 use crate::helpers::display::display_generated_token;
 
 /// Generate a new admin token
-pub async fn generate(
+pub(crate) async fn generate(
     repos: &RepositoryRegistry,
     jwks_manager: &JwksManager,
     service: String,
@@ -192,7 +192,7 @@ fn log_jwt_secret_error() {
 }
 
 /// List all admin tokens
-pub async fn list(
+pub(crate) async fn list(
     repos: &RepositoryRegistry,
     include_inactive: bool,
     detailed: bool,
@@ -271,7 +271,7 @@ pub async fn list(
 }
 
 /// Revoke an admin token
-pub async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Result<()> {
+pub(crate) async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Result<()> {
     info!("Revoking admin token: {}", token_id);
 
     // Check if token exists
@@ -298,7 +298,7 @@ pub async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Result<()> 
 }
 
 /// Rotate an admin token (create new, revoke old)
-pub async fn rotate(
+pub(crate) async fn rotate(
     repos: &RepositoryRegistry,
     jwks_manager: &JwksManager,
     token_id: String,
@@ -360,7 +360,11 @@ pub async fn rotate(
 }
 
 /// Show token usage statistics
-pub async fn stats(repos: &RepositoryRegistry, token_id: Option<String>, days: u32) -> Result<()> {
+pub(crate) async fn stats(
+    repos: &RepositoryRegistry,
+    token_id: Option<String>,
+    days: u32,
+) -> Result<()> {
     let start_date = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
     let end_date = chrono::Utc::now();
 

@@ -118,6 +118,7 @@ pub fn list_prompts() -> Value {
 }
 
 /// Outcome of resolving a `prompts/get` request.
+#[derive(Debug)]
 pub enum PromptGetOutcome {
     /// The assembled `prompts/get` result payload.
     Found(Value),

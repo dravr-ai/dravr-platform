@@ -60,7 +60,7 @@ use pierre_services::signup_policy::resolve_signup_policy;
     skip(resources, headers, request),
     fields(route = "admin_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
 )]
-pub async fn handle_register(
+pub(crate) async fn handle_register(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<RegisterRequest>,
@@ -203,7 +203,7 @@ async fn send_registration_email(
     skip(resources, headers, body),
     fields(route = "public_register", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
 )]
-pub async fn handle_public_register(
+pub(crate) async fn handle_public_register(
     State(resources): State<AuthRoutesContext>,
     peer: PeerAddress,
     headers: HeaderMap,
@@ -306,7 +306,7 @@ pub async fn handle_public_register(
     skip(resources, request),
     fields(route = "firebase_login", user_id = Empty, auth_provider = Empty, success = Empty)
 )]
-pub async fn handle_firebase_login(
+pub(crate) async fn handle_firebase_login(
     State(resources): State<AuthRoutesContext>,
     Json(request): Json<FirebaseLoginRequest>,
 ) -> Result<Response, AppError> {
@@ -374,7 +374,7 @@ pub async fn handle_firebase_login(
 /// taken from the phone earlier stops working too. Revocation is by the
 /// token alone, which the presenter had to hold, so no bearer is required —
 /// a client whose JWT already lapsed can still log out.
-pub async fn handle_logout(
+pub(crate) async fn handle_logout(
     State(resources): State<AuthRoutesContext>,
     request: Option<Json<LogoutRequest>>,
 ) -> Result<Response, AppError> {
@@ -407,7 +407,7 @@ pub async fn handle_logout(
     skip(resources, headers),
     fields(route = "session", user_id = Empty, success = Empty)
 )]
-pub async fn handle_session(
+pub(crate) async fn handle_session(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
@@ -523,7 +523,7 @@ pub async fn handle_session(
     skip(resources, headers, request),
     fields(route = "update_profile", success = Empty)
 )]
-pub async fn handle_update_profile(
+pub(crate) async fn handle_update_profile(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<UpdateProfileRequest>,
@@ -591,7 +591,7 @@ pub async fn handle_update_profile(
     skip(resources, headers, request),
     fields(route = "change_password", success = Empty)
 )]
-pub async fn handle_change_password(
+pub(crate) async fn handle_change_password(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
@@ -673,7 +673,7 @@ pub async fn handle_change_password(
 /// of authorization (issued by an admin). The user provides the token and their
 /// chosen new password. The token is consumed atomically to prevent replay.
 #[tracing::instrument(skip(resources, request), fields(route = "complete_reset"))]
-pub async fn handle_complete_reset(
+pub(crate) async fn handle_complete_reset(
     State(resources): State<AuthRoutesContext>,
     Json(request): Json<CompleteResetRequest>,
 ) -> Result<Response, AppError> {
@@ -748,7 +748,7 @@ pub async fn handle_complete_reset(
 /// Security: Always returns HTTP 200 with an identical message regardless of whether
 /// the email exists, to prevent account enumeration attacks.
 #[tracing::instrument(skip(resources, request), fields(route = "forgot_password"))]
-pub async fn handle_forgot_password(
+pub(crate) async fn handle_forgot_password(
     State(resources): State<AuthRoutesContext>,
     Json(request): Json<ForgotPasswordRequest>,
 ) -> Result<Response, AppError> {
@@ -847,7 +847,7 @@ pub async fn handle_forgot_password(
     skip(resources, headers),
     fields(route = "user_stats", user_id = Empty)
 )]
-pub async fn handle_user_stats(
+pub(crate) async fn handle_user_stats(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
@@ -890,7 +890,7 @@ pub async fn handle_user_stats(
 ///
 /// Updates the user's analytics consent preference and records the timestamp.
 /// Also updates the in-memory consent cache used by the analytics tracker.
-pub async fn handle_analytics_consent(
+pub(crate) async fn handle_analytics_consent(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<AnalyticsConsentRequest>,
@@ -930,7 +930,7 @@ pub async fn handle_analytics_consent(
 /// Persists the user's preferred locale on the `users` table. Validates
 /// the value against the compiled-in set so downstream registry lookups
 /// always match an actual translation.
-pub async fn handle_update_locale(
+pub(crate) async fn handle_update_locale(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<UpdateLocaleRequest>,
@@ -973,7 +973,7 @@ pub async fn handle_update_locale(
 /// chart renders (messaging PNG minting) read this column and treat a
 /// cleared pin as dark. Answers `204 No Content` — the client already
 /// flipped its local theme and needs nothing back.
-pub async fn handle_update_theme(
+pub(crate) async fn handle_update_theme(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<UpdateThemeRequest>,
@@ -1014,7 +1014,7 @@ pub async fn handle_update_theme(
 /// enum's `FromStr`, so unknown values surface as `400 Bad Request` with
 /// the canonical error rather than silently writing a value that won't
 /// resolve to a persona block at chat time.
-pub async fn handle_update_coaching_persona(
+pub(crate) async fn handle_update_coaching_persona(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<UpdateCoachingPersonaRequest>,
@@ -1058,7 +1058,7 @@ pub async fn handle_update_coaching_persona(
 /// voice (carnet#827). The role puts the group step in the user's onboarding
 /// and the coach-facing agents in their catalogue; it grants no coach access
 /// to any group (`manages_roster`, ADR-018).
-pub async fn handle_update_coaching_role(
+pub(crate) async fn handle_update_coaching_role(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<UpdateCoachingRoleRequest>,

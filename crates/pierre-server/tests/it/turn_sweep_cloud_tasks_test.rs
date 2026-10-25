@@ -241,7 +241,8 @@ mod swept {
         // Spend every attempt, then let the last run die: nothing will claim
         // this row again, and the athlete was never told.
         for _ in 0..=MAX_TURN_ATTEMPTS {
-            let _ = swept
+            // The last claim, past the cap, finds nothing; its result is not the point.
+            swept
                 .repo()
                 .claim_resumable_turn(
                     tenant,

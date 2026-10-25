@@ -20,6 +20,7 @@
 //! - [`ChatResponse`]: Completion result with content and usage stats
 //! - [`ChatStream`]: Streaming response as a pinned trait object
 
+use std::fmt;
 use std::pin::Pin;
 
 use async_trait::async_trait;
@@ -187,6 +188,17 @@ pub trait LlmProvider: Send + Sync {
 /// Manages available providers and provides lookup by name.
 pub struct LlmProviderRegistry {
     providers: Vec<Box<dyn LlmProvider>>,
+}
+
+impl fmt::Debug for LlmProviderRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LlmProviderRegistry")
+            .field(
+                "providers",
+                &self.providers.iter().map(|p| p.name()).collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 impl LlmProviderRegistry {

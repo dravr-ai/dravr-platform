@@ -24,22 +24,16 @@ use axum::{routing::get, Json, Router};
 use chrono::Utc;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
-use pierre_mcp_server::constants::init_server_config;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::garmin_provider::GarminProvider;
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use secrecy::SecretString;
 use serde_json::{json, Value};
-use std::sync::Once;
 use tokio::net::TcpListener;
 
-static INIT: Once = Once::new();
-
 fn ensure_initialized() {
-    INIT.call_once(|| {
-        let _ = init_server_config();
-        common::init_test_http_clients();
-    });
+    common::init_server_config();
+    common::init_test_http_clients();
 }
 
 /// A cycling activity detail: type under `activityTypeDTO`, metrics under

@@ -465,5 +465,6 @@ async fn a_new_login_supersedes_the_parked_flow_and_a_refused_password_holds_non
     let (status, expired) = athlete.submit(ACCEPTED_CODE).await;
     assert_eq!(status, 400, "{expired}");
     assert_eq!(expired["details"]["reason"], LOGIN_FLOW_EXPIRED_REASON);
-    assert_eq!(codes_for(&flow_id), [] as [String; 0]);
+    let got = codes_for(&flow_id);
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }

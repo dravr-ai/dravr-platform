@@ -366,7 +366,9 @@ mod sqlite {
                 .and_then(|modified| now.duration_since(modified).ok())
                 .is_some_and(|age| age >= STALE_AFTER);
             if stale {
-                let _ = fs::remove_file(&path);
+                // Best-effort sweep: a file another run still holds is left
+                // for the next sweep.
+                drop(fs::remove_file(&path));
             }
         }
     }
@@ -425,7 +427,9 @@ mod sqlite {
             ))
         })?;
         for leftover in [path.clone(), sidecar(&path, "-wal"), sidecar(&path, "-shm")] {
-            let _ = fs::remove_file(leftover);
+            // The image is already read; a sidecar SQLite never created is
+            // not there to remove, and a stale file is swept later.
+            drop(fs::remove_file(leftover));
         }
         Ok(image)
     }
@@ -666,9 +670,13 @@ mod postgres {
             if name.ends_with("_building") {
                 continue;
             }
-            let _ = admin
-                .execute(format!("DROP DATABASE IF EXISTS {name}").as_str())
-                .await;
+            // A drop that fails means the database is in use after all or
+            // already gone; either way it is skipped, as documented above.
+            drop(
+                admin
+                    .execute(format!("DROP DATABASE IF EXISTS {name}").as_str())
+                    .await,
+            );
         }
         Ok(())
     }
@@ -733,7 +741,7 @@ mod postgres {
     async fn drop_connection(admin: PgConnection) {
         // A session that fails to close cleanly still ends when it is dropped;
         // the lock it might hold is session-scoped and dies with it either way.
-        let _ = admin.close().await;
+        drop(admin.close().await);
     }
 
     /// `base_url` with its database path replaced by `name`, query string kept.

@@ -103,6 +103,7 @@ fn notif<T>(result: pierre_notifications::CommereResult<T>) -> Result<T, AppErro
 }
 
 /// Notification routes configuration
+#[derive(Debug)]
 pub struct NotificationRoutes;
 
 /// Response for device token registration

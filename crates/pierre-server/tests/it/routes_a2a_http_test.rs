@@ -171,7 +171,7 @@ async fn test_agent_card_discovery_route() {
     let card: serde_json::Value = response.json();
     assert_eq!(card["name"], "Dravr AI");
     let interfaces = card["supportedInterfaces"].as_array().unwrap();
-    assert_ne!(interfaces.as_slice(), [] as [serde_json::Value; 0]);
+    assert!(!interfaces.is_empty(), "expected a non-empty value");
     assert_eq!(interfaces[0]["protocolBinding"], "JSONRPC");
     assert_eq!(interfaces[0]["protocolVersion"], "1.0");
     assert_eq!(card["capabilities"]["streaming"], true);
@@ -610,7 +610,7 @@ async fn test_client_credentials_token_authenticates_protocol_methods() {
     let (user, _jwt) = common::create_test_tenant(&resources, "a2a-cc@example.com")
         .await
         .expect("seed user + tenant");
-    let (client_id, token) = register_client_and_mint_token(&resources, user.id).await;
+    let (_, token) = register_client_and_mint_token(&resources, user.id).await;
     let routes = a2a_router_from(&resources);
 
     // SendMessage authenticates with the client token: the request reaches
@@ -667,7 +667,6 @@ async fn test_client_credentials_token_authenticates_protocol_methods() {
         "client-credentials ListTasks must not error: {envelope:?}"
     );
     assert!(envelope["result"]["tasks"].is_array());
-    let _ = client_id;
 }
 
 #[tokio::test]
@@ -707,7 +706,7 @@ async fn test_client_credentials_tasks_keyed_to_acting_client() {
 
     // The stored record is keyed to the acting client, not a fallback.
     let task_id = task["id"].as_str().expect("task id");
-    let record = pierre_runtime_context::A2ACtx::repos(resources.as_ref())
+    let record = A2ACtx::repos(resources.as_ref())
         .a2a
         .get_task(task_id)
         .await
@@ -731,7 +730,7 @@ async fn test_plain_text_continuation_fails_the_task_without_echoing() {
     // Seed a live (non-terminal) task directly so the continuation path is
     // reached deterministically.
     let context_id = "ctx-continuation";
-    let task_id = pierre_runtime_context::A2ACtx::repos(resources.as_ref())
+    let task_id = A2ACtx::repos(resources.as_ref())
         .a2a
         .create_task(
             &client_id,
@@ -784,7 +783,7 @@ async fn test_plain_text_continuation_fails_the_task_without_echoing() {
     );
 
     // The persisted record agrees with the wire snapshot.
-    let record = pierre_runtime_context::A2ACtx::repos(resources.as_ref())
+    let record = A2ACtx::repos(resources.as_ref())
         .a2a
         .get_task(&task_id)
         .await

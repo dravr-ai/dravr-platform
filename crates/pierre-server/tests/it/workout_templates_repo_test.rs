@@ -499,7 +499,11 @@ async fn catalogue_fields_written_at_default_read_back_as_default() {
     assert_eq!(row.fit, PhaseFit::default());
     assert_eq!(row.fit.readiness_min, ReadinessLevel::P2);
     assert_eq!(row.fit.max_per_week, 7);
-    assert_eq!(row.evidence_refs, [] as [String; 0]);
+    assert!(
+        row.evidence_refs.is_empty(),
+        "expected empty, got {:?}",
+        row.evidence_refs
+    );
 }
 
 #[tokio::test]

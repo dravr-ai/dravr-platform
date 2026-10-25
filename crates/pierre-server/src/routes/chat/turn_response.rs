@@ -376,7 +376,7 @@ fn telemetry_response(telemetry: TurnTelemetry, execution_time_ms: u64) -> TurnT
 /// so it reaches the client through the same block list rather than through
 /// fields of its own.
 #[must_use]
-pub fn platform_blocks(
+pub(super) fn platform_blocks(
     text: String,
     title: Option<String>,
     actions: Vec<TurnAction>,

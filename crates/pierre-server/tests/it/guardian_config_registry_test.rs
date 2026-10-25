@@ -54,7 +54,11 @@ fn empty_document_resolves_to_compiled_defaults() {
     let sources = snapshot.field_sources;
     assert_eq!(sources.mode, GuardianFieldSource::Default);
     assert_eq!(sources.tainted_destructive, GuardianFieldSource::Default);
-    assert_eq!(sources.env_pinned(), [] as [&str; 0]);
+    assert!(
+        sources.env_pinned().is_empty(),
+        "expected empty, got {:?}",
+        sources.env_pinned()
+    );
     assert_eq!(snapshot.source, GuardianConfigSource::Defaults);
 }
 

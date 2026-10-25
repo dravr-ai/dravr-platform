@@ -277,7 +277,8 @@ mod delivered {
             instance.resources.common.turns.is_empty(),
             "the webhook must not spawn the turn when a queue delivers it"
         );
-        assert_eq!(instance.replies().await, [] as [String; 0]);
+        let found = instance.replies().await;
+        assert!(found.is_empty(), "expected empty, got {found:?}");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -392,8 +393,7 @@ mod delivered {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_drain_mid_delivery_hands_the_row_back_and_the_next_instance_answers() {
         let provider = Arc::new(ParkedProvider::answering(ANSWER));
-        let instance =
-            Instance::boot(Arc::clone(&provider) as Arc<dyn LlmProvider>, "15550008005").await;
+        let instance = Instance::boot(Arc::<ParkedProvider>::clone(&provider), "15550008005").await;
         let task = instance.ask("wamid.drain_001", QUESTION).await;
 
         // The delivery runs the turn, which parks on the provider.
@@ -419,7 +419,7 @@ mod delivered {
         // next instance's provider answers, and Cloud Tasks redelivers there.
         provider.release();
         let next = instance
-            .sibling(Arc::clone(&provider) as Arc<dyn LlmProvider>)
+            .sibling(Arc::<ParkedProvider>::clone(&provider))
             .await;
         let (status, body) = next.deliver(&task, Some(&next.token())).await;
         assert_eq!(status, StatusCode::OK, "{body}");

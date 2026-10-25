@@ -19,6 +19,7 @@
 //! no session cookie, CSRF header, or JavaScript.
 
 use secrecy::SecretString;
+use std::fmt;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
@@ -48,6 +49,14 @@ pub struct DevicePageQuery {
     pub user_code: Option<String>,
 }
 
+impl fmt::Debug for DevicePageQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DevicePageQuery")
+            .field("user_code", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// The sign-in-and-approve form submitted by the operator.
 #[derive(Deserialize)]
 pub struct DeviceApproveForm {
@@ -59,6 +68,17 @@ pub struct DeviceApproveForm {
     pub user_code: String,
     /// `approve` (default) or `deny`.
     pub action: Option<String>,
+}
+
+impl fmt::Debug for DeviceApproveForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeviceApproveForm")
+            .field("email", &self.email)
+            .field("password", &"[REDACTED]")
+            .field("user_code", &"[REDACTED]")
+            .field("action", &self.action)
+            .finish()
+    }
 }
 
 /// Verify email + password, returning the [`User`] if the credentials are valid.

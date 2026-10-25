@@ -45,6 +45,7 @@
 //! is sent on it, `messaging.proactive_held` says so, and the check-in lands
 //! in the app.
 
+use std::fmt;
 use std::sync::{Arc, Weak};
 use std::time::Duration as StdDuration;
 
@@ -111,6 +112,14 @@ pub struct CheckInPoster {
     post: Arc<dyn PlatformPost>,
     /// Resolves a DM's channel to its adapter and config.
     resolver: Arc<dyn AdapterResolver>,
+}
+
+impl fmt::Debug for CheckInPoster {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CheckInPoster")
+            .field("ctx", &self.ctx)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CheckInPoster {

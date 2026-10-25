@@ -51,6 +51,7 @@ pub struct PeriodQuery {
 }
 
 /// Group analytics route registry.
+#[derive(Debug)]
 pub struct GroupAnalyticsRoutes;
 
 impl GroupAnalyticsRoutes {

@@ -78,7 +78,7 @@ fn scope_rail_reply(
 }
 
 /// The turn so far, as [`answer_off_scope`] reads it.
-pub struct OffScopeTurn<'a> {
+pub(crate) struct OffScopeTurn<'a> {
     /// Shared pipeline context.
     pub ctx: &'a ChatPipelineContext,
     /// The turn being answered.
@@ -116,7 +116,7 @@ pub struct OffScopeTurn<'a> {
 /// # Errors
 ///
 /// Returns the persistence error when the platform reply cannot be written.
-pub async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEnvelope>> {
+pub(crate) async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEnvelope>> {
     let OffScopeTurn {
         ctx,
         input,
@@ -179,7 +179,7 @@ pub async fn answer_off_scope(turn: OffScopeTurn<'_>) -> AppResult<Option<TurnEn
 /// athlete reads the whole answer instead of a prefix that stops mid-thought.
 ///
 /// `locale` is the BCP-47 short code resolved once at the ingress boundary.
-pub fn apply_text_guardrails(
+pub(crate) fn apply_text_guardrails(
     harness_config_registry: &Arc<HarnessConfigRegistry>,
     messaging_strings_registry: &Arc<MessagingStringsRegistry>,
     reply: &str,

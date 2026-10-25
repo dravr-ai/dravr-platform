@@ -40,6 +40,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
@@ -435,6 +436,17 @@ pub struct VizExtraction {
     /// re-ask the model with the actual fault — and lets a test assert the
     /// fault text rather than merely that extraction failed.
     pub refusals: Vec<String>,
+}
+
+// The marked-up reply is model text: only its size is printed.
+impl fmt::Debug for VizExtraction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VizExtraction")
+            .field("text_len", &self.text.len())
+            .field("blocks", &self.blocks)
+            .field("refusals", &self.refusals)
+            .finish()
+    }
 }
 
 /// Lift every valid `dravr-viz` block out of `reply`.

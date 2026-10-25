@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 /// What a stored `content_blocks` column resolves to on the read path.
 #[derive(Debug, Default)]
-pub struct StoredBlocks {
+pub(super) struct StoredBlocks {
     /// Resolved visual scenes, JSON-encoded — see [`MessageResponse::scene_blocks`].
     pub scene_blocks: Option<String>,
     /// The controls a persisted command reply carried.
@@ -43,7 +43,7 @@ pub struct StoredBlocks {
 /// carrying it. Absent parts are `None`, so the fields are omitted from the
 /// response entirely.
 #[must_use]
-pub fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks {
+pub(super) fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks {
     let Some(entries) = stored.and_then(parse_stored_specs) else {
         return StoredBlocks::default();
     };
@@ -64,7 +64,7 @@ pub fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks
 /// its visuals — for a row the server has just written and hands straight to
 /// the client, such as an agent's welcome and its starter questions.
 #[must_use]
-pub fn stored_actions(stored: Option<&str>) -> Option<MessageActionsResponse> {
+pub(super) fn stored_actions(stored: Option<&str>) -> Option<MessageActionsResponse> {
     parse_stored_specs(stored?)?
         .into_iter()
         .filter(|entry| entry.get("type").and_then(Value::as_str) == Some(ACTIONS_BLOCK_TYPE))
@@ -75,7 +75,7 @@ pub fn stored_actions(stored: Option<&str>) -> Option<MessageActionsResponse> {
 /// [`resolve_stored_blocks`], for the live turn whose specs never carry
 /// controls.
 #[must_use]
-pub fn resolve_scene_blocks(stored: Option<&str>, locale: &str) -> Option<String> {
+pub(super) fn resolve_scene_blocks(stored: Option<&str>, locale: &str) -> Option<String> {
     let specs = parse_stored_specs(stored?)?;
     resolve_visual_specs(&specs, locale)
 }
@@ -286,7 +286,7 @@ impl ConversationResponse {
 /// Request to open (or reopen) a coach's thread about one athlete:
 /// `POST /api/chat/athletes/{athlete_user_id}/thread` (carnet#1070).
 #[derive(Debug, Deserialize)]
-pub struct OpenSubjectThreadRequest {
+pub(super) struct OpenSubjectThreadRequest {
     /// The group the coach coaches the athlete in, and whose agent runs the
     /// thread. Its membership and the athlete's consent there are what let
     /// the coach act for them, checked again on every act in the thread.
@@ -297,7 +297,7 @@ pub struct OpenSubjectThreadRequest {
 /// live plan and the coach's draft over it, as the coach reads them
 /// (carnet#1069).
 #[derive(Debug, Serialize)]
-pub struct SubjectPlanResponse {
+pub(super) struct SubjectPlanResponse {
     /// Whose plan: the athlete a card in the thread names as its `subject`.
     pub athlete: PlanSubject,
     /// The athlete's civil date both plans are projected on, `YYYY-MM-DD`.
@@ -315,7 +315,7 @@ pub struct SubjectPlanResponse {
 
 /// `POST /api/chat/conversations/{id}/subject-plan/publish` body.
 #[derive(Debug, Default, Deserialize)]
-pub struct PublishSubjectPlanRequest {
+pub(super) struct PublishSubjectPlanRequest {
     /// Publish over the weeks the athlete changed since the coach drafted
     /// them, and over a season re-laid under the draft.
     #[serde(default)]
@@ -325,7 +325,7 @@ pub struct PublishSubjectPlanRequest {
 /// `POST …/subject-plan/publish` answered 200: the draft is the athlete's
 /// live plan.
 #[derive(Debug, Serialize)]
-pub struct PublishedSubjectPlanResponse {
+pub(super) struct PublishedSubjectPlanResponse {
     /// The athlete's live plan now.
     pub plan_id: String,
     /// The season the publish replaced, when it re-laid one.
@@ -337,7 +337,7 @@ pub struct PublishedSubjectPlanResponse {
 /// `POST …/subject-plan/publish` answered 409: the athlete's plan moved
 /// under the draft, and what publishing would overwrite. Nothing was written.
 #[derive(Debug, Serialize)]
-pub struct PlanPublishConflictResponse {
+pub(super) struct PlanPublishConflictResponse {
     /// `plan_publish_conflict`, what a client branches on.
     pub error_code: &'static str,
     /// The refusal for an API caller.
@@ -352,7 +352,7 @@ pub struct PlanPublishConflictResponse {
 
 /// The `details` of a [`PlanPublishConflictResponse`].
 #[derive(Debug, Serialize)]
-pub struct PublishConflictDetails {
+pub(super) struct PublishConflictDetails {
     /// `plan_publish_conflict`.
     pub reason: &'static str,
 }
@@ -653,7 +653,7 @@ pub struct MessagesListResponse {
 
 /// One topic of a thread, for the History list.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TopicResponse {
+pub(super) struct TopicResponse {
     /// The divider that opens the topic; absent for the thread's opening,
     /// which starts at the thread's first row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -668,7 +668,7 @@ pub struct TopicResponse {
 
 /// The topics of a thread, newest first.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TopicsListResponse {
+pub(super) struct TopicsListResponse {
     /// The topics, newest first.
     pub topics: Vec<TopicResponse>,
 }
@@ -740,7 +740,7 @@ impl Default for ListConversationsQuery {
 }
 
 /// Smallest page a client may ask for.
-pub const MIN_LIST_LIMIT: i64 = 1;
+pub(super) const MIN_LIST_LIMIT: i64 = 1;
 /// Largest page a client may ask for — a whole list for an active athlete,
 /// without letting one call pull every conversation a tenant holds.
 pub const MAX_LIST_LIMIT: i64 = 200;

@@ -30,6 +30,7 @@
 
 use core::iter::once;
 use pierre_providers::ai_scope;
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::config::CompactionConfig;
@@ -171,6 +172,7 @@ struct SummaryPlan {
 /// Stateless beyond its [`CompactionConfig`]; the LLM and DB handles are
 /// passed per call so the same service can be invoked from both the route
 /// handler and the messaging pipeline without rebuilding.
+#[derive(Debug)]
 pub struct ConversationCompactor {
     config: CompactionConfig,
 }
@@ -620,6 +622,19 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     /// the turn that writes a summary shows the model the same summary text
     /// every later turn does.
     pub summary_for_prompt: fn(&str) -> String,
+}
+
+impl<R: HarnessMemoryRepository + ?Sized> fmt::Debug for CompactionContext<'_, R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CompactionContext")
+            .field("provider", &self.provider)
+            .field("summary_prompt", &self.summary_prompt)
+            .field("tenant_id", &self.tenant_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("source_ids", &self.source_ids)
+            .field("llm_messages", &self.llm_messages.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Sum-of-content token estimate across all chat messages.

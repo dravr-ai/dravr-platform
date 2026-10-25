@@ -185,10 +185,8 @@ impl pierre_runtime_context::AgentsCtx for ServerContext {
     }
 
     fn admin_config(&self) -> Option<Arc<dyn pierre_runtime_context::AdminConfigLookup>> {
-        self.agent
-            .admin_config
-            .as_ref()
-            .map(|svc| Arc::clone(svc) as Arc<dyn pierre_runtime_context::AdminConfigLookup>)
+        let svc = self.agent.admin_config.as_ref()?;
+        Some(Arc::<AdminConfigService>::clone(svc))
     }
 
     #[cfg(feature = "client-notifications")]
@@ -255,6 +253,7 @@ mod groups_ctx_impl {
 #[cfg(feature = "client-messaging")]
 mod command_ctx_impl {
     use super::ServerContext;
+    use crate::config::admin::AdminConfigService;
     use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
     use pierre_database::RepositoryRegistry;
     use pierre_groups::GroupService;
@@ -276,10 +275,8 @@ mod command_ctx_impl {
         }
 
         fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>> {
-            self.agent
-                .admin_config
-                .as_ref()
-                .map(|svc| Arc::clone(svc) as Arc<dyn AdminConfigLookup>)
+            let svc = self.agent.admin_config.as_ref()?;
+            Some(Arc::<AdminConfigService>::clone(svc))
         }
 
         fn chat_provider(&self) -> Option<&Arc<ChatProvider>> {

@@ -17,7 +17,6 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
@@ -77,9 +76,7 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
 
     // The channel rejects every send with the non-retryable 131047 error.
     let failing = Arc::new(FailingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        failing.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(failing.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),
@@ -162,9 +159,7 @@ async fn successful_push_does_not_enqueue() {
 
     // A normal channel that delivers successfully.
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),
@@ -250,9 +245,7 @@ async fn failed_reauth_nudge_is_enqueued_for_retry_not_dropped() {
 
     // The channel rejects the nudge send with the non-retryable 131047 error.
     let failing = Arc::new(FailingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        failing.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(failing.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos.clone(),
         strings(),

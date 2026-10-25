@@ -61,7 +61,7 @@ use tracing::info;
 /// semantic groups. Handlers reach their dependencies through one of the slice
 /// fields (e.g. `ctx.auth.auth_manager`, `ctx.fitness.provider_registry`) or
 /// through the accessor / view-builder methods on this `impl` block.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ServerContext {
     /// Cross-cutting handles + the master repository registry.
     pub common: CommonSlice,
@@ -296,13 +296,14 @@ impl ServerContext {
     #[cfg(feature = "client-chat")]
     #[must_use]
     pub fn chat_pipeline_context(self: &Arc<Self>) -> pierre_chat_pipeline::ChatPipelineContext {
+        use crate::config::admin::AdminConfigService;
         use pierre_tool_runtime::runtime::ToolRuntime;
-        let tool_runtime: Arc<dyn ToolRuntime> = Arc::clone(self) as _;
-        let admin_config = self
-            .agent
-            .admin_config
-            .as_ref()
-            .map(|c| Arc::clone(c) as Arc<dyn pierre_runtime_context::AdminConfigLookup>);
+        let tool_runtime: Arc<dyn ToolRuntime> = Arc::<Self>::clone(self);
+        let admin_config = self.agent.admin_config.as_ref().map(
+            |c| -> Arc<dyn pierre_runtime_context::AdminConfigLookup> {
+                Arc::<AdminConfigService>::clone(c)
+            },
+        );
         // The bridge follows the Copilot providers' own tool-calling toggles:
         // either one makes its provider route turns to the headless loop with
         // no text catalogue in the prompt, so a provider armed without the
@@ -324,7 +325,7 @@ impl ServerContext {
             self.common.repos.clone(),
             tool_runtime.clone(),
         )));
-        let command_ctx: Arc<dyn pierre_runtime_context::CommandCtx> = Arc::clone(self) as _;
+        let command_ctx: Arc<dyn pierre_runtime_context::CommandCtx> = Arc::<Self>::clone(self);
         pierre_chat_pipeline::ChatPipelineContext {
             repos: self.common.repos.clone(),
             data: self.data(),

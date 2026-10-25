@@ -418,7 +418,7 @@ pub(crate) struct CachedActivitiesParams<'a> {
     /// outside a read for a model (a login prefetch), so it is filtered on read.
     pub policies: &'a dyn ProviderTerms,
     pub cache_key: &'a CacheKey,
-    pub user_uuid: uuid::Uuid,
+    pub user_uuid: Uuid,
     pub tenant_id: Option<String>,
     pub provider_name: &'a str,
     pub mode: &'a str,

@@ -27,7 +27,7 @@ use crate::models::TimeSeriesData;
 /// longitudes, index by index, so its sample count is `data.len()`.
 /// `allNull` marks a stream with no recorded sample at all.
 #[derive(Debug, Deserialize)]
-pub struct IntervalsIcuStream {
+pub(crate) struct IntervalsIcuStream {
     #[serde(rename = "type")]
     stream_type: String,
     #[serde(default)]
@@ -58,7 +58,7 @@ fn gapped_channel<T>(stream: &IntervalsIcuStream, convert: impl Fn(f64) -> T) ->
 
 /// The streams of one activity as a [`TimeSeriesData`], index-aligned and
 /// with every unrecorded sample kept as a gap.
-pub fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
+pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeriesData {
     let mut hr: Option<Vec<Option<u32>>> = None;
     let mut power: Option<Vec<Option<u32>>> = None;
     let mut cadence: Option<Vec<Option<u32>>> = None;

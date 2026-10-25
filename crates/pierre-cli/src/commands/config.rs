@@ -33,7 +33,7 @@ const RESET_PATH: &str = "/api/admin/config/reset";
 /// `pierre-cli config` — runtime configuration parameters.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum ConfigCommand {
+pub(crate) enum ConfigCommand {
     /// List parameters with their effective value and where it came from
     Show {
         /// Only this category (e.g. `usage_quotas`)
@@ -265,7 +265,7 @@ fn print_table(rows: &[Param]) {
 ///
 /// Returns an error if not logged in, the server rejects the request, or a
 /// scope flag names a user that does not exist.
-pub async fn dispatch(command: ConfigCommand) -> AppResult<()> {
+pub(crate) async fn dispatch(command: ConfigCommand) -> AppResult<()> {
     let client = client()?;
     match command {
         ConfigCommand::Show {

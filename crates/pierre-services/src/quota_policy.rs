@@ -36,6 +36,7 @@
 //! policy only half the surfaces can link to is not shared.
 
 use std::env;
+use std::fmt;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, UserTier};
@@ -100,6 +101,14 @@ pub struct QuotaPolicyInputs<'a> {
     /// Admin config lookup for per-tenant cap overrides. `None` degrades to
     /// the compiled-in tier defaults rather than skipping enforcement.
     pub admin_config: Option<&'a dyn AdminConfigLookup>,
+}
+
+impl fmt::Debug for QuotaPolicyInputs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("QuotaPolicyInputs")
+            .field("repos", &self.repos)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Resolve the user's tier from the `users` row, falling back to `Starter`

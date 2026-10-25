@@ -8,6 +8,7 @@ use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_runtime_context::McpDispatchCtx;
+use std::fmt;
 // Trait methods dispatched through repos.tenants / repos.users / repos.oauth_tokens
 use std::sync::Arc;
 use tracing::{error, warn};
@@ -16,6 +17,12 @@ use uuid::Uuid;
 /// Manages tenant isolation and multi-tenancy for the MCP server
 pub struct TenantIsolation {
     resources: Arc<dyn McpDispatchCtx>,
+}
+
+impl fmt::Debug for TenantIsolation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TenantIsolation").finish_non_exhaustive()
+    }
 }
 
 impl TenantIsolation {

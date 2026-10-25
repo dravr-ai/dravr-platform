@@ -30,7 +30,7 @@ use rand_chacha::ChaCha8Rng;
 ///     .build();
 /// ```
 #[derive(Debug, Clone)]
-pub struct SyntheticDataBuilder {
+pub(crate) struct SyntheticDataBuilder {
     // Reserved for future algorithmic tests requiring seed reproducibility verification
     #[allow(dead_code)]
     seed: u64,
@@ -40,7 +40,7 @@ pub struct SyntheticDataBuilder {
 impl SyntheticDataBuilder {
     /// Create new builder with deterministic seed for reproducibility
     #[must_use]
-    pub fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self {
             seed,
             rng: ChaCha8Rng::seed_from_u64(seed),
@@ -49,13 +49,13 @@ impl SyntheticDataBuilder {
 
     /// Generate a synthetic running activity
     #[must_use]
-    pub fn generate_run(&mut self) -> ActivityBuilder<'_> {
+    pub(crate) fn generate_run(&mut self) -> ActivityBuilder<'_> {
         ActivityBuilder::new(SportType::Run, &mut self.rng)
     }
 
     /// Generate a synthetic cycling activity
     #[must_use]
-    pub fn generate_ride(&mut self) -> ActivityBuilder<'_> {
+    pub(crate) fn generate_ride(&mut self) -> ActivityBuilder<'_> {
         ActivityBuilder::new(SportType::Ride, &mut self.rng)
     }
 
@@ -63,13 +63,13 @@ impl SyntheticDataBuilder {
     /// Reserved for future swimming-specific training pattern tests
     #[must_use]
     #[allow(dead_code, clippy::missing_const_for_fn)] // Cannot be const: uses &mut self.rng
-    pub fn generate_swim(&mut self) -> ActivityBuilder<'_> {
+    pub(crate) fn generate_swim(&mut self) -> ActivityBuilder<'_> {
         ActivityBuilder::new(SportType::Swim, &mut self.rng)
     }
 
     /// Generate a series of activities following a specific pattern
     #[must_use]
-    pub fn generate_pattern(&mut self, pattern: TrainingPattern) -> Vec<Activity> {
+    pub(crate) fn generate_pattern(&mut self, pattern: TrainingPattern) -> Vec<Activity> {
         match pattern {
             TrainingPattern::BeginnerRunnerImproving => self.beginner_runner_improving(),
             TrainingPattern::ExperiencedCyclistConsistent => self.experienced_cyclist_consistent(),
@@ -275,7 +275,7 @@ impl SyntheticDataBuilder {
 
 /// Training patterns for different scenarios
 #[derive(Debug, Clone, Copy)]
-pub enum TrainingPattern {
+pub(crate) enum TrainingPattern {
     /// Beginner runner showing 35% improvement over 6 weeks
     BeginnerRunnerImproving,
     /// Experienced cyclist with stable, consistent performance
@@ -287,7 +287,7 @@ pub enum TrainingPattern {
 }
 
 /// Builder for individual activity construction
-pub struct ActivityBuilder<'a> {
+pub(crate) struct ActivityBuilder<'a> {
     sport_type: SportType,
     rng: &'a mut ChaCha8Rng,
     duration_seconds: Option<u64>,
@@ -318,7 +318,7 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set activity duration in minutes
     #[must_use]
-    pub fn duration_minutes(mut self, minutes: u64) -> Self {
+    pub(crate) fn duration_minutes(mut self, minutes: u64) -> Self {
         self.duration_seconds = Some(minutes * 60);
         self
     }
@@ -327,7 +327,7 @@ impl<'a> ActivityBuilder<'a> {
     /// Reserved for future distance-specific activity generation tests
     #[must_use]
     #[allow(dead_code, clippy::missing_const_for_fn)] // Builder pattern methods
-    pub fn distance_km(mut self, km: f64) -> Self {
+    pub(crate) fn distance_km(mut self, km: f64) -> Self {
         self.distance_meters = Some(km * 1000.0);
         self
     }
@@ -335,21 +335,21 @@ impl<'a> ActivityBuilder<'a> {
     /// Set pace in minutes per kilometer (for running)
     /// This will calculate appropriate distance based on duration
     #[must_use]
-    pub fn pace_min_per_km(mut self, pace: f64) -> Self {
+    pub(crate) fn pace_min_per_km(mut self, pace: f64) -> Self {
         self.pace_min_per_km = Some(pace);
         self
     }
 
     /// Set start date/time
     #[must_use]
-    pub fn start_date(mut self, date: DateTime<Utc>) -> Self {
+    pub(crate) fn start_date(mut self, date: DateTime<Utc>) -> Self {
         self.start_date = Some(date);
         self
     }
 
     /// Set heart rate range (average, max)
     #[must_use]
-    pub fn heart_rate(mut self, avg: u32, max: u32) -> Self {
+    pub(crate) fn heart_rate(mut self, avg: u32, max: u32) -> Self {
         self.average_heart_rate = Some(avg);
         self.max_heart_rate = Some(max);
         self
@@ -357,14 +357,14 @@ impl<'a> ActivityBuilder<'a> {
 
     /// Set average power (for cycling)
     #[must_use]
-    pub fn average_power(mut self, watts: u32) -> Self {
+    pub(crate) fn average_power(mut self, watts: u32) -> Self {
         self.average_power = Some(watts);
         self
     }
 
     /// Set FTP (Functional Threshold Power for cycling)
     #[must_use]
-    pub fn ftp(mut self, watts: u32) -> Self {
+    pub(crate) fn ftp(mut self, watts: u32) -> Self {
         self.ftp = Some(watts);
         self
     }
@@ -374,7 +374,7 @@ impl<'a> ActivityBuilder<'a> {
     /// Complex builder method that constructs Activity with many fields requiring
     /// calculations and default values. The length is necessary for proper field initialization.
     #[must_use]
-    pub fn build(self) -> Activity {
+    pub(crate) fn build(self) -> Activity {
         let id = format!("synthetic_{}", self.rng.random::<u64>());
         let sport_type = self.sport_type; // Save before move
         let duration = self.duration_seconds.unwrap_or(1800); // Default 30 min

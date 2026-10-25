@@ -83,6 +83,7 @@ fn optional_string_field(args: &Value, key: &str) -> Option<String> {
 }
 
 /// Run the claim-verification detector pipeline on a single claim.
+#[derive(Debug)]
 pub struct VerifyClaimTool;
 
 #[async_trait]

@@ -31,7 +31,7 @@ fn client_redirect_url(redirect_uri: &str, params: &[(&str, &str)]) -> String {
 
 /// The authorization code, redirected to the client's verified
 /// `redirect_uri` with the request's `state` (RFC 6749 Section 4.1.2).
-pub fn code_redirect(redirect_uri: &str, code: &str, state: Option<&str>) -> Response {
+pub(crate) fn code_redirect(redirect_uri: &str, code: &str, state: Option<&str>) -> Response {
     let mut params = vec![("code", code)];
     if let Some(state) = state {
         params.push(("state", state));
@@ -42,7 +42,11 @@ pub fn code_redirect(redirect_uri: &str, code: &str, state: Option<&str>) -> Res
 /// An authorization error, redirected to the client's verified
 /// `redirect_uri` with `error`, `error_description` and the request's
 /// `state` (RFC 6749 Section 4.1.2.1).
-pub fn error_redirect(redirect_uri: &str, state: Option<&str>, error: &OAuth2Error) -> Response {
+pub(crate) fn error_redirect(
+    redirect_uri: &str,
+    state: Option<&str>,
+    error: &OAuth2Error,
+) -> Response {
     let mut params = vec![("error", error.error.as_str())];
     if let Some(description) = error.error_description.as_deref() {
         params.push(("error_description", description));
@@ -60,7 +64,10 @@ pub fn error_redirect(redirect_uri: &str, state: Option<&str>, error: &OAuth2Err
 /// A refused authorization request, delivered where RFC 6749 Section 4.1.2.1
 /// sends it: an unknown client or unregistered `redirect_uri` to the user as
 /// the error page, anything else back to the client's `redirect_uri`.
-pub fn rejection_response(rejection: AuthorizeRejection, request: &AuthorizeRequest) -> Response {
+pub(crate) fn rejection_response(
+    rejection: AuthorizeRejection,
+    request: &AuthorizeRequest,
+) -> Response {
     match rejection {
         AuthorizeRejection::ShownToUser(error) => OAuth2Routes::render_oauth_error_response(&error),
         AuthorizeRejection::RedirectedToClient(error) => {

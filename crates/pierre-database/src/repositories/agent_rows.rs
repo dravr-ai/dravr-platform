@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 
 /// Read a column, naming it in the error.
-pub fn column<'r, R, T>(row: &'r R, name: &str) -> AppResult<T>
+pub(crate) fn column<'r, R, T>(row: &'r R, name: &str) -> AppResult<T>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -23,7 +23,7 @@ where
 }
 
 /// Read a timestamp column.
-pub fn instant<'r, R>(row: &'r R, name: &str) -> AppResult<DateTime<Utc>>
+pub(crate) fn instant<'r, R>(row: &'r R, name: &str) -> AppResult<DateTime<Utc>>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -35,7 +35,7 @@ where
 /// Bind a token count into the `INTEGER` column: a count is bounded far
 /// below `i32::MAX` (about 25K tokens for 100K characters).
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-pub const fn token_count_bind(count: u32) -> i32 {
+pub(crate) const fn token_count_bind(count: u32) -> i32 {
     count as i32
 }
 
@@ -53,7 +53,7 @@ macro_rules! impl_agent_row_decoders {
         /// # Errors
         /// Returns an error when a required column is missing or unreadable,
         /// or `tags` / `sample_prompts` hold malformed JSON.
-        pub fn row_to_agent(row: &$row) -> AppResult<Agent> {
+        pub(crate) fn row_to_agent(row: &$row) -> AppResult<Agent> {
             let id: String = column(row, "id")?;
             let category: String = column(row, "category")?;
             let tags: Option<String> = column(row, "tags")?;
@@ -126,7 +126,7 @@ macro_rules! impl_agent_row_decoders {
         ///
         /// # Errors
         /// Returns an error when the agent columns do not decode.
-        pub fn row_to_agent_list_item(row: &$row) -> AppResult<AgentListItem> {
+        pub(crate) fn row_to_agent_list_item(row: &$row) -> AppResult<AgentListItem> {
             let agent = row_to_agent(row)?;
             let use_count: i32 = row.try_get("use_count").unwrap_or(0);
             #[allow(clippy::cast_sign_loss)]
@@ -144,7 +144,7 @@ macro_rules! impl_agent_row_decoders {
         ///
         /// # Errors
         /// Returns an error when a column is missing or the snapshot is not JSON.
-        pub fn row_to_agent_version(row: &$row) -> AppResult<AgentVersion> {
+        pub(crate) fn row_to_agent_version(row: &$row) -> AppResult<AgentVersion> {
             let snapshot: String = column(row, "content_snapshot")?;
             Ok(AgentVersion {
                 id: column(row, "id")?,
@@ -163,7 +163,7 @@ macro_rules! impl_agent_row_decoders {
 }
 
 /// The `SQLite` agent row decoders.
-pub mod sqlite {
+pub(crate) mod sqlite {
     use pierre_core::errors::{AppError, AppResult};
     use pierre_core::models::agents::{
         Agent, AgentCategory, AgentListItem, AgentVersion, AgentVisibility, DataRequirements,
@@ -180,7 +180,7 @@ pub mod sqlite {
 
 /// The `PostgreSQL` agent row decoders.
 #[cfg(feature = "postgresql")]
-pub mod postgres {
+pub(crate) mod postgres {
     use pierre_core::errors::{AppError, AppResult};
     use pierre_core::models::agents::{
         Agent, AgentCategory, AgentListItem, AgentVersion, AgentVisibility, DataRequirements,

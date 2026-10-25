@@ -10,6 +10,7 @@ use pierre_core::html::with_hosted_page_css;
 use crate::OAuthCallbackResponse;
 
 /// Template renderer for OAuth success and error pages
+#[derive(Debug)]
 pub struct OAuthTemplateRenderer;
 
 impl OAuthTemplateRenderer {

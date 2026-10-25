@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use secrecy::{ExposeSecret, SecretString};
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::marker::PhantomData;
 
 use chrono::{DateTime, Duration, Utc};
@@ -24,7 +24,6 @@ pub struct Initial;
 
 /// Authorized state: Client has received an authorization code
 /// Valid transitions: -> Authenticated (via token exchange)
-#[derive(Debug)]
 pub struct Authorized {
     /// The authorization code received from the authorization endpoint
     pub code: String,
@@ -34,6 +33,20 @@ pub struct Authorized {
     pub code_verifier: Option<String>,
     /// When the authorization code expires
     pub expires_at: DateTime<Utc>,
+}
+
+impl Debug for Authorized {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("Authorized")
+            .field("code", &"[REDACTED]")
+            .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "code_verifier",
+                &self.code_verifier.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 /// Authenticated state: Client has valid access and refresh tokens
@@ -67,7 +80,7 @@ pub struct Refreshable {
 // ============================================================================
 
 /// PKCE (Proof Key for Code Exchange) configuration for enhanced security
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PkceConfig {
     /// The code challenge sent to the authorization endpoint
     pub code_challenge: String,
@@ -75,6 +88,16 @@ pub struct PkceConfig {
     pub code_challenge_method: PkceMethod,
     /// The original code verifier (kept secret until token exchange)
     pub code_verifier: String,
+}
+
+impl Debug for PkceConfig {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("PkceConfig")
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("code_verifier", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// PKCE code challenge method

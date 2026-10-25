@@ -52,6 +52,7 @@ fn default_request_id() -> Value {
 /// [`ToolContext`] is resolved once by the transport (the tronc auth hook for
 /// the HTTP path, the SSE entry for the SSE path) and threaded unchanged into
 /// the tool registry.
+#[derive(Debug)]
 pub struct ToolRoutingContext<'a> {
     /// Server resources for dependency injection
     pub resources: &'a Arc<ServerContext>,
@@ -62,6 +63,7 @@ pub struct ToolRoutingContext<'a> {
 }
 
 /// Tool execution handlers for MCP protocol
+#[derive(Debug)]
 pub struct ToolHandlers;
 
 impl ToolHandlers {
@@ -378,7 +380,7 @@ impl ToolHandlers {
                 .agent
                 .admin_config
                 .as_deref()
-                .map(|c| c as &dyn AdminConfigLookup),
+                .map(|c| -> &dyn AdminConfigLookup { c }),
         };
         match check_quotas(
             &inputs,

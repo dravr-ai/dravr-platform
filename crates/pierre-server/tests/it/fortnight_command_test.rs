@@ -89,7 +89,7 @@ fn ctx(
         channel_type: "telegram".to_owned(),
         args: vec![],
         raw_text: "/fortnight".to_owned(),
-        ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn pierre_runtime_context::CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(resources),
         locale: locale.to_owned(),
         is_direct_message: true,
         ambient_group_fallback: true,
@@ -132,7 +132,7 @@ async fn save_plan(
 /// days long and every day it holds must fall inside it — a week starting on
 /// a Wednesday is a shape the save tool would take and no agent would write.
 fn week_start(offset_weeks: i64) -> chrono::NaiveDate {
-    let today = chrono::Utc::now().date_naive();
+    let today = Utc::now().date_naive();
     let monday = today
         - chrono::Duration::days(i64::from(
             chrono::Datelike::weekday(&today).num_days_from_monday(),

@@ -46,9 +46,10 @@ mod delete_account {
 
     async fn e2e() -> Arc<CommandE2e> {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         CommandE2e::start(resources, llm).await
     }
 
@@ -63,7 +64,7 @@ mod delete_account {
         let mut config = test_server_config();
         config.firebase = firebase_config;
         let resources = create_test_server_resources_with_chat_provider_and_config(
-            Arc::clone(&llm) as _,
+            Arc::<RouterLlm>::clone(&llm),
             config,
         )
         .await

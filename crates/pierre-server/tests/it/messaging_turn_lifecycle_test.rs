@@ -441,7 +441,7 @@ mod drained_mid_turn {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_turn_drained_mid_flight_is_handed_off_and_answered_by_the_next_instance() {
         let provider = Arc::new(ParkedProvider::answering(ANSWER));
-        let llm: Arc<dyn LlmProvider> = Arc::clone(&provider) as Arc<dyn LlmProvider>;
+        let llm: Arc<dyn LlmProvider> = Arc::<ParkedProvider>::clone(&provider);
         let resources = create_test_server_resources_with_chat_provider(llm)
             .await
             .unwrap();
@@ -490,7 +490,7 @@ mod drained_mid_turn {
         provider.release();
         let next_instance = create_sibling_server_resources_with_chat_provider(
             &resources,
-            Arc::clone(&provider) as Arc<dyn LlmProvider>,
+            Arc::<ParkedProvider>::clone(&provider),
         )
         .await
         .unwrap();

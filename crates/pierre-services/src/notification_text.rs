@@ -71,7 +71,7 @@ pub const PARAM_ROSTER_MEMBERS: &str = "roster_members";
 
 /// Renders notification events as sentences in one locale and one unit
 /// system.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct NotificationTextRenderer<'a> {
     /// The live catalogue, contremaitre overlays included.
     strings: &'a MessagingStringsRegistry,

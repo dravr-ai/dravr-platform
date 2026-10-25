@@ -14,26 +14,16 @@
 
 use crate::common;
 use chrono::Utc;
-use pierre_mcp_server::constants::{init_server_config, oauth_providers};
+use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
 use pierre_providers::registry::{get_supported_providers, global_registry};
 use secrecy::SecretString;
-use std::sync::Once;
-
-/// Ensure HTTP clients and server config are initialized only once across all tests
-static INIT_HTTP_CLIENTS: Once = Once::new();
-static INIT_SERVER_CONFIG: Once = Once::new();
 
 fn ensure_http_clients_initialized() {
-    // Initialize server config first (required for provider defaults)
-    INIT_SERVER_CONFIG.call_once(|| {
-        let _ = init_server_config();
-    });
-
-    INIT_HTTP_CLIENTS.call_once(|| {
-        common::init_test_http_clients();
-    });
+    // Server config first (required for provider defaults)
+    common::init_server_config();
+    common::init_test_http_clients();
 }
 
 // ============================================================================

@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// User MCP token routes
+#[derive(Debug)]
 pub struct UserMcpTokenRoutes;
 
 /// Response for token creation (includes the secret token value)

@@ -16,7 +16,7 @@ use sha2::Sha256;
 
 /// The five supported messaging channels exercised by the command coverage matrix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TestChannel {
+pub(crate) enum TestChannel {
     Telegram,
     Slack,
     Discord,
@@ -26,7 +26,7 @@ pub enum TestChannel {
 
 impl TestChannel {
     /// All channels in a fixed iteration order
-    pub const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 5] = [
         Self::Telegram,
         Self::Slack,
         Self::Discord,
@@ -36,7 +36,7 @@ impl TestChannel {
 
     /// Canonical channel string matching `ChannelType` serialization and webhook path segment.
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Telegram => "telegram",
             Self::Slack => "slack",
@@ -48,7 +48,7 @@ impl TestChannel {
 
     /// Full webhook path on the Axum router
     #[must_use]
-    pub fn webhook_path(self) -> String {
+    pub(crate) fn webhook_path(self) -> String {
         format!("/api/messaging/webhook/{}", self.as_str())
     }
 }
@@ -57,7 +57,7 @@ impl TestChannel {
 ///
 /// Generate once per test process via [`ChannelSecrets::generate`] and share
 /// across all (command, channel) combos in the matrix.
-pub struct ChannelSecrets {
+pub(crate) struct ChannelSecrets {
     pub telegram_webhook_secret: String,
     pub slack_signing_secret: String,
     pub whatsapp_app_secret: String,
@@ -69,7 +69,7 @@ pub struct ChannelSecrets {
 impl ChannelSecrets {
     /// Generate a fresh set of secrets and a Discord Ed25519 keypair.
     #[must_use]
-    pub fn generate() -> Self {
+    pub(crate) fn generate() -> Self {
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
         let signing_key = SigningKey::from_bytes(&key_bytes);
@@ -89,7 +89,7 @@ impl ChannelSecrets {
 ///
 /// Callers assemble an `AxumTestRequest` by iterating the headers and using
 /// `.json(&request.body_value)` so the body bytes match what was signed.
-pub struct WebhookRequest {
+pub(crate) struct WebhookRequest {
     pub path: String,
     pub headers: Vec<(String, String)>,
     pub body_value: Value,
@@ -108,7 +108,7 @@ fn hmac_hex(secret: &str, data: &[u8]) -> String {
 ///
 /// Uses the secret-token header scheme (no body hashing).
 #[must_use]
-pub fn telegram_webhook(
+pub(crate) fn telegram_webhook(
     text: &str,
     msg_id: i64,
     sender_id: &str,
@@ -136,7 +136,7 @@ pub fn telegram_webhook(
 
 /// Build a Slack `event_callback` webhook payload signed with HMAC-SHA256 v0.
 #[must_use]
-pub fn slack_webhook(
+pub(crate) fn slack_webhook(
     text: &str,
     msg_id: i64,
     sender_id: &str,
@@ -178,7 +178,7 @@ pub fn slack_webhook(
 /// The user's slash-command text is carried in `data.options[0].value` which
 /// is what the canot Discord transport extracts as message text.
 #[must_use]
-pub fn discord_webhook(
+pub(crate) fn discord_webhook(
     text: &str,
     msg_id: i64,
     sender_id: &str,
@@ -217,7 +217,7 @@ pub fn discord_webhook(
 
 /// Build a `WhatsApp` Business Cloud API webhook signed with Meta HMAC-SHA256.
 #[must_use]
-pub fn whatsapp_webhook(
+pub(crate) fn whatsapp_webhook(
     text: &str,
     msg_id: i64,
     sender_id: &str,
@@ -262,7 +262,7 @@ pub fn whatsapp_webhook(
 
 /// Build a Messenger Page webhook signed with Meta HMAC-SHA256.
 #[must_use]
-pub fn messenger_webhook(
+pub(crate) fn messenger_webhook(
     text: &str,
     msg_id: i64,
     sender_id: &str,

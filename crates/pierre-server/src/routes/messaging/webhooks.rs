@@ -262,7 +262,7 @@ pub(crate) async fn ingest(
     // Applied before the dispatch spawn so a payload carrying only reactions
     // finishes its work inside the request.
     if !verification.reactions.is_empty() {
-        messaging_ingress::reactions::apply_reactions(resources, &verification.reactions).await;
+        reactions::apply_reactions(resources, &verification.reactions).await;
     }
 
     // Each turn is recorded and handed to the runner before the 200 below

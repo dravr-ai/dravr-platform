@@ -68,8 +68,9 @@ pub enum AgUiEvent {
     RunError {
         /// Run identifier.
         run_id: String,
-        /// Short machine-readable error code.
-        code: String,
+        /// Short machine-readable error code; serialized as `code` on the wire.
+        #[serde(rename = "code")]
+        error_code: String,
         /// Human-readable error message.
         message: String,
         /// Milliseconds since the Unix epoch.
@@ -320,7 +321,7 @@ impl AgUiEvent {
     ) -> Self {
         Self::RunError {
             run_id: run_id.into(),
-            code: code.into(),
+            error_code: code.into(),
             message: message.into(),
             timestamp: now_ms(),
         }
@@ -411,4 +412,29 @@ fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AgUiEvent;
+
+    #[test]
+    fn a_run_error_keeps_code_as_its_wire_field() {
+        let event = AgUiEvent::run_error("run-1", "upstream_timeout", "timed out");
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "RUN_ERROR", "the event tag: {json}");
+        assert_eq!(
+            json["code"], "upstream_timeout",
+            "the wire field stays `code`: {json}"
+        );
+        assert!(
+            json.get("error_code").is_none(),
+            "the Rust name never reaches the wire: {json}"
+        );
+        let back: AgUiEvent = serde_json::from_value(json).unwrap();
+        assert!(
+            matches!(back, AgUiEvent::RunError { ref error_code, .. } if error_code == "upstream_timeout"),
+            "{back:?}"
+        );
+    }
 }

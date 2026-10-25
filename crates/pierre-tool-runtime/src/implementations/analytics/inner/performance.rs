@@ -214,7 +214,7 @@ fn calculate_prediction_confidence(
 }
 
 /// Handle `predict_performance` tool - predict future performance
-pub fn handle_predict_performance(
+pub(crate) fn handle_predict_performance(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

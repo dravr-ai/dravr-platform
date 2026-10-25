@@ -206,6 +206,33 @@ unsafe_code = "deny"
 # Warn on missing documentation for public APIs
 missing_docs = "warn"
 
+# ADR-027 as a compiler check: an item is `pub` only when another crate can
+# reach it. Anything narrower is `pub(crate)` (carnet#1162).
+unreachable_pub = "deny"
+
+# Idiom lints rustc leaves allow-by-default (rust-lang/hashbrown enables most
+# of this set), adopted with every hit fixed, none allowed (carnet#1162).
+# missing_debug_implementations: every reachable type prints with Debug; a
+# field holding a credential prints [REDACTED] through a hand-written impl.
+# let_underscore_drop: an ignored value with a destructor (usually a Result)
+# is an explicit decision, logged or drop()ped with a reason.
+# single_use_lifetimes was measured and rejected: rustc documents false
+# positives, and clippy's needless_lifetimes covers the useful part.
+elided_lifetimes_in_paths = "deny"
+explicit_outlives_requirements = "deny"
+let_underscore_drop = "deny"
+macro_use_extern_crate = "deny"
+meta_variable_misuse = "deny"
+missing_debug_implementations = "deny"
+redundant_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+unused_extern_crates = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+
 [workspace.lints.clippy]
 # Base configuration: Enable all clippy lint groups at DENY level (zero tolerance)
 # Priority -1 ensures these are applied first, then specific overrides below
@@ -270,6 +297,11 @@ str_to_string = "deny"
 
 # Module naming - allow repetition for clarity (e.g., error::ErrorKind)
 module_name_repetitions = "allow"
+
+# Contradicts rustc's `unreachable_pub` (denied above): inside a private module
+# one asks for `pub(crate)`, the other for `pub`. ADR-027 narrows visibility to
+# `pub(crate)`, so `unreachable_pub` wins (carnet#1162).
+redundant_pub_crate = "allow"
 
 # ============================================================================
 # Rust Idiom Enforcement (Prevent AI-generated regressions)

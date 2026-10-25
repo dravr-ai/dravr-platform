@@ -65,7 +65,7 @@ pub struct NarrationOverlayCounts {
 }
 
 /// One immutable, pre-folded overlay generation.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct NarrationVocabSnapshot {
     pub(super) capability: Vec<String>,
     pub(super) internal: Vec<String>,
@@ -81,6 +81,7 @@ pub(super) struct NarrationVocabSnapshot {
 /// crate. Swap is atomic (an `ArcSwap`); a failed apply leaves
 /// the previous snapshot untouched (last-good-wins, like every other
 /// contremaitre overlay).
+#[derive(Debug)]
 pub struct NarrationVocabRegistry {
     /// Current overlay generation. No outer `Arc`: the registry itself is a
     /// process-wide static.

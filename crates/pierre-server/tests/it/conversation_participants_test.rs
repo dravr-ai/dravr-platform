@@ -244,7 +244,11 @@ async fn test_added_member_reads_lists_renames_and_posts() {
         .send(fx.router.clone())
         .await;
     assert_eq!(resp.status_code(), StatusCode::OK);
-    let _: MessagesListResponse = resp.json();
+    let messages: MessagesListResponse = resp.json();
+    assert!(
+        !messages.messages.is_empty(),
+        "the /help exchange is listed"
+    );
 
     let resp = AxumTestRequest::put(&format!("/api/chat/conversations/{}", conv.id))
         .header("authorization", &fx.member_auth)

@@ -246,6 +246,13 @@ pub struct RoleBasedPermissionChecker {
     get_user_role: RoleLookupFn,
 }
 
+impl fmt::Debug for RoleBasedPermissionChecker {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RoleBasedPermissionChecker")
+            .finish_non_exhaustive()
+    }
+}
+
 impl RoleBasedPermissionChecker {
     /// Create new checker with role lookup function
     pub fn new<F>(get_role: F) -> Self

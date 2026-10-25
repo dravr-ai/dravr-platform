@@ -117,7 +117,9 @@ impl TestServer {
         let port = self.port;
 
         let handle = tokio::spawn(async move {
-            let _ = server.run(port).await;
+            if let Err(e) = server.run(port).await {
+                panic!("the MCP server exited with an error: {e}");
+            }
         });
 
         // Wait for server to be ready
@@ -529,7 +531,11 @@ async fn test_mcp_tool_call_with_params() -> Result<()> {
     let client = mcp_client(server.port, jwt_token);
 
     // Initialize first
-    let _ = client.initialize().await?;
+    let init_result = client.initialize().await?;
+    assert!(
+        init_result["protocolVersion"].is_string(),
+        "initialize negotiates a protocol version: {init_result}"
+    );
 
     // Try to call get_connection_status tool (this should work even without OAuth)
     let result = client

@@ -575,7 +575,7 @@ fn calculate_days_remaining(created_at: Option<DateTime<FixedOffset>>, timeframe
             "year" => DAYS_PER_YEAR,
             _ => DEFAULT_GOAL_TIMEFRAME_DAYS,
         };
-        let elapsed = (Utc::now() - created.with_timezone(&chrono::Utc)).num_days();
+        let elapsed = (Utc::now() - created.with_timezone(&Utc)).num_days();
         let elapsed_u32 = match u32::try_from(elapsed.max(0)) {
             Ok(val) => val,
             Err(e) => {
@@ -633,9 +633,7 @@ fn calculate_projected_completion(
 ) -> Option<f64> {
     if current_value > 0.0 {
         let days_elapsed = created_at.map_or(1, |c| {
-            (Utc::now() - c.with_timezone(&chrono::Utc))
-                .num_days()
-                .max(1)
+            (Utc::now() - c.with_timezone(&Utc)).num_days().max(1)
         });
         let days_elapsed_f64 = safe_i64_to_f64(days_elapsed);
         let daily_rate = current_value / days_elapsed_f64;
@@ -697,6 +695,7 @@ fn calculate_progress_metrics(
 // ============================================================================
 
 /// Tool for creating a new fitness goal.
+#[derive(Debug)]
 pub struct SetGoalTool;
 
 #[async_trait]
@@ -823,6 +822,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
 // ============================================================================
 
 /// Tool for getting AI-suggested fitness goals.
+#[derive(Debug)]
 pub struct SuggestGoalsTool;
 
 #[async_trait]
@@ -903,6 +903,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
 // ============================================================================
 
 /// Tool for tracking progress toward fitness goals.
+#[derive(Debug)]
 pub struct TrackProgressTool;
 
 #[async_trait]
@@ -1023,6 +1024,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
 // ============================================================================
 
 /// Tool for analyzing if a fitness goal is achievable.
+#[derive(Debug)]
 pub struct AnalyzeGoalFeasibilityTool;
 
 #[async_trait]

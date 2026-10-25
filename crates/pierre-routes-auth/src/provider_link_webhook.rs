@@ -52,7 +52,7 @@ static WEBHOOK_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client
 
 /// Payload posted to the channel bot after a successful provider connection.
 #[derive(Debug, Clone, Serialize)]
-pub struct ProviderLinkedEvent {
+pub(crate) struct ProviderLinkedEvent {
     /// Event type discriminator
     pub event: &'static str,
     /// The Pierre user that completed the connection
@@ -73,11 +73,11 @@ pub struct ProviderLinkedEvent {
 
 impl ProviderLinkedEvent {
     /// Event name for the `event` discriminator.
-    pub const NAME: &'static str = "provider.linked";
+    pub(crate) const NAME: &'static str = "provider.linked";
 
     /// Build a new event with `connected_at` = now.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         user_id: Uuid,
         tenant_id: Uuid,
         provider: String,
@@ -105,7 +105,7 @@ impl ProviderLinkedEvent {
 ///
 /// Returns an error if the HMAC cannot be initialized from the secret (e.g.
 /// empty secret).
-pub fn sign_payload(secret: &str, payload: &[u8]) -> Result<String, String> {
+pub(crate) fn sign_payload(secret: &str, payload: &[u8]) -> Result<String, String> {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .map_err(|e| format!("Invalid HMAC key: {e}"))?;
     mac.update(payload);
@@ -116,7 +116,7 @@ pub fn sign_payload(secret: &str, payload: &[u8]) -> Result<String, String> {
 /// Fire-and-forget: spawn a background task that POSTs the event to the
 /// configured webhook URL. Silently returns if no URL is configured.
 /// All failures are logged at WARN level — they never block the caller.
-pub fn spawn_emit(event: ProviderLinkedEvent) {
+pub(crate) fn spawn_emit(event: ProviderLinkedEvent) {
     let Ok(url) = env::var(WEBHOOK_URL_ENV) else {
         return; // Webhook disabled — feature is opt-in.
     };

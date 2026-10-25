@@ -29,7 +29,7 @@ pub use pierre_core::models::{
 pub const ENTERPRISE_KEY_REQUEST_CEILING: u32 = 1_000_000_000;
 
 /// API Key Manager
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ApiKeyManager {
     key_prefix: &'static str,
 }

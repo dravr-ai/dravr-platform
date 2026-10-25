@@ -45,7 +45,7 @@ const GUARDIAN_FIELDS: [&str; 6] = [
 /// `pierre-cli settings` — server settings surfaces.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum SettingsCommand {
+pub(crate) enum SettingsCommand {
     /// Guardian security policy (mode, budgets, taint severity, plan mode)
     Guardian {
         /// Verb to run against the guardian settings
@@ -70,7 +70,7 @@ pub enum SettingsCommand {
 /// Verbs for `settings signup`.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum SignupAction {
+pub(crate) enum SignupAction {
     /// Show the sign-up settings and the accounts the daily ceiling counts
     Show,
     /// Restart the daily ceiling's count from zero now; the limit is unchanged
@@ -92,7 +92,7 @@ pub enum SignupAction {
 /// Verbs for `settings guardian`.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum GuardianAction {
+pub(crate) enum GuardianAction {
     /// Show the persisted document, effective policy, and per-field sources
     Show,
     /// Update fields; unset flags leave their fields unchanged
@@ -124,7 +124,7 @@ pub enum GuardianAction {
 /// Verbs for `settings harness`.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum HarnessAction {
+pub(crate) enum HarnessAction {
     /// Show the harness config document and its source
     Show,
     /// Replace the harness config document with the given JSON (`-` reads stdin)
@@ -144,7 +144,7 @@ fn client() -> AppResult<RemoteClient> {
 /// # Errors
 /// Returns an error if not logged in, the server rejects the request, or a
 /// flag value fails to parse.
-pub async fn dispatch(command: SettingsCommand) -> AppResult<()> {
+pub(crate) async fn dispatch(command: SettingsCommand) -> AppResult<()> {
     match command {
         SettingsCommand::Guardian { action } => match action {
             GuardianAction::Show => guardian_show().await,

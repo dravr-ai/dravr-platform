@@ -20,6 +20,7 @@
 //! can only ever rest on data that transport may carry.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
@@ -62,6 +63,16 @@ pub struct AthleteSources<'a> {
     pub tenant_id: TenantId,
     /// The athlete the claim is about.
     pub user_id: Uuid,
+}
+
+impl fmt::Debug for AthleteSources<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AthleteSources")
+            .field("repos", &self.repos)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Build the personalized-layer inputs: the athlete snapshot and the tolerance

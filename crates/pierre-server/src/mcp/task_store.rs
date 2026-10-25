@@ -15,6 +15,7 @@
 //! enforces owner isolation: a foreign task id reads as absent, never as
 //! forbidden.
 
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -181,6 +182,12 @@ pub struct PierreTaskStore {
     /// Shared task repository. Arc because the store itself is shared behind
     /// `Arc<dyn TaskStore>` across the async engine and completion followers.
     repo: Arc<dyn McpTaskRepository>,
+}
+
+impl fmt::Debug for PierreTaskStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PierreTaskStore").finish_non_exhaustive()
+    }
 }
 
 impl PierreTaskStore {

@@ -98,7 +98,7 @@ impl ScriptedExtractor {
     }
 
     fn provider(self: &Arc<Self>) -> ChatProvider {
-        ChatProvider::Custom(Arc::clone(self) as Arc<dyn LlmProvider>)
+        ChatProvider::Custom(Arc::<Self>::clone(self))
     }
 }
 
@@ -312,7 +312,7 @@ async fn a_turn_without_a_provider_records_its_job_then_finishes_it() {
 
     let run = spawn_extract_for_turn(
         Arc::clone(&fx.repos.memory),
-        Arc::clone(&ledger) as Arc<dyn MemoryExtractionJobRepository>,
+        Arc::<WatchedLedger>::clone(&ledger),
         LlmUsageSink::new(Arc::clone(&fx.repos.llm_usage), TaskTracker::new()),
         None,
         CONFIG,

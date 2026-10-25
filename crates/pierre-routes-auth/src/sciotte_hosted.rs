@@ -48,7 +48,7 @@ const LOGIN_TOKEN_PROVIDER: &str = "sciotte";
 
 /// Query parameters for the hosted login page
 #[derive(Debug, Deserialize)]
-pub struct HostedLoginQuery {
+pub(crate) struct HostedLoginQuery {
     /// The signed link-token that authorizes this page to call
     /// `/api/providers/sciotte/*` on behalf of a user
     pub token: Option<SecretString>,
@@ -56,14 +56,14 @@ pub struct HostedLoginQuery {
 
 /// Query parameters for the hosted error page
 #[derive(Debug, Deserialize)]
-pub struct HostedErrorQuery {
+pub(crate) struct HostedErrorQuery {
     /// User-facing error message
     pub message: Option<String>,
 }
 
 /// Query parameters for the hosted success page
 #[derive(Debug, Deserialize)]
-pub struct HostedSuccessQuery {
+pub(crate) struct HostedSuccessQuery {
     /// Optional channel slug so the success page can show channel-specific
     /// follow-up text (e.g. "Return to Slack")
     pub channel: Option<String>,
@@ -128,7 +128,7 @@ async fn validate_and_burn_link_token(
 /// Renders the hosted Sciotte login page in the locale of the athlete the
 /// link-token names. Validates the link-token up-front so a user with an
 /// invalid/expired link sees the error page instead of a broken-looking form.
-pub async fn handle_sciotte_hosted_login_page(
+pub(crate) async fn handle_sciotte_hosted_login_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Query(query): Query<HostedLoginQuery>,
@@ -195,7 +195,7 @@ pub async fn handle_sciotte_hosted_login_page(
 }
 
 /// GET `/providers/sciotte/success`
-pub async fn handle_sciotte_hosted_success_page(
+pub(crate) async fn handle_sciotte_hosted_success_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Query(query): Query<HostedSuccessQuery>,
@@ -220,7 +220,7 @@ pub async fn handle_sciotte_hosted_success_page(
 ///
 /// The message is the caller's own text and is shown as given; without one
 /// the page words the failure itself, in the browser's language.
-pub async fn handle_sciotte_hosted_error_page(
+pub(crate) async fn handle_sciotte_hosted_error_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Query(query): Query<HostedErrorQuery>,

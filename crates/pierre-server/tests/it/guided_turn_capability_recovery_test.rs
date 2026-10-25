@@ -476,7 +476,7 @@ mod guided_turn {
     async fn small_invented_figures_matching_the_prompt_clock_are_regrounded() {
         let fx = setup("guided-recovery-clock@test.com", SEASON_PROBE).await;
         start_season_walk(&fx, &[SeasonTopic::RaceCalendar]).await;
-        let today = chrono::Utc::now().date_naive();
+        let today = Utc::now().date_naive();
         let question = format!(
             "Tu fais déjà 30 km, 9 sorties, et ta course est le {}. Laquelle vises-tu ?",
             today.format("%-d/%-m/%Y")

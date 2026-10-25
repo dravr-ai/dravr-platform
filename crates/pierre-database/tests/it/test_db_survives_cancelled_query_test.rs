@@ -51,7 +51,10 @@ async fn a_writer_aborted_mid_query_does_not_take_the_database_with_it() {
         // A different phase of the writer's loop each round.
         sleep(Duration::from_micros(50 + (round * 37) % 900)).await;
         writer.abort();
-        let _ = writer.await;
+        assert!(
+            writer.await.is_err_and(|e| e.is_cancelled()),
+            "round {round}: the writer failed before it was aborted"
+        );
 
         let run = ledger
             .get_worker_run("probe")

@@ -309,7 +309,11 @@ async fn the_retention_sweep_never_deletes_an_a2a_client_credential() {
         .expect("the A2A client's registration survives the sweep");
     assert_eq!(kept.expires_at, None);
     assert_eq!(kept.grant_types, vec!["client_credentials".to_owned()]);
-    assert_eq!(kept.redirect_uris, [] as [String; 0]);
+    assert!(
+        kept.redirect_uris.is_empty(),
+        "expected empty, got {:?}",
+        kept.redirect_uris
+    );
 
     let response = request_token(&resources, &token_path, &client_id, &client_secret).await;
     assert_eq!(response.status(), 200);

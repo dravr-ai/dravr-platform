@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -68,6 +69,12 @@ return 0
 #[derive(Clone)]
 pub struct RedisCache {
     manager: ConnectionManager,
+}
+
+impl fmt::Debug for RedisCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RedisCache").finish_non_exhaustive()
+    }
 }
 
 impl RedisCache {

@@ -23,6 +23,7 @@ use crate::mcp::resources::ServerContext;
 use crate::services::personas::get_personas_handler;
 
 /// User-facing persona cards routes.
+#[derive(Debug)]
 pub struct PersonasRoutes;
 
 impl PersonasRoutes {

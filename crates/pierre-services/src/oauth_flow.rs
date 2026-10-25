@@ -74,7 +74,7 @@ struct ClientSettings {
 // ---------------------------------------------------------------------------
 
 /// OAuth service for OAuth flow business logic
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OAuthService {
     /// Crate-visible for the `provider_revocation` companion module.
     pub(crate) data: DataContext,
@@ -262,7 +262,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<Option<chrono::DateTime<chrono::Utc>>> {
+    ) -> AppResult<Option<chrono::DateTime<Utc>>> {
         let expires_at = self
             .store_oauth_token(
                 user_id,
@@ -494,7 +494,7 @@ impl OAuthService {
         token: &OAuth2Token,
         oauth_app_client_id: Option<&str>,
         precondition: StorePrecondition,
-    ) -> AppResult<Option<chrono::DateTime<chrono::Utc>>> {
+    ) -> AppResult<Option<chrono::DateTime<Utc>>> {
         let expires_at = token.expires_at;
 
         let user_oauth_token = UserOAuthToken {
@@ -514,8 +514,8 @@ impl OAuthService {
             // Which shared-app pool member issued this token (pinned at authorize)
             // so refresh resolves the matching secret. `None` = env-default app.
             oauth_app_client_id: oauth_app_client_id.map(str::to_owned),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         strava_reconnect::store_guarded(
@@ -561,7 +561,7 @@ impl OAuthService {
         &self,
         user_id: uuid::Uuid,
         provider: &str,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        expires_at: Option<chrono::DateTime<Utc>>,
     ) -> AppResult<()> {
         let notification_id = self
             .data

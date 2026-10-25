@@ -20,7 +20,7 @@ use tracing::warn;
 /// summaries, and once a read is refused for rate (the request budget or the
 /// provider's own 429) the rest keep theirs without asking again, since every
 /// further read would be refused the same way.
-pub async fn promote_to_detail(
+pub(super) async fn promote_to_detail(
     provider: &dyn CoreFitnessProvider,
     summaries: &[Activity],
     detail_budget: usize,

@@ -129,6 +129,7 @@ pub async fn handle_post(
 }
 
 /// Mount-helper for the caller's coach-access routes.
+#[derive(Debug)]
 pub struct CoachAccessRoutes;
 
 impl CoachAccessRoutes {

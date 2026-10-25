@@ -371,7 +371,7 @@ mod messaging_e2e_tests {
             "challenge": "e2e_challenge_abc123"
         })
         .to_string();
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = Utc::now().timestamp().to_string();
         let sig = compute_slack_sig(signing_secret, &timestamp, &challenge_body);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
@@ -406,7 +406,7 @@ mod messaging_e2e_tests {
             }
         })
         .to_string();
-        let timestamp2 = chrono::Utc::now().timestamp().to_string();
+        let timestamp2 = Utc::now().timestamp().to_string();
         let sig2 = compute_slack_sig(signing_secret, &timestamp2, &slack_msg_body);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
@@ -808,7 +808,7 @@ mod messaging_e2e_tests {
             "event": {"type": "message", "user": "U1", "text": "hi", "channel": "C1", "ts": "1.1"}
         })
         .to_string();
-        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let timestamp = Utc::now().timestamp().to_string();
         let bad_sig = compute_slack_sig("wrong_secret", &timestamp, &body_str);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));

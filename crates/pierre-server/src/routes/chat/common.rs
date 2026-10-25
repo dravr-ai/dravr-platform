@@ -20,7 +20,7 @@ use crate::mcp::resources::ServerContext;
 /// athlete: that athlete's roster name is resolved alongside, so the three
 /// `subject_*` fields go out together. One user read for such a thread, none
 /// for any other.
-pub async fn conversation_response(
+pub(super) async fn conversation_response(
     resources: &ServerContext,
     conv: ConversationRecord,
 ) -> ConversationResponse {
@@ -39,7 +39,7 @@ pub async fn conversation_response(
 ///
 /// Returns the resolver's error, and an auth error for a user with no
 /// tenant.
-pub async fn get_tenant_id(
+pub(crate) async fn get_tenant_id(
     auth: &AuthResult,
     resources: &Arc<ServerContext>,
 ) -> Result<TenantId, AppError> {
@@ -55,7 +55,7 @@ pub async fn get_tenant_id(
 /// `coach_sharing_consent` (a fellow member's read by `peer_sharing_consent`).
 /// Gates both conversation attachment and the
 /// room-transcript read.
-pub async fn verify_group_membership(
+pub(super) async fn verify_group_membership(
     resources: &Arc<ServerContext>,
     group_id: &str,
     user_id: Uuid,

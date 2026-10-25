@@ -791,10 +791,8 @@ mod tests {
             },
             ..newcomer()
         };
-        assert_eq!(
-            rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], &[], 5),
-            [] as [&UseCase; 0]
-        );
+        let got = rank(&catalogue, &quiet, AgentCategory::Nutrition, &[], &[], 5);
+        assert!(got.is_empty(), "expected empty, got {got:?}");
     }
 
     #[test]

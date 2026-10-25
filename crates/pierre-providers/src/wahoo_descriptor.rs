@@ -23,6 +23,7 @@ use crate::spi::{
 /// (carnet#34). Read the legal assessment before widening anything here:
 /// dravr-vault `Work Log/2026-08/Wahoo API Agreement — Legal Read and Sync
 /// Assessment (2026-08-17).md`, Part 8.
+#[derive(Debug)]
 pub struct WahooDescriptor;
 
 impl ProviderDescriptor for WahooDescriptor {

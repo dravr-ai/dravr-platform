@@ -266,6 +266,7 @@ pub async fn list_commands(
 }
 
 /// Slash-command catalogue routes.
+#[derive(Debug)]
 pub struct CommandRoutes;
 
 impl CommandRoutes {

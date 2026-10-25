@@ -75,7 +75,7 @@ async fn seed_token(
         Some("test_refresh_token".to_owned()),
         // Sciotte rows have no expiry in production; tokens we insert here
         // are wall-clock valid so the resolver sees them as present.
-        Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+        Some(Utc::now() + chrono::Duration::hours(1)),
         Some("read".to_owned()),
     );
     resources
@@ -581,10 +581,7 @@ async fn multi_provider_status_hides_sciotte_entries() {
     let strava = providers
         .get(oauth_providers::STRAVA)
         .expect("strava entry present");
-    assert_eq!(
-        strava.get("connected").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(strava.get("connected").and_then(Value::as_bool), Some(true));
     assert_eq!(
         strava.get("backend").and_then(|v| v.as_str()),
         Some("mirror")
@@ -595,7 +592,7 @@ async fn multi_provider_status_hides_sciotte_entries() {
         .get(oauth_providers::GARMIN)
         .expect("garmin entry present");
     assert_eq!(
-        garmin.get("connected").and_then(serde_json::Value::as_bool),
+        garmin.get("connected").and_then(Value::as_bool),
         Some(false)
     );
     assert_eq!(garmin.get("backend").and_then(|v| v.as_str()), Some("none"));
@@ -620,10 +617,7 @@ async fn multi_provider_status_reports_oauth_backend_when_no_mirror() {
         .unwrap()
         .clone();
     let strava = providers.get(oauth_providers::STRAVA).unwrap();
-    assert_eq!(
-        strava.get("connected").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(strava.get("connected").and_then(Value::as_bool), Some(true));
     assert_eq!(
         strava.get("backend").and_then(|v| v.as_str()),
         Some("oauth")
@@ -650,10 +644,7 @@ async fn multi_provider_status_strava_prefers_oauth_when_both_rows_exist() {
         .unwrap()
         .clone();
     let strava = providers.get(oauth_providers::STRAVA).unwrap();
-    assert_eq!(
-        strava.get("connected").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(strava.get("connected").and_then(Value::as_bool), Some(true));
     // Status must match routing: Strava with an OAuth token reports OAuth, not
     // the dormant sciotte mirror (Strava → OAuth-API migration).
     assert_eq!(
@@ -689,10 +680,7 @@ async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
         .unwrap()
         .clone();
     let garmin = providers.get(oauth_providers::GARMIN).unwrap();
-    assert_eq!(
-        garmin.get("connected").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(garmin.get("connected").and_then(Value::as_bool), Some(true));
     assert_eq!(
         garmin.get("backend").and_then(|v| v.as_str()),
         Some("mirror"),
@@ -723,7 +711,7 @@ async fn single_provider_status_rejects_explicit_sciotte_query() {
 
     let data = structured(&result);
     assert_eq!(
-        data.get("connected").and_then(serde_json::Value::as_bool),
+        data.get("connected").and_then(Value::as_bool),
         Some(false),
         "sciotte must be reported as disconnected when queried by its internal name"
     );
@@ -750,10 +738,7 @@ async fn single_provider_status_reports_mirror_backend_when_present() {
         .await;
 
     let data = structured(&result);
-    assert_eq!(
-        data.get("connected").and_then(serde_json::Value::as_bool),
-        Some(true)
-    );
+    assert_eq!(data.get("connected").and_then(Value::as_bool), Some(true));
     assert_eq!(data.get("backend").and_then(|v| v.as_str()), Some("mirror"));
 }
 
@@ -804,8 +789,7 @@ async fn single_provider_status_reports_needs_reauth_after_refresh_failure() {
         "a connected provider whose refresh died must report needs_reauth, not connected"
     );
     assert_eq!(
-        data.get("needs_reauth")
-            .and_then(serde_json::Value::as_bool),
+        data.get("needs_reauth").and_then(Value::as_bool),
         Some(true)
     );
 }
@@ -855,9 +839,7 @@ async fn multi_provider_status_reports_needs_reauth() {
         Some("needs_reauth")
     );
     assert_eq!(
-        whoop
-            .get("needs_reauth")
-            .and_then(serde_json::Value::as_bool),
+        whoop.get("needs_reauth").and_then(Value::as_bool),
         Some(true)
     );
 }

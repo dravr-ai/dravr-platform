@@ -33,3 +33,16 @@ fn a_non_empty_api_key_builds_the_service() {
             .is_ok()
     );
 }
+
+#[test]
+fn the_service_never_prints_its_api_key() {
+    let service = ResendEmailService::new(
+        "re_sentinel-key-7f3a".to_owned(),
+        "Dravr <no-reply@dravr.ai>".to_owned(),
+    )
+    .unwrap();
+    for printed in [format!("{service:?}"), format!("{service:#?}")] {
+        assert!(!printed.contains("re_sentinel-key-7f3a"), "{printed}");
+        assert!(printed.contains("no-reply@dravr.ai"), "{printed}");
+    }
+}

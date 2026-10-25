@@ -6,7 +6,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
-use pierre_evals::claim_extractor::{classify_heuristic, extract_heuristic, split_sentences};
+use pierre_evals::claim_extractor::{
+    classify_heuristic, extract_heuristic, split_sentences, ClaimSource, ExtractedClaim,
+};
 use pierre_memory::ClaimCategory;
 
 #[test]
@@ -148,4 +150,28 @@ fn a_question_in_parentheses_does_not_end_the_sentence() {
         ],
         "bug: a terminator inside parentheses ended the sentence"
     );
+}
+
+#[test]
+fn an_extracted_claim_prints_the_size_of_its_text_never_the_text() {
+    let claim = ExtractedClaim {
+        text: "sentinel-claim-7f3a".to_owned(),
+        category: ClaimCategory::Nutrition,
+        source: ClaimSource::Caller,
+    };
+
+    for printed in [format!("{claim:?}"), format!("{claim:#?}")] {
+        assert!(
+            !printed.contains("sentinel-claim-7f3a"),
+            "the claim text leaked: {printed}"
+        );
+        assert!(
+            printed.contains("ExtractedClaim"),
+            "the type is named: {printed}"
+        );
+        assert!(
+            printed.contains("text_len"),
+            "the claim states its size: {printed}"
+        );
+    }
 }

@@ -42,6 +42,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::fmt;
 
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{
@@ -114,6 +115,18 @@ pub struct RsaKeyPair {
     pub created_at: DateTime<Utc>,
     /// Whether this is the currently active signing key
     pub is_active: bool,
+}
+
+impl fmt::Debug for RsaKeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RsaKeyPair")
+            .field("kid", &self.kid)
+            .field("private_key", &"[REDACTED]")
+            .field("public_key", &self.public_key)
+            .field("created_at", &self.created_at)
+            .field("is_active", &self.is_active)
+            .finish()
+    }
 }
 
 impl RsaKeyPair {
@@ -248,6 +261,7 @@ impl RsaKeyPair {
 }
 
 /// JWKS manager for key lifecycle management
+#[derive(Debug)]
 pub struct JwksManager {
     /// All keys (active and historical)
     keys: HashMap<String, RsaKeyPair>,

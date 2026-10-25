@@ -11,26 +11,26 @@ use std::str::FromStr;
 /// Default values for the agent-recommendation tuning knobs.
 mod defaults {
     /// Look-back window (days) for the recommendation activity scan.
-    pub const WINDOW_DAYS: u32 = 90;
+    pub(super) const WINDOW_DAYS: u32 = 90;
     /// Max activities pulled per connected provider during the scan.
-    pub const ACTIVITY_LIMIT_PER_PROVIDER: usize = 50;
+    pub(super) const ACTIVITY_LIMIT_PER_PROVIDER: usize = 50;
     /// How long a computed sport profile stays cached (seconds).
-    pub const PROFILE_TTL_SECS: u64 = 6 * 60 * 60;
+    pub(super) const PROFILE_TTL_SECS: u64 = 6 * 60 * 60;
     /// Minimum activity count for a sport to count as "active".
-    pub const MIN_ACTIVITIES_FOR_SPORT: u32 = 3;
+    pub(super) const MIN_ACTIVITIES_FOR_SPORT: u32 = 3;
     /// Minimum share of total activities for a sport to count as "active".
-    pub const MIN_SHARE_FOR_SPORT: f32 = 0.15;
+    pub(super) const MIN_SHARE_FOR_SPORT: f32 = 0.15;
     /// Recommendation score for a sport-agnostic agent once its providers are met.
-    pub const SPORT_AGNOSTIC_BASE_SCORE: f32 = 0.5;
+    pub(super) const SPORT_AGNOSTIC_BASE_SCORE: f32 = 0.5;
     /// Multiplier applied to a sport match when the user is below `min_activities`.
-    pub const BELOW_MIN_ACTIVITIES_PENALTY: f32 = 0.5;
+    pub(super) const BELOW_MIN_ACTIVITIES_PENALTY: f32 = 0.5;
     /// Maximum agents surfaced in the "Recommended for you" set.
-    pub const MAX_RECOMMENDED: usize = 3;
+    pub(super) const MAX_RECOMMENDED: usize = 3;
     /// Candidate pool size the deterministic prefilter hands to the LLM
     /// re-ranking step. Larger gives the model more to choose from at the
     /// cost of a longer prompt; the model still returns at most
     /// `MAX_RECOMMENDED`.
-    pub const RERANK_POOL_SIZE: usize = 8;
+    pub(super) const RERANK_POOL_SIZE: usize = 8;
 }
 
 /// Tuning knobs for the personalized agent recommender.

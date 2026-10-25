@@ -17,6 +17,7 @@
 //! caches it, so a wrap/unwrap burst costs one token mint per token lifetime.
 
 use std::env;
+use std::fmt;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -48,6 +49,15 @@ pub struct GcpKmsKekProvider {
     /// provider is owned by this one struct; the trait object keeps the
     /// metadata-server implementation out of the KMS code path.
     token_provider: Box<dyn TokenProvider>,
+}
+
+impl fmt::Debug for GcpKmsKekProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GcpKmsKekProvider")
+            .field("key_resource", &self.key_resource)
+            .field("http", &self.http)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Deserialize)]

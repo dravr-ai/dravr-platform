@@ -40,7 +40,7 @@ use crate::TurnInput;
 
 /// Who a turn is about, named once from its conversation.
 #[derive(Debug, Clone, Copy)]
-pub struct TurnStanding {
+pub(crate) struct TurnStanding {
     /// Whose data the turn runs against: the sender's own only on
     /// [`TurnSeat::Subject`].
     pub seat: TurnSeat,
@@ -64,7 +64,7 @@ impl TurnStanding {
     /// Anything else the coach says in the room is about the room
     /// (carnet#1084).
     #[must_use]
-    pub const fn files_on_sender(self) -> bool {
+    pub(crate) const fn files_on_sender(self) -> bool {
         match self.seat {
             TurnSeat::Subject => true,
             TurnSeat::Coach => self.walk_bound_to_sender,
@@ -80,7 +80,7 @@ impl TurnStanding {
 /// coach's seat as well. The walk binding is read from the walk state the
 /// turn starts with, which every guided turn — a probe's answer and the
 /// walk's closing one alike — still carries.
-pub async fn turn_standing(
+pub(crate) async fn turn_standing(
     repos: &RepositoryRegistry,
     conv: &ConversationRecord,
     input: &TurnInput,
@@ -103,7 +103,7 @@ pub async fn turn_standing(
 
 /// The sender holds the coach's seat of the conversation's group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CoachSeat {
+pub(crate) struct CoachSeat {
     /// Members other than the coach, i.e. athletes who have joined. Zero while
     /// every invite is still unredeemed.
     pub athletes: usize,
@@ -111,7 +111,7 @@ pub struct CoachSeat {
 
 impl CoachSeat {
     /// The prompt block that tells the agent who it is talking to.
-    pub fn directive(self) -> String {
+    pub(crate) fn directive(self) -> String {
         let roster = if self.athletes == 0 {
             "No athlete has joined this group yet: the invite is still pending, so there is \
              no athlete data to read. Say so plainly, and help the coach with what needs none \

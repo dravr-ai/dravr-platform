@@ -28,7 +28,7 @@ use std::fmt::{self, Display, Formatter};
 /// categories are not (a `Distance { sport: "run" }` is not
 /// comparable to a `Distance { sport: "ride" }`).
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
-pub enum AggregateClaim {
+pub(crate) enum AggregateClaim {
     /// Distance total for a specific sport.
     Distance { sport: String },
     /// Total count of activities (optionally scoped to a window).
@@ -37,7 +37,7 @@ pub enum AggregateClaim {
 
 /// One numeric value the bot stated at a given turn.
 #[derive(Debug, Clone)]
-pub struct ClaimRecord {
+pub(crate) struct ClaimRecord {
     /// 1-based turn index this claim was found in.
     pub turn_index: usize,
     /// Numeric value the bot stated.
@@ -46,17 +46,17 @@ pub struct ClaimRecord {
 
 /// Per-scenario record of every numeric claim per category.
 #[derive(Debug, Clone, Default)]
-pub struct ClaimTimeline {
+pub(crate) struct ClaimTimeline {
     entries: BTreeMap<AggregateClaim, Vec<ClaimRecord>>,
 }
 
 impl ClaimTimeline {
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn record(&mut self, claim: AggregateClaim, turn_index: usize, value: f64) {
+    pub(crate) fn record(&mut self, claim: AggregateClaim, turn_index: usize, value: f64) {
         self.entries
             .entry(claim)
             .or_default()
@@ -76,7 +76,7 @@ impl ClaimTimeline {
     /// We flag the *first* drift per category to surface the bug
     /// without drowning the operator in noise.
     #[must_use]
-    pub fn detect_drift(&self, tolerance: f64) -> Vec<DriftFinding> {
+    pub(crate) fn detect_drift(&self, tolerance: f64) -> Vec<DriftFinding> {
         let mut findings = Vec::new();
         for (claim, records) in &self.entries {
             if records.len() < 2 {
@@ -115,7 +115,7 @@ impl ClaimTimeline {
 
 /// One drift event surfaced by [`ClaimTimeline::detect_drift`].
 #[derive(Debug, Clone)]
-pub struct DriftFinding {
+pub(crate) struct DriftFinding {
     pub claim: AggregateClaim,
     pub earlier_turn: usize,
     pub earlier_value: f64,

@@ -122,7 +122,10 @@ fn test_provider_descriptor_to_config() {
     if let Some(ref revoke_url) = config.revoke_url {
         assert_eq!(revoke_url, "https://www.strava.com/oauth/revoke");
     }
-    assert_ne!(config.default_scopes, [] as [String; 0]);
+    assert!(
+        !config.default_scopes.is_empty(),
+        "expected a non-empty value"
+    );
     assert!(config
         .default_scopes
         .contains(&"activity:read_all".to_owned()));
@@ -223,5 +226,9 @@ fn test_garmin_full_descriptor() {
     }
 
     // Garmin's scope is fixed server-side: its authorization requests none.
-    assert_eq!(desc.default_scopes(), [] as [&str; 0]);
+    assert!(
+        desc.default_scopes().is_empty(),
+        "expected empty, got {:?}",
+        desc.default_scopes()
+    );
 }

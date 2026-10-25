@@ -56,14 +56,14 @@ use uuid::Uuid;
 use super::axum_test::AxumTestRequest;
 
 /// Numeric bot id encoded in the fixture bot token's prefix.
-pub const BOT_ID: i64 = 54_321;
+pub(crate) const BOT_ID: i64 = 54_321;
 /// Fixture bot token — canot derives the bot id from the prefix before `:`.
-pub const BOT_TOKEN: &str = "54321:COMMAND_E2E_BOT";
+pub(crate) const BOT_TOKEN: &str = "54321:COMMAND_E2E_BOT";
 /// Bot username seeded into canot's process-wide identity cache, so mention
 /// detection never issues a live `getMe` from the suite.
-pub const BOT_USERNAME: &str = "dravr_command_e2e_bot";
+pub(crate) const BOT_USERNAME: &str = "dravr_command_e2e_bot";
 /// Webhook secret the fixture channel config registers and every post signs.
-pub const TG_SECRET: &str = "command_e2e_tg_secret";
+pub(crate) const TG_SECRET: &str = "command_e2e_tg_secret";
 
 /// Bcrypt cost the fixture hashes its members' passwords at.
 ///
@@ -94,7 +94,7 @@ const JUDGE_MARKER: &str = "You are the final-stage fact checker";
 ///
 /// Mock is test-only (CLAUDE.md): the LLM boundary is the assertion point
 /// itself here; the realistic counterpart is the live chat-eval lane.
-pub struct RouterLlm {
+pub(crate) struct RouterLlm {
     model: String,
     /// Coaching-turn replies, popped in order; the last one repeats. Keep
     /// them under 40 characters and free of advice cues ("commence",
@@ -113,7 +113,7 @@ pub struct RouterLlm {
 }
 
 impl RouterLlm {
-    pub fn new() -> Arc<Self> {
+    pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
             model: "mock-model".to_owned(),
             turn_replies: Mutex::new(vec!["OK.".to_owned()]),
@@ -126,13 +126,13 @@ impl RouterLlm {
     }
 
     /// Replace the coaching-turn reply script (popped in order, last repeats).
-    pub fn set_turn_replies(&self, replies: &[&str]) {
+    pub(crate) fn set_turn_replies(&self, replies: &[&str]) {
         *self.turn_replies.lock().unwrap() = replies.iter().map(|r| (*r).to_owned()).collect();
     }
 
     /// When an extraction request's text contains `needle`, answer with
     /// `json_array` (the bare `RawFact` array `parse_raw_facts` expects).
-    pub fn extraction_rule(&self, needle: &str, json_array: &str) {
+    pub(crate) fn extraction_rule(&self, needle: &str, json_array: &str) {
         self.extraction_rules
             .lock()
             .unwrap()
@@ -214,7 +214,7 @@ impl LlmProvider for RouterLlm {
 /// One linked human: an Active user owning their own tenant, channel-linked
 /// under the bot tenant.
 #[derive(Clone)]
-pub struct Member {
+pub(crate) struct Member {
     pub user_id: Uuid,
     pub home_tenant: TenantId,
     pub channel_user_id: String,
@@ -222,7 +222,7 @@ pub struct Member {
 
 /// The base fixture: server with production LLM wiring, a bot tenant with a
 /// Telegram channel config, and the seeded bot-identity cache.
-pub struct CommandE2e {
+pub(crate) struct CommandE2e {
     pub resources: Arc<ServerContext>,
     pub llm: Arc<RouterLlm>,
     /// The bot tenant's owner — the admin a system agent under that tenant
@@ -234,14 +234,14 @@ pub struct CommandE2e {
 }
 
 /// `CommandE2e` plus one coaching group bound to a Telegram supergroup.
-pub struct RoomE2e {
+pub(crate) struct RoomE2e {
     pub base: Arc<CommandE2e>,
     pub group_id: Uuid,
     pub chat_id: i64,
 }
 
 /// The webhook ACK the ingress returns.
-pub struct WebhookOutcome {
+pub(crate) struct WebhookOutcome {
     pub status: StatusCode,
     pub body: Value,
 }
@@ -249,7 +249,7 @@ pub struct WebhookOutcome {
 impl WebhookOutcome {
     /// The ingress recognition proxy: a slash command handled synchronously
     /// stores no pipeline message.
-    pub fn messages_stored(&self) -> i64 {
+    pub(crate) fn messages_stored(&self) -> i64 {
         self.body
             .get("messages_stored")
             .and_then(Value::as_i64)
@@ -258,7 +258,7 @@ impl WebhookOutcome {
 }
 
 /// The repo-root `commands/` catalog directory, from the crate manifest.
-pub fn commands_dir() -> PathBuf {
+pub(crate) fn commands_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -322,7 +322,7 @@ impl CommandE2e {
     /// documented inert-feature trap. The harness cannot build the server
     /// itself: `helpers/` compiles into every test binary, and `common` only
     /// exists in the binaries that declare it.
-    pub async fn start(resources: Arc<ServerContext>, llm: Arc<RouterLlm>) -> Arc<Self> {
+    pub(crate) async fn start(resources: Arc<ServerContext>, llm: Arc<RouterLlm>) -> Arc<Self> {
         let _seed =
             TelegramTransport::with_bot_identity("unused-secret".to_owned(), BOT_ID, BOT_USERNAME);
 
@@ -362,7 +362,7 @@ impl CommandE2e {
     /// A fresh linked member: own tenant, telegram link under the bot tenant,
     /// and (optionally) a synthetic provider connection so load snapshots and
     /// prefetches have a data source to name.
-    pub async fn linked_member(&self, with_provider: bool) -> Member {
+    pub(crate) async fn linked_member(&self, with_provider: bool) -> Member {
         let seq = self.sender_seq.fetch_add(1, Ordering::SeqCst);
         let email = format!("cmd_e2e_member_{seq}_{}@example.com", Uuid::new_v4());
         let (user_id, home_tenant) = create_user_with_own_tenant(&self.resources, &email).await;
@@ -418,7 +418,12 @@ impl CommandE2e {
     /// A system agent under `tenant`, created by `owner`: the FK a coaching
     /// group needs, and the agent the channel-group bootstrap picks when a
     /// supergroup first speaks (`create_test_server_resources` seeds none).
-    pub async fn seed_coach_agent(&self, owner: Uuid, tenant: TenantId, title: &str) -> Agent {
+    pub(crate) async fn seed_coach_agent(
+        &self,
+        owner: Uuid,
+        tenant: TenantId,
+        title: &str,
+    ) -> Agent {
         self.resources
             .common
             .repos
@@ -443,14 +448,19 @@ impl CommandE2e {
     /// An UNADDRESSED supergroup text from the raw channel sender `sender`
     /// in `chat_id` — bound to a room or not, linked or not. The primitive
     /// every room send builds on; `RoomE2e` names the chat and the member.
-    pub async fn send_group_text(&self, sender: i64, chat_id: i64, text: &str) -> WebhookOutcome {
+    pub(crate) async fn send_group_text(
+        &self,
+        sender: i64,
+        chat_id: i64,
+        text: &str,
+    ) -> WebhookOutcome {
         let message_id = self.update_id.fetch_add(1, Ordering::SeqCst);
         self.post_update(group_message(sender, chat_id, message_id, text))
             .await
     }
 
     /// A signed Telegram DM turn from `m` (private chat, chat id == sender).
-    pub async fn send_dm(&self, m: &Member, text: &str) -> WebhookOutcome {
+    pub(crate) async fn send_dm(&self, m: &Member, text: &str) -> WebhookOutcome {
         let message_id = self.update_id.fetch_add(1, Ordering::SeqCst);
         let sender: i64 = m.channel_user_id.parse().unwrap();
         self.post_update(json!({
@@ -464,7 +474,7 @@ impl CommandE2e {
 
     /// A signed Telegram DM from `m` sharing a map pin instead of text — the
     /// `location` object Telegram sends when the athlete taps "Location".
-    pub async fn send_dm_location(
+    pub(crate) async fn send_dm_location(
         &self,
         m: &Member,
         latitude: f64,
@@ -483,7 +493,12 @@ impl CommandE2e {
 
     /// The member's messaging session id under `tenant` for `chat_id`
     /// (DM: chat id == sender, tenant == their own).
-    pub async fn session_id(&self, m: &Member, tenant: TenantId, chat_id: &str) -> Option<String> {
+    pub(crate) async fn session_id(
+        &self,
+        m: &Member,
+        tenant: TenantId,
+        chat_id: &str,
+    ) -> Option<String> {
         self.resources
             .common
             .repos
@@ -497,7 +512,7 @@ impl CommandE2e {
 
     /// The conversation id the member's session under `tenant`/`chat_id`
     /// points at, when that session exists.
-    pub async fn conversation_id(
+    pub(crate) async fn conversation_id(
         &self,
         m: &Member,
         tenant: TenantId,
@@ -520,7 +535,7 @@ impl CommandE2e {
     /// The guided-flow state on the conversation the member's session under
     /// `tenant`/`chat_id` points at. `None` when no session, no conversation,
     /// or no active walk.
-    pub async fn onboarding_state(
+    pub(crate) async fn onboarding_state(
         &self,
         m: &Member,
         tenant: TenantId,
@@ -540,7 +555,7 @@ impl CommandE2e {
     }
 
     /// Facts for `m` by source under `tenant`, right now.
-    pub async fn facts_now(
+    pub(crate) async fn facts_now(
         &self,
         tenant: TenantId,
         m: &Member,
@@ -563,7 +578,7 @@ impl CommandE2e {
 
     /// Poll (≤30s) until at least `at_least` facts of `source` exist for `m`
     /// under `tenant`; panics with the count on timeout.
-    pub async fn wait_facts(
+    pub(crate) async fn wait_facts(
         &self,
         tenant: TenantId,
         m: &Member,
@@ -587,7 +602,7 @@ impl CommandE2e {
     /// Poll (≤30s) until at least `want` non-empty outbound ledger rows exist
     /// for `session_id`; the delivery task persists them asynchronously after
     /// the channel send fails on test credentials.
-    pub async fn wait_outbound_for_session(&self, session_id: &str, want: i64) -> i64 {
+    pub(crate) async fn wait_outbound_for_session(&self, session_id: &str, want: i64) -> i64 {
         for _ in 0..1200 {
             let n = self.outbound_count_for_session(session_id).await;
             if n >= want {
@@ -600,7 +615,7 @@ impl CommandE2e {
     }
 
     /// Non-empty outbound ledger rows for `session_id`, right now.
-    pub async fn outbound_count_for_session(&self, session_id: &str) -> i64 {
+    pub(crate) async fn outbound_count_for_session(&self, session_id: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != ''";
@@ -621,7 +636,7 @@ impl CommandE2e {
 
     /// Non-empty outbound ledger bodies for `session_id`, oldest first — the
     /// record of what the athlete was told, read back verbatim.
-    pub async fn outbound_bodies_for_session(&self, session_id: &str) -> Vec<String> {
+    pub(crate) async fn outbound_bodies_for_session(&self, session_id: &str) -> Vec<String> {
         const SQL: &str = "SELECT content_body FROM messaging_messages \
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != '' \
@@ -645,7 +660,7 @@ impl CommandE2e {
     /// `session_id`, oldest first, in step with
     /// [`Self::outbound_bodies_for_session`]: `card` for a message sent with
     /// buttons, `rich_text` or `text` otherwise.
-    pub async fn outbound_types_for_session(&self, session_id: &str) -> Vec<String> {
+    pub(crate) async fn outbound_types_for_session(&self, session_id: &str) -> Vec<String> {
         const SQL: &str = "SELECT content_type FROM messaging_messages \
              WHERE direction = 'outbound' AND session_id = $1 \
                AND content_body IS NOT NULL AND content_body != '' \
@@ -668,7 +683,7 @@ impl CommandE2e {
     /// The distinct `tenant_id`s the `direction` ledger rows of `session_id`
     /// were written under — the tenancy of a DM unit, read back from the
     /// rows themselves.
-    pub async fn ledger_tenants_for_session(
+    pub(crate) async fn ledger_tenants_for_session(
         &self,
         session_id: &str,
         direction: &str,
@@ -693,7 +708,7 @@ impl CommandE2e {
     }
 
     /// Poll (≤30s) until `want` outbound ledger rows carry `needle`.
-    pub async fn wait_outbound_containing(&self, needle: &str, want: i64) -> i64 {
+    pub(crate) async fn wait_outbound_containing(&self, needle: &str, want: i64) -> i64 {
         for _ in 0..1200 {
             let n = self.outbound_count_containing(needle).await;
             if n >= want {
@@ -706,7 +721,7 @@ impl CommandE2e {
     }
 
     /// Outbound ledger rows carrying `needle`, right now.
-    pub async fn outbound_count_containing(&self, needle: &str) -> i64 {
+    pub(crate) async fn outbound_count_containing(&self, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'outbound' AND content_body LIKE '%' || $1 || '%'";
         match self.resources.agent.database.backend() {
@@ -725,7 +740,7 @@ impl CommandE2e {
     }
 
     /// Inbound ledger rows whose body is exactly `body` (ambient capture).
-    pub async fn count_inbound_with_body(&self, body: &str) -> i64 {
+    pub(crate) async fn count_inbound_with_body(&self, body: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM messaging_messages \
              WHERE direction = 'inbound' AND content_body = $1";
         match self.resources.agent.database.backend() {
@@ -746,7 +761,7 @@ impl CommandE2e {
     /// `(content_type, content_body)` of every inbound ledger row of
     /// `session_id` under `tenant`, oldest first — what the ingress recorded
     /// the athlete sending, read back through the repository that serves it.
-    pub async fn inbound_rows_for_session(
+    pub(crate) async fn inbound_rows_for_session(
         &self,
         tenant: TenantId,
         session_id: &str,
@@ -771,7 +786,11 @@ impl CommandE2e {
     /// athlete's own words), among the turns recorded from index `from`. A
     /// count of turns cannot say which one ran: the agent proposal a new
     /// athlete is offered spends a model call of its own.
-    pub async fn wait_turn_request_containing(&self, from: usize, needle: &str) -> Option<String> {
+    pub(crate) async fn wait_turn_request_containing(
+        &self,
+        from: usize,
+        needle: &str,
+    ) -> Option<String> {
         for _ in 0..50 {
             let found = self.llm.seen_turn_requests.lock().unwrap()[from..]
                 .iter()
@@ -785,7 +804,7 @@ impl CommandE2e {
         None
     }
 
-    pub async fn wait_llm_turns(&self, at_least: usize) -> bool {
+    pub(crate) async fn wait_llm_turns(&self, at_least: usize) -> bool {
         for _ in 0..50 {
             if self.llm.turn_calls.load(Ordering::SeqCst) >= at_least {
                 return true;
@@ -814,7 +833,7 @@ fn group_message(sender: i64, chat_id: i64, message_id: i64, text: &str) -> Valu
 impl RoomE2e {
     /// Bind a fresh supergroup: a system agent + a `CoachingGroup` pre-bound
     /// to `chat_id` under the bot tenant in `mode`, with `owner` enrolled.
-    pub async fn bind_room(
+    pub(crate) async fn bind_room(
         base: Arc<CommandE2e>,
         chat_id: i64,
         mode: GroupRespondMode,
@@ -861,7 +880,7 @@ impl RoomE2e {
         room
     }
 
-    pub async fn add_member(&self, m: &Member, role: GroupRole) {
+    pub(crate) async fn add_member(&self, m: &Member, role: GroupRole) {
         let now = Utc::now();
         self.base
             .resources
@@ -887,25 +906,25 @@ impl RoomE2e {
     }
 
     /// An UNADDRESSED room message — plain supergroup text, no mention.
-    pub async fn send_room(&self, m: &Member, text: &str) -> WebhookOutcome {
+    pub(crate) async fn send_room(&self, m: &Member, text: &str) -> WebhookOutcome {
         self.send_room_from(m.channel_user_id.parse().unwrap(), text)
             .await
     }
 
     /// An UNADDRESSED room message from a raw channel sender id — the way
     /// to speak as someone who holds no channel link.
-    pub async fn send_room_from(&self, sender: i64, text: &str) -> WebhookOutcome {
+    pub(crate) async fn send_room_from(&self, sender: i64, text: &str) -> WebhookOutcome {
         self.base.send_group_text(sender, self.chat_id, text).await
     }
 
     /// An ADDRESSED room message: `@bot_username text`.
-    pub async fn send_room_addressed(&self, m: &Member, text: &str) -> WebhookOutcome {
+    pub(crate) async fn send_room_addressed(&self, m: &Member, text: &str) -> WebhookOutcome {
         self.send_room(m, &format!("@{BOT_USERNAME} {text}")).await
     }
 
     /// An ADDRESSED room message of the other shape canot recognises: a
     /// reply to one of the bot's own messages, no mention in the text.
-    pub async fn send_room_reply_to_bot(&self, m: &Member, text: &str) -> WebhookOutcome {
+    pub(crate) async fn send_room_reply_to_bot(&self, m: &Member, text: &str) -> WebhookOutcome {
         let sender: i64 = m.channel_user_id.parse().unwrap();
         let message_id = self.base.update_id.fetch_add(1, Ordering::SeqCst);
         let mut message = group_message(sender, self.chat_id, message_id, text);
@@ -919,26 +938,26 @@ impl RoomE2e {
 
     /// A slash command in the room. Slash commands bypass the ambient gate by
     /// design, so no mention is needed.
-    pub async fn send_room_slash(&self, m: &Member, command: &str) -> WebhookOutcome {
+    pub(crate) async fn send_room_slash(&self, m: &Member, command: &str) -> WebhookOutcome {
         self.send_room(m, command).await
     }
 
     /// The member's ROOM session id (bot tenant, this chat).
-    pub async fn session_id(&self, m: &Member) -> Option<String> {
+    pub(crate) async fn session_id(&self, m: &Member) -> Option<String> {
         self.base
             .session_id(m, self.base.bot_tenant, &self.chat_id.to_string())
             .await
     }
 
     /// The guided-flow state on the member's own room conversation.
-    pub async fn onboarding_state(&self, m: &Member) -> Option<OnboardingState> {
+    pub(crate) async fn onboarding_state(&self, m: &Member) -> Option<OnboardingState> {
         self.base
             .onboarding_state(m, self.base.bot_tenant, &self.chat_id.to_string())
             .await
     }
 
     /// The member's own room conversation id, when their session exists.
-    pub async fn conversation_id(&self, m: &Member) -> Option<String> {
+    pub(crate) async fn conversation_id(&self, m: &Member) -> Option<String> {
         self.base
             .conversation_id(m, self.base.bot_tenant, &self.chat_id.to_string())
             .await
@@ -946,7 +965,7 @@ impl RoomE2e {
 
     /// `chat_messages` rows in `conversation_id` whose content carries
     /// `needle` — the room-transcript persistence contract.
-    pub async fn chat_rows_carrying(&self, conversation_id: &str, needle: &str) -> i64 {
+    pub(crate) async fn chat_rows_carrying(&self, conversation_id: &str, needle: &str) -> i64 {
         const SQL: &str = "SELECT COUNT(*) FROM chat_messages \
              WHERE conversation_id = $1 AND content LIKE '%' || $2 || '%'";
         match self.base.resources.agent.database.backend() {

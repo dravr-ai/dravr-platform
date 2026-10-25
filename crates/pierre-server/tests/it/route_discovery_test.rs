@@ -30,6 +30,7 @@ use pierre_fitness_compute::{
     build_overpass_query, routes_from_overpass_json, DiscoveredRoute, DistanceSource,
     RouteDiscoveryService, TargetFit, TargetUse,
 };
+use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::implementations::compose_route::ComposeRouteTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::route_store::{self, StoredRoute};
@@ -1059,7 +1060,7 @@ async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
         .first()
         .expect("a test user has a tenant")
         .id;
-    let runtime: Arc<dyn ToolRuntime> = Arc::clone(&resources) as _;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
 
     // The stretches discover_routes would have stored for this athlete.
     let riverside_line = north_line(-72.0, 46.0, 1_000.0);

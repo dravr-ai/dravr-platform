@@ -68,7 +68,8 @@ fn create_mock_cli_script(name: &str, script_content: &str) -> PathBuf {
 #[cfg(unix)]
 fn cleanup_mock_script(script_path: &Path) {
     if let Some(parent) = script_path.parent() {
-        let _ = fs::remove_dir_all(parent);
+        // Best-effort cleanup of the temp files.
+        drop(fs::remove_dir_all(parent));
     }
 }
 
@@ -297,7 +298,8 @@ async fn test_discover_runner_finds_claude() {
     assert_eq!(config.binary_path, script);
 
     env::remove_var("CLAUDE_CODE_BINARY");
-    let _ = fs::remove_dir_all(bin_dir);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_dir_all(bin_dir));
 }
 
 #[tokio::test]

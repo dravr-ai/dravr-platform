@@ -9,6 +9,7 @@
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::Serialize;
+use std::fmt;
 use std::sync::Arc;
 
 use crate::mcp::resources::ServerContext;
@@ -83,6 +84,14 @@ pub struct ApiKeyRoutes {
     resources: Arc<ServerContext>,
     /// API key management logic
     api_key_manager: ApiKeyManager,
+}
+
+impl fmt::Debug for ApiKeyRoutes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ApiKeyRoutes")
+            .field("resources", &self.resources)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ApiKeyRoutes {

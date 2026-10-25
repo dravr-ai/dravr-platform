@@ -8,7 +8,7 @@
 //!
 //! Provides reusable data generators and setup functions for Criterion benchmarks.
 
-pub mod fixtures;
+pub(crate) mod fixtures;
 
 // Re-export commonly used fixtures for benchmark modules
 // Each benchmark imports only what it needs to avoid unused import warnings

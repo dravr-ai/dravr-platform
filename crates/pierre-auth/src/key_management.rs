@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use async_trait::async_trait;
@@ -58,12 +59,28 @@ pub struct MasterEncryptionKey {
     key: [u8; 32],
 }
 
+impl fmt::Debug for MasterEncryptionKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MasterEncryptionKey")
+            .field("key", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// Database Encryption Key (DEK) — Tier 2, used for actual data encryption.
 ///
 /// Stored wrapped (KEK-encrypted) in the database; held in memory in plaintext
 /// only while the process runs.
 pub struct DatabaseEncryptionKey {
     key: [u8; 32],
+}
+
+impl fmt::Debug for DatabaseEncryptionKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseEncryptionKey")
+            .field("key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl MasterEncryptionKey {
@@ -197,6 +214,7 @@ impl MasterEncryptionKey {
 /// This is the default provider for development, CI, tests, and any deployment
 /// not configured with a managed KMS. Behavior is identical to the historical
 /// MEK-wraps-DEK scheme.
+#[derive(Debug)]
 pub struct LocalKekProvider {
     mek: MasterEncryptionKey,
 }
@@ -273,6 +291,14 @@ impl DatabaseEncryptionKey {
 pub struct KeyManager {
     kek: Box<dyn KekProvider>,
     dek: DatabaseEncryptionKey,
+}
+
+impl fmt::Debug for KeyManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyManager")
+            .field("dek", &self.dek)
+            .finish_non_exhaustive()
+    }
 }
 
 impl KeyManager {

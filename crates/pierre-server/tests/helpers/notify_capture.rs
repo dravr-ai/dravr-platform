@@ -24,7 +24,7 @@ use tracing_core::span::Current;
 ///
 /// Under [`capture_logs`] it is any log line, and `event` is its message.
 #[derive(Clone, Debug)]
-pub struct NotifyEvent {
+pub(crate) struct NotifyEvent {
     /// The catalogued event name (`agent.installed`, `group.created`, …), or
     /// the message of a line [`capture_logs`] recorded.
     pub event: String,
@@ -36,7 +36,7 @@ pub struct NotifyEvent {
 
 impl NotifyEvent {
     /// A field's rendered value; panics naming the event when it is absent.
-    pub fn field(&self, name: &str) -> &str {
+    pub(crate) fn field(&self, name: &str) -> &str {
         self.fields
             .get(name)
             .unwrap_or_else(|| panic!("event {} has no field {name}", self.event))
@@ -44,7 +44,7 @@ impl NotifyEvent {
 }
 
 /// Every event captured since [`capture_notify`] installed the layer.
-pub type CapturedEvents = Arc<Mutex<Vec<NotifyEvent>>>;
+pub(crate) type CapturedEvents = Arc<Mutex<Vec<NotifyEvent>>>;
 
 /// Every value recorded onto a span after it was created (`Span::record`),
 /// as `(field, value)` in the order recorded, since
@@ -53,7 +53,7 @@ pub type CapturedEvents = Arc<Mutex<Vec<NotifyEvent>>>;
 /// The subscriber gives every span one id, so a value is not attributed to a
 /// span: these are the values the code under test recorded, whichever span
 /// was current.
-pub type RecordedSpanFields = Arc<Mutex<Vec<(String, String)>>>;
+pub(crate) type RecordedSpanFields = Arc<Mutex<Vec<(String, String)>>>;
 
 #[derive(Clone, Default)]
 struct NotifyCapture {
@@ -241,7 +241,7 @@ impl Subscriber for NotifyCapture {
 /// The guard must stay alive for the duration of the code under test — the
 /// subscriber is uninstalled when it drops. Only code running on this thread
 /// is seen, which is every handler and route a `#[tokio::test]` drives inline.
-pub fn capture_notify() -> (CapturedEvents, DefaultGuard) {
+pub(crate) fn capture_notify() -> (CapturedEvents, DefaultGuard) {
     let capture = NotifyCapture::default();
     let events = Arc::clone(&capture.events);
     let guard = set_default(capture);
@@ -254,7 +254,7 @@ pub fn capture_notify() -> (CapturedEvents, DefaultGuard) {
 /// For asserting a structured log line that is itself the product — an
 /// observe-mode report — rather than a notify event. The same guard rules as
 /// [`capture_notify`] apply.
-pub fn capture_logs() -> (CapturedEvents, DefaultGuard) {
+pub(crate) fn capture_logs() -> (CapturedEvents, DefaultGuard) {
     let capture = NotifyCapture {
         every_line: true,
         ..NotifyCapture::default()
@@ -267,7 +267,7 @@ pub fn capture_logs() -> (CapturedEvents, DefaultGuard) {
 /// [`capture_logs`], plus every value recorded onto a span after its
 /// creation: the fields a handler fills in as it learns them, such as the
 /// token endpoint's `app_attest`.
-pub fn capture_logs_and_spans() -> (CapturedEvents, RecordedSpanFields, DefaultGuard) {
+pub(crate) fn capture_logs_and_spans() -> (CapturedEvents, RecordedSpanFields, DefaultGuard) {
     let spans = SpanCapture::default();
     let span_fields = Arc::clone(&spans.fields);
     let capture = NotifyCapture {
@@ -281,7 +281,7 @@ pub fn capture_logs_and_spans() -> (CapturedEvents, RecordedSpanFields, DefaultG
 }
 
 /// Every value recorded onto a span under `field`, in the order recorded.
-pub fn recorded(span_fields: &RecordedSpanFields, field: &str) -> Vec<String> {
+pub(crate) fn recorded(span_fields: &RecordedSpanFields, field: &str) -> Vec<String> {
     span_fields
         .lock()
         .unwrap()
@@ -292,7 +292,7 @@ pub fn recorded(span_fields: &RecordedSpanFields, field: &str) -> Vec<String> {
 }
 
 /// Every captured event with this name.
-pub fn named(events: &CapturedEvents, name: &str) -> Vec<NotifyEvent> {
+pub(crate) fn named(events: &CapturedEvents, name: &str) -> Vec<NotifyEvent> {
     events
         .lock()
         .unwrap()
@@ -303,7 +303,7 @@ pub fn named(events: &CapturedEvents, name: &str) -> Vec<NotifyEvent> {
 }
 
 /// Exactly one event with this name, or a panic naming what was seen instead.
-pub fn only(events: &CapturedEvents, name: &str) -> NotifyEvent {
+pub(crate) fn only(events: &CapturedEvents, name: &str) -> NotifyEvent {
     let matching = named(events, name);
     assert_eq!(
         matching.len(),

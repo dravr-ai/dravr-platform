@@ -33,6 +33,7 @@ pub trait GroupContextStrategy: Send + Sync {
 
 /// Context focused on an individual member within the group.
 /// Used when a member asks questions about their own training.
+#[derive(Debug)]
 pub struct IndividualFocusContext;
 
 impl GroupContextStrategy for IndividualFocusContext {
@@ -126,6 +127,7 @@ impl GroupContextStrategy for IndividualFocusContext {
 
 /// Context providing a group overview for admin/owner users and the group's
 /// coach, over the cards of the members who share with them.
+#[derive(Debug)]
 pub struct GroupOverviewContext;
 
 impl GroupContextStrategy for GroupOverviewContext {

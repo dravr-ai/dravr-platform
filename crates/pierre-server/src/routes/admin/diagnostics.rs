@@ -12,6 +12,7 @@
 //! size endpoint depends on the [`pierre_tool_runtime::registry::ToolRegistry`]
 //! type, which is internal to the composition root.
 
+use std::fmt;
 use std::sync::Arc;
 
 use axum::{
@@ -52,6 +53,14 @@ pub struct DiagnosticsContext {
     /// the registry. `Arc` because the sweep holds it across every await in a
     /// walk of the deployment's live connections.
     pub runtime: Arc<dyn ToolRuntime>,
+}
+
+impl fmt::Debug for DiagnosticsContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DiagnosticsContext")
+            .field("tool_registry", &self.tool_registry)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Mount the diagnostics sub-routes behind the admin-token JWT middleware.

@@ -479,6 +479,7 @@ async fn platform_roster(
 }
 
 /// Read the caller's coaching-platform roster, each athlete where they stand.
+#[derive(Debug)]
 pub struct GetProviderRosterTool;
 
 #[async_trait]

@@ -33,7 +33,7 @@ use crate::AuthRoutesContext;
 const SESSION_REUSE_WINDOW: ChronoDuration = ChronoDuration::minutes(2);
 
 /// What a credential login does with the session stored for its provider.
-pub enum StoredSessionUse {
+pub(crate) enum StoredSessionUse {
     /// The session was written within [`SESSION_REUSE_WINDOW`] and is not
     /// observed dead (see [`SessionHealth`]): the login is answered from it,
     /// with this response.
@@ -183,7 +183,7 @@ fn answers_login(
 /// # Errors
 ///
 /// Only a hard DB failure.
-pub async fn stored_session_use(
+pub(crate) async fn stored_session_use(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,

@@ -241,7 +241,7 @@ async fn run_turn(provider: &ChatProvider, model: &str, max_iterations: usize) -
         user_id: &user,
         tenant_id: TenantId::from_uuid(Uuid::new_v4()),
         max_iterations,
-        call_recorder: Some(Arc::clone(&rows) as Arc<dyn LlmCallRecorder>),
+        call_recorder: Some(Arc::<Rows>::clone(&rows)),
         tool_message_recorder: None,
         temperature: None,
         stream_sink: None,

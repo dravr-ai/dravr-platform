@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::Arc;
 
 #[cfg(feature = "postgresql")]
@@ -255,6 +256,12 @@ pub struct RepositoryRegistry {
     /// Deletes every row one provider contributed: one user's on disconnect,
     /// every tenant's on the operator's termination purge.
     pub provider_data: Arc<dyn ProviderDataRepository>,
+}
+
+impl fmt::Debug for RepositoryRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RepositoryRegistry").finish_non_exhaustive()
+    }
 }
 
 impl RepositoryRegistry {

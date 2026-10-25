@@ -37,7 +37,7 @@ fn clamp_tool_iterations(raw: i64) -> usize {
 }
 
 /// Resolve the tool-loop iteration budget for the turn.
-pub async fn resolve_max_iterations(
+pub(crate) async fn resolve_max_iterations(
     policy: TurnBudget,
     ctx: &ChatPipelineContext,
     agent_ctx: Option<&AgentRuntimeContext>,

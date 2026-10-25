@@ -383,13 +383,10 @@ pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
             }
             let message = error.tool_message();
             let mut structured = serde_json::Map::new();
-            structured.insert(
-                "error".to_owned(),
-                serde_json::Value::String(message.clone()),
-            );
+            structured.insert("error".to_owned(), Value::String(message.clone()));
             structured.insert(
                 RAISED_ERROR_CODE_KEY.to_owned(),
-                serde_json::Value::String(format!("{:?}", error.code)),
+                Value::String(format!("{:?}", error.code)),
             );
             // Preserve the `ProviderAuthRequired` signal across the tronc
             // boundary so the chat tool loop can short-circuit to OAuth recovery
@@ -397,14 +394,14 @@ pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
             if let Some(provider) = error.provider_auth_required_provider() {
                 structured.insert(
                     "error_code".to_owned(),
-                    serde_json::Value::String("provider_auth_required".to_owned()),
+                    Value::String("provider_auth_required".to_owned()),
                 );
-                structured.insert("provider".to_owned(), serde_json::Value::String(provider));
+                structured.insert("provider".to_owned(), Value::String(provider));
             }
             ToolResponse {
                 content: vec![Content::text(message)],
                 is_error: true,
-                structured_content: Some(serde_json::Value::Object(structured)),
+                structured_content: Some(Value::Object(structured)),
             }
         }
     }

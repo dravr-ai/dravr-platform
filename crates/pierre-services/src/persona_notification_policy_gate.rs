@@ -31,6 +31,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 /// Resolves a user's persona push policy from the live contract registry.
+#[derive(Debug)]
 pub struct PersonaNotificationPolicyGate {
     /// Repository registry — supplies the user row (persona) and the
     /// feature-flag resolution (arming).

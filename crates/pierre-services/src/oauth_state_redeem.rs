@@ -15,6 +15,7 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
+use std::fmt;
 use tracing::{error, warn};
 
 use crate::oauth_flow::OAuthService;
@@ -32,6 +33,21 @@ pub struct ParsedOAuthState {
     pub(crate) tenant_id: Option<uuid::Uuid>,
     /// Strava shared-app pool member pinned at authorize (`None` = env-default).
     pub(crate) oauth_app_client_id: Option<String>,
+}
+
+impl fmt::Debug for ParsedOAuthState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParsedOAuthState")
+            .field("user_id", &self.user_id)
+            .field("mobile_redirect_url", &self.mobile_redirect_url)
+            .field(
+                "pkce_code_verifier",
+                &self.pkce_code_verifier.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("tenant_id", &self.tenant_id)
+            .field("oauth_app_client_id", &self.oauth_app_client_id)
+            .finish()
+    }
 }
 
 impl ParsedOAuthState {
@@ -135,5 +151,25 @@ impl OAuthService {
             &self.config().base_url,
             &self.config().security.allowed_mobile_redirect_origins,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ParsedOAuthState;
+
+    #[test]
+    fn a_parsed_oauth_state_never_prints_its_pkce_verifier() {
+        let state = ParsedOAuthState {
+            user_id: uuid::Uuid::new_v4(),
+            mobile_redirect_url: Some("pierre://oauth".to_owned()),
+            pkce_code_verifier: Some("sentinel-verifier-7f3a".to_owned()),
+            tenant_id: Some(uuid::Uuid::new_v4()),
+            oauth_app_client_id: Some("client-1".to_owned()),
+        };
+        for printed in [format!("{state:?}"), format!("{state:#?}")] {
+            assert!(!printed.contains("sentinel-verifier-7f3a"), "{printed}");
+            assert!(printed.contains("[REDACTED]"), "{printed}");
+        }
     }
 }

@@ -112,7 +112,7 @@ async fn anthropic_tier_marks_the_prefix_cacheable_and_records_both_cache_counts
     assert_eq!(provider.name(), "anthropic");
 
     let captured = Arc::new(Captured::default());
-    let recorder: Arc<dyn LlmCallRecorder> = Arc::clone(&captured) as Arc<dyn LlmCallRecorder>;
+    let recorder: Arc<dyn LlmCallRecorder> = Arc::<Captured>::clone(&captured);
     let request = ChatRequest::new(vec![
         ChatMessage::system("persona and coaching rules"),
         ChatMessage::user("hi"),

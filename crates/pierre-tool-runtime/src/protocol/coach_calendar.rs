@@ -92,7 +92,7 @@ use crate::runtime::ToolRuntime;
 
 /// Why a coach's write to or read of an athlete's calendar was refused, in
 /// words the model relays to the coach.
-pub struct CoachCalendarRefusal {
+pub(crate) struct CoachCalendarRefusal {
     /// The refusal's name, which a tool answers with beside the words.
     pub reason: &'static str,
     /// What was refused and what the coach or the athlete can do about it.
@@ -102,7 +102,7 @@ pub struct CoachCalendarRefusal {
 /// Whose account a coach's calendar access goes through: what a refusal from
 /// the platform is reacted to by ([`AuthService::react_to_coach_refusal`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CoachSeat {
+pub(crate) struct CoachSeat {
     /// The coach.
     pub coach_user_id: Uuid,
     /// The tenant the coach's credential was read under.
@@ -113,7 +113,7 @@ pub struct CoachSeat {
 }
 
 /// The writer a coach's calendar write goes through.
-pub struct CoachCalendarWriter {
+pub(crate) struct CoachCalendarWriter {
     /// The athlete's calendar on the platform, written with the coach's
     /// credential.
     pub provider: Box<dyn CoreFitnessProvider>,
@@ -123,7 +123,7 @@ pub struct CoachCalendarWriter {
 
 /// The reader a coach's planned-calendar read goes through.
 #[cfg(feature = "tools-data")]
-pub struct CoachPlannedReader {
+pub(crate) struct CoachPlannedReader {
     /// The athlete's planned calendar on the platform, read with the coach's
     /// credential.
     pub provider: Box<dyn CoreFitnessProvider>,

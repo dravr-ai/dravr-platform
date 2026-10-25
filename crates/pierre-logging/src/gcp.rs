@@ -36,6 +36,7 @@ const LABELS_KEY: &str = "logging.googleapis.com/labels";
 const SPAN_ID_KEY: &str = "logging.googleapis.com/spanId";
 
 /// Formatter emitting Cloud Logging-compatible JSON lines.
+#[derive(Debug)]
 pub struct GcpFormatter {
     /// Pre-baked labels included on every emitted event.
     labels: BTreeMap<String, String>,

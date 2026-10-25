@@ -80,6 +80,7 @@ struct AttemptFailure {
 
 /// Deletes Firebase Authentication users, by default of the configured
 /// Firebase project.
+#[derive(Debug)]
 pub struct FirebaseIdentityDeleter {
     /// The configured Firebase project.
     project_id: String,

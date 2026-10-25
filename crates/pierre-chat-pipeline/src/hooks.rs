@@ -21,6 +21,7 @@
 //!   absent everywhere else, because a surface that draws a spec inline has
 //!   nothing to publish.
 
+use std::fmt;
 use std::sync::Arc;
 
 use super::envelope::SceneImage;
@@ -44,6 +45,7 @@ pub trait ResponsePostProcess: Send + Sync {
 
 /// One reply's chart specs, addressed well enough to mint a signed URL per
 /// block.
+#[derive(Debug)]
 pub struct ScenePublishRequest<'a> {
     /// JSON array of block specs as stored on the assistant message row.
     pub specs: &'a str,
@@ -97,6 +99,15 @@ pub struct AgUiRun<'a> {
     pub sink: &'a dyn AgUiSink,
 }
 
+impl fmt::Debug for AgUiRun<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgUiRun")
+            .field("run_id", &self.run_id)
+            .field("thread_id", &self.thread_id)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Bundle of hooks a channel adapter passes to [`super::run`].
 ///
 /// Each hook is optional; when absent, the corresponding stage runs a
@@ -124,6 +135,16 @@ pub struct PipelineHooks<'a> {
     pub stop: Option<Arc<TurnStop>>,
 }
 
+impl fmt::Debug for PipelineHooks<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PipelineHooks")
+            .field("agui", &self.agui)
+            .field("stream_sink", &self.stream_sink)
+            .field("stop", &self.stop)
+            .finish_non_exhaustive()
+    }
+}
+
 impl PipelineHooks<'_> {
     /// Construct an empty hook set (all no-ops). Useful for tests.
     #[must_use]
@@ -147,6 +168,7 @@ impl Default for PipelineHooks<'_> {
 /// Identity post-processor — returns the reply content unchanged.
 ///
 /// The default for conversational flows (messaging and in-app chat).
+#[derive(Debug)]
 pub struct IdentityPostProcess;
 
 impl ResponsePostProcess for IdentityPostProcess {

@@ -845,13 +845,13 @@ async fn test_parity_data_source_upsert_stable_id() {
 
         // The returned id must satisfy the sleep_sessions.data_source_id FK —
         // this is the exact write that failed 100% of WHOOP health syncs.
-        let now = chrono::Utc::now();
+        let now = Utc::now();
         let session = StoredSleepSession {
             id: format!("sleep-fk-{user_id}"),
             user_id: user_id.to_string(),
             data_source_id: first.clone(),
             is_nap: false,
-            start_datetime: now - chrono::Duration::hours(8),
+            start_datetime: now - Duration::hours(8),
             end_datetime: now,
             total_sleep_seconds: Some(25_200),
             deep_sleep_seconds: Some(5_000),
@@ -976,7 +976,7 @@ async fn test_parity_health_snapshot_constant_provider_id_across_dates() {
         // Captured once so a midnight rollover mid-test cannot make the two
         // upserts share a date and silently stop testing the collision.
         let today = Utc::now().date_naive();
-        let yesterday = today - chrono::Duration::days(1);
+        let yesterday = today - Duration::days(1);
         let provider_id = format!("whoop-body-{user_id}");
 
         let make = |date, weight| StoredHealthMetrics {

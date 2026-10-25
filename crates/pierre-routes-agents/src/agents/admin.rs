@@ -197,10 +197,10 @@ pub(super) async fn handle_admin_assign<C: AgentsCtx + MiddlewareCtx>(
         }
     }
 
-    // When notifications are disabled the agent binding is unused — silence
-    // the warning without dropping the lookup (it doubles as a 404 check).
+    // Without notifications nothing reads the agent: the lookup above already
+    // did its job as the 404 check, so release it here.
     #[cfg(not(feature = "client-notifications"))]
-    let _ = agent;
+    drop(agent);
 
     let response = AssignAgentResponse {
         agent_id: id,

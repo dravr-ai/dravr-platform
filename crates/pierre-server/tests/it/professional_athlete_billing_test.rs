@@ -168,9 +168,9 @@ async fn coach(email: &str, plan: &str) -> Coach {
 /// [`coach`], billed through `billing`.
 async fn coach_billed_by(email: &str, plan: &str, billing: RecordingBilling) -> Coach {
     let billing = Arc::new(billing);
-    let res = create_test_server_resources_with_billing_provider(
-        Arc::clone(&billing) as Arc<dyn BillingProvider>
-    )
+    let res = create_test_server_resources_with_billing_provider(Arc::<RecordingBilling>::clone(
+        &billing,
+    ))
     .await
     .unwrap();
     let (user_id, user, tenant_id) = create_test_user_with_plan(&res.agent.database, email, plan)

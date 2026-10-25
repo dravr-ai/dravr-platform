@@ -19,7 +19,7 @@ const LINK_SUCCESS_TEMPLATE: &str = include_str!("../../../templates/messaging_l
 const LINK_ERROR_TEMPLATE: &str = include_str!("../../../templates/messaging_link_error.html");
 
 /// Render the channel linking login/register page
-pub fn render_link_login_page(
+pub(super) fn render_link_login_page(
     channel: &str,
     sender_name: Option<&str>,
     code: &str,
@@ -54,7 +54,7 @@ pub fn render_link_login_page(
 /// it; what the athlete can do next is not the same. An active account can
 /// talk to the agent now, a pending one waits for an administrator, and a
 /// suspended one is refused on every message until support restores it.
-pub fn render_link_success_page(channel: &str, status: UserStatus) -> Html<String> {
+pub(super) fn render_link_success_page(channel: &str, status: UserStatus) -> Html<String> {
     let next_step = match status {
         UserStatus::Active => {
             "Go back to {{CHANNEL}} and send a message to get started."
@@ -73,7 +73,7 @@ pub fn render_link_success_page(channel: &str, status: UserStatus) -> Html<Strin
 }
 
 /// Render the error page for expired or invalid link codes
-pub fn render_link_error_page(message: &str) -> Html<String> {
+pub(super) fn render_link_error_page(message: &str) -> Html<String> {
     let html = with_hosted_page_css(LINK_ERROR_TEMPLATE)
         .replace("{{MESSAGE}}", &escape_html_attribute(message));
     Html(html)

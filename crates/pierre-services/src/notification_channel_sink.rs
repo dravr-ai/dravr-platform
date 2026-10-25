@@ -32,6 +32,7 @@ use crate::messaging_broadcast::send_to_linked_channels;
 
 /// Delivers accepted notifications on every messaging channel the target user
 /// has linked, in that link's locale.
+#[derive(Debug)]
 pub struct MessagingChannelSink {
     /// Repository registry — supplies the channel-link and channel-config rows.
     repos: Arc<RepositoryRegistry>,

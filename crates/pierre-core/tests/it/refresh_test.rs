@@ -68,7 +68,11 @@ fn config_defaults_are_sensible() {
     );
     assert_eq!(cfg.wait_for_refresh_timeout_secs, 15);
     assert!(cfg.inject_agent_hint);
-    assert_eq!(cfg.providers, [] as [String; 0]);
+    assert!(
+        cfg.providers.is_empty(),
+        "expected empty, got {:?}",
+        cfg.providers
+    );
 }
 
 #[test]

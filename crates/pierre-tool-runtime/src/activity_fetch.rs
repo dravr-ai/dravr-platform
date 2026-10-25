@@ -201,6 +201,7 @@ async fn fold_other_connections(
 
 /// A window the athlete's other connections served after the elected primary
 /// failed to authenticate, dead or only unreachable just now.
+#[derive(Debug)]
 pub struct FallbackServe {
     /// The activities those connections produced, every recording of one
     /// workout merged into a single session.
@@ -657,6 +658,7 @@ pub async fn serve_historical_window(
 }
 
 /// A covered historical window as [`serve_historical_window`] serves it.
+#[derive(Debug)]
 pub struct HistoricalServe {
     /// The window, head slice and top-up included.
     pub activities: Vec<Activity>,

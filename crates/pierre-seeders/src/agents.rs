@@ -55,7 +55,7 @@ use pierre_agent_parser::{
 use crate::agent_packages::sync_packages;
 
 /// CLI arguments for the agents seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// Path to a `prompts/agents` checkout from the dravr-contremaitre
     /// repository. Agent definitions live in the contremaitre repo as the

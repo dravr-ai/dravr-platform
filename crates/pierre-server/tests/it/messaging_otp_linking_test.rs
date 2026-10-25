@@ -56,7 +56,7 @@ mod messaging_otp_linking_tests {
     /// SHA-256 hash of an OTP code (matches the `hash_otp` function in webhooks)
     fn hash_otp(code: &str) -> String {
         use sha2::Digest;
-        let mut hasher = sha2::Sha256::new();
+        let mut hasher = Sha256::new();
         hasher.update(code.as_bytes());
         hex::encode(hasher.finalize())
     }

@@ -16,6 +16,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::fmt;
 use url::form_urlencoded::Serializer;
 use url::{Url, UrlQuery};
 
@@ -41,7 +42,7 @@ pub struct OAuth2Config {
 }
 
 /// `PKCE` (Proof Key for Code Exchange) parameters for enhanced `OAuth2` security
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PkceParams {
     /// Randomly generated code verifier (43-128 characters)
     pub code_verifier: String,
@@ -49,6 +50,16 @@ pub struct PkceParams {
     pub code_challenge: String,
     /// Challenge method (always "S256" for SHA256)
     pub code_challenge_method: String,
+}
+
+impl fmt::Debug for PkceParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PkceParams")
+            .field("code_verifier", &"[REDACTED]")
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .finish()
+    }
 }
 
 impl PkceParams {
@@ -108,6 +119,7 @@ impl OAuth2Token {
 }
 
 /// OAuth 2.0 client for fitness platform authentication
+#[derive(Debug)]
 pub struct OAuth2Client {
     config: OAuth2Config,
     client: reqwest::Client,

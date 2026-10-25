@@ -42,7 +42,7 @@ async fn require_participant(
 }
 
 /// List who is in the conversation, owner first.
-pub async fn list_participants(
+pub(super) async fn list_participants(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -75,7 +75,7 @@ pub async fn list_participants(
 /// row there is answered with 403 rather than silently written as a
 /// membership the read predicate would never honour. Re-adding an existing
 /// participant is idempotent and returns the row as it stands.
-pub async fn add_participant(
+pub(super) async fn add_participant(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -142,7 +142,7 @@ pub async fn add_participant(
 /// The owner cannot be removed — 400, since the request is malformed rather
 /// than forbidden: the thread has no meaning without them. A user who is
 /// not a member of the thread is a 404.
-pub async fn remove_participant(
+pub(super) async fn remove_participant(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path((conversation_id, user_id)): Path<(String, String)>,

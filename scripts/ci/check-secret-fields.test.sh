@@ -97,6 +97,29 @@ pub struct CacheConfig {
     pub redis_url: Option<String>,
 }' "CacheConfig.redis_url: Option<String>"
 
+must_fail "an OAuth code and PKCE verifier" '#[derive(Debug)]
+pub struct TokenRequest {
+    pub code: Option<String>,
+    pub code_verifier: String,
+}' "TokenRequest.code: Option<String>"
+
+must_fail "borrowed and shared text holding a credential" '#[derive(Debug)]
+struct Refresh<'"'"'a> {
+    client_secret: &'"'"'a str,
+    user_pat: Arc<str>,
+}' "Refresh.client_secret: &'a str"
+
+must_fail "a device-flow user code as bytes" '#[derive(Debug)]
+pub struct Device {
+    pub user_code: Vec<u8>,
+}' "Device.user_code: Vec<u8>"
+
+must_pass "an error code named for what it is" '#[derive(Debug)]
+pub struct ApiError {
+    pub error_code: String,
+    pub status_code: String,
+}'
+
 must_pass "a SecretString secret" '#[derive(Debug)]
 pub struct LoginRequest {
     pub password: SecretString,

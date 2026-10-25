@@ -11,7 +11,7 @@ use super::chat::{message_columns, participant_scope};
 /// `(created_at, id)`, or the newest `$5` overall when `$4` is NULL. The
 /// caller asks for one row more than it serves, to learn whether older rows
 /// remain, and reverses the window.
-pub const GET_MESSAGE_PAGE_SQL: &str = concat!(
+pub(crate) const GET_MESSAGE_PAGE_SQL: &str = concat!(
     "SELECT ",
     message_columns!(),
     " FROM chat_messages m \
@@ -33,7 +33,7 @@ pub const GET_MESSAGE_PAGE_SQL: &str = concat!(
 /// with the athlete's first words after it and before the next divider. `$4`
 /// is the divider stamp, `$5` the command stamp — a slash command is account
 /// state, never a topic's title — and `$6` the most dividers read.
-pub const LIST_DIVIDER_TOPICS_SQL: &str = concat!(
+pub(crate) const LIST_DIVIDER_TOPICS_SQL: &str = concat!(
     "SELECT m.id, m.created_at, \
        (SELECT u.content FROM chat_messages u \
         WHERE u.conversation_id = m.conversation_id AND u.role = 'user' \
@@ -57,7 +57,7 @@ pub const LIST_DIVIDER_TOPICS_SQL: &str = concat!(
 /// and the athlete's first words before the first divider. No row when the
 /// thread opens on a divider or holds nothing. `$4` is the divider stamp and
 /// `$5` the command stamp.
-pub const THREAD_OPENING_SQL: &str = concat!(
+pub(crate) const THREAD_OPENING_SQL: &str = concat!(
     "SELECT m.created_at, \
        (SELECT u.content FROM chat_messages u \
         WHERE u.conversation_id = m.conversation_id AND u.role = 'user' \
@@ -80,7 +80,7 @@ pub const THREAD_OPENING_SQL: &str = concat!(
 
 /// The newest divider row of a conversation in a tenant. `$3` is the divider
 /// stamp, bound rather than spelled so the one constant names it.
-pub const LATEST_DIVIDER_SQL: &str = r"
+pub(crate) const LATEST_DIVIDER_SQL: &str = r"
     SELECT m.id FROM chat_messages m
     JOIN chat_conversations c ON c.id = m.conversation_id
     WHERE m.conversation_id = $1 AND c.tenant_id = $2 AND m.finish_reason = $3

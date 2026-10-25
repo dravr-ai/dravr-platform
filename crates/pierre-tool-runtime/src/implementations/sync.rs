@@ -57,6 +57,7 @@ fn freshness_annotations() -> ToolAnnotations {
 /// The agent uses this when it detects the user's data might be stale
 /// (e.g., "last activity was 5 days ago" for a daily runner) or when
 /// the user explicitly asks to refresh.
+#[derive(Debug)]
 pub struct RefreshProviderDataTool;
 
 /// What `refresh_provider_data` answers with.
@@ -265,6 +266,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
 ///
 /// Returns per-provider sync status so the agent can decide whether to
 /// suggest a refresh or note data staleness to the user.
+#[derive(Debug)]
 pub struct GetDataFreshnessTool;
 
 #[async_trait]

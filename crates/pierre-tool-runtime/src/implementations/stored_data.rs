@@ -265,6 +265,7 @@ pub struct DataSourcesResult {
 // ============================================================================
 
 /// Tool for querying stored sleep sessions from the database.
+#[derive(Debug)]
 pub struct GetSleepSessionsTool;
 
 #[async_trait]
@@ -364,6 +365,7 @@ fn fence_athlete_notes(
 // ============================================================================
 
 /// Tool for querying stored recovery and readiness data from the database.
+#[derive(Debug)]
 pub struct GetRecoveryMetricsTool;
 
 #[async_trait]
@@ -440,6 +442,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
 // ============================================================================
 
 /// Tool for querying stored body composition and vitals snapshots.
+#[derive(Debug)]
 pub struct GetHealthSnapshotsTool;
 
 #[async_trait]
@@ -516,6 +519,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
 // ============================================================================
 
 /// Tool for listing connected data sources (devices and providers) for the user.
+#[derive(Debug)]
 pub struct ListDataSourcesTool;
 
 #[async_trait]

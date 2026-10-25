@@ -921,7 +921,7 @@ async fn an_expired_pool_token_refreshes_under_its_own_app() {
     let (user_id, tenant) = athlete(&resources, "pool-refresh").await;
     connect_expired(repos, user_id, tenant, Some("910016")).await;
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
@@ -960,7 +960,7 @@ async fn a_strava_refresh_refused_over_a_dead_refresh_token_frees_the_seat() {
         STRAVA_DEAD_REFRESH_TOKEN.to_owned(),
     ));
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
@@ -1003,7 +1003,7 @@ async fn refresh_refused_with(
     body: &str,
 ) -> (RefreshLookup, ConnectionStatus, bool) {
     *mock.refresh_rejection.lock().unwrap() = Some((status, body.to_owned()));
-    let auth = AuthService::new(Arc::clone(resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(resources));
     let lookup = match auth
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
@@ -1155,7 +1155,7 @@ async fn a_refresh_in_flight_does_not_overwrite_the_token_a_reconnect_stored() {
         token: reconnect,
     });
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
@@ -1220,7 +1220,7 @@ async fn a_refresh_refused_after_a_reconnect_leaves_the_new_connection_active() 
         STRAVA_DEAD_REFRESH_TOKEN.to_owned(),
     ));
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
@@ -1433,7 +1433,7 @@ async fn a_provider_built_for_a_pool_token_refreshes_under_its_own_app() {
         .await
         .unwrap();
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let provider = auth
         .create_authenticated_provider("strava", user_id, Some(&tenant.to_string()))
         .await
@@ -1505,7 +1505,7 @@ async fn the_mobile_authorize_route_pins_the_pool_app_for_the_exchange() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let body: serde_json::Value =
+    let body: Value =
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     let url = body["authorization_url"].as_str().unwrap();
     assert!(
@@ -1671,7 +1671,7 @@ async fn a_refresh_refused_after_a_concurrent_refresh_landed_leaves_the_connecti
         STRAVA_DEAD_REFRESH_TOKEN.to_owned(),
     ));
 
-    let token = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+    let token = AuthService::new(Arc::<ServerContext>::clone(&resources))
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
         .expect("a refused refresh is not an error");
@@ -1795,7 +1795,7 @@ async fn a_rate_limited_primary_is_named_in_the_prefetched_window() {
     ));
 
     let executor = Arc::new(
-        UniversalExecutor::new(resources.clone() as Arc<dyn ToolRuntime>)
+        UniversalExecutor::new(resources.clone())
             .with_scopes(OAuthScope::self_grant())
             // A chat turn's prefetch, in the web app: over an external
             // transport Strava's terms refuse the read before its refresh is
@@ -1861,7 +1861,7 @@ async fn a_transient_refresh_of_a_refused_grant_still_asks_for_a_reconnect() {
             (RefreshLookup::Refused, ConnectionStatus::NeedsReauth, false),
             "HTTP {status} over a refused grant still needs the reconnect"
         );
-        let refused = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+        let refused = AuthService::new(Arc::<ServerContext>::clone(&resources))
             .create_authenticated_provider("strava", user_id, Some(&tenant.to_string()))
             .await
             .err()
@@ -1901,7 +1901,7 @@ async fn a_transient_refresh_failure_carries_nothing_strava_answered() {
     ] {
         *mock.refresh_rejection.lock().unwrap() = Some((status, body.to_owned()));
 
-        let refused = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+        let refused = AuthService::new(Arc::<ServerContext>::clone(&resources))
             .create_authenticated_provider("strava", user_id, Some(&tenant.to_string()))
             .await
             .err()
@@ -2035,7 +2035,7 @@ async fn an_expired_token_no_refresh_here_renews_asks_for_a_reconnect() {
         .await
         .unwrap();
 
-    let lookup = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+    let lookup = AuthService::new(Arc::<ServerContext>::clone(&resources))
         .get_valid_token(user_id, "garmin", Some(&tenant.to_string()))
         .await;
 
@@ -2213,7 +2213,7 @@ async fn a_token_of_a_removed_pool_app_resolves_one_client_everywhere() {
         .await
         .unwrap();
 
-    AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>)
+    AuthService::new(Arc::<ServerContext>::clone(&resources))
         .get_valid_token(user_id, "strava", Some(&tenant.to_string()))
         .await
         .expect("the lookup does not error")

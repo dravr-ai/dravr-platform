@@ -1047,7 +1047,7 @@ async fn agent_remove_in_chat_detaches_the_agent() {
 async fn agent_create_drafts_then_confirm_creates_and_binds_once() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
-        create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
+        create_test_server_resources_with_chat_provider(Arc::<ProposalLlm>::clone(&llm))
             .await
             .unwrap();
     let (user_id, tenant_id, auth) = seed_user_tenant(&resources, "coach-create@test.com").await;
@@ -1174,7 +1174,7 @@ async fn agent_create_drafts_then_confirm_creates_and_binds_once() {
 async fn agent_create_on_an_empty_conversation_is_refused_without_a_model_call() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
-        create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
+        create_test_server_resources_with_chat_provider(Arc::<ProposalLlm>::clone(&llm))
             .await
             .unwrap();
     let (user_id, tenant_id, auth) =
@@ -1198,7 +1198,7 @@ async fn agent_create_on_an_empty_conversation_is_refused_without_a_model_call()
 async fn deny_discards_an_agent_draft() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
-        create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
+        create_test_server_resources_with_chat_provider(Arc::<ProposalLlm>::clone(&llm))
             .await
             .unwrap();
     let (user_id, tenant_id, auth) =
@@ -1232,7 +1232,7 @@ async fn deny_discards_an_agent_draft() {
 async fn agent_create_confirm_is_refused_at_the_agent_quota() {
     let llm = Arc::new(ProposalLlm::new());
     let resources =
-        create_test_server_resources_with_chat_provider(Arc::clone(&llm) as Arc<dyn LlmProvider>)
+        create_test_server_resources_with_chat_provider(Arc::<ProposalLlm>::clone(&llm))
             .await
             .unwrap();
     let (user_id, tenant_id, auth) =

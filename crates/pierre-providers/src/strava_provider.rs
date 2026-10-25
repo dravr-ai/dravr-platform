@@ -37,6 +37,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::models::PhysiologicalSex;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use std::fmt;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
@@ -60,6 +61,17 @@ pub struct StravaProvider {
     client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
+}
+
+impl fmt::Debug for StravaProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StravaProvider")
+            .field("config", &self.config)
+            .field("credentials", &self.credentials)
+            .field("client", &self.client)
+            .field("circuit_breaker", &self.circuit_breaker)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Convert f32 metric value to u32 for Activity fields
@@ -131,7 +143,7 @@ impl StravaProvider {
 
         debug!(
             "Strava error details: resource={}, field={}, code={}",
-            first_error.resource, first_error.field, first_error.code
+            first_error.resource, first_error.field, first_error.error_code
         );
 
         let resource_id = url.split('/').next_back().unwrap_or("unknown").to_owned();
@@ -612,7 +624,9 @@ impl FitnessProvider for StravaProvider {
     }
 
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        let _ = self.token_refresh_callback.set(callback);
+        if self.token_refresh_callback.set(callback).is_err() {
+            debug!("Strava token refresh callback already set; keeping the first");
+        }
     }
 
     async fn is_authenticated(&self) -> bool {
@@ -714,9 +728,7 @@ impl FitnessProvider for StravaProvider {
         // this, an active athlete's freshest activities fall off the
         // end of page 1 and never reach downstream consumers
         // (snapshot, recent-activity rendering, training-load calc).
-        let effective_before = params
-            .before
-            .or_else(|| Some(chrono::Utc::now().timestamp()));
+        let effective_before = params.before.or_else(|| Some(Utc::now().timestamp()));
 
         info!(
             "Starting get_activities - requested_limit: {}, offset: {}, before: {:?} (effective: {:?}), after: {:?}",
@@ -1066,6 +1078,7 @@ impl StravaProvider {
 use super::core::ProviderFactory;
 
 /// Factory for creating Strava provider instances
+#[derive(Debug)]
 pub struct StravaProviderFactory;
 
 impl ProviderFactory for StravaProviderFactory {

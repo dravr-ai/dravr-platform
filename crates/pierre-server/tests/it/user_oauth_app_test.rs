@@ -112,8 +112,16 @@ async fn create_test_user_with_tenant(
         created_at: now,
         updated_at: now,
     };
-    // Ignore error if tenant already exists (e.g., second user in same tenant)
-    let _ = database.repositories().tenants.create(&tenant).await;
+    if database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .is_err()
+    {
+        // A second user in the same tenant finds it already there.
+        database.repositories().tenants.get_by_id(tenant_id).await?;
+    }
     assign_to_tenant(database, user_id, tenant_id).await?;
     Ok(user_id)
 }
@@ -935,7 +943,7 @@ async fn test_oauth_app_timestamps() -> Result<()> {
     let tenant_id = TenantId::generate();
     let user_id = create_test_user_with_tenant(&database, "user@example.com", tenant_id).await?;
 
-    let before = chrono::Utc::now();
+    let before = Utc::now();
 
     database
         .repositories()
@@ -949,7 +957,7 @@ async fn test_oauth_app_timestamps() -> Result<()> {
         )
         .await?;
 
-    let after = chrono::Utc::now();
+    let after = Utc::now();
 
     let app = database
         .repositories()

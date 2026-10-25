@@ -480,7 +480,7 @@ fn test_sleep_quality_with_provider_score() {
     assert!(result.is_ok());
     let quality = result.unwrap();
     // Should include provider score in insights
-    assert_ne!(quality.insights, [] as [String; 0]);
+    assert!(!quality.insights.is_empty(), "expected a non-empty value");
 }
 
 // ============================================================================

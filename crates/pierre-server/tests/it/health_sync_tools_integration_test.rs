@@ -153,10 +153,8 @@ async fn test_get_sleep_sessions_empty() -> Result<()> {
     assert!(resp.success, "should succeed: {:?}", resp.error);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 0);
-    assert_eq!(
-        result["sessions"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let found = result["sessions"].as_array().unwrap();
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     assert!(result["range"]["start"].as_str().is_some());
     assert!(result["range"]["end"].as_str().is_some());
     Ok(())
@@ -228,10 +226,8 @@ async fn test_get_recovery_metrics_empty() -> Result<()> {
     assert!(resp.success);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 0);
-    assert_eq!(
-        result["metrics"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let found = result["metrics"].as_array().unwrap();
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     Ok(())
 }
 
@@ -356,10 +352,8 @@ async fn test_list_data_sources_empty() -> Result<()> {
     assert!(resp.success, "should succeed: {:?}", resp.error);
     let result = resp.result.unwrap();
     assert_eq!(result["count"].as_u64().unwrap(), 0);
-    assert_eq!(
-        result["sources"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let found = result["sources"].as_array().unwrap();
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     Ok(())
 }
 

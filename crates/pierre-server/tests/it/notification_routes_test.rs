@@ -129,7 +129,7 @@ mod notification_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: Vec<serde_json::Value> = response.json();
-        assert_eq!(body, [] as [serde_json::Value; 0]);
+        assert!(body.is_empty(), "expected empty, got {body:?}");
     }
 
     #[tokio::test]
@@ -191,7 +191,7 @@ mod notification_routes_tests {
             .await;
 
         let body: Vec<serde_json::Value> = list_response.json();
-        assert_eq!(body, [] as [serde_json::Value; 0]);
+        assert!(body.is_empty(), "expected empty, got {body:?}");
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -209,10 +209,8 @@ mod notification_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();
-        assert_eq!(
-            body["preferences"].as_array().unwrap().as_slice(),
-            [] as [serde_json::Value; 0]
-        );
+        let found = body["preferences"].as_array().unwrap();
+        assert!(found.is_empty(), "expected empty, got {found:?}");
     }
 
     #[tokio::test]
@@ -274,10 +272,8 @@ mod notification_routes_tests {
             .await;
         assert_eq!(list_response.status_code(), StatusCode::OK);
         let list_body: serde_json::Value = list_response.json();
-        assert_eq!(
-            list_body["preferences"].as_array().unwrap().as_slice(),
-            [] as [serde_json::Value; 0]
-        );
+        let found = list_body["preferences"].as_array().unwrap();
+        assert!(found.is_empty(), "expected empty, got {found:?}");
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -295,10 +291,8 @@ mod notification_routes_tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let body: serde_json::Value = response.json();
-        assert_eq!(
-            body["data"].as_array().unwrap().as_slice(),
-            [] as [serde_json::Value; 0]
-        );
+        let found = body["data"].as_array().unwrap();
+        assert!(found.is_empty(), "expected empty, got {found:?}");
         assert_eq!(body["total"], 0);
         assert_eq!(body["unread_count"], 0);
     }

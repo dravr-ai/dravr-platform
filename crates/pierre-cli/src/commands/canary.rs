@@ -28,7 +28,7 @@ const PASSWORD_ENV: &str = "SCIOTTE_CANARY_PASSWORD";
 /// `pierre-cli canary <check>`.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum CanaryCommand {
+pub(crate) enum CanaryCommand {
     /// Sign the canary account in through the deployed sciotte service and
     /// report whether the provider let the login through.
     SciotteLogin {
@@ -45,7 +45,7 @@ pub enum CanaryCommand {
 /// Returns an error when the canary account or the service is not
 /// configured, when the provider stopped the login, or when the service could
 /// not be asked — each fails the job.
-pub async fn dispatch(action: CanaryCommand) -> AppResult<()> {
+pub(crate) async fn dispatch(action: CanaryCommand) -> AppResult<()> {
     match action {
         CanaryCommand::SciotteLogin { provider } => sciotte_login(&provider).await,
     }

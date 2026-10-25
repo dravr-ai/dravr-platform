@@ -29,7 +29,7 @@ use crate::{ChatPipelineContext, TurnInput};
 
 /// The messaging-strings key of the caveat a stop earns, if any.
 #[must_use]
-pub const fn caveat_key(stop: ProviderStop) -> Option<&'static str> {
+pub(crate) const fn caveat_key(stop: ProviderStop) -> Option<&'static str> {
     match stop {
         ProviderStop::Truncated => Some(KEY_REPLY_STOP_TRUNCATED),
         ProviderStop::Filtered => Some(KEY_REPLY_STOP_FILTERED),
@@ -39,7 +39,7 @@ pub const fn caveat_key(stop: ProviderStop) -> Option<&'static str> {
 
 /// The `finish_reason` stamped on a row carrying a stop caveat, if any.
 #[must_use]
-pub const fn stamped_finish_reason(stop: ProviderStop) -> Option<&'static str> {
+pub(crate) const fn stamped_finish_reason(stop: ProviderStop) -> Option<&'static str> {
     match stop {
         ProviderStop::Truncated => Some(TRUNCATED_REPLY_FINISH_REASON),
         ProviderStop::Filtered => Some(FILTERED_REPLY_FINISH_REASON),
@@ -49,7 +49,7 @@ pub const fn stamped_finish_reason(stop: ProviderStop) -> Option<&'static str> {
 
 /// The reply with `caveat` appended after the model's words.
 #[must_use]
-pub fn with_stop_caveat(reply: &str, caveat: &str) -> String {
+pub(crate) fn with_stop_caveat(reply: &str, caveat: &str) -> String {
     format!("{reply}{STOP_CAVEAT_SEPARATOR}{caveat}")
 }
 
@@ -63,7 +63,7 @@ pub fn with_stop_caveat(reply: &str, caveat: &str) -> String {
 /// blocked-topic reply, the verification block fallback, a style re-ask — is
 /// text the provider's stop says nothing about, so no caveat may ride it.
 #[must_use]
-pub fn kept_through(stop: ProviderStop, before: &str, after: &str) -> ProviderStop {
+pub(crate) fn kept_through(stop: ProviderStop, before: &str, after: &str) -> ProviderStop {
     if after.contains(before) || (!after.is_empty() && before.starts_with(after)) {
         stop
     } else {
@@ -82,7 +82,7 @@ pub fn kept_through(stop: ProviderStop, before: &str, after: &str) -> ProviderSt
 /// renders as the localized empty-reply error, which is not the model's
 /// fragment either, so it takes no caveat. `result.content` stays the model's
 /// words for the follow-through stages that learn from them.
-pub fn caveat_delivered_reply(
+pub(crate) fn caveat_delivered_reply(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     result: &ToolLoopResult,

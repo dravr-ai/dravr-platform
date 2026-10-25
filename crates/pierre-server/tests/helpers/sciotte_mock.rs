@@ -20,7 +20,7 @@ use uuid::Uuid;
 /// The id of the one canned ride the mock scraper serves.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub const MOCK_SCRAPER_RIDE_ID: &str = "15551234567";
+pub(crate) const MOCK_SCRAPER_RIDE_ID: &str = "15551234567";
 
 /// Spawn a local stand-in for the `dravr-sciotte` scraper service: session
 /// import always succeeds and the activity list serves one canned ride whose
@@ -28,7 +28,7 @@ pub const MOCK_SCRAPER_RIDE_ID: &str = "15551234567";
 /// Returns the base URL the server's sciotte client is built to reach it at.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub async fn spawn_mock_scraper() -> String {
+pub(crate) async fn spawn_mock_scraper() -> String {
     spawn_mock_scraper_serving(
         Arc::new(AtomicBool::new(true)),
         "2026-08-10T12:00:00Z".to_owned(),
@@ -44,7 +44,7 @@ pub async fn spawn_mock_scraper() -> String {
 /// one that reached it — the two halves of the write-through gate.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub async fn spawn_mock_scraper_serving(
+pub(crate) async fn spawn_mock_scraper_serving(
     head_complete: Arc<AtomicBool>,
     ride_start: String,
 ) -> String {
@@ -89,7 +89,7 @@ pub async fn spawn_mock_scraper_serving(
 /// `AuthSession` (the provider deserializes it in `set_credentials`).
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub async fn seed_sciotte_session(
+pub(crate) async fn seed_sciotte_session(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -111,7 +111,7 @@ pub async fn seed_sciotte_session(
 /// scrape, so a stand-in scraper can answer each seeded athlete differently.
 // Shared across test binaries; any single binary may use only part of it.
 #[allow(dead_code)]
-pub async fn seed_scrape_session(
+pub(crate) async fn seed_scrape_session(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant_id: TenantId,

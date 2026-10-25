@@ -31,7 +31,7 @@ use crate::mcp::resources::ServerContext;
 
 /// Account-approved notifier: sends the approval email plus a localized message
 /// on each of the user's linked messaging channels.
-pub struct ApprovalNotifier {
+pub(crate) struct ApprovalNotifier {
     repos: Arc<RepositoryRegistry>,
     email_service: Option<Arc<ResendEmailService>>,
     strings: Arc<MessagingStringsRegistry>,
@@ -41,7 +41,7 @@ pub struct ApprovalNotifier {
 impl ApprovalNotifier {
     /// Build the injectable notifier from the assembled server context.
     #[must_use]
-    pub fn from_context(resources: &ServerContext) -> Arc<dyn UserApprovalNotifier> {
+    pub(crate) fn from_context(resources: &ServerContext) -> Arc<dyn UserApprovalNotifier> {
         Arc::new(Self {
             repos: resources.common.repos.clone(),
             email_service: resources.common.email_service.clone(),

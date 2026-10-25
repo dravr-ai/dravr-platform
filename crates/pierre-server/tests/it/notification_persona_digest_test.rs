@@ -150,7 +150,7 @@ personas:
         registry.apply_overlay(overlay).unwrap();
         let sink = Arc::new(RecordingSink::default());
         let service = notification_service(&resources.agent.database)
-            .with_channel_sink(Arc::clone(&sink) as Arc<dyn NotificationChannelSink>)
+            .with_channel_sink(Arc::<RecordingSink>::clone(&sink))
             .with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
                 Arc::clone(&resources.common.repos),
                 registry,
@@ -1135,7 +1135,11 @@ personas:
             0,
             "a suppressed digest is not sent"
         );
-        assert_eq!(sink.seen(), [] as [String; 0]);
+        assert!(
+            sink.seen().is_empty(),
+            "expected empty, got {:?}",
+            sink.seen()
+        );
         assert_eq!(
             repos
                 .persona_digest_returns
@@ -1208,7 +1212,11 @@ personas:
                 .unwrap(),
             0
         );
-        assert_eq!(sink.seen(), [] as [String; 0]);
+        assert!(
+            sink.seen().is_empty(),
+            "expected empty, got {:?}",
+            sink.seen()
+        );
         assert!(
             digests_of(&service, user, tenant, NotificationEvent::PersonaDigest)
                 .await

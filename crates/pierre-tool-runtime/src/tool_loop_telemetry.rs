@@ -27,7 +27,10 @@ const WIRE_SHAPE_LOG_TARGET: &str = "pierre_tool_runtime::tool_execution";
 ///
 /// The tier the chain observer reported, or — when nothing was reported,
 /// because the provider is not a chain — the provider that was invoked.
-pub fn served_provider_name(served: Option<ServedTier>, invoked: &'static str) -> &'static str {
+pub(crate) fn served_provider_name(
+    served: Option<ServedTier>,
+    invoked: &'static str,
+) -> &'static str {
     served.map_or(invoked, |tier| tier.provider)
 }
 
@@ -35,7 +38,7 @@ pub fn served_provider_name(served: Option<ServedTier>, invoked: &'static str) -
 ///
 /// `None` means the provider reported nothing, which is not the same as a
 /// measured zero, so the total stays `None` until some call reports a figure.
-pub const fn accumulate_optional(total: Option<u32>, next: Option<u32>) -> Option<u32> {
+pub(crate) const fn accumulate_optional(total: Option<u32>, next: Option<u32>) -> Option<u32> {
     match (total, next) {
         (None, None) => None,
         (Some(t), None) => Some(t),
@@ -49,13 +52,13 @@ pub const fn accumulate_optional(total: Option<u32>, next: Option<u32>) -> Optio
 ///
 /// Centralises token extraction so the three tool-loop variants share the
 /// same recording contract.
-pub fn emit_call_record(inputs: CallRecordInputs<'_>) {
+pub(crate) fn emit_call_record(inputs: CallRecordInputs<'_>) {
     emit_call_record_with_text(inputs, None, None);
 }
 
 /// Convert an [`Instant`] elapsed time into milliseconds, saturating
 /// at `i64::MAX` for pathologically long calls.
-pub fn millis_elapsed(start: Instant) -> i64 {
+pub(crate) fn millis_elapsed(start: Instant) -> i64 {
     let ms = start.elapsed().as_millis();
     i64::try_from(ms).unwrap_or(i64::MAX)
 }
@@ -80,7 +83,7 @@ pub fn millis_elapsed(start: Instant) -> i64 {
 /// Deliberately NOT a `notify` event: this is diagnostic telemetry read from
 /// Cloud Logging, and routing it through the notify pipeline would couple it to
 /// the `dravr-contremaitre` event catalogue for no operator benefit.
-pub fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage]) {
+pub(crate) fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage]) {
     let mut system_message_count = 0_usize;
     let mut user_message_count = 0_usize;
     let mut assistant_message_count = 0_usize;
@@ -120,7 +123,7 @@ pub fn log_wire_shape(dispatch_path: &'static str, llm_messages: &[ChatMessage])
 /// and the provider/model the call asks, so an operator can tie the call to
 /// its eventual `llm_usage` row by `turn_id` + `call_sequence`. An iteration
 /// re-asked on the turn's model is two calls, so the two numbers diverge.
-pub fn log_iteration_start(
+pub(crate) fn log_iteration_start(
     iteration: usize,
     call_sequence: i64,
     params: &ToolLoopParams<'_>,
@@ -139,7 +142,11 @@ pub fn log_iteration_start(
 
 /// Emit a structured log summarizing the provider's response for one
 /// tool-loop iteration.
-pub fn log_iteration_response(iteration: usize, latency_ms: i64, response: &ChatResponseWithTools) {
+pub(crate) fn log_iteration_response(
+    iteration: usize,
+    latency_ms: i64,
+    response: &ChatResponseWithTools,
+) {
     info!(
         iteration,
         latency_ms,
@@ -167,7 +174,7 @@ pub fn log_iteration_response(iteration: usize, latency_ms: i64, response: &Chat
 ///   fails every tool turn is visible to the chain-fallthrough alert.
 ///
 /// `tool_loop` names the loop that failed (`api`, `headless`).
-pub fn note_tool_loop_fallback(
+pub(crate) fn note_tool_loop_fallback(
     from: &ChatProvider,
     to: &ChatProvider,
     error: &AppError,
@@ -200,7 +207,7 @@ pub fn note_tool_loop_fallback(
 /// counted when the window started), and no "Runtime LLM fallback engaged"
 /// event (nothing failed: the head was not asked). The turn's provider
 /// attribution already names the tier that served it.
-pub fn note_tool_loop_cooldown_skip(
+pub(crate) fn note_tool_loop_cooldown_skip(
     from: &ChatProvider,
     to: &ChatProvider,
     tool_loop: &'static str,

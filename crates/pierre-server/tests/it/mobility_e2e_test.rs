@@ -56,7 +56,7 @@ impl MobilityMcpHandler {
     /// client sees. Tool failures arrive in-band as `isError`, never as a
     /// JSON-RPC `error`.
     async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<Value> {
-        let state: Arc<dyn ToolRuntime> = Arc::clone(&self.resources) as Arc<dyn ToolRuntime>;
+        let state: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.resources);
         let tool_context = ToolContext {
             user_id: Some(self.user_id.to_string()),
             tenant_id: Some(self.tenant_id.to_string()),

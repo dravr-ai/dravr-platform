@@ -407,6 +407,7 @@ impl<'a> Session<'a> {
 }
 
 /// A decoded activity FIT file.
+#[derive(Debug)]
 pub struct FitActivityFile {
     records: Vec<FitDataRecord>,
 }
@@ -998,11 +999,13 @@ mod tests {
         }
 
         /// Everything an upload is read for, on a file that decoded.
+        ///
+        /// The property is that each read returns, so the results are dropped.
         fn read_everything(file: &FitActivityFile) {
-            let _ = file.activities(|i| format!("a-{i}"), "upload");
-            let _ = file.time_series(Position::Read);
+            drop(file.activities(|i| format!("a-{i}"), "upload"));
+            drop(file.time_series(Position::Read));
             for index in 0..file.session_count() {
-                let _ = file.session_series(index, Position::Read);
+                drop(file.session_series(index, Position::Read));
             }
         }
 
@@ -1045,7 +1048,8 @@ mod tests {
                 if let Ok(file) = FitActivityFile::parse(&bytes) {
                     read_everything(&file);
                 }
-                let _ = FitActivityFile::decode(&bytes);
+                // Refused or read, it must return rather than panic.
+                drop(FitActivityFile::decode(&bytes));
             }
 
             #[test]

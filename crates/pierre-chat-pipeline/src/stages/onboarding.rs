@@ -76,6 +76,7 @@ impl GuidedTarget {
 /// The resolved guided context for a turn: the topic being probed, plus the
 /// flow state it was chosen from (so a delivered probe can be recorded onto it
 /// at the end of the turn).
+#[derive(Debug)]
 pub struct OnboardingTurn {
     /// What this turn is capturing, or `None` for a flow that captures
     /// nothing.
@@ -122,6 +123,7 @@ pub(super) fn season_conditions(snapshot: Option<&LoadSnapshot>) -> SeasonCondit
 }
 
 /// How a turn relates to a guided flow.
+#[derive(Debug)]
 pub enum GuidedResolution {
     /// A topic to probe this turn; the agent asks it.
     Probe(Box<OnboardingTurn>),

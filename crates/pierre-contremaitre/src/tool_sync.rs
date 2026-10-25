@@ -22,7 +22,7 @@ use super::tool_descriptions::{parse_tool_yaml, FetchedOverlay, ToolDescriptionR
 /// (~50 s, measured) see a different mix of compiled and overlaid
 /// descriptions, which both shows the model a half-updated tool surface and
 /// breaks the provider's prompt-cache prefix on each turn (carnet#102).
-pub async fn sync_all_tool_descriptions(
+pub(crate) async fn sync_all_tool_descriptions(
     registry: &ToolDescriptionRegistry,
     store: &dyn PromptStore,
     manifest_tools: &HashMap<String, ManifestEntry>,
@@ -50,7 +50,7 @@ pub async fn sync_all_tool_descriptions(
 /// Sync only changed tool descriptions (selective sync from webhook).
 ///
 /// Applied in one swap, for the reason [`sync_all_tool_descriptions`] gives.
-pub async fn sync_changed_tool_descriptions(
+pub(crate) async fn sync_changed_tool_descriptions(
     registry: &ToolDescriptionRegistry,
     store: &dyn PromptStore,
     manifest_tools: &HashMap<String, ManifestEntry>,

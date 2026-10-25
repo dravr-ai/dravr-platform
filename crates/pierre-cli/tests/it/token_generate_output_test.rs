@@ -48,7 +48,8 @@ fn the_usage_example_names_the_provision_route_on_the_server_port() {
         String::from_utf8_lossy(&created.stderr)
     );
     let output = run(&["token", "generate", "--service", "usage-example-check"]);
-    let _ = fs::remove_file(&path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(

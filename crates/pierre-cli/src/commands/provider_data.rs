@@ -26,7 +26,7 @@ use crate::commands::auth::admin_client;
 /// `pierre-cli provider` — provider-wide operations.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum ProviderCommand {
+pub(crate) enum ProviderCommand {
     /// Delete every row a provider contributed, for every user in every tenant (super-admin)
     Purge {
         /// Provider name as the rows store it (for example `whoop`)
@@ -67,7 +67,7 @@ pub enum ProviderCommand {
 /// Returns [`AppError::invalid_input`] when a purge is not confirmed with
 /// `--yes`, and the client's error when the call fails — including the
 /// server's 403 for a token that is not super-admin.
-pub async fn dispatch(command: ProviderCommand) -> AppResult<()> {
+pub(crate) async fn dispatch(command: ProviderCommand) -> AppResult<()> {
     match command {
         ProviderCommand::Purge {
             provider,
@@ -109,7 +109,7 @@ pub async fn dispatch(command: ProviderCommand) -> AppResult<()> {
 /// Returns the client's error when the call fails, and
 /// [`AppError::external_service`] when the answer is not the route's
 /// `data.purges` list of records.
-pub async fn list_purges(client: &RemoteClient, provider: &str) -> AppResult<()> {
+pub(crate) async fn list_purges(client: &RemoteClient, provider: &str) -> AppResult<()> {
     let encoded = urlencoding::encode(provider);
     let body: Value = client
         .get_json(&format!("/admin/providers/{encoded}/purges"))
@@ -168,7 +168,7 @@ fn purge_lines(provider: &str, body: &Value) -> AppResult<Vec<String>> {
 /// # Errors
 ///
 /// Returns the client's error when the call fails.
-pub async fn purge(client: &RemoteClient, provider: &str) -> AppResult<()> {
+pub(crate) async fn purge(client: &RemoteClient, provider: &str) -> AppResult<()> {
     let encoded = urlencoding::encode(provider);
     let body: Value = client
         .delete_json(&format!("/admin/providers/{encoded}/data"))

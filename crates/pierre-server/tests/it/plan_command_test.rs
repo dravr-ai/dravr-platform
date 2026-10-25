@@ -249,7 +249,7 @@ fn ctx_on(
         channel_type: "telegram".to_owned(),
         args,
         raw_text: "/plan".to_owned(),
-        ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn pierre_runtime_context::CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(resources),
         locale: "en".to_owned(),
         is_direct_message: surface.is_direct_message,
         ambient_group_fallback: true,

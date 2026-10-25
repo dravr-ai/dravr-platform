@@ -896,7 +896,7 @@ async fn test_list_workout_templates_filters_by_phase() -> Result<()> {
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
     let rows = list_templates(&executor, user_id, &tenant, json!({ "phase": "taper" })).await?;
-    assert_ne!(rows, [] as [Value; 0]);
+    assert!(!rows.is_empty(), "expected a non-empty value");
     for row in &rows {
         let phases: Vec<&str> = row["fit"]["phases"]
             .as_array()
@@ -1284,7 +1284,7 @@ async fn test_prescribe_workout_stores_an_inline_session_with_its_purpose() -> R
     assert!(!stored.is_compiled_in);
 
     // Without a purpose the distribution decides it.
-    let _ = executor
+    let inline = executor
         .execute_tool(make_request(
             "prescribe_workout",
             json!({
@@ -1300,6 +1300,10 @@ async fn test_prescribe_workout_stores_an_inline_session_with_its_purpose() -> R
             Some(&tenant),
         ))
         .await;
+    assert!(
+        !matches!(&inline, Ok(response) if response.success),
+        "no calendar, no success"
+    );
     let defaulted = executor
         .resources
         .repos()

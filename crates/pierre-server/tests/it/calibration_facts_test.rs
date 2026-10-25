@@ -296,7 +296,7 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
     let user_uuid = Uuid::new_v4();
     let user = user_uuid.to_string();
 
-    let interview_answer = seed(
+    seed(
         repos,
         tenant,
         &user,
@@ -306,7 +306,7 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
         "harder means more hard days",
     )
     .await?;
-    let recovery_answer = seed(
+    seed(
         repos,
         tenant,
         &user,
@@ -362,7 +362,6 @@ async fn calibration_answers_survive_a_flood_of_newer_conversation_facts() -> Re
         objects.iter().filter(|o| o.starts_with("chatter")).count() > 0,
         "expected the conversation facts to be present too"
     );
-    let _ = (interview_answer, recovery_answer);
     Ok(())
 }
 

@@ -110,7 +110,7 @@ pub struct ForgetFactResponse {
 /// This is the one renderer — the memory screens, the recall tool and the
 /// agent dossier all go through it, so a fact reads the same everywhere and
 /// no surface glues an English verb to the athlete's words again.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SentenceRenderer<'a> {
     strings: &'a MessagingStringsRegistry,
     locale: &'a str,
@@ -296,7 +296,7 @@ fn fact_row(
 /// simply has no title, and the row keeps its id.
 async fn agent_titles_for(
     repos: &AgentRepos,
-    facts: &[pierre_memory::UserFact],
+    facts: &[UserFact],
     user_id: &str,
     tenant_id: TenantId,
 ) -> HashMap<String, String> {

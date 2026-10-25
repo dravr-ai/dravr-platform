@@ -290,7 +290,7 @@ const fn required_credential_keys(channel_type: ChannelType) -> &'static [&'stat
 /// Whether a channel config carries every credential its linking flow needs.
 ///
 /// Reads only for presence — never logs or returns the values.
-pub fn can_complete_a_link(channel_type: ChannelType, config: &serde_json::Value) -> bool {
+pub(crate) fn can_complete_a_link(channel_type: ChannelType, config: &serde_json::Value) -> bool {
     required_credential_keys(channel_type).iter().all(|key| {
         config
             .get(*key)

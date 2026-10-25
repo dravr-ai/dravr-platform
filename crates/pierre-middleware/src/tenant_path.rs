@@ -20,6 +20,7 @@ use pierre_core::models::TenantId;
 /// The name is the point: **the path is client input**. Extracting one proves
 /// only that the segment was a well-formed UUID. Authorization is a separate
 /// check the handler still owes.
+#[derive(Debug)]
 pub struct TenantPath(pub TenantId);
 
 impl<S> FromRequestParts<S> for TenantPath

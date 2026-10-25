@@ -111,6 +111,7 @@ impl Default for RoutingTable {
 /// every tick to swap in the latest YAML. Until the first reload succeeds
 /// the registry's `defaults.enabled` is `false`, so the layer drops every
 /// emit — consistent with cageux / persona-contracts bootstrap behaviour.
+#[derive(Debug)]
 pub struct ContremaitreRoutingProvider {
     table: ArcSwap<RoutingTable>,
 }

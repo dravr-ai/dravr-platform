@@ -330,7 +330,7 @@ fn bench_intelligence_serialization(c: &mut Criterion) {
         form_ctl: 75.1,
         tss_history: (0..42)
             .map(|i| TssDataPoint {
-                date: chrono::Utc::now() - chrono::Duration::days(i),
+                date: Utc::now() - Duration::days(i),
                 tss: (i as f64).mul_add(1.5, 50.0),
             })
             .collect(),

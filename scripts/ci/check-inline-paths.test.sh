@@ -69,6 +69,14 @@ dir="$(repo_with 'use std::env::set_var;')"
 expect "a use declaration is not an inline path" "$(run_gate "$dir")" 0
 rm -rf "$dir"
 
+dir="$(repo_with 'pub(crate) use crate::repositories::agent_rows::row_to_agent;')"
+expect "a pub(crate) use declaration is not an inline path" "$(run_gate "$dir")" 0
+rm -rf "$dir"
+
+dir="$(repo_with 'pub(crate) fn f() { std::env::set_var("A", "B"); }')"
+expect "a pub(crate) fn body is still scanned" "$(run_gate "$dir")" 1
+rm -rf "$dir"
+
 rm -f "$OUT"
 if [ "$failures" -gt 0 ]; then
   echo "❌ $failures check-inline-paths.sh case(s) failed"

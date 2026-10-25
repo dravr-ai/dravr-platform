@@ -25,6 +25,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// The start sequence — supersession, window, load snapshot, activation,
 /// opener — is [`start_walk`], shared with `/season`; what is calibration's
 /// own is the flow and its three strings.
+#[derive(Debug)]
 pub struct CalibrateHandler;
 
 #[async_trait]

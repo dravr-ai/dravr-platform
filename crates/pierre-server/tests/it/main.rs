@@ -248,6 +248,7 @@ mod database_plugins_test;
 mod database_tokens_test;
 mod database_url_query_params_sqlite_test;
 mod database_users_test;
+mod debug_redaction_test;
 mod dek_initialization_race_test;
 mod dek_rewrap_test;
 mod dek_rotation_test;

@@ -25,6 +25,7 @@
 //! A message under `MIN_DETECTABLE_CHARS` ("ok", "oui", "Yes") is an
 //! acknowledgement, and keeps the language the conversation already runs in.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -64,6 +65,15 @@ pub struct LocaleClassifier<'a> {
     /// Receives one record for the classification call, typed
     /// [`LlmStage::LanguageClassification`]; `None` writes no usage row.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+}
+
+impl fmt::Debug for LocaleClassifier<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocaleClassifier")
+            .field("provider", &self.provider)
+            .field("prompt", &self.prompt)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The language of `text` when it can be read locally: `lingua` in a build

@@ -81,6 +81,7 @@ pub struct ResourceUsageStatus {
 }
 
 /// Usage routes handler
+#[derive(Debug)]
 pub struct UsageRoutes;
 
 impl UsageRoutes {

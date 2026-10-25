@@ -52,7 +52,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// `pierre-cli strava-webhook` — the app's push subscription.
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum StravaWebhookCommand {
+pub(crate) enum StravaWebhookCommand {
     /// Register the push subscription pointing at `<base-url>/webhooks/strava`
     Subscribe {
         /// Public base URL of the deployment the callback reaches (env: `BASE_URL`)
@@ -70,7 +70,7 @@ pub enum StravaWebhookCommand {
 }
 
 /// The Strava app credentials the `push_subscriptions` API authenticates with.
-pub struct StravaApp {
+pub(crate) struct StravaApp {
     /// The app's public `client_id`.
     pub client_id: String,
     /// The app's `client_secret`; sent to Strava over TLS, never printed.
@@ -87,7 +87,7 @@ impl StravaApp {
     /// # Errors
     /// Returns an error naming the missing variable when the id or secret is
     /// unset.
-    pub fn from_env() -> AppResult<Self> {
+    pub(crate) fn from_env() -> AppResult<Self> {
         Ok(Self {
             client_id: required_env("STRAVA_CLIENT_ID")?,
             client_secret: required_env("STRAVA_CLIENT_SECRET")?,
@@ -107,7 +107,7 @@ fn required_env(key: &str) -> AppResult<String> {
 
 /// The HTTP method of a [`StravaRequest`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Method {
+pub(crate) enum Method {
     /// Create the subscription (form-encoded body).
     Post,
     /// List the app's subscriptions (credentials in the query string).
@@ -119,7 +119,7 @@ pub enum Method {
 /// One request to Strava's `push_subscriptions` API, built without sending so
 /// its exact shape is checkable.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StravaRequest {
+pub(crate) struct StravaRequest {
     /// HTTP method.
     pub method: Method,
     /// Full URL, query string excluded.
@@ -135,7 +135,7 @@ pub struct StravaRequest {
 ///
 /// A trailing slash on the base is dropped so the path is never doubled.
 #[must_use]
-pub fn callback_url(base_url: &str) -> String {
+pub(crate) fn callback_url(base_url: &str) -> String {
     format!("{}{CALLBACK_PATH}", base_url.trim_end_matches('/'))
 }
 
@@ -148,7 +148,7 @@ fn subscriptions_url(api_base: &str) -> String {
 /// # Errors
 /// Returns an error when the app carries no verify token: Strava requires
 /// one, and the server compares it against `STRAVA_WEBHOOK_VERIFY_TOKEN`.
-pub fn subscribe_request(
+pub(crate) fn subscribe_request(
     api_base: &str,
     app: &StravaApp,
     base_url: &str,
@@ -173,7 +173,7 @@ pub fn subscribe_request(
 
 /// The `GET /push_subscriptions` that lists the app's subscription.
 #[must_use]
-pub fn list_request(api_base: &str, app: &StravaApp) -> StravaRequest {
+pub(crate) fn list_request(api_base: &str, app: &StravaApp) -> StravaRequest {
     StravaRequest {
         method: Method::Get,
         url: subscriptions_url(api_base),
@@ -184,7 +184,7 @@ pub fn list_request(api_base: &str, app: &StravaApp) -> StravaRequest {
 
 /// The `DELETE /push_subscriptions/{id}` that removes one subscription.
 #[must_use]
-pub fn delete_request(api_base: &str, app: &StravaApp, id: u64) -> StravaRequest {
+pub(crate) fn delete_request(api_base: &str, app: &StravaApp, id: u64) -> StravaRequest {
     StravaRequest {
         method: Method::Delete,
         url: format!("{}/{id}", subscriptions_url(api_base)),
@@ -314,7 +314,7 @@ async fn delete(api_base: &str, id: u64) -> AppResult<()> {
 /// # Errors
 /// Returns an error when a credential variable is unset, the request cannot
 /// be sent, or Strava rejects it.
-pub async fn dispatch(command: StravaWebhookCommand) -> AppResult<()> {
+pub(crate) async fn dispatch(command: StravaWebhookCommand) -> AppResult<()> {
     let api_base =
         env::var("PIERRE_STRAVA_API_BASE_URL").unwrap_or_else(|_| STRAVA_API_BASE_URL.to_owned());
     match command {

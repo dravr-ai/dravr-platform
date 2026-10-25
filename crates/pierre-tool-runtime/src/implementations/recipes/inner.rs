@@ -356,7 +356,7 @@ pub struct SearchRecipesResult {
 // get_recipe_constraints
 // ---------------------------------------------------------------------------
 
-pub fn handle_get_recipe_constraints(
+pub(super) fn handle_get_recipe_constraints(
     ctx: &ToolExecutionContext,
     args: &Value,
 ) -> AppResult<ToolResult> {
@@ -503,7 +503,7 @@ fn build_constraints_response(
 /// # Errors
 ///
 /// Returns [`AppError::internal`] when the answer does not serialize.
-pub fn withheld_recipe_constraints(
+pub(super) fn withheld_recipe_constraints(
     withheld: FiguresWithheld,
     args: &Value,
 ) -> AppResult<ToolResult> {
@@ -552,7 +552,7 @@ pub fn withheld_recipe_constraints(
 // validate_recipe
 // ---------------------------------------------------------------------------
 
-pub async fn handle_validate_recipe(
+pub(super) async fn handle_validate_recipe(
     ctx: &ToolExecutionContext,
     args: Value,
 ) -> AppResult<ToolResult> {
@@ -766,7 +766,10 @@ pub async fn handle_validate_recipe(
 // save_recipe
 // ---------------------------------------------------------------------------
 
-pub async fn handle_save_recipe(ctx: &ToolExecutionContext, args: Value) -> AppResult<ToolResult> {
+pub(super) async fn handle_save_recipe(
+    ctx: &ToolExecutionContext,
+    args: Value,
+) -> AppResult<ToolResult> {
     let user_id = ctx.user_id;
     let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
@@ -835,7 +838,10 @@ pub async fn handle_save_recipe(ctx: &ToolExecutionContext, args: Value) -> AppR
 // list_recipes
 // ---------------------------------------------------------------------------
 
-pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> AppResult<ToolResult> {
+pub(super) async fn handle_list_recipes(
+    ctx: &ToolExecutionContext,
+    args: Value,
+) -> AppResult<ToolResult> {
     let output_format = parse_output_format(&args);
     let user_id = ctx.user_id;
     let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
@@ -902,7 +908,10 @@ pub async fn handle_list_recipes(ctx: &ToolExecutionContext, args: Value) -> App
 // get_recipe
 // ---------------------------------------------------------------------------
 
-pub async fn handle_get_recipe(ctx: &ToolExecutionContext, args: Value) -> AppResult<ToolResult> {
+pub(super) async fn handle_get_recipe(
+    ctx: &ToolExecutionContext,
+    args: Value,
+) -> AppResult<ToolResult> {
     let output_format = parse_output_format(&args);
     let user_id = ctx.user_id;
     let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
@@ -971,7 +980,7 @@ pub async fn handle_get_recipe(ctx: &ToolExecutionContext, args: Value) -> AppRe
 // delete_recipe
 // ---------------------------------------------------------------------------
 
-pub async fn handle_delete_recipe(
+pub(super) async fn handle_delete_recipe(
     ctx: &ToolExecutionContext,
     args: Value,
 ) -> AppResult<ToolResult> {
@@ -1010,7 +1019,7 @@ pub async fn handle_delete_recipe(
 // search_recipes
 // ---------------------------------------------------------------------------
 
-pub async fn handle_search_recipes(
+pub(super) async fn handle_search_recipes(
     ctx: &ToolExecutionContext,
     args: Value,
 ) -> AppResult<ToolResult> {

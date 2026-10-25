@@ -53,7 +53,7 @@
 /// `prefer_perceived_exertion`: that per-activity choice only decides whether
 /// Strava's Relative Effort is computed from the rating instead of heart rate.
 #[must_use]
-pub fn rpe_from_strava(rating: f32) -> Option<f32> {
+pub(crate) fn rpe_from_strava(rating: f32) -> Option<f32> {
     (1.0..=10.0).contains(&rating).then_some(rating)
 }
 
@@ -62,7 +62,7 @@ pub fn rpe_from_strava(rating: f32) -> Option<f32> {
 /// (see the module documentation); anything else is `None`.
 #[cfg(feature = "provider-sciotte")]
 #[must_use]
-pub fn rpe_from_strava_label(label: &str) -> Option<f32> {
+pub(crate) fn rpe_from_strava_label(label: &str) -> Option<f32> {
     let label = label.trim();
     if let Ok(rating) = label.parse::<f32>() {
         return rpe_from_strava(rating);

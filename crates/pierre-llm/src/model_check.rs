@@ -11,7 +11,7 @@ use crate::LlmProvider;
 /// Warn when the active model is not in the provider's published list.
 ///
 /// A hint: embacle's list is a constant; ACP reports 28 models to its 21 (carnet#98).
-pub fn validate_model_for_provider(provider: &(impl LlmProvider + ?Sized)) {
+pub(crate) fn validate_model_for_provider(provider: &(impl LlmProvider + ?Sized)) {
     let model = provider.default_model();
     let available = provider.available_models();
 

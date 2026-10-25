@@ -26,12 +26,12 @@ use crate::turn::TurnInput;
 /// model fetched, activities prefetched for it, or a tool call that served
 /// their provider items. The one rule `chat.answer_delivered` reports and
 /// the first run's analysis flow is done by.
-pub const fn grounded(telemetry: &TurnTelemetry, provider_data_served: bool) -> bool {
+pub(crate) const fn grounded(telemetry: &TurnTelemetry, provider_data_served: bool) -> bool {
     telemetry.activity_list_captured || telemetry.activities_prefetched || provider_data_served
 }
 
 /// What the first run needs from a turn's input, kept before the turn runs.
-pub struct TurnFacts {
+pub(crate) struct TurnFacts {
     /// The athlete, when they spoke and their id parses.
     athlete: Option<Uuid>,
     /// The athlete's own tenant.
@@ -40,7 +40,7 @@ pub struct TurnFacts {
 
 impl TurnFacts {
     /// The facts of `input`: an athlete only for a turn they sent.
-    pub fn of(input: &TurnInput) -> Self {
+    pub(crate) fn of(input: &TurnInput) -> Self {
         Self {
             athlete: (input.origin == TurnOrigin::Athlete)
                 .then(|| parse_uuid(&input.user_id).ok())
@@ -50,7 +50,7 @@ impl TurnFacts {
     }
 
     /// Mark the first-run flows the athlete's posted turn completes.
-    pub async fn after_turn(
+    pub(crate) async fn after_turn(
         &self,
         repos: &RepositoryRegistry,
         envelope: &TurnEnvelope,

@@ -14,7 +14,9 @@ use tracing::info;
 /// Shares the server's boot path, so a failed read is returned and the first
 /// keypair is stored under the same fixed key id insert-if-absent: the CLI
 /// and a booting server converge on the same row (carnet#696).
-pub async fn initialize_jwks_manager(repos: &RepositoryRegistry) -> Result<JwksManager, AppError> {
+pub(crate) async fn initialize_jwks_manager(
+    repos: &RepositoryRegistry,
+) -> Result<JwksManager, AppError> {
     info!("Initializing JWKS manager for RS256 admin tokens...");
     load_or_store_first_keypair(repos.security.as_ref(), RSA_KEY_SIZE).await
 }

@@ -32,6 +32,7 @@ const HMAC_KEY_LENGTH: usize = 32;
 /// The HMAC is computed over `timestamp_secs.user_id` using a server secret.
 /// Validation extracts the timestamp and `user_id`, recomputes the HMAC, and
 /// uses constant-time comparison. No server-side token store is required.
+#[derive(Debug)]
 pub struct CsrfTokenManager {
     signing_key: hmac::Key,
 }

@@ -36,6 +36,7 @@ pub struct A2APublicKey {
 }
 
 /// Key generation and management for A2A clients
+#[derive(Debug)]
 pub struct A2AKeyManager;
 
 impl A2AKeyManager {

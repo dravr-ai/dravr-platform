@@ -62,6 +62,7 @@ pub struct FetchedOverlay {
 ///
 /// Starts empty — the compiled-in Rust descriptions serve as the fallback.
 /// Entries are populated by the contremaitre sync and updated via webhook.
+#[derive(Debug)]
 pub struct ToolDescriptionRegistry {
     entries: RwLock<HashMap<String, ToolDescriptionEntry>>,
 }

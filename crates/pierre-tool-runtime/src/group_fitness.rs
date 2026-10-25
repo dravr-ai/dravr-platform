@@ -331,6 +331,7 @@ const DAYS_PER_WEEK: i64 = 7;
 /// `previous_week_volume_km` is `None` when no activity falls in the
 /// 7-to-14-day window — the group trend aggregation treats a missing prior
 /// week as "no trend signal" rather than a zero-volume week.
+#[derive(Debug)]
 pub struct WeeklyMetrics {
     /// Number of activities in the trailing 7-day window.
     pub activity_count: i32,

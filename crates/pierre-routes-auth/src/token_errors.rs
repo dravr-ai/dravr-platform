@@ -12,7 +12,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 
 /// An RFC 6749 §5.2 error body for a request the handler refused before any
 /// grant ran.
-pub fn oauth2_error(error: &str, description: &str) -> Response {
+pub(crate) fn oauth2_error(error: &str, description: &str) -> Response {
     let error_response = OAuth2ErrorResponse {
         error: error.to_owned(),
         error_description: Some(description.to_owned()),
@@ -26,7 +26,7 @@ pub fn oauth2_error(error: &str, description: &str) -> Response {
 /// fault is a 500 `server_error`, so a client retries rather than discards a
 /// session that is still good, and the database or signer detail stays in the
 /// log.
-pub fn grant_error_response(e: AppError) -> Response {
+pub(crate) fn grant_error_response(e: AppError) -> Response {
     let error_code = match e.code {
         ErrorCode::AuthInvalid | ErrorCode::AuthRequired | ErrorCode::AuthExpired => {
             "invalid_grant"

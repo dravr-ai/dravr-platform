@@ -79,6 +79,7 @@ pub struct GetStatsResult {
 // ============================================================================
 
 /// Tool for retrieving the user's athlete profile from a fitness provider.
+#[derive(Debug)]
 pub struct GetAthleteTool;
 
 #[async_trait]
@@ -261,6 +262,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
 // ============================================================================
 
 /// Tool for retrieving aggregated activity statistics from a fitness provider.
+#[derive(Debug)]
 pub struct GetStatsTool;
 
 #[async_trait]
@@ -596,7 +598,7 @@ fn create_stats_metadata(
 }
 
 /// Cache a single item with TTL, logging errors
-async fn cache_item<T: serde::Serialize + Send + Sync>(
+async fn cache_item<T: Serialize + Send + Sync>(
     cache: &Arc<Cache>,
     key: &CacheKey,
     item: &T,

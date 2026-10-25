@@ -149,7 +149,7 @@ pub trait AdviceCaptureStrategy: Send + Sync {
 /// Holds the prompt registry rather than the prompt text: the extraction
 /// instructions are the `advice_extraction` system prompt, read on every
 /// capture so a catalogue edit reaches the next turn without a deploy.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HeuristicGatedLlmExtraction {
     /// Shared with every other prompt reader in the process; the registry is
     /// mutated in place by the contremaitre sync.

@@ -11,6 +11,7 @@
 //! server's `interval`/`slow_down` until it receives the minted admin token,
 //! the request is denied, or the code expires.
 
+use std::fmt;
 use std::time::Duration;
 
 use pierre_core::errors::{AppError, AppResult};
@@ -34,6 +35,16 @@ pub struct DeviceLogin {
     pub token_type: String,
     /// Identity that approved the login, if the server reported it.
     pub subject: Option<String>,
+}
+
+impl fmt::Debug for DeviceLogin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DeviceLogin")
+            .field("access_token", &"[REDACTED]")
+            .field("token_type", &self.token_type)
+            .field("subject", &self.subject)
+            .finish()
+    }
 }
 
 /// Run the full device-login flow against `server`, blocking until it resolves.

@@ -14,6 +14,7 @@
 
 mod claims_client_id_test;
 mod client_address_test;
+mod debug_redaction_test;
 mod google_sign_in_config_test;
 mod kek_provider_test;
 mod mcp_resource_indicator_test;

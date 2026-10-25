@@ -38,7 +38,6 @@ use pierre_core::models::{OAuthClientState, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_tool_runtime::protocol::auth::AuthService;
-use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -273,7 +272,7 @@ async fn refresh_fills_a_missing_whoop_user_id() {
     let (user_id, tenant_id) = linked_user(&resources, "whoop-refresh-fill@example.com").await;
     seed_expired_whoop_token(&resources, user_id, tenant_id, None).await;
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "whoop", Some(&tenant_id.to_string()))
         .await
@@ -359,7 +358,7 @@ async fn a_refresh_landing_during_the_profile_read_keeps_its_pair() {
         }));
     }
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "whoop", Some(&tenant_id.to_string()))
         .await
@@ -408,7 +407,7 @@ async fn refresh_keeps_an_existing_whoop_user_id_without_a_profile_read() {
     let (user_id, tenant_id) = linked_user(&resources, "whoop-refresh-keep@example.com").await;
     seed_expired_whoop_token(&resources, user_id, tenant_id, Some("777")).await;
 
-    let auth = AuthService::new(Arc::clone(&resources) as Arc<dyn ToolRuntime>);
+    let auth = AuthService::new(Arc::<ServerContext>::clone(&resources));
     let token = auth
         .get_valid_token(user_id, "whoop", Some(&tenant_id.to_string()))
         .await

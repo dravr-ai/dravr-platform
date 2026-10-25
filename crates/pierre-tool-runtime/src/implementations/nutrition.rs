@@ -381,6 +381,7 @@ pub struct AnalyzeMealNutritionResult {
 // ============================================================================
 
 /// Tool for calculating daily calorie and macronutrient needs.
+#[derive(Debug)]
 pub struct CalculateDailyNutritionTool;
 
 #[async_trait]
@@ -528,6 +529,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
 // ============================================================================
 
 /// Tool for optimal nutrient timing recommendations.
+#[derive(Debug)]
 pub struct GetNutrientTimingTool;
 
 #[async_trait]
@@ -677,6 +679,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
 // ============================================================================
 
 /// Tool for searching the USDA food database.
+#[derive(Debug)]
 pub struct SearchFoodTool;
 
 #[async_trait]
@@ -800,6 +803,7 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
 // ============================================================================
 
 /// Tool for getting detailed food information.
+#[derive(Debug)]
 pub struct GetFoodDetailsTool;
 
 #[async_trait]
@@ -880,6 +884,7 @@ impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
 // ============================================================================
 
 /// Tool for analyzing meal nutritional content.
+#[derive(Debug)]
 pub struct AnalyzeMealNutritionTool;
 
 #[async_trait]

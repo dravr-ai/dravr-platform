@@ -17,6 +17,7 @@
 //! — onto that accounting, so the five shapes are written once instead of once
 //! per loop.
 
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_llm::call_record::LlmCallRecorder;
@@ -110,6 +111,31 @@ pub struct ToolLoopParams<'a> {
     pub mcp_servers: Vec<McpServerConfig>,
 }
 
+impl fmt::Debug for ToolLoopParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ToolLoopParams")
+            .field("provider", &self.provider)
+            .field("executor", &self.executor)
+            .field("tools", &self.tools)
+            .field("model", &self.model)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("max_iterations", &self.max_iterations)
+            .field("temperature", &self.temperature)
+            .field("stream_sink", &self.stream_sink)
+            // Names only: each server's transport carries its bearer header.
+            .field(
+                "mcp_servers",
+                &self
+                    .mcp_servers
+                    .iter()
+                    .map(|server| server.name.as_str())
+                    .collect::<Vec<_>>(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// A tool blocked by the runtime Guardian while in `enforce` mode.
 ///
 /// Surfaced out of the tool loop as an out-of-band signal (parallel to
@@ -129,6 +155,7 @@ pub struct GuardianDenial {
 }
 
 /// Result of running the multi-turn tool execution loop
+#[derive(Debug)]
 pub struct ToolLoopResult {
     /// Final text content from LLM
     pub content: String,
@@ -223,7 +250,7 @@ pub(crate) struct ToolLoopTally {
 
 impl ToolLoopTally {
     /// Fold one LLM call's provider warnings into the loop's list.
-    pub fn note_provider_warnings(&mut self, warnings: Option<&[String]>) {
+    pub(crate) fn note_provider_warnings(&mut self, warnings: Option<&[String]>) {
         for warning in warnings.unwrap_or_default() {
             if !self.provider_warnings.contains(warning) {
                 self.provider_warnings.push(warning.clone());
@@ -233,7 +260,7 @@ impl ToolLoopTally {
 
     /// Exit carrying a provider the athlete must re-authorize before the ask
     /// can be answered.
-    pub fn provider_auth_required(
+    pub(crate) fn provider_auth_required(
         self,
         usage: Option<TokenUsage>,
         provider: String,
@@ -255,7 +282,7 @@ impl ToolLoopTally {
     }
 
     /// Exit carrying the Guardian block that stopped the turn.
-    pub fn guardian_denied(
+    pub(crate) fn guardian_denied(
         self,
         usage: Option<TokenUsage>,
         denial: GuardianDenial,
@@ -277,7 +304,7 @@ impl ToolLoopTally {
     }
 
     /// Exit carrying the tool call the Guardian parked pending confirmation.
-    pub fn guardian_confirm(
+    pub(crate) fn guardian_confirm(
         self,
         usage: Option<TokenUsage>,
         confirm: GuardianConfirmRequest,
@@ -299,7 +326,7 @@ impl ToolLoopTally {
     }
 
     /// Exit carrying the model's own answer and the finish reason it reported.
-    pub fn answered(
+    pub(crate) fn answered(
         self,
         content: String,
         usage: Option<TokenUsage>,
@@ -322,7 +349,7 @@ impl ToolLoopTally {
     }
 
     /// Exit taken when the iteration budget ran out before the model answered.
-    pub fn max_iterations(self, usage: Option<TokenUsage>) -> ToolLoopResult {
+    pub(crate) fn max_iterations(self, usage: Option<TokenUsage>) -> ToolLoopResult {
         ToolLoopResult {
             content: String::new(),
             usage,

@@ -159,6 +159,7 @@ pub struct RecallUserMemoryResult {
 /// the user (e.g., "user prefers no scientific jargon, dislikes percentage
 /// targets"). Notes are surfaced to admins via an agent-notes audit log and
 /// to the agent itself via recall on the next session.
+#[derive(Debug)]
 pub struct AgentNoteAddTool;
 
 #[async_trait]
@@ -273,6 +274,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
 /// Lets the agent record a promised future check-in. Pending followups are
 /// rendered into the next conversation's system prompt so the agent
 /// remembers its commitment.
+#[derive(Debug)]
 pub struct AgentFollowupScheduleTool;
 
 #[async_trait]
@@ -407,6 +409,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
 /// Lets the agent persona explicitly assert a durable fact about the user
 /// (e.g., a goal commitment confirmed in this turn) without waiting for
 /// the background extractor to infer it.
+#[derive(Debug)]
 pub struct RememberFactTool;
 
 #[async_trait]
@@ -604,6 +607,7 @@ async fn latest_athlete_message(
 /// scoped to an agent or fact kind. Mirrors the `services/memory_recall.rs`
 /// retrieval the orchestrator uses to inject facts into the system prompt,
 /// exposed as a tool so the agent can also query it explicitly during a turn.
+#[derive(Debug)]
 pub struct RecallUserMemoryTool;
 
 #[async_trait]

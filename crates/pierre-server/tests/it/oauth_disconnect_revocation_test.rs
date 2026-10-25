@@ -178,15 +178,17 @@ impl ScriptedUpstream {
                     return;
                 };
                 let raw = read_request(&mut stream).await;
-                let _ = stream.write_all(response.as_bytes()).await;
-                let _ = stream.shutdown().await;
+                // The client may hang up first; the test checks what it received.
+                drop(stream.write_all(response.as_bytes()).await);
+                drop(stream.shutdown().await);
                 if index == last {
                     // Close the port BEFORE handing the request over, so the
                     // test's next connection is refused rather than queued on
                     // a listener that no longer answers.
                     listener.take();
                 }
-                let _ = tx.send(CapturedRequest::parse(&raw)).await;
+                // The test may stop reading before the script runs out.
+                drop(tx.send(CapturedRequest::parse(&raw)).await);
             }
         });
         Self {
@@ -230,8 +232,10 @@ async fn capture_one_request() -> (String, oneshot::Receiver<String>) {
         let n = stream.read(&mut buf).await.unwrap_or(0);
         let request = String::from_utf8_lossy(&buf[..n]).into_owned();
         let response = "HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
-        let _ = stream.write_all(response.as_bytes()).await;
-        let _ = tx.send(request);
+        // The client may hang up first; the test checks what it received.
+        drop(stream.write_all(response.as_bytes()).await);
+        // A closed receiver means the test already gave up waiting.
+        drop(tx.send(request));
     });
 
     (format!("http://{addr}"), rx)

@@ -35,6 +35,7 @@
 //!    recorded and re-run on the next instance, editing the same placeholder
 //!    into the real reply (registre#126, `super::resume`).
 
+use std::fmt;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::time::Duration;
@@ -66,6 +67,17 @@ pub enum TurnOutcome {
     /// patience. It produced no answer; whether one is still coming depends
     /// on the cause — see [`TurnInterruption`].
     Interrupted(TurnInterruption),
+}
+
+impl fmt::Debug for TurnOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Delivered(_) => f.debug_tuple("Delivered").finish_non_exhaustive(),
+            Self::QuotaDenied(err) => f.debug_tuple("QuotaDenied").field(err).finish(),
+            Self::Failed(err) => f.debug_tuple("Failed").field(err).finish(),
+            Self::Interrupted(cause) => f.debug_tuple("Interrupted").field(cause).finish(),
+        }
+    }
 }
 
 /// Why a turn was cut short before it produced anything.

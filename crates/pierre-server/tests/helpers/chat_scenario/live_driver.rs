@@ -134,7 +134,7 @@ const FRAGMENT_DENSITY_THRESHOLD: usize = 5;
 ///
 /// Optional on purpose: a scenario that only grades prose should not pay for
 /// a database, and the existing corpus does exactly that.
-pub struct RealExecution {
+pub(crate) struct RealExecution {
     /// The server the tools run against.
     pub resources: Arc<ServerContext>,
     /// The athlete whose rows the scenario writes and reads.
@@ -143,7 +143,7 @@ pub struct RealExecution {
     pub tenant_id: TenantId,
 }
 
-pub struct LiveScenarioDriver {
+pub(crate) struct LiveScenarioDriver {
     /// Whether this turn may be handed its activity data unasked.
     ///
     /// The runner clears it for a turn that asserts `ToolCalled`: that turn is
@@ -214,7 +214,7 @@ impl LiveScenarioDriver {
     /// Returns a human-readable string when the chain's head is not a `local`
     /// entry naming its model, or when the underlying provider fails to
     /// initialize.
-    pub fn from_env() -> Result<Self, String> {
+    pub(crate) fn from_env() -> Result<Self, String> {
         let model = local_model(&LlmChain::from_env())?;
 
         let mut config = OpenAiCompatibleConfig::ollama(&model);
@@ -249,14 +249,14 @@ impl LiveScenarioDriver {
     /// is what lets a scenario assert on what the agent saved rather than on
     /// what it said it saved.
     #[must_use]
-    pub fn with_real_execution(mut self, real: RealExecution) -> Self {
+    pub(crate) fn with_real_execution(mut self, real: RealExecution) -> Self {
         self.real = Some(real);
         self
     }
 
     /// Reset conversation history. Called between locale runs so two
     /// locales for the same scenario don't share turns.
-    pub fn reset_history(&mut self) {
+    pub(crate) fn reset_history(&mut self) {
         self.history.clear();
     }
 

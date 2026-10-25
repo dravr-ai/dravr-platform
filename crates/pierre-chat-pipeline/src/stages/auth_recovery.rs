@@ -43,6 +43,7 @@
 //! message with no actionable path forward — exactly what triggered this
 //! work in the first place.
 
+use std::fmt;
 use std::sync::Arc;
 
 use tracing::{info, warn};
@@ -91,7 +92,21 @@ pub struct AuthRecoveryDeps<'a> {
     pub short_links: &'a Arc<dyn ShortLinkRepository>,
 }
 
+impl fmt::Debug for AuthRecoveryDeps<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthRecoveryDeps")
+            .field("admin_jwt_secret", &"[REDACTED]")
+            .field("base_url", &self.base_url)
+            .field(
+                "messaging_strings_registry",
+                &self.messaging_strings_registry,
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// What [`apply_auth_recovery`] did to the turn.
+#[derive(Debug)]
 pub struct AuthRecovery {
     /// The reconnect offer to carry onto the envelope, as its own field.
     ///

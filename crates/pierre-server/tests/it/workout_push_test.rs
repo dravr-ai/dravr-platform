@@ -1136,7 +1136,8 @@ async fn the_workout_must_be_named_exactly_once() -> Result<()> {
         .expect_err("an ambiguous prescription must be rejected");
     assert!(format!("{both:?}").contains("not both"), "got: {both:?}");
 
-    assert_eq!(stub.requests().await, [] as [String; 0]);
+    let found = stub.requests().await;
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     Ok(())
 }
 
@@ -1161,7 +1162,8 @@ async fn a_session_with_no_steps_is_rejected() -> Result<()> {
         format!("{err:?}").contains("at least one step"),
         "got: {err:?}"
     );
-    assert_eq!(stub.requests().await, [] as [String; 0]);
+    let found = stub.requests().await;
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     Ok(())
 }
 
@@ -2011,7 +2013,8 @@ async fn pushing_without_a_plan_is_refused_before_the_provider_is_called() -> Re
         format!("{err:?}").contains("no active training plan"),
         "got: {err:?}"
     );
-    assert_eq!(stub.requests().await, [] as [String; 0]);
+    let found = stub.requests().await;
+    assert!(found.is_empty(), "expected empty, got {found:?}");
     Ok(())
 }
 

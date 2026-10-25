@@ -8,6 +8,7 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
 use pierre_middleware::McpAuthMiddleware;
+use std::fmt;
 use std::sync::Arc;
 
 /// Authentication context containing auth-related dependencies
@@ -28,6 +29,14 @@ pub struct AuthContext {
     admin_jwt_secret: Arc<str>,
     jwks_manager: Arc<JwksManager>,
     firebase_auth: Option<Arc<FirebaseAuth>>,
+}
+
+impl fmt::Debug for AuthContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthContext")
+            .field("admin_jwt_secret", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuthContext {

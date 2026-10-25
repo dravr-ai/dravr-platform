@@ -622,5 +622,5 @@ fn the_payload_hash_moves_with_the_content_and_only_the_content() {
     .unwrap();
     assert_eq!(a.payload_hash().unwrap(), b.payload_hash().unwrap());
     assert_ne!(a.payload_hash().unwrap(), c.payload_hash().unwrap());
-    let _: PlannedSession = a;
+    drop::<PlannedSession>(a);
 }

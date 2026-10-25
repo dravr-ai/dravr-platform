@@ -425,6 +425,7 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
 // ============================================================================
 
 /// Read the athlete's active training plan (outline + weeks).
+#[derive(Debug)]
 pub struct GetTrainingPlanTool;
 
 #[async_trait]
@@ -651,6 +652,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
 /// A coach's `athlete=` save lands in the coach's draft for that athlete,
 /// which the athlete never reads; `publish_training_plan` makes it their live
 /// season and notifies them (carnet#1069).
+#[derive(Debug)]
 pub struct SaveTrainingPlanTool;
 
 #[async_trait]

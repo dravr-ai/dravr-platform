@@ -350,7 +350,7 @@ async fn fetch_and_calculate_metrics(
 ///
 /// # Errors
 /// Returns `ProtocolError` if activity parameter is missing or calculation fails
-pub fn handle_calculate_metrics(
+pub(crate) fn handle_calculate_metrics(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

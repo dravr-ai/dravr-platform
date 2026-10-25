@@ -95,10 +95,15 @@ impl RevokeStub {
                 {
                     return;
                 }
-                let _ = stream
-                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
-                    .await;
-                let _ = stream.shutdown().await;
+                // The client may hang up first; the test checks what it received.
+                drop(
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                        )
+                        .await,
+                );
+                drop(stream.shutdown().await);
             }
         });
         Self { url, requests: rx }

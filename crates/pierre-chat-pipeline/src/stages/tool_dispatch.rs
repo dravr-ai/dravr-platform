@@ -310,7 +310,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         input.origin,
     ));
     let tool_message_recorder: Option<Arc<dyn ToolMessageRecorder>> =
-        Some(Arc::clone(&tool_rounds) as Arc<dyn ToolMessageRecorder>);
+        Some(Arc::<ChatRepoToolMessageRecorder>::clone(&tool_rounds));
     // For ACP-managed providers (Copilot Headless with SDK tool calling),
     // expose Dravr tools natively via the MCP bridge so the model calls them
     // over ACP instead of fragile text-based `<tool_call>` simulation. The

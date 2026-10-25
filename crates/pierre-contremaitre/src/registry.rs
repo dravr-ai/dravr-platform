@@ -80,6 +80,7 @@ impl fmt::Display for RegistryStats {
 /// Initialized with compiled-in defaults from `pierre-llm`. Entries are
 /// replaced when the contremaitre sync loads newer versions from GitHub.
 /// All getter methods return owned `String` values cloned from the registry.
+#[derive(Debug)]
 pub struct PromptRegistry {
     system: RwLock<HashMap<String, PromptEntry>>,
     /// Agent prompts keyed by slug → locale → entry. The outer map is keyed

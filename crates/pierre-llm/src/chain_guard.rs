@@ -143,6 +143,7 @@ pub enum CircuitTransition {
 
 /// Shared guard state. Cheap to read from the hot path: every field
 /// is an atomic primitive.
+#[derive(Debug)]
 pub struct ChainGuard {
     /// `core.remaining` from the most recent github.com `/rate_limit` read.
     /// `RATE_LIMIT_UNKNOWN` until the probe has run once;

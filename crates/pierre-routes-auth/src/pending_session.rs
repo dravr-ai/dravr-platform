@@ -36,7 +36,7 @@ fn session_token(headers: &HeaderMap) -> Option<String> {
 ///
 /// `action` names what the caller is about to do, for the refusal an
 /// impersonation gets.
-pub async fn session_account(
+pub(crate) async fn session_account(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
     action: &str,

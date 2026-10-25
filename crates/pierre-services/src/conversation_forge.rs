@@ -23,6 +23,8 @@
 //! Everything here is a repository call, which is why it can live below both
 //! callers rather than in either one.
 
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use photograveur::Locale;
 use pierre_config::constants::usage_quotas::{
@@ -70,6 +72,7 @@ pub enum ForgeAgent<'a> {
 }
 
 /// Everything [`forge_conversation`] needs.
+#[derive(Debug)]
 pub struct ForgeParams<'a> {
     /// The athlete the conversation belongs to.
     pub user_id: &'a str,
@@ -148,6 +151,18 @@ pub enum SlotQuota<'a> {
     /// session repaired, a first contact answered. Refusing there leaves the
     /// channel dead, with no sidebar to delete from, so no cap applies.
     Exempt,
+}
+
+impl fmt::Debug for SlotQuota<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Capped(lookup) => f
+                .debug_struct("Capped")
+                .field("has_lookup", &lookup.is_some())
+                .finish(),
+            Self::Exempt => f.write_str("Exempt"),
+        }
+    }
 }
 
 /// Create a conversation under the athlete's `max_active_conversations` cap.

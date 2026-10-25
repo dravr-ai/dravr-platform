@@ -12,6 +12,7 @@
 //! stays vendor-agnostic. Cache faults are logged but never propagate —
 //! a cache hiccup must not break weather lookups.
 
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -22,6 +23,13 @@ use pierre_database::repositories::{WeatherCacheEntry, WeatherCacheRepository};
 /// the dravr-meteo `WeatherCacheStore` trait.
 pub struct WeatherCacheRepoAdapter {
     repo: Arc<dyn WeatherCacheRepository>,
+}
+
+impl fmt::Debug for WeatherCacheRepoAdapter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WeatherCacheRepoAdapter")
+            .finish_non_exhaustive()
+    }
 }
 
 impl WeatherCacheRepoAdapter {

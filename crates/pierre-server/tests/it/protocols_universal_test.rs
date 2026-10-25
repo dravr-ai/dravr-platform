@@ -213,10 +213,8 @@ async fn test_universal_executor_creation() -> Result<()> {
     let executor = create_test_executor().await?;
 
     // Verify basic functionality
-    assert_ne!(
-        executor.resources.tool_registry().tool_names(),
-        [] as [&str; 0]
-    );
+    let names = executor.resources.tool_registry().tool_names();
+    assert!(!names.is_empty(), "expected a non-empty value");
 
     // Check that core tools are registered
     assert!(executor.has_tool("get_connection_status"));

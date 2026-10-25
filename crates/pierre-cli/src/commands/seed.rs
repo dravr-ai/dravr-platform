@@ -38,7 +38,7 @@ use crate::helpers::jwks::initialize_jwks_manager;
 
 #[non_exhaustive]
 #[derive(Subcommand)]
-pub enum SeedCommand {
+pub(crate) enum SeedCommand {
     /// Create admin and demo users for a fresh deployment (idempotent)
     Bootstrap(BootstrapArgs),
 
@@ -74,7 +74,7 @@ pub enum SeedCommand {
 /// lightweight `Database::init_for_seeding` connection (zero encryption key —
 /// those seeders only touch reference data), avoiding the full `KeyManager`
 /// bootstrap that user/token commands require.
-pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> {
+pub(crate) async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> {
     match action {
         // synthetic-activities seeds an encrypted dev-fixture oauth_token, so it
         // needs the real DEK from KeyManager — the zero seeding key would write

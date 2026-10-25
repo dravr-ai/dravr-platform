@@ -48,6 +48,7 @@ const KINDS: [FactKind; 9] = [
 ];
 
 /// What to run over, and how carefully.
+#[derive(Debug)]
 pub struct BackfillParams<'a> {
     /// Tenant that owns the facts.
     pub tenant_id: TenantId,

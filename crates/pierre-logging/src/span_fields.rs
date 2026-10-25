@@ -37,6 +37,7 @@ pub struct SpanFields(pub Map<String, Value>);
 
 /// Layer that records span field values into [`SpanFields`] on span creation
 /// and merges later `Span::record(...)` updates into the same map.
+#[derive(Debug)]
 pub struct SpanFieldStorage;
 
 impl<S> Layer<S> for SpanFieldStorage

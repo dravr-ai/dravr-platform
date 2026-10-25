@@ -30,16 +30,16 @@ use tokio::net::TcpListener;
 use super::google_token::now_secs;
 
 /// Where the start sends the athlete in tests; never contacted.
-pub const GOOGLE_CHOOSER: &str = "https://accounts.google.test/o/oauth2/v2/auth";
+pub(crate) const GOOGLE_CHOOSER: &str = "https://accounts.google.test/o/oauth2/v2/auth";
 /// The Google web client id the tests configure.
-pub const GOOGLE_CLIENT_ID: &str = "dravr-test-web-client.apps.googleusercontent.com";
+pub(crate) const GOOGLE_CLIENT_ID: &str = "dravr-test-web-client.apps.googleusercontent.com";
 /// Its client secret.
-pub const GOOGLE_CLIENT_SECRET: &str = "GOCSPX-test-google-client-secret";
+pub(crate) const GOOGLE_CLIENT_SECRET: &str = "GOCSPX-test-google-client-secret";
 
 /// The claims of a Google ID token, every one optional so a test can leave
 /// any of them out.
 #[derive(Debug, Clone, Default, Serialize)]
-pub struct GoogleIdClaims {
+pub(crate) struct GoogleIdClaims {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iss: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -66,7 +66,7 @@ impl GoogleIdClaims {
     /// What Google issues our client for `email` (verified) under account
     /// `sub`, for the sign-in that minted `nonce`, valid for an hour.
     #[must_use]
-    pub fn issued(sub: &str, email: &str, nonce: &str) -> Self {
+    pub(crate) fn issued(sub: &str, email: &str, nonce: &str) -> Self {
         let now = now_secs();
         Self {
             iss: Some("https://accounts.google.com".to_owned()),
@@ -101,7 +101,7 @@ struct StubState {
 }
 
 /// Google's token endpoint and key set, on a local listener.
-pub struct GoogleStub {
+pub(crate) struct GoogleStub {
     /// `http://127.0.0.1:<port>`
     pub base: String,
     state: Arc<Mutex<StubState>>,
@@ -109,7 +109,7 @@ pub struct GoogleStub {
 
 impl GoogleStub {
     /// Serve the token endpoint and `keys` as Google's signing keys.
-    pub async fn serve(keys: Vec<JsonWebKey>) -> Self {
+    pub(crate) async fn serve(keys: Vec<JsonWebKey>) -> Self {
         let state = Arc::new(Mutex::new(StubState {
             keys,
             ..StubState::default()
@@ -132,7 +132,7 @@ impl GoogleStub {
     /// The Google client the authorization server is configured with,
     /// pointed at this stub.
     #[must_use]
-    pub fn config(&self) -> GoogleSignInConfig {
+    pub(crate) fn config(&self) -> GoogleSignInConfig {
         GoogleSignInConfig {
             authorization_endpoint: GOOGLE_CHOOSER.to_owned(),
             token_endpoint: format!("{}/token", self.base),
@@ -142,18 +142,18 @@ impl GoogleStub {
     }
 
     /// Answer the next code exchanges with `id_token`.
-    pub fn set_id_token(&self, id_token: &str) {
+    pub(crate) fn set_id_token(&self, id_token: &str) {
         self.state.lock().unwrap().answer = Some(Answer::IdToken(id_token.to_owned()));
     }
 
     /// Answer the next code exchanges with `status` and `body`.
-    pub fn set_error(&self, status: u16, body: &str) {
+    pub(crate) fn set_error(&self, status: u16, body: &str) {
         self.state.lock().unwrap().answer = Some(Answer::Error(status, body.to_owned()));
     }
 
     /// Every form the token endpoint received, in order.
     #[must_use]
-    pub fn token_requests(&self) -> Vec<HashMap<String, String>> {
+    pub(crate) fn token_requests(&self) -> Vec<HashMap<String, String>> {
         self.state.lock().unwrap().requests.clone()
     }
 }

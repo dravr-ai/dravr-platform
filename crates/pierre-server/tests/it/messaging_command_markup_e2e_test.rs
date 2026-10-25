@@ -63,9 +63,10 @@ mod egress {
 
     async fn start() -> Arc<CommandE2e> {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         CommandE2e::start(resources, llm).await
     }
 

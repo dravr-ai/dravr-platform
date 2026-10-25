@@ -63,6 +63,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use std::fmt;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
@@ -165,6 +166,17 @@ pub struct CorosProvider {
     client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
+}
+
+impl fmt::Debug for CorosProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CorosProvider")
+            .field("config", &self.config)
+            .field("credentials", &self.credentials)
+            .field("client", &self.client)
+            .field("circuit_breaker", &self.circuit_breaker)
+            .finish_non_exhaustive()
+    }
 }
 
 impl CorosProvider {
@@ -399,7 +411,9 @@ impl FitnessProvider for CorosProvider {
     }
 
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        let _ = self.token_refresh_callback.set(callback);
+        if self.token_refresh_callback.set(callback).is_err() {
+            debug!("COROS token refresh callback already set; keeping the first");
+        }
     }
 
     async fn is_authenticated(&self) -> bool {
@@ -528,13 +542,13 @@ impl FitnessProvider for CorosProvider {
             }
 
             if let Some(after) = params.after {
-                if let Some(dt) = chrono::DateTime::from_timestamp(after, 0) {
+                if let Some(dt) = DateTime::from_timestamp(after, 0) {
                     let _ = write!(endpoint, "&start_date={}", dt.format("%Y-%m-%d"));
                 }
             }
 
             if let Some(before) = params.before {
-                if let Some(dt) = chrono::DateTime::from_timestamp(before, 0) {
+                if let Some(dt) = DateTime::from_timestamp(before, 0) {
                     let _ = write!(endpoint, "&end_date={}", dt.format("%Y-%m-%d"));
                 }
             }
@@ -658,6 +672,7 @@ impl FitnessProvider for CorosProvider {
 use super::core::ProviderFactory;
 
 /// Factory for creating COROS provider instances
+#[derive(Debug)]
 pub struct CorosProviderFactory;
 
 impl ProviderFactory for CorosProviderFactory {

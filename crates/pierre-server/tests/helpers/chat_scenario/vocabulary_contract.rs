@@ -26,7 +26,7 @@ use std::collections::HashMap;
 
 /// A single agent's vocabulary commitment.
 #[derive(Debug, Clone)]
-pub struct VocabularyContract {
+pub(crate) struct VocabularyContract {
     /// Lower-snake-case domain terms. Asserter matches case-insensitive
     /// substring; word-boundary refinement is a follow-up if false
     /// positives surface.
@@ -35,7 +35,7 @@ pub struct VocabularyContract {
 
 /// Registry of vocabulary contracts, keyed by agent id.
 #[derive(Debug, Clone, Default)]
-pub struct VocabularyContractRegistry {
+pub(crate) struct VocabularyContractRegistry {
     contracts: HashMap<String, VocabularyContract>,
 }
 
@@ -47,7 +47,7 @@ impl VocabularyContractRegistry {
     /// field per agent (P4 follow-up), this loader will read from
     /// there instead of hard-coding.
     #[must_use]
-    pub fn with_defaults() -> Self {
+    pub(crate) fn with_defaults() -> Self {
         let mut m = HashMap::new();
         m.insert(
             "strength".to_owned(),
@@ -123,20 +123,20 @@ impl VocabularyContractRegistry {
 
     /// Empty registry — used in unit tests that supply their own.
     #[must_use]
-    pub fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             contracts: HashMap::new(),
         }
     }
 
     /// Install or overwrite a contract.
-    pub fn insert(&mut self, agent_id: String, contract: VocabularyContract) {
+    pub(crate) fn insert(&mut self, agent_id: String, contract: VocabularyContract) {
         self.contracts.insert(agent_id, contract);
     }
 
     /// Look up by agent id.
     #[must_use]
-    pub fn contract_for(&self, agent_id: &str) -> Option<&VocabularyContract> {
+    pub(crate) fn contract_for(&self, agent_id: &str) -> Option<&VocabularyContract> {
         self.contracts.get(agent_id)
     }
 }

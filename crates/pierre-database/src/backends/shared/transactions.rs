@@ -250,6 +250,7 @@ fn is_retryable_error(error_msg: &str) -> bool {
 /// # Type Parameters
 ///
 /// * `DB` - The database type (e.g., `Sqlite`, `Postgres`)
+#[derive(Debug)]
 pub struct TransactionGuard<'c, DB: Database> {
     transaction: Option<Transaction<'c, DB>>,
     committed: bool,

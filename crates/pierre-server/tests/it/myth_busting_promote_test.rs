@@ -32,7 +32,11 @@ async fn promote_topic_blocks_subsequent_replies() {
 
     // Default snapshot has no blocked_topics.
     let baseline = registry.current_guardrails();
-    assert_eq!(baseline.blocked_topics, [] as [String; 0]);
+    assert!(
+        baseline.blocked_topics.is_empty(),
+        "expected empty, got {:?}",
+        baseline.blocked_topics
+    );
 
     // Replies that mention "creatine causes kidney damage" pass before
     // promotion (only the medical-disclaimer triggers fire, and only on

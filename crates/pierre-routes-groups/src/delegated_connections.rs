@@ -256,6 +256,7 @@ pub struct RosterQuery {
 // ============================================================================
 
 /// Delegated-connection route handler
+#[derive(Debug)]
 pub struct DelegatedConnectionRoutes;
 
 impl DelegatedConnectionRoutes {

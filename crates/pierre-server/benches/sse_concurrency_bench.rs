@@ -247,7 +247,8 @@ fn bench_read_heavy(c: &mut Criterion) {
                                 }
                             } else {
                                 // 95% reads
-                                let _ = black_box(m.get(&key));
+                                // The read guard is released at the end of the statement.
+                                black_box(m.get(&key));
                             }
                         }
                     }));

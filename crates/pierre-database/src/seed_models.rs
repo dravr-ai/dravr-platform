@@ -10,6 +10,7 @@
 //! implementations, avoiding lifetime complexity across async boundaries.
 
 use chrono::{DateTime, Utc};
+use std::fmt;
 use uuid::Uuid;
 
 use pierre_core::models::TenantId;
@@ -19,6 +20,7 @@ use pierre_core::models::TenantId;
 // ================================
 
 /// LLM usage record for seeding analytics dashboards
+#[derive(Debug)]
 pub struct SeedLlmUsageRecord {
     /// Unique record ID
     pub id: Uuid,
@@ -53,6 +55,7 @@ pub struct SeedLlmUsageRecord {
 // ================================
 
 /// Synthetic activity record for testing without OAuth providers
+#[derive(Debug)]
 pub struct SeedSyntheticActivity {
     /// Unique activity ID
     pub id: Uuid,
@@ -99,6 +102,7 @@ pub struct SeedSyntheticActivity {
 }
 
 /// Provider connection for registering synthetic data source
+#[derive(Debug)]
 pub struct SeedProviderConnection {
     /// Unique connection ID
     pub id: Uuid,
@@ -154,7 +158,24 @@ pub struct SeedDemoUser {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SeedDemoUser {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SeedDemoUser")
+            .field("id", &self.id)
+            .field("email", &self.email)
+            .field("display_name", &self.display_name)
+            .field("password_hash", &"[REDACTED]")
+            .field("tier", &self.tier)
+            .field("status", &self.status)
+            .field("is_admin", &self.is_admin)
+            .field("locale", &self.locale)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// Tenant for seeding
+#[derive(Debug)]
 pub struct SeedTenant {
     /// Tenant ID
     pub id: Uuid,
@@ -196,7 +217,25 @@ pub struct SeedApiKey {
     pub created_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for SeedApiKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SeedApiKey")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("name", &self.name)
+            .field("description", &self.description)
+            .field("key_hash", &"[REDACTED]")
+            .field("key_prefix", &self.key_prefix)
+            .field("tier", &self.tier)
+            .field("rate_limit", &self.rate_limit)
+            .field("expires_at", &self.expires_at)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
 /// A2A client for seeding
+#[derive(Debug)]
 pub struct SeedA2AClient {
     /// Client ID
     pub id: Uuid,
@@ -219,6 +258,7 @@ pub struct SeedA2AClient {
 }
 
 /// API key usage record for seeding analytics
+#[derive(Debug)]
 pub struct SeedApiKeyUsage {
     /// Record ID
     pub id: Uuid,
@@ -235,6 +275,7 @@ pub struct SeedApiKeyUsage {
 }
 
 /// A2A usage record for seeding analytics
+#[derive(Debug)]
 pub struct SeedA2AUsage {
     /// Record ID
     pub id: Uuid,
@@ -255,6 +296,7 @@ pub struct SeedA2AUsage {
 // ================================
 
 /// Agent record for seeding (flat database columns, not the parsed markdown structure)
+#[derive(Debug)]
 pub struct SeedAgent {
     /// Agent ID
     pub id: String,
@@ -316,6 +358,7 @@ pub struct SeedAgent {
 /// Produced by the seeder when a `agents/<category>/<slug>/<locale>.md` file
 /// (with `<locale>` ≠ `en`) is discovered; persisted into the
 /// `agent_translations` table keyed by `(agent_id, locale)`.
+#[derive(Debug)]
 pub struct SeedAgentTranslation {
     /// Agent this translation applies to; must match an existing row in `agents`.
     pub agent_id: String,
@@ -340,6 +383,7 @@ pub struct SeedAgentTranslation {
 }
 
 /// Agent relation for seeding
+#[derive(Debug)]
 pub struct SeedAgentRelation {
     /// Relation ID
     pub id: String,
@@ -354,6 +398,7 @@ pub struct SeedAgentRelation {
 }
 
 /// Agent author profile for seeding (Store creator profiles)
+#[derive(Debug)]
 pub struct SeedAgentAuthor {
     /// Author profile ID (TEXT PK in `agent_authors`)
     pub id: String,
@@ -370,6 +415,7 @@ pub struct SeedAgentAuthor {
 }
 
 /// Store listing for seeding
+#[derive(Debug)]
 pub struct SeedStoreListing {
     /// Listing ID
     pub id: String,

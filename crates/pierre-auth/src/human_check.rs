@@ -18,6 +18,7 @@
 //! nothing about the client. Neither the token nor the secret is ever logged.
 
 use std::env;
+use std::fmt;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -65,6 +66,16 @@ pub struct TurnstileCheck {
     secret_key: String,
     /// The siteverify URL; a test serves it from a local listener
     verify_url: String,
+}
+
+impl fmt::Debug for TurnstileCheck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TurnstileCheck")
+            .field("site_key", &self.site_key)
+            .field("secret_key", &"[REDACTED]")
+            .field("verify_url", &self.verify_url)
+            .finish()
+    }
 }
 
 #[derive(Deserialize)]

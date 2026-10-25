@@ -83,7 +83,7 @@ fn http_request_span(request: &Request<Body>) -> Span {
 }
 
 /// MCP server supporting user authentication and isolated data access
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ProviderToolRouter {
     resources: Arc<ServerContext>,
 }
@@ -460,12 +460,11 @@ impl ProviderToolRouter {
                 tool_selection_context.clone(),
                 resources,
             );
-            let tool_selection_routes = ToolSelectionRoutes::routes(tool_selection_context).layer(
-                middleware::from_fn_with_state(
+            let tool_selection_routes =
+                ToolSelectionRoutes::routes(tool_selection_context).layer(from_fn_with_state(
                     auth_service.clone(),
                     pierre_routes_admin::admin_auth_middleware,
-                ),
-            );
+                ));
             let diagnostics_ctx = DiagnosticsContext {
                 tool_registry: resources.mcp.tool_registry.clone(),
                 runtime: resources.clone(), // Safe: Arc clone coerced into the trait object
@@ -560,9 +559,10 @@ impl ProviderToolRouter {
 
         #[cfg(feature = "transport-sse")]
         let app = {
-            // Upcast Arc<ServerContext> → Arc<dyn SseCtx>. `Arc::clone` cannot
-            // do the coercion in argument position, so use the From impl.
-            let sse_ctx: Arc<dyn pierre_runtime_context::SseCtx> = Arc::clone(resources) as _;
+            // Upcast Arc<ServerContext> → Arc<dyn SseCtx>. The turbofish pins
+            // `clone` to the concrete type so the binding can coerce it.
+            let sse_ctx: Arc<dyn pierre_runtime_context::SseCtx> =
+                Arc::<ServerContext>::clone(resources);
             app.merge(SseRoutes::routes(
                 Arc::clone(&resources.sse.sse_manager),
                 sse_ctx,

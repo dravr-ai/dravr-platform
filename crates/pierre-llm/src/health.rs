@@ -118,6 +118,7 @@ impl Default for LlmHealthSnapshot {
 /// `HEALTHCHECK`). Operators who want a hard gate on the boot-time LLM
 /// round-trip can point the startup probe at `/ready` instead — that
 /// handler returns 503 while `status == Unhealthy`.
+#[derive(Debug)]
 pub struct LlmHealthState {
     inner: RwLock<LlmHealthSnapshot>,
     /// Milliseconds (since [`PROCESS_START`]) of the last successful LLM

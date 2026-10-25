@@ -9,7 +9,7 @@ use std::sync::{LazyLock, OnceLock};
 
 use dashmap::DashMap;
 use sha2::{Digest, Sha256};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Global singleton instance, initialized once at server startup
 static ANALYTICS: OnceLock<Box<dyn AnalyticsTracker>> = OnceLock::new();
@@ -85,7 +85,9 @@ pub fn init_analytics() {
         Box::new(NoopAnalyticsTracker)
     });
 
-    let _ = ANALYTICS.set(tracker);
+    if ANALYTICS.set(tracker).is_err() {
+        debug!("analytics tracker already initialised; keeping the first");
+    }
 }
 
 /// Fallback noop instance for when `init_analytics()` has not been called
@@ -96,9 +98,7 @@ static NOOP_FALLBACK: NoopAnalyticsTracker = NoopAnalyticsTracker;
 /// Always returns a valid tracker, either the live `PostHog` client or a noop.
 /// If called before `init_analytics()`, returns a noop silently.
 pub fn analytics() -> &'static dyn AnalyticsTracker {
-    ANALYTICS
-        .get()
-        .map_or(&NOOP_FALLBACK as &dyn AnalyticsTracker, AsRef::as_ref)
+    ANALYTICS.get().map_or(&NOOP_FALLBACK, AsRef::as_ref)
 }
 
 /// Whether the user behind `hashed_user_id` has affirmative analytics consent.

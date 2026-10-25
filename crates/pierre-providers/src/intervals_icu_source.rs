@@ -28,7 +28,7 @@ use pierre_core::constants::oauth_providers::{garmin_device, GARMIN};
 /// relay's policy to judge. An activity the athlete put in directly (an
 /// upload, a manual entry, a Dropbox sync) is `garmin` when its
 /// `device_name` names a Garmin device, and has no upstream otherwise.
-pub fn upstream_source(raw: Option<&str>, device_name: Option<&str>) -> Option<String> {
+pub(crate) fn upstream_source(raw: Option<&str>, device_name: Option<&str>) -> Option<String> {
     let raw = raw.map(str::trim).unwrap_or_default();
     match raw.to_ascii_uppercase().as_str() {
         "" | "UPLOAD" | "MANUAL" | "OAUTH_CLIENT" | "DROPBOX" => {

@@ -257,7 +257,7 @@ impl UserOAuthToken {
     ) -> Self {
         let now = Utc::now();
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: Uuid::new_v4().to_string(),
             user_id,
             tenant_id,
             provider,
@@ -338,7 +338,7 @@ impl UserOAuthApp {
     ) -> Self {
         let now = Utc::now();
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: Uuid::new_v4().to_string(),
             user_id,
             provider,
             client_id,
@@ -614,7 +614,7 @@ impl ProviderConnection {
         connection_type: ConnectionType,
     ) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: Uuid::new_v4().to_string(),
             user_id,
             tenant_id,
             provider,

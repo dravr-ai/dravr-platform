@@ -26,6 +26,7 @@ pub trait GroupAggregationStrategy: Send + Sync {
 }
 
 /// Compute fresh on every request. Accurate but slower for large groups.
+#[derive(Debug)]
 pub struct LiveAggregation;
 
 impl LiveAggregation {
@@ -126,6 +127,7 @@ impl GroupAggregationStrategy for LiveAggregation {
 }
 
 /// Serve from cache with configurable TTL. Fast but potentially stale.
+#[derive(Debug)]
 pub struct CachedAggregation {
     ttl: Duration,
 }

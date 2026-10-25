@@ -43,6 +43,7 @@ use super::constants::{
 ///
 /// Unlike direct providers (Strava, Garmin), Terra uses a webhook-based model.
 /// This provider reads from a local cache populated by webhook events.
+#[derive(Debug)]
 pub struct TerraProvider {
     config: ProviderConfig,
     credentials: RwLock<Option<OAuth2Credentials>>,
@@ -294,6 +295,7 @@ impl FitnessProvider for TerraProvider {
 }
 
 /// Terra provider descriptor for SPI
+#[derive(Debug)]
 pub struct TerraDescriptor;
 
 impl ProviderDescriptor for TerraDescriptor {
@@ -348,6 +350,7 @@ impl ProviderDescriptor for TerraDescriptor {
 }
 
 /// Factory for creating Terra provider instances
+#[derive(Debug)]
 pub struct TerraProviderFactory {
     cache: Arc<TerraDataCache>,
 }

@@ -131,6 +131,7 @@ async fn verify_user_tenant_membership(
 // ============================================================================
 
 /// Tool for listing system agents (admin only).
+#[derive(Debug)]
 pub struct AdminListSystemAgentsTool;
 
 #[async_trait]
@@ -244,6 +245,7 @@ struct CreateSystemAgentParams {
 }
 
 /// Tool for creating system agents (admin only).
+#[derive(Debug)]
 pub struct AdminCreateSystemAgentTool;
 
 #[async_trait]
@@ -382,6 +384,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
 // ============================================================================
 
 /// Tool for getting system agent details (admin only).
+#[derive(Debug)]
 pub struct AdminGetSystemAgentTool;
 
 #[async_trait]
@@ -468,6 +471,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemAgentTool {
 // ============================================================================
 
 /// Tool for updating system agents (admin only).
+#[derive(Debug)]
 pub struct AdminUpdateSystemAgentTool;
 
 #[async_trait]
@@ -631,6 +635,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemAgentTool {
 // ============================================================================
 
 /// Tool for deleting system agents (admin only).
+#[derive(Debug)]
 pub struct AdminDeleteSystemAgentTool;
 
 #[async_trait]
@@ -708,6 +713,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemAgentTool {
 // ============================================================================
 
 /// Tool for assigning agents to users (admin only).
+#[derive(Debug)]
 pub struct AdminAssignAgentTool;
 
 #[async_trait]
@@ -816,6 +822,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignAgentTool {
 // ============================================================================
 
 /// Tool for removing agent assignments (admin only).
+#[derive(Debug)]
 pub struct AdminUnassignAgentTool;
 
 #[async_trait]
@@ -923,6 +930,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignAgentTool {
 const MAX_ASSIGNMENT_ROWS: usize = 200;
 
 /// Tool for listing agent assignments (admin only).
+#[derive(Debug)]
 pub struct AdminListAgentAssignmentsTool;
 
 #[async_trait]

@@ -20,6 +20,7 @@
 //! Controlled by [`pierre_core::models::RefreshConfig`] — the stage is a
 //! no-op when `on_chat_enabled` is false.
 
+use std::fmt;
 use std::sync::Arc;
 
 use pierre_core::models::RefreshConfig;
@@ -68,6 +69,18 @@ pub struct RefreshDeps<'a> {
     /// events describe.
     #[cfg(feature = "health-sync")]
     pub sse_manager: &'a Arc<SseManager>,
+}
+
+impl fmt::Debug for RefreshDeps<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = f.debug_struct("RefreshDeps");
+        debug.field("auth_repos", &self.auth_repos);
+        #[cfg(feature = "health-sync")]
+        debug.field("sync_orchestrator", &self.sync_orchestrator);
+        #[cfg(feature = "health-sync")]
+        debug.field("sse_manager", &self.sse_manager);
+        debug.finish_non_exhaustive()
+    }
 }
 
 /// Trigger the chat refresh and build the freshness hint for this turn.

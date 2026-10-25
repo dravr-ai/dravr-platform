@@ -14,7 +14,7 @@
 use super::coaching_groups::person_name_column;
 
 /// One transcript entry.
-pub const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcript_entries
+pub(crate) const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcript_entries
               (id, group_id, tenant_id, author_user_id, speaker, content,
                source_conversation_id, source_message_id, created_at, first_party_only)
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)";
@@ -48,7 +48,7 @@ macro_rules! transcript_entry_visible {
 /// — what the agent's ambient context reasons over. No tenant filter:
 /// membership is cross-tenant and the caller verified the viewer's
 /// membership.
-pub const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
+pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
     r"SELECT e.id, e.group_id, e.tenant_id, e.author_user_id, e.speaker,
               e.content, e.source_conversation_id, e.source_message_id, e.created_at,
               e.first_party_only,
@@ -76,7 +76,7 @@ pub const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
 /// on the same `(created_at, id)` order the page is sorted by. No tenant
 /// filter: membership is cross-tenant and the caller verified the viewer's
 /// membership.
-pub const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
+pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
     r"SELECT r.id, r.speaker, r.created_at, r.visible, r.first_party_only,
               CASE WHEN r.visible THEN r.author_user_id END AS author_user_id,
               CASE WHEN r.visible THEN ",

@@ -457,6 +457,7 @@ async fn build_overview(
 /// It reads the members of the caller's Dravr groups; the coach's
 /// coaching-platform roster is [`super::provider_roster`]'s, and proposing a
 /// link to one of its athletes is [`super::athlete_link`]'s.
+#[derive(Debug)]
 pub struct GetRosterOverviewTool;
 
 #[async_trait]

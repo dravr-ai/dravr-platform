@@ -19,11 +19,11 @@ use pierre_mcp_server::services::platform_post::{
 use uuid::Uuid;
 
 /// What the faked post answers when it is posted.
-pub const REPLY: &str = "Your first WHOOP week: recovery held around 70%.";
+pub(crate) const REPLY: &str = "Your first WHOOP week: recovery held around 70%.";
 
 /// One post a caller asked for.
 #[derive(Debug, Clone)]
-pub struct Asked {
+pub(crate) struct Asked {
     pub user_id: Uuid,
     pub tenant_id: TenantId,
     pub conversation_id: String,
@@ -34,20 +34,20 @@ pub struct Asked {
 /// A platform post that records what it was asked to post and answers as a
 /// grounded post (`posts`) or a withheld one. Mocked: whether a real reply is
 /// posted is the pipeline's to decide, and `platform_post_test` pins that.
-pub struct RecordingPost {
+pub(crate) struct RecordingPost {
     posts: bool,
     asked: Mutex<Vec<Asked>>,
 }
 
 impl RecordingPost {
-    pub fn posting(posts: bool) -> Self {
+    pub(crate) fn posting(posts: bool) -> Self {
         Self {
             posts,
             asked: Mutex::new(Vec::new()),
         }
     }
 
-    pub fn asked(&self) -> Vec<Asked> {
+    pub(crate) fn asked(&self) -> Vec<Asked> {
         self.asked.lock().unwrap().clone()
     }
 }

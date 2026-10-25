@@ -22,6 +22,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// SSE routes implementation
+#[derive(Debug)]
 pub struct SseRoutes;
 
 impl SseRoutes {

@@ -120,7 +120,7 @@ async fn coached_subject(
 /// live plan and the coach's draft over it, each projected on the athlete's
 /// today in the shape `GET /api/me/training-plan` returns, in the coach's
 /// locale (or `?locale=`), and where the draft stands.
-pub async fn get_subject_plan(
+pub(super) async fn get_subject_plan(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -171,7 +171,7 @@ pub async fn get_subject_plan(
 /// athlete's plan moved under the draft and the body did not ask to
 /// overwrite it; nothing is written. 404 `no_draft` when the coach holds no
 /// draft.
-pub async fn publish_subject_plan(
+pub(super) async fn publish_subject_plan(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
@@ -217,7 +217,7 @@ pub async fn publish_subject_plan(
 /// `DELETE /api/chat/conversations/{id}/subject-plan/draft`: the coach's
 /// draft thrown away. The athlete's plan is untouched and nothing reaches
 /// them. 204, or 404 `no_draft` when the coach holds none.
-pub async fn discard_subject_plan_draft(
+pub(super) async fn discard_subject_plan_draft(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,

@@ -71,7 +71,7 @@ fn ctx(
         channel_type: "telegram".to_owned(),
         args: vec![],
         raw_text: raw_text.to_owned(),
-        ctx: Arc::<ServerContext>::clone(resources) as Arc<dyn pierre_runtime_context::CommandCtx>,
+        ctx: Arc::<ServerContext>::clone(resources),
         locale: "en".to_owned(),
         is_direct_message: true,
         ambient_group_fallback: true,

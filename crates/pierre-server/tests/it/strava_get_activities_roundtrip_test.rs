@@ -21,24 +21,16 @@
 use crate::common;
 use axum::{routing::get, Json, Router};
 use chrono::Utc;
-use pierre_mcp_server::constants::init_server_config;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::strava_provider::StravaProvider;
 use secrecy::SecretString;
 use serde_json::{json, Value};
-use std::sync::Once;
 use tokio::net::TcpListener;
 
-static INIT_HTTP_CLIENTS: Once = Once::new();
-static INIT_SERVER_CONFIG: Once = Once::new();
-
 fn ensure_http_clients_initialized() {
-    INIT_SERVER_CONFIG.call_once(|| {
-        let _ = init_server_config();
-    });
-    INIT_HTTP_CLIENTS.call_once(|| {
-        common::init_test_http_clients();
-    });
+    // Server config first (required for provider defaults)
+    common::init_server_config();
+    common::init_test_http_clients();
 }
 
 /// Two seeded Strava activities. The mountain-bike ride carries the deprecated

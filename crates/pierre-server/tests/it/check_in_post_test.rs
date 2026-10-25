@@ -21,7 +21,6 @@ use crate::common;
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::{
     KEY_PLATFORM_POST_CHECK_IN_DAILY_PROMPT, KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT,
     KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT,
@@ -31,7 +30,7 @@ use pierre_core::models::{CheckInCadence, ConnectionType, TenantId, SUPPORTED_LO
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::check_in_post::CheckInPoster;
-use pierre_mcp_server::services::platform_post::{PlatformPost, PostSurface};
+use pierre_mcp_server::services::platform_post::PostSurface;
 use uuid::Uuid;
 
 use crate::messaging_fixtures;
@@ -82,12 +81,10 @@ async fn fixture(post: RecordingPost) -> Fixture {
     }
     let post = Arc::new(post);
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
-    let resolver = Arc::new(FakeResolver::new(
-        Arc::clone(&channel) as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(&channel)));
     let poster = CheckInPoster::new(
         Arc::downgrade(&resources),
-        Arc::clone(&post) as Arc<dyn PlatformPost>,
+        Arc::<RecordingPost>::clone(&post),
         resolver,
     );
     Fixture {
@@ -276,10 +273,10 @@ async fn a_check_in_is_claimed_once_per_day_across_ticks_and_replicas() {
     let (user_id, _) = athlete(&fx, Some(CheckInCadence::Daily), None).await;
     let replica = CheckInPoster::new(
         Arc::downgrade(&fx.resources),
-        Arc::clone(&fx.post) as Arc<dyn PlatformPost>,
-        Arc::new(FakeResolver::new(
-            Arc::clone(&fx.channel) as Arc<dyn MessagingChannel>
-        )),
+        Arc::<RecordingPost>::clone(&fx.post),
+        Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(
+            &fx.channel,
+        ))),
     );
 
     let (first, second) = tokio::join!(fx.poster.tick(at(0, 8, 15)), replica.tick(at(0, 8, 15)));

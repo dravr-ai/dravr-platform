@@ -98,9 +98,8 @@ impl DashboardTestSetup {
             .map_err(|e| anyhow::anyhow!("Failed to generate JWT: {}", e))?;
 
         // Create test API keys for dashboard data
-        let _ =
-            common::create_and_store_test_api_key(database.as_ref(), user_id, "Test Dashboard Key")
-                .await;
+        common::create_and_store_test_api_key(database.as_ref(), user_id, "Test Dashboard Key")
+            .await?;
 
         Ok(Self {
             resources,

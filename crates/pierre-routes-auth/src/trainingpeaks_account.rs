@@ -40,7 +40,7 @@ use crate::AuthRoutesContext;
 /// arrives meanwhile waits for both instead of scraping the session beside
 /// them; the returned wait is on it, or on the pre-fetch already in flight
 /// when there is one.
-pub fn spawn_login_probe(
+pub(crate) fn spawn_login_probe(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -101,7 +101,7 @@ pub fn spawn_login_probe(
 ///
 /// A connection whose role is known is left alone, and so is a connection
 /// the user reads through someone else's account.
-pub fn spawn_role_probe_if_unread(
+pub(crate) fn spawn_role_probe_if_unread(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,

@@ -59,6 +59,7 @@ const SECONDS_PER_HOUR: f64 = 3600.0;
 /// reads — which is what both ledger entries mean by "nothing warns the
 /// agent". A caller that wants the verdict asks for it; the rail's own
 /// reporting is unchanged.
+#[derive(Debug)]
 pub struct ReadinessReading {
     /// The level the athlete's signals cleared.
     pub level: ReadinessLevel,

@@ -47,7 +47,7 @@ use serde_json::Value;
 /// turn finishes; a CI runner that cannot reach Telegram hangs instead, and on
 /// 2026-09-01 that consumed the entire 10 s budget the transcript tests wait on.
 /// The tests were passing or failing on a third party's reachability.
-pub struct OfflineSendChannel {
+pub(crate) struct OfflineSendChannel {
     /// The production adapter every inbound method delegates to.
     inner: Arc<dyn MessagingChannel>,
     /// Shared with the factory that built this adapter, so a test holding the
@@ -56,11 +56,11 @@ pub struct OfflineSendChannel {
 }
 
 /// Outbound messages captured in place of delivery, newest last.
-pub type SendLog = Arc<Mutex<Vec<OutgoingMessage>>>;
+pub(crate) type SendLog = Arc<Mutex<Vec<OutgoingMessage>>>;
 
 impl OfflineSendChannel {
     /// Wrap a real adapter, capturing its outbound sends into `sent`.
-    pub fn wrapping(inner: Arc<dyn MessagingChannel>, sent: SendLog) -> Self {
+    pub(crate) fn wrapping(inner: Arc<dyn MessagingChannel>, sent: SendLog) -> Self {
         Self { inner, sent }
     }
 }
@@ -127,13 +127,13 @@ impl MessagingChannel for OfflineSendChannel {
 /// transport used to carry implicitly, and which taking the network out would
 /// otherwise remove silently.
 #[derive(Default)]
-pub struct OfflineSendAdapters {
+pub(crate) struct OfflineSendAdapters {
     sent: SendLog,
 }
 
 impl OfflineSendAdapters {
     /// Every outbound message the ingress handed to a channel, in order.
-    pub fn sends(&self) -> Vec<OutgoingMessage> {
+    pub(crate) fn sends(&self) -> Vec<OutgoingMessage> {
         self.sent.lock().unwrap().clone()
     }
 }

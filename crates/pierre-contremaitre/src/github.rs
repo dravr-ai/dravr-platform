@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
+
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -35,6 +37,16 @@ pub struct GitHubContentsClient {
     repo: String,
     branch: String,
     pat: String,
+}
+
+impl fmt::Debug for GitHubContentsClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GitHubContentsClient")
+            .field("repo", &self.repo)
+            .field("branch", &self.branch)
+            .field("pat", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Response from GitHub GET /repos/{owner}/{repo}/contents/{path}

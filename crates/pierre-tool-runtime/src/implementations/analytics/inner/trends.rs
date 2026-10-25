@@ -358,7 +358,7 @@ fn generate_trend_insights(
 }
 
 /// Handle `analyze_performance_trends` tool - analyze performance over time
-pub fn handle_analyze_performance_trends(
+pub(crate) fn handle_analyze_performance_trends(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

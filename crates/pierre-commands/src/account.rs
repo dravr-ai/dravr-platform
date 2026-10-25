@@ -20,6 +20,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// The earlier confirmation-prompt stub never unlinked — there was no
 /// `YES`-reply handler — so the user believed they had logged out while the
 /// channel stayed linked.
+#[derive(Debug)]
 pub struct LogoutHandler;
 
 #[async_trait]

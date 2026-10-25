@@ -13,7 +13,7 @@ use super::tool::lookup_user;
 type Result<T> = AppResult<T>;
 
 /// List every API key a user owns, revoked ones included and marked.
-pub async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
+pub(crate) async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user_id = lookup_user(repos, &email).await?;
     let keys = repos.api_keys.get_for_user(user_id).await?;
 
@@ -45,7 +45,7 @@ pub async fn list(repos: &RepositoryRegistry, email: String) -> Result<()> {
 ///
 /// The key must belong to `email`: the same ownership the usage route
 /// enforces, so a mistyped key id names no one else's traffic.
-pub async fn usage(
+pub(crate) async fn usage(
     repos: &RepositoryRegistry,
     email: String,
     key_id: String,

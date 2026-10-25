@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
 /// OAuth notification stream for a specific user
+#[derive(Debug)]
 pub struct NotificationStream {
     sender: Arc<RwLock<Option<broadcast::Sender<String>>>>,
     buffer_size: usize,

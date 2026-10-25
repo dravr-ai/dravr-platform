@@ -57,6 +57,7 @@ use reqwest::{Method, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
+use std::fmt;
 use std::sync::OnceLock;
 use tokio::sync::{OnceCell, RwLock};
 use tracing::{debug, info, instrument, warn};
@@ -308,6 +309,18 @@ pub struct WahooProvider {
     /// The athlete's FTP as their Wahoo power zones hold it, read once per
     /// provider: the only athlete number a pushed plan file carries.
     wahoo_ftp: OnceCell<Option<u32>>,
+}
+
+impl fmt::Debug for WahooProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WahooProvider")
+            .field("config", &self.config)
+            .field("credentials", &self.credentials)
+            .field("client", &self.client)
+            .field("circuit_breaker", &self.circuit_breaker)
+            .field("wahoo_ftp", &self.wahoo_ftp)
+            .finish_non_exhaustive()
+    }
 }
 
 impl WahooProvider {
@@ -649,7 +662,9 @@ impl FitnessProvider for WahooProvider {
     }
 
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        let _ = self.token_refresh_callback.set(callback);
+        if self.token_refresh_callback.set(callback).is_err() {
+            debug!("Wahoo token refresh callback already set; keeping the first");
+        }
     }
 
     async fn is_authenticated(&self) -> bool {
@@ -944,6 +959,7 @@ impl FitnessProvider for WahooProvider {
 // ============================================================================
 
 /// Factory for Wahoo provider instances.
+#[derive(Debug)]
 pub struct WahooProviderFactory;
 
 impl ProviderFactory for WahooProviderFactory {

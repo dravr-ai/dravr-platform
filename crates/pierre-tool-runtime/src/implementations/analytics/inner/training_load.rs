@@ -57,7 +57,7 @@ struct RecoveryContextInfo {
 /// training load data (CTL/ATL/TSB) more accurately.
 async fn fetch_recovery_context_for_training_load(
     executor: &UniversalToolExecutor,
-    user_uuid: uuid::Uuid,
+    user_uuid: Uuid,
     tenant_id: Option<&str>,
     sleep_provider_name: &str,
 ) -> Result<RecoveryContextInfo, String> {
@@ -318,7 +318,7 @@ fn generate_load_recommendations(ctl: f64, band: FormBand, form_pct: Option<f64>
 }
 
 /// Handle `analyze_training_load` tool - analyze training load metrics (CTL/ATL/TSB)
-pub fn handle_analyze_training_load(
+pub(crate) fn handle_analyze_training_load(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

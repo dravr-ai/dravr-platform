@@ -159,7 +159,10 @@ async fn bridge_drives_slack_edits_through_registry() {
 
     // Give the consumer a beat to drain; `RunFinished` terminates the
     // loop so the handle resolves on its own.
-    let _ = timeout(Duration::from_secs(2), consumer_handle).await;
+    timeout(Duration::from_secs(2), consumer_handle)
+        .await
+        .expect("RunFinished ends the consumer within the window")
+        .expect("the consumer task does not panic");
 
     adapter
         .finalize("Your last run was 5 km at 4:30/km.")

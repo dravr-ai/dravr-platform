@@ -99,20 +99,14 @@ async fn chat_rows_keep_their_stamp_through_every_read() {
     assert_eq!(stamps(all), expected);
     let recent = repos
         .chat
-        .get_recent_messages(
-            &conversation.id,
-            &user,
-            tenant,
-            10,
-            TransportPolicy::FirstPartyOnly,
-        )
+        .get_recent_messages(&conversation.id, &user, tenant, 10, FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(stamps(recent), expected);
 
     let page = repos
         .chat
-        .list_conversations(&user, tenant, 10, 0, TransportPolicy::FirstPartyOnly)
+        .list_conversations(&user, tenant, 10, 0, FirstPartyOnly)
         .await
         .unwrap();
     let last = page.items[0].last_message.as_ref().expect("a preview");
@@ -221,14 +215,7 @@ async fn memory_rows_keep_their_stamp_and_a_restatement_only_tightens_it() {
     );
     let listed = repos
         .memory
-        .list_user_facts(
-            tenant,
-            &user,
-            None,
-            None,
-            10,
-            TransportPolicy::FirstPartyOnly,
-        )
+        .list_user_facts(tenant, &user, None, None, 10, FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(listed[0].transport_policy, FirstPartyOnly);
@@ -275,13 +262,7 @@ async fn memory_rows_keep_their_stamp_and_a_restatement_only_tightens_it() {
         .unwrap();
     let notes = repos
         .memory
-        .list_agent_notes(
-            tenant,
-            &user,
-            &agent_id,
-            10,
-            TransportPolicy::FirstPartyOnly,
-        )
+        .list_agent_notes(tenant, &user, &agent_id, 10, FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(notes[0].transport_policy, FirstPartyOnly);
@@ -391,7 +372,7 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
     label("u1", AnyTransport).await;
     let open = repos
         .playbooks
-        .list_all_user_playbooks("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
+        .list_all_user_playbooks("t1", "u1", 10, FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(open[0].transport_policy, AnyTransport);
@@ -399,7 +380,7 @@ async fn advice_and_playbooks_keep_their_stamp_and_stay_out_of_the_priors() {
     label("u1", AnyTransport).await;
     let tightened = repos
         .playbooks
-        .list_all_user_playbooks("t1", "u1", 10, TransportPolicy::FirstPartyOnly)
+        .list_all_user_playbooks("t1", "u1", 10, FirstPartyOnly)
         .await
         .unwrap();
     assert_eq!(tightened.len(), 1, "the outcomes fold into one playbook");
@@ -493,7 +474,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
     assert_eq!(stored.transport_policy, FirstPartyOnly);
     let withheld = repos
         .dossier
-        .compose_dossier(tenant, user_id, TransportPolicy::AnyTransport, &|policy| {
+        .compose_dossier(tenant, user_id, AnyTransport, &|policy| {
             !policy.is_first_party_only()
         })
         .await
@@ -504,7 +485,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
     );
     let served = repos
         .dossier
-        .compose_dossier(tenant, user_id, TransportPolicy::FirstPartyOnly, &|_| true)
+        .compose_dossier(tenant, user_id, FirstPartyOnly, &|_| true)
         .await
         .unwrap();
     assert_eq!(served.physiology.and_then(|p| p.ftp_watts), Some(280));

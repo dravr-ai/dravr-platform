@@ -1327,7 +1327,8 @@ mod signature_properties {
             signature in any::<String>(),
             body in vec(any::<u8>(), 0..256),
         ) {
-            let _ = verify_github_signature(&secret, &signature, &body);
+            // A random header never carries the valid HMAC for this body.
+            prop_assert!(verify_github_signature(&secret, &signature, &body).is_err());
         }
 
         #[test]

@@ -60,7 +60,6 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
-use pierre_runtime_context::CommandCtx;
 use pierre_services::coach_platform::coach_platform;
 use pierre_services::delegated_connections::{
     propose, roster_for_group, DelegationServices, Proposal, RosterEntry,
@@ -467,7 +466,7 @@ impl World {
             channel_type: "web".to_owned(),
             args: vec![invite.code.clone()],
             raw_text: format!("/group join {}", invite.code),
-            ctx: Arc::<ServerContext>::clone(&self.res) as Arc<dyn CommandCtx>,
+            ctx: Arc::<ServerContext>::clone(&self.res),
             locale: "en".to_owned(),
             is_direct_message: true,
             ambient_group_fallback: false,
@@ -1169,10 +1168,8 @@ async fn a_join_reads_the_roster_in_the_group_s_tenant_and_stands_when_it_cannot
     // the group's picker could not read it either, so nothing is read.
     let first = person(&w.res, "first@link-states.test", true).await;
     w.join_by_code(&squad, first, None).await;
-    assert_eq!(
-        w.links_of(&squad, first).await,
-        [] as [DelegatedConnection; 0]
-    );
+    let got = w.links_of(&squad, first).await;
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(w.roster.reads(), 0, "no roster is read for the group");
 
     // The platform is down: the member is still let in, and nothing is
@@ -1181,10 +1178,8 @@ async fn a_join_reads_the_roster_in_the_group_s_tenant_and_stands_when_it_cannot
     w.roster.set_down(true);
     let second = person(&w.res, "second@link-states.test", true).await;
     w.join_by_code(&squad, second, None).await;
-    assert_eq!(
-        w.links_of(&squad, second).await,
-        [] as [DelegatedConnection; 0]
-    );
+    let got = w.links_of(&squad, second).await;
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(w.roster.reads(), 1, "the roster was asked for");
 
     // Back up, the next join reads it afresh and is proposed.
@@ -1209,10 +1204,8 @@ async fn a_join_reads_a_cached_roster_live_once_more_when_it_binds_no_one() {
     // binds no one is not read again.
     let stranger = person(&w.res, "stranger@link-states.test", true).await;
     w.join_by_code(&squad, stranger, None).await;
-    assert_eq!(
-        w.links_of(&squad, stranger).await,
-        [] as [DelegatedConnection; 0]
-    );
+    let got = w.links_of(&squad, stranger).await;
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(w.roster.reads(), 1);
 
     // The cached roster binds the next member: nothing is read.

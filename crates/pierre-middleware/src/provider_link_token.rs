@@ -299,6 +299,7 @@ const NONCE_PROVIDER_KEY: &str = "_nonce";
 ///
 /// Backed by any [`CacheProvider`] implementation so nonce burns are visible
 /// across all Cloud Run replicas when Redis is configured.
+#[derive(Debug)]
 pub struct NonceStore<C: CacheProvider> {
     cache: Arc<C>,
 }

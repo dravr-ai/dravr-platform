@@ -126,6 +126,7 @@ pub struct ForgetPlaybookResult {
 // ============================================================================
 
 /// Read-only tool surfacing the athlete's learned coaching playbooks.
+#[derive(Debug)]
 pub struct ListCoachingPlaybooksTool;
 
 #[async_trait]
@@ -231,6 +232,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
 // ============================================================================
 
 /// Auth-gated tool deleting one of the athlete's learned playbooks by id.
+#[derive(Debug)]
 pub struct ForgetPlaybookTool;
 
 #[async_trait]

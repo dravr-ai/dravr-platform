@@ -37,7 +37,7 @@ const API_LOOP: &str = "api";
 const HEADLESS_LOOP: &str = "headless";
 
 /// Why [`run_api_tool_loop`] stopped without a result.
-pub enum ApiLoopError {
+pub(crate) enum ApiLoopError {
     /// The chain head's LLM call failed. `prior` is what the rounds before it
     /// had done — the tools that ran, the tokens spent — for the tail's re-run
     /// to carry on from.
@@ -84,7 +84,7 @@ impl ApiLoopError {
 ///
 /// With no tail — a single provider, as an unset chain is — the head's result
 /// and error come back unchanged, as they always did.
-pub async fn run_api_turn(
+pub(crate) async fn run_api_turn(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
@@ -120,7 +120,7 @@ pub async fn run_api_turn(
 /// provider-fault one, not the empty-completion one. All three are re-created:
 /// a cooling head is not asked, a quota refusal starts its cooldown, and a
 /// fault or a lost turn ([`HeadlessRoute`]) re-runs the turn on the tail.
-pub async fn run_headless_turn(
+pub(crate) async fn run_headless_turn(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {

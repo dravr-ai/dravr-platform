@@ -213,6 +213,7 @@ use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use sqlx::{Pool, Sqlite, SqlitePool};
 use std::collections::HashMap;
+use std::fmt;
 use tracing::info;
 
 /// Database connection pool with encryption support
@@ -230,6 +231,18 @@ pub struct Database {
     /// deterministic lookups survive DEK rotation — stored hashes cannot be
     /// recomputed (the plaintext token is never retained).
     blind_index_key: Vec<u8>,
+}
+
+impl fmt::Debug for Database {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Database")
+            .field("pool", &self.pool)
+            .field("encryption_key", &"[REDACTED]")
+            .field("active_dek_version", &self.active_dek_version)
+            .field("prior_dek_versions", &"[REDACTED]")
+            .field("blind_index_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl Database {

@@ -56,6 +56,7 @@
 //! `Retry-After` is not written here: it belongs on a refusal, and
 //! `impl IntoResponse for AppError` renders it from the refusal's own details.
 
+use std::fmt;
 use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -258,6 +259,12 @@ pub struct UsageLedgers {
     pub api_keys: Arc<dyn UsageRepository>,
     /// `a2a_usage`, for a request an A2A client-credentials token admitted
     pub a2a_clients: Arc<dyn A2ARepository>,
+}
+
+impl fmt::Debug for UsageLedgers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UsageLedgers").finish_non_exhaustive()
+    }
 }
 
 impl UsageLedgers {

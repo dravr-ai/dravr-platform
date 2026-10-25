@@ -42,11 +42,11 @@ use pierre_contremaitre::MessagingStringsRegistry;
 
 /// The address every request of a sign-in arrives from unless a test names
 /// another ([`SignIn::arriving_from`]).
-pub const DEFAULT_PEER: [u8; 4] = [127, 0, 0, 1];
+pub(crate) const DEFAULT_PEER: [u8; 4] = [127, 0, 0, 1];
 
 /// One of Dravr's own apps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FirstPartyClient {
+pub(crate) enum FirstPartyClient {
     /// The web app, `dravr-web`: its callback is `/auth/callback` on a
     /// configured web origin, its session a cookie.
     Web,
@@ -57,7 +57,7 @@ pub enum FirstPartyClient {
 impl FirstPartyClient {
     /// The `client_id` the app signs in as.
     #[must_use]
-    pub const fn client_id(self) -> &'static str {
+    pub(crate) const fn client_id(self) -> &'static str {
         match self {
             Self::Web => WEB_CLIENT_ID,
             Self::Mobile => MOBILE_CLIENT_ID,
@@ -67,7 +67,7 @@ impl FirstPartyClient {
     /// The callback this deployment lets the app receive its code at: the
     /// web app's on the first configured web origin, the mobile app's scheme.
     #[must_use]
-    pub fn redirect_uri(self, config: &OAuth2ServerConfig) -> String {
+    pub(crate) fn redirect_uri(self, config: &OAuth2ServerConfig) -> String {
         match self {
             Self::Web => web_redirect_uri(config),
             Self::Mobile => MOBILE_CALLBACK_URI.to_owned(),
@@ -77,7 +77,7 @@ impl FirstPartyClient {
 
 /// `/auth/callback` on the deployment's first web origin.
 #[must_use]
-pub fn web_redirect_uri(config: &OAuth2ServerConfig) -> String {
+pub(crate) fn web_redirect_uri(config: &OAuth2ServerConfig) -> String {
     let origin = config
         .first_party_redirects
         .web_origins
@@ -88,7 +88,7 @@ pub fn web_redirect_uri(config: &OAuth2ServerConfig) -> String {
 
 /// A PKCE verifier and its S256 challenge (RFC 7636).
 #[derive(Clone, Debug)]
-pub struct Pkce {
+pub(crate) struct Pkce {
     /// The secret the app keeps and redeems the code with
     pub verifier: String,
     /// `BASE64URL(SHA256(verifier))`, sent to `/oauth2/authorize`
@@ -98,7 +98,7 @@ pub struct Pkce {
 impl Pkce {
     /// A fresh 32-byte verifier and its challenge.
     #[must_use]
-    pub fn generate() -> Self {
+    pub(crate) fn generate() -> Self {
         let mut bytes = [0_u8; 32];
         rand::rng().fill_bytes(&mut bytes);
         let verifier = general_purpose::URL_SAFE_NO_PAD.encode(bytes);
@@ -112,13 +112,13 @@ impl Pkce {
 
 /// The S256 challenge of `verifier`.
 #[must_use]
-pub fn s256(verifier: &str) -> String {
+pub(crate) fn s256(verifier: &str) -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
 /// A fresh opaque `state`.
 #[must_use]
-pub fn fresh_state() -> String {
+pub(crate) fn fresh_state() -> String {
     let mut bytes = [0_u8; 16];
     rand::rng().fill_bytes(&mut bytes);
     general_purpose::URL_SAFE_NO_PAD.encode(bytes)
@@ -127,7 +127,7 @@ pub fn fresh_state() -> String {
 /// The authorization server's routes and the app's auth routes, sharing the
 /// server's rate limiter as they do when mounted, every request arriving
 /// from `peer`.
-pub fn first_party_router(resources: &ServerContext, peer: [u8; 4]) -> Router {
+pub(crate) fn first_party_router(resources: &ServerContext, peer: [u8; 4]) -> Router {
     let oauth2 = OAuth2Context {
         database: resources.agent.database.clone(),
         oauth2_server: resources.common.repos.oauth2_server.clone(),
@@ -151,7 +151,12 @@ pub fn first_party_router(resources: &ServerContext, peer: [u8; 4]) -> Router {
 /// `GET /oauth2/authorize` for `client_id`, sending the code to
 /// `redirect_uri` with `pkce`'s challenge and `state`.
 #[must_use]
-pub fn authorize_uri(client_id: &str, redirect_uri: &str, challenge: &str, state: &str) -> String {
+pub(crate) fn authorize_uri(
+    client_id: &str,
+    redirect_uri: &str,
+    challenge: &str,
+    state: &str,
+) -> String {
     format!(
         "/oauth2/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={}\
          &code_challenge_method=S256&state={}",
@@ -165,7 +170,7 @@ pub fn authorize_uri(client_id: &str, redirect_uri: &str, challenge: &str, state
 /// `POST /oauth2/login`: the hosted form, carrying the authorize request's
 /// hidden fields and the athlete's `email` and `password`, from an English
 /// browser (the page answers in the browser's language).
-pub async fn submit_login(
+pub(crate) async fn submit_login(
     router: Router,
     client_id: &str,
     redirect_uri: &str,
@@ -192,7 +197,7 @@ pub async fn submit_login(
 
 /// `POST /oauth/token` redeeming `code`: the form the apps send, with the
 /// verifier and the scope left out when `None`.
-pub async fn redeem(
+pub(crate) async fn redeem(
     router: Router,
     client_id: &str,
     code: &str,
@@ -220,13 +225,13 @@ pub async fn redeem(
 
 /// Whether `response` is a redirect (302 or 303).
 #[must_use]
-pub fn is_redirect(response: &AxumTestResponse) -> bool {
+pub(crate) fn is_redirect(response: &AxumTestResponse) -> bool {
     matches!(response.status(), 302 | 303)
 }
 
 /// The `Location` a redirect points at.
 #[must_use]
-pub fn location(response: &AxumTestResponse) -> String {
+pub(crate) fn location(response: &AxumTestResponse) -> String {
     response
         .header("location")
         .unwrap_or_else(|| {
@@ -242,7 +247,7 @@ pub fn location(response: &AxumTestResponse) -> String {
 /// The `name=value` of the first `Set-Cookie` a response carries, ready for
 /// a `Cookie` header.
 #[must_use]
-pub fn session_cookie(response: &AxumTestResponse) -> String {
+pub(crate) fn session_cookie(response: &AxumTestResponse) -> String {
     response
         .header("set-cookie")
         .and_then(|cookie| cookie.split(';').next())
@@ -253,7 +258,7 @@ pub fn session_cookie(response: &AxumTestResponse) -> String {
 /// The query parameter `name` of a redirect to `redirect_uri`, or `None`
 /// when the redirect does not go there or does not carry it.
 #[must_use]
-pub fn callback_param(location: &str, redirect_uri: &str, name: &str) -> Option<String> {
+pub(crate) fn callback_param(location: &str, redirect_uri: &str, name: &str) -> Option<String> {
     if !location.starts_with(&format!("{redirect_uri}?")) {
         return None;
     }
@@ -266,7 +271,7 @@ pub fn callback_param(location: &str, redirect_uri: &str, name: &str) -> Option<
 }
 
 /// How a first-party sign-in ended.
-pub enum SignInOutcome {
+pub(crate) enum SignInOutcome {
     /// The hosted login form refused the sign-in — a wrong password, an
     /// unknown or suspended account, a full sign-in window: its response.
     LoginRefused(AxumTestResponse),
@@ -282,7 +287,7 @@ pub enum SignInOutcome {
 impl SignInOutcome {
     /// The `/oauth/token` response, asserting the flow reached it.
     #[must_use]
-    pub fn token(self) -> AxumTestResponse {
+    pub(crate) fn token(self) -> AxumTestResponse {
         match self {
             Self::Token(response) => response,
             Self::LoginRefused(response) => panic!(
@@ -300,7 +305,7 @@ impl SignInOutcome {
 
     /// The JSON body of a successful sign-in, asserting it was one.
     #[must_use]
-    pub fn signed_in(self) -> serde_json::Value {
+    pub(crate) fn signed_in(self) -> serde_json::Value {
         let response = self.token();
         assert_eq!(response.status(), 200, "{}", response.body_text());
         response.json()
@@ -308,7 +313,7 @@ impl SignInOutcome {
 
     /// `/oauth2/authorize`'s refusal, asserting the sign-in ended there.
     #[must_use]
-    pub fn authorize_refused(self) -> AxumTestResponse {
+    pub(crate) fn authorize_refused(self) -> AxumTestResponse {
         match self {
             Self::AuthorizeRefused(response) => response,
             Self::LoginRefused(response) | Self::Token(response) => panic!(
@@ -321,7 +326,7 @@ impl SignInOutcome {
 
     /// The hosted login form's refusal, asserting the sign-in ended there.
     #[must_use]
-    pub fn login_refused(self) -> AxumTestResponse {
+    pub(crate) fn login_refused(self) -> AxumTestResponse {
         match self {
             Self::LoginRefused(response) => response,
             Self::AuthorizeRefused(response) | Self::Token(response) => panic!(
@@ -335,7 +340,7 @@ impl SignInOutcome {
 
 /// An authorization code the signed-in `/oauth2/authorize` sent to the app's
 /// callback, with what the app needs to redeem it.
-pub struct IssuedCode {
+pub(crate) struct IssuedCode {
     /// The router the flow ran over, sharing the server's state
     pub router: Router,
     /// The app the code was issued to
@@ -350,7 +355,7 @@ pub struct IssuedCode {
 
 impl IssuedCode {
     /// Redeem the code as the app does, with its verifier, at `/oauth/token`.
-    pub async fn redeem(&self, scope: Option<&str>) -> AxumTestResponse {
+    pub(crate) async fn redeem(&self, scope: Option<&str>) -> AxumTestResponse {
         redeem(
             self.router.clone(),
             self.client_id,
@@ -366,7 +371,7 @@ impl IssuedCode {
 /// A first-party sign-in to run: the web app by default, at its configured
 /// callback, no refresh token, from [`DEFAULT_PEER`].
 #[derive(Clone, Debug)]
-pub struct SignIn {
+pub(crate) struct SignIn {
     email: String,
     password: String,
     client: FirstPartyClient,
@@ -378,7 +383,7 @@ pub struct SignIn {
 impl SignIn {
     /// The web app signing `email` in with `password`.
     #[must_use]
-    pub fn new(email: &str, password: &str) -> Self {
+    pub(crate) fn new(email: &str, password: &str) -> Self {
         Self {
             email: email.to_owned(),
             password: password.to_owned(),
@@ -391,7 +396,7 @@ impl SignIn {
 
     /// Sign in as `client` instead.
     #[must_use]
-    pub const fn client(mut self, client: FirstPartyClient) -> Self {
+    pub(crate) const fn client(mut self, client: FirstPartyClient) -> Self {
         self.client = client;
         self
     }
@@ -399,21 +404,21 @@ impl SignIn {
     /// Ask for the code at `redirect_uri` rather than the client's
     /// configured callback.
     #[must_use]
-    pub fn redirect_uri(mut self, redirect_uri: &str) -> Self {
+    pub(crate) fn redirect_uri(mut self, redirect_uri: &str) -> Self {
         self.redirect_uri = Some(redirect_uri.to_owned());
         self
     }
 
     /// Ask `/oauth/token` for a refresh token (`scope=offline_access`).
     #[must_use]
-    pub const fn offline_access(mut self) -> Self {
+    pub(crate) const fn offline_access(mut self) -> Self {
         self.offline_access = true;
         self
     }
 
     /// Send every request from `peer`.
     #[must_use]
-    pub const fn arriving_from(mut self, peer: [u8; 4]) -> Self {
+    pub(crate) const fn arriving_from(mut self, peer: [u8; 4]) -> Self {
         self.peer = peer;
         self
     }
@@ -423,7 +428,7 @@ impl SignIn {
     /// `/oauth2/authorize` with its session cookie, which sends the code to
     /// the app's callback with the `state` it was given, and the app redeems
     /// it with its verifier at `/oauth/token`.
-    pub async fn run(&self, resources: &ServerContext) -> SignInOutcome {
+    pub(crate) async fn run(&self, resources: &ServerContext) -> SignInOutcome {
         match self.begin(resources).await {
             Ok(issued) => {
                 let scope = self.offline_access.then_some("offline_access");
@@ -435,7 +440,7 @@ impl SignIn {
 
     /// The flow up to the code the app receives, asserting it got one — for
     /// the tests that redeem it themselves.
-    pub async fn issue_code(&self, resources: &ServerContext) -> IssuedCode {
+    pub(crate) async fn issue_code(&self, resources: &ServerContext) -> IssuedCode {
         match self.begin(resources).await {
             Ok(issued) => issued,
             Err(outcome) => match *outcome {

@@ -80,6 +80,7 @@ use crate::guardian::{
 };
 
 /// Whose plan a training-plan tool reads or writes, and who is writing.
+#[derive(Debug)]
 pub struct PlanScope {
     /// Tenant the plan lives under.
     pub tenant: TenantId,
@@ -97,6 +98,7 @@ pub struct PlanScope {
 /// The tenant and user are the requester's own, not the athlete's, because
 /// they are where the writer's agent is visible: its package, its title, and
 /// whether an author named on the plan is this writer.
+#[derive(Debug)]
 pub struct PlanWriter {
     /// The agent the requester's turn answers as; `None` for a direct call
     /// that names none, or a conversation bound to no agent.
@@ -108,6 +110,7 @@ pub struct PlanWriter {
 }
 
 /// What a plan tool knows about the call before it resolves whose plan it is.
+#[derive(Debug)]
 pub struct PlanScopeRequest<'a> {
     /// The executing call: requester, runtime and originating conversation.
     pub context: &'a ToolExecutionContext,

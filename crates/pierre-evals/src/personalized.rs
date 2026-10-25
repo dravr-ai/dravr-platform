@@ -51,6 +51,7 @@ use crate::personalized_recovery::{self, RecoveryReadings};
 use crate::verdict_engine::VerdictOutcome;
 use pierre_core::models::{FormReading, MeasurementKind, ATHLETE_REPORTED_ORIGIN};
 use pierre_memory::{ClaimStatus, EvidenceStrength, VerdictLayer};
+use std::fmt;
 
 mod form;
 
@@ -314,6 +315,14 @@ pub struct PersonalizedContext<'a> {
     pub metrics: &'a AthleteMetrics,
     /// The active tolerance strategy.
     pub tolerance: &'a dyn ToleranceStrategy,
+}
+
+impl fmt::Debug for PersonalizedContext<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PersonalizedContext")
+            .field("metrics", &self.metrics)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A pace probe: candidate keywords for a metric, the athlete's range for it

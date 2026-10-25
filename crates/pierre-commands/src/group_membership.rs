@@ -62,6 +62,7 @@ async fn typed_in_thread(
 /// A coach who creates it is attached as its human coach
 /// ([`creator_coaches_group`]). The creator then gets a conversation that is
 /// the group's chat — see [`GroupCreateHandler::file_creator_conversation`].
+#[derive(Debug)]
 pub struct GroupCreateHandler;
 
 impl GroupCreateHandler {
@@ -356,6 +357,7 @@ impl CommandHandler for GroupCreateHandler {
 /// A member whose verified email is on the coach's coaching-platform roster
 /// is proposed the link to that roster athlete as they join
 /// ([`propose_on_join`]), so the coach has nothing to propose by hand.
+#[derive(Debug)]
 pub struct GroupJoinHandler;
 
 impl GroupJoinHandler {

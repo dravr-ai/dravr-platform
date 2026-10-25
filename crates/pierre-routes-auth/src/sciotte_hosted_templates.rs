@@ -58,7 +58,7 @@ const NOTICE_KEYS: [(&str, &str); 3] = [
 /// A provider's exposure notice as the web and mobile modals show it: a
 /// title, the body, and the acceptance its required checkbox states.
 #[derive(Debug, Clone, Default, Serialize)]
-pub struct ExposureNotice {
+pub(crate) struct ExposureNotice {
     /// The notice's heading
     pub title: String,
     /// The risk it states
@@ -76,7 +76,7 @@ pub struct ExposureNotice {
 /// them; if one does, the operator is paged and the page still serves — the
 /// login handler refuses a login without the acceptance either way.
 #[must_use]
-pub fn exposure_notice(strings: &PageStrings<'_>, target: &str) -> Option<ExposureNotice> {
+pub(crate) fn exposure_notice(strings: &PageStrings<'_>, target: &str) -> Option<ExposureNotice> {
     let (_, entry) = NOTICE_KEYS.iter().find(|(t, _)| *t == target)?;
     let notice = ExposureNotice {
         title: strings.get(&format!("providers.{entry}.title")),
@@ -96,7 +96,11 @@ pub fn exposure_notice(strings: &PageStrings<'_>, target: &str) -> Option<Exposu
 /// Fill a template's consent placeholders with `notice`. `hidden` decides
 /// whether the block starts visible. A target with no notice leaves the block
 /// empty; it is shown only when a notice is required.
-pub fn fill_consent(template: &str, hidden: bool, notice: Option<&ExposureNotice>) -> String {
+pub(crate) fn fill_consent(
+    template: &str,
+    hidden: bool,
+    notice: Option<&ExposureNotice>,
+) -> String {
     let empty = ExposureNotice::default();
     let notice = notice.unwrap_or(&empty);
     template
@@ -112,7 +116,7 @@ pub fn fill_consent(template: &str, hidden: bool, notice: Option<&ExposureNotice
 /// `consent_required` shows the provider's exposure notice with a required
 /// checkbox above the credentials, and makes the page send the acceptance.
 #[must_use]
-pub fn render_login_page(
+pub(crate) fn render_login_page(
     strings: &PageStrings<'_>,
     link_token: &str,
     target: &str,
@@ -207,7 +211,11 @@ pub fn render_login_page(
 /// covers OAuth providers too; a target the registry does not name gets the
 /// page's unnamed wording.
 #[must_use]
-pub fn render_success_page(strings: &PageStrings<'_>, channel: &str, target: &str) -> String {
+pub(crate) fn render_success_page(
+    strings: &PageStrings<'_>,
+    channel: &str,
+    target: &str,
+) -> String {
     let (heading, data_available) = backend_resolver::brand_name(&global_registry(), target)
         .map_or_else(
             || {
@@ -240,7 +248,7 @@ pub fn render_success_page(strings: &PageStrings<'_>, channel: &str, target: &st
 /// Render the error page for invalid/expired links or other hosted-login
 /// failures: `message` under the page's own heading, both in its locale.
 #[must_use]
-pub fn render_error_page(strings: &PageStrings<'_>, message: &str) -> String {
+pub(crate) fn render_error_page(strings: &PageStrings<'_>, message: &str) -> String {
     strings
         .fill(&with_hosted_page_css(ERROR_TEMPLATE))
         .replace("{{MESSAGE}}", &escape_html_attribute(message))

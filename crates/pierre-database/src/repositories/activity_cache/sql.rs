@@ -17,7 +17,7 @@
 /// read replaces `data_json` whole and carries no splits or laps, so the
 /// detail a detail read stored ([`STORE_CACHED_ACTIVITY_DETAIL_SQL`])
 /// survives every later list sync of the same activity.
-pub const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
+pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
     INSERT INTO cached_activities (id, user_id, tenant_id, provider, activity_id, sport_type, start_date, synced_at, data_json)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT(user_id, tenant_id, provider, activity_id) DO UPDATE SET
@@ -30,7 +30,7 @@ pub const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
 /// list read wrote, by the table's uniqueness key, with the instant it is
 /// read again (`$6`, NULL when it stands). A row the user does not hold in
 /// this tenant is left alone: the statement updates nothing.
-pub const STORE_CACHED_ACTIVITY_DETAIL_SQL: &str = r"
+pub(crate) const STORE_CACHED_ACTIVITY_DETAIL_SQL: &str = r"
     UPDATE cached_activities
     SET detail_json = $5, detail_recheck_at = $6
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
@@ -38,7 +38,7 @@ pub const STORE_CACHED_ACTIVITY_DETAIL_SQL: &str = r"
 /// Cached activities for a user within a window, newest first; `$5` NULL
 /// means every provider. The parameter is bound once and named twice: both
 /// engines give one bind to every occurrence of the same `$n`.
-pub const GET_CACHED_ACTIVITIES_SQL: &str = r"
+pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
     SELECT data_json, detail_json
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND start_date >= $3 AND start_date <= $4
@@ -62,7 +62,7 @@ pub const GET_CACHED_ACTIVITIES_SQL: &str = r"
 ///
 /// `detail_settled` is whether a stored detail read still answers the row: one
 /// is stored and its recheck instant, if it has one, is after `$6` (now).
-pub const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
+pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
     SELECT ca.provider, ca.data_json, ca.detail_json,
            (ca.detail_json IS NOT NULL
             AND (ca.detail_recheck_at IS NULL OR ca.detail_recheck_at > $6)) AS detail_settled,
@@ -81,13 +81,13 @@ pub const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
     LIMIT $5";
 
 /// One cached activity, by the table's uniqueness key.
-pub const GET_CACHED_ACTIVITY_SQL: &str = r"
+pub(crate) const GET_CACHED_ACTIVITY_SQL: &str = r"
     SELECT data_json, detail_json
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
 
 /// Latest `synced_at` a provider's cached rows carry for a user.
-pub const LATEST_PROVIDER_SYNC_SQL: &str = r"
+pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
@@ -101,7 +101,7 @@ pub const LATEST_PROVIDER_SYNC_SQL: &str = r"
 /// `synced_at` is when the athlete uploaded, which says nothing about how
 /// current any provider's copy is, and counting it would show a stale cache
 /// as just synced.
-pub const LATEST_ANY_SYNC_SQL: &str = r"
+pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider <> 'upload'
@@ -109,20 +109,20 @@ pub const LATEST_ANY_SYNC_SQL: &str = r"
     LIMIT 1";
 
 /// Delete one cached activity, by the table's uniqueness key.
-pub const DELETE_CACHED_ACTIVITY_SQL: &str = r"
+pub(crate) const DELETE_CACHED_ACTIVITY_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4";
 
 /// Delete one provider's cached activities for a user that started within a
 /// window, both ends included — the window [`GET_CACHED_ACTIVITIES_SQL`]
 /// reads.
-pub const DELETE_CACHED_ACTIVITIES_BETWEEN_SQL: &str = r"
+pub(crate) const DELETE_CACHED_ACTIVITIES_BETWEEN_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
       AND start_date >= $4 AND start_date <= $5";
 
 /// Delete every cached activity one provider contributed for a user.
-pub const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
+pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
 
@@ -132,7 +132,7 @@ pub const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
 /// `pierre_core::constants::oauth_providers::UPLOAD`) are kept: a provider's
 /// row is a copy the next fetch can bring back, an upload's is the record
 /// itself, and pruning it would lose the athlete's workout for good.
-pub const PRUNE_ACTIVITIES_SQL: &str = r"
+pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider <> 'upload'";
 

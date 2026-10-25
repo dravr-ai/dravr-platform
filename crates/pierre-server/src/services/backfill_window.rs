@@ -43,7 +43,7 @@ const BACKFILL_FALLBACK_WINDOW_DAYS: i64 = 90;
 /// The read is a read for a model served over `transport`, the surface the
 /// notice is delivered to; what the provider terms held back is returned
 /// beside the activities.
-pub async fn read_warmed_window(
+pub(crate) async fn read_warmed_window(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     user_id: Uuid,

@@ -338,11 +338,11 @@ async fn build_provider(kind: &Kind) -> Result<Box<dyn LlmProvider>, String> {
         Kind::Cli => {
             return ChatProvider::from_chain(&LlmChain::from_env())
                 .await
-                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
+                .map(|p| -> Box<dyn LlmProvider> { Box::new(p) })
                 .map_err(|e| e.to_string())
         }
     };
-    Ok(Box::new(provider) as Box<dyn LlmProvider>)
+    Ok(Box::new(provider))
 }
 
 /// Run every golden claim through one candidate and compute its metrics.

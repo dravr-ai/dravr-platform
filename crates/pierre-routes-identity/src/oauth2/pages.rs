@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::fmt;
 
 use axum::{
     http::StatusCode,
@@ -51,6 +52,28 @@ pub struct LoginHtmlParams<'a> {
     pub labels: &'a LoginPageLabels,
 }
 
+impl fmt::Debug for LoginHtmlParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LoginHtmlParams")
+            .field("client_id", &self.client_id)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("response_type", &self.response_type)
+            .field("state", &"[REDACTED]")
+            .field("scope", &self.scope)
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("resource", &self.resource)
+            .field("default_email", &self.default_email)
+            .field("default_password", &"[REDACTED]")
+            .field(
+                "google_start_url",
+                &self.google_start_url.map(|_| "[REDACTED]"),
+            )
+            .field("labels", &self.labels)
+            .finish()
+    }
+}
+
 /// Parameters for rendering the OAuth consent page.
 #[derive(Clone, Copy)]
 pub struct ConsentHtmlParams<'a> {
@@ -78,6 +101,25 @@ pub struct ConsentHtmlParams<'a> {
     pub account_email: &'a str,
     /// The login page for this request, to sign in as another account
     pub switch_account_url: &'a str,
+}
+
+impl fmt::Debug for ConsentHtmlParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConsentHtmlParams")
+            .field("client_id", &self.client_id)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("response_type", &self.response_type)
+            .field("state", &"[REDACTED]")
+            .field("scope", &self.scope)
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("resource", &self.resource)
+            .field("csrf_token", &"[REDACTED]")
+            .field("client_label", &self.client_label)
+            .field("account_email", &self.account_email)
+            .field("switch_account_url", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl OAuth2Routes {

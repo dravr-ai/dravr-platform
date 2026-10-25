@@ -25,7 +25,7 @@ use super::send_message::client_surface;
 /// A tap creates the thread with `athlete_speaks_first` and sends the
 /// starter's `postback` as its first line, so the thread opens on the answer
 /// rather than on a welcome offering the same starters again.
-pub async fn list_starters(
+pub(super) async fn list_starters(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     headers: HeaderMap,

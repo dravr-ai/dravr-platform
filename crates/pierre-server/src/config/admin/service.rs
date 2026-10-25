@@ -29,6 +29,7 @@ use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_runtime_context::ConfigLookupScope;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -44,6 +45,16 @@ pub struct AdminConfigService {
     env_pins: EnvConfigPins,
     /// Category metadata
     categories: Arc<RwLock<Vec<AdminConfigCategory>>>,
+}
+
+impl fmt::Debug for AdminConfigService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdminConfigService")
+            .field("definitions", &self.definitions)
+            .field("env_pins", &self.env_pins)
+            .field("categories", &self.categories)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AdminConfigService {
@@ -616,6 +627,7 @@ impl AdminConfigService {
 /// Bundles the admin attribution + tenant scope + request metadata so the
 /// method doesn't carry a sprawling positional argument list — every caller
 /// passes the same combination of identifiers.
+#[derive(Debug)]
 pub struct UpdateConfigContext<'a> {
     /// Admin user performing the change (audit attribution).
     pub admin_user_id: &'a str,

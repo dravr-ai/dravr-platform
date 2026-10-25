@@ -39,7 +39,7 @@ fn is_first_athlete(timeline: &GroupSetupTimeline, member: &GroupMember) -> bool
 /// The event is the coach's, so `user_id` is the group owner. A failed lookup
 /// is logged and swallowed: the join itself already happened, and timing it is
 /// not a reason to fail it.
-pub async fn record_member_joined(
+pub(crate) async fn record_member_joined(
     repo: &dyn CoachingGroupRepository,
     member: &GroupMember,
     owner_id: Uuid,

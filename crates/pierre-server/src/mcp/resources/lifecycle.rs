@@ -80,7 +80,7 @@ use dravr_canot::commands::CommandRegistry;
 use dravr_canot::ChannelRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::ContremaitreConfig;
-use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
+use pierre_core::billing::dummy::DummyProvider;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
 #[cfg(feature = "client-messaging")]
@@ -197,7 +197,7 @@ impl ServerContext {
         // first because the group service bills athletes through it too.
         let billing_provider = options
             .billing_provider
-            .unwrap_or_else(|| Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>);
+            .unwrap_or_else(|| Arc::new(DummyProvider::new()));
         let jwks_manager = options.jwks_manager;
         let llm_provider = options.llm_provider;
         // Honor explicit chat_provider passthrough first; otherwise wrap
@@ -337,7 +337,7 @@ impl ServerContext {
         // Start background usage counter pruning task (hourly, removes records older than 90 days)
         let pruning_abort_handle = admin_config.as_ref().map(|config| {
             let lookup: Arc<dyn pierre_runtime_context::AdminConfigLookup> =
-                Arc::clone(config) as Arc<dyn pierre_runtime_context::AdminConfigLookup>;
+                Arc::<AdminConfigService>::clone(config);
             start_usage_pruning_task(
                 Arc::clone(&repos.usage_counters),
                 lookup,
@@ -605,7 +605,7 @@ impl ServerContext {
                 MOBILE_PLAY_PACKAGE_NAME,
             )),
             human_check: TurnstileCheck::from_env()
-                .map(|check| Arc::new(check) as Arc<dyn HumanCheck>),
+                .map(|check| -> Arc<dyn HumanCheck> { Arc::new(check) }),
             admin_jwt_secret: admin_jwt_secret.into(),
             #[cfg(feature = "provider-sciotte")]
             nonce_store,
@@ -756,8 +756,8 @@ impl ServerContext {
         // instances and ask each whether it would refuse the caller. `/help`
         // is deliberately absent from this map — it is the one command with no
         // precondition, and including it would need a self-reference.
-        let handlers: HashMap<String, Arc<dyn CommandHandler>> = [
-            ("status", Arc::new(StatusHandler) as Arc<dyn CommandHandler>),
+        let entries: [(&str, Arc<dyn CommandHandler>); _] = [
+            ("status", Arc::new(StatusHandler)),
             ("logout", Arc::new(LogoutHandler)),
             ("delete-account", Arc::new(DeleteAccountHandler)),
             ("group", Arc::new(GroupListHandler)),
@@ -793,10 +793,11 @@ impl ServerContext {
             ("calibrate", Arc::new(CalibrateHandler)),
             ("season", Arc::new(SeasonHandler)),
             ("fortnight", Arc::new(FortnightHandler)),
-        ]
-        .into_iter()
-        .map(|(name, handler)| (name.to_owned(), handler))
-        .collect();
+        ];
+        let handlers: HashMap<String, Arc<dyn CommandHandler>> = entries
+            .into_iter()
+            .map(|(name, handler)| (name.to_owned(), handler))
+            .collect();
         let handlers = Arc::new(handlers);
 
         let mut handler_reg = CommandHandlerRegistry::new();
@@ -943,7 +944,7 @@ impl ServerContext {
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;
-        let notifier: Arc<dyn SyncNotifier> = Arc::clone(sse_manager) as Arc<dyn SyncNotifier>;
+        let notifier: Arc<dyn SyncNotifier> = Arc::<SseManager>::clone(sse_manager);
         let auth_repos = repos.auth_repos();
         let abort_handle = start_scheduled_sync(
             Arc::clone(&orchestrator),

@@ -443,6 +443,7 @@ async fn read_provider_thresholds(
 }
 
 /// Imports the athlete's thresholds from their Intervals.icu sport settings.
+#[derive(Debug)]
 pub struct ImportProviderThresholdsTool;
 
 #[async_trait]

@@ -214,7 +214,7 @@ pub fn is_in_app_channel(channel_type: &str) -> bool {
 }
 
 /// Database representation of a chat conversation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ConversationRecord {
     /// Unique conversation ID
     pub id: String,
@@ -283,6 +283,32 @@ pub struct ConversationRecord {
     pub subject_group_id: Option<Uuid>,
 }
 
+// The title is athlete-authored or drawn from the athlete's words: only its
+// length is printed.
+impl fmt::Debug for ConversationRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConversationRecord")
+            .field("id", &self.id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("title_len", &self.title.len())
+            .field("model", &self.model)
+            .field("agent_id", &self.agent_id)
+            .field("session_id", &self.session_id)
+            .field("total_tokens", &self.total_tokens)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("group_id", &self.group_id)
+            .field("channel_type", &self.channel_type)
+            .field("onboarding_state", &self.onboarding_state)
+            .field("archived_at", &self.archived_at)
+            .field("personal", &self.personal)
+            .field("subject_user_id", &self.subject_user_id)
+            .field("subject_group_id", &self.subject_group_id)
+            .finish()
+    }
+}
+
 /// The athlete a human coach's thread is bound to, and the group that lets
 /// the coach act for them (see [`ConversationRecord::subject`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,7 +340,7 @@ impl ConversationRecord {
 /// Consolidates the handful of agent fields the chat pipeline needs on every
 /// turn (system prompt, startup context, tool-iteration override) into a
 /// single tenant-scoped lookup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AgentRuntimeContext {
     /// Stable slug identifier for the agent (matches the contremaitre
     /// markdown filename without `.md`). Used to look up the live agent
@@ -358,6 +384,28 @@ pub struct AgentRuntimeContext {
     /// into the system prompt (e.g. Nutrition agents bypass the generic
     /// "food/meal finders" out-of-scope refusal for meal-planning questions).
     pub category: AgentCategory,
+}
+
+// A custom agent's prompt and startup query are user-authored free text: only
+// their lengths are printed.
+impl fmt::Debug for AgentRuntimeContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentRuntimeContext")
+            .field("slug", &self.slug)
+            .field("title", &self.title)
+            .field("source", &self.source)
+            .field("system_prompt_len", &self.system_prompt.len())
+            .field(
+                "startup_query_len",
+                &self.startup_query.as_deref().map(str::len),
+            )
+            .field("data_requirements", &self.data_requirements)
+            .field("visuals", &self.visuals)
+            .field("max_tool_iterations", &self.max_tool_iterations)
+            .field("temperature", &self.temperature)
+            .field("category", &self.category)
+            .finish()
+    }
 }
 
 /// Split the stored `agents.visuals` column into wire names.
@@ -569,7 +617,7 @@ pub fn is_turn_marker_block(block_type: &str) -> bool {
 }
 
 /// Database representation of a chat message
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MessageRecord {
     /// Unique message ID
     pub id: String,
@@ -609,6 +657,30 @@ pub struct MessageRecord {
     /// a divider, a platform post — and for rows written before it existed.
     #[serde(default)]
     pub channel_type: Option<String>,
+}
+
+// The content is the athlete's message or the reply, and the blocks are lifted
+// from the reply: only lengths are printed.
+impl fmt::Debug for MessageRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MessageRecord")
+            .field("id", &self.id)
+            .field("conversation_id", &self.conversation_id)
+            .field("role", &self.role)
+            .field("content_len", &self.content.len())
+            .field("token_count", &self.token_count)
+            .field("prompt_tokens", &self.prompt_tokens)
+            .field("model", &self.model)
+            .field("finish_reason", &self.finish_reason)
+            .field(
+                "content_blocks_len",
+                &self.content_blocks.as_deref().map(str::len),
+            )
+            .field("created_at", &self.created_at)
+            .field("transport_policy", &self.transport_policy)
+            .field("channel_type", &self.channel_type)
+            .finish()
+    }
 }
 
 impl MessageRecord {
@@ -657,7 +729,7 @@ impl MessageRecord {
 }
 
 /// The newest `user`/`assistant` row of a conversation, as the list row shows it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationLastMessage {
     /// The opening characters of the row's content, unshaped: the route strips
     /// visual markers and collapses whitespace before it reaches a client.
@@ -670,6 +742,18 @@ pub struct ConversationLastMessage {
     /// first-party-only row.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+}
+
+// The head is the opening of a message or a reply: only its length is printed.
+impl fmt::Debug for ConversationLastMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConversationLastMessage")
+            .field("content_head_len", &self.content_head.len())
+            .field("role", &self.role)
+            .field("created_at", &self.created_at)
+            .field("transport_policy", &self.transport_policy)
+            .finish()
+    }
 }
 
 /// One page of a participant's conversation list.
@@ -696,7 +780,7 @@ pub struct MessagePage {
 
 /// One topic of a thread: the stretch a divider opens, or the thread's own
 /// opening before its first divider.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ThreadTopic {
     /// The divider row that opens the topic; `None` for the thread's opening.
     pub divider_id: Option<String>,
@@ -708,8 +792,22 @@ pub struct ThreadTopic {
     pub first_words: Option<String>,
 }
 
+// The first words are the athlete's own: only their length is printed.
+impl fmt::Debug for ThreadTopic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThreadTopic")
+            .field("divider_id", &self.divider_id)
+            .field("started_at", &self.started_at)
+            .field(
+                "first_words_len",
+                &self.first_words.as_deref().map(str::len),
+            )
+            .finish()
+    }
+}
+
 /// Summary of a conversation for listing
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ConversationSummary {
     /// Conversation ID
     pub id: String,
@@ -770,6 +868,35 @@ pub struct ConversationSummary {
     pub updated_at: String,
 }
 
+// The title is athlete-authored or drawn from the athlete's words: only its
+// length is printed. `last_message` prints through its own redacting impl.
+impl fmt::Debug for ConversationSummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConversationSummary")
+            .field("id", &self.id)
+            .field("title_len", &self.title.len())
+            .field("model", &self.model)
+            .field("message_count", &self.message_count)
+            .field("total_tokens", &self.total_tokens)
+            .field("agent_id", &self.agent_id)
+            .field("agent_handle", &self.agent_handle)
+            .field("agent_title", &self.agent_title)
+            .field("group_id", &self.group_id)
+            .field("group_name", &self.group_name)
+            .field("channel_type", &self.channel_type)
+            .field("archived_at", &self.archived_at)
+            .field("personal", &self.personal)
+            .field("subject_user_id", &self.subject_user_id)
+            .field("subject_group_id", &self.subject_group_id)
+            .field("subject_display_name", &self.subject_display_name)
+            .field("last_message", &self.last_message)
+            .field("unread_count", &self.unread_count)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// Parameters for adding a message to a conversation
 pub struct AddMessageParams<'a> {
     /// Tenant that owns the conversation — every message write is tenant-scoped
@@ -802,11 +929,31 @@ pub struct AddMessageParams<'a> {
     pub channel_type: Option<&'a str>,
 }
 
+// The content is the athlete's message or the reply: only lengths are printed.
+impl fmt::Debug for AddMessageParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AddMessageParams")
+            .field("tenant_id", &self.tenant_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("user_id", &self.user_id)
+            .field("role", &self.role)
+            .field("content_len", &self.content.len())
+            .field("token_count", &self.token_count)
+            .field("finish_reason", &self.finish_reason)
+            .field("prompt_tokens", &self.prompt_tokens)
+            .field("model", &self.model)
+            .field("content_blocks_len", &self.content_blocks.map(str::len))
+            .field("transport_policy", &self.transport_policy)
+            .field("channel_type", &self.channel_type)
+            .finish()
+    }
+}
+
 /// Database representation of a user's thumbs up/down feedback on a message.
 ///
 /// One row per `(message_id, user_id)` — the rating toggles and the optional
 /// `comment` captures a "what went wrong?" reason.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct MessageFeedbackRecord {
     /// Unique feedback ID
     pub id: String,
@@ -829,6 +976,23 @@ pub struct MessageFeedbackRecord {
     pub updated_at: String,
 }
 
+// The comment is the athlete's own words: only its length is printed.
+impl fmt::Debug for MessageFeedbackRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MessageFeedbackRecord")
+            .field("id", &self.id)
+            .field("message_id", &self.message_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("rating", &self.rating)
+            .field("comment_len", &self.comment.as_deref().map(str::len))
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
 /// Parameters for upserting a user's feedback on a message.
 ///
 /// Upsert keyed on `(message_id, user_id)`: a repeat rating overwrites the
@@ -847,6 +1011,20 @@ pub struct UpsertMessageFeedbackParams<'a> {
     pub rating: &'a str,
     /// Optional free-text reason (typically only set on a thumbs-down)
     pub comment: Option<&'a str>,
+}
+
+// The comment is the athlete's own words: only its length is printed.
+impl fmt::Debug for UpsertMessageFeedbackParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UpsertMessageFeedbackParams")
+            .field("tenant_id", &self.tenant_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("message_id", &self.message_id)
+            .field("user_id", &self.user_id)
+            .field("rating", &self.rating)
+            .field("comment_len", &self.comment.map(str::len))
+            .finish()
+    }
 }
 
 /// What a participant may do in a conversation beyond reading and posting.

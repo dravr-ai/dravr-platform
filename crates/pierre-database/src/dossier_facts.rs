@@ -13,10 +13,10 @@ use pierre_memory::{FactKind, UserFact};
 /// Upper bound on facts pulled for the per-user context bundle. Higher than the
 /// flat-recall limit because facts now fan across six pillars + North Star +
 /// medical; the renderer's token budget is the real gate downstream.
-pub const FACT_BUNDLE_LIMIT: i64 = 40;
+pub(crate) const FACT_BUNDLE_LIMIT: i64 = 40;
 
 /// The Dossier's pillar-context buckets, grouped from a flat fact list.
-pub struct DossierFactBuckets {
+pub(crate) struct DossierFactBuckets {
     /// Pillar-tagged facts keyed by pillar.
     pub pillars: BTreeMap<Pillar, Vec<DossierFact>>,
     /// North Star (life-motivation) facts.
@@ -54,7 +54,7 @@ fn project(fact: &UserFact, now: DateTime<Utc>) -> DossierFact {
 /// Facts are de-duplicated by id, so callers may safely concatenate several
 /// fact reads (e.g. a recency-bounded general fetch unioned with by-kind
 /// fetches that guarantee safety-critical kinds reach the renderer).
-pub fn group_facts(facts: &[UserFact], now: DateTime<Utc>) -> DossierFactBuckets {
+pub(crate) fn group_facts(facts: &[UserFact], now: DateTime<Utc>) -> DossierFactBuckets {
     let mut buckets = DossierFactBuckets {
         pillars: BTreeMap::new(),
         north_star: Vec::new(),

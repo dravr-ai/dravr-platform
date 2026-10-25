@@ -30,6 +30,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 /// asked cold again — the design rule is *infer, then confirm*.
 ///
 /// The start sequence is [`start_walk`], shared with `/calibrate`.
+#[derive(Debug)]
 pub struct SeasonHandler;
 
 /// The availability `/calibrate` recorded, as one sentence per fact in the

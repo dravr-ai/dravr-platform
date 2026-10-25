@@ -28,7 +28,7 @@ use tokio::time::{sleep, Instant};
 
 /// One request as the model received it.
 #[derive(Debug, Clone)]
-pub struct RecordedRequest {
+pub(crate) struct RecordedRequest {
     /// Every system message, joined in order.
     pub system: String,
     /// Every non-system message, joined in order.
@@ -37,7 +37,7 @@ pub struct RecordedRequest {
 
 /// Records every completion request and answers from a queue, falling back to
 /// a standing reply once the queue is empty.
-pub struct RecordingProvider {
+pub(crate) struct RecordingProvider {
     requests: Mutex<Vec<RecordedRequest>>,
     queued: Mutex<VecDeque<String>>,
     standing: Mutex<String>,
@@ -45,7 +45,7 @@ pub struct RecordingProvider {
 
 impl RecordingProvider {
     /// A provider that answers every call with `standing` until told otherwise.
-    pub fn answering(standing: &str) -> Self {
+    pub(crate) fn answering(standing: &str) -> Self {
         Self {
             requests: Mutex::new(Vec::new()),
             queued: Mutex::new(VecDeque::new()),
@@ -54,22 +54,22 @@ impl RecordingProvider {
     }
 
     /// Replace the reply given once the queue is empty.
-    pub fn answer_with(&self, reply: &str) {
+    pub(crate) fn answer_with(&self, reply: &str) {
         reply.clone_into(&mut self.standing.lock().unwrap());
     }
 
     /// Answer the next call with `reply`, ahead of the standing one.
-    pub fn answer_next_with(&self, reply: &str) {
+    pub(crate) fn answer_next_with(&self, reply: &str) {
         self.queued.lock().unwrap().push_back(reply.to_owned());
     }
 
     /// How many requests have been recorded.
-    pub fn calls_so_far(&self) -> usize {
+    pub(crate) fn calls_so_far(&self) -> usize {
         self.requests.lock().unwrap().len()
     }
 
     /// Every request recorded from call `from` on.
-    pub fn requests_since(&self, from: usize) -> Vec<RecordedRequest> {
+    pub(crate) fn requests_since(&self, from: usize) -> Vec<RecordedRequest> {
         self.requests
             .lock()
             .unwrap()
@@ -80,7 +80,7 @@ impl RecordingProvider {
     }
 
     /// The system prompt of the first call after `from` carrying `marker`.
-    pub fn system_prompt_since(&self, from: usize, marker: &str) -> String {
+    pub(crate) fn system_prompt_since(&self, from: usize, marker: &str) -> String {
         self.requests_since(from)
             .into_iter()
             .find(|request| request.system.contains(marker))
@@ -92,7 +92,7 @@ impl RecordingProvider {
 
     /// The first request after `from` that `wanted` accepts, waiting up to
     /// `patience` for a detached task to make it.
-    pub async fn request_matching(
+    pub(crate) async fn request_matching(
         &self,
         from: usize,
         patience: Duration,

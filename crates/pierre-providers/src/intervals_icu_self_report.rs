@@ -20,12 +20,12 @@ use crate::models::{ActivityComment, Feel};
 /// Largest message page requested from `/activity/{id}/messages`. An
 /// activity's thread is a handful of comments; the bound keeps one runaway
 /// thread from turning a detail read into a bulk download.
-pub const MAX_ACTIVITY_MESSAGES: u32 = 50;
+pub(crate) const MAX_ACTIVITY_MESSAGES: u32 = 50;
 
 /// One entry in an activity's message thread
 /// (`/api/v1/activity/{id}/messages`).
 #[derive(Debug, Deserialize)]
-pub struct IntervalsIcuMessage {
+pub(crate) struct IntervalsIcuMessage {
     /// Display name of the author.
     #[serde(default)]
     name: Option<String>,
@@ -52,7 +52,7 @@ pub struct IntervalsIcuMessage {
 /// Feb 2026 — so the rank never leaves this function: it becomes a [`Feel`]
 /// that names the rating. A rank outside 1–5 is not a rating and maps to
 /// `None`.
-pub fn feel_from_icu(rank: i32) -> Option<Feel> {
+pub(crate) fn feel_from_icu(rank: i32) -> Option<Feel> {
     match rank {
         1 => Some(Feel::Strong),
         2 => Some(Feel::Good),
@@ -64,7 +64,7 @@ pub fn feel_from_icu(rank: i32) -> Option<Feel> {
 }
 
 /// Intervals.icu's RPE as a CR-10 rating, or `None` outside 1–10.
-pub fn rpe_from_icu(rpe: i32) -> Option<f32> {
+pub(crate) fn rpe_from_icu(rpe: i32) -> Option<f32> {
     u8::try_from(rpe)
         .ok()
         .filter(|r| (1..=10).contains(r))
@@ -76,7 +76,7 @@ pub fn rpe_from_icu(rpe: i32) -> Option<f32> {
 /// Keeps live `TEXT` messages with a body. A message with no `type` is kept
 /// too: the kind is optional in the API schema, and a thread served without it
 /// is still a thread of comments.
-pub fn comments_from_messages(messages: Vec<IntervalsIcuMessage>) -> Vec<ActivityComment> {
+pub(crate) fn comments_from_messages(messages: Vec<IntervalsIcuMessage>) -> Vec<ActivityComment> {
     let mut comments: Vec<ActivityComment> = messages
         .into_iter()
         .filter(|m| m.deleted.is_none())

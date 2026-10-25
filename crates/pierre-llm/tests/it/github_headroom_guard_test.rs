@@ -49,12 +49,14 @@ async fn rate_limit_endpoint(status: &'static str, body: String) -> String {
                 return;
             };
             let mut buf = [0_u8; 4096];
-            let _ = stream.read(&mut buf).await;
+            // Drain the request; its content is not checked.
+            drop(stream.read(&mut buf).await);
             let response = format!(
                 "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            // The client may hang up first; the test checks what it received.
+            drop(stream.write_all(response.as_bytes()).await);
         }
     });
     url

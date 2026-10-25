@@ -16,7 +16,6 @@
 
 use std::sync::Arc;
 
-use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
@@ -105,9 +104,7 @@ async fn route_recipient_for(
     .await;
 
     let capture = Arc::new(CapturingChannel::for_channel(channel_type_for(channel)));
-    let resolver = Arc::new(FakeResolver::new(
-        capture.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(capture.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),

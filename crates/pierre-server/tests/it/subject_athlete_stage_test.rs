@@ -418,7 +418,7 @@ impl Fixture {
     /// `who` saves through the plan tool, inside `conversation` when there is
     /// one: the coach in the thread drafts the subject's plan.
     async fn saves(&self, who: &Person, conversation: Option<&str>, args: Value) -> Value {
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(&self.res) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(who.id.to_string())
             .with_tenant(who.tenant.to_string())

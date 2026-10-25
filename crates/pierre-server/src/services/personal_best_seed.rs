@@ -180,7 +180,7 @@ pub async fn strava_provider(
     user_id: Uuid,
     tenant_id: &str,
 ) -> Option<Box<dyn FitnessProvider>> {
-    let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
     match AuthService::new(runtime)
         .create_authenticated_provider(oauth_providers::STRAVA, user_id, Some(tenant_id))
         .await

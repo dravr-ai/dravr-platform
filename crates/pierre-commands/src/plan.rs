@@ -55,6 +55,7 @@ impl PlanView {
 /// Deterministic and read-only: no LLM round-trip, per [[ADR-003]]'s rule that a
 /// slash command answers from data. Plan *generation* stays conversational, so
 /// this command never writes and never asks an agent to build anything.
+#[derive(Debug)]
 pub struct PlanShowHandler;
 
 /// Handler for `/plan share` — the same read as `/plan`, posted to the room.
@@ -67,6 +68,7 @@ pub struct PlanShowHandler;
 /// the empty-state nudge alone, header-free. Only ever the caller's own plan:
 /// nobody can publish another athlete's plan into a room, which is the leak
 /// the private default exists to prevent.
+#[derive(Debug)]
 pub struct PlanShareHandler;
 
 /// What the selected weeks know about one date.

@@ -29,7 +29,7 @@ fn client() -> AppResult<RemoteClient> {
 ///
 /// # Errors
 /// Returns an error if not logged in or the server rejects the request.
-pub async fn add(
+pub(crate) async fn add(
     client_id: String,
     client_secret: String,
     seat_cap: u32,
@@ -50,7 +50,7 @@ pub async fn add(
 ///
 /// # Errors
 /// Returns an error if not logged in or the server rejects the request.
-pub async fn list() -> AppResult<()> {
+pub(crate) async fn list() -> AppResult<()> {
     let response = client()?.get_json(APPS_PATH).await?;
     let data = response.get("data").cloned().unwrap_or(Value::Null);
 
@@ -95,7 +95,7 @@ pub async fn list() -> AppResult<()> {
 ///
 /// # Errors
 /// Returns an error if not logged in or the server rejects the request.
-pub async fn seats() -> AppResult<()> {
+pub(crate) async fn seats() -> AppResult<()> {
     let response = client()?.get_json(SEATS_PATH).await?;
     let data = response.get("data").cloned().unwrap_or(Value::Null);
     let holders = data
@@ -140,7 +140,7 @@ pub async fn seats() -> AppResult<()> {
 ///
 /// # Errors
 /// Returns an error if not logged in or the server rejects the request.
-pub async fn set_enabled(client_id: String, enabled: bool) -> AppResult<()> {
+pub(crate) async fn set_enabled(client_id: String, enabled: bool) -> AppResult<()> {
     let body = json!({ "enabled": enabled });
     let response = client()?
         .patch_json(&format!("{APPS_PATH}/{client_id}"), &body)
@@ -153,7 +153,7 @@ pub async fn set_enabled(client_id: String, enabled: bool) -> AppResult<()> {
 ///
 /// # Errors
 /// Returns an error if not logged in or the server rejects the request.
-pub async fn delete(client_id: String) -> AppResult<()> {
+pub(crate) async fn delete(client_id: String) -> AppResult<()> {
     let response = client()?
         .delete_json(&format!("{APPS_PATH}/{client_id}"))
         .await?;

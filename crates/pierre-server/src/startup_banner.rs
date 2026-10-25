@@ -19,6 +19,7 @@ use pierre_config::environment::ServerConfig;
 use tracing::info;
 
 /// One heading of the banner and the endpoints listed under it.
+#[derive(Debug)]
 pub struct EndpointCategory {
     /// Heading printed above the group
     pub name: &'static str,

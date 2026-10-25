@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -496,7 +497,7 @@ async fn send_quota_denial_reply(
         conversation_id = %dispatch.session.conversation,
     )
 )]
-pub async fn dispatch_and_respond(dispatch: PendingDispatch) -> TurnClose {
+pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) -> TurnClose {
     // The lease this run holds on its row is renewed for as long as the run
     // lives, whichever way the turn ends, and stops before the row is
     // settled — a renewal racing the delete would only find it gone.
@@ -511,7 +512,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) -> TurnClose {
 
 /// How one dispatch left its recorded row, if it had one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnClose {
+pub(crate) enum TurnClose {
     /// The turn reached an end — answered, refused, failed, or apologised for
     /// — and owes the athlete nothing further.
     Finished,
@@ -767,6 +768,23 @@ pub enum ChannelConfigLookup {
     /// transient fault would cost the athlete their answer permanently, with
     /// a status placeholder left standing forever (registre#109).
     Unavailable,
+}
+
+// Manual impl: a channel config holds the channel's API keys and bot token.
+impl fmt::Debug for ChannelConfigLookup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Loaded(config) => f
+                .debug_struct("Loaded")
+                .field("id", &config.id)
+                .field("tenant_id", &config.tenant_id)
+                .field("channel_type", &config.channel_type)
+                .field("is_active", &config.is_active)
+                .finish_non_exhaustive(),
+            Self::Absent => f.write_str("Absent"),
+            Self::Unavailable => f.write_str("Unavailable"),
+        }
+    }
 }
 
 /// How [`serve_turn`] left the athlete.

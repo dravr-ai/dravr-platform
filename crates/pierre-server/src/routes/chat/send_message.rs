@@ -74,7 +74,7 @@ const COMMAND_PROVIDER: &str = "platform";
 /// origin. An ad-hoc caller that sets nothing is read as the browser, which is
 /// the shape a hand-written `curl` turn has.
 #[must_use]
-pub fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
+pub(crate) fn client_surface(headers: &HeaderMap) -> pipeline::SurfaceId {
     let platform = headers
         .get(CLIENT_PLATFORM_HEADER)
         .and_then(|v| v.to_str().ok());
@@ -137,7 +137,7 @@ const fn channel_type_for(surface: pipeline::SurfaceId) -> &'static str {
         is_command = request.content.trim_start().starts_with('/'),
     )
 )]
-pub async fn send_message(
+pub(super) async fn send_message(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     headers: HeaderMap,
@@ -542,7 +542,9 @@ fn send_message_sse(inputs: SseInputs) -> Response {
         for event in terminal_events(outcome) {
             // A send error means the client hung up; the turn is already
             // persisted, so there is nothing left to do about it.
-            let _ = terminal_tx.send(event);
+            if terminal_tx.send(event).is_err() {
+                trace!("chat stream receiver dropped; terminal event not delivered");
+            }
         }
     });
 

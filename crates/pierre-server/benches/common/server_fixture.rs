@@ -48,7 +48,7 @@ static INIT: Once = Once::new();
 /// Process-global init the [`ServerContext`] constructor expects (mirrors
 /// `tests/common.rs`): CI mode, provider OAuth env, command-loader path,
 /// HTTP clients, and the global server config.
-pub fn init_bench_env() {
+pub(crate) fn init_bench_env() {
     INIT.call_once(|| {
         env::set_var("CI", "true");
         env::set_var("DATABASE_URL", "sqlite::memory:");
@@ -72,7 +72,12 @@ pub fn init_bench_env() {
         }
 
         utils::http_client::initialize_http_clients(HttpClientConfig::default());
-        let _ = constants::init_server_config();
+        // Err when another caller set it first; either way it must be set now.
+        drop(constants::init_server_config());
+        assert!(
+            constants::get_server_config().is_some(),
+            "server config did not initialize from the test environment"
+        );
     });
 }
 
@@ -81,7 +86,7 @@ pub fn init_bench_env() {
 /// `Database::new` auto-migrates and seeds the tool catalog; the 2048-bit
 /// RSA key is generated once per process (benches build the context once,
 /// outside the timed loop).
-pub async fn build_server_context() -> Arc<ServerContext> {
+pub(crate) async fn build_server_context() -> Arc<ServerContext> {
     init_bench_env();
 
     let encryption_key = generate_encryption_key().to_vec();
@@ -137,7 +142,7 @@ pub async fn build_server_context() -> Arc<ServerContext> {
 ///
 /// Skips bcrypt (the bench never logs in via password) — the stored hash is
 /// an inert placeholder.
-pub async fn seed_user(resources: &ServerContext, email: &str) -> (User, TenantId) {
+pub(crate) async fn seed_user(resources: &ServerContext, email: &str) -> (User, TenantId) {
     let mut user = User::new(
         email.to_owned(),
         "bench-not-a-real-hash".to_owned(),
@@ -175,7 +180,7 @@ pub async fn seed_user(resources: &ServerContext, email: &str) -> (User, TenantI
 /// Disable the given catalogued tools for one user through the production
 /// admin write path, exercising the `UserOverride` rung on later dispatches.
 /// Unknown tool names fail loudly here (catalog-validated), not mid-bench.
-pub async fn seed_user_overrides(resources: &ServerContext, user_id: Uuid, tools: &[&str]) {
+pub(crate) async fn seed_user_overrides(resources: &ServerContext, user_id: Uuid, tools: &[&str]) {
     let repos = resources.agent.database.repositories();
     for tool_name in tools {
         admin_ops::set_user_tool_override(

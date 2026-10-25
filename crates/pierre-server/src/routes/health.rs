@@ -10,6 +10,7 @@
 //! for monitoring and load balancer health checks.
 
 /// Health routes implementation
+#[derive(Debug)]
 pub struct HealthRoutes;
 
 impl HealthRoutes {

@@ -25,7 +25,9 @@ pub(crate) struct StravaErrorResponse {
 pub(crate) struct StravaError {
     pub(crate) resource: String,
     pub(crate) field: String,
-    pub(crate) code: String,
+    /// Strava's machine-readable error code (e.g. `invalid`), not a credential.
+    #[serde(rename = "code")]
+    pub(crate) error_code: String,
 }
 
 /// Strava API response for athlete data
@@ -321,5 +323,20 @@ mod athlete_sex_tests {
         );
         assert_eq!(sex_of(r#"{"id":1,"sex":null}"#), None);
         assert_eq!(sex_of(r#"{"id":1}"#), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StravaErrorResponse;
+
+    #[test]
+    fn a_strava_error_reads_its_code_from_the_wire_code_field() {
+        let response: StravaErrorResponse = serde_json::from_str(
+            r#"{"message":"Bad Request","errors":[{"resource":"Activity","field":"id","code":"invalid"}]}"#,
+        )
+        .unwrap();
+        let error = response.errors.unwrap().into_iter().next().unwrap();
+        assert_eq!(error.error_code, "invalid", "Strava's `code` field decodes");
     }
 }

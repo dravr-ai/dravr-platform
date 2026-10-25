@@ -41,6 +41,7 @@ impl ConfigurationQuery {
 }
 
 /// Fitness configuration routes
+#[derive(Debug)]
 pub struct FitnessConfigurationRoutes;
 
 impl FitnessConfigurationRoutes {

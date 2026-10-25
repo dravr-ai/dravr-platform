@@ -48,6 +48,7 @@ use crate::{CommandHandler, PlatformCommandContext};
 ///
 /// Every refusal names what would change it. A "no" without a next step is
 /// what sends an agent inventing one.
+#[derive(Debug)]
 pub struct FortnightHandler;
 
 #[async_trait]

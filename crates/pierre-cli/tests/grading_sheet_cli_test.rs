@@ -266,8 +266,9 @@ async fn a_drawn_sheet_hides_the_verdicts_and_its_grades_score_back() {
     assert!(stdout.contains("agreement ana vs ben: 4/4"), "{stdout}");
 
     drop(database);
-    let _ = fs::remove_dir_all(&base);
-    let _ = fs::remove_file(&db_path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_dir_all(&base));
+    drop(fs::remove_file(&db_path));
 }
 
 #[test]
@@ -293,5 +294,6 @@ fn grading_score_refuses_a_grades_flag_without_a_name() {
         "{}",
         text(&out.stderr)
     );
-    let _ = fs::remove_dir_all(&dir);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_dir_all(&dir));
 }

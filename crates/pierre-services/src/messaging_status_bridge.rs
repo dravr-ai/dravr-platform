@@ -51,6 +51,7 @@ use dravr_canot::channels::discord::agui_status::DiscordStatusAdapter;
 use dravr_canot::channels::slack::agui_status::SlackStatusAdapter;
 use dravr_canot::channels::telegram::agui_status::TelegramStatusAdapter;
 use dravr_canot::models::{ChannelConfig, ChannelType};
+use std::fmt;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -106,6 +107,21 @@ pub struct OpenStatusParams<'a> {
     pub api_base_override: Option<&'a str>,
 }
 
+// The channel config holds the tenant's bot tokens and webhook secret, whose
+// own Debug prints them: only its id and channel are printed here.
+impl fmt::Debug for OpenStatusParams<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenStatusParams")
+            .field("channel_type", &self.channel_type)
+            .field("channel_config_id", &self.channel_config.id)
+            .field("conversation_id", &self.conversation_id)
+            .field("thread_id", &self.thread_id)
+            .field("placeholder_text", &self.placeholder_text)
+            .field("api_base_override", &self.api_base_override)
+            .finish_non_exhaustive()
+    }
+}
+
 /// An opened status bridge: the adapter that edits the placeholder, plus the
 /// channel-native id of the placeholder message itself.
 ///
@@ -121,6 +137,14 @@ pub struct OpenedStatus {
     /// placeholder — rendered as text, the shape every channel-message id is
     /// stored in.
     pub channel_message_id: String,
+}
+
+impl fmt::Debug for OpenedStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpenedStatus")
+            .field("channel_message_id", &self.channel_message_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Open the per-channel [`StatusAdapter`] for `params`, sending the
@@ -202,7 +226,7 @@ fn attach_telegram(params: &OpenStatusParams<'_>, message_id: &str) -> Option<Op
     );
     Some(OpenedStatus {
         channel_message_id: adapter.message_id().to_string(),
-        adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+        adapter: Arc::new(adapter),
     })
 }
 
@@ -214,7 +238,7 @@ fn attach_slack(params: &OpenStatusParams<'_>, ts: &str) -> Option<OpenedStatus>
     );
     Some(OpenedStatus {
         channel_message_id: adapter.ts().to_owned(),
-        adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+        adapter: Arc::new(adapter),
     })
 }
 
@@ -233,7 +257,7 @@ fn attach_discord(params: &OpenStatusParams<'_>, message_id: &str) -> Option<Ope
     );
     Some(OpenedStatus {
         channel_message_id: adapter.message_id().to_owned(),
-        adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+        adapter: Arc::new(adapter),
     })
 }
 
@@ -264,7 +288,7 @@ async fn open_telegram(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     match result {
         Ok(adapter) => Some(OpenedStatus {
             channel_message_id: adapter.message_id().to_string(),
-            adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+            adapter: Arc::new(adapter),
         }),
         Err(e) => {
             warn!(error = %e, "Telegram status placeholder open failed; skipping progress rendering");
@@ -300,7 +324,7 @@ async fn open_slack(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     match result {
         Ok(adapter) => Some(OpenedStatus {
             channel_message_id: adapter.ts().to_owned(),
-            adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+            adapter: Arc::new(adapter),
         }),
         Err(e) => {
             warn!(error = %e, "Slack status placeholder open failed; skipping progress rendering");
@@ -325,7 +349,7 @@ async fn open_discord(params: &OpenStatusParams<'_>) -> Option<OpenedStatus> {
     match result {
         Ok(adapter) => Some(OpenedStatus {
             channel_message_id: adapter.message_id().to_owned(),
-            adapter: Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>,
+            adapter: Arc::new(adapter),
         }),
         Err(e) => {
             warn!(error = %e, "Discord status placeholder open failed; skipping progress rendering");

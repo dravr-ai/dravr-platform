@@ -97,7 +97,7 @@ const GROUP: GroupSpec<'static> = GroupSpec {
 };
 
 /// CLI arguments for the coach plan thread seeder.
-#[derive(clap::Args)]
+#[derive(Debug, clap::Args)]
 pub struct SeedArgs {
     /// The group's human coach, who drafts the athlete's plan
     #[arg(long, default_value = "plancoach@pierre.dev")]

@@ -368,7 +368,7 @@ fn format_overtraining_signals(
 }
 
 /// Handle `detect_patterns` tool - detect patterns in activity data
-pub fn handle_detect_patterns(
+pub(crate) fn handle_detect_patterns(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

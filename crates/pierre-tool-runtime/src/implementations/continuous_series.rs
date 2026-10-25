@@ -288,6 +288,7 @@ fn check_point_count(count: usize) -> AppResult<()> {
 // ============================================================================
 
 /// Tool reading the athlete's stored continuous heart-rate and HRV series.
+#[derive(Debug)]
 pub struct GetHeartRateSeriesTool;
 
 #[async_trait]

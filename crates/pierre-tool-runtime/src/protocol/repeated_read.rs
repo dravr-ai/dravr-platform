@@ -24,7 +24,7 @@ use crate::protocol::types::UniversalResponse;
 
 /// The pointer for `tool_name` when `read` repeats one this turn served, or
 /// `None` when the call should run.
-pub fn answer(
+pub(super) fn answer(
     turns: &GuardianTurns,
     key: &TurnKey,
     read: Option<ReadFingerprint>,
@@ -38,7 +38,7 @@ pub fn answer(
 
 /// Record what a successful call means for later repeats: a read is
 /// remembered, a write forgets every read, since it may have changed them.
-pub fn remember(
+pub(super) fn remember(
     turns: &GuardianTurns,
     key: &TurnKey,
     read: Option<ReadFingerprint>,

@@ -24,6 +24,7 @@ use super::credentials::CachedCredentials;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// An HTTP client bound to one pierre-server, optionally carrying a bearer token.
+#[derive(Debug)]
 pub struct RemoteClient {
     http: reqwest::Client,
     base: String,

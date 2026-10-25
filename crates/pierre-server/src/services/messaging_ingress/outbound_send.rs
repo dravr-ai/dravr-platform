@@ -6,6 +6,7 @@
 
 #![cfg(feature = "client-messaging")]
 
+use std::fmt;
 use std::sync::Arc;
 
 use dravr_canot::channel::MessagingChannel;
@@ -35,6 +36,16 @@ pub struct OutboundPersistSpec {
     /// The assistant chat row this reply delivers, when the transcript policy
     /// persisted one — the join a reaction rating resolves through.
     pub chat_message_id: Option<String>,
+}
+
+impl fmt::Debug for OutboundPersistSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OutboundPersistSpec")
+            .field("session_tenant_id", &self.session_tenant_id)
+            .field("session_id", &self.session_id)
+            .field("chat_message_id", &self.chat_message_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// How the spawned task hands a part to the channel.

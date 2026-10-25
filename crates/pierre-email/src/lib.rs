@@ -16,6 +16,7 @@ pub mod templates;
 use dravr_tronc::notifications::{ResendBody, ResendClient, ResendEmail};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::api_inner_client;
+use std::fmt;
 use templates::CoachAccessOrigin;
 use tracing::{debug, info, warn};
 
@@ -61,6 +62,14 @@ pub struct ResendEmailService {
     client: ResendClient,
     /// Sender email address (e.g., "Dravr <no-reply@dravr.ai>")
     from_email: String,
+}
+
+impl fmt::Debug for ResendEmailService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResendEmailService")
+            .field("from_email", &self.from_email)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ResendEmailService {

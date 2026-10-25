@@ -101,7 +101,8 @@ mod parse_properties {
     proptest! {
         #[test]
         fn any_body_is_read_without_panicking(body in vec(any::<u8>(), 0..512)) {
-            let _ = parse_whatsapp_delivery_statuses(&body);
+            // Only checks that parsing does not panic.
+            drop(parse_whatsapp_delivery_statuses(&body));
         }
 
         #[test]
@@ -117,7 +118,8 @@ mod parse_properties {
                     "errors": [{ "code": 131_026, "title": status }],
                 }]}}]}],
             });
-            let _ = parse_whatsapp_delivery_statuses(body.to_string().as_bytes());
+            // Only checks that parsing does not panic.
+            drop(parse_whatsapp_delivery_statuses(body.to_string().as_bytes()));
         }
     }
 }

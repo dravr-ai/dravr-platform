@@ -244,7 +244,7 @@ impl EmbacleProvider {
 
         let runners = tiers
             .iter()
-            .map(|tier| Box::new(Arc::clone(&tier.runner)) as Box<dyn EmbacleLlmProvider>)
+            .map(|tier| -> Box<dyn EmbacleLlmProvider> { Box::new(Arc::clone(&tier.runner)) })
             .collect();
         let chain = FallbackProvider::new(runners)?
             .with_fallthrough(ResponsePolicy::strict())
@@ -534,7 +534,8 @@ impl EmbacleProvider {
         turn_provider: Arc<dyn HeadlessTurnProvider>,
         display_name: &'static str,
     ) -> Self {
-        let runner = Arc::clone(&turn_provider) as Arc<dyn EmbacleLlmProvider>;
+        let runner: Arc<dyn EmbacleLlmProvider> =
+            Arc::<dyn HeadlessTurnProvider>::clone(&turn_provider);
         Self {
             head: Arc::clone(&runner),
             runner,
@@ -625,7 +626,7 @@ impl EmbacleProvider {
             "Creating quota router (claude_code -> copilot_headless)"
         );
 
-        let runner = Arc::clone(&router) as Arc<dyn EmbacleLlmProvider>;
+        let runner: Arc<dyn EmbacleLlmProvider> = Arc::<RouterProvider>::clone(&router);
         Ok(Self {
             head: Arc::clone(&runner),
             runner,

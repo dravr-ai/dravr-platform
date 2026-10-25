@@ -169,6 +169,7 @@ async fn athlete_timezone(context: &ToolExecutionContext, user_id: Uuid) -> Opti
 // ============================================================================
 
 /// Records a countable, time-boxed commitment the athlete agreed to.
+#[derive(Debug)]
 pub struct CommitmentCreateTool;
 
 #[async_trait]
@@ -363,6 +364,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
 // ============================================================================
 
 /// Retracts a commitment the athlete no longer wants held to.
+#[derive(Debug)]
 pub struct CommitmentCancelTool;
 
 #[async_trait]

@@ -357,6 +357,7 @@ pub struct SuggestYogaSequenceResult {
 // ============================================================================
 
 /// Tool for listing stretching exercises with filtering.
+#[derive(Debug)]
 pub struct ListStretchingExercisesTool;
 
 #[async_trait]
@@ -502,6 +503,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
 // ============================================================================
 
 /// Tool for getting a specific stretching exercise by ID.
+#[derive(Debug)]
 pub struct GetStretchingExerciseTool;
 
 #[async_trait]
@@ -587,6 +589,7 @@ impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
 // ============================================================================
 
 /// Tool for suggesting stretches based on activity type.
+#[derive(Debug)]
 pub struct SuggestStretchesForActivityTool;
 
 #[async_trait]
@@ -717,6 +720,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
 // ============================================================================
 
 /// Tool for listing yoga poses with filtering.
+#[derive(Debug)]
 pub struct ListYogaPosesTool;
 
 #[async_trait]
@@ -882,6 +886,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
 // ============================================================================
 
 /// Tool for getting a specific yoga pose by ID.
+#[derive(Debug)]
 pub struct GetYogaPoseTool;
 
 #[async_trait]
@@ -975,6 +980,7 @@ impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
 // ============================================================================
 
 /// Tool for suggesting a yoga sequence for recovery.
+#[derive(Debug)]
 pub struct SuggestYogaSequenceTool;
 
 #[async_trait]

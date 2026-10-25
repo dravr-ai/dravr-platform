@@ -862,7 +862,7 @@ async fn agnostic_goal_facts(
             tenant,
             &user_id.to_string(),
             None,
-            Some(pierre_memory::FactKind::Goal),
+            Some(FactKind::Goal),
             200,
             TransportPolicy::FirstPartyOnly,
         )
@@ -2091,7 +2091,7 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
 
 /// `YYYY-MM-DD`, `offset` days from today.
 fn day_offset(offset: i64) -> String {
-    let today = chrono::Utc::now().date_naive();
+    let today = Utc::now().date_naive();
     let d = if offset >= 0 {
         today + chrono::Days::new(offset.unsigned_abs())
     } else {
@@ -2627,7 +2627,7 @@ async fn an_infeasible_time_in_zone_target_is_refused() -> Result<()> {
 /// dropped one.
 async fn stored_race_names(
     executor: &UniversalToolExecutor,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
     tenant_id: &str,
 ) -> Result<Vec<String>> {
     let plan = executor

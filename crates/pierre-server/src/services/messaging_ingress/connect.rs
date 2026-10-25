@@ -122,7 +122,7 @@ async fn mint_connect_url(
 /// capability and shapes the reply at build time as rich text with the link
 /// as an autolinked `label: url` line.
 #[allow(clippy::too_many_arguments)]
-pub async fn build_connect_card_direct(
+pub(super) async fn build_connect_card_direct(
     resources: &ServerContext,
     user_id: Uuid,
     active_tenant: Uuid,
@@ -176,7 +176,7 @@ pub async fn build_connect_card_direct(
 /// already replaced by the `NoProviderConnected` error). Resolves the identity
 /// from the channel link, then delegates to [`build_connect_card_direct`].
 #[allow(clippy::too_many_arguments)]
-pub async fn try_build_connect_card(
+pub(super) async fn try_build_connect_card(
     resources: &ServerContext,
     tenant_id: TenantId,
     channel: &str,

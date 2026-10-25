@@ -400,9 +400,10 @@ async fn test_calculate_personalized_zones_extreme_vo2max() -> Result<()> {
     );
 
     let result = executor.execute_tool(request).await;
-    // Should handle or warn about extreme value
-    // This might succeed but with warnings
-    let _ = result;
+    assert!(
+        matches!(&result, Ok(response) if response.success),
+        "an extreme VO2max still yields zones: {result:?}"
+    );
 
     Ok(())
 }
@@ -471,9 +472,10 @@ async fn test_analyze_sleep_quality_invalid_efficiency() -> Result<()> {
     );
 
     let result = executor.execute_tool(request).await;
-    // Should handle invalid efficiency percentage
-    // This might fail or clamp the value
-    let _ = result;
+    assert!(
+        matches!(&result, Ok(response) if response.success),
+        "an efficiency over 100% is still analyzed: {result:?}"
+    );
 
     Ok(())
 }
@@ -534,9 +536,15 @@ async fn test_calculate_daily_nutrition_extreme_weight() -> Result<()> {
     );
 
     let result = executor.execute_tool(request).await?;
-    // Should either succeed with warning or fail
-    // Just verify it doesn't panic
-    let _ = result;
+    assert!(!result.success, "a 1000 kg weight is refused");
+    assert!(
+        result
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("Weight must be between")),
+        "the refusal names the weight bound: {:?}",
+        result.error
+    );
 
     Ok(())
 }
@@ -585,8 +593,11 @@ async fn test_save_recipe_empty_ingredients() -> Result<()> {
     );
 
     let result = executor.execute_tool(request).await;
-    // Empty ingredients might be rejected or saved
-    let _ = result;
+    // No tenant on the request, so the tenant gate refuses before the recipe is read.
+    assert!(
+        format!("{result:?}").contains("Tenant context required"),
+        "save_recipe without a tenant is refused: {result:?}"
+    );
 
     Ok(())
 }
@@ -649,8 +660,11 @@ async fn test_search_recipes_very_long_query() -> Result<()> {
     );
 
     let result = executor.execute_tool(request).await;
-    // Should handle very long query without crashing
-    let _ = result;
+    // No tenant on the request, so the tenant gate refuses before the query is read.
+    assert!(
+        format!("{result:?}").contains("Tenant context required"),
+        "search_recipes without a tenant is refused: {result:?}"
+    );
 
     Ok(())
 }
@@ -717,8 +731,10 @@ async fn test_null_parameters() -> Result<()> {
     let request = create_request("get_activities", serde_json::Value::Null);
 
     let result = executor.execute_tool(request).await;
-    // Should handle null parameters gracefully
-    let _ = result;
+    assert!(
+        matches!(&result, Ok(response) if !response.success),
+        "null parameters yield a failure response, not a crash: {result:?}"
+    );
 
     Ok(())
 }
@@ -731,8 +747,10 @@ async fn test_malformed_json_in_parameters() -> Result<()> {
     let request = create_request("get_activities", json!(["not", "an", "object"]));
 
     let result = executor.execute_tool(request).await;
-    // Should handle type mismatch
-    let _ = result;
+    assert!(
+        matches!(&result, Ok(response) if !response.success),
+        "array parameters yield a failure response, not a crash: {result:?}"
+    );
 
     Ok(())
 }

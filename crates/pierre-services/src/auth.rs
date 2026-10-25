@@ -81,7 +81,7 @@ pub struct RefreshedSession {
 /// issue and exchange, tenant provisioning, and approval-status
 /// determination. Accepts narrow Rust types rather than HTTP framework
 /// extractors so it can be called from REST, MCP, or A2A entry points.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AuthService {
     auth_manager: Arc<AuthManager>,
     jwks_manager: Arc<JwksManager>,
@@ -481,8 +481,7 @@ impl AuthService {
             .auth_manager
             .generate_token_with_tenant(&user, &self.jwks_manager, active_tenant_id)
             .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at =
-            chrono::Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
+        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
 
         info!(user_id = %user.id, "User logged in successfully");
 

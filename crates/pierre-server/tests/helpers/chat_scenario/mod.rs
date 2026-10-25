@@ -35,17 +35,17 @@
 //! from places other than the runner (e.g., the P3 Telegram-trace
 //! replay harness).
 
-pub mod asserters;
-pub mod drift;
-pub mod format;
-pub mod live_driver;
-pub mod reply_tap;
-pub mod runner;
-pub mod telegram_trace;
-pub mod vocabulary_contract;
+pub(crate) mod asserters;
+pub(crate) mod drift;
+pub(crate) mod format;
+pub(crate) mod live_driver;
+pub(crate) mod reply_tap;
+pub(crate) mod runner;
+pub(crate) mod telegram_trace;
+pub(crate) mod vocabulary_contract;
 
-pub use format::{load as load_scenario, ChatScenario};
-pub use live_driver::LiveScenarioDriver;
-pub use runner::{run_scenario, MockScenarioDriver, TurnContext};
-pub use telegram_trace::load_trace;
-pub use vocabulary_contract::VocabularyContractRegistry;
+pub(crate) use format::{load as load_scenario, ChatScenario};
+pub(crate) use live_driver::LiveScenarioDriver;
+pub(crate) use runner::{run_scenario, MockScenarioDriver, TurnContext};
+pub(crate) use telegram_trace::load_trace;
+pub(crate) use vocabulary_contract::VocabularyContractRegistry;

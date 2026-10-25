@@ -286,6 +286,7 @@ pub struct AuthResult {
 }
 
 /// Authentication manager for `JWT` tokens and user sessions
+#[derive(Debug)]
 pub struct AuthManager {
     token_expiry_hours: i64,
 }

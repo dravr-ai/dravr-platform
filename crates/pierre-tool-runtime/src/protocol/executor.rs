@@ -41,6 +41,7 @@ use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, warn};
@@ -83,7 +84,7 @@ pub struct UniversalExecutor {
     /// Tenant owning `conversation_id`'s row, scoped into
     /// [`crate::context::CONVERSATION_TENANT`] alongside it. `None` outside a
     /// chat turn; differs from the call's own tenant on shared-room turns.
-    conversation_tenant_id: Option<uuid::Uuid>,
+    conversation_tenant_id: Option<Uuid>,
     /// The agent the turn answers as, scoped into
     /// [`crate::context::TURN_AGENT_ID`] alongside the conversation. `None`
     /// outside a chat turn and on a turn that answers as no agent.
@@ -139,6 +140,23 @@ pub struct UniversalExecutor {
     /// [`Self::with_caller_writing_reply`]; never inherited, because a nested
     /// dispatch answers the tool that made it, not the caller.
     caller_writes_reply: bool,
+}
+
+impl fmt::Debug for UniversalExecutor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UniversalExecutor")
+            .field("auth_service", &self.auth_service)
+            .field("conversation_id", &self.conversation_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("turn_agent_id", &self.turn_agent_id)
+            .field("turn_token", &self.turn_token)
+            .field("scopes", &self.scopes)
+            .field("seat", &self.seat)
+            .field("transport", &self.transport)
+            .field("provenance", &self.provenance)
+            .field("caller_writes_reply", &self.caller_writes_reply)
+            .finish_non_exhaustive()
+    }
 }
 
 impl UniversalExecutor {
@@ -253,7 +271,7 @@ impl UniversalExecutor {
     /// [`Self::with_conversation_id`]; without it a room turn's tools cannot
     /// resolve the conversation row the channel tenant owns.
     #[must_use]
-    pub const fn with_conversation_tenant(mut self, tenant: uuid::Uuid) -> Self {
+    pub const fn with_conversation_tenant(mut self, tenant: Uuid) -> Self {
         self.conversation_tenant_id = Some(tenant);
         self
     }

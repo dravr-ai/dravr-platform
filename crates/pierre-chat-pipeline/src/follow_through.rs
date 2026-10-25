@@ -169,7 +169,7 @@ async fn record_guided_flow_probe(
 /// Persist this turn's claim verdicts, now that the assistant message they
 /// reference is durable. No-op when the turn produced none.
 #[cfg(feature = "tools-verification")]
-pub async fn persist_verdicts_for_turn(
+pub(crate) async fn persist_verdicts_for_turn(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
     conv: &ConversationRecord,
@@ -193,7 +193,7 @@ pub async fn persist_verdicts_for_turn(
 
 /// Inputs for [`finish_turn_follow_through`].
 #[derive(Clone, Copy)]
-pub struct FinishTurnInputs<'a> {
+pub(crate) struct FinishTurnInputs<'a> {
     pub ctx: &'a ChatPipelineContext,
     pub input: &'a TurnInput,
     pub conv: &'a ConversationRecord,
@@ -221,7 +221,7 @@ pub struct FinishTurnInputs<'a> {
 /// reach the athlete? — and a caller that got that branch half-right is exactly
 /// how a withheld turn used to orphan both the athlete's answer and the walk's
 /// progress.
-pub async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
+pub(crate) async fn finish_turn_follow_through(inputs: FinishTurnInputs<'_>) {
     let FinishTurnInputs {
         ctx,
         input,

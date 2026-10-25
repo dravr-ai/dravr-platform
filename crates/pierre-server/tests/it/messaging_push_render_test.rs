@@ -17,7 +17,6 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::KEY_BACKFILL_READY;
 use pierre_core::models::messaging::MessageContent;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
@@ -114,9 +113,7 @@ async fn push_warmed_list_renders_sport_display_and_localized_header() {
     seed_activity_cache(&db, user_uuid, tenant_id, &acts).await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     // No re-entry handle → the push takes the Rust-rendered list fallback.
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
@@ -218,9 +215,7 @@ async fn push_empty_cache_nudge_honors_default_locale() {
 
     // No cache rows seeded → the warmed-window read returns empty → nudge path.
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),
@@ -367,9 +362,7 @@ async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
     seed_activity_cache(&db, user_uuid, tenant_id, &[ride]).await;
 
     let channel = Arc::new(CapturingChannel::default());
-    let resolver = Arc::new(FakeResolver::new(
-        channel.clone() as Arc<dyn MessagingChannel>
-    ));
+    let resolver = Arc::new(FakeResolver::new(channel.clone()));
     let notifier = ServerBackfillNotifier::with_resolver(
         repos,
         strings(),

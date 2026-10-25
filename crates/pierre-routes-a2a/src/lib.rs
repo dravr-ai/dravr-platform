@@ -57,6 +57,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
 use tokio::task;
@@ -71,6 +72,7 @@ use tracing::{error, info};
 /// state type, so we wrap the same `extract_auth_from_headers` helper in a
 /// local extractor implemented over [`A2ARoutesState<C>`] — Rust's orphan
 /// rules forbid adding the impl to the foreign extractor directly.
+#[derive(Debug)]
 pub struct A2AAuth(pub AuthResult);
 
 impl A2AAuth {
@@ -117,6 +119,15 @@ pub struct A2ARoutesState<C: MiddlewareCtx + A2ACtx> {
     /// Tool runtime — backs the universal tool executor the protocol
     /// bindings hand to the A2A server for tool-intent messages.
     pub tool_runtime: Arc<dyn ToolRuntime>,
+}
+
+impl<C: MiddlewareCtx + A2ACtx> fmt::Debug for A2ARoutesState<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("A2ARoutesState")
+            .field("client_manager", &self.client_manager)
+            .field("auth_middleware", &self.auth_middleware)
+            .finish_non_exhaustive()
+    }
 }
 
 // Manual `Clone` impl: derive(Clone) would require `C: Clone`, but every
@@ -209,6 +220,7 @@ struct StoreCredentialsRequest {
 }
 
 /// A2A routes implementation
+#[derive(Debug)]
 pub struct A2ARoutes;
 
 impl A2ARoutes {

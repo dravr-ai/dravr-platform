@@ -348,11 +348,10 @@ fn base_url_is_an_alias_only_when_it_is_another_origin() {
         vec![BASE],
         "a trailing slash names the same origin"
     );
-    assert_eq!(
-        resolve_mcp_resource_aliases(MCP, Some(MCP)),
-        [] as [String; 0]
-    );
-    assert_eq!(resolve_mcp_resource_aliases(MCP, None), [] as [String; 0]);
+    let got = resolve_mcp_resource_aliases(MCP, Some(MCP));
+    assert!(got.is_empty(), "expected empty, got {got:?}");
+    let got = resolve_mcp_resource_aliases(MCP, None);
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert!(
         resolve_mcp_resource_aliases(MCP, Some("https://app.example.test/app")).is_empty(),
         "a BASE_URL with a path is no origin a client dialed /mcp under"

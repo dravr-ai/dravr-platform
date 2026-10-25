@@ -15,4 +15,4 @@ use sqlx::migrate::Migrator;
 
 /// Every `SQLite` migration in `migrations/`, in order, embedded in the binary
 /// so they apply regardless of the process's working directory.
-pub static SQLITE_MIGRATIONS: Migrator = sqlx::migrate!("./migrations");
+pub(super) static SQLITE_MIGRATIONS: Migrator = sqlx::migrate!("./migrations");

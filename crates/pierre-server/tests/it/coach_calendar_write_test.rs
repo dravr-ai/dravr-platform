@@ -680,7 +680,7 @@ impl World {
         tenant: TenantId,
         args: Value,
     ) -> (Value, bool) {
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(&self.res) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(who.id.to_string())
             .with_tenant(tenant.to_string())

@@ -28,6 +28,7 @@
 //! messaging channel — is the caller's: the turn's blocks come back laid out
 //! for the surface the post was made for.
 
+use std::fmt;
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
@@ -87,11 +88,36 @@ pub struct PlatformPostRequest<'a> {
     pub prompt: &'a str,
 }
 
+// The prompt can be the athlete's own question re-asked: only its size is printed.
+impl fmt::Debug for PlatformPostRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PlatformPostRequest")
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("surface", &self.surface)
+            .field("locale", &self.locale)
+            .field("prompt_len", &self.prompt.len())
+            .finish()
+    }
+}
+
 /// A platform post that was stored in its conversation.
 pub struct PostedReply {
     /// The turn's blocks, as the pipeline laid them out for the post's
     /// surface, and the stored assistant record.
     pub assistant: AssistantTurn,
+}
+
+// The assistant record holds the reply text: only ids and sizes are printed.
+impl fmt::Debug for PostedReply {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostedReply")
+            .field("message_id", &self.assistant.message.id)
+            .field("content_len", &self.assistant.message.content.len())
+            .field("blocks", &self.assistant.blocks.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Makes a platform post through the chat pipeline.
@@ -113,6 +139,7 @@ pub trait PlatformPost: Send + Sync {
 /// slot this post is installed into, so a strong reference back to the context
 /// would leak the whole container. On a missed upgrade (shutdown in flight)
 /// nothing is posted.
+#[derive(Debug)]
 pub struct PipelinePlatformPost {
     /// Weak handle to the composition root; upgraded per call.
     ctx: Weak<ServerContext>,
@@ -190,7 +217,7 @@ impl PlatformPost for PipelinePlatformPost {
             hooks: PipelineHooks {
                 scene_publisher: scene_publisher
                     .as_ref()
-                    .map(|publisher| publisher as &dyn ScenePublisher),
+                    .map(|publisher| -> &dyn ScenePublisher { publisher }),
                 ..PipelineHooks::none()
             },
         };
@@ -234,4 +261,68 @@ pub fn install_platform_post(resources: &Arc<ServerContext>) -> Arc<dyn Platform
         warn!("Platform post handle already installed; skipping");
     }
     post
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_chat_pipeline::ReplyBlock;
+    use pierre_core::models::MessageRecord;
+    use pierre_core::transport::TransportPolicy;
+
+    const SENTINEL: &str = "sentinel-athlete-words-4b2d";
+
+    #[test]
+    fn a_post_request_prints_the_size_of_its_prompt_never_the_prompt() {
+        let prompt = format!("how did my {SENTINEL} long run go?");
+        let request = PlatformPostRequest {
+            user_id: Uuid::nil(),
+            tenant_id: TenantId::from_uuid(Uuid::nil()),
+            conversation_id: "conv-1",
+            surface: PostSurface::InApp,
+            locale: "en",
+            prompt: &prompt,
+        };
+        let printed = format!("{request:?} {request:#?}");
+        assert!(!printed.contains(SENTINEL), "the prompt leaked: {printed}");
+        assert!(
+            printed.contains(&format!("prompt_len: {}", prompt.len())),
+            "the prompt's size is printed: {printed}"
+        );
+    }
+
+    #[test]
+    fn a_posted_reply_prints_its_sizes_never_the_reply_text() {
+        let reply = PostedReply {
+            assistant: AssistantTurn {
+                message: MessageRecord {
+                    id: "msg-asst".to_owned(),
+                    conversation_id: "conv-1".to_owned(),
+                    role: "assistant".to_owned(),
+                    content: SENTINEL.to_owned(),
+                    token_count: None,
+                    prompt_tokens: None,
+                    model: None,
+                    finish_reason: None,
+                    content_blocks: None,
+                    created_at: "2026-09-22T20:22:00Z".to_owned(),
+                    transport_policy: TransportPolicy::AnyTransport,
+                    channel_type: None,
+                },
+                blocks: vec![ReplyBlock::Prose {
+                    text: SENTINEL.to_owned(),
+                }],
+                finish_reason: None,
+            },
+        };
+        let printed = format!("{reply:?} {reply:#?}");
+        assert!(
+            !printed.contains(SENTINEL),
+            "the reply text leaked: {printed}"
+        );
+        assert!(
+            printed.contains("msg-asst"),
+            "the message id is printed: {printed}"
+        );
+    }
 }

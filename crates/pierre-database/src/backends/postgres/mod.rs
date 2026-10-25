@@ -199,6 +199,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
@@ -260,6 +261,19 @@ pub struct PostgresDatabase {
     /// Until when boot-time key-store reads keep queueing for a free
     /// connection (`PostgresPoolConfig::boot_wait_secs` after the pool opened)
     boot_deadline: Instant,
+}
+
+impl fmt::Debug for PostgresDatabase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostgresDatabase")
+            .field("pool", &self.pool)
+            .field("encryption_key", &"[REDACTED]")
+            .field("active_dek_version", &self.active_dek_version)
+            .field("prior_dek_versions", &"[REDACTED]")
+            .field("blind_index_key", &"[REDACTED]")
+            .field("boot_deadline", &self.boot_deadline)
+            .finish()
+    }
 }
 
 impl PostgresDatabase {

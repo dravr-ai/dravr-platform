@@ -20,7 +20,6 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{ActivityBuilder, SportType, Tenant, TenantId, User, UserStatus};
-use pierre_database::repositories::ProviderDataPurgeRecord;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::provider_terms::STRAVA_CACHE_TTL;
 use pierre_services::provider_cache_sweeper::sweep_provider_caches;
@@ -174,12 +173,10 @@ async fn one_sweep_evicts_only_the_strava_copy_older_than_thirty_days() {
         .unwrap();
     assert_eq!(recorded.len(), 1, "{recorded:?}");
     assert_eq!(recorded[0].reason, "cache_expired");
-    assert_eq!(
-        repos
-            .provider_data
-            .list_provider_data_purges("garmin", 10)
-            .await
-            .unwrap(),
-        [] as [ProviderDataPurgeRecord; 0]
-    );
+    let got = repos
+        .provider_data
+        .list_provider_data_purges("garmin", 10)
+        .await
+        .unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
 }

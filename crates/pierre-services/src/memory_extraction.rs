@@ -28,6 +28,7 @@
 //! instance is alive.
 
 use pierre_core::transport::TransportPolicy;
+use std::fmt;
 use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
@@ -242,6 +243,24 @@ pub struct ExtractionRequest<'a> {
     /// Receives the extraction call's usage record, typed
     /// [`LlmStage::MemoryExtraction`]; `None` records nothing.
     pub recorder: Option<&'a Arc<dyn LlmCallRecorder>>,
+}
+
+impl fmt::Debug for ExtractionRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtractionRequest")
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("agent_id", &self.agent_id)
+            .field("user_message_len", &self.user_message.len())
+            .field("assistant_reply_len", &self.assistant_reply.len())
+            .field("source_msg_id", &self.source_msg_id)
+            .field("pillar", &self.pillar)
+            .field("source", &self.source)
+            .field("force_kind", &self.force_kind)
+            .field("plan_was_saved", &self.plan_was_saved)
+            .field("transport_policy", &self.transport_policy)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Outcome of a single extraction run.

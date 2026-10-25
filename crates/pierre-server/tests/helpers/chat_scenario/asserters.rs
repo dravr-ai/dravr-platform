@@ -28,7 +28,7 @@ use super::TurnContext;
 
 /// Outcome of evaluating one [`AssertionSpec`] against a reply.
 #[derive(Debug)]
-pub struct AssertionFailure {
+pub(crate) struct AssertionFailure {
     pub spec: AssertionSpec,
     pub reason: String,
 }
@@ -41,7 +41,7 @@ impl Display for AssertionFailure {
 
 /// Run every assertion in `specs` against the turn context and return
 /// the collected failures (empty slice ⇒ all asserts passed).
-pub fn evaluate_all(
+pub(crate) fn evaluate_all(
     specs: &[AssertionSpec],
     ctx: &TurnContext<'_>,
     vocab: &VocabularyContractRegistry,

@@ -52,10 +52,14 @@ async fn spawn_header_capture_server() -> (SocketAddr, oneshot::Receiver<HashMap
                     .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned()))
             })
             .collect();
-        let _ = tx.send(headers);
-        let _ = stream
-            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
-            .await;
+        tx.send(headers)
+            .expect("the test awaits the captured headers");
+        // The client may hang up first; the test checks what it received.
+        drop(
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                .await,
+        );
     });
 
     (addr, rx)

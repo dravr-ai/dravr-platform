@@ -543,10 +543,8 @@ pub(crate) mod sql;
 #[must_use]
 pub fn sport_type_string(activity: &Activity) -> Option<String> {
     match serde_json::to_value(activity.sport_type()).ok()? {
-        serde_json::Value::String(s) => Some(s),
-        serde_json::Value::Object(map) => {
-            map.get("other").and_then(|v| v.as_str()).map(str::to_owned)
-        }
+        Value::String(s) => Some(s),
+        Value::Object(map) => map.get("other").and_then(|v| v.as_str()).map(str::to_owned),
         _ => None,
     }
 }

@@ -36,7 +36,7 @@ use std::sync::Mutex;
 
 /// One captured agent reply.
 #[derive(Debug, Clone)]
-pub struct ReplySample {
+pub(crate) struct ReplySample {
     /// Tenant + redacted user identifier (hashed before storage so
     /// the triage queue cannot re-identify the user).
     pub hashed_user_id: String,
@@ -65,7 +65,7 @@ pub struct ReplySample {
 /// gate), buffer in-memory (dev / tests), or persist (durable
 /// backend). The trait is `Send + Sync` so the chat pipeline can
 /// hand it to spawned tasks without ceremony.
-pub trait ReplyTap: Send + Sync {
+pub(crate) trait ReplyTap: Send + Sync {
     /// Record one sample. Implementations must not block the chat
     /// pipeline — long-running side effects belong on a background
     /// task spawned by the implementation itself.
@@ -80,7 +80,7 @@ pub trait ReplyTap: Send + Sync {
 
 /// Zero-overhead production default — drops every sample.
 #[derive(Debug, Default)]
-pub struct NoopReplyTap;
+pub(crate) struct NoopReplyTap;
 
 impl ReplyTap for NoopReplyTap {
     fn record(&self, _sample: ReplySample) {}
@@ -88,7 +88,7 @@ impl ReplyTap for NoopReplyTap {
 
 /// In-memory tap for dev + framework self-tests.
 #[derive(Debug, Default)]
-pub struct InMemoryReplyTap {
+pub(crate) struct InMemoryReplyTap {
     samples: Mutex<Vec<ReplySample>>,
 }
 

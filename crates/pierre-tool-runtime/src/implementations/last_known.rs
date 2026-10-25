@@ -50,7 +50,7 @@ use crate::revalidation::revalidation_timeout;
 #[cfg(feature = "tools-data")]
 /// A provider read as it last succeeded, and when.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LastKnown<T> {
+pub(super) struct LastKnown<T> {
     /// What the provider answered.
     pub value: T,
     /// When it answered.
@@ -59,7 +59,7 @@ pub struct LastKnown<T> {
 
 #[cfg(feature = "tools-data")]
 /// Keep `value` as the last-known copy under `key`.
-pub async fn remember<T: Serialize + Send + Sync>(cache: &Cache, key: &CacheKey, value: &T) {
+pub(super) async fn remember<T: Serialize + Send + Sync>(cache: &Cache, key: &CacheKey, value: &T) {
     let copy = LastKnown {
         value,
         synced_at: Utc::now(),
@@ -71,13 +71,16 @@ pub async fn remember<T: Serialize + Send + Sync>(cache: &Cache, key: &CacheKey,
 
 #[cfg(feature = "tools-data")]
 /// The last-known copy under `key`, if one is kept.
-pub async fn recall<T: DeserializeOwned>(cache: &Cache, key: &CacheKey) -> Option<LastKnown<T>> {
+pub(super) async fn recall<T: DeserializeOwned>(
+    cache: &Cache,
+    key: &CacheKey,
+) -> Option<LastKnown<T>> {
     cache.get::<LastKnown<T>>(key).await.ok().flatten()
 }
 
 /// How a live read bounded by the refresh budget came out.
 #[derive(Debug)]
-pub enum LiveRead {
+pub(super) enum LiveRead {
     /// The provider answered in time.
     Answered(UniversalResponse),
     /// It did not: why, and the failure to return when no copy stands in.
@@ -99,7 +102,7 @@ pub enum LiveRead {
 /// [`revalidation_timeout`] from `timeouts`, so a provider that never answers
 /// does not hold it forever, and a panic in it is logged rather than lost with
 /// its handle.
-pub async fn read_within_budget<F>(timeouts: &ServerTimeouts, read: F) -> LiveRead
+pub(super) async fn read_within_budget<F>(timeouts: &ServerTimeouts, read: F) -> LiveRead
 where
     F: Future<Output = UniversalResponse> + Send + 'static,
 {
@@ -167,7 +170,7 @@ fn failure(message: &str) -> UniversalResponse {
 /// activity), served from the copy `backend` last answered at `synced_at`
 /// (`null` when the platform holds no sync time for it).
 #[must_use]
-pub fn caveat(
+pub(super) fn caveat(
     backend: &str,
     what: &str,
     reason: StaleReason,
@@ -193,7 +196,7 @@ pub fn caveat(
 
 /// The failure a live read reports when rendering its answer failed.
 #[must_use]
-pub fn failed_read(error: &ProtocolError) -> UniversalResponse {
+pub(super) fn failed_read(error: &ProtocolError) -> UniversalResponse {
     tagged(
         failure(&error.to_string()),
         error.provider_auth_required_provider(),
@@ -203,7 +206,7 @@ pub fn failed_read(error: &ProtocolError) -> UniversalResponse {
 /// A provider read's failure, `context` first. A refused credential keeps its
 /// provider under [`META_AUTH_REQUIRED_PROVIDER`], so [`read_within_budget`]
 /// answers [`LiveRead::AuthRequired`] rather than letting a copy stand in.
-pub fn provider_failure(context: &str, error: &AppError) -> UniversalResponse {
+pub(super) fn provider_failure(context: &str, error: &AppError) -> UniversalResponse {
     tagged(
         failure(&format!("{context}: {error}")),
         error.provider_auth_required_provider().as_deref(),
@@ -221,7 +224,7 @@ fn tagged(mut response: UniversalResponse, provider: Option<&str>) -> UniversalR
 }
 
 /// Put `caveat` on a served response's payload.
-pub fn attach_caveat(response: &mut UniversalResponse, caveat: Value) {
+pub(super) fn attach_caveat(response: &mut UniversalResponse, caveat: Value) {
     if let Some(object) = response.result.as_mut().and_then(Value::as_object_mut) {
         object.insert("provider_unavailable".to_owned(), caveat);
     }
@@ -230,7 +233,7 @@ pub fn attach_caveat(response: &mut UniversalResponse, caveat: Value) {
 #[cfg(feature = "tools-data")]
 /// Where a fallback copy is kept, and what it is to the reader.
 #[derive(Debug, Clone, Copy)]
-pub struct Fallback<'a> {
+pub(super) struct Fallback<'a> {
     /// The last-known copy's key.
     pub key: &'a CacheKey,
     /// The backend the copy came from, named in the caveat.
@@ -247,7 +250,7 @@ pub struct Fallback<'a> {
 /// # Errors
 ///
 /// Whatever `render` returns.
-pub async fn live_or_last_known<T, F, R>(
+pub(super) async fn live_or_last_known<T, F, R>(
     cache: &Cache,
     timeouts: &ServerTimeouts,
     fallback: Fallback<'_>,

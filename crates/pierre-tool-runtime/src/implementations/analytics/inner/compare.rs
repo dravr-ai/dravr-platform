@@ -614,7 +614,7 @@ fn calculate_average_elevation(activities: &[&Activity]) -> Option<f64> {
 }
 
 /// Handle `compare_activities` tool - compare two activities
-pub fn handle_compare_activities(
+pub(crate) fn handle_compare_activities(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

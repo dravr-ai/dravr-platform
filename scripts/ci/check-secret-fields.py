@@ -39,8 +39,14 @@ import re
 import sys
 from pathlib import Path
 
-SECRET_WORDS = {"secret", "token", "password", "passwd", "apikey"}
+SECRET_WORDS = {"secret", "token", "password", "passwd", "apikey", "pat"}
 SECRET_PARTS = ("api_key", "private_key")
+# Whole names that hold an OAuth or device-flow credential: the authorization
+# code, its PKCE verifier, the device-flow codes and the CSRF state.
+SECRET_NAMES = {
+    "code", "auth_code", "authorization_code", "oauth_code", "code_verifier",
+    "user_code", "device_code", "state", "oauth_state", "csrf_state",
+}
 DESCRIPTIVE_LAST = {
     "url", "uri", "endpoint", "type", "kind", "id", "ids", "prefix", "hash",
     "fingerprint", "name", "label", "encrypted", "count", "len", "length",
@@ -52,8 +58,14 @@ CREDENTIAL_URLS = {"redis_url", "database_url", "connection_string"}
 
 TYPE_DECL = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(struct|enum)\s+(\w+)")
 DERIVE = re.compile(r"#\[derive\(([^)]*)\)\]")
+# Owned or borrowed text and bytes print in full under Debug, bare or in an Option.
+TEXT_TYPE = (
+    r"(?:String|Arc<\s*str\s*>|Rc<\s*str\s*>|Box<\s*str\s*>|Cow<\s*'\w+\s*,\s*str\s*>"
+    r"|&\s*(?:'\w+\s+)?str|Vec<\s*u8\s*>|Bytes)"
+)
 FIELD = re.compile(
-    r"^\s*(?:pub(?:\([^)]*\))?\s+)?([a-z_][a-z0-9_]*)\s*:\s*(Option<\s*String\s*>|String)\s*,?\s*(?://.*)?$"
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?([a-z_][a-z0-9_]*)\s*:\s*"
+    r"(Option<\s*" + TEXT_TYPE + r"\s*>|" + TEXT_TYPE + r")\s*,?\s*(?://.*)?$"
 )
 SECRET_TYPED = re.compile(r":\s*(?:Option<\s*)?SecretString\b")
 
@@ -63,6 +75,8 @@ def is_secret_name(name: str) -> bool:
         return True
     if name in CURSORS:
         return False
+    if name in SECRET_NAMES:
+        return True
     words = name.split("_")
     if words[-1] in DESCRIPTIVE_LAST:
         return False

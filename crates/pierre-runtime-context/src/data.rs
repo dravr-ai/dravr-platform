@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// - `repos`: Primary data access through trait-object registry
 /// - `cache`: Cache layer for performance optimization
 /// - `provider_registry`: Registry of external service providers
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DataContext {
     database: Arc<Database>,
     repos: Arc<RepositoryRegistry>,

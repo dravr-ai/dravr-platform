@@ -46,6 +46,7 @@ pub struct I18nBundleResponse {
 }
 
 /// Router for the catalogue.
+#[derive(Debug)]
 pub struct I18nRoutes;
 
 impl I18nRoutes {

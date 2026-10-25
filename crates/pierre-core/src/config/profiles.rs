@@ -261,6 +261,7 @@ impl FitnessLevel {
 }
 
 /// Profile templates for quick setup
+#[derive(Debug)]
 pub struct ProfileTemplates;
 
 impl ProfileTemplates {

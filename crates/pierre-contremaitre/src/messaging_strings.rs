@@ -1604,6 +1604,7 @@ type LocaleMap = HashMap<String, HashMap<String, MessagingStringEntry>>;
 /// Initialized with compiled-in FR/EN/ES/DE/PT defaults. Additional
 /// locales become available when the contremaitre sync downloads them
 /// from the GitHub repo and calls [`MessagingStringsRegistry::update`].
+#[derive(Debug)]
 pub struct MessagingStringsRegistry {
     entries: RwLock<LocaleMap>,
     /// Digest of the last override bundle applied per locale, so the sync

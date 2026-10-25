@@ -28,7 +28,8 @@ use tracing::{error, warn};
 
 /// The `error_description` of a request refused because the limiter could not
 /// count it.
-pub const LIMITER_UNAVAILABLE: &str = "Rate limiting is temporarily unavailable; retry later";
+pub(crate) const LIMITER_UNAVAILABLE: &str =
+    "Rate limiting is temporarily unavailable; retry later";
 
 /// The `error_description` of a request past its window's allowance.
 const RATE_LIMIT_EXCEEDED: &str = "Rate limit exceeded";
@@ -70,7 +71,7 @@ async fn admit(
 /// Decide one request to a JSON endpoint: `None` admits it, `Some` is the
 /// response refusing it — a 429 past the window's allowance, a 503 when the
 /// limiter could not count it.
-pub async fn refusal(
+pub(crate) async fn refusal(
     limiter: &OAuth2RateLimiter,
     endpoint: OAuth2Endpoint,
     peer: SocketAddr,
@@ -98,7 +99,7 @@ pub async fn refusal(
 /// `render` draws from the error: `too_many_requests` past the window's
 /// allowance, with its `Retry-After`, and `temporarily_unavailable` when the
 /// limiter could not count it. `render` gives each its status (429, 503).
-pub async fn page_refusal(
+pub(crate) async fn page_refusal(
     limiter: &OAuth2RateLimiter,
     peer: SocketAddr,
     headers: &HeaderMap,
@@ -128,7 +129,7 @@ pub async fn page_refusal(
 /// # Errors
 ///
 /// The refusal page, as above.
-pub async fn sign_in_page_admission(
+pub(crate) async fn sign_in_page_admission(
     limiter: &OAuth2RateLimiter,
     client: Option<IpAddr>,
     email: &str,

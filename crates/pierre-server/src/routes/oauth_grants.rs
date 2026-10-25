@@ -118,6 +118,7 @@ async fn handle_revoke_grant(
 }
 
 /// OAuth-grant management routes ("connected apps").
+#[derive(Debug)]
 pub struct OAuthGrantsRoutes;
 
 impl OAuthGrantsRoutes {

@@ -146,5 +146,6 @@ async fn set_oauth_app_stores_a_secret_the_read_path_decrypts() {
     assert!(stored.rate_limit_per_day > 0);
 
     drop(database);
-    let _ = fs::remove_file(&path);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
 }

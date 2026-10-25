@@ -153,6 +153,7 @@ type InFlight = Arc<StdMutex<HashMap<PrefetchKey, watch::Receiver<Outcome>>>>;
 ///
 /// Production code shares one registry through [`Self::global`]; a unit test
 /// builds its own with [`Self::new`].
+#[derive(Debug)]
 pub struct ConnectPrefetches {
     in_flight: InFlight,
 }
@@ -219,6 +220,7 @@ impl Default for ConnectPrefetches {
 ///
 /// Dropped without [`Self::finish`] — the pre-fetch returned early or
 /// panicked — it frees the key and its waiters read live.
+#[derive(Debug)]
 pub struct PrefetchTicket {
     in_flight: InFlight,
     key: PrefetchKey,
@@ -254,6 +256,7 @@ impl Drop for PrefetchTicket {
 }
 
 /// A wait on one pre-fetch's outcome.
+#[derive(Debug)]
 pub struct PrefetchWait {
     receiver: watch::Receiver<Outcome>,
 }

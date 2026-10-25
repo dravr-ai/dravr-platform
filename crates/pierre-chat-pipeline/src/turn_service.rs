@@ -32,6 +32,8 @@
 //! pipeline turn produces would make every consumer tell the two apart by
 //! sniffing fields; the enum says it outright.
 
+use std::fmt;
+
 use std::sync::Arc;
 
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
@@ -142,6 +144,31 @@ pub struct TurnRequest<'a> {
     pub hooks: PipelineHooks<'a>,
 }
 
+// The content is the athlete's message, the ambient context other members'
+// messages, and the sender a phone number on some channels: none prints.
+impl fmt::Debug for TurnRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TurnRequest")
+            .field("conversation_id", &self.conversation_id)
+            .field("user_id", &self.user_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("tool_tenant_id", &self.tool_tenant_id)
+            .field("content_len", &self.content.len())
+            .field("origin", &self.origin)
+            .field("input_source", &self.input_source)
+            .field("turn_id", &self.turn_id)
+            .field("has_ambient_context", &self.ambient_context.is_some())
+            .field("channel_type", &self.channel_type)
+            .field("is_direct_message", &self.is_direct_message)
+            .field("ambient_group_fallback", &self.ambient_group_fallback)
+            .field("command_persistence", &self.command_persistence)
+            .field("sender_id", &self.sender_id.map(|_| "[REDACTED]"))
+            .field("transport", &self.transport)
+            .field("hooks", &self.hooks)
+            .finish()
+    }
+}
+
 /// A slash command's answer, in a shape no surface owns.
 ///
 /// Deliberately the handler's own output rather than a rendered reply: web
@@ -195,6 +222,7 @@ pub struct CommandTurn {
 }
 
 /// How one call to [`execute`] ended.
+#[derive(Debug)]
 pub enum ServedTurn {
     /// The pipeline ran and produced a reply.
     Pipeline(Box<TurnEnvelope>),
@@ -256,6 +284,31 @@ pub struct SlashRequest<'a> {
     /// Whether that surface draws a welcome's starters as buttons. See
     /// [`WelcomeTarget::renders_buttons`].
     pub renders_buttons: bool,
+}
+
+// The typed command line carries invite codes and single-use confirm tokens,
+// and the sender is a phone number on some channels: neither prints.
+impl fmt::Debug for SlashRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SlashRequest")
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .field("conversation_id", &self.conversation_id)
+            .field("conversation_tenant_id", &self.conversation_tenant_id)
+            .field("channel_type", &self.channel_type)
+            .field("locale", &self.locale)
+            .field("is_direct_message", &self.is_direct_message)
+            .field("ambient_group_fallback", &self.ambient_group_fallback)
+            .field("persistence", &self.persistence)
+            .field("sender_id", &self.sender_id.map(|_| "[REDACTED]"))
+            .field("text_len", &self.text.len())
+            .field("input_source", &self.input_source)
+            .field("origin", &self.origin)
+            .field("transport", &self.transport)
+            .field("surface", &self.surface)
+            .field("renders_buttons", &self.renders_buttons)
+            .finish()
+    }
 }
 
 /// Run one chat turn.

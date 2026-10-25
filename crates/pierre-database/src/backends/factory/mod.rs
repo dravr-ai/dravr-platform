@@ -43,7 +43,7 @@ pub enum DatabaseType {
 /// Each variant holds the backend behind an `Arc` shared with the
 /// [`RepositoryRegistry`] built from it, so the registry and the backend
 /// handle are one instance rather than two copies.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DatabaseBackend {
     /// `SQLite` database instance
     SQLite(Arc<SqliteDatabase>),
@@ -69,7 +69,7 @@ impl DatabaseBackend {
 /// the encryption keys change ([`Database::update_encryption_key`],
 /// [`Database::install_dek_versions`]). Cloning a `Database` clones two `Arc`s,
 /// so every clone shares the same backend and the same registry.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Database {
     /// The concrete backend, shared with every repository in `repositories`
     backend: DatabaseBackend,

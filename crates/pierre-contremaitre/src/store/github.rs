@@ -22,6 +22,7 @@ use super::{PromptStore, StoredFile};
 /// `CONTREMAITRE_GCS_BUCKET` to switch the read path to
 /// [`super::gcs::GcsPromptStore`]; the GitHub backend remains available
 /// as a fallback when the bucket is unreachable.
+#[derive(Debug)]
 pub struct GitHubPromptStore {
     client: Arc<GitHubContentsClient>,
 }

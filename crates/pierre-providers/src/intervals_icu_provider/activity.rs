@@ -163,7 +163,7 @@ pub(super) fn map_activity(
     Some(builder.build())
 }
 
-pub fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_local_dt(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .map(|dt| dt.with_timezone(&Utc))
         .ok()

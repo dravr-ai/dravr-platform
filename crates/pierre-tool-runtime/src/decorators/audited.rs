@@ -30,6 +30,7 @@
 //!
 //! See [`AuditedTool::new`] and [`AuditedTool::with_argument_logging`] for details.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -58,6 +59,14 @@ pub struct AuditedTool {
     inner: Arc<dyn RuntimeTool>,
     /// Whether to log arguments (may contain sensitive data)
     log_arguments: bool,
+}
+
+impl fmt::Debug for AuditedTool {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuditedTool")
+            .field("log_arguments", &self.log_arguments)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuditedTool {

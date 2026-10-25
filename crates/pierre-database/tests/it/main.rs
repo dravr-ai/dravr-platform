@@ -17,6 +17,7 @@ mod athlete_gear_test;
 mod check_in_preferences_test;
 mod claim_verdict_grading_pool_test;
 mod coaching_groups_repository_test;
+mod debug_redaction_test;
 mod dek_versioning_test;
 mod first_run_progress_test;
 mod fitness_config_repository_test;

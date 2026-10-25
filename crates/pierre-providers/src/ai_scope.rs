@@ -1037,11 +1037,12 @@ mod tests {
         let outer = Provenance::new();
         tracking(outer.clone(), async {
             let inner = Provenance::new();
-            let _ = tracking(
+            let (served, _) = tracking(
                 inner.clone(),
                 first_party(ai_read(provider.get_activities(None, None))),
             )
             .await;
+            assert!(served.is_ok(), "the relay serves its sessions");
             assert_eq!(inner.attributions(), BTreeSet::from(["Garmin"]));
         })
         .await;
@@ -1052,11 +1053,12 @@ mod tests {
         );
 
         let cache_write = Provenance::new();
-        let _ = tracking(
+        let written = tracking(
             cache_write.clone(),
             unfiltered(provider.get_activities(None, None)),
         )
         .await;
+        assert!(written.is_ok(), "the relay serves its sessions");
         assert!(
             cache_write.attributions().is_empty(),
             "a cache write serves no one"

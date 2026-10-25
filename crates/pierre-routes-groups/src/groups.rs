@@ -22,8 +22,9 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -48,6 +49,12 @@ use pierre_services::locale::resolve_user_locale;
 
 use crate::group_response::GroupResponse;
 use crate::group_update_access::authorize_group_update;
+
+mod bodies;
+pub use bodies::{
+    CoachSharingBody, CreateGroupBody, CreateInviteBody, PeriodQuery, UpdatePeerConsentBody,
+    UpdateRoleBody,
+};
 
 // ============================================================================
 // Response Types
@@ -101,7 +108,7 @@ pub struct ListMembersResponse {
 }
 
 /// Response for a group invite
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct InviteResponse {
     /// Invite ID
     pub id: String,
@@ -125,6 +132,24 @@ pub struct InviteResponse {
     pub approves_signup: bool,
     /// When the invite was created
     pub created_at: String,
+}
+
+impl fmt::Debug for InviteResponse {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InviteResponse")
+            .field("id", &self.id)
+            .field("group_id", &self.group_id)
+            .field("code", &"[REDACTED]")
+            .field("kind", &self.kind)
+            .field("created_by", &self.created_by)
+            .field("expires_at", &self.expires_at)
+            .field("max_uses", &self.max_uses)
+            .field("use_count", &self.use_count)
+            .field("is_active", &self.is_active)
+            .field("approves_signup", &self.approves_signup)
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 impl From<GroupInvite> for InviteResponse {
@@ -230,90 +255,11 @@ pub struct GroupPermissionsResponse {
 }
 
 // ============================================================================
-// Request Types
-// ============================================================================
-
-/// Request to create a group invite
-#[derive(Debug, Deserialize)]
-pub struct CreateInviteBody {
-    /// Number of days until the invite expires (None = never)
-    pub expires_in_days: Option<i64>,
-    /// Maximum number of uses (None = unlimited)
-    pub max_uses: Option<i32>,
-    /// What the invite grants: athlete membership (default) or agent
-    /// attachment. Omitted → `member`.
-    #[serde(default)]
-    pub kind: GroupInviteKind,
-    /// Whether the invite also approves the pending account that redeems
-    /// it: a coach's signup code (carnet#1128). Only a coach with roster
-    /// management may mint one, and it needs both caps.
-    #[serde(default)]
-    pub approves_signup: bool,
-}
-
-/// Request to create a coaching group — the onboarding group step's call
-#[derive(Debug, Deserialize)]
-pub struct CreateGroupBody {
-    /// Group name
-    pub name: String,
-    /// Optional description
-    #[serde(default)]
-    pub description: Option<String>,
-    /// The AI agent the group answers with, picked while creating the group.
-    /// Required, with no fallback to the caller's own agent: that is no
-    /// evidence of what the group's athletes need, and a coach who does not
-    /// train has none. Optional only at deserialization, so a missing one is
-    /// refused with the API's JSON error rather than the extractor's plain text.
-    #[serde(default)]
-    pub agent_id: Option<String>,
-    /// Make the caller the group's human coach. Honoured only when they may
-    /// coach it ([`may_coach_group`]); otherwise the group is still created
-    /// and answers with no `coach_user_id`, which the client reads as coach
-    /// access pending.
-    #[serde(default)]
-    pub coach_is_me: bool,
-}
-
-/// Request to update a member's role
-#[derive(Debug, Deserialize)]
-pub struct UpdateRoleBody {
-    /// New role for the member
-    pub role: GroupRole,
-}
-
-/// Request to update peer sharing consent
-#[derive(Debug, Deserialize)]
-pub struct UpdatePeerConsentBody {
-    /// Whether the user consents to peer data sharing
-    pub consent: bool,
-}
-
-/// Request body for the caller's own coach sharing, and its answer: whether
-/// the group's human coach reads their training, plan and room messages.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CoachSharingBody {
-    /// Whether the caller shares with the group's human coach
-    pub consent: bool,
-}
-
-// ============================================================================
-// Query Types
-// ============================================================================
-
-/// Optional query parameters for stats/report endpoints
-#[derive(Debug, Deserialize, Default)]
-pub struct PeriodQuery {
-    /// Period start (ISO 8601). Defaults to 7 days ago.
-    pub from: Option<DateTime<Utc>>,
-    /// Period end (ISO 8601). Defaults to now.
-    pub to: Option<DateTime<Utc>>,
-}
-
-// ============================================================================
 // Routes
 // ============================================================================
 
 /// Group coaching route handler
+#[derive(Debug)]
 pub struct GroupRoutes;
 
 impl GroupRoutes {
@@ -1189,5 +1135,31 @@ impl GroupRoutes {
         }
 
         Ok((StatusCode::NO_CONTENT, ()).into_response())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invite_response_debug_hides_code() {
+        let sentinel = "sentinel-invite-2e8a";
+        let response = InviteResponse {
+            id: "inv-1".to_owned(),
+            group_id: "grp-1".to_owned(),
+            code: sentinel.to_owned(),
+            kind: "member".to_owned(),
+            created_by: "user-1".to_owned(),
+            expires_at: None,
+            max_uses: None,
+            use_count: 0,
+            is_active: true,
+            approves_signup: false,
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+        };
+        let printed = format!("{response:?}");
+        assert!(!printed.contains(sentinel), "{printed}");
+        assert!(printed.contains("InviteResponse"), "{printed}");
     }
 }

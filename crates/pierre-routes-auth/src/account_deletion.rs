@@ -74,7 +74,7 @@ enum DeletionRefusal {
 
 /// Body of `POST /api/user/account-deletion`.
 #[derive(Debug, Deserialize)]
-pub struct DeleteAccountRequest {
+pub(crate) struct DeleteAccountRequest {
     /// The account's email, typed by the athlete as the confirmation.
     pub confirm_email: String,
     /// The account password; required unless the account signs in only
@@ -86,7 +86,7 @@ pub struct DeleteAccountRequest {
 /// Body of `GET /api/user/account-deletion`: what a delete would ask for and
 /// what it would do, read before the athlete confirms.
 #[derive(Debug, Serialize)]
-pub struct AccountDeletionPreview {
+pub(crate) struct AccountDeletionPreview {
     /// The email the confirmation must match.
     pub email: String,
     /// Whether the delete asks for the account password.
@@ -149,7 +149,7 @@ fn refusal(status: StatusCode, reason: DeletionRefusal, message: &str) -> Respon
     skip(resources, headers),
     fields(route = "account_deletion_preview", user_id = Empty)
 )]
-pub async fn handle_account_deletion_preview(
+pub(crate) async fn handle_account_deletion_preview(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> AppResult<Response> {
@@ -197,7 +197,7 @@ pub async fn handle_account_deletion_preview(
     skip(resources, headers, request),
     fields(route = "account_deletion", user_id = Empty)
 )]
-pub async fn handle_delete_account(
+pub(crate) async fn handle_delete_account(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
     Json(request): Json<DeleteAccountRequest>,

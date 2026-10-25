@@ -40,7 +40,6 @@ use pierre_providers::spi::{
 #[cfg(feature = "provider-wahoo")]
 use pierre_providers::WahooDescriptor;
 use pierre_tool_runtime::protocol::auth::{AuthService, TokenData};
-use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::time::{sleep, timeout};
@@ -376,7 +375,7 @@ async fn connected_as(
 /// One caller's lookup, through a service of its own: `AuthService` is built
 /// per call in production, so nothing on it can be what callers share.
 async fn lookup(resources: &Arc<ServerContext>, athlete: &Athlete) -> Option<TokenData> {
-    AuthService::new(Arc::clone(resources) as Arc<dyn ToolRuntime>)
+    AuthService::new(Arc::<ServerContext>::clone(resources))
         .get_valid_token(
             athlete.user_id,
             athlete.provider,

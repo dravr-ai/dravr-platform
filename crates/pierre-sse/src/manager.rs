@@ -37,9 +37,9 @@ pub struct ConnectionMetadata {
     /// Type of SSE connection
     pub connection_type: ConnectionType,
     /// When the connection was established
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<Utc>,
     /// Timestamp of last activity on this connection
-    pub last_activity: chrono::DateTime<chrono::Utc>,
+    pub last_activity: chrono::DateTime<Utc>,
 }
 
 /// SSE manager for OAuth notification streams.
@@ -47,7 +47,7 @@ pub struct ConnectionMetadata {
 /// Uses `DashMap` for shard-level concurrent access — operations on different
 /// keys never contend, eliminating the global `RwLock` bottleneck that
 /// serialised all stream lookups and metadata updates.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SseManager {
     notification_streams: Arc<DashMap<Uuid, NotificationStream>>,
     connection_metadata: Arc<DashMap<String, ConnectionMetadata>>,

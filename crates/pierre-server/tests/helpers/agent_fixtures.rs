@@ -17,7 +17,7 @@ use uuid::Uuid;
 /// Create a system agent carrying `system_prompt` and take it through review
 /// to a published listing — the moment it is assigned its catalogue `@handle`,
 /// derived from `title` ("Recovery Coach" → `recovery-agent`).
-pub async fn publish_catalogue_agent(
+pub(crate) async fn publish_catalogue_agent(
     repos: &RepositoryRegistry,
     author_id: Uuid,
     tenant_id: TenantId,
@@ -37,7 +37,7 @@ pub async fn publish_catalogue_agent(
 
 /// [`publish_catalogue_agent`] filed under a specific Store category, for
 /// tests that browse one shelf of the catalogue.
-pub async fn publish_catalogue_agent_in(
+pub(crate) async fn publish_catalogue_agent_in(
     repos: &RepositoryRegistry,
     author_id: Uuid,
     tenant_id: TenantId,
@@ -59,7 +59,7 @@ pub async fn publish_catalogue_agent_in(
 
 /// [`publish_catalogue_agent_in`] carrying its own canonical tag list, for
 /// tests about what the Store's chips say and what its search matches.
-pub async fn publish_catalogue_agent_tagged(
+pub(crate) async fn publish_catalogue_agent_tagged(
     repos: &RepositoryRegistry,
     author_id: Uuid,
     tenant_id: TenantId,
@@ -106,7 +106,7 @@ pub async fn publish_catalogue_agent_tagged(
 /// handle, which `AgentsRepository::find_installed_by_handle` now resolves
 /// for this athlete. Only another tenant's user-published agent comes back as
 /// a copy (`forked_from` = the origin).
-pub async fn install_catalogue_agent(
+pub(crate) async fn install_catalogue_agent(
     repos: &RepositoryRegistry,
     origin: Uuid,
     user_id: Uuid,
@@ -127,7 +127,11 @@ pub async fn install_catalogue_agent(
 /// on it. Usage no longer puts an agent on the team, but tests about
 /// installing a catalogue agent still pin the thread here, so the agent under
 /// test is touched by the install alone.
-pub async fn select_own_agent(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) {
+pub(crate) async fn select_own_agent(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) {
     let request: CreateAgentRequest = serde_json::from_value(serde_json::json!({
         "title": "Own Agent",
         "system_prompt": "You are the athlete's own agent.",

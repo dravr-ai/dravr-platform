@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 
 /// Top-level scenario document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatScenario {
+pub(crate) struct ChatScenario {
     /// Human-readable name surfaced in test output.
     pub name: String,
     /// One or more BCP-47 short locales the scenario must pass against.
@@ -110,7 +110,7 @@ fn default_locales() -> Vec<String> {
 
 /// Seeded provider data + sync-window mutations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProviderState {
+pub(crate) struct ProviderState {
     /// Per-provider activity lists. Key is the BCP-47 provider name
     /// recognized by the fixture (`strava`, `garmin`, `whoop`, etc.).
     #[serde(default)]
@@ -118,7 +118,7 @@ pub struct ProviderState {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ProviderActivities {
+pub(crate) struct ProviderActivities {
     /// Activities visible to the cache at scenario start. Models the
     /// "user opens the chat" state.
     #[serde(default)]
@@ -140,7 +140,7 @@ pub struct ProviderActivities {
 /// production model carries. The runner expands these into real
 /// provider rows at seed time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScenarioActivity {
+pub(crate) struct ScenarioActivity {
     pub name: String,
     /// Lower-snake-case sport label (`run`, `trail_run`, `ride`,
     /// `hike`, `swim`, …). Validated against the fixture's sport map.
@@ -152,7 +152,7 @@ pub struct ScenarioActivity {
 
 /// One user → agent exchange.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TurnSpec {
+pub(crate) struct TurnSpec {
     /// What the user says.
     pub user: String,
     /// When `true`, the runner inserts every `appears_after_sync`
@@ -195,7 +195,7 @@ pub struct TurnSpec {
 /// compile error catches missing dispatch when the catalog grows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AssertionSpec {
+pub(crate) enum AssertionSpec {
     /// Reply must contain `value` as a case-insensitive substring.
     ReplyContains { value: String },
     /// Reply must NOT contain any of the listed substrings. Used to
@@ -307,7 +307,7 @@ fn default_min_calls() -> u32 {
 ///
 /// Returns the underlying I/O or parse error so the test harness can
 /// surface the bad file in its panic message.
-pub fn load(path: &Path) -> Result<ChatScenario, ScenarioLoadError> {
+pub(crate) fn load(path: &Path) -> Result<ChatScenario, ScenarioLoadError> {
     let raw = fs::read_to_string(path).map_err(|e| ScenarioLoadError::Io {
         path: path.to_owned(),
         source: e,
@@ -334,7 +334,7 @@ pub fn load(path: &Path) -> Result<ChatScenario, ScenarioLoadError> {
 
 /// Errors surfaced when loading a scenario from YAML.
 #[derive(Debug)]
-pub enum ScenarioLoadError {
+pub(crate) enum ScenarioLoadError {
     Io {
         path: PathBuf,
         source: io::Error,

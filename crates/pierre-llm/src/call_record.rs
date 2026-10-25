@@ -14,6 +14,7 @@
 //! the billing pipeline can depend on the shape of a call without depending on
 //! how the call was made.
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -169,6 +170,20 @@ pub struct CallRecordInputs<'a> {
     pub call_sequence: Option<i64>,
     /// Tool function names invoked during the call.
     pub tools_called: Vec<String>,
+}
+
+impl fmt::Debug for CallRecordInputs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallRecordInputs")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("usage", &self.usage)
+            .field("latency_ms", &self.latency_ms)
+            .field("success", &self.success)
+            .field("call_sequence", &self.call_sequence)
+            .field("tools_called", &self.tools_called)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Hand one [`LlmCallRecord`] to the optional sink, estimating its tokens.

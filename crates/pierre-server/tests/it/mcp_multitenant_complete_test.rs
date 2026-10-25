@@ -201,7 +201,7 @@ impl MultiTenantMcpClient {
         let tenant_uuid = TenantId::generate();
 
         // Create the actual test user first (will be tenant owner)
-        let user_id = uuid::Uuid::new_v4();
+        let user_id = Uuid::new_v4();
         let password_hash = bcrypt::hash(password, bcrypt::DEFAULT_COST)?;
         let test_user = User {
             id: user_id,
@@ -521,7 +521,7 @@ async fn setup_test_environment() -> Result<(Database, AuthManager, u16, TempDir
     // Initialize the system secret in the database to match what the server expects
     // First get_or_create to ensure the entry exists, then update with our test value
     let security_repos = database.repositories();
-    let _ = security_repos
+    security_repos
         .security
         .get_or_create_system_secret("admin_jwt_secret")
         .await?;
@@ -656,7 +656,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     assert_eq!(tools_response["jsonrpc"], "2.0");
 
     let tools = tools_response["result"]["tools"].as_array().unwrap();
-    assert_ne!(tools.as_slice(), [] as [Value; 0]);
+    assert!(!tools.is_empty(), "expected a non-empty value");
 
     // Verify essential tools are available
     let tool_names: Vec<&str> = tools

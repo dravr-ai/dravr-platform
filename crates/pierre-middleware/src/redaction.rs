@@ -202,7 +202,7 @@ pub fn mask_email(email: &str) -> String {
         || email.to_owned(), // If regex fails, return original
         |regex| {
             regex
-                .replace_all(email, |caps: &regex::Captures| {
+                .replace_all(email, |caps: &regex::Captures<'_>| {
                     let full_match = &caps[0];
                     at_sign(full_match).map_or_else(
                         || full_match.to_owned(),
@@ -557,12 +557,14 @@ mod tests {
     proptest! {
         #[test]
         fn any_query_is_handled_without_panicking(query in any::<String>()) {
-            let _ = redact_query(&query, &RedactionConfig::default());
+            // The property is that it returns: no input panics.
+            drop(redact_query(&query, &RedactionConfig::default()));
         }
 
         #[test]
         fn any_text_is_masked_without_panicking(text in any::<String>()) {
-            let _ = mask_email(&text);
+            // The property is that it returns: no input panics.
+            drop(mask_email(&text));
         }
 
         #[test]

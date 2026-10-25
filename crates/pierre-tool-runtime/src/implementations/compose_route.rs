@@ -84,6 +84,7 @@ fn compose_annotations() -> ToolAnnotations {
 
 /// Tool that joins discovered stretches into one itinerary, measured and
 /// stored so it can be quoted and drawn.
+#[derive(Debug)]
 pub struct ComposeRouteTool;
 
 #[async_trait]

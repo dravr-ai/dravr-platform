@@ -31,6 +31,7 @@ use pierre_core::redaction;
 use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use secrecy::{ExposeSecret, SecretString};
+use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -90,6 +91,20 @@ pub struct OAuth2AuthorizationServer {
     /// Where Dravr's own apps may receive a code; empty until
     /// [`Self::with_first_party_redirects`] names it, which refuses them
     first_party: FirstPartyRedirects,
+}
+
+impl fmt::Debug for OAuth2AuthorizationServer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OAuth2AuthorizationServer")
+            .field("client_manager", &self.client_manager)
+            .field("auth_manager", &self.auth_manager)
+            .field("jwks_manager", &self.jwks_manager)
+            .field("refresh_token_lifetime", &self.refresh_token_lifetime)
+            .field("resources", &self.resources)
+            .field("satellites", &self.satellites)
+            .field("first_party", &self.first_party)
+            .finish_non_exhaustive()
+    }
 }
 
 impl OAuth2AuthorizationServer {

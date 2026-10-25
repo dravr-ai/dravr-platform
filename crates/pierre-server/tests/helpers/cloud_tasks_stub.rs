@@ -24,13 +24,14 @@ use serde_json::Value;
 use tokio::net::TcpListener;
 
 /// The queue, target and service account the stub runners are configured with.
-pub const QUEUE: &str =
+pub(crate) const QUEUE: &str =
     "projects/dravr-dev/locations/northamerica-northeast1/queues/dravr-mcp-server-turns";
-pub const TARGET: &str = "https://dravr-mcp-server-api-123456.northamerica-northeast1.run.app";
-pub const SERVICE_ACCOUNT: &str = "dravr-app@dravr-dev.iam.gserviceaccount.com";
+pub(crate) const TARGET: &str =
+    "https://dravr-mcp-server-api-123456.northamerica-northeast1.run.app";
+pub(crate) const SERVICE_ACCOUNT: &str = "dravr-app@dravr-dev.iam.gserviceaccount.com";
 
 /// A token provider that never talks to a metadata server.
-pub struct StaticToken;
+pub(crate) struct StaticToken;
 
 #[async_trait]
 impl TokenProvider for StaticToken {
@@ -41,7 +42,7 @@ impl TokenProvider for StaticToken {
 
 /// One create call as the stand-in received it.
 #[derive(Debug, Clone)]
-pub struct ReceivedTask {
+pub(crate) struct ReceivedTask {
     /// `projects/…/queues/…` the task was created on.
     pub queue_path: String,
     /// The `Authorization` header the create call carried.
@@ -53,13 +54,13 @@ pub struct ReceivedTask {
 impl ReceivedTask {
     /// The task's name.
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         self.body["task"]["name"].as_str().unwrap_or_default()
     }
 
     /// The URL the task would be delivered to.
     #[must_use]
-    pub fn url(&self) -> &str {
+    pub(crate) fn url(&self) -> &str {
         self.body["task"]["httpRequest"]["url"]
             .as_str()
             .unwrap_or_default()
@@ -67,7 +68,7 @@ impl ReceivedTask {
 
     /// The row id in the delivery URL.
     #[must_use]
-    pub fn turn_id(&self) -> String {
+    pub(crate) fn turn_id(&self) -> String {
         self.url()
             .trim_start_matches(&format!("{TARGET}/internal/turns/"))
             .trim_end_matches("/run")
@@ -76,7 +77,7 @@ impl ReceivedTask {
 
     /// The JSON body the delivery would carry.
     #[must_use]
-    pub fn delivery_body(&self) -> Value {
+    pub(crate) fn delivery_body(&self) -> Value {
         let raw = self.body["task"]["httpRequest"]["body"]
             .as_str()
             .unwrap_or_default();
@@ -86,7 +87,7 @@ impl ReceivedTask {
 }
 
 /// The stand-in queue: answers every create with `status` and keeps the calls.
-pub struct QueueStub {
+pub(crate) struct QueueStub {
     status: StatusCode,
     received: Mutex<Vec<ReceivedTask>>,
 }
@@ -94,13 +95,13 @@ pub struct QueueStub {
 impl QueueStub {
     /// A queue that accepts everything.
     #[must_use]
-    pub fn accepting() -> Arc<Self> {
+    pub(crate) fn accepting() -> Arc<Self> {
         Self::answering(StatusCode::OK)
     }
 
     /// A queue that answers every create with `status`.
     #[must_use]
-    pub fn answering(status: StatusCode) -> Arc<Self> {
+    pub(crate) fn answering(status: StatusCode) -> Arc<Self> {
         Arc::new(Self {
             status,
             received: Mutex::new(Vec::new()),
@@ -109,12 +110,12 @@ impl QueueStub {
 
     /// Every create call so far, in order.
     #[must_use]
-    pub fn received(&self) -> Vec<ReceivedTask> {
+    pub(crate) fn received(&self) -> Vec<ReceivedTask> {
         self.received.lock().expect("mutex").clone()
     }
 
     /// Serve this stub from a local listener and return its base URL.
-    pub async fn serve(self: &Arc<Self>) -> String {
+    pub(crate) async fn serve(self: &Arc<Self>) -> String {
         async fn handler(
             State(stub): State<Arc<QueueStub>>,
             Path((project, location, queue)): Path<(String, String, String)>,
@@ -150,7 +151,7 @@ impl QueueStub {
 /// the JWK set at `jwks_url`, waiting `claim_wait` for a blocked claim, with
 /// the production turn watchdog.
 #[must_use]
-pub fn cloud_tasks_runner(
+pub(crate) fn cloud_tasks_runner(
     api_base: &str,
     jwks_url: &str,
     claim_wait: Duration,
@@ -172,7 +173,7 @@ pub fn cloud_tasks_runner(
 
 /// The same runner, as the `TurnRunner` a server context takes.
 #[must_use]
-pub fn cloud_tasks_turn_runner(
+pub(crate) fn cloud_tasks_turn_runner(
     api_base: &str,
     jwks_url: &str,
     claim_wait: Duration,

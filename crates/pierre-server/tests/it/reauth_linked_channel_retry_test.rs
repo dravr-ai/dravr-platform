@@ -171,9 +171,8 @@ struct ScriptedChannels(BTreeMap<String, Arc<ScriptedChannel>>);
 
 impl ScriptedChannels {
     fn get(&self, channel_type: ChannelType) -> Option<Arc<dyn MessagingChannel>> {
-        self.0
-            .get(&channel_type.to_string())
-            .map(|channel| Arc::clone(channel) as Arc<dyn MessagingChannel>)
+        let channel = self.0.get(&channel_type.to_string())?;
+        Some(Arc::<ScriptedChannel>::clone(channel))
     }
 }
 
@@ -247,7 +246,7 @@ async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixt
     context.mcp.backfill_notifier = Some(Arc::new(ServerBackfillNotifier::with_resolver(
         Arc::clone(&context.common.repos),
         strings(),
-        Arc::new(first_send) as Arc<dyn AdapterResolver>,
+        Arc::new(first_send),
         Arc::from(LINK_SECRET),
         BASE_URL.to_owned(),
     )));

@@ -327,7 +327,8 @@ mod tests {
         // Ten days are 10/7 of a week (35 km a week) and touch two calendar
         // weeks (25 km a week).
         assert!(near(&km(Shape::Average(Per::Week)), &[35.0, 25.0]));
-        assert_eq!(km(Shape::UnstatedAverage), [] as [f64; 0]);
+        let found = km(Shape::UnstatedAverage);
+        assert!(found.is_empty(), "expected empty, got {found:?}");
     }
 
     #[test]
@@ -352,10 +353,8 @@ mod tests {
             &aggregates(per_session, &window, &picked, Unit::Minutes),
             &[59.0]
         ));
-        assert_eq!(
-            aggregates(per_session, &window, &[], Unit::Kilometres),
-            [] as [f64; 0]
-        );
+        let found = aggregates(per_session, &window, &[], Unit::Kilometres);
+        assert!(found.is_empty(), "expected empty, got {found:?}");
     }
 
     #[test]

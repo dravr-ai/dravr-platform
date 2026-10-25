@@ -28,6 +28,7 @@
 
 use pierre_core::constant_time::{is_unset_secret, matches_configured_secret};
 use ring::hmac;
+use std::fmt;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
@@ -52,6 +53,14 @@ pub enum SignatureValidation {
 pub struct WebhookSignatureValidator {
     /// Terra webhook signing secret
     signing_secret: String,
+}
+
+impl fmt::Debug for WebhookSignatureValidator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WebhookSignatureValidator")
+            .field("signing_secret", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl WebhookSignatureValidator {
@@ -191,6 +200,7 @@ pub enum WebhookResult {
 /// Terra webhook handler
 ///
 /// Processes incoming webhook events from Terra and stores data in the cache.
+#[derive(Debug)]
 pub struct TerraWebhookHandler {
     cache: Arc<TerraDataCache>,
     validator: Option<WebhookSignatureValidator>,

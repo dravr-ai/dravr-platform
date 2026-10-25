@@ -56,7 +56,7 @@ const FINGERPRINT_LEN: usize = 8;
 /// `runners` are the router's backends in the order the router holds them;
 /// the caller that builds the router passes them, so the store's keys cannot
 /// drift from the backends they describe.
-pub async fn quota_store_from_env(runners: &[CliRunnerType]) -> Box<dyn QuotaStore> {
+pub(crate) async fn quota_store_from_env(runners: &[CliRunnerType]) -> Box<dyn QuotaStore> {
     let backend_keys: Vec<String> = runners.iter().map(ToString::to_string).collect();
     let backend_keys: Vec<&str> = backend_keys.iter().map(String::as_str).collect();
     quota_store(

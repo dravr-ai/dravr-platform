@@ -21,7 +21,7 @@ use dravr_enforme::models::webhook::WebhookEvent;
 use dravr_enforme::SyncOrchestrator;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pierre_core::constant_time::{configured_secret, matches_configured_secret};
@@ -70,6 +70,7 @@ const STRAVA_WEBHOOK_FETCH_LIMIT: usize = 50;
 /// WHOOP pushes a signed event per changed record; Strava pushes an id-only
 /// event per activity change. Both routes answer the provider at once and do
 /// the sync on the drain-tracked spawner, so a SIGTERM waits for it.
+#[derive(Debug)]
 pub struct WebhookRoutes;
 
 impl WebhookRoutes {
@@ -473,11 +474,14 @@ pub(super) async fn notify_owner(
         read_at: None,
     };
     // A user with no open SSE stream simply has nothing to notify.
-    let _ = resources
+    if let Err(e) = resources
         .sse
         .sse_manager
         .send_notification(user_id, &notification)
-        .await;
+        .await
+    {
+        debug!(%user_id, error = %e, "OAuth notification not delivered over SSE");
+    }
 }
 
 /// Fetch the recent activities of the user whose Strava athlete id a webhook
@@ -510,7 +514,7 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
         return;
     }
 
-    let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
     let params = ActivityQueryParams {
         after: Some(event.fetch_window_start()),
         before: None,

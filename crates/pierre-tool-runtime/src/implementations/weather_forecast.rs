@@ -150,6 +150,7 @@ fn forecast_annotations() -> ToolAnnotations {
 /// narrowed by `country_code`). The platform's other weather path
 /// (`get_weather_for_activity`) resolves weather for an already-recorded
 /// activity; this one forecasts a planned one.
+#[derive(Debug)]
 pub struct GetWeatherForecastTool;
 
 #[async_trait]

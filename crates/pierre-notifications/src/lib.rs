@@ -38,6 +38,7 @@
 //! startup. This mirrors how `pierre_services::provider_refresh` takes its push
 //! notifier as a trait.
 
+use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -230,6 +231,14 @@ pub struct NotificationService {
     /// on a bare service, whose rows then carry only the stamp their caller
     /// names.
     provenance: Option<ProvenanceProbe>,
+}
+
+impl fmt::Debug for NotificationService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NotificationService")
+            .field("dispatches", &self.dispatches)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Reads the [`TransportPolicy`] of the derivation on the calling task.

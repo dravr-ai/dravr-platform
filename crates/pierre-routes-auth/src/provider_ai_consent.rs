@@ -40,7 +40,7 @@ fn brand(resources: &AuthRoutesContext, provider: &str) -> String {
 /// # Errors
 /// Unauthenticated; no active tenant; a provider whose notice is not a
 /// consent to AI use (`invalid_input`); or the store's error.
-pub async fn handle_grant_ai_consent(
+pub(crate) async fn handle_grant_ai_consent(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     headers: HeaderMap,
@@ -70,7 +70,7 @@ pub async fn handle_grant_ai_consent(
 /// # Errors
 /// Unauthenticated; a provider whose notice is not a consent to AI use
 /// (`invalid_input`); or the store's error.
-pub async fn handle_withdraw_ai_consent(
+pub(crate) async fn handle_withdraw_ai_consent(
     State(resources): State<AuthRoutesContext>,
     Path(provider): Path<String>,
     headers: HeaderMap,

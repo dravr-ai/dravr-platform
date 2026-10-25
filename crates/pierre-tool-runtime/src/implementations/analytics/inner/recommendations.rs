@@ -110,7 +110,7 @@ pub(super) fn base_recommendations(
 /// session's heart rate against `hr_zones`, the athlete's own zones; without
 /// them heart rate decides nothing and the result's `hr_zones_unavailable`
 /// says why. Public so the metrics each mode reports have content coverage;
-/// the production caller is [`handle_generate_recommendations`].
+/// the production caller is `handle_generate_recommendations`.
 #[must_use]
 pub fn generate_training_recommendations(
     activities: &[Activity],
@@ -836,7 +836,7 @@ fn generate_comprehensive_recommendations(
 }
 
 /// Handle `generate_recommendations` tool - generate training recommendations
-pub fn handle_generate_recommendations(
+pub(crate) fn handle_generate_recommendations(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {

@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 /// Create a migrated test database on whichever backend `DATABASE_URL`
 /// selects — the factory's private `PostgreSQL` clone, or in-memory `SQLite`.
-pub async fn create_test_db() -> Database {
+pub(crate) async fn create_test_db() -> Database {
     let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
     create_test_db_with_key(encryption_key)
         .await
@@ -30,7 +30,7 @@ pub async fn create_test_db() -> Database {
 
 /// Seed a real user and tenant so FK constraints on `messaging_*` tables are
 /// satisfied. Returns `(user_uuid, tenant_id)`.
-pub async fn seed_user(db: &Database) -> (Uuid, TenantId) {
+pub(crate) async fn seed_user(db: &Database) -> (Uuid, TenantId) {
     let email = format!("user-{}@test.local", Uuid::new_v4());
     let user = User::new(
         email,
@@ -60,7 +60,7 @@ pub async fn seed_user(db: &Database) -> (Uuid, TenantId) {
 /// Seed only a tenant (with a throwaway owner user). Returns the `tenant_id`.
 /// Use when a test needs only a valid `tenant_id` (e.g. negative-path tests
 /// that never touch `user_id`).
-pub async fn seed_tenant(db: &Database) -> TenantId {
+pub(crate) async fn seed_tenant(db: &Database) -> TenantId {
     let (_, tenant_id) = seed_user(db).await;
     tenant_id
 }

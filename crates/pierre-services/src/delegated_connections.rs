@@ -104,7 +104,7 @@ pub struct Proposal<'a> {
 }
 
 /// What the linking steps that read a coach's roster work with.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct DelegationServices<'a> {
     /// Repositories every step reads and writes.
     pub repos: &'a RepositoryRegistry,

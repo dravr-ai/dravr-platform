@@ -276,7 +276,7 @@ async fn test_database_trait_abstraction() {
                 is_admin: false,
                 role: UserRole::User,
                 approved_by: None,
-                approved_at: Some(chrono::Utc::now()),
+                approved_at: Some(Utc::now()),
                 strava_token: None,
                 firebase_uid: None,
                 auth_provider: String::new(),

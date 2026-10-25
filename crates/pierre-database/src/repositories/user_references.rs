@@ -417,7 +417,7 @@ pub const DELETION_BLOCKERS_SQL: &str = r"
 /// Returns a database error when a column cannot be decoded, or an internal
 /// error for a `kind` the model does not know (the statement and the enum
 /// drifted apart).
-pub fn user_reference_from_row<R>(row: &R) -> AppResult<UserReference>
+pub(crate) fn user_reference_from_row<R>(row: &R) -> AppResult<UserReference>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -443,7 +443,7 @@ where
 /// row, so it maps to [`ErrorCode::ResourceLocked`] (409), never to the 500 a
 /// database fault gets. Both drivers classify the violation, so this reads
 /// the same on either engine.
-pub fn delete_user_error(user_id: Uuid, error: &sqlx::Error) -> AppError {
+pub(crate) fn delete_user_error(user_id: Uuid, error: &sqlx::Error) -> AppError {
     let is_reference = error
         .as_database_error()
         .is_some_and(DatabaseError::is_foreign_key_violation);

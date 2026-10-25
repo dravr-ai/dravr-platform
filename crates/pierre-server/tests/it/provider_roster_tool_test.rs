@@ -490,7 +490,7 @@ impl World {
         who: Person,
         args: Value,
     ) -> (Value, bool) {
-        let runtime: Arc<dyn ToolRuntime> = Arc::clone(&self.res) as Arc<dyn ToolRuntime>;
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
         let ctx = ToolContext::new()
             .with_user(who.id.to_string())
             .with_tenant(who.tenant.to_string())
@@ -753,10 +753,8 @@ async fn a_coach_with_no_group_reads_their_roster_and_how_coach_access_is_grante
     let (payload, refused) = w.roster(newcomer, json!({})).await;
     assert!(!refused, "{payload:#}");
     let intervals = platform(&payload, "intervals_icu");
-    assert_eq!(
-        intervals["members"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let got = intervals["members"].as_array().unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     assert_eq!(
         intervals["others"],
         json!([{ "state": "not_in_your_groups", "access": "coach", "athletes": 2 }])
@@ -961,10 +959,8 @@ async fn trainingpeaks_is_refused_over_mcp_before_its_roster_is_read_while_inter
         trainingpeaks.get("roster_size").is_none(),
         "the cached TrainingPeaks roster is not read over MCP: {payload:#}"
     );
-    assert_eq!(
-        trainingpeaks["members"].as_array().unwrap().as_slice(),
-        [] as [Value; 0]
-    );
+    let got = trainingpeaks["members"].as_array().unwrap();
+    assert!(got.is_empty(), "expected empty, got {got:?}");
     let intervals = platform(&payload, "intervals_icu");
     assert!(intervals.get("refusal").is_none(), "{payload:#}");
     assert_eq!(

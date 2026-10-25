@@ -27,6 +27,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_database::seed_models::{SeedDemoUser, SeedTenant, SEED_LOCALE};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
+use std::fmt;
 use tracing::info;
 use uuid::Uuid;
 
@@ -43,6 +44,15 @@ pub struct SeedArgs {
     /// Admin password (required — no hardcoded default)
     #[arg(long, env = "ADMIN_PASSWORD")]
     pub admin_password: String,
+}
+
+impl fmt::Debug for SeedArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SeedArgs")
+            .field("admin_email", &self.admin_email)
+            .field("admin_password", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Bootstrap user definition

@@ -86,6 +86,7 @@ pub fn event_tier(event: &str) -> Option<EventTier> {
 /// Holds no state: it reads the static tier catalogue and the process-wide
 /// analytics consent cache at call time. Registered once at startup via
 /// [`pierre_logging::set_analytics_provider`].
+#[derive(Debug)]
 pub struct PierreAnalyticsProvider;
 
 impl AnalyticsProvider for PierreAnalyticsProvider {
@@ -229,6 +230,7 @@ const CONSOLE_DECIDED_EVENT: &str = "coach_access.requested";
 /// synchronously on the tracing thread, so it only touches in-memory state —
 /// never a database. Events with no `user_id` in scope (pure system events) or
 /// a user not yet seen on this pod simply carry no `user_email`.
+#[derive(Debug)]
 pub struct PierreNotifyEnricher {
     /// The console's user list under the deployment's frontend URL; `None`
     /// when the server has none, and the notice then carries no link.

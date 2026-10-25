@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +25,7 @@ use crate::runtime::ToolRuntime;
 
 /// The owned half of a [`LiveRead`], so the read can outlive the turn that
 /// started it.
+#[derive(Debug)]
 pub struct OwnedLiveRead {
     /// The provider key the athlete's connection and cache rows use.
     pub provider_slug: String,
@@ -52,6 +54,19 @@ pub enum BudgetedRead {
     /// answered. The read runs on detached, capped at
     /// [`revalidation_timeout`], and its write-through lands for the next turn.
     Cached(Vec<Activity>),
+}
+
+impl fmt::Debug for BudgetedRead {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Answered { read, provider } => f
+                .debug_struct("Answered")
+                .field("read", read)
+                .field("provider", &provider.as_ref().map(|p| p.name()))
+                .finish(),
+            Self::Cached(activities) => f.debug_tuple("Cached").field(activities).finish(),
+        }
+    }
 }
 
 /// What the detached read hands back: `None` when it hit its cap.

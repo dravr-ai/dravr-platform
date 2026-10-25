@@ -25,6 +25,7 @@ use pierre_middleware::{require_admin, PeerAddress};
 use pierre_routes_admin::auth::service::AdminAuthService;
 use pierre_runtime_context::ConfigLookupScope;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
@@ -38,6 +39,15 @@ pub struct AdminConfigState {
     pub resources: Arc<ServerContext>,
     /// Validator for admin tokens — what `pierre-cli` holds after `auth login`.
     pub admin_auth: AdminAuthService,
+}
+
+impl fmt::Debug for AdminConfigState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AdminConfigState")
+            .field("service", &self.service)
+            .field("resources", &self.resources)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AdminConfigState {

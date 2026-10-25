@@ -34,7 +34,7 @@ use pierre_evals::judge::ClaimJudge;
 use pierre_evals::seeded_fabrications::{run, FabricationCorpus};
 use pierre_llm::config::LlmChain;
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
-use pierre_llm::{ChatProvider, LlmProvider};
+use pierre_llm::ChatProvider;
 
 /// The corpus this crate ships, found from any working directory.
 const DEFAULT_FIXTURE: &str = concat!(
@@ -68,7 +68,7 @@ async fn main() -> Result<(), String> {
         None
     };
     let judge = provider.as_ref().map(|p| ClaimJudge {
-        provider: p as &dyn LlmProvider,
+        provider: p,
         system_prompt: CLAIM_JUDGE_PROMPT.trim(),
         model: None,
         recorder: None,

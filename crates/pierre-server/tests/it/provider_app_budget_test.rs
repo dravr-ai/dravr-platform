@@ -28,7 +28,6 @@ use pierre_core::models::{ConnectionType, TenantId, TenantOAuthCredentials, User
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::protocol::AuthService;
-use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -108,7 +107,7 @@ async fn list_activities(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Result<(), AppError> {
-    let provider = AuthService::new(Arc::clone(resources) as Arc<dyn ToolRuntime>)
+    let provider = AuthService::new(Arc::<ServerContext>::clone(resources))
         .create_authenticated_provider("strava", user_id, Some(&tenant.to_string()))
         .await
         .unwrap_or_else(|e| panic!("the provider is built: {:?}", e.error));

@@ -119,5 +119,6 @@ fn save_load_expiry_clear_roundtrip() {
         "no credentials after logout"
     );
 
-    let _ = fs::remove_dir_all(&tmp);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_dir_all(&tmp));
 }

@@ -20,7 +20,7 @@ use pierre_services::zone_backfill::run_zone_backfill;
 
 /// `pierre-cli zones <subcommand>` dispatch.
 #[derive(Subcommand)]
-pub enum ZonesCommand {
+pub(crate) enum ZonesCommand {
     /// Re-cut the zones stored on every physiological profile in a tenant.
     ///
     /// Each profile's heart-rate zones are cut again from its resting and
@@ -45,7 +45,7 @@ pub enum ZonesCommand {
 ///
 /// Returns an error when the tenant id is malformed or a profile cannot be
 /// read or written.
-pub async fn dispatch(command: ZonesCommand, repos: &RepositoryRegistry) -> AppResult<()> {
+pub(crate) async fn dispatch(command: ZonesCommand, repos: &RepositoryRegistry) -> AppResult<()> {
     match command {
         ZonesCommand::Backfill { tenant_id, apply } => {
             let tenant = TenantId::parse_str(&tenant_id)

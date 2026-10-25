@@ -135,6 +135,7 @@ fn activity_id_schema() -> JsonSchema {
 }
 
 /// `export_intervals` — Endurance per-lap interval shape for an activity.
+#[derive(Debug)]
 pub struct ExportIntervalsTool;
 
 #[async_trait]
@@ -194,6 +195,7 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
 }
 
 /// `export_routes` — GPX terrain + climbs for an activity.
+#[derive(Debug)]
 pub struct ExportRoutesTool;
 
 #[async_trait]
@@ -311,6 +313,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
 
 /// `extract_activity_streams` — surface raw HR / power / cadence / GPS / altitude
 /// per-second arrays for downstream analysis.
+#[derive(Debug)]
 pub struct ExtractActivityStreamsTool;
 
 #[async_trait]

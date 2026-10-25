@@ -21,6 +21,7 @@
 //! mails it. Nothing here logs it.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::AppResult;
@@ -57,6 +58,16 @@ pub struct IssuedInvitation {
     pub expires_at: DateTime<Utc>,
 }
 
+impl fmt::Debug for IssuedInvitation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IssuedInvitation")
+            .field("email", &self.email)
+            .field("token", &"[REDACTED]")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
 impl IssuedInvitation {
     /// The link the invitee follows, on the web app at `frontend_url`.
     #[must_use]
@@ -66,6 +77,7 @@ impl IssuedInvitation {
 }
 
 /// What [`issue`] did.
+#[derive(Debug)]
 pub enum InviteOutcome {
     /// An invitation was issued; any earlier live one for the address is revoked.
     Issued(IssuedInvitation),

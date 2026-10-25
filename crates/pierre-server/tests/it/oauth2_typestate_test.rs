@@ -219,14 +219,25 @@ fn test_force_refresh() {
 
 #[test]
 fn test_oauth_flow_debug_trait() {
-    // Verify that all state types implement Debug (required for debugging)
+    // Every state prints for debugging, and the authorized state hides the
+    // authorization code it carries.
     let initial = OAuthFlow::<Initial>::new("client_123", "https://app.example.com/callback");
     let debug_output = format!("{initial:?}");
-    assert!(debug_output.contains("client_123"));
+    assert!(
+        debug_output.contains("client_123"),
+        "the client id prints: {debug_output}"
+    );
 
     let authorized: OAuthFlow<Authorized> = initial.with_authorization_code("test_code", None);
     let debug_output = format!("{authorized:?}");
-    assert!(debug_output.contains("test_code"));
+    assert!(
+        debug_output.contains("Authorized"),
+        "the state is named: {debug_output}"
+    );
+    assert!(
+        !debug_output.contains("test_code"),
+        "the authorization code leaked: {debug_output}"
+    );
 }
 
 #[test]

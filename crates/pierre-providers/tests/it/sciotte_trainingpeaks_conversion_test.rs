@@ -195,7 +195,8 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Arc<Mutex<Vec<String>>>) {
                     .map(|id| id.replace("%3A", ":"))
                     .and_then(|id| activity_body(&id))
             };
-            let _ = stream.write_all(http_response(body).as_bytes()).await;
+            // The client may hang up first; the test checks what it received.
+            drop(stream.write_all(http_response(body).as_bytes()).await);
         }
     });
 }

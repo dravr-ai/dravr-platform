@@ -247,6 +247,7 @@ fn date_range_schema() -> JsonSchema {
 }
 
 /// `compute_training_history` — on-demand backfill of the daily rollup.
+#[derive(Debug)]
 pub struct ComputeTrainingHistoryTool;
 
 #[async_trait]
@@ -300,6 +301,7 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
 }
 
 /// `get_training_history` — read the persisted daily rollup.
+#[derive(Debug)]
 pub struct GetTrainingHistoryTool;
 
 #[async_trait]

@@ -27,7 +27,7 @@ async fn create_test_user(db: &Database) -> User {
 
 #[tokio::test]
 async fn test_jwt_usage_tracking() {
-    let db = common::create_test_database()
+    let db = create_test_database()
         .await
         .expect("Failed to create test database");
 
@@ -71,7 +71,7 @@ async fn test_jwt_usage_tracking() {
 
 #[tokio::test]
 async fn test_goals_management() {
-    let db = common::create_test_database()
+    let db = create_test_database()
         .await
         .expect("Failed to create test database");
 

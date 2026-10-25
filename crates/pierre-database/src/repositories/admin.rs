@@ -172,7 +172,7 @@ pub(crate) const RECORD_PROVISIONED_KEY_SQL: &str = r"
 
 /// The token id shape: `admin_` plus a simple uuid.
 pub(crate) fn new_admin_token_id() -> String {
-    format!("admin_{}", uuid::Uuid::new_v4().simple())
+    format!("admin_{}", Uuid::new_v4().simple())
 }
 
 /// Saturate a caller-supplied count into the 4-byte `INTEGER` both schemas

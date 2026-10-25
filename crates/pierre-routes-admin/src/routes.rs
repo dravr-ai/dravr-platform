@@ -37,6 +37,7 @@ use crate::handlers::{
 ///
 /// Provides administrative endpoints for user management, API keys, JWKS,
 /// and server administration.
+#[derive(Debug)]
 pub struct AdminRoutes;
 
 impl AdminRoutes {

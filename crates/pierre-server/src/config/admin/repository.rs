@@ -16,6 +16,7 @@ use pierre_core::errors::AppResult;
 /// signature; callers thread the same set of identifiers
 /// (category/key/value/`data_type`/admin/tenant/reason) for both `SQLite`
 /// and `PostgreSQL` backends.
+#[derive(Debug)]
 pub struct SetOverrideParams<'a> {
     /// Top-level config category (e.g. `"usage_quotas"`).
     pub category: &'a str,
@@ -39,6 +40,7 @@ pub struct SetOverrideParams<'a> {
 /// Mirrors the audit-log row fields so the trait method body can decompose
 /// with `let LogChangeParams { ... } = params;` instead of an eleven-arg
 /// list.
+#[derive(Debug)]
 pub struct LogChangeParams<'a> {
     /// Admin user performing the change.
     pub admin_user_id: &'a str,

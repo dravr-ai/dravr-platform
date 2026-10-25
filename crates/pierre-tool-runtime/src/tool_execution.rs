@@ -399,7 +399,7 @@ pub async fn run_cli_tool_loop(
             // model's tool calls and any echoed tool-result scaffolding (weak
             // CLI models parrot the injected `<tool_result>` turn back), so
             // neither leaks to the user.
-            let content = tool_simulation::strip_simulation_artifacts(&response.content);
+            let content = strip_simulation_artifacts(&response.content);
             return Ok(tally.answered(content, response.usage, response.finish_reason));
         }
 
@@ -461,7 +461,7 @@ pub async fn run_cli_tool_loop(
 
         // Add assistant message (with tool calls and any echoed tool-result
         // scaffolding stripped via embacle, so parroted output never accumulates)
-        let assistant_text = tool_simulation::strip_simulation_artifacts(&response.content);
+        let assistant_text = strip_simulation_artifacts(&response.content);
         if !assistant_text.is_empty() {
             llm_messages.push(ChatMessage::assistant(&assistant_text));
         }
@@ -607,6 +607,7 @@ pub(crate) fn build_function_response(
 /// [`crate::tool_loop_io::ToolMessageRecorder`]
 /// persists as a single `tool_result` row so a follow-up turn can replay the
 /// same evidence the model just consumed.
+#[derive(Debug)]
 pub struct AddedFunctionResponses {
     /// Activity list extracted from `get_activities` when present.
     pub activity_list: Option<String>,

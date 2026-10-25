@@ -14,6 +14,7 @@
 //! commitment window from every provider the athlete has connected and writes
 //! it through to the cache.
 
+use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -30,6 +31,13 @@ pub struct ServerActivityRefresher {
     /// `Arc` because every spawned refresh owns a handle for the life of its
     /// detached background task.
     runtime: Arc<dyn ToolRuntime>,
+}
+
+impl fmt::Debug for ServerActivityRefresher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerActivityRefresher")
+            .finish_non_exhaustive()
+    }
 }
 
 impl ServerActivityRefresher {

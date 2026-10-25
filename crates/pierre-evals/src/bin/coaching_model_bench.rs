@@ -213,14 +213,14 @@ async fn build_provider(kind: &Kind) -> Result<Box<dyn LlmProvider>, String> {
         Kind::Copilot(model) => {
             EmbacleProvider::from_provider_type(LlmProviderType::CopilotHeadless, Some(model))
                 .await
-                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
+                .map(|p| -> Box<dyn LlmProvider> { Box::new(p) })
                 .map_err(|e| e.to_string())
         }
         Kind::Gemini(model) => {
             let key =
                 env::var("GEMINI_API_KEY").map_err(|_| "GEMINI_API_KEY not set".to_owned())?;
             http_env::gemini_with_key(&key, Some((*model).to_owned()))
-                .map(|p| Box::new(p) as Box<dyn LlmProvider>)
+                .map(|p| -> Box<dyn LlmProvider> { Box::new(p) })
                 .map_err(|e| e.to_string())
         }
     }

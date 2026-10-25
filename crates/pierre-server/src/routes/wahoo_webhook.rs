@@ -233,7 +233,7 @@ async fn sync_wahoo_owner(resources: &Arc<ServerContext>, owner_id: &str, after:
     if !WAHOO_OWNER_FETCH_GATE.wait_for_turn(user_id, drain).await {
         return;
     }
-    let runtime: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
     let params = ActivityQueryParams {
         after: Some(after),
         before: None,

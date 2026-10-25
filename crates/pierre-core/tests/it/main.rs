@@ -22,6 +22,7 @@ mod billing_stripe_test;
 mod calibration_topic_test;
 mod civil_time_clock_date_test;
 mod civil_time_relative_day_test;
+mod debug_redaction_test;
 mod feature_flags_test;
 mod field_update_test;
 mod form_reading_test;

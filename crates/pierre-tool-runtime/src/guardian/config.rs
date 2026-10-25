@@ -206,6 +206,7 @@ pub struct GuardianConfigSnapshot {
 /// Reads are lock-free and return an `Arc` clone, so they are safe on the
 /// hot dispatch path. Writes ([`Self::install`]) happen only on admin
 /// PUT — a couple per day at most.
+#[derive(Debug)]
 pub struct GuardianConfigRegistry {
     env: GuardianEnvOverrides,
     snapshot: ArcSwap<GuardianConfigSnapshot>,

@@ -36,7 +36,7 @@ use crate::AuthRoutesContext;
     skip(resources, request),
     fields(route = "accept_invitation", user_id = Empty, tenant_id = Empty, source = Empty, success = Empty)
 )]
-pub async fn handle_accept_invitation(
+pub(crate) async fn handle_accept_invitation(
     State(resources): State<AuthRoutesContext>,
     Json(request): Json<AcceptInvitationRequest>,
 ) -> Result<Response, AppError> {

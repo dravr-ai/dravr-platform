@@ -230,6 +230,15 @@ pub struct CloudTasksRunner {
     dispatch_deadline: Duration,
 }
 
+impl fmt::Debug for CloudTasksRunner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CloudTasksRunner")
+            .field("config", &self.config)
+            .field("dispatch_deadline", &self.dispatch_deadline)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CloudTasksRunner {
     /// A runner over `config`, with the dispatch deadline derived from the
     /// turn watchdog.

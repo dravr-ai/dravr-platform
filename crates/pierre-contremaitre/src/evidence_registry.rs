@@ -74,6 +74,7 @@ pub struct EvidenceEntry {
 ///
 /// Starts empty; [`compiled_in_corpus`] serves as the bootstrap corpus.
 /// Entries are populated by the contremaitre sync and updated via webhook.
+#[derive(Debug)]
 pub struct EvidenceRegistry {
     /// Keyed by `(category_str, slug)` — e.g. `("nutrition",
     /// "morton-2018-protein-intake")`.

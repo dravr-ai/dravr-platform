@@ -384,6 +384,7 @@ pub trait AdminConfigLookup: Send + Sync + 'static {
 /// this instead of skipping it keeps quotas active (degraded to tier
 /// defaults) rather than silently disabling them when admin config is
 /// unavailable.
+#[derive(Debug)]
 pub struct DefaultAdminConfig;
 
 #[async_trait]

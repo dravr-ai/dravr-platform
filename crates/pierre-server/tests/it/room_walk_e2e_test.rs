@@ -59,9 +59,10 @@ mod room_walk_e2e {
     #[serial]
     async fn guided_answer_lands_under_home_tenant_never_bot_tenant() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&TURN_REPLIES);
         e2e.llm.extraction_rule("marathon", GOAL_FACT_JSON);
@@ -136,9 +137,10 @@ mod room_walk_e2e {
     #[serial]
     async fn walker_answer_advances_the_probe_ledger_through_the_real_turn() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&TURN_REPLIES);
 
@@ -187,9 +189,10 @@ mod room_walk_e2e {
     #[serial]
     async fn mentions_mode_exempts_only_the_walker_from_ambient_capture() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&TURN_REPLIES);
 
@@ -239,9 +242,10 @@ mod room_walk_e2e {
     #[serial]
     async fn fresh_group_conversation_never_autostarts_a_walk_but_a_dm_does() {
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&["Bienvenue."]);
 
@@ -311,9 +315,10 @@ mod room_walk_e2e {
         );
 
         let llm = RouterLlm::new();
-        let resources = create_test_server_resources_with_chat_provider(Arc::clone(&llm) as _)
-            .await
-            .unwrap();
+        let resources =
+            create_test_server_resources_with_chat_provider(Arc::<RouterLlm>::clone(&llm))
+                .await
+                .unwrap();
         let e2e = CommandE2e::start(resources, llm).await;
         e2e.llm.set_turn_replies(&TURN_REPLIES);
         // The North Star rule first: the first matching needle wins.

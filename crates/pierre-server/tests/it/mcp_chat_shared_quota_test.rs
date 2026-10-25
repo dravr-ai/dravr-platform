@@ -142,7 +142,7 @@ mod shared_quota_tests {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> Value {
-        let state: Arc<dyn ToolRuntime> = Arc::clone(resources) as Arc<dyn ToolRuntime>;
+        let state: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
         let tool_context = ToolContext {
             user_id: Some(user_id.to_string()),
             tenant_id: Some(tenant_id.to_string()),
@@ -308,7 +308,7 @@ mod shared_quota_tests {
                 .agent
                 .admin_config
                 .as_deref()
-                .map(|c| c as &dyn AdminConfigLookup),
+                .map(|c| -> &dyn AdminConfigLookup { c }),
         };
         let mcp_refusal = check_quotas(&inputs, tenant_id, user_id, &QuotaSurface::McpToolCall)
             .await

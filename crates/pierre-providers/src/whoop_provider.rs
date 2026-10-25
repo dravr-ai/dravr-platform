@@ -32,6 +32,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use std::fmt;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
@@ -112,6 +113,17 @@ pub struct WhoopProvider {
     client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
+}
+
+impl fmt::Debug for WhoopProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WhoopProvider")
+            .field("config", &self.config)
+            .field("credentials", &self.credentials)
+            .field("client", &self.client)
+            .field("circuit_breaker", &self.circuit_breaker)
+            .finish_non_exhaustive()
+    }
 }
 
 impl WhoopProvider {
@@ -372,7 +384,9 @@ impl FitnessProvider for WhoopProvider {
     }
 
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
-        let _ = self.token_refresh_callback.set(callback);
+        if self.token_refresh_callback.set(callback).is_err() {
+            debug!("WHOOP token refresh callback already set; keeping the first");
+        }
     }
 
     async fn is_authenticated(&self) -> bool {
@@ -494,12 +508,12 @@ impl FitnessProvider for WhoopProvider {
             // Build endpoint with optional time filter (WHOOP supports start/end parameters)
             let mut endpoint = format!("activity/workout?limit={page_size}");
             if let Some(after) = params.after {
-                if let Some(dt) = chrono::DateTime::from_timestamp(after, 0) {
+                if let Some(dt) = DateTime::from_timestamp(after, 0) {
                     let _ = write!(endpoint, "&start={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
                 }
             }
             if let Some(before) = params.before {
-                if let Some(dt) = chrono::DateTime::from_timestamp(before, 0) {
+                if let Some(dt) = DateTime::from_timestamp(before, 0) {
                     let _ = write!(endpoint, "&end={}", dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
                 }
             }
@@ -648,6 +662,7 @@ impl FitnessProvider for WhoopProvider {
 use super::core::ProviderFactory;
 
 /// Factory for creating WHOOP provider instances
+#[derive(Debug)]
 pub struct WhoopProviderFactory;
 
 impl ProviderFactory for WhoopProviderFactory {

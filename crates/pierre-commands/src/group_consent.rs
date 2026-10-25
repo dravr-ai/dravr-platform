@@ -67,6 +67,7 @@ fn parse_consent_args(args: &[String]) -> Option<(SharingAudience, bool)> {
 /// - `/group consent coach yes|no` updates `coach_sharing_consent`: whether the
 ///   group's human coach reads it. Joining grants it (ADR-002); this is the
 ///   member's way to revoke it, and to grant it back.
+#[derive(Debug)]
 pub struct GroupConsentHandler;
 
 #[async_trait]

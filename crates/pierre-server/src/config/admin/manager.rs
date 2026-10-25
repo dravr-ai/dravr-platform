@@ -27,6 +27,7 @@ use sqlx::sqlite::SqliteRow;
 use sqlx::SqlitePool;
 
 /// `SQLite`-backed admin configuration manager
+#[derive(Debug)]
 pub struct AdminConfigManager {
     pool: SqlitePool,
 }

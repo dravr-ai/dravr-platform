@@ -642,6 +642,7 @@ fn emit_coach_group_skipped(
 
 /// Mount-helper for the onboarding-status endpoint. Same shape as
 /// [`pierre_routes_admin::FeatureFlagsRoutes`].
+#[derive(Debug)]
 pub struct OnboardingRoutes;
 
 impl OnboardingRoutes {

@@ -249,9 +249,17 @@ Minimal coach.
 Basic instructions.
 "#;
     let frontmatter = parse_frontmatter(content).unwrap();
-    assert_eq!(frontmatter.prerequisites.providers, [] as [String; 0]);
+    assert!(
+        frontmatter.prerequisites.providers.is_empty(),
+        "expected empty, got {:?}",
+        frontmatter.prerequisites.providers
+    );
     assert_eq!(frontmatter.prerequisites.min_activities, 0);
-    assert_eq!(frontmatter.prerequisites.activity_types, [] as [String; 0]);
+    assert!(
+        frontmatter.prerequisites.activity_types.is_empty(),
+        "expected empty, got {:?}",
+        frontmatter.prerequisites.activity_types
+    );
 }
 
 #[test]

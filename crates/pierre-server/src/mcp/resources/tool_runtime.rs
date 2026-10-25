@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::ServerContext;
+use crate::config::admin::AdminConfigService;
 #[cfg(feature = "health-sync")]
 use dravr_enforme::SyncOrchestrator;
 use pierre_cache::Cache;
@@ -56,10 +57,8 @@ impl ToolRuntime for ServerContext {
     }
 
     fn admin_config(&self) -> Option<Arc<dyn AdminConfigLookup>> {
-        self.agent
-            .admin_config
-            .as_ref()
-            .map(|svc| Arc::clone(svc) as Arc<dyn AdminConfigLookup>)
+        let svc = self.agent.admin_config.as_ref()?;
+        Some(Arc::<AdminConfigService>::clone(svc))
     }
 
     fn messaging_strings_registry(&self) -> &Arc<MessagingStringsRegistry> {

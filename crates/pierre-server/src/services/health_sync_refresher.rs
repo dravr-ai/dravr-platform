@@ -15,7 +15,6 @@ use pierre_services::delegated_wellness::{delegated_wellness_credentials, Delega
 use pierre_services::health_sync::{request_gate, SyncCredentialRefresher};
 use pierre_tool_runtime::protocol::auth::{OAuthError, TokenData};
 use pierre_tool_runtime::protocol::AuthService;
-use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::ExposeSecret;
 use tracing::info;
 use uuid::Uuid;
@@ -30,6 +29,7 @@ use crate::mcp::resources::ServerContext;
 /// `Weak<ServerContext>` — the storage this installs into lives inside the
 /// context's sync orchestrator, so a strong handle would create a DI-graph
 /// cycle (mirrors the platform post handle).
+#[derive(Debug)]
 pub struct AuthServiceCredentialRefresher {
     /// Composition-root handle, upgraded per call.
     runtime: Weak<ServerContext>,
@@ -41,7 +41,7 @@ impl AuthServiceCredentialRefresher {
         let ctx = self.runtime.upgrade().ok_or_else(|| {
             EnformeError::store("server context dropped; cannot refresh credentials")
         })?;
-        Ok(AuthService::new(ctx as Arc<dyn ToolRuntime>))
+        Ok(AuthService::new(ctx))
     }
 }
 

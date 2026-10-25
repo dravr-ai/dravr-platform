@@ -70,6 +70,7 @@ use crate::suggestions::{emit_shown, Postback, SuggestionEvent, SURFACE_AGENT_WE
 use crate::surface_profile::SurfaceId;
 
 /// Where an agent's welcome lands and who it speaks to.
+#[derive(Debug)]
 pub struct WelcomeTarget<'a> {
     /// The conversation row the welcome is written into, as it stands with
     /// the agent bound.

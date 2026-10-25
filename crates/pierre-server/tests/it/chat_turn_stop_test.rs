@@ -690,11 +690,10 @@ async fn stopping_a_blocking_turn_answers_it_with_the_stopped_notice() {
 #[tokio::test]
 async fn a_reply_ready_after_the_stop_is_not_stored() {
     let provider = Arc::new(ParkedProvider::answering("212 watts de moyenne."));
-    let resources = create_test_server_resources_with_chat_provider(
-        Arc::clone(&provider) as Arc<dyn LlmProvider>
-    )
-    .await
-    .expect("resources");
+    let resources =
+        create_test_server_resources_with_chat_provider(Arc::<ParkedProvider>::clone(&provider))
+            .await
+            .expect("resources");
     let fx = fixture_over(resources, "stop-race@test.local").await;
 
     let request = AxumTestRequest::post(&format!(
