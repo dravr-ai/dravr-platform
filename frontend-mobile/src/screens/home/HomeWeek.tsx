@@ -20,6 +20,7 @@ import {
   type WorkoutPlan,
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { garminContributionLine } from '@pierre/shared-constants';
 import { EmptyState, Section } from '../../components/ui';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { useHomeCalendar } from '../../hooks/useHomeCalendar';
@@ -166,7 +167,13 @@ function WeekStrip({
   return (
     <Section
       title={isThisWeek ? t('plan.card.thisWeek') : t('plan.card.weekOf', { date: civilDayMonth(monday, language) })}
-      description={shownWeek?.focus ? shownWeek.focus : undefined}
+      // The minutes the strip sums owe Garmin's line directly beneath the
+      // title, ahead of the plan's focus (carnet#1154).
+      description={
+        [garminContributionLine(t, answer?.garmin_contribution), shownWeek?.focus || undefined]
+          .filter((line) => line !== undefined)
+          .join('\n') || undefined
+      }
       testID="home-section-week"
       actions={
         <>

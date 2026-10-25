@@ -32,6 +32,7 @@ function status(overrides: Partial<TrainingStatusResponse> = {}): TrainingStatus
     ],
     load_ratio: { ratio: 1.37, acute_days: 7, chronic_days: 28 },
     recovery_days: 0,
+    garmin_contribution: null,
     ...overrides,
   };
 }
@@ -61,6 +62,29 @@ describe('HomeStatus', () => {
     expect(section).toHaveTextContent('The deep end of the productive zone.');
     expect(screen.getByTestId('home-status-load')).toHaveTextContent('Last 7 days: 1.4× your 28-day average');
     expect(screen.getByTestId('home-status-recovery')).toHaveTextContent('Your form calls for no extra lighter day.');
+  });
+
+  // carnet#1154: Garmin's brand guidelines want the line directly beneath the title.
+  it.each([
+    ['sole', 'Created using data provided by Garmin devices.'],
+    ['part', 'Created in part using data provided by Garmin devices.'],
+  ] as const)("carries Garmin's line for a %s contribution directly beneath the title", async (contribution, line) => {
+    api.getTrainingStatus.mockResolvedValue(status({ garmin_contribution: contribution }));
+    renderStatus();
+
+    const garmin = await screen.findByTestId('home-status-garmin');
+    expect(garmin.textContent).toBe(line);
+    const heading = within(screen.getByTestId('home-status')).getByRole('heading', { level: 3, name: 'Training status' });
+    expect(heading.nextElementSibling).toContainElement(garmin);
+  });
+
+  it('carries no Garmin line when no Garmin data went into the figures', async () => {
+    api.getTrainingStatus.mockResolvedValue(status());
+    renderStatus();
+
+    await screen.findByTestId('home-status-band');
+    expect(screen.queryByTestId('home-status-garmin')).not.toBeInTheDocument();
+    expect(screen.getByTestId('home-status')).not.toHaveTextContent('Garmin');
   });
 
   it('draws the trend as one line and says in words what it shows', async () => {

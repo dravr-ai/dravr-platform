@@ -10,6 +10,8 @@
 //! instead of the static `all()` function. The registry respects feature flags and includes
 //! externally registered providers.
 
+use serde::Serialize;
+
 /// Strava fitness provider identifier
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-strava` feature.
@@ -278,8 +280,39 @@ pub fn garmin_device(device_name: Option<&str>) -> bool {
 /// (`source`), or recorded on a Garmin device whichever service relayed it
 /// (`device_name`).
 #[must_use]
-fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool {
+pub fn garmin_recorded(source: Option<&str>, device_name: Option<&str>) -> bool {
     source_attribution(source).is_some() || garmin_device(device_name)
+}
+
+/// How much of a figure derived from several workouts is Garmin-sourced.
+///
+/// It decides the line Garmin's brand guidelines owe the figure: Garmin named
+/// as its distinct source, or as a contributing one (carnet#1154).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GarminContribution {
+    /// Every workout behind the figure carries Garmin-sourced data.
+    Sole,
+    /// Some workouts behind the figure do, others do not.
+    Part,
+}
+
+/// What Garmin contributed to a figure derived from `workouts`.
+///
+/// Each workout is given as whether it carries Garmin-sourced data
+/// ([`garmin_recorded`] on any of its copies); `None` when none does.
+#[must_use]
+pub fn garmin_contribution(workouts: impl IntoIterator<Item = bool>) -> Option<GarminContribution> {
+    let (garmin, other) = workouts
+        .into_iter()
+        .fold((false, false), |(garmin, other), recorded| {
+            (garmin || recorded, other || !recorded)
+        });
+    match (garmin, other) {
+        (false, _) => None,
+        (true, false) => Some(GarminContribution::Sole),
+        (true, true) => Some(GarminContribution::Part),
+    }
 }
 
 /// The line an activity is shown with beside its title: the device that
@@ -322,10 +355,19 @@ pub fn workout_attribution(copies: &[(Option<&str>, Option<&str>)]) -> Option<St
 /// The attribution Garmin-sourced data is shown with: the brand and the
 /// model when `device_name` names a Garmin device, the brand alone otherwise.
 fn garmin_attribution(device_name: Option<&str>) -> String {
-    let model = device_name
-        .filter(|name| garmin_device(Some(name)))
-        .map(garmin_device_model)
-        .unwrap_or_default();
+    garmin_service_attribution(device_name.filter(|name| garmin_device(Some(name))))
+}
+
+/// The attribution of data a Garmin service delivered with the
+/// `device_model` it names.
+///
+/// Garmin names its own devices without the brand (`Forerunner 965`), and a
+/// device a Garmin service reports is Garmin's, so the model is shown as
+/// named: `Garmin Forerunner 965`, or the brand alone when no model is named
+/// (carnet#1154).
+#[must_use]
+pub fn garmin_service_attribution(device_model: Option<&str>) -> String {
+    let model = device_model.map(garmin_device_model).unwrap_or_default();
     if model.is_empty() {
         GARMIN_ATTRIBUTION.to_owned()
     } else {
@@ -526,7 +568,44 @@ pub const COROS_DEFAULT_SCOPES: &str = "read:workouts read:sleep read:daily";
 
 #[cfg(test)]
 mod tests {
-    use super::{activity_attribution, garmin_recorded, workout_attribution};
+    use super::{
+        activity_attribution, garmin_contribution, garmin_recorded, garmin_service_attribution,
+        workout_attribution, GarminContribution,
+    };
+
+    #[test]
+    fn a_figure_names_garmin_as_its_sole_or_a_contributing_source() {
+        assert_eq!(
+            garmin_contribution([true, true]),
+            Some(GarminContribution::Sole)
+        );
+        assert_eq!(
+            garmin_contribution([true, false]),
+            Some(GarminContribution::Part)
+        );
+        assert_eq!(garmin_contribution([false, false]), None);
+        assert_eq!(garmin_contribution([]), None);
+        assert_eq!(
+            serde_json::to_value(GarminContribution::Part).ok(),
+            Some(serde_json::json!("part"))
+        );
+    }
+
+    /// Garmin's API names its devices without the brand ("Forerunner 910XT"
+    /// in its sample payload); data a Garmin service delivered shows the brand
+    /// with the model all the same (carnet#1154).
+    #[test]
+    fn a_device_a_garmin_service_names_is_shown_with_the_brand() {
+        for (model, expected) in [
+            (Some("Forerunner 910XT"), "Garmin Forerunner 910XT"),
+            (Some("Garmin Forerunner 965"), "Garmin Forerunner 965"),
+            (Some("  fenix_8 "), "Garmin fenix 8"),
+            (Some(" - "), "Garmin"),
+            (None, "Garmin"),
+        ] {
+            assert_eq!(garmin_service_attribution(model), expected, "{model:?}");
+        }
+    }
 
     #[test]
     fn a_garmin_device_is_named_by_its_model() {

@@ -442,3 +442,88 @@ async fn an_unauthenticated_read_is_refused() {
     let (status, _) = volume_response(&resources, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+/// The weeks name Garmin as their source, or as a contributing one, by the
+/// workouts they count (carnet#1154). A Garmin copy merged into a Strava
+/// workout makes that workout Garmin's: its figures may come from either.
+#[tokio::test]
+async fn the_weeks_say_what_garmin_data_contributed() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "volume-garmin").await;
+    let ride = hours_ago(30);
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[activity(
+            "s-ride",
+            SportType::Ride,
+            ride,
+            5_400,
+            oauth_providers::STRAVA,
+        )
+        .distance_meters(40_000.0)
+        .build()],
+    )
+    .await;
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::SCIOTTE_GARMIN,
+        &[activity(
+            "g-ride",
+            SportType::Ride,
+            ride + Duration::seconds(20),
+            5_380,
+            oauth_providers::SCIOTTE,
+        )
+        .source(oauth_providers::GARMIN)
+        .distance_meters(39_900.0)
+        .build()],
+    )
+    .await;
+    assert_eq!(
+        volume(&resources, &athlete).await["garmin_contribution"],
+        "sole"
+    );
+
+    cache(
+        &resources,
+        &athlete,
+        oauth_providers::STRAVA,
+        &[activity(
+            "s-run",
+            SportType::Run,
+            hours_ago(4),
+            1_800,
+            oauth_providers::STRAVA,
+        )
+        .device_name("Apple Watch Ultra 2")
+        .build()],
+    )
+    .await;
+    assert_eq!(
+        volume(&resources, &athlete).await["garmin_contribution"],
+        "part"
+    );
+
+    let other = seed_athlete(&resources, "volume-no-garmin").await;
+    cache(
+        &resources,
+        &other,
+        oauth_providers::STRAVA,
+        &[activity(
+            "run",
+            SportType::Run,
+            hours_ago(4),
+            1_800,
+            oauth_providers::STRAVA,
+        )
+        .build()],
+    )
+    .await;
+    assert_eq!(
+        volume(&resources, &other).await["garmin_contribution"],
+        Value::Null
+    );
+}

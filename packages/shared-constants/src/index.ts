@@ -296,6 +296,9 @@ export type {
   StyleMapLayer,
 } from './route-map';
 
+// The line Garmin's brand guidelines owe a figure derived from Garmin-sourced data
+export { garminContributionLine } from './garmin-attribution';
+
 // The Home training status: form band names, the form line, load ratio and recovery days
 export {
   FORM_BAND_DETAIL_KEY,

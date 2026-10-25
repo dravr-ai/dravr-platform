@@ -10,7 +10,7 @@ import { ChevronDown } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { planDayOn } from '@pierre/shared-types';
-import { FORM_BAND_LABEL_KEY, formLine } from '@pierre/shared-constants';
+import { FORM_BAND_LABEL_KEY, formLine, garminContributionLine } from '@pierre/shared-constants';
 import { decodePolyline } from '@pierre/domain-utils';
 import { planWindow } from '@pierre/ui-logic';
 import { recentActivitiesQuery, useTrainingPlan, useTrainingStatus } from '../../hooks/useHome';
@@ -53,6 +53,19 @@ function useFormSummary(): string | null {
 }
 
 /**
+ * The attribution the peek's own figures owe, beneath them and never cut
+ * (carnet#1154): Garmin's line for the form when Garmin data went into it,
+ * else the latest workout's own attribution, as served, when its route is
+ * sketched.
+ */
+function usePeekAttribution(formShown: boolean, sketchAttribution: string | null): string | null {
+  const { t } = useTranslation();
+  const status = useTrainingStatus();
+  const derived = formShown ? garminContributionLine(t, status.data?.garmin_contribution) : undefined;
+  return derived ?? sketchAttribution;
+}
+
+/**
  * One line that stands for Home's Today panel where there is no room for it
  * beside the thread. It reads the caches the panel fills; the recent
  * activities are read without the panel's refresh schedule, which the panel
@@ -72,12 +85,15 @@ export function TodayPeek({ onOpen, hidden }: TodayPeekProps) {
     () => (latest?.summary_polyline ? decodePolyline(latest.summary_polyline) : null),
     [latest?.summary_polyline],
   );
+  const sketched = points !== null && points.length > 1 && latest !== null;
+  const attribution = usePeekAttribution(form !== null, sketched ? (latest?.attribution ?? null) : null);
 
   return (
     <div
       className={clsx(
         'shrink-0 overflow-hidden px-3 transition-[max-height,opacity] duration-200 ease-out motion-reduce:transition-none',
-        hidden ? 'max-h-0 opacity-0' : 'max-h-24 opacity-100',
+        // Room for a wrapped attribution line under the form, which is never cut.
+        hidden ? 'max-h-0 opacity-0' : 'max-h-32 opacity-100',
       )}
       aria-hidden={hidden}
       inert={hidden}
@@ -97,8 +113,13 @@ export function TodayPeek({ onOpen, hidden }: TodayPeekProps) {
             )}
           </span>
           {form !== null && <span className="mt-0.5 block truncate text-xs text-on-surface-variant">{form}</span>}
+          {attribution !== null && (
+            <span data-testid="home-today-peek-attribution" className="mt-0.5 block text-xs text-on-surface-variant">
+              {attribution}
+            </span>
+          )}
         </span>
-        {points !== null && points.length > 1 && latest !== null && (
+        {sketched && latest !== null && (
           <span className="shrink-0">
             <RouteSketch points={points} label={latest.name} compact />
           </span>

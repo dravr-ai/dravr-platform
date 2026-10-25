@@ -8,11 +8,10 @@
 //! the rows of the workout's splits and laps, and the projection of its
 //! merged session into [`ActivityDetailResponse`].
 
-use pierre_core::models::{Activity, Lap, Split};
-use pierre_database::repositories::CachedActivityRow;
+use pierre_core::models::{Lap, Split};
 use serde::Serialize;
 
-use super::{ActivityDetailResponse, HomeActivity};
+use super::{ActivityDetailResponse, HomeActivity, Workout};
 
 /// One split of an activity: a uniform distance bucket the provider carved.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -87,13 +86,14 @@ impl From<&Lap> for ActivityLap {
 }
 
 impl ActivityDetailResponse {
-    /// The view of one workout: `session` is the merged session, `row` the
-    /// copy whose route it draws. The thread its view opened is looked up
-    /// apart, across every copy of the workout, and `conversation_id` is
-    /// `None` until then.
-    pub(super) fn from_session(row: &CachedActivityRow, session: &Activity) -> Self {
+    /// The view of one workout: its merged session's figures, on the copy
+    /// whose route it draws, attributed by every copy. The thread its view
+    /// opened is looked up apart, across every copy of the workout, and
+    /// `conversation_id` is `None` until then.
+    pub(super) fn from_workout(workout: &Workout<'_>) -> Self {
+        let session = &workout.session;
         Self {
-            activity: HomeActivity::from_session(row, session),
+            activity: HomeActivity::from_workout(workout),
             average_heart_rate: session.average_heart_rate(),
             max_heart_rate: session.max_heart_rate(),
             average_speed_mps: session.average_speed(),

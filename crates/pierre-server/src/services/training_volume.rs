@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use pierre_core::civil_time::local_date;
+use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::models::Activity;
 use pierre_database::repositories::sport_type_string;
 use serde::Serialize;
@@ -40,6 +41,11 @@ pub struct TrainingVolume {
     /// with the week `today` falls in. At most [`VOLUME_WEEKS`]; empty when
     /// nothing is stored.
     pub weeks: Vec<VolumeWeek>,
+    /// What Garmin-sourced data contributed to the weeks, which decides the
+    /// line Garmin's brand guidelines owe them (carnet#1154); `null` when no
+    /// workout they count carries such data. Set by the route, which holds
+    /// every copy of each workout.
+    pub garmin_contribution: Option<GarminContribution>,
 }
 
 /// One Monday-to-Sunday week.
@@ -123,6 +129,7 @@ pub fn volume_from_sessions(
             return TrainingVolume {
                 today,
                 weeks: Vec::new(),
+                garmin_contribution: None,
             }
         }
         VolumeCoverage::Whole => opens,
@@ -133,6 +140,7 @@ pub fn volume_from_sessions(
         return TrainingVolume {
             today,
             weeks: Vec::new(),
+            garmin_contribution: None,
         };
     }
 
@@ -170,7 +178,11 @@ pub fn volume_from_sessions(
         weeks.push(VolumeWeek { week_start, sports });
         week_start += Duration::weeks(1);
     }
-    TrainingVolume { today, weeks }
+    TrainingVolume {
+        today,
+        weeks,
+        garmin_contribution: None,
+    }
 }
 
 #[cfg(test)]

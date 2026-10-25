@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { Check, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
+import { garminContributionLine } from '@pierre/shared-constants';
 import type { CalendarDay, PlanDayLookup, WorkoutPlan } from '@pierre/shared-types';
 import { activityMinutes, addCivilDays, calendarDay, lastMonday, mondayOf, weekDays } from '@pierre/shared-types';
 import { calendarDayLabel, DRAFT_DATE, formatCivilDate, sportLabel } from '@pierre/ui-logic';
@@ -199,6 +200,9 @@ function WeekStrip({
   const nextIndex = plan?.weeks.findIndex((week) => week.week_start === addCivilDays(thisMonday, DAYS_PER_WEEK)) ?? -1;
   const cells = days.map((date) => ({ date, day: answer === undefined ? null : calendarDay(answer, date) }));
   const open = cells.find((cell) => cell.date === selected && cell.day !== null) ?? null;
+  // The minutes the strip sums owe Garmin's line directly beneath the title (carnet#1154).
+  const garmin = garminContributionLine(t, answer?.garmin_contribution);
+  const focus = shownWeek?.focus ? shownWeek.focus : undefined;
 
   const page = (weeks: number) => {
     setMonday((current) => addCivilDays(current, DAYS_PER_WEEK * weeks));
@@ -212,7 +216,18 @@ function WeekStrip({
           ? t('plan.card.thisWeek')
           : t('plan.card.weekOf', { date: formatCivilDate(monday, language, { day: 'numeric', month: 'long' }) })
       }
-      description={shownWeek?.focus ? shownWeek.focus : undefined}
+      description={
+        garmin === undefined ? (
+          focus
+        ) : (
+          <>
+            <span data-testid="home-week-garmin" className="block">
+              {garmin}
+            </span>
+            {focus}
+          </>
+        )
+      }
       headingLevel={3}
       data-testid="home-week"
       actions={

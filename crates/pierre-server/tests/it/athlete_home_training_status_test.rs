@@ -32,8 +32,8 @@ use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::training_load::FormBand;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, DailyTrainingState, SportType, TenantId, ThresholdProvenance,
-    User, UserPhysiologicalProfile,
+    Activity, ActivityBuilder, ConnectionType, DailyTrainingState, SportType, TenantId,
+    ThresholdProvenance, User, UserPhysiologicalProfile,
 };
 use pierre_fitness_compute::training_history_compute::{
     ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS, CTL_WINDOW_DAYS,
@@ -116,7 +116,13 @@ async fn athlete(resources: &Arc<ServerContext>, connected: bool) -> Athlete {
 
 /// Cache an hour's run on every day from `oldest_days_ago` up to today.
 async fn seed_daily_runs(resources: &Arc<ServerContext>, athlete: &Athlete, oldest_days_ago: i64) {
-    let activities: Vec<_> = (0..=oldest_days_ago)
+    cache_runs(resources, athlete, &daily_runs(oldest_days_ago, None)).await;
+}
+
+/// An hour's run on every day from `oldest_days_ago` up to today, each
+/// recorded on `device` when one is named.
+fn daily_runs(oldest_days_ago: i64, device: Option<&str>) -> Vec<Activity> {
+    (0..=oldest_days_ago)
         .map(|days_ago| {
             ActivityBuilder::new(
                 format!("cached-{days_ago}"),
@@ -128,14 +134,18 @@ async fn seed_daily_runs(resources: &Arc<ServerContext>, athlete: &Athlete, olde
             )
             .distance_meters(12_000.0)
             .average_heart_rate(155)
+            .device_name_opt(device.map(str::to_owned))
             .build()
         })
-        .collect();
+        .collect()
+}
+
+async fn cache_runs(resources: &Arc<ServerContext>, athlete: &Athlete, activities: &[Activity]) {
     resources
         .common
         .repos
         .activity_cache
-        .upsert_activities(athlete.user_id, &athlete.tenant, BACKEND, &activities)
+        .upsert_activities(athlete.user_id, &athlete.tenant, BACKEND, activities)
         .await
         .unwrap();
 }
@@ -293,6 +303,7 @@ fn rows_that_stop_short_of_today_give_no_reading() {
             "trend": [],
             "load_ratio": null,
             "recovery_days": null,
+            "garmin_contribution": null,
         })
     );
 }
@@ -406,4 +417,58 @@ async fn an_unauthenticated_read_is_refused() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (status, _) = status_json(&resources, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// The figures name Garmin as their source when every workout behind them
+/// was recorded on a Garmin device, as a contributing one when some were,
+/// and nothing otherwise (carnet#1154).
+#[tokio::test]
+async fn the_figures_say_what_garmin_data_contributed() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let garmin = athlete(&resources, true).await;
+    cache_runs(
+        &resources,
+        &garmin,
+        &daily_runs(200, Some("Garmin Forerunner 965")),
+    )
+    .await;
+    let body = status_ok(&resources, &garmin).await;
+    assert_ne!(body["form"], Value::Null, "{body}");
+    assert_eq!(body["garmin_contribution"], "sole", "{body}");
+
+    // A ride on another maker's device, clear of every run's hour.
+    let ride = ActivityBuilder::new(
+        "coros-ride".to_owned(),
+        "ride".to_owned(),
+        SportType::Ride,
+        Utc::now() - Duration::days(3) + Duration::hours(4),
+        3_600,
+        BACKEND.to_owned(),
+    )
+    .average_heart_rate(140)
+    .device_name("COROS DURA")
+    .build();
+    cache_runs(&resources, &garmin, &[ride]).await;
+    let body = status_ok(&resources, &garmin).await;
+    assert_eq!(body["garmin_contribution"], "part", "{body}");
+
+    let other = athlete(&resources, true).await;
+    seed_daily_runs(&resources, &other, 200).await;
+    let body = status_ok(&resources, &other).await;
+    assert_ne!(body["form"], Value::Null, "{body}");
+    assert_eq!(body["garmin_contribution"], Value::Null, "{body}");
+
+    let shallow = athlete(&resources, true).await;
+    cache_runs(
+        &resources,
+        &shallow,
+        &daily_runs(30, Some("Garmin Forerunner 965")),
+    )
+    .await;
+    let body = status_ok(&resources, &shallow).await;
+    assert_eq!(
+        body["garmin_contribution"],
+        Value::Null,
+        "no figure, no line: {body}"
+    );
 }

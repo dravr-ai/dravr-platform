@@ -118,7 +118,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
 use pierre_core::civil_time::{clock_date, resolve_zone};
-use pierre_core::constants::oauth_providers::workout_attribution;
+use pierre_core::constants::oauth_providers::{garmin_recorded, workout_attribution};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
@@ -250,9 +250,25 @@ pub struct HomeActivity {
     /// (intervals.icu's API terms, carnet#521); otherwise the device that
     /// recorded it, `"COROS PACE 3"` (carnet#711); `null` when none is named.
     pub attribution: Option<String>,
+    /// Whether any copy of the workout carries Garmin-sourced data, for the
+    /// line a figure summed over workouts owes (carnet#1154). Not on the wire:
+    /// `attribution` already says it for the row itself.
+    #[serde(skip)]
+    garmin_recorded: bool,
 }
 
 impl HomeActivity {
+    /// Project one merged workout: [`Self::from_session`] on its route copy,
+    /// attributed by every copy of it, since the merged figures may come from
+    /// any of them (carnet#1154).
+    fn from_workout(workout: &Workout<'_>) -> Self {
+        Self {
+            attribution: workout.attribution(),
+            garmin_recorded: workout.carries_garmin_data(),
+            ..Self::from_session(workout.route_row(), &workout.session)
+        }
+    }
+
     /// Project one workout for the Home list: `activity` is the merged
     /// session, `row` the cached row of the copy whose route the row draws
     /// ([`route_copy`]).
@@ -280,6 +296,8 @@ impl HomeActivity {
                 (activity.source(), activity.device_name()),
                 (row.activity.source(), row.activity.device_name()),
             ]),
+            garmin_recorded: garmin_recorded(activity.source(), activity.device_name())
+                || garmin_recorded(row.activity.source(), row.activity.device_name()),
         }
     }
 }
@@ -637,7 +655,7 @@ fn home_activities(rows: Vec<CachedActivityRow>, limit: usize) -> Vec<HomeActivi
     workouts(&distinct)
         .iter()
         .take(limit)
-        .map(|workout| HomeActivity::from_session(workout.route_row(), &workout.session))
+        .map(HomeActivity::from_workout)
         .collect()
 }
 
@@ -654,6 +672,32 @@ struct Workout<'a> {
 }
 
 impl<'a> Workout<'a> {
+    /// Every recording of the workout: the merged session first, then the
+    /// copy whose route it draws, its canonical copy and the others.
+    fn recordings(&self) -> impl Iterator<Item = &Activity> {
+        iter::once(&self.session)
+            .chain(iter::once(&self.route_row().activity))
+            .chain(iter::once(&self.canonical.activity))
+            .chain(self.copies.iter().map(|row| &row.activity))
+    }
+
+    /// The attribution the workout is shown with, by every one of its
+    /// recordings ([`workout_attribution`]).
+    fn attribution(&self) -> Option<String> {
+        let recordings: Vec<_> = self
+            .recordings()
+            .map(|activity| (activity.source(), activity.device_name()))
+            .collect();
+        workout_attribution(&recordings)
+    }
+
+    /// Whether the workout carries Garmin-sourced data: any of its recordings
+    /// does, since its figures may come from any of them.
+    fn carries_garmin_data(&self) -> bool {
+        self.recordings()
+            .any(|activity| garmin_recorded(activity.source(), activity.device_name()))
+    }
+
     /// The copy whose route the workout draws ([`route_copy`]).
     fn route_row(&self) -> &'a CachedActivityRow {
         route_copy(self.canonical, self.copies.iter().copied())
@@ -951,7 +995,7 @@ async fn activity_view(
         .map(|row| (row.provider.clone(), row.activity.id().to_owned()))
         .collect();
     Ok(WorkoutView {
-        view: ActivityDetailResponse::from_session(route_row, &workout.session),
+        view: ActivityDetailResponse::from_workout(workout),
         unread,
         copies,
     })

@@ -33,7 +33,14 @@ function ActivityLine({ activity, onNavigate }: { activity: HomeActivity; onNavi
       >
         <span className="min-w-0 truncate font-medium text-on-surface">{activity.name}</span>
         <span className="shrink-0 text-on-surface-variant">
-          {[sportLabel(t, activity.sport_type), ...activityRowFigures(t, activity, language, unit)].join(' · ')}
+          {sportLabel(t, activity.sport_type)}
+          {/* Beside the title, as served: the name truncates, never the attribution (carnet#1154). */}
+          {activity.attribution && (
+            <span data-testid="calendar-activity-attribution">{` · ${activity.attribution}`}</span>
+          )}
+          {activityRowFigures(t, activity, language, unit)
+            .map((figure) => ` · ${figure}`)
+            .join('')}
         </span>
       </button>
     </li>

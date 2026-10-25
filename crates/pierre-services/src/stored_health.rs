@@ -27,11 +27,20 @@
 //! intervals.icu wellness is attributed to that device. The device is read
 //! from the activity cache, once per read and only when an intervals.icu row
 //! is served — never from the provider.
+//!
+//! # Garmin attribution of Garmin data sources (carnet#1154)
+//!
+//! A row synced from a Garmin data source — the Garmin provider itself, a
+//! service relaying Garmin, or one naming a Garmin device — owes Garmin's
+//! attribution by the device its data source names. It is read from the data
+//! sources a gate already lists; outside any gate, from the provider the row
+//! was stored under.
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::constants::oauth_providers::{
-    activity_attribution, garmin_device, source_attribution, GARMIN_ATTRIBUTION, INTERVALS_ICU,
+    activity_attribution, garmin_device, garmin_service_attribution, source_attribution, GARMIN,
+    GARMIN_ATTRIBUTION, INTERVALS_ICU,
 };
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
@@ -54,10 +63,11 @@ const DEVICE_LOOKBACK_ACTIVITIES: i64 = 50;
 pub struct StoredHealth<T> {
     /// The records the gates in force let the reader see; not yet merged.
     pub records: Vec<T>,
-    /// The attribution to show with them when an intervals.icu row is among
-    /// them and the athlete's most recent intervals.icu recording was
-    /// Garmin's: its device (`Garmin Forerunner 965`), or `Garmin` for a
-    /// Garmin Connect relay naming no device; `None` otherwise.
+    /// The Garmin attribution to show with them: the device of the first row
+    /// a Garmin data source synced (`Garmin Forerunner 965`, or `Garmin` when
+    /// it names none); else, when an intervals.icu row is among them and the
+    /// athlete's most recent intervals.icu recording was Garmin's, that
+    /// device; `None` otherwise.
     pub attribution: Option<String>,
 }
 
@@ -105,18 +115,56 @@ fn serves_intervals<T: StoredHealthRecord>(records: &[T]) -> bool {
         .any(|record| record.source_name().eq_ignore_ascii_case(INTERVALS_ICU))
 }
 
+/// The attribution a Garmin data source's rows owe, by the device the source
+/// names: as Garmin's own API names it for the Garmin provider, as a relay's
+/// activity is attributed otherwise; `None` for a source that is not Garmin's.
+fn garmin_source_attribution(source: &DataSource) -> Option<String> {
+    let device = source.device_model.as_deref();
+    if source.provider.eq_ignore_ascii_case(GARMIN) {
+        return Some(garmin_service_attribution(device));
+    }
+    let relays_garmin = source_attribution(source.source.as_deref()).is_some();
+    (relays_garmin || garmin_device(device))
+        .then(|| activity_attribution(source.source.as_deref(), device))
+        .flatten()
+}
+
+/// The attribution of the first of `records` a Garmin data source synced:
+/// by its data source among `sources`, or by the provider it was stored
+/// under when no gate listed them.
+fn garmin_rows_attribution<T: StoredHealthRecord>(
+    records: &[T],
+    sources: &[DataSource],
+) -> Option<String> {
+    records.iter().find_map(|record| {
+        sources
+            .iter()
+            .find(|source| source.id == record.data_source_id())
+            .map_or_else(
+                || source_attribution(Some(record.source_name())).map(str::to_owned),
+                garmin_source_attribution,
+            )
+    })
+}
+
 /// The attribution served rows owe, noted on the running derivation for the
-/// reply derived from them: none unless an intervals.icu row is among them.
+/// reply derived from them.
+///
+/// That of their Garmin data sources (`garmin`, read off the rows before
+/// this awaits anything), else that of the athlete's intervals.icu wellness
+/// when such a row is among them.
 async fn attribution_of(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant: &TenantId,
+    garmin: Option<String>,
     serves_intervals: bool,
 ) -> AppResult<Option<String>> {
-    if !serves_intervals {
-        return Ok(None);
-    }
-    let attribution = intervals_wellness_attribution(repos, user_id, tenant).await?;
+    let attribution = match garmin {
+        Some(attribution) => Some(attribution),
+        None if serves_intervals => intervals_wellness_attribution(repos, user_id, tenant).await?,
+        None => None,
+    };
     if attribution.is_some() {
         ai_scope::note_attribution(Some(GARMIN_ATTRIBUTION));
     }
@@ -162,7 +210,9 @@ pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
     } else {
         ai_scope::filter_stored_health(terms, records, sources)
     };
-    let attribution = attribution_of(repos, user_id, tenant, serves_intervals(&records)).await?;
+    let garmin = garmin_rows_attribution(&records, sources);
+    let attribution =
+        attribution_of(repos, user_id, tenant, garmin, serves_intervals(&records)).await?;
     Ok(StoredHealth {
         records,
         attribution,
@@ -596,11 +646,65 @@ mod tests {
         assert!(turn.attributions().is_empty());
     }
 
+    /// Wellness a Garmin data source synced owes Garmin's attribution itself,
+    /// with no intervals.icu row or device involved (carnet#1154).
     #[tokio::test]
-    async fn wellness_from_another_provider_is_never_attributed_by_intervals_devices() {
+    async fn a_garmin_sources_wellness_is_attributed_to_garmin() {
         let athlete = athlete().await;
-        let (read, _) = attributed_mornings(&athlete).await;
-        assert_eq!(read.attribution, None);
+        let (read, turn) = attributed_mornings(&athlete).await;
+        assert_eq!(read.attribution.as_deref(), Some(GARMIN_ATTRIBUTION));
+        assert!(
+            turn.attributions().contains(&GARMIN_ATTRIBUTION),
+            "the reply derived from it owes the Garmin line"
+        );
+    }
+
+    fn source_of(
+        id: &str,
+        provider: &str,
+        source: Option<&str>,
+        model: Option<&str>,
+    ) -> DataSource {
+        DataSource {
+            id: id.to_owned(),
+            user_id: "athlete".to_owned(),
+            provider: provider.to_owned(),
+            device_model: model.map(str::to_owned),
+            software_version: None,
+            source: source.map(str::to_owned),
+            device_type: DeviceType::Watch,
+            original_source_name: None,
+        }
+    }
+
+    #[test]
+    fn a_row_is_attributed_by_the_garmin_data_source_that_synced_it() {
+        let night = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
+        let user_id = Uuid::new_v4();
+        let sources = [
+            source_of("garmin", "garmin", None, Some("Forerunner 965")),
+            source_of("nolio-garmin", "nolio", Some("garmin"), None),
+            source_of("nolio-edge", "nolio", None, Some("Garmin Edge 840")),
+            source_of("nolio-zepp", "nolio", Some("zepp"), Some("Zepp Amazfit")),
+            source_of("coros", "coros", None, Some("PACE 3")),
+        ];
+        for (id, stored_under, expected) in [
+            ("garmin", "garmin", Some("Garmin Forerunner 965")),
+            ("nolio-garmin", "nolio", Some("Garmin")),
+            ("nolio-edge", "nolio", Some("Garmin Edge 840")),
+            ("nolio-zepp", "nolio", None),
+            ("coros", "coros", None),
+            // No gate listed the sources: the provider it was stored under.
+            ("unlisted", "garmin", Some("Garmin")),
+            ("unlisted", "coros", None),
+        ] {
+            let row = morning_of(user_id, id, stored_under, night);
+            assert_eq!(
+                garmin_rows_attribution(&[row], &sources).as_deref(),
+                expected,
+                "{id} stored under {stored_under}"
+            );
+        }
     }
 
     #[tokio::test]

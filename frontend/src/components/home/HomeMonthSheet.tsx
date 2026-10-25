@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { clsx } from 'clsx';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
+import { garminContributionLine } from '@pierre/shared-constants';
 import type { CalendarDay, WorkoutPlan } from '@pierre/shared-types';
 import { calendarDay, firstOfMonth, lastMonday, monthGrid, shiftMonth } from '@pierre/shared-types';
 import { calendarDayLabel, DRAFT_DATE, formatCivilDate } from '@pierre/ui-logic';
@@ -72,6 +73,8 @@ export function HomeMonthSheet({
   const historyStart = calendar.data?.history_start ?? null;
   const open = selected !== null && answer !== undefined ? calendarDay(answer, selected) : null;
   const title = formatCivilDate(month, language, { month: 'long', year: 'numeric' });
+  // The month's marks owe Garmin's line directly beneath the title (carnet#1154).
+  const garmin = garminContributionLine(t, answer?.garmin_contribution);
   const arrow =
     'flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring disabled:opacity-40 disabled:hover:bg-transparent';
 
@@ -114,6 +117,11 @@ export function HomeMonthSheet({
       }
     >
       <div className="mx-auto max-w-[560px] px-4 pb-4">
+        {garmin !== undefined && (
+          <p data-testid="home-month-garmin" className="pb-2 text-sm text-on-surface-variant">
+            {garmin}
+          </p>
+        )}
         <div className="grid grid-cols-7 gap-1 pb-1" aria-hidden="true">
           {grid[0].map((date) => (
             <span key={date} className="text-center text-xs text-on-surface-variant">
