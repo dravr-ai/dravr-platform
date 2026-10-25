@@ -216,7 +216,7 @@ fi
 # closed when shellcheck is absent rather than reading as clean, because a
 # scan that ran nothing is not a pass. The pattern set below mirrors the
 # workflow step in .github/workflows/ci-backend.yml — extend both together.
-SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/ci/sweep-landed-branches\.sh$|^scripts/ci/strip-carnet-footer\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
+SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/ci/sweep-landed-branches\.sh$|^scripts/ci/strip-carnet-footer\.sh$|^scripts/ci/check-keep-warm-traffic\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
 SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
 SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do if [[ -f "$PROJECT_ROOT/$f" ]]; then echo "$f"; fi; done)
 if [[ -n "$SHELL_LINT_FILES" ]]; then
@@ -1006,6 +1006,26 @@ if [[ "$RUN_MOBILE_TIER" == "true" ]]; then
     else
         echo "WARN: pre-push-mobile-tests.sh not found, skipping"
     fi
+    echo ""
+fi
+
+# ============================================================================
+# TIER 8a: Infra cost guards (if infra changed, no terraform needed)
+# ============================================================================
+# Tier 1 runs these inside architectural-validation.sh, but only on a push with
+# Rust changes. An infra-only push is the shape of change they exist for: an
+# uptime check that keeps the dev frontend and api up 24/7 (Oct 2026), or
+# cpu_idle = false without an ADR.
+if [[ "$HAS_INFRA_CHANGES" == "true" ]]; then
+    echo "Tier 8a: Infra cost guards"
+    echo "------------------------------------"
+    for gate in check-cpu-idle-adr.sh check-keep-warm-traffic.sh; do
+        if [[ -x "$PROJECT_ROOT/scripts/ci/$gate" ]] && ! "$PROJECT_ROOT/scripts/ci/$gate"; then
+            echo ""
+            echo "FAIL: $gate failed!"
+            exit 1
+        fi
+    done
     echo ""
 fi
 

@@ -1724,6 +1724,15 @@ else
     echo -e "${YELLOW}⚠️  scripts/ci/check-cpu-idle-adr.sh not found or not executable${NC}"
 fi
 
+# HARD FAIL: an uptime check or Cloud Scheduler job must state what it keeps
+# warm (# Idle-cost:). A probe inside Cloud Run's idle window keeps the
+# frontend and api up 24/7, the other half of the cpu_idle=false cost above.
+if [ -x "$SCRIPT_DIR/check-keep-warm-traffic.sh" ]; then
+    "$SCRIPT_DIR/check-keep-warm-traffic.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${YELLOW}⚠️  scripts/ci/check-keep-warm-traffic.sh not found or not executable${NC}"
+fi
+
 # HARD FAIL: Rust source file-size ratchet. Files at or under the ceiling stay
 # under it; files already over it are frozen at their current size and may
 # shrink but never grow. Only files this change touched are considered.

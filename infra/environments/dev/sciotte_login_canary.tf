@@ -123,6 +123,10 @@ module "sciotte_login_canary" {
 # -----------------------------------------------------------------------------
 # Cloud Scheduler — every 6 h, off the hour
 # -----------------------------------------------------------------------------
+# Idle-cost: each run wakes the sciotte service for one login (up to ~330 s of
+# headless Chrome). sciotte is request-billed (cpu_idle = true, min 0), and
+# every 6 h is far outside the ~15 min idle window, so no idle cost
+# (check-keep-warm-traffic.sh). Paused besides, see below.
 
 resource "google_cloud_scheduler_job" "sciotte_login_canary" {
   count            = var.backend_sciotte_remote ? 1 : 0

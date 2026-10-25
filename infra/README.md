@@ -174,6 +174,28 @@ a chat path budgeted for 600s.
    still open the app there: it is the only thing that lets the web app sign
    in from it (first-party `/auth/callback`, carnet#1145).
 
+## Cost Guards
+
+Dev runs on scale-to-zero Cloud Run, and the api (2 vCPU, ADR-019) and the
+frontend (1 vCPU) bill CPU even while idle (`cpu_idle = false`). The api is
+internal-only, so every outside probe enters through the frontend and keeps it
+warm too. Two CI gates keep that from turning into a 24/7 bill:
+
+- `scripts/ci/check-cpu-idle-adr.sh`: `cpu_idle = false` needs an `ADR-<n>`
+  reference just above it.
+- `scripts/ci/check-keep-warm-traffic.sh`: every
+  `google_monitoring_uptime_check_config` and `google_cloud_scheduler_job`
+  needs a `# Idle-cost:` note just above it, saying what it keeps warm and
+  roughly what that costs, or why nothing. Cloud Run scales to zero only after
+  about 15 minutes idle, and an uptime check runs at least every 15 minutes
+  from 3+ regions, so any uptime check on a Cloud Run service keeps it up all
+  day. In Oct 2026 five sign-in checks did that to the frontend and api and
+  added ~CA$6/day to dev.
+
+A probe that guards against a broken deploy belongs after the deploy or apply
+that can break it (as `scripts/ci/first-party-sign-in-smoke.sh` does), not on
+a timer.
+
 ## Module Reference
 
 | Module | Description |

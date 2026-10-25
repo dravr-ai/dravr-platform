@@ -65,6 +65,10 @@ module "drift_check_coaches" {
 # 06:00 UTC = 02:00 EDT = low-traffic window. Cloud Scheduler authenticates
 # to the Cloud Run Job's :run endpoint with an OIDC token issued for the
 # app service account (which already has run.invoker on its own jobs).
+#
+# Idle-cost: none, it starts a Cloud Run job through the :run API once a day,
+# and the job reads only the database and contremaitre: no service is woken
+# (check-keep-warm-traffic.sh).
 
 resource "google_cloud_scheduler_job" "drift_check_coaches_daily" {
   project          = var.project_id
