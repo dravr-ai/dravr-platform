@@ -78,8 +78,8 @@ describe('GroupTranscriptPanel', () => {
     expect(await screen.findByText('Long run at 7?')).toBeInTheDocument();
     const placeholders = screen.getAllByTestId('room-entry-withheld').map((p) => p.textContent);
     expect(placeholders).toEqual([
-      "The agent's reply to a member is hidden: sharing not enabled",
-      "A member's message is hidden: sharing not enabled",
+      "Hidden agent reply: it answers a member who keeps their messages private through their sharing settings",
+      "Hidden message: this member keeps their messages private through their sharing settings",
     ]);
     expect(getTranscript).toHaveBeenCalledWith('group-1');
   });

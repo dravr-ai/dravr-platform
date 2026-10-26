@@ -1269,7 +1269,7 @@ describe('ChatTab group thread room', () => {
     expect(screen.getByText(`${COACH_TITLE} · to Bob`)).toBeInTheDocument();
     expect(screen.getByText('Keep Saturday easy, Bob.')).toBeInTheDocument();
     expect(screen.getByTestId('room-entry-withheld')).toHaveTextContent(
-      "A member's message is hidden: sharing not enabled",
+      "Hidden message: this member keeps their messages private through their sharing settings",
     );
     // The caller's own question is drawn once, from their conversation.
     expect(screen.getAllByText('How was my long run?')).toHaveLength(1);
@@ -1282,7 +1282,7 @@ describe('ChatTab group thread room', () => {
       rows.findIndex((text) => text.includes('Anyone for intervals')),
     );
     expect(rows.findIndex((text) => text.includes('Keep Saturday easy'))).toBeLessThan(
-      rows.findIndex((text) => text.includes("A member's message is hidden")),
+      rows.findIndex((text) => text.includes('Hidden message:')),
     );
   });
 

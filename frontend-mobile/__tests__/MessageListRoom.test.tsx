@@ -121,7 +121,7 @@ describe('MessageList group thread room', () => {
     const { getByTestId } = renderThread(composeRoomThread(OWN, ROOM));
 
     const placeholder = getByTestId('room-entry-withheld');
-    expect(placeholder).toHaveTextContent("A member's message is hidden: sharing not enabled", {
+    expect(placeholder).toHaveTextContent("Hidden message: this member keeps their messages private through their sharing settings", {
       exact: false,
     });
   });
