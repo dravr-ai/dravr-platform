@@ -1172,7 +1172,41 @@
     "verdictCategoryOther": "Sonstiges",
     "roomCorrectionOwn": "Korrektur deines menschlichen Coaches",
     "roomCorrectionTo": "Korrektur des menschlichen Coaches für {{name}}",
-    "roomCorrectionOf": "Zu: {{excerpt}}"
+    "roomCorrectionOf": "Zu: {{excerpt}}",
+    "turn": {
+      "step": {
+        "thinking": "Denkt nach",
+        "readingQuestion": "Liest deine Frage",
+        "analysing": "Wertet die Ergebnisse aus",
+        "writing": "Schreibt die Antwort",
+        "lookingUp": "Sucht Informationen",
+        "readActivities": "Liest die Aktivitäten",
+        "readMemberActivities": "Liest die Aktivitäten eines Mitglieds",
+        "readHistory": "Prüft den Trainingsverlauf",
+        "readRecovery": "Prüft Erholung und Schlaf",
+        "readProfile": "Liest Profil und Zonen",
+        "readGroup": "Prüft die Gruppe",
+        "choosePlanApproach": "Wählt den Trainingsansatz",
+        "readPlan": "Liest den aktuellen Plan",
+        "pickWorkouts": "Wählt die Einheiten",
+        "savePlan": "Speichert den Plan",
+        "checkWeather": "Prüft das Wetter",
+        "nutrition": "Berechnet den Ernährungsbedarf",
+        "predict": "Schätzt die Leistung"
+      },
+      "elapsedSeconds": "{{seconds}} Sek.",
+      "elapsedMinutes": "{{minutes}} Min. {{seconds}} Sek.",
+      "elapsedHours": "{{hours}} Std. {{minutes}} Min.",
+      "safeToLeave": "Das kann ein paar Minuten dauern. Du kannst diese Seite verlassen – die Antwort wartet hier auf dich.",
+      "foldedOne": "{{duration}} nachgedacht · 1 Schritt",
+      "foldedN": "{{duration}} nachgedacht · {{count}} Schritte",
+      "foldedNoSteps": "{{duration}} nachgedacht",
+      "showSteps": "Schritte anzeigen",
+      "hideSteps": "Schritte ausblenden",
+      "stepDone": "Erledigt",
+      "stepsLabel": "Schritte der Antwort",
+      "tabTitle": "({{count}}) {{title}}"
+    }
   },
   "coachReview": {
     "allAthletes": "Alle Athleten",

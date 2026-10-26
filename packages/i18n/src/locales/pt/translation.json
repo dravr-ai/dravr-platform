@@ -1172,7 +1172,41 @@
     "verdictCategoryOther": "outra",
     "roomCorrectionOwn": "Correção do teu treinador humano",
     "roomCorrectionTo": "Correção do treinador humano para {{name}}",
-    "roomCorrectionOf": "Sobre: {{excerpt}}"
+    "roomCorrectionOf": "Sobre: {{excerpt}}",
+    "turn": {
+      "step": {
+        "thinking": "A pensar",
+        "readingQuestion": "A ler a tua pergunta",
+        "analysing": "A analisar os resultados",
+        "writing": "A escrever a resposta",
+        "lookingUp": "A procurar informação",
+        "readActivities": "A ler as atividades",
+        "readMemberActivities": "A ler as atividades de um membro",
+        "readHistory": "A rever o histórico de treino",
+        "readRecovery": "A verificar a recuperação e o sono",
+        "readProfile": "A ler o perfil e as zonas",
+        "readGroup": "A rever o grupo",
+        "choosePlanApproach": "A escolher a abordagem de treino",
+        "readPlan": "A ler o plano atual",
+        "pickWorkouts": "A escolher os treinos",
+        "savePlan": "A guardar o plano",
+        "checkWeather": "A consultar a meteorologia",
+        "nutrition": "A calcular as necessidades nutricionais",
+        "predict": "A estimar o desempenho"
+      },
+      "elapsedSeconds": "{{seconds}} s",
+      "elapsedMinutes": "{{minutes}} min {{seconds}} s",
+      "elapsedHours": "{{hours}} h {{minutes}} min",
+      "safeToLeave": "Isto pode demorar alguns minutos. Podes sair desta página: a resposta vai estar aqui à tua espera.",
+      "foldedOne": "Pensou durante {{duration}} · 1 passo",
+      "foldedN": "Pensou durante {{duration}} · {{count}} passos",
+      "foldedNoSteps": "Pensou durante {{duration}}",
+      "showSteps": "Ver os passos",
+      "hideSteps": "Ocultar os passos",
+      "stepDone": "Concluído",
+      "stepsLabel": "Passos da resposta",
+      "tabTitle": "({{count}}) {{title}}"
+    }
   },
   "coachReview": {
     "allAthletes": "Todos os atletas",

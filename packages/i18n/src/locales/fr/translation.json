@@ -1172,7 +1172,41 @@
     "verdictCategoryOther": "autre",
     "roomCorrectionOwn": "Correction de ton coach humain",
     "roomCorrectionTo": "Correction du coach humain pour {{name}}",
-    "roomCorrectionOf": "Sur : {{excerpt}}"
+    "roomCorrectionOf": "Sur : {{excerpt}}",
+    "turn": {
+      "step": {
+        "thinking": "Réflexion",
+        "readingQuestion": "Lecture de ta question",
+        "analysing": "Analyse des résultats",
+        "writing": "Rédaction de la réponse",
+        "lookingUp": "Recherche d’informations",
+        "readActivities": "Lecture des activités",
+        "readMemberActivities": "Lecture des activités d’un membre",
+        "readHistory": "Lecture de l’historique d’entraînement",
+        "readRecovery": "Lecture de la récupération et du sommeil",
+        "readProfile": "Lecture du profil et des zones",
+        "readGroup": "Lecture du groupe",
+        "choosePlanApproach": "Choix de l’approche d’entraînement",
+        "readPlan": "Lecture du plan actuel",
+        "pickWorkouts": "Choix des séances",
+        "savePlan": "Enregistrement du plan",
+        "checkWeather": "Consultation de la météo",
+        "nutrition": "Calcul des besoins nutritionnels",
+        "predict": "Estimation des performances"
+      },
+      "elapsedSeconds": "{{seconds}} s",
+      "elapsedMinutes": "{{minutes}} min {{seconds}} s",
+      "elapsedHours": "{{hours}} h {{minutes}} min",
+      "safeToLeave": "Ça peut prendre quelques minutes. Tu peux quitter cette page : la réponse t’attendra ici.",
+      "foldedOne": "Réfléchi {{duration}} · 1 étape",
+      "foldedN": "Réfléchi {{duration}} · {{count}} étapes",
+      "foldedNoSteps": "Réfléchi {{duration}}",
+      "showSteps": "Voir les étapes",
+      "hideSteps": "Masquer les étapes",
+      "stepDone": "Terminé",
+      "stepsLabel": "Étapes de la réponse",
+      "tabTitle": "({{count}}) {{title}}"
+    }
   },
   "coachReview": {
     "allAthletes": "Tous les athlètes",

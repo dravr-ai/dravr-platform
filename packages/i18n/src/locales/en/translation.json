@@ -1172,7 +1172,41 @@
     "verdictCategoryOther": "other",
     "roomCorrectionOwn": "Your human coach's correction",
     "roomCorrectionTo": "Human coach's correction for {{name}}",
-    "roomCorrectionOf": "On: {{excerpt}}"
+    "roomCorrectionOf": "On: {{excerpt}}",
+    "turn": {
+      "step": {
+        "thinking": "Thinking",
+        "readingQuestion": "Reading your question",
+        "analysing": "Analysing the results",
+        "writing": "Writing the reply",
+        "lookingUp": "Looking things up",
+        "readActivities": "Reading activities",
+        "readMemberActivities": "Reading a member’s activities",
+        "readHistory": "Reviewing training history",
+        "readRecovery": "Checking recovery and sleep",
+        "readProfile": "Reading profile and zones",
+        "readGroup": "Reviewing the group",
+        "choosePlanApproach": "Choosing the training approach",
+        "readPlan": "Reading the current plan",
+        "pickWorkouts": "Picking workouts",
+        "savePlan": "Saving the plan",
+        "checkWeather": "Checking the weather",
+        "nutrition": "Working out nutrition needs",
+        "predict": "Estimating performance"
+      },
+      "elapsedSeconds": "{{seconds}} s",
+      "elapsedMinutes": "{{minutes}} min {{seconds}} s",
+      "elapsedHours": "{{hours}} h {{minutes}} min",
+      "safeToLeave": "This can take a few minutes. You can leave this page — the reply will be waiting here.",
+      "foldedOne": "Thought for {{duration}} · 1 step",
+      "foldedN": "Thought for {{duration}} · {{count}} steps",
+      "foldedNoSteps": "Thought for {{duration}}",
+      "showSteps": "Show steps",
+      "hideSteps": "Hide steps",
+      "stepDone": "Done",
+      "stepsLabel": "Reply steps",
+      "tabTitle": "({{count}}) {{title}}"
+    }
   },
   "coachReview": {
     "allAthletes": "All athletes",
