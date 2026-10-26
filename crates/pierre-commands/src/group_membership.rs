@@ -146,9 +146,16 @@ impl GroupCreateHandler {
     /// other thread is left as it is and a group-scoped conversation named
     /// after the group is created beside it, which is how a member's group
     /// chat is made everywhere else (`POST /api/chat/conversations` with a
-    /// `group_id`, `/group join`). A messaging DM's session conversation is
-    /// the athlete's one thread on that channel and stays theirs, so it is
-    /// never bound; a dispatch with no conversation has nothing to file.
+    /// `group_id`, `/group join`). In the app the creator is moved onto it,
+    /// and this command's own turn with them: the answer and its invite
+    /// button belong to the new group's chat, where `/group invite` resolves
+    /// the new group rather than the one the command was typed in
+    /// (carnet#1186). Home's personal thread stays put, since Home never opens
+    /// a room. A messaging channel keeps its session where it was — a
+    /// rotation there would post the new thread's welcome into the room. A
+    /// messaging DM's session conversation is the athlete's one thread on
+    /// that channel and stays theirs, so it is never bound; a dispatch with
+    /// no conversation has nothing to file.
     async fn file_creator_conversation(
         ctx: &PlatformCommandContext,
         thread: Option<ConversationRecord>,
@@ -204,15 +211,20 @@ impl GroupCreateHandler {
             }
         }
 
-        chat.create_conversation(
-            &user_id,
-            ctx.tenant_id,
-            &group.name,
-            &thread.model,
-            Some(&group.agent_id),
-            Some(&group_id),
-        )
-        .await?;
+        let room = chat
+            .create_conversation(
+                &user_id,
+                ctx.tenant_id,
+                &group.name,
+                &thread.model,
+                Some(&group.agent_id),
+                Some(&group_id),
+            )
+            .await?;
+        // LIMITATION(registre#1187): `file_creator_conversation` keeps Home's personal thread in place, so the card's bare `/group invite` resolves no group there.
+        if in_app && !thread.personal {
+            ctx.rotation.record_with_turn(room.id);
+        }
         Ok(())
     }
 }

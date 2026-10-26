@@ -44,8 +44,10 @@ pub struct TurnResponse {
     /// Absent on every ordinary turn. `/reset` sets it: the thread the client
     /// posted to is archived and the next turn belongs to this one, so a
     /// client that reads it back different from the id it posted to opens
-    /// this one. A messaging channel needs no such field — its session was
-    /// already repointed server-side.
+    /// this one. `/group create` sets it when it files the new group's chat
+    /// beside the thread, and the command's own rows are filed there rather
+    /// than in the thread posted to (carnet#1186). A messaging channel needs
+    /// no such field — its session was already repointed server-side.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rotated_to_conversation_id: Option<String>,
     /// The divider of the topic this turn opened, when `/reset` was typed in

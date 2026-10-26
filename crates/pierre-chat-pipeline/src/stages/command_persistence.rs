@@ -20,6 +20,7 @@
 //! answer — the caller's provider list, an invite code — is not part of what
 //! the room saw.
 
+use pierre_commands::RotatedTo;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     AddMessageParams, ConversationRecord, MessageRecord, PersistedAction, PersistedReplyBlock,
@@ -153,8 +154,21 @@ pub(crate) fn actions_block(title: Option<&str>, actions: &[TurnAction]) -> Pers
     }
 }
 
+/// The conversation a command turn's rows are filed in: the one the command
+/// moved the athlete onto when it took its turn along — `/group create`
+/// opening the group's chat beside the thread (carnet#1186) — else the
+/// thread it was typed in.
+fn filed_in<'a>(typed_in: &'a str, command: &'a CommandTurn) -> &'a str {
+    match &command.rotated_to {
+        Some(RotatedTo::AthleteAndTurn(moved)) => moved,
+        _ => typed_in,
+    }
+}
+
 /// Write a command turn's two rows and advance the caller's read marker.
 ///
+/// The rows land in the thread the command was typed in, unless the command
+/// moved the athlete and its turn with them ([`RotatedTo::AthleteAndTurn`]).
 /// The caller has just been shown the answer, so the marker moves to the
 /// assistant row the same way it does after a coaching turn; the command
 /// therefore never counts as unread for the athlete who ran it.
@@ -170,10 +184,11 @@ pub async fn persist_command_turn(
     command: &CommandTurn,
 ) -> AppResult<PersistedCommandReply> {
     let user_id = request.user_id.to_string();
+    let conversation_id = filed_in(request.conversation_id, command);
     let user_message = chat
         .add_message(&AddMessageParams {
             tenant_id: request.conversation_tenant_id,
-            conversation_id: request.conversation_id,
+            conversation_id,
             user_id: &user_id,
             role: "user",
             content: request.text,
@@ -195,7 +210,7 @@ pub async fn persist_command_turn(
     let assistant_message = chat
         .add_message(&AddMessageParams {
             tenant_id: request.conversation_tenant_id,
-            conversation_id: request.conversation_id,
+            conversation_id,
             user_id: &user_id,
             role: "assistant",
             content: &command.text,
@@ -211,7 +226,7 @@ pub async fn persist_command_turn(
 
     if !chat
         .mark_conversation_read(
-            request.conversation_id,
+            conversation_id,
             &user_id,
             request.conversation_tenant_id,
             Some(&assistant_message.id),
@@ -219,17 +234,13 @@ pub async fn persist_command_turn(
         .await?
     {
         warn!(
-            conversation_id = %request.conversation_id,
+            conversation_id = %conversation_id,
             "command reply persisted but the caller's read marker did not advance"
         );
     }
 
     let conversation = chat
-        .get_conversation(
-            request.conversation_id,
-            &user_id,
-            request.conversation_tenant_id,
-        )
+        .get_conversation(conversation_id, &user_id, request.conversation_tenant_id)
         .await?
         .ok_or_else(|| {
             AppError::internal("Conversation vanished after its command reply was persisted")

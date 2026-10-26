@@ -658,15 +658,23 @@ export function useChatThread({
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.list() });
         }
 
-        // `/reset` archives this thread and continues on a fresh one. Selecting
-        // it is the whole switch: the selection drives the hash, the messages
-        // query, the verdicts read and the read marker. Last in the handler,
-        // because everything above is keyed on the conversation the turn was
-        // posted to — including the cache write that clears the streaming
-        // bubble — and the list invalidation above has already brought the new
-        // row in.
+        // `/reset` archives this thread and continues on a fresh one;
+        // `/group create` opens the new group's chat and files its answer
+        // there. Selecting it is the whole switch: the selection drives the
+        // hash, the messages query, the verdicts read and the read marker.
+        // Last in the handler, because everything above is keyed on the
+        // conversation the turn was posted to — including the cache write that
+        // clears the streaming bubble — and the list invalidation above has
+        // already brought the new row in. This turn's rows leave the thread
+        // posted to: the server filed them there (`/reset`) or in the new one
+        // (`/group create`), and the next read of this thread says which,
+        // rather than a group chat showing another group's creation until then.
         const rotatedTo = turn.rotated_to_conversation_id;
         if (rotatedTo && rotatedTo !== selectedConversation) {
+          const turnRows = new Set([userMessageId, echoed?.id, assistantMessageId]);
+          queryClient.setQueryData(conversationKey, (old: MessagesResponse | undefined) =>
+            old ? { ...old, messages: old.messages.filter(m => !turnRows.has(m.id)) } : old,
+          );
           onSelectConversation(rotatedTo);
         }
         // `/reset` in the personal thread opens a topic instead: the athlete

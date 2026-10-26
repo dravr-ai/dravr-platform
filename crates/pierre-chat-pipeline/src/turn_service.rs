@@ -37,6 +37,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use pierre_commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+use pierre_commands::RotatedTo;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_USE_CASES_NEXT_TIME};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
@@ -193,12 +194,16 @@ pub struct CommandTurn {
     /// Controls the athlete can press.
     pub actions: Vec<TurnAction>,
     /// The conversation the athlete is now on, when the command moved them
-    /// — `/reset` and nothing else today.
+    /// — `/reset`, and `/group create` in the app.
     ///
     /// A messaging channel has already had its session repointed by the
     /// handler, so this is the in-app clients' copy of the same fact: the
     /// thread they posted to is not the thread the next turn belongs to.
-    pub rotated_to: Option<String>,
+    /// [`RotatedTo::AthleteAndTurn`] files this turn's own rows there too:
+    /// `/group create`'s answer and invite button belong to the group's new
+    /// chat (carnet#1186), while `/reset` leaves its rows in the thread it
+    /// archives.
+    pub rotated_to: Option<RotatedTo>,
     /// The divider of the topic the command opened in the athlete's personal
     /// thread, where `/reset` divides the thread instead of rotating it
     /// (carnet#840). The athlete stays on the thread; the in-app clients
@@ -652,7 +657,7 @@ pub async fn dispatch_slash(
     teach_tapped_command(ctx, request, &mut command);
     offer_command_steps(ctx, request, &user_id, &mut command).await;
     persist_if_covered(ctx, request, &mut command).await;
-    command.welcome = match command.rotated_to.as_deref() {
+    command.welcome = match command.rotated_to.as_ref().map(RotatedTo::conversation_id) {
         // A thread the command just forged held no agent before it existed.
         Some(fresh) => welcome_if_bound(ctx, request, &user_id, fresh, None).await,
         // A topic the command just opened is a fresh start the same way: its

@@ -416,11 +416,12 @@ impl TurnEgress {
             },
             conversation_updated_at,
             // A rotated turn's welcome opens the fresh thread, which the client
-            // reads whole; carried here it would be drawn under the archived one.
+            // reads whole; carried here it would be drawn under the thread the
+            // athlete left.
             welcome_message: welcome
                 .filter(|_| rotated_to.is_none())
                 .map(|posted| welcome_response(posted.message)),
-            rotated_to_conversation_id: rotated_to,
+            rotated_to_conversation_id: rotated_to.map(pipeline::RotatedTo::into_conversation_id),
             opened_topic_divider_id: opened_topic,
             telemetry: TurnTelemetryResponse {
                 model: COMMAND_MODEL.to_owned(),

@@ -89,6 +89,9 @@ pub use usage_counters::{increment_usage_counters_scoped, UsageIncrementScope};
 // depends on, reads the same type; re-exported because [`TurnRequest`] and
 // [`SlashRequest`] carry it.
 pub use pierre_core::models::{InputSource, TurnOrigin};
+// Defined in `pierre-commands`, where the handler records it; re-exported
+// because [`CommandTurn`] carries it.
+pub use pierre_commands::RotatedTo;
 pub use turn::{TurnInput, UserMessageResult};
 
 #[cfg(feature = "tools-verification")]

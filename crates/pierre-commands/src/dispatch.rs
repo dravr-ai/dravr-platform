@@ -18,7 +18,9 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::guided_walk::refused_in_athlete_thread;
-use crate::{CommandHandler, CommandHandlerRegistry, ConversationRotation, PlatformCommandContext};
+use crate::{
+    CommandHandler, CommandHandlerRegistry, ConversationRotation, PlatformCommandContext, RotatedTo,
+};
 
 /// Minimal request payload for [`try_dispatch`].
 ///
@@ -150,10 +152,11 @@ pub enum DispatchOutcome {
         /// Handler output. May be a plain text reply or a card with actions.
         response: CommandResponse,
         /// The conversation the athlete is now on, when the handler moved
-        /// them — `/reset` and nothing else today. The surface follows it:
-        /// a messaging channel already had its session repointed, the in-app
-        /// clients open the id.
-        rotated_to: Option<String>,
+        /// them — `/reset`, and `/group create` in the app, which moves the
+        /// command's own turn with them (carnet#1186). The surface follows
+        /// it: a messaging channel already had its session repointed, the
+        /// in-app clients open the id.
+        rotated_to: Option<RotatedTo>,
         /// The divider of the topic the handler opened in the athlete's
         /// personal thread instead of moving them — `/reset` there
         /// (carnet#840). The in-app clients re-read the thread to draw it.
@@ -277,7 +280,7 @@ pub async fn try_dispatch(req: DispatchRequest<'_>) -> AppResult<DispatchOutcome
     Ok(DispatchOutcome::Executed {
         command_name: parsed.name,
         response,
-        rotated_to: ctx.rotation.taken().map(ToOwned::to_owned),
+        rotated_to: ctx.rotation.taken().cloned(),
         opened_topic: ctx.rotation.opened_topic().map(ToOwned::to_owned),
     })
 }

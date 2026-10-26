@@ -700,6 +700,47 @@ describe('ChatTab conversation rotation', () => {
     expect(onSelectConversation).not.toHaveBeenCalled();
   });
 
+  // carnet#1186: `/group create` typed in a group chat files its line and its
+  // answer in the new group's chat. The thread it was posted to keeps neither
+  // in the meantime, and keeps everything it held before: the next read of
+  // that thread says what it holds.
+  it('leaves none of a moved turn’s lines in the thread it was posted to', async () => {
+    const onSelectConversation = vi.fn();
+    getConversationMessages.mockResolvedValue({
+      messages: [
+        {
+          id: 'm-earlier',
+          role: 'assistant',
+          content: 'Welcome to First Club.',
+          created_at: '2026-08-23T09:00:00Z',
+        },
+      ],
+    });
+    sendTurn.mockImplementation(
+      async (
+        _conversationId: string,
+        _content: string,
+        options: { onDone?: (turn: TurnEnvelope) => void },
+      ) => {
+        const turn = turnEnvelope();
+        turn.user_message = { ...turn.user_message, content: '/group create Coacher JF' };
+        turn.assistant.message = { ...turn.assistant.message, content: 'Group “Coacher JF” created.' };
+        turn.assistant.finish_reason = 'command';
+        turn.rotated_to_conversation_id = 'conv-new-group';
+        options.onDone?.(turn);
+      },
+    );
+
+    renderChatTab({ onSelectConversation });
+    expect(await screen.findByText('Welcome to First Club.')).toBeInTheDocument();
+    await send('/group create Coacher JF');
+
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith('conv-new-group'));
+    await waitFor(() => expect(screen.queryByText('/group create Coacher JF')).toBeNull());
+    expect(screen.queryByText('Group “Coacher JF” created.')).toBeNull();
+    expect(screen.getByText('Welcome to First Club.')).toBeInTheDocument();
+  });
+
   // carnet#840: `/reset` in the personal thread opens a topic in place. The
   // athlete stays, and the divider — written before the turn's own rows — is
   // drawn by re-reading the thread, as a rule rather than a bubble.

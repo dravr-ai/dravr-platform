@@ -203,27 +203,76 @@ impl fmt::Debug for PlatformCommandContext {
 ///
 /// Write-once: a command moves a thread at most once, and a second write
 /// would mean two handlers each believing they owned the turn. Defaults to
-/// "nothing moved", which is the answer for all but `/reset`.
+/// "nothing moved", which is the answer for all but `/reset` and an in-app
+/// `/group create` that files the group's chat beside the thread.
 #[derive(Debug, Default)]
 pub struct ConversationRotation(OnceLock<ThreadMove>);
 
 /// What a handler did to the thread the command was typed in.
 #[derive(Debug)]
 enum ThreadMove {
-    /// Moved the athlete onto another conversation, by its id.
-    Rotated(String),
+    /// Moved the athlete onto another conversation, and the command's own
+    /// turn with them when [`RotatedTo`] says so.
+    Rotated(RotatedTo),
     /// Opened a new topic inside the same conversation — the athlete's
     /// personal thread (carnet#840) — by the divider row's id.
     OpenedTopic(String),
 }
 
+/// The conversation a command moved the athlete onto, by its id, and whether
+/// the command's own turn — its line, its answer and the caller's read
+/// marker — moved with them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RotatedTo {
+    /// The athlete alone: the command's rows stay in the thread it was typed
+    /// in — `/reset`, whose rows stay in the thread it archives.
+    Athlete(String),
+    /// The athlete and the command's own turn: its rows are filed in the
+    /// conversation it moved them onto — `/group create`, whose answer and
+    /// invite button belong to the group's new chat (carnet#1186).
+    AthleteAndTurn(String),
+}
+
+impl RotatedTo {
+    /// The conversation the athlete is now on.
+    #[must_use]
+    pub fn conversation_id(&self) -> &str {
+        match self {
+            Self::Athlete(conversation_id) | Self::AthleteAndTurn(conversation_id) => {
+                conversation_id
+            }
+        }
+    }
+
+    /// The conversation the athlete is now on, owned.
+    #[must_use]
+    pub fn into_conversation_id(self) -> String {
+        match self {
+            Self::Athlete(conversation_id) | Self::AthleteAndTurn(conversation_id) => {
+                conversation_id
+            }
+        }
+    }
+}
+
 impl ConversationRotation {
-    /// Record the conversation the athlete is now on.
+    /// Record the conversation the athlete is now on. The command's own turn
+    /// stays in the thread it was typed in.
     ///
     /// A second call is ignored and logged: the first writer is the one that
     /// actually rotated the thread.
     pub fn record(&self, conversation_id: String) {
-        self.set(ThreadMove::Rotated(conversation_id));
+        self.set(ThreadMove::Rotated(RotatedTo::Athlete(conversation_id)));
+    }
+
+    /// Record the conversation the athlete is now on, and that the command's
+    /// own turn belongs there rather than in the thread it was typed in —
+    /// `/group create`, whose answer and invite button belong to the group's
+    /// new chat (carnet#1186). Write-once like [`Self::record`].
+    pub fn record_with_turn(&self, conversation_id: String) {
+        self.set(ThreadMove::Rotated(RotatedTo::AthleteAndTurn(
+            conversation_id,
+        )));
     }
 
     /// Record that the athlete stays on the thread, in a new topic opened by
@@ -241,11 +290,12 @@ impl ConversationRotation {
         }
     }
 
-    /// The recorded conversation, or `None` when the turn stayed put.
+    /// The recorded conversation and whether the command's turn moved with
+    /// the athlete, or `None` when the turn stayed put.
     #[must_use]
-    pub fn taken(&self) -> Option<&str> {
+    pub fn taken(&self) -> Option<&RotatedTo> {
         match self.0.get() {
-            Some(ThreadMove::Rotated(conversation_id)) => Some(conversation_id),
+            Some(ThreadMove::Rotated(moved)) => Some(moved),
             _ => None,
         }
     }

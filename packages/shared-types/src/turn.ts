@@ -148,6 +148,9 @@ export interface TurnEnvelope {
    * Absent on every ordinary turn. `/reset` sets it: the thread this turn was
    * posted to is archived and the next one belongs here, so a client that
    * reads back an id different from the one it posted to opens that thread.
+   * `/group create` sets it when it files the new group's chat beside the
+   * thread, and the command's own rows are filed there, not in the thread
+   * posted to.
    */
   rotated_to_conversation_id?: string;
   /**

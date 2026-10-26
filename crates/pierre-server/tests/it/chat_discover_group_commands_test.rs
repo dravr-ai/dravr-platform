@@ -768,7 +768,11 @@ async fn group_create_in_the_personal_thread_files_the_room_beside_it() {
     let personal = opened.conversation;
     assert!(personal.personal);
 
-    send(router, &auth, &personal.id, "/group create Sunday Runners").await;
+    let reply = send(router, &auth, &personal.id, "/group create Sunday Runners").await;
+    assert!(
+        reply.rotated_to_conversation_id.is_none(),
+        "Home never opens a room, so the athlete stays on their personal thread"
+    );
 
     let chat = &resources.common.repos.chat;
     let user = user_id.to_string();
@@ -962,6 +966,127 @@ async fn group_create_in_a_thread_with_history_files_a_group_conversation_beside
     assert_eq!(
         record.model, MODEL,
         "the group conversation inherits the thread's model"
+    );
+}
+
+/// `/group create` typed in a group chat — a coach in one group's room making
+/// another — moves the coach onto the new group's chat and files the
+/// command's answer there, never in the room it was typed in. Its invite
+/// button then lives where `/group invite` resolves the new group, not the
+/// one the coach was in (carnet#1186).
+#[tokio::test]
+async fn group_create_in_a_group_chat_moves_the_creator_and_its_answer_to_the_new_group() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant_id, auth) =
+        seed_user_tenant(&resources, "group-from-room@test.com", "professional").await;
+    seed_selected_agent(&resources, user_id, tenant_id, "Club Coach").await;
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let room = create_conversation(router.clone(), &auth).await;
+    let adopted = send(router.clone(), &auth, &room, "/group create First Club").await;
+    assert!(
+        adopted.rotated_to_conversation_id.is_none(),
+        "an empty thread becomes the room in place"
+    );
+    let repos = &resources.common.repos;
+    let user = user_id.to_string();
+    let first_group = repos
+        .chat
+        .get_conversation(&room, &user, tenant_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .group_id
+        .expect("the thread is the first group's room");
+
+    let reply = send(router.clone(), &auth, &room, "/group create Coacher JF").await;
+
+    let created = reply
+        .rotated_to_conversation_id
+        .clone()
+        .expect("the coach is moved onto the new group's chat");
+    let record = repos
+        .chat
+        .get_conversation(&created, &user, tenant_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        record.title, "Coacher JF",
+        "the chat the coach is moved onto is the new group's, named after it"
+    );
+    let second_group = record
+        .group_id
+        .expect("the new chat is bound to the new group");
+    assert_ne!(
+        second_group, first_group,
+        "the new chat is bound to the group just created, not the room's"
+    );
+    assert!(
+        reply.welcome_message.is_none(),
+        "the new chat's welcome is read with it, never drawn under the room"
+    );
+
+    let announced = rendered(&resources, KEY_GROUP_CREATED, &["Coacher JF", "Club Coach"]);
+    let in_room = repos
+        .chat
+        .get_messages(&room, &user, tenant_id)
+        .await
+        .unwrap();
+    assert!(
+        in_room
+            .iter()
+            .all(|m| m.content != "/group create Coacher JF" && m.content != announced),
+        "the room the command was typed in holds none of it"
+    );
+    let in_new = repos
+        .chat
+        .get_messages(&created, &user, tenant_id)
+        .await
+        .unwrap();
+    let line = in_new
+        .iter()
+        .find(|m| m.content == "/group create Coacher JF")
+        .expect("the command line is filed in the new chat");
+    let answer = in_new
+        .iter()
+        .find(|m| m.content == announced)
+        .expect("the answer is filed in the new chat");
+    assert_eq!(
+        line.id, reply.user_message.id,
+        "the turn reports the line under the id it was filed with"
+    );
+    assert_eq!(
+        answer.id, reply.assistant.message.id,
+        "the turn reports the answer under the id it was filed with"
+    );
+    assert_eq!(
+        line.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON),
+        "the moved line is still stamped a command, so no prompt replays it"
+    );
+    assert_eq!(
+        answer.finish_reason.as_deref(),
+        Some(COMMAND_FINISH_REASON),
+        "the moved answer is still stamped a command, so no prompt replays it"
+    );
+    assert!(
+        answer
+            .content_blocks
+            .as_deref()
+            .is_some_and(|blocks| blocks.contains("/group invite")),
+        "the invite button is kept with the answer"
+    );
+
+    // Pressed where it now lives, the button invites to the new group.
+    let invite = send(router, &auth, &created, "/group invite").await;
+    let body = &invite.assistant.message.content;
+    assert!(
+        body.contains("Coacher JF"),
+        "the invite names the group just created: {body}"
+    );
+    assert!(
+        !body.contains("First Club"),
+        "the invite is never for the room the command was typed in: {body}"
     );
 }
 
