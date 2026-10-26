@@ -2927,7 +2927,7 @@
       "goalLine": "Objetivo: {{goal}}",
       "heading": "{{name}}, este es tu equipo inicial",
       "headingNoName": "Este es tu equipo inicial",
-      "leadHeading": "Lleva tu conversación de Inicio",
+      "leadHeading": "Tu agente principal en Inicio",
       "leadSheetTitle": "Elige quién lleva tu conversación",
       "membersLegend": "También en tu equipo",
       "noMembers": "Ningún otro agente encaja todavía con tus datos. Explora todos los agentes para añadir uno.",
