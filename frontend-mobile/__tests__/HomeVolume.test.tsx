@@ -7,12 +7,26 @@
 import React from 'react';
 import { fireEvent, render, within } from '@testing-library/react-native';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
-import { UnitsContext } from '@pierre/ui-logic';
+import { UnitsContext, useVolumeSportFilter } from '@pierre/ui-logic';
 import { HomeVolume } from '../src/screens/home/HomeVolume';
 import { VOLUME_RESPONSE } from '../integration/app/helpers/homeFixtures';
 
+/** The card as the Home screen holds it: the screen owns the sport choice over the same weeks. */
+function VolumeOnScreen({
+  response,
+  isError,
+  onRetry,
+}: {
+  response: TrainingVolumeResponse | null;
+  isError: boolean;
+  onRetry: () => void;
+}) {
+  const filter = useVolumeSportFilter(response?.weeks);
+  return <HomeVolume response={response} isError={isError} onRetry={onRetry} filter={filter} />;
+}
+
 function renderVolume(response: TrainingVolumeResponse | null, isError = false, onRetry = jest.fn()) {
-  return render(<HomeVolume response={response} isError={isError} onRetry={onRetry} />);
+  return render(<VolumeOnScreen response={response} isError={isError} onRetry={onRetry} />);
 }
 
 /** The chart reports its width, as the first layout does on a device. */
@@ -37,7 +51,7 @@ describe('HomeVolume', () => {
   it('reads the week in miles and feet for an athlete on imperial units (carnet#835)', () => {
     const screen = render(
       <UnitsContext.Provider value="imperial">
-        <HomeVolume response={VOLUME_RESPONSE} isError={false} onRetry={jest.fn()} />
+        <VolumeOnScreen response={VOLUME_RESPONSE} isError={false} onRetry={jest.fn()} />
       </UnitsContext.Provider>,
     );
     layOut(screen);

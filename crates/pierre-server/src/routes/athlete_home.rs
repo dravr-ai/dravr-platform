@@ -9,9 +9,10 @@
 //! Four reads back the page an athlete lands on after login, and the view of
 //! one activity a tap on it opens, on web and mobile alike:
 //!
-//! - `GET /api/me/activities/recent?limit=N` — the newest cached activities
-//!   across every provider, served from the durable cache in one query, one
-//!   row per workout: a ride a watch synced to Strava, Garmin and COROS is
+//! - `GET /api/me/activities/recent?limit=N[&sport=S]` — the newest cached
+//!   activities, of one sport when the volume card asks, across every
+//!   provider, served from the durable cache in one query, one row per
+//!   workout: a ride a watch synced to Strava, Garmin and COROS is
 //!   one row, merged by the same session merger the chat turn lists
 //!   activities through. A login never waits on a provider: when a provider's
 //!   own cache is older than the freshness bands allow, a refresh is started
@@ -148,6 +149,7 @@ use crate::mcp::resources::ServerContext;
 use crate::services::activity_detail::read_activity_detail;
 use crate::services::activity_route::{activity_route, CachedActivityRef, RouteAsk, RouteMiss};
 use crate::services::training_status::{training_status, TrainingStatus};
+use crate::services::training_volume::volume_sport;
 use crate::tools::runtime_adapter::into_runtime;
 use activity_view::{ActivityLap, ActivitySplit};
 
@@ -192,6 +194,11 @@ pub struct RecentActivitiesQuery {
     /// otherwise earns it.
     #[serde(default)]
     pub retry: bool,
+    /// Only workouts of this sport, spelled as the training volume's weeks
+    /// spell it ([`volume_sport`]) — the sport the athlete picked on the
+    /// volume card. Absent, every sport.
+    #[serde(default)]
+    pub sport: Option<String>,
 }
 
 /// Query parameters for `GET /api/me/activities/{provider}/{activity_id}/route`.
@@ -557,6 +564,9 @@ async fn get_recent_activities(
         now,
         shown,
         limit * copies_per_workout(connections.len()),
+        // An empty sport names none: it is every sport, never a scan of the
+        // whole cache for a sport no workout carries.
+        query.sport.as_deref().filter(|sport| !sport.is_empty()),
     )
     .await?;
     let as_of = repos
@@ -584,6 +594,8 @@ async fn get_recent_activities(
 /// the rows read merge into fewer than `limit` workouts and the read came
 /// back full, the cache holds more: the read is repeated at twice the size
 /// until `limit` workouts are found or the retention window is exhausted.
+/// A `sport` keeps only that sport's workouts, so the read keeps growing
+/// until it finds `limit` of them or runs out of cache.
 async fn recent_workouts(
     resources: &ServerContext,
     user_id: Uuid,
@@ -591,6 +603,7 @@ async fn recent_workouts(
     now: DateTime<Utc>,
     limit: usize,
     first_read: i64,
+    sport: Option<&str>,
 ) -> AppResult<Vec<HomeActivity>> {
     let since = now - Duration::days(activity_cache_retention_days());
     let mut read = first_read.max(1);
@@ -601,7 +614,7 @@ async fn recent_workouts(
             .get_cached_activity_rows(user_id, tenant_id, since, now, read)
             .await?;
         let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
-        let workouts = home_activities(served_rows(resources, rows), limit);
+        let workouts = home_activities(served_rows(resources, rows), limit, sport);
         if workouts.len() >= limit || exhausted {
             return Ok(workouts);
         }
@@ -631,7 +644,7 @@ fn copies_per_workout(connections: usize) -> i64 {
 }
 
 /// The Home rows for cached rows, newest first, one per workout, at most
-/// `limit` of them.
+/// `limit` of them, of `sport` alone when one is named.
 ///
 /// Two passes, both over the rows already read:
 ///
@@ -650,10 +663,15 @@ fn copies_per_workout(connections: usize) -> i64 {
 /// those of the copy whose route it draws ([`route_copy`]): a GPS recording
 /// over a manual entry of the same workout. Either is one of the athlete's
 /// own cached rows, so the route endpoint serves its provider and id.
-fn home_activities(rows: Vec<CachedActivityRow>, limit: usize) -> Vec<HomeActivity> {
+fn home_activities(
+    rows: Vec<CachedActivityRow>,
+    limit: usize,
+    sport: Option<&str>,
+) -> Vec<HomeActivity> {
     let distinct = distinct_rows(rows);
     workouts(&distinct)
         .iter()
+        .filter(|workout| sport.is_none_or(|sport| volume_sport(&workout.session) == sport))
         .take(limit)
         .map(HomeActivity::from_workout)
         .collect()

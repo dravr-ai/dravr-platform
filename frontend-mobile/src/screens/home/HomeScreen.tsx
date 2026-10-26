@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { ActivityRouteResponse, HomeActivity } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { useVolumeSportFilter } from '@pierre/ui-logic';
 import { BrandLockup } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import {
@@ -36,9 +37,11 @@ export function HomeScreen() {
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const plan = useTrainingPlan();
-  const recent = useRecentActivities();
   const status = useTrainingStatus();
   const volume = useTrainingVolume();
+  // The sport picked on the volume card filters the activities under it.
+  const sportFilter = useVolumeSportFilter(volume.data?.weeks);
+  const recent = useRecentActivities(sportFilter.sport);
   const uploader = useActivityUpload();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -153,7 +156,12 @@ export function HomeScreen() {
         />
         <HomeWeek response={plan.data ?? null} openDraft={openDraft} openActivity={openActivity} />
         <HomeStatus response={status.data ?? null} isError={status.isError} onRetry={() => void refetchStatus()} />
-        <HomeVolume response={volume.data ?? null} isError={volume.isError} onRetry={() => void refetchVolume()} />
+        <HomeVolume
+          response={volume.data ?? null}
+          isError={volume.isError}
+          onRetry={() => void refetchVolume()}
+          filter={sportFilter}
+        />
         <RecentActivities
           activities={recent.data?.activities ?? []}
           hasData={recent.data !== undefined}

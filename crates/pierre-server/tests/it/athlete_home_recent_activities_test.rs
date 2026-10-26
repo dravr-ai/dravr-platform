@@ -276,6 +276,72 @@ async fn the_limit_is_clamped_between_one_and_twenty() {
     assert_eq!(widest.last().map(String::as_str), Some("a20"));
 }
 
+/// The sports the training volume's weeks name, each once.
+async fn volume_sports(resources: &Arc<ServerContext>, token: &str) -> Vec<String> {
+    let (status, body) = get_json(resources, token, "/api/me/training-volume").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let mut sports: Vec<String> = body["weeks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|week| week["sports"].as_array().unwrap().iter())
+        .map(|sport| sport["sport_type"].as_str().unwrap().to_owned())
+        .collect();
+    sports.sort();
+    sports.dedup();
+    sports
+}
+
+#[tokio::test]
+async fn a_sport_picked_off_the_volume_card_filters_the_list_past_the_newest_rows() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-sport").await;
+    let mut rows: Vec<Activity> = (1..=6)
+        .map(|d| run(&format!("r{d}"), "strava", days_ago(d)))
+        .collect();
+    // The rides are older than the five newest runs, so a filter applied to
+    // the newest five alone would find none of them.
+    for d in [9, 12] {
+        rows.push(
+            ActivityBuilder::new(
+                format!("b{d}"),
+                format!("Ride {d}"),
+                SportType::Ride,
+                days_ago(d),
+                3_600,
+                "strava",
+            )
+            .distance_meters(30_000.0)
+            .build(),
+        );
+    }
+    cache(&resources, &athlete, "strava", &rows).await;
+
+    // The key the volume card offers is the key the list filters on.
+    let sports = volume_sports(&resources, &athlete.token).await;
+    assert_eq!(sports.len(), 2, "{sports:?}");
+    let ride = sports.iter().find(|sport| sport.as_str() != "run").unwrap();
+    assert_eq!(
+        ids(&recent(&resources, &athlete.token, &format!("?sport={ride}")).await),
+        ["b9", "b12"]
+    );
+    assert_eq!(
+        ids(&recent(&resources, &athlete.token, "?sport=run&limit=3").await),
+        ["r1", "r2", "r3"]
+    );
+    assert_eq!(
+        ids(&recent(&resources, &athlete.token, "?sport=swim").await),
+        Vec::<String>::new()
+    );
+    // An empty sport names none: every sport, as with no sport at all.
+    for query in ["", "?sport="] {
+        assert_eq!(
+            ids(&recent(&resources, &athlete.token, query).await),
+            ["r1", "r2", "r3", "r4", "r5"]
+        );
+    }
+}
+
 #[tokio::test]
 async fn a_row_carries_every_contract_field_with_nulls_where_nothing_was_recorded() {
     let resources = common::create_test_server_resources().await.unwrap();

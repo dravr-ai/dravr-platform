@@ -106,12 +106,14 @@ export function createHomeReadHooks(athleteApi: HomeReadApi, { useLanguage }: Ho
   /**
    * The recent-activities read, one cache entry for every reader: Home's list,
    * which also runs the stale-answer schedule, and any line that only shows
-   * what the list last read.
+   * what the list last read. A `sport` — picked on the volume card — is its
+   * own entry, so the unfiltered one those lines read stays every sport's.
    */
-  function recentActivitiesQuery() {
+  function recentActivitiesQuery(sport: string | null = null) {
     return {
-      queryKey: QUERY_KEYS.home.recentActivities(),
-      queryFn: () => athleteApi.getRecentActivities(),
+      queryKey: QUERY_KEYS.home.recentActivities(undefined, sport),
+      queryFn: () =>
+        sport === null ? athleteApi.getRecentActivities() : athleteApi.getRecentActivities(undefined, { sport }),
     };
   }
 
@@ -145,9 +147,9 @@ export function createHomeReadHooks(athleteApi: HomeReadApi, { useLanguage }: Ho
    * holds when the page mounts — left by an earlier visit, or restored from
    * disk on the phone — is judged like any other.
    */
-  function useRecentActivities(): RecentActivitiesState {
+  function useRecentActivities(sport: string | null = null): RecentActivitiesState {
     const queryClient = useQueryClient();
-    const query = useQuery(recentActivitiesQuery());
+    const query = useQuery(recentActivitiesQuery(sport));
 
     const stale = query.data?.stale === true;
     const { refetch, dataUpdatedAt, errorUpdateCount } = query;
@@ -283,12 +285,13 @@ export function createHomeReadHooks(athleteApi: HomeReadApi, { useLanguage }: Ho
       // any other; a failed retry leaves the rows it had.
       track(
         queryClient.fetchQuery({
-          queryKey: QUERY_KEYS.home.recentActivities(),
-          queryFn: () => athleteApi.getRecentActivities(undefined, { retry: true }),
+          queryKey: QUERY_KEYS.home.recentActivities(undefined, sport),
+          queryFn: () =>
+            athleteApi.getRecentActivities(undefined, sport === null ? { retry: true } : { retry: true, sport }),
           staleTime: 0,
         }),
       ).catch(() => undefined);
-    }, [queryClient, track]);
+    }, [queryClient, track, sport]);
 
     // What the page may say is under way. The server answers `stale` only
     // when a refresh it started — or one already running — is reading a

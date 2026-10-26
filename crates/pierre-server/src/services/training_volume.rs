@@ -32,6 +32,14 @@ pub const VOLUME_WEEKS: i64 = 12;
 /// The sport an activity is summed under when its sport has no spelling.
 const UNNAMED_SPORT: &str = "other";
 
+/// The sport `session` is summed under — the key a week's `sports` entry
+/// carries, and the one the recent list filters on when the athlete picks a
+/// sport off the volume card.
+#[must_use]
+pub fn volume_sport(session: &Activity) -> String {
+    sport_type_string(session).unwrap_or_else(|| UNNAMED_SPORT.to_owned())
+}
+
 /// Body of `GET /api/me/training-volume`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TrainingVolume {
@@ -150,7 +158,7 @@ pub fn volume_from_sessions(
         if day < first_week || day > today {
             continue;
         }
-        let sport = sport_type_string(session).unwrap_or_else(|| UNNAMED_SPORT.to_owned());
+        let sport = volume_sport(session);
         let entry = totals
             .entry((monday_of(day), sport.clone()))
             .or_insert_with(|| SportVolume {

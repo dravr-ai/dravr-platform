@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingPlanResponse } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { HomeBriefing } from '../Home';
-import { homePlan, recentResponse, routeView, TODAY } from './homeFixtures';
+import { activity, homePlan, recentResponse, routeView, TODAY } from './homeFixtures';
 import { calendarAnswer } from './calendarFixtures';
 
 const api = vi.hoisted(() => ({
@@ -268,6 +268,36 @@ describe('Home — Today', () => {
 
     expect(await screen.findByTestId('home-plan-failed')).toHaveTextContent("Your plan couldn't be loaded.");
     expect(screen.queryByTestId('home-week')).toBeNull();
+  });
+});
+
+describe('Home — the volume card’s sport', () => {
+  const RUN = { sport_type: 'run', activities: 4, distance_meters: 32_000, duration_seconds: 9_600, elevation_gain_meters: 0 };
+  const RIDE = { sport_type: 'ride', activities: 1, distance_meters: 6_000, duration_seconds: 1_800, elevation_gain_meters: 0 };
+
+  it('filters the recent activities to the sport picked on the card, and All sports brings every one back', async () => {
+    api.getTrainingPlan.mockResolvedValue({ plan: homePlan(), today: TODAY });
+    api.getTrainingVolume.mockResolvedValue({ today: TODAY, weeks: [{ week_start: '2026-09-21', sports: [RUN, RIDE] }] });
+    const rides = recentResponse({
+      activities: [activity({ id: 'ride-1', name: 'Gravel loop', sport_type: 'ride', summary_polyline: null, has_gps: false })],
+    });
+    api.getRecentActivities.mockImplementation(async (_limit?: number, options?: { sport?: string }) =>
+      options?.sport === 'ride' ? rides : recentResponse(),
+    );
+    renderHome();
+
+    expect(await screen.findAllByTestId('home-activity-row')).toHaveLength(4);
+    await userEvent.click(await screen.findByRole('tab', { name: 'Ride' }));
+
+    // The server fills the list with the sport's own workouts, however far
+    // back: filtering the five newest here would leave a minor sport empty.
+    await waitFor(() => expect(api.getRecentActivities).toHaveBeenLastCalledWith(undefined, { sport: 'ride' }));
+    expect(await screen.findByTestId('home-activity-latest')).toHaveTextContent('Gravel loop');
+    expect(screen.queryAllByTestId('home-activity-row')).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'All sports' }));
+    expect(await screen.findAllByTestId('home-activity-row')).toHaveLength(4);
+    expect(screen.getByTestId('home-activity-latest')).not.toHaveTextContent('Gravel loop');
   });
 });
 

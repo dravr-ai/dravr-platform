@@ -500,6 +500,55 @@ test.describe('Athlete Home', () => {
     );
   });
 
+  test('a sport picked on the weekly volume filters the recent activities, read from the server, and All sports brings every one back', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    // Registered after the shared mocks, so these win: a run and ride week,
+    // and a recent list that answers by the sport the request names.
+    const sportsAsked: Array<string | null> = [];
+    await page.route('**/api/me/training-volume', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          today: TODAY,
+          weeks: [
+            {
+              week_start: '2026-09-21',
+              sports: [
+                { sport_type: 'run', activities: 3, distance_meters: 30_000, duration_seconds: 10_800, elevation_gain_meters: 85 },
+                { sport_type: 'ride', activities: 1, distance_meters: 92_400, duration_seconds: 13_260, elevation_gain_meters: 820 },
+              ],
+            },
+          ],
+          garmin_contribution: null,
+        }),
+      });
+    });
+    await page.route('**/api/me/activities/recent**', async (route) => {
+      const sport = new URL(route.request().url()).searchParams.get('sport');
+      sportsAsked.push(sport);
+      const activities = sport === null ? ACTIVITIES : ACTIVITIES.filter((row) => row.sport_type === sport);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ activities, as_of: '2026-09-24T08:15:00Z', sync_failure: null, stale: false }),
+      });
+    });
+    await login(page);
+
+    const list = page.getByTestId('home-activities');
+    await expect(list.getByTestId('home-activity-row')).toHaveCount(4);
+    await page.getByTestId('home-volume').getByRole('tab', { name: 'Ride' }).click();
+
+    await expect.poll(() => sportsAsked.at(-1)).toBe('ride');
+    await expect(list.getByTestId('home-activity-latest')).toContainText('Long ride');
+    await expect(list.getByTestId('home-activity-row')).toHaveCount(0);
+
+    await page.getByTestId('home-volume').getByRole('tab', { name: 'All sports' }).click();
+    await expect(list.getByTestId('home-activity-row')).toHaveCount(4);
+  });
+
   test('the training status names the band, form as a share of fitness, its trend, the load and the recovery', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);

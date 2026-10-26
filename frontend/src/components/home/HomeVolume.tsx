@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home page's weekly volume — this week's distance, time and climbing, and a bar per week over the last twelve
-// ABOUTME: Filterable by sport; sums only what the server stored, and a week before the history begins is not drawn at all
+// ABOUTME: Filterable by sport — the choice is the page's, so the activity list filters too; a week before the history begins is not drawn
 
 import { useMemo, useState, type PointerEvent } from 'react';
 import { useTranslation } from '@pierre/i18n';
@@ -21,7 +21,6 @@ import {
   projectVolumeBars,
   volumeBarAt,
   volumeMetric,
-  volumeSports,
   weekTotals,
   type SketchBox,
   type VolumeTotals,
@@ -33,6 +32,7 @@ import {
   sportLabel,
   useDistanceUnit,
   volumeMetricText,
+  type VolumeSportFilter,
 } from '@pierre/ui-logic';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
@@ -178,13 +178,9 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
 }
 
 /** The card's reading: the sport filter when there is a choice, this week, then the trend. */
-function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
+function VolumeReading({ volume, filter }: { volume: TrainingVolumeResponse; filter: VolumeSportFilter }) {
   const { t } = useTranslation();
-  const sports = useMemo(() => volumeSports(volume.weeks), [volume.weeks]);
-  const [chosen, setChosen] = useState<string>(ALL_SPORTS);
-  // A sport that dropped out of the window on a re-read falls back to all of them.
-  const selected = chosen !== ALL_SPORTS && sports.includes(chosen) ? chosen : ALL_SPORTS;
-  const sport = selected === ALL_SPORTS ? null : selected;
+  const { sports, selected, sport } = filter;
   const totals = useMemo(() => volume.weeks.map((week) => weekTotals(week, sport)), [volume.weeks, sport]);
   const starts = useMemo(() => volume.weeks.map((week) => week.week_start), [volume.weeks]);
 
@@ -195,7 +191,7 @@ function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
           <Tabs
             size="sm"
             activeTab={selected}
-            onChange={setChosen}
+            onChange={filter.choose}
             tabs={[
               { id: ALL_SPORTS, label: t(TRAINING_VOLUME_KEY.allSports) },
               ...sports.map((key) => ({ id: key, label: sportLabel(t, key) })),
@@ -212,9 +208,10 @@ function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
 /**
  * The weekly-volume section. A volume that could not be read says so and
  * offers a retry; an answer with no weeks — nothing stored yet — is a
- * sentence, never a row of empty bars.
+ * sentence, never a row of empty bars. `filter` is the page's sport choice
+ * over these same weeks, which Recent activities reads too.
  */
-export function HomeVolume() {
+export function HomeVolume({ filter }: { filter: VolumeSportFilter }) {
   const { t } = useTranslation();
   const volume = useTrainingVolume();
   // Garmin's line sits directly beneath the title (carnet#1154).
@@ -243,7 +240,7 @@ export function HomeVolume() {
       ) : volume.data.weeks.length === 0 ? (
         <EmptyState data-testid="home-volume-empty">{t(TRAINING_VOLUME_KEY.empty)}</EmptyState>
       ) : (
-        <VolumeReading volume={volume.data} />
+        <VolumeReading volume={volume.data} filter={filter} />
       )}
     </Section>
   );

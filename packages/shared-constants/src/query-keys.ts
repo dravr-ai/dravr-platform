@@ -69,8 +69,12 @@ export const QUERY_KEYS = {
   // ==================== HOME ====================
   home: {
     all: ['home'] as const,
-    /** The newest cached activities; `limit` omitted is the server's default of 5. */
-    recentActivities: (limit?: number) => ['home', 'recent-activities', limit ?? null] as const,
+    /**
+     * The newest cached activities; `limit` omitted is the server's default of
+     * 5, `sport` omitted is every sport.
+     */
+    recentActivities: (limit?: number, sport?: string | null) =>
+      ['home', 'recent-activities', limit ?? null, sport ?? null] as const,
     /**
      * One activity's route. Keyed by provider as well as id, because an id is
      * only unique within the provider that issued it.

@@ -9,7 +9,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
-import { UnitsContext } from '@pierre/ui-logic';
+import { UnitsContext, useVolumeSportFilter } from '@pierre/ui-logic';
+import { useTrainingVolume } from '../../../hooks/useHome';
 import { HomeVolume } from '../HomeVolume';
 
 const api = vi.hoisted(() => ({
@@ -38,12 +39,17 @@ function volume(overrides: Partial<TrainingVolumeResponse> = {}): TrainingVolume
   };
 }
 
+/** The card as Home holds it: the page owns the sport choice over the same weeks. */
+function VolumeOnPage() {
+  return <HomeVolume filter={useVolumeSportFilter(useTrainingVolume().data?.weeks)} />;
+}
+
 function renderVolume(unit: 'metric' | 'imperial' = 'metric') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <UnitsContext.Provider value={unit}>
-        <HomeVolume />
+        <VolumeOnPage />
       </UnitsContext.Provider>
     </QueryClientProvider>,
   );

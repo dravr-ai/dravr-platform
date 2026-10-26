@@ -50,9 +50,11 @@ describe('home query keys', () => {
     }
   });
 
-  it('keys the default activity list apart from an explicit limit', () => {
-    expect(QUERY_KEYS.home.recentActivities()).toEqual(['home', 'recent-activities', null]);
-    expect(QUERY_KEYS.home.recentActivities(10)).toEqual(['home', 'recent-activities', 10]);
+  it('keys the default activity list apart from an explicit limit or a sport', () => {
+    expect(QUERY_KEYS.home.recentActivities()).toEqual(['home', 'recent-activities', null, null]);
+    expect(QUERY_KEYS.home.recentActivities(10)).toEqual(['home', 'recent-activities', 10, null]);
+    expect(QUERY_KEYS.home.recentActivities(undefined, 'run')).toEqual(['home', 'recent-activities', null, 'run']);
+    expect(QUERY_KEYS.home.recentActivities(undefined, null)).toEqual(QUERY_KEYS.home.recentActivities());
   });
 
   it('keys a route by provider as well as id, since ids are only unique per provider', () => {

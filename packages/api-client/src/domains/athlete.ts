@@ -76,6 +76,15 @@ export interface HomeReadOptions {
   retry?: boolean;
 }
 
+/** Options of one recent-activities read. */
+export interface RecentActivitiesReadOptions extends HomeReadOptions {
+  /**
+   * Only this sport's workouts, spelled as the training volume's weeks spell
+   * it — the sport picked on Home's volume card. Omitted, every sport.
+   */
+  sport?: string;
+}
+
 /** Options of one route read. */
 export interface ActivityRouteReadOptions extends HomeReadOptions {
   /**
@@ -102,12 +111,17 @@ export function createAthleteApi(axios: AxiosInstance) {
      * `sync_failure` names a provider whose refresh failed after its last good
      * sync; the server leaves a failing provider alone for a pause, which the
      * athlete's `retry` reads past.
-     * `limit` is clamped to 1..=20 by the server; omitted, it is 5.
+     * `limit` is clamped to 1..=20 by the server; omitted, it is 5. A `sport`
+     * fills that limit with the sport's own workouts, however far back.
      */
-    async getRecentActivities(limit?: number, options: HomeReadOptions = {}): Promise<RecentActivitiesResponse> {
+    async getRecentActivities(
+      limit?: number,
+      options: RecentActivitiesReadOptions = {},
+    ): Promise<RecentActivitiesResponse> {
       const params = {
         ...(limit === undefined ? {} : { limit }),
         ...(options.retry === true ? { retry: true } : {}),
+        ...(options.sport === undefined ? {} : { sport: options.sport }),
       };
       const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.RECENT_ACTIVITIES, {
         params: Object.keys(params).length === 0 ? undefined : params,

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Home tab's weekly volume — this week's distance, time and climbing, and a bar per week over the last twelve
-// ABOUTME: Filterable by sport; sums only what the server stored, and a week before the history begins is not drawn at all
+// ABOUTME: Filterable by sport — the choice is the screen's, so the activity list filters too; a week before the history begins is not drawn
 
 import React, { useMemo, useState } from 'react';
 import { Pressable, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
@@ -22,7 +22,6 @@ import {
   projectVolumeBars,
   volumeBarAt,
   volumeMetric,
-  volumeSports,
   weekTotals,
   type VolumeTotals,
 } from '@pierre/domain-utils';
@@ -33,6 +32,7 @@ import {
   sportLabel,
   useDistanceUnit,
   volumeMetricText,
+  type VolumeSportFilter,
 } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section, TextTabs } from '../../components/ui';
@@ -51,6 +51,8 @@ interface HomeVolumeProps {
   response: TrainingVolumeResponse | null;
   isError: boolean;
   onRetry: () => void;
+  /** The screen's sport choice over these same weeks, which the activity list reads too. */
+  filter: VolumeSportFilter;
 }
 
 /** This week's three figures and its session count, for the selected sport or all of them. */
@@ -183,13 +185,9 @@ function VolumeTrend({ starts, totals }: { starts: readonly string[]; totals: re
 }
 
 /** The card's reading: the sport filter when there is a choice, this week, then the trend. */
-function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
+function VolumeReading({ volume, filter }: { volume: TrainingVolumeResponse; filter: VolumeSportFilter }) {
   const { t } = useTranslation();
-  const sports = useMemo(() => volumeSports(volume.weeks), [volume.weeks]);
-  const [chosen, setChosen] = useState<string>(ALL_SPORTS);
-  // A sport that dropped out of the window on a re-read falls back to all of them.
-  const selected = chosen !== ALL_SPORTS && sports.includes(chosen) ? chosen : ALL_SPORTS;
-  const sport = selected === ALL_SPORTS ? null : selected;
+  const { sports, selected, sport } = filter;
   const totals = useMemo(() => volume.weeks.map((week) => weekTotals(week, sport)), [volume.weeks, sport]);
   const starts = useMemo(() => volume.weeks.map((week) => week.week_start), [volume.weeks]);
 
@@ -199,7 +197,7 @@ function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
         <TextTabs
           className="mb-3"
           value={selected}
-          onChange={setChosen}
+          onChange={filter.choose}
           items={[
             { key: ALL_SPORTS, label: t(TRAINING_VOLUME_KEY.allSports) },
             ...sports.map((key) => ({ key, label: sportLabel(t, key) })),
@@ -219,7 +217,7 @@ function VolumeReading({ volume }: { volume: TrainingVolumeResponse }) {
  * sentence, never a row of empty bars. Nothing is drawn while the first
  * answer is on its way: the section's title holds its place.
  */
-export function HomeVolume({ response, isError, onRetry }: HomeVolumeProps) {
+export function HomeVolume({ response, isError, onRetry, filter }: HomeVolumeProps) {
   const { t } = useTranslation();
 
   return (
@@ -241,7 +239,7 @@ export function HomeVolume({ response, isError, onRetry }: HomeVolumeProps) {
       ) : response.weeks.length === 0 ? (
         <EmptyState testID="home-volume-empty">{t(TRAINING_VOLUME_KEY.empty)}</EmptyState>
       ) : (
-        <VolumeReading volume={response} />
+        <VolumeReading volume={response} filter={filter} />
       )}
     </Section>
   );

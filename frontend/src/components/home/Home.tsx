@@ -6,11 +6,11 @@
 
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
-import { planWindow } from '@pierre/ui-logic';
+import { planWindow, useVolumeSportFilter } from '@pierre/ui-logic';
 import { DEFAULT_HOME_PREFERENCES } from '@pierre/shared-types';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
-import { useHomePreferences, useTrainingPlan } from '../../hooks/useHome';
+import { useHomePreferences, useTrainingPlan, useTrainingVolume } from '../../hooks/useHome';
 import { HomeToday } from './HomeToday';
 import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
@@ -122,10 +122,12 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
  * a new athlete meets what to do next and who they work with first, then the
  * sections the page always had. The personal surface draws them in its Today
  * panel beside the conversation on a wide screen, and in a drawer or a sheet
- * on a narrower one — which therefore opens on the same two sections.
+ * on a narrower one — which therefore opens on the same two sections. The
+ * sport picked on the volume card filters the activities under it.
  */
 export function HomeBriefing({ onNavigate, actions, onPickTeam, compact = false }: HomeBriefingProps) {
   const onOpenChatDraft = actions.draft;
+  const sportFilter = useVolumeSportFilter(useTrainingVolume().data?.weeks);
   return (
     <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
       <GettingStarted actions={actions} onNavigate={onNavigate} />
@@ -133,8 +135,8 @@ export function HomeBriefing({ onNavigate, actions, onPickTeam, compact = false 
       <HomePlan onOpenChatDraft={onOpenChatDraft} />
       <HomeWeek onOpenChatDraft={onOpenChatDraft} onNavigate={onNavigate} />
       <HomeStatus />
-      <HomeVolume />
-      <RecentActivities onNavigate={onNavigate} compact={compact} />
+      <HomeVolume filter={sportFilter} />
+      <RecentActivities onNavigate={onNavigate} compact={compact} sport={sportFilter.sport} />
     </div>
   );
 }

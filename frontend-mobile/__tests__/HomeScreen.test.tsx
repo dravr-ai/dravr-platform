@@ -61,7 +61,10 @@ jest.mock('expo-router', () => {
 });
 
 const mockGetTrainingPlan = jest.fn<Promise<TrainingPlanResponse>, [string?]>();
-const mockGetRecentActivities = jest.fn<Promise<RecentActivitiesResponse>, [number?, { retry?: boolean }?]>();
+const mockGetRecentActivities = jest.fn<
+  Promise<RecentActivitiesResponse>,
+  [number?, { retry?: boolean; sport?: string }?]
+>();
 const mockGetActivityRoute = jest.fn<Promise<ActivityRouteResponse>, [string, string, { retry?: boolean }?]>();
 const mockGetProvidersStatus = jest.fn();
 const mockGetPersonalConversation = jest.fn();
@@ -83,7 +86,7 @@ jest.mock('../src/services/api', () => ({
     getHomePreferences: () => mockGetHomePreferences(),
     updateHomePreferences: (prefs: { plan_suggestion_hidden: boolean }) => mockUpdateHomePreferences(prefs),
     getCalendar: (from: string, to: string) => mockGetCalendar(from, to),
-    getRecentActivities: (limit?: number, options?: { retry?: boolean }) =>
+    getRecentActivities: (limit?: number, options?: { retry?: boolean; sport?: string }) =>
       options === undefined ? mockGetRecentActivities(limit) : mockGetRecentActivities(limit, options),
     // The query's abort signal is the transport's concern; the retry flag is
     // what the screen decides.
@@ -572,6 +575,25 @@ describe('recent activities', () => {
     // A strength session has no distance, and none is invented for it.
     const gym = screen.getByTestId('home-activity-strava-8998');
     expect(gym).toHaveTextContent(/Strength training · 45m$/);
+  });
+
+  it('lists only the sport picked on the volume card, read from the server, and every sport again on All', async () => {
+    mockGetRecentActivities.mockImplementation(async (_limit, options) =>
+      options?.sport === 'ride' ? recentResponse({ activities: [ACTIVITIES[0]] }) : recentResponse(),
+    );
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-activity-strava-8998')).toBeTruthy();
+    fireEvent.press(await screen.findByTestId('home-volume-filter-ride'));
+
+    // The server fills the list with the sport's own workouts, however far
+    // back: filtering the five newest here would leave a minor sport empty.
+    await waitFor(() => expect(mockGetRecentActivities).toHaveBeenLastCalledWith(undefined, { sport: 'ride' }));
+    expect(await screen.findByTestId('home-activity-strava-9001')).toBeTruthy();
+    expect(screen.queryByTestId('home-activity-strava-8998')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('home-volume-filter-all'));
+    expect(await screen.findByTestId('home-activity-strava-8998')).toBeTruthy();
   });
 
   it("opens the tapped activity's own view, from the latest card and from a row", async () => {

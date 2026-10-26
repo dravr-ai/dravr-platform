@@ -39,6 +39,8 @@ interface RecentActivitiesProps {
   onNavigate: (route: string) => void;
   /** The latest activity's map in its shorter frame — the Today panel beside the conversation. */
   compact?: boolean;
+  /** Only this sport's activities — the one picked on the volume card; `null` for every sport. */
+  sport?: string | null;
 }
 
 /**
@@ -193,10 +195,10 @@ function FetchingRow() {
  * every tab, so this card does not say it a second time; the cached rows it
  * still shows are the athlete's own activities.
  */
-export function RecentActivities({ onNavigate, compact = false }: RecentActivitiesProps) {
+export function RecentActivities({ onNavigate, compact = false, sport = null }: RecentActivitiesProps) {
   const { t, language } = useTranslation();
   const openActivity = (activity: HomeActivity) => onNavigate(activityViewRoute(activity.provider, activity.id));
-  const recent = useRecentActivities();
+  const recent = useRecentActivities(sport);
   const providers = useProviderConnection();
   const uploader = useActivityUpload();
 

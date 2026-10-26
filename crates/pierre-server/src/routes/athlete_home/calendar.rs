@@ -133,7 +133,7 @@ pub(super) async fn get_calendar(
             "calendar read filled its row bound; the oldest days of the span may be short"
         );
     }
-    let workouts = home_activities(served_rows(&resources, rows), usize::MAX);
+    let workouts = home_activities(served_rows(&resources, rows), usize::MAX, None);
     let activities = on_days(workouts, zone, from.max(history_start), to);
     let garmin_contribution = oauth_providers::garmin_contribution(
         activities.iter().map(|day| day.activity.garmin_recorded),

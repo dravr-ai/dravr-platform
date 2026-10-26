@@ -226,6 +226,9 @@ export {
   useRequestsInFlight,
 } from './recentActivitiesSync';
 
+// Home's volume-card sport, which the activity list beside it filters on too.
+export { type VolumeSportFilter, useVolumeSportFilter } from './volumeSportFilter';
+
 // The gear ledger: the athlete's shoes, their distance, and the pair each activity was run in.
 export {
   type ActivityGearState,
