@@ -8,6 +8,7 @@
 name = "fitness_analyzer"
 version = "0.1.0"
 edition = "2021"
+publish = false
 authors = ["Pierre Team"]
 description = "Autonomous fitness analysis agent demonstrating A2A protocol usage"
 
