@@ -3125,7 +3125,6 @@
     "pendingLink": "{{coach}} möchte deine Einheiten verknüpfen – prüfe es in {{group}}",
     "polar": "Polar",
     "privacyNote": "Dravr greift nur auf die Daten zu, die du freigibst. Wir geben deine Fitnessdaten nie an Dritte weiter. Du kannst jeden Anbieter jederzeit trennen.",
-    "connectPaused": "Die Anmeldung bei {{provider}} ist pausiert, während wir auf die offizielle {{provider}}-Verbindung umstellen.",
     "provider": "Anbieter",
     "reconnect": "Erneut verbinden",
     "reconnectNeeded": "Neu verbinden nötig",

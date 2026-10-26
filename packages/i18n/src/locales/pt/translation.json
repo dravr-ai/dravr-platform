@@ -3125,7 +3125,6 @@
     "pendingLink": "{{coach}} pediu para associar os teus treinos — revê em {{group}}",
     "polar": "Polar",
     "privacyNote": "O Dravr só acede aos dados que autorizas. Nunca partilhamos os teus dados de fitness com terceiros. Podes desligar qualquer fornecedor quando quiseres.",
-    "connectPaused": "O início de sessão em {{provider}} está em pausa enquanto mudamos para a ligação oficial do {{provider}}.",
     "provider": "Fornecedor",
     "reconnect": "Ligar de novo",
     "reconnectNeeded": "É preciso voltar a ligar",

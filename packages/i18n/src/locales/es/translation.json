@@ -3125,7 +3125,6 @@
     "pendingLink": "{{coach}} pidió vincular tus entrenamientos; revísalo en {{group}}",
     "polar": "Polar",
     "privacyNote": "Dravr solo accede a los datos que autorizas. Nunca compartimos tus datos de fitness con terceros. Puedes desconectar cualquier proveedor cuando quieras.",
-    "connectPaused": "El inicio de sesión en {{provider}} está en pausa mientras pasamos a la conexión oficial de {{provider}}.",
     "provider": "Proveedor",
     "reconnect": "Volver a conectar",
     "reconnectNeeded": "Hace falta reconectar",
