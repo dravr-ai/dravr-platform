@@ -26,10 +26,36 @@ pub(crate) const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcr
 /// group's human coach when that member's coach consent is on (the peer
 /// switch does not govern the coach, ADR-002); either way only for a member
 /// who has not left. The viewer always reads their own entries.
+///
+/// The group's human coach speaks to the room: their own words reach every
+/// reader, whatever the sharing switches. The agent's reply to the coach was
+/// written from the coach's view — every member who shares with the coach,
+/// their training and their words in the room — so it reaches a reader only
+/// when that view holds nothing the reader may not see: every other live
+/// member the coach sees shares with their peers. In a group of one athlete
+/// that is always so. A coach who wants a reply kept from the athletes asks
+/// in their thread about one athlete, which never fans out to the room. The
+/// rule reads the group's current coach, so a detached coach's entries are
+/// withheld again.
 macro_rules! transcript_entry_visible {
     () => {
         r"(
                   e.author_user_id = $2
+                  OR (
+                    e.author_user_id = g.coach_user_id
+                    AND (
+                      e.speaker = 'member'
+                      OR NOT EXISTS (
+                        SELECT 1 FROM coaching_group_members om
+                        WHERE om.group_id = e.group_id
+                          AND om.left_at IS NULL
+                          AND om.coach_sharing_consent = TRUE
+                          AND om.user_id <> g.coach_user_id
+                          AND om.user_id <> $2
+                          AND NOT (g.peer_data_sharing = TRUE AND om.peer_sharing_consent = TRUE)
+                      )
+                    )
+                  )
                   OR EXISTS (
                     SELECT 1 FROM coaching_group_members gm
                     WHERE gm.group_id = e.group_id

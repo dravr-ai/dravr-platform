@@ -25,7 +25,7 @@ mod group_transcript_tests {
     use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
-        GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker,
+        GroupTranscriptEntry, NewGroupTranscriptEntry, TranscriptSpeaker, UpdateGroupRequest,
     };
     use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
     use pierre_core::transport::TransportPolicy;
@@ -61,6 +61,10 @@ mod group_transcript_tests {
     const CAROL_MESSAGE: &str = "je fais juste 5 km demain matin";
     /// Alice's unaddressed room chatter, captured for the room without a turn.
     const ALICE_AMBIENT: &str = "Quelqu'un pour le fractionné de samedi?";
+    /// The group's human coach, speaking to the room.
+    const COACH_MESSAGE: &str = "montre moi le plan de la semaine";
+    /// The agent's reply to the human coach.
+    const COACH_AGENT_REPLY: &str = "Voici la semaine: trois sorties, une longue samedi.";
 
     /// Deterministic LLM that counts invocations and captures each request's
     /// serialized messages. Mock is test-only: the assertion point here is
@@ -1080,5 +1084,139 @@ mod group_transcript_tests {
             StatusCode::BAD_REQUEST,
             "a malformed cursor must be refused, not read as the newest page"
         );
+    }
+
+    /// The group's human coach speaks to the room: their words reach every
+    /// member whatever the sharing switches, though the coach holds no
+    /// membership row. The agent's reply to the coach reaches a reader only
+    /// when every other athlete the coach sees shares with their peers — so in
+    /// a group of one athlete, always. Detached, the coach's entries are
+    /// withheld again.
+    #[tokio::test]
+    #[serial]
+    async fn the_group_coachs_words_reach_every_member_and_the_agents_reply_follows_peer_sharing() {
+        let mock = Arc::new(CapturingLlm::new(AGENT_REPLY));
+        let resources = create_test_server_resources_with_llm(mock).await.unwrap();
+        let scenario = build_scenario(Arc::clone(&resources)).await;
+        let groups = &resources.common.repos.groups;
+        let group_id = scenario.group_id.to_string();
+        let tenant = scenario.bot_tenant.to_string();
+
+        let (coach_id, _coach_tenant) =
+            create_user_with_own_tenant(&resources, "transcript_coach@example.com", "Coach").await;
+        assert!(groups
+            .set_group_coach_user(&group_id, Some(coach_id), scenario.bot_tenant)
+            .await
+            .unwrap());
+        let set_peer_switch = |on: bool| {
+            let group_id = group_id.clone();
+            async move {
+                groups
+                    .update_group(
+                        &group_id,
+                        scenario.bot_tenant,
+                        &UpdateGroupRequest {
+                            name: None,
+                            description: None,
+                            agent_id: None,
+                            peer_data_sharing: Some(on),
+                            respond_mode: None,
+                            digest_mode: None,
+                            is_active: None,
+                        },
+                    )
+                    .await
+                    .unwrap()
+                    .expect("the bot tenant holds the group");
+            }
+        };
+        // With the switch off, no member's words reach another member.
+        set_peer_switch(false).await;
+
+        for (author, speaker, content) in [
+            (scenario.alice_id, TranscriptSpeaker::Member, ALICE_MESSAGE),
+            (coach_id, TranscriptSpeaker::Member, COACH_MESSAGE),
+            (coach_id, TranscriptSpeaker::Coach, COACH_AGENT_REPLY),
+        ] {
+            groups
+                .append_transcript_entry(&NewGroupTranscriptEntry {
+                    group_id: &group_id,
+                    tenant_id: &tenant,
+                    author_user_id: author,
+                    speaker,
+                    content,
+                    source_conversation_id: None,
+                    source_message_id: None,
+                    transport_policy: TransportPolicy::AnyTransport,
+                })
+                .await
+                .unwrap();
+            // Distinct instants, so the order under test is the clock's.
+            sleep(Duration::from_millis(5)).await;
+        }
+
+        let carol_auth = bearer_for(&resources, scenario.carol_id).await;
+        let read_room = |auth: String| {
+            let scenario = &scenario;
+            async move {
+                let (status, room) = get_transcript(scenario, &auth).await;
+                assert_eq!(status, StatusCode::OK);
+                let entries = room["entries"].as_array().unwrap().clone();
+                assert_eq!(entries.len(), 3, "{room}");
+                entries
+            }
+        };
+        let assert_shown = |entry: &Value, speaker: &str, content: &str| {
+            assert_eq!(entry["withheld"], false, "{entry}");
+            assert_eq!(entry["speaker"], speaker);
+            assert_eq!(entry["content"], content);
+            assert_eq!(entry["author_user_id"], coach_id.to_string());
+            assert_eq!(entry["own"], false);
+        };
+
+        // Switch off, Alice and Bob sharing with the coach: the coach's words
+        // reach Bob and Carol, whose own consents never decide what they read.
+        // The reply could carry Alice's training, which neither may see.
+        for auth in [scenario.bob_auth.clone(), carol_auth.clone()] {
+            let entries = read_room(auth).await;
+            // Alice shares with her peers, but the group's switch is off.
+            assert_withheld_placeholder(&entries[0], "member");
+            assert_shown(&entries[1], "member", COACH_MESSAGE);
+            assert_withheld_placeholder(&entries[2], "coach");
+        }
+
+        // Switch on: everyone the coach sees shares with the room (Carol
+        // shares with nobody, the coach included), so the reply is readable.
+        set_peer_switch(true).await;
+        for auth in [scenario.bob_auth.clone(), carol_auth.clone()] {
+            let entries = read_room(auth).await;
+            assert_eq!(entries[0]["content"], ALICE_MESSAGE);
+            assert_shown(&entries[1], "member", COACH_MESSAGE);
+            assert_shown(&entries[2], "coach", COACH_AGENT_REPLY);
+        }
+
+        // Switch off and Alice gone: Bob is the only athlete the coach sees,
+        // so the reply can carry nobody's training but his own and reaches
+        // him. Carol would read Bob's in it.
+        set_peer_switch(false).await;
+        assert!(groups
+            .remove_member(&group_id, scenario.alice_id)
+            .await
+            .unwrap());
+        let entries = read_room(scenario.bob_auth.clone()).await;
+        assert_shown(&entries[1], "member", COACH_MESSAGE);
+        assert_shown(&entries[2], "coach", COACH_AGENT_REPLY);
+        let entries = read_room(carol_auth).await;
+        assert_shown(&entries[1], "member", COACH_MESSAGE);
+        assert_withheld_placeholder(&entries[2], "coach");
+
+        // Detached, the coach's entries are withheld like anyone's who left.
+        assert!(groups
+            .set_group_coach_user(&group_id, None, scenario.bot_tenant)
+            .await
+            .unwrap());
+        let entries = read_room(scenario.bob_auth.clone()).await;
+        assert_withheld_placeholder(&entries[1], "member");
+        assert_withheld_placeholder(&entries[2], "coach");
     }
 }
