@@ -15,7 +15,7 @@
 use crate::models::StatsCoverage;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
-use dravr_sciotte::client::SciotteClient;
+use dravr_sciotte::client::{ClientError, SciotteClient};
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityComment as SciotteComment, ActivityParams, AthleteId,
     AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap,
@@ -42,7 +42,7 @@ use crate::models::{
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_error::{
-    athlete_not_accessible, is_coach_account_refusal, require_client, to_app_error,
+    athlete_not_accessible, is_coach_account_refusal, own_read_error, require_client, to_app_error,
 };
 use crate::sciotte_self_report::self_report;
 use crate::spi::{
@@ -335,6 +335,34 @@ impl SciotteProvider {
             .as_ref()
             .ok_or_else(|| self.auth_required_no_session())?
             .clone())
+    }
+
+    /// The platform error for a failed call to the scraper service.
+    ///
+    /// Only this provider knows whether the read named an athlete: the
+    /// service echoes an athlete id even on a read that named none, the one it
+    /// fell back to for the signed-in account. A provider reading its own
+    /// account maps the service's `athlete_not_accessible` refusal through
+    /// [`own_read_error`], never as the coach-roster refusal; a delegated
+    /// provider, which names its athlete on every read, keeps that refusal.
+    fn remote_error(&self, error: ClientError) -> AppError {
+        let mapped = if self.subject.is_some() {
+            to_app_error(error)
+        } else {
+            // The agent-facing words leave out the service and request id;
+            // an operator reads them here.
+            if matches!(
+                error,
+                ClientError::AthleteNotAccessible { .. } | ClientError::Unexpected { .. }
+            ) {
+                warn!(error = %error, "sciotte refused or failed a read of the signed-in account's own data");
+            }
+            own_read_error(
+                error,
+                SciotteTarget::from_backend_name(self.provider_name).brand(),
+            )
+        };
+        self.tag_remote_auth(mapped)
     }
 
     /// Re-tag a remote-service error that must name this backend.
@@ -764,7 +792,7 @@ impl FitnessProvider for SciotteProvider {
                 remote.get_athlete(&session.session_id)
             })
             .await
-            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
+            .map_err(|e| self.remote_error(e))?;
         match &self.subject {
             Some(athlete) => roster_athlete(profile, athlete),
             None => Ok(own_athlete(profile, target)),
@@ -820,7 +848,7 @@ impl FitnessProvider for SciotteProvider {
                 remote.get_activities(&session.session_id, &query)
             })
             .await
-            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
+            .map_err(|e| self.remote_error(e))?;
         self.head_complete
             .store(list.head_complete, Ordering::Relaxed);
         let activities: Vec<Activity> = list
@@ -886,7 +914,7 @@ impl FitnessProvider for SciotteProvider {
                 remote.get_activity(&session.session_id, id)
             })
             .await
-            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
+            .map_err(|e| self.remote_error(e))?;
         Ok(convert_activity(&sciotte_activity, target))
     }
 
@@ -942,7 +970,7 @@ impl FitnessProvider for SciotteProvider {
                 )
             })
             .await
-            .map_err(|e| self.tag_remote_auth(to_app_error(e)))?;
+            .map_err(|e| self.remote_error(e))?;
         info!(
             count = planned.len(),
             %after,
@@ -958,8 +986,93 @@ impl FitnessProvider for SciotteProvider {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use dravr_sciotte::client::{Exchange, Operation, RequestId};
+    use dravr_sciotte::wire::ATHLETE_NOT_ACCESSIBLE;
+
     use super::*;
+    use crate::delegation::is_athlete_off_roster;
     use crate::errors::ErrorCode;
+    use crate::sciotte_error::sciotte_refusal;
+
+    fn trainingpeaks_config() -> ProviderConfig {
+        ProviderConfig {
+            name: SciotteTarget::TrainingPeaks.provider_name().to_owned(),
+            auth_url: String::new(),
+            token_url: String::new(),
+            api_base_url: String::new(),
+            revoke_url: None,
+            default_scopes: Vec::new(),
+        }
+    }
+
+    /// The scraper's `403 athlete_not_accessible` to an activity list, naming
+    /// the athlete id it read under, as it does for a read that named none.
+    fn activities_refused() -> ClientError {
+        ClientError::AthleteNotAccessible {
+            exchange: Box::new(Exchange {
+                service: "sciotte".to_owned(),
+                operation: Operation::Activities.as_str().to_owned(),
+                request_id: RequestId::mint(),
+                elapsed: Duration::from_millis(150),
+                resent: false,
+            }),
+            athlete: Some("4242".to_owned()),
+            message: Some("athlete 4242 not accessible: the provider answered HTTP 403".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_refused_read_of_the_own_account_is_never_the_coach_roster_refusal() {
+        let provider =
+            SciotteProvider::new(trainingpeaks_config(), SciotteTarget::TrainingPeaks, None);
+        let error = provider.remote_error(activities_refused());
+        assert_eq!(error.code, ErrorCode::ExternalServiceError);
+        assert!(!error.message.contains("roster"), "{}", error.message);
+        assert!(
+            error
+                .message
+                .starts_with("TrainingPeaks refused the activities read of the signed-in account"),
+            "bug: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains("the provider answered HTTP 403"),
+            "bug: the provider's reason was dropped: {}",
+            error.message
+        );
+        assert_eq!(sciotte_refusal(&error), None);
+        assert!(
+            !is_athlete_off_roster(&error),
+            "a self-read has no coach link to end"
+        );
+    }
+
+    #[test]
+    fn a_refused_read_naming_a_coached_athlete_stays_the_roster_refusal() {
+        let provider = SciotteProvider::delegated(
+            trainingpeaks_config(),
+            "4242"
+                .parse::<AthleteId>()
+                .expect("a well-formed athlete id"),
+            None,
+        );
+        let error = provider.remote_error(activities_refused());
+        assert!(
+            error.code == ErrorCode::PermissionDenied,
+            "bug: a coach's off-roster read must stay a permission refusal: {error:?}"
+        );
+        assert_eq!(
+            error.message,
+            "That athlete is not on this coach account's roster"
+        );
+        assert_eq!(sciotte_refusal(&error), Some(ATHLETE_NOT_ACCESSIBLE));
+        assert!(
+            is_athlete_off_roster(&error),
+            "bug: a coach's off-roster athlete must end the link: {error:?}"
+        );
+    }
 
     #[test]
     fn only_an_email_only_login_types_its_field_email() {

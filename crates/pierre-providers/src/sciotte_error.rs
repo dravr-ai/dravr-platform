@@ -24,7 +24,12 @@
 //! - the two athlete refusals keep their own codes and carry their marker
 //!   under the details key [`sciotte_refusal`] reads. Neither is an auth
 //!   error: signing in again changes nothing about which account the athlete
-//!   holds or whose roster an athlete is on;
+//!   holds or whose roster an athlete is on. On a calendar read that named no
+//!   athlete (the signed-in account's own), `athlete_not_accessible` is no
+//!   roster refusal: `own_read_error` reports it as a marker-less
+//!   [`ErrorCode::ExternalServiceError`] carrying the service's words, and
+//!   keeps the service's words on any status the client has no name for,
+//!   the `500` a failed scrape answers included;
 //! - a login the provider stopped at a challenge (a captcha) is
 //!   [`ErrorCode::ExternalAuthFailed`] carrying the [`LOGIN_CHALLENGE`]
 //!   marker, read back by [`is_login_challenge`]. It is neither a refused
@@ -53,6 +58,9 @@ const UNNAMED_SHED_REASON: &str = "scraper_busy";
 
 /// What a login answer that names no marker is reported as carrying.
 const NO_MARKER: &str = "none";
+
+/// What a refusal that gave no words of its own is reported as saying.
+const NO_SERVICE_WORDS: &str = "no detail";
 
 /// The platform error for a failed call to the sciotte scraper service.
 ///
@@ -177,9 +185,10 @@ fn answer_marker(body: &Value) -> &str {
 
 /// The refusal of an athlete the session may not read.
 ///
-/// It carries the [`ATHLETE_NOT_ACCESSIBLE`] marker: the scraper's `403` maps
-/// to it, and a delegated read answers it when the coach's roster no longer
-/// lists the athlete it names.
+/// It carries the [`ATHLETE_NOT_ACCESSIBLE`] marker: the scraper's `403` to a
+/// read that named an athlete maps to it, and a delegated read answers it when
+/// the coach's roster no longer lists the athlete it names. A read that named
+/// none is [`own_read_error`]'s.
 #[must_use]
 pub(crate) fn athlete_not_accessible() -> AppError {
     with_refusal_marker(
@@ -189,6 +198,61 @@ pub(crate) fn athlete_not_accessible() -> AppError {
         ),
         ATHLETE_NOT_ACCESSIBLE,
     )
+}
+
+/// The platform error for a failed read of the signed-in account's own data,
+/// a read that named no athlete.
+///
+/// The scraper's `athlete_not_accessible` refusal means something else there
+/// than on a read that names a coached athlete: no roster was consulted, the
+/// provider refused the account's own calendar. It is reported as the
+/// provider failure it is, under `brand` and with the service's own words,
+/// so the read's log line carries the provider's reason. It carries no
+/// refusal marker: a delegated read branches on that marker to end a coach's
+/// link, and a self-read has none to end.
+///
+/// An answer the client has no name for — the `500` a service that reports
+/// such a refusal as a failed scrape answers, with the reason as its marker,
+/// among them — keeps that marker in the internal error's message, which
+/// [`to_app_error`] leaves out of an answer it cannot name.
+///
+/// Only the calendar reads — an activity list and planned workouts — read
+/// by default under the account's own id. A single activity is addressed by
+/// an id the caller supplied, so its refusal is the one any read reports.
+/// Every other error maps as [`to_app_error`] maps it.
+#[must_use]
+pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
+    if !matches!(
+        error.operation(),
+        Some(Operation::Activities | Operation::PlannedWorkouts)
+    ) {
+        return to_app_error(error);
+    }
+    match error {
+        ClientError::Unexpected {
+            exchange,
+            status,
+            body,
+        } => AppError::internal(format!(
+            "{brand} {} read of the signed-in account's own data failed: {} answered \
+             {status} (x-request-id {}): {}",
+            exchange.operation,
+            exchange.service,
+            exchange.request_id,
+            answer_marker(&body)
+        )),
+        ClientError::AthleteNotAccessible {
+            exchange, message, ..
+        } => AppError::new(
+            ErrorCode::ExternalServiceError,
+            format!(
+                "{brand} refused the {} read of the signed-in account's own data: {}",
+                exchange.operation,
+                message.as_deref().unwrap_or(NO_SERVICE_WORDS)
+            ),
+        ),
+        other => to_app_error(other),
+    }
 }
 
 /// `error` with `marker` recorded under the refusal details key.
@@ -582,6 +646,129 @@ mod tests {
         assert_eq!(built.code, error.code);
         assert_eq!(built.message, error.message);
         assert_eq!(built.details, error.details);
+    }
+
+    #[test]
+    fn a_self_read_the_provider_refused_is_a_provider_failure_with_its_words() {
+        let client_error = ClientError::AthleteNotAccessible {
+            exchange: exchange(Operation::Activities).into(),
+            athlete: Some("4242".to_owned()),
+            message: Some("athlete 4242 not accessible: the provider answered HTTP 403".to_owned()),
+        };
+        let error = own_read_error(client_error, "TrainingPeaks");
+        assert_eq!(error.code, ErrorCode::ExternalServiceError);
+        assert_eq!(error.details, None);
+        assert_eq!(sciotte_refusal(&error), None);
+        assert_eq!(
+            error.message,
+            "TrainingPeaks refused the activities read of the signed-in account's own \
+             data: athlete 4242 not accessible: the provider answered HTTP 403"
+        );
+        assert!(!error.message.contains("roster"), "bug: {}", error.message);
+        // The read's WARN line logs the error's Display: the provider's reason
+        // must be in it for an operator to see.
+        assert!(
+            error.to_string().contains("the provider answered HTTP 403"),
+            "bug: the logged line drops the provider's reason: {error}"
+        );
+    }
+
+    #[test]
+    fn a_self_read_the_service_failed_keeps_its_words() {
+        let reason = "scraping error: the signed-in account's own calendar was refused: \
+                      the provider answered HTTP 400: \"Invalid athleteId (4242)\"";
+        for operation in [Operation::Activities, Operation::PlannedWorkouts] {
+            let client_error = unexpected(
+                operation,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": reason }),
+            );
+            let request = client_error.exchange().map(named).unwrap_or_default();
+            let error = own_read_error(client_error, "TrainingPeaks");
+            assert_eq!(error.code, ErrorCode::InternalError);
+            assert_eq!(sciotte_refusal(&error), None);
+            assert_eq!(
+                error.message,
+                format!(
+                    "TrainingPeaks {} read of the signed-in account's own data failed: sciotte \
+                     answered 500 Internal Server Error ({request}): {reason}",
+                    operation.as_str()
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_activity_refusal_is_never_reworded_as_a_self_read() {
+        // A detail id is the caller's, not the account's default: its refusal
+        // is the one any read reports.
+        let error = own_read_error(
+            ClientError::AthleteNotAccessible {
+                exchange: exchange(Operation::Activity).into(),
+                athlete: Some("4242".to_owned()),
+                message: None,
+            },
+            "TrainingPeaks",
+        );
+        assert_eq!(sciotte_refusal(&error), Some(ATHLETE_NOT_ACCESSIBLE));
+        let error = own_read_error(
+            unexpected(
+                Operation::Activity,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                json!({ "error": "boom" }),
+            ),
+            "TrainingPeaks",
+        );
+        assert!(!error.message.contains("boom"), "{}", error.message);
+    }
+
+    #[test]
+    fn a_self_read_refusal_with_no_words_says_so() {
+        let error = own_read_error(
+            ClientError::AthleteNotAccessible {
+                exchange: exchange(Operation::PlannedWorkouts).into(),
+                athlete: None,
+                message: None,
+            },
+            "TrainingPeaks",
+        );
+        assert_eq!(error.code, ErrorCode::ExternalServiceError);
+        assert!(
+            error.message.starts_with(
+                "TrainingPeaks refused the planned-workouts read of the signed-in account's own data"
+            ),
+            "bug: {}",
+            error.message
+        );
+        assert!(error.message.ends_with(": no detail"), "{}", error.message);
+        assert!(
+            !error.message.contains("sciotte"),
+            "bug: the agent-facing words name an internal service: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn a_self_read_maps_every_other_error_as_any_read_does() {
+        let error = own_read_error(
+            ClientError::AthleteRequired {
+                exchange: exchange(Operation::Activities).into(),
+                message: None,
+            },
+            "TrainingPeaks",
+        );
+        assert!(
+            is_coach_account_refusal(&error),
+            "bug: a coach account's refusal lost its marker: {error:?}"
+        );
+        let error = own_read_error(
+            ClientError::SessionExpired {
+                exchange: exchange(Operation::Activities).into(),
+                message: None,
+            },
+            "TrainingPeaks",
+        );
+        assert_eq!(error.code, ErrorCode::ProviderAuthRequired);
     }
 
     #[test]
