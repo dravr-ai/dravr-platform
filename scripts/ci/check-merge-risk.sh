@@ -202,8 +202,10 @@ fi
 
 # --- premise 2: every sqlx::migrate! embeds a listed directory -----------------
 # git grep exits 1 on no match, so only a status above 1 is an error.
+# submodule.recurse=true would send it into .build, whose trees a linked
+# worktree cannot read from HEAD; the migrations live in this repo only.
 migrate_hits=""
-if migrate_hits="$(git grep -n -E 'migrate!\(' HEAD -- '*.rs')"; then
+if migrate_hits="$(git -c submodule.recurse=false grep -n -E 'migrate!\(' HEAD -- '*.rs')"; then
   :
 else
   rc=$?

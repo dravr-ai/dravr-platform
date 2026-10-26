@@ -173,6 +173,12 @@ macro_rules! user_owned_tables {
         /// (`group_transcript_entries`), all cascade from the account; they
         /// are named here so the delete states it, the survivor read proves
         /// it, and the receipt counts them.
+        ///
+        /// A coaching group the user owns and archived goes too (carnet#1161),
+        /// once their own conversations are gone and while no other user's
+        /// conversation is bound to it: its members, invites, transcript and
+        /// digests cascade with it. Archiving already took it off every group
+        /// listing (each filters on `is_active`) and released its members.
         pub const SQLITE_USER_PURGE: UserPurge =
             user_purge!($($table $(where $predicate)?),+);
 
@@ -211,6 +217,7 @@ user_owned_tables!(
     "chat_conversations" where "CAST(user_id AS TEXT) = $1 OR CAST(subject_user_id AS TEXT) = $1",
     "coach_reply_reviews" where "CAST(athlete_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
     "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1",
+    "coaching_groups" where "CAST(owner_id AS TEXT) = $1 AND is_active = FALSE AND NOT EXISTS (SELECT 1 FROM chat_conversations c WHERE c.group_id = coaching_groups.id OR c.subject_group_id = coaching_groups.id)",
     "short_links",
     "mcp_tasks",
     "guardian_pending_actions",
@@ -336,20 +343,41 @@ pub(crate) use clear_user_in_transaction;
 /// private agent only its author used goes with them. A subscription blocks in
 /// every status the provider may still bill in; a `canceled` or
 /// `incomplete_expired` one is the user's own record and the delete clears it.
+///
+/// A group blocks only while someone could still lose it (carnet#1161). One
+/// the user owns and archived, that no other user's conversation is bound to,
+/// goes with the account ([`SQLITE_USER_PURGE`] names it), and neither it, nor
+/// the user's invites to it, nor their coaching of it, nor an agent bound only
+/// to it blocks: `taken_groups` names those groups once for every clause. An
+/// archived group a former member's conversation still names keeps blocking:
+/// deleting it would fail on that conversation.
 /// The `kind` literals are [`UserReferenceKind::as_str`].
 pub const DELETION_BLOCKERS_SQL: &str = r"
+            WITH taken_groups AS (
+                SELECT g.id
+                FROM coaching_groups g
+                WHERE g.owner_id = $1
+                  AND g.is_active = FALSE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM chat_conversations c
+                      WHERE (c.group_id = g.id OR c.subject_group_id = g.id)
+                        AND c.user_id <> $1
+                        AND (c.subject_user_id IS NULL OR c.subject_user_id <> $1)))
             SELECT 'owns_coaching_group' AS kind, g.name AS detail
             FROM coaching_groups g
             WHERE g.owner_id = $1
+              AND g.id NOT IN (SELECT t.id FROM taken_groups t)
             UNION ALL
             SELECT 'coaches_coaching_group', g.name
             FROM coaching_groups g
             WHERE g.coach_user_id = $1
+              AND g.id NOT IN (SELECT t.id FROM taken_groups t)
             UNION ALL
             SELECT 'created_group_invite', g.name
             FROM group_invites i
             JOIN coaching_groups g ON g.id = i.group_id
             WHERE i.created_by = $1
+              AND g.id NOT IN (SELECT t.id FROM taken_groups t)
             UNION ALL
             SELECT 'admin_config_override', o.category || '.' || o.config_key
             FROM admin_config_overrides o
@@ -396,7 +424,8 @@ pub const DELETION_BLOCKERS_SQL: &str = r"
                        WHERE c.agent_id = a.id AND c.user_id <> $1)
                    OR EXISTS (
                        SELECT 1 FROM coaching_groups g
-                       WHERE g.agent_id = a.id)
+                       WHERE g.agent_id = a.id
+                         AND g.id NOT IN (SELECT t.id FROM taken_groups t))
                    OR EXISTS (
                        SELECT 1 FROM agent_assignments s
                        WHERE s.agent_id = a.id AND s.user_id <> $1

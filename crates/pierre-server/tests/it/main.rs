@@ -117,6 +117,7 @@ mod api_tool_iteration_routing_test;
 mod app_attest_sign_in_test;
 mod app_error_retry_after_test;
 mod approval_notification_strings_test;
+mod archived_group_account_deletion_test;
 mod athlete_commitments_test;
 mod athlete_gear_routes_test;
 mod athlete_home_activity_detail_test;
