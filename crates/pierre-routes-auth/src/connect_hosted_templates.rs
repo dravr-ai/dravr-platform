@@ -24,8 +24,8 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE, KEY_HOSTED_PICKER_STRAVA_FALLBACK,
     KEY_HOSTED_PICKER_TAG_API_KEY, KEY_HOSTED_PICKER_TAG_AUTHORIZE,
     KEY_HOSTED_PICKER_TAG_CONNECTED, KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD,
-    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_PAUSED,
-    KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD, KEY_SCIOTTE_CODE_REJECTED,
+    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD,
+    KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use serde_json::{json, Value};
@@ -68,7 +68,6 @@ pub(crate) fn render_connect_page(
         "emailOrUsername": strings.get(KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL),
         "tagConnected": strings.get(KEY_HOSTED_PICKER_TAG_CONNECTED),
         "tagAuthorize": strings.get(KEY_HOSTED_PICKER_TAG_AUTHORIZE),
-        "tagPaused": strings.get(KEY_HOSTED_PICKER_TAG_PAUSED),
         "tagApiKey": strings.get(KEY_HOSTED_PICKER_TAG_API_KEY),
         "tagUsernamePassword": strings.get(KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD),
         "tagEmailPassword": strings.get(KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD),

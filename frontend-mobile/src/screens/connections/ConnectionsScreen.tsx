@@ -280,8 +280,6 @@ export function ConnectionsScreen() {
    * form beside it.
    */
   const startConnect = (provider: ExtendedProviderStatus) => {
-    // A paused row has no sign-in to start.
-    if (provider.connect_paused) return;
     // An OAuth provider whose notice the account has not accepted (WHOOP's
     // owner authorization) states it first; its Continue resumes here.
     if (noticeRequired(provider.provider, provider.consent_required) && !sciotteTargetForBackend(provider.provider)) {
@@ -328,9 +326,6 @@ export function ConnectionsScreen() {
     const owesAuthorization = syncAuthorizationOwed(id, provider.connected, provider.consent_required);
     const isConnecting = connectingProvider === id;
     const canConnect = provider.requires_oauth || id.startsWith('sciotte') || id === 'intervals_icu';
-    // Its sign-in is closed: no connect or reconnect, and the row says why. A
-    // healthy connection keeps its usual actions.
-    const isPaused = Boolean(provider.connect_paused) && (!isConnected || needsReauth);
     const hasMenu = isConnected && canConnect;
 
     // The row's one action as an ink word; the spinner takes its place while
@@ -356,9 +351,7 @@ export function ConnectionsScreen() {
     const delegation = provider.delegation;
     const isDelegated = isConnected && delegation?.status === 'confirmed';
     let subtitle = provider.description;
-    if (isPaused) {
-      subtitle = t('providers.connectPaused', { provider: provider.display_name });
-    } else if (owesAuthorization) {
+    if (owesAuthorization) {
       subtitle = t('providers.authorizeToKeepSyncing', { provider: provider.display_name });
     } else if (isDelegated) {
       if (delegation.read_refused) {
@@ -401,7 +394,7 @@ export function ConnectionsScreen() {
       trailing = (
         <>
           <Text className="text-sm font-medium text-warning">{t('providers.expired')}</Text>
-          {canConnect && !isPaused && action(t('app.reconnect'), reconnect)}
+          {canConnect && action(t('app.reconnect'), reconnect)}
         </>
       );
     } else if (isConnected) {
@@ -412,7 +405,7 @@ export function ConnectionsScreen() {
           {canConnect && action(t('app.disconnect'), disconnect)}
         </>
       );
-    } else if (canConnect && !isPaused) {
+    } else if (canConnect) {
       trailing = action(t('app.connect'), reconnect);
     }
 
@@ -428,7 +421,7 @@ export function ConnectionsScreen() {
                 presentProviderMenu(
                   {
                     providerName: provider.display_name,
-                    canReconnect: (needsReauth || owesAuthorization) && !isPaused,
+                    canReconnect: needsReauth || owesAuthorization,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
@@ -463,7 +456,7 @@ export function ConnectionsScreen() {
             </View>
             <Text
               className="text-sm text-text-secondary"
-              numberOfLines={subtitle === provider.description ? 1 : isPaused ? 3 : 2}
+              numberOfLines={subtitle === provider.description ? 1 : 2}
               testID={`provider-subtitle-${id}`}
             >
               {subtitle}

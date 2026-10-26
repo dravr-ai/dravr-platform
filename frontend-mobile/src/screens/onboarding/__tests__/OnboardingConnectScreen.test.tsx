@@ -134,34 +134,6 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
   });
 });
 
-describe('OnboardingConnectScreen — a paused sign-in', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('says the sign-in is paused and offers no "Connect"', async () => {
-    getProvidersStatus.mockResolvedValue({ providers: [{
-      provider: 'sciotte_garmin',
-      display_name: 'Garmin',
-      description: 'Garmin, as the server describes it',
-      requires_oauth: false,
-      connected: false,
-      needs_reauth: false,
-      capabilities: ['activities'],
-      consent_required: false,
-      connect_paused: true,
-    }] });
-
-    renderScreen();
-
-    expect(await screen.findByTestId('provider-connect-paused-sciotte_garmin')).toHaveTextContent(
-      "Garmin sign-in is paused while we move to Garmin's official connection.",
-    );
-    expect(screen.queryByLabelText('Connect Garmin')).toBeNull();
-    expect(screen.queryByTestId('provider-action-sciotte_garmin')).toBeNull();
-  });
-});
-
 describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
   beforeEach(() => {
     jest.clearAllMocks();

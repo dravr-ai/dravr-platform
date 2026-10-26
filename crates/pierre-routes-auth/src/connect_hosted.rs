@@ -41,9 +41,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use pierre_contremaitre::hosted_strings::{
-    KEY_HOSTED_COMMON_SIGN_IN_PAUSED, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LOAD_FAILED,
-    KEY_HOSTED_ERROR_MALFORMED_LINK, KEY_HOSTED_ERROR_MISSING_TOKEN,
-    KEY_HOSTED_ERROR_NOTICE_REQUIRED, KEY_HOSTED_ERROR_OAUTH_START_FAILED,
+    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LOAD_FAILED, KEY_HOSTED_ERROR_MALFORMED_LINK,
+    KEY_HOSTED_ERROR_MISSING_TOKEN, KEY_HOSTED_ERROR_NOTICE_REQUIRED,
+    KEY_HOSTED_ERROR_OAUTH_START_FAILED,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
@@ -116,11 +116,10 @@ struct ConnectProviderCard {
     description: String,
     /// Already connected — the card is shown disabled.
     connected: bool,
-    /// "oauth" (full-page redirect to consent), "sciotte" (credential form),
-    /// "`api_key`" (the hosted Intervals.icu API-key form) or "paused" (a card
-    /// whose credential login is closed, which cannot be picked and whose
-    /// description says why). The Intervals.icu card is "oauth" while its
-    /// authorization is offered, and opens its hosted page either way.
+    /// "oauth" (full-page redirect to consent), "sciotte" (credential form) or
+    /// "`api_key`" (the hosted Intervals.icu API-key form). The Intervals.icu
+    /// card is "oauth" while its authorization is offered, and opens its
+    /// hosted page either way.
     kind: &'static str,
     /// Sciotte target ("strava" / "garmin" / "trainingpeaks" / "coros"), or
     /// `intervals_icu` for the Intervals.icu card whichever its kind; empty
@@ -203,21 +202,15 @@ async fn build_connect_providers(
                 });
             }
             // Garmin, TrainingPeaks and COROS: always the credential/scraper
-            // flow — none has an OAuth backend Pierre can call. A card whose
-            // credential login is closed says so instead, and cannot be picked.
+            // flow — none has an OAuth backend Pierre can call.
             "sciotte_garmin" | "sciotte_trainingpeaks" | "sciotte_coros" => {
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
-                    let paused = p.connect_paused && !p.connected;
                     cards.push(ConnectProviderCard {
                         provider: provider_name.clone(),
-                        description: if paused {
-                            strings.render(KEY_HOSTED_COMMON_SIGN_IN_PAUSED, &[&p.display_name])
-                        } else {
-                            p.description
-                        },
                         display_name: p.display_name,
+                        description: p.description,
                         connected: p.connected,
-                        kind: if paused { "paused" } else { "sciotte" },
+                        kind: "sciotte",
                         target: target.to_owned(),
                         consent_required: p.consent_required,
                         notice: exposure_notice(strings, target),

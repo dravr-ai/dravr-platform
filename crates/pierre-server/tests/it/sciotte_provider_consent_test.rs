@@ -1,5 +1,5 @@
 // ABOUTME: With the provider_exposure_notice flag armed, a TrainingPeaks or COROS login is refused until the notice is accepted
-// ABOUTME: Pins consent per provider and per notice version, that an account the flag leaves off is never asked, and Garmin's closed login
+// ABOUTME: Pins consent per provider and per notice version, and that an account the flag leaves off is never asked
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -33,13 +33,12 @@ use common::{
     generate_test_token,
 };
 use helpers::axum_test::AxumTestRequest;
-use pierre_contremaitre::hosted_strings::KEY_HOSTED_COMMON_SIGN_IN_PAUSED;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_routes_auth::{remember_remote_flow, require_remote_flow, AuthRoutes};
+use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use serde_json::{json, Value};
@@ -123,8 +122,7 @@ async fn login(
     )
 }
 
-/// The `card` entry `GET /api/providers` serves this account.
-async fn provider_card(resources: &Arc<ServerContext>, token: &str, card: &str) -> Value {
+async fn card_consent_required(resources: &Arc<ServerContext>, token: &str, card: &str) -> bool {
     let resp = AxumTestRequest::get("/api/providers")
         .header("authorization", &format!("Bearer {token}"))
         .send(AuthRoutes::routes(resources.auth_routes_context()))
@@ -135,15 +133,9 @@ async fn provider_card(resources: &Arc<ServerContext>, token: &str, card: &str) 
         .unwrap()
         .iter()
         .find(|p| p["provider"] == card)
-        .unwrap_or_else(|| panic!("no {card} card: {body}"))
-        .clone()
-}
-
-async fn card_consent_required(resources: &Arc<ServerContext>, token: &str, card: &str) -> bool {
-    let entry = provider_card(resources, token, card).await;
-    entry["consent_required"]
+        .unwrap_or_else(|| panic!("no {card} card: {body}"))["consent_required"]
         .as_bool()
-        .unwrap_or_else(|| panic!("{card} card carries consent_required: {entry}"))
+        .unwrap_or_else(|| panic!("{card} card carries consent_required: {body}"))
 }
 
 fn providers_seen(logins: &Logins) -> Vec<String> {
@@ -276,12 +268,12 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
         vec!["trainingpeaks", "trainingpeaks"]
     );
 
-    // 5. Strava has no notice and never asks.
-    let (status, body) = login(&resources, &token, "strava", false).await;
-    assert_eq!(status, 200, "a Strava login needs no notice: {body}");
+    // 5. Garmin has no notice and never asks.
+    let (status, body) = login(&resources, &token, "garmin", false).await;
+    assert_eq!(status, 200, "a Garmin login needs no notice: {body}");
     assert_eq!(
         providers_seen(&logins),
-        vec!["trainingpeaks", "trainingpeaks", "strava"]
+        vec!["trainingpeaks", "trainingpeaks", "garmin"]
     );
 
     // 6. An answer to an earlier notice is no answer to this one: the notice
@@ -303,7 +295,7 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
     );
     assert_eq!(
         providers_seen(&logins),
-        vec!["trainingpeaks", "trainingpeaks", "strava"],
+        vec!["trainingpeaks", "trainingpeaks", "garmin"],
         "the refused login reached no scraper"
     );
     let (status, body) = login(&resources, &token, "trainingpeaks", true).await;
@@ -408,125 +400,6 @@ async fn a_trainingpeaks_login_needs_the_accounts_consent_and_keeps_it() {
                 .unwrap(),
             None,
             "no acceptance is recorded where none was asked"
-        );
-    }
-}
-
-/// Garmin's credential login is closed (carnet#1155). Its card says so, and a
-/// Garmin login — from an app build or a link made before the closure — is
-/// refused in the athlete's words before any credential reaches the scraper,
-/// while a provider whose login is open still signs in.
-#[tokio::test]
-async fn a_garmin_login_is_refused_before_any_credential_leaves_the_server() {
-    let logins: Logins = Arc::new(Mutex::new(Vec::new()));
-    let resources =
-        create_test_server_resources_with_sciotte(&spawn_recording_scraper(logins.clone()).await)
-            .await
-            .unwrap();
-    let (_, user) = create_test_user(&resources.agent.database).await.unwrap();
-    let token = generate_test_token(&resources, &user).await;
-
-    let garmin = provider_card(&resources, &token, oauth_providers::SCIOTTE_GARMIN).await;
-    assert_eq!(garmin["connect_paused"], true, "{garmin}");
-    let trainingpeaks =
-        provider_card(&resources, &token, oauth_providers::SCIOTTE_TRAININGPEAKS).await;
-    assert!(
-        trainingpeaks.get("connect_paused").is_none(),
-        "an open login carries no flag: {trainingpeaks}"
-    );
-
-    let (status, body) = login(&resources, &token, "garmin", false).await;
-    assert_eq!(status, 400, "a Garmin login is refused: {body}");
-    let paused = resources.auth_routes_context().messaging_strings.render(
-        KEY_HOSTED_COMMON_SIGN_IN_PAUSED,
-        &user.locale,
-        &["Garmin"],
-    );
-    assert_eq!(
-        body["message"], paused,
-        "the refusal says why, in the athlete's locale: {body}"
-    );
-    assert!(
-        logins.lock().unwrap().is_empty(),
-        "no Garmin credential may reach the scraper"
-    );
-
-    let (status, body) = login(&resources, &token, "strava", false).await;
-    assert_eq!(status, 200, "an open login still signs in: {body}");
-    assert_eq!(
-        providers_seen(&logins),
-        vec!["strava"],
-        "only the open login reached the scraper"
-    );
-}
-
-/// A Garmin sign-in parked at its code or 2FA step before the closure
-/// (carnet#1155) cannot be finished: each continuation is refused in the
-/// athlete's words, and the parked flow is dropped so no later step resumes it.
-#[tokio::test]
-async fn a_garmin_sign_in_parked_before_the_closure_cannot_be_continued() {
-    let logins: Logins = Arc::new(Mutex::new(Vec::new()));
-    let resources =
-        create_test_server_resources_with_sciotte(&spawn_recording_scraper(logins.clone()).await)
-            .await
-            .unwrap();
-    let (user_id, user) = create_test_user(&resources.agent.database).await.unwrap();
-    let token = generate_test_token(&resources, &user).await;
-    let tenant_id = resources
-        .common
-        .repos
-        .tenants
-        .list_for_user(user_id)
-        .await
-        .unwrap()
-        .first()
-        .expect("user has a tenant")
-        .id
-        .as_uuid();
-    let paused = resources.auth_routes_context().messaging_strings.render(
-        KEY_HOSTED_COMMON_SIGN_IN_PAUSED,
-        &user.locale,
-        &["Garmin"],
-    );
-
-    for (path, step) in [
-        (
-            "/api/providers/sciotte/submit-otp",
-            json!({ "code": "123456" }),
-        ),
-        (
-            "/api/providers/sciotte/select-2fa",
-            json!({ "option_id": "sms" }),
-        ),
-    ] {
-        remember_remote_flow(
-            &resources.common.cache,
-            tenant_id,
-            user_id,
-            "garmin-parked-flow".to_owned(),
-            oauth_providers::SCIOTTE_GARMIN,
-        )
-        .await;
-        let resp = AxumTestRequest::post(path)
-            .header("authorization", &format!("Bearer {token}"))
-            .json(&step)
-            .send(AuthRoutes::routes(resources.auth_routes_context()))
-            .await;
-        let status = resp.status();
-        let body: Value = serde_json::from_str(&resp.text()).unwrap_or(Value::Null);
-        assert_eq!(
-            status, 400,
-            "{path}: a parked Garmin step is refused: {body}"
-        );
-        assert_eq!(
-            body["message"], paused,
-            "{path}: the refusal says why, in the athlete's locale: {body}"
-        );
-        assert!(
-            require_remote_flow(&resources.common.cache, tenant_id, user_id)
-                .await
-                .is_err(),
-            "{path}: the refused flow is dropped"
         );
     }
 }

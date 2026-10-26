@@ -1,12 +1,11 @@
-// ABOUTME: carnet#1035 — a sign-in stopped at a captcha is the athlete's to retry, never an operator page
+// ABOUTME: carnet#1035 — a Garmin sign-in stopped at a captcha is the athlete's to retry, never an operator page
 // ABOUTME: Pins the challenge copy and reason, and a re-login sending only the caller's own dead session as prior
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A provider's SSO can put a captcha in front of a sign-in it does not trust
-//! (Garmin's did, carnet#1035), and the scraper service stops there without
-//! answering it: `403
+//! Garmin's SSO puts a captcha in front of a sign-in it does not trust, and
+//! the scraper service stops there without answering it: `403
 //! {"error":"login_challenge"}`. Read as an unrecognised login answer, that
 //! paged an operator for a provider's bot check and told the athlete nothing
 //! useful. The platform now answers it with its own copy and the reason the
@@ -52,7 +51,7 @@ use common::{
 };
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
-use pierre_core::constants::oauth_providers::{SCIOTTE_COROS, TOKEN_TYPE_SESSION};
+use pierre_core::constants::oauth_providers::{SCIOTTE_GARMIN, TOKEN_TYPE_SESSION};
 use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
@@ -76,10 +75,10 @@ const CHALLENGED: &str = "challenged";
 const CODE_STEP: &str = "code-step";
 
 /// The session a successful login signs in to.
-const NEW_SESSION: &str = "coros-1035-new";
+const NEW_SESSION: &str = "garmin-1035-new";
 
 /// The service's own words for a challenge. The platform never shows them.
-const SERVICE_WORDS: &str = "COROS showed a captcha frame on the sign-in page";
+const SERVICE_WORDS: &str = "Garmin showed a captcha frame on the sign-in page";
 
 /// What one login sent as its prior session: the provider it was exported
 /// for, the session id it names, and how many cookies it carried. The cookies
@@ -150,21 +149,21 @@ async fn login(State(seen): State<Arc<Seen>>, Json(body): Json<Value>) -> Respon
     if email.starts_with(CODE_STEP) {
         return Json(json!({
             "status": "otp_required",
-            "reason": "COROS sent a verification code",
+            "reason": "Garmin sent a verification code",
             "flow_id": "flow-1035",
-            "provider": "coros"
+            "provider": "garmin"
         }))
         .into_response();
     }
     Json(json!({
         "status": "authenticated",
         "session_id": NEW_SESSION,
-        "provider": "coros"
+        "provider": "garmin"
     }))
     .into_response()
 }
 
-/// The scraper service stand-in: a COROS login that records its prior
+/// The scraper service stand-in: a Garmin login that records its prior
 /// session, a code step stopped at a challenge, and the session the platform
 /// exports and reads after a sign-in.
 fn stand_in(seen: Arc<Seen>) -> Router {
@@ -194,11 +193,11 @@ fn stand_in(seen: Arc<Seen>) -> Router {
         )
         .route(
             "/api/athlete",
-            get(|| async { Json(json!({ "display_name": "COROS Tester" })) }),
+            get(|| async { Json(json!({ "display_name": "Garmin Tester" })) }),
         )
         .route(
             "/api/daily-summary",
-            get(|| async { Json(json!({ "provider": "coros" })) }),
+            get(|| async { Json(json!({ "provider": "garmin" })) }),
         )
         .with_state(seen)
 }
@@ -222,7 +221,7 @@ fn email(prefix: &str) -> String {
     format!("{prefix}-{}@example.com", Uuid::new_v4())
 }
 
-/// One athlete, with COROS's notice (if it has one) already accepted.
+/// One athlete, with Garmin's notice (if it has one) already accepted.
 struct Athlete {
     resources: Arc<ServerContext>,
     user_id: Uuid,
@@ -248,12 +247,12 @@ impl Athlete {
             create_test_user_with_email(&resources.agent.database, &email("athlete"))
                 .await
                 .unwrap();
-        if let Some(version) = provider_terms_version(SCIOTTE_COROS) {
+        if let Some(version) = provider_terms_version(SCIOTTE_GARMIN) {
             resources
                 .common
                 .repos
                 .users
-                .record_provider_terms(user_id, SCIOTTE_COROS, version)
+                .record_provider_terms(user_id, SCIOTTE_GARMIN, version)
                 .await
                 .unwrap();
         }
@@ -276,14 +275,14 @@ impl Athlete {
         }
     }
 
-    /// The same athlete, signing in through a hosted COROS link instead.
+    /// The same athlete, signing in through a hosted Garmin link instead.
     fn with_link_token(mut self) -> Self {
         let token = mint_link_token(
             &MintProviderLinkTokenArgs {
                 user_id: self.user_id,
                 tenant_id: self.tenant_id.as_uuid(),
                 provider: "sciotte",
-                target: "coros",
+                target: "garmin",
                 channel: "telegram",
                 channel_thread: None,
             },
@@ -312,38 +311,38 @@ impl Athlete {
             json!({
                 "email": email,
                 "password": "not-a-real-password",
-                "target": "coros",
+                "target": "garmin",
                 "tos_consent": true,
             }),
         )
         .await
     }
 
-    async fn coros_session(&self) -> Option<UserOAuthToken> {
+    async fn garmin_session(&self) -> Option<UserOAuthToken> {
         self.resources
             .common
             .repos
             .oauth_tokens
-            .get_token(self.user_id, self.tenant_id, SCIOTTE_COROS)
+            .get_token(self.user_id, self.tenant_id, SCIOTTE_GARMIN)
             .await
             .unwrap()
     }
 
-    /// Store a COROS session for this athlete under `tenant_id`, as a login
+    /// Store a Garmin session for this athlete under `tenant_id`, as a login
     /// stores one, whose expiry has already passed: the re-login case.
     async fn store_expired_session_under(&self, tenant_id: TenantId, session_id: &str) {
         let blob = session_blob(session_id, Some(Utc::now() - chrono::Duration::hours(1)));
         self.store_blob_under(tenant_id, blob).await;
     }
 
-    /// Store a COROS session for this athlete, written an hour ago (past the
+    /// Store a Garmin session for this athlete, written an hour ago (past the
     /// reuse window) and expiring tomorrow: still live at the provider.
     async fn store_old_live_session(&self, session_id: &str) {
         let blob = session_blob(session_id, Some(Utc::now() + chrono::Duration::days(1)));
         self.store_old_blob(blob).await;
     }
 
-    /// Store a COROS session for this athlete, written an hour ago (past the
+    /// Store a Garmin session for this athlete, written an hour ago (past the
     /// reuse window) and carrying no expiry at all: what sciotte stores.
     async fn store_old_session_without_expiry(&self, session_id: &str) {
         self.store_old_blob(session_blob(session_id, None)).await;
@@ -355,9 +354,9 @@ impl Athlete {
         self.upsert(&token).await;
     }
 
-    /// Register the athlete's COROS connection, as the login that stored the
+    /// Register the athlete's Garmin connection, as the login that stored the
     /// session did. It starts `active`.
-    async fn register_coros_connection(&self) {
+    async fn register_garmin_connection(&self) {
         self.resources
             .common
             .repos
@@ -365,16 +364,16 @@ impl Athlete {
             .register_connection(
                 self.user_id,
                 self.tenant_id,
-                SCIOTTE_COROS,
+                SCIOTTE_GARMIN,
                 &ConnectionType::Manual,
                 None,
             )
             .await
-            .expect("register the COROS connection");
+            .expect("register the Garmin connection");
     }
 
-    /// The status of the athlete's COROS connection.
-    async fn coros_connection_status(&self) -> ConnectionStatus {
+    /// The status of the athlete's Garmin connection.
+    async fn garmin_connection_status(&self) -> ConnectionStatus {
         self.resources
             .common
             .repos
@@ -383,14 +382,14 @@ impl Athlete {
             .await
             .unwrap()
             .into_iter()
-            .find(|connection| connection.provider == SCIOTTE_COROS)
-            .expect("the COROS connection")
+            .find(|connection| connection.provider == SCIOTTE_GARMIN)
+            .expect("the Garmin connection")
             .status
     }
 
-    /// Flag the athlete's COROS connection as a scrape the provider answered
+    /// Flag the athlete's Garmin connection as a scrape the provider answered
     /// `session_expired` does.
-    async fn flag_coros_connection_as_a_refused_read_does(&self) {
+    async fn flag_garmin_connection_as_a_refused_read_does(&self) {
         let mark = self
             .resources
             .common
@@ -399,7 +398,7 @@ impl Athlete {
             .mark_needs_reauth(
                 self.user_id,
                 self.tenant_id,
-                SCIOTTE_COROS,
+                SCIOTTE_GARMIN,
                 Some("session_expired"),
                 Utc::now(),
             )
@@ -417,7 +416,7 @@ impl Athlete {
         let mut token = UserOAuthToken::new(
             self.user_id,
             tenant_id.to_string(),
-            SCIOTTE_COROS.to_owned(),
+            SCIOTTE_GARMIN.to_owned(),
             blob,
             None,
             None,
@@ -434,19 +433,19 @@ impl Athlete {
             .oauth_tokens
             .upsert_token(token)
             .await
-            .expect("store a COROS session");
+            .expect("store a Garmin session");
     }
 }
 
-/// A stored COROS session blob carrying one device-trust cookie and
+/// A stored Garmin session blob carrying one device-trust cookie and
 /// `expires_at`, `null` when `None`.
 fn session_blob(session_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> String {
     json!({
         "session_id": session_id,
         "cookies": [{
-            "name": "COROS-DEVICE-TRUST",
+            "name": "GARMIN-SSO-CUST-GUID",
             "value": "device-trust-cookie",
-            "domain": ".coros.com",
+            "domain": ".garmin.com",
             "path": "/",
             "secure": true,
             "http_only": true
@@ -566,7 +565,7 @@ fn assert_is_the_challenge_refusal(status: u16, body: &Value) {
     assert_eq!(status, 400, "{body}");
     assert_eq!(
         body["message"],
-        Value::from(friendly_login_challenge_message(SCIOTTE_COROS)),
+        Value::from(friendly_login_challenge_message(SCIOTTE_GARMIN)),
         "{body}"
     );
     assert_eq!(body["details"]["reason"], LOGIN_CHALLENGE_REASON, "{body}");
@@ -602,7 +601,7 @@ async fn a_challenge_is_the_athletes_to_retry(athlete: &Athlete) {
         1,
         "the login reached the service once"
     );
-    assert!(athlete.coros_session().await.is_none());
+    assert!(athlete.garmin_session().await.is_none());
     assert!(
         require_remote_flow(
             &athlete.resources.common.cache,
@@ -636,7 +635,7 @@ async fn a_challenged_hosted_sign_in_answers_the_reason_its_page_reads() {
     a_challenge_is_the_athletes_to_retry(&athlete).await;
 
     // The hosted login page compares the refusal's reason against this exact
-    // literal, and carries the challenged sentence naming COROS. Its script
+    // literal, and carries the challenged sentence naming Garmin. Its script
     // choosing that sentence is run in `hostedLoginCodeStep.test.ts`.
     let token = athlete
         .bearer
@@ -655,8 +654,8 @@ async fn a_challenged_hosted_sign_in_answers_the_reason_its_page_reads() {
     );
     assert_eq!(
         script_strings(&page)["signInChallenged"],
-        Value::from(friendly_login_challenge_message(SCIOTTE_COROS)),
-        "the English page carries the challenged sentence naming COROS, which the \
+        Value::from(friendly_login_challenge_message(SCIOTTE_GARMIN)),
+        "the English page carries the challenged sentence naming Garmin, which the \
          platform's own fallback copy matches"
     );
 }
@@ -699,7 +698,7 @@ async fn a_challenge_at_the_code_step_ends_the_sign_in() {
 async fn a_re_login_after_expiry_sends_the_stored_session_as_prior() {
     let athlete = Athlete::new().await;
     athlete
-        .store_expired_session_under(athlete.tenant_id, "coros-1035-prior")
+        .store_expired_session_under(athlete.tenant_id, "garmin-1035-prior")
         .await;
 
     let from = email("relogin");
@@ -710,13 +709,13 @@ async fn a_re_login_after_expiry_sends_the_stored_session_as_prior() {
     assert_eq!(
         priors_sent_by(&from),
         [Some(PriorSeen {
-            provider: "coros".to_owned(),
-            session_id: "coros-1035-prior".to_owned(),
+            provider: "garmin".to_owned(),
+            session_id: "garmin-1035-prior".to_owned(),
             cookies: 1,
         })],
         "the re-login seeds the browser with the session it replaces"
     );
-    let stored = athlete.coros_session().await.expect("the new session");
+    let stored = athlete.garmin_session().await.expect("the new session");
     assert!(
         stored.access_token.expose_secret().contains(NEW_SESSION),
         "the sign-in replaced the stored session"
@@ -730,10 +729,12 @@ async fn a_session_without_expiry_whose_connection_needs_reauth_is_sent_as_prior
     // session's sign-in cookies are dead and only its device trust is left.
     let athlete = Athlete::new().await;
     athlete
-        .store_old_session_without_expiry("coros-1035-flagged")
+        .store_old_session_without_expiry("garmin-1035-flagged")
         .await;
-    athlete.register_coros_connection().await;
-    athlete.flag_coros_connection_as_a_refused_read_does().await;
+    athlete.register_garmin_connection().await;
+    athlete
+        .flag_garmin_connection_as_a_refused_read_does()
+        .await;
 
     let from = email("flagged");
     let (status, body) = athlete.login(&from).await;
@@ -742,13 +743,13 @@ async fn a_session_without_expiry_whose_connection_needs_reauth_is_sent_as_prior
     assert_eq!(
         priors_sent_by(&from),
         [Some(PriorSeen {
-            provider: "coros".to_owned(),
-            session_id: "coros-1035-flagged".to_owned(),
+            provider: "garmin".to_owned(),
+            session_id: "garmin-1035-flagged".to_owned(),
             cookies: 1,
         })],
         "a session the provider refused seeds the browser with its device trust"
     );
-    let stored = athlete.coros_session().await.expect("the new session");
+    let stored = athlete.garmin_session().await.expect("the new session");
     assert!(
         stored.access_token.expose_secret().contains(NEW_SESSION),
         "the sign-in replaced the stored session"
@@ -761,11 +762,11 @@ async fn a_session_without_expiry_on_an_active_connection_is_not_sent_as_prior()
     // be live, and this login may be a coach switching accounts.
     let athlete = Athlete::new().await;
     athlete
-        .store_old_session_without_expiry("coros-1035-unflagged")
+        .store_old_session_without_expiry("garmin-1035-unflagged")
         .await;
-    athlete.register_coros_connection().await;
+    athlete.register_garmin_connection().await;
     assert_eq!(
-        athlete.coros_connection_status().await,
+        athlete.garmin_connection_status().await,
         ConnectionStatus::Active
     );
 
@@ -784,13 +785,13 @@ async fn a_session_without_expiry_on_an_active_connection_is_not_sent_as_prior()
 async fn an_old_session_that_has_not_expired_is_not_sent_as_prior() {
     // A coach connected account A an hour ago and now signs in to account B.
     // A's session is past the reuse window, has not expired, and its
-    // connection is active: seeding the browser with it could skip COROS's
+    // connection is active: seeding the browser with it could skip Garmin's
     // sign-in form and store A's session under B's credentials.
     let athlete = Athlete::new().await;
-    athlete.store_old_live_session("coros-1035-live").await;
-    athlete.register_coros_connection().await;
+    athlete.store_old_live_session("garmin-1035-live").await;
+    athlete.register_garmin_connection().await;
     assert_eq!(
-        athlete.coros_connection_status().await,
+        athlete.garmin_connection_status().await,
         ConnectionStatus::Active
     );
 
@@ -803,7 +804,7 @@ async fn an_old_session_that_has_not_expired_is_not_sent_as_prior() {
         [None],
         "a session not observed dead never seeds the login browser"
     );
-    let stored = athlete.coros_session().await.expect("the new session");
+    let stored = athlete.garmin_session().await.expect("the new session");
     assert!(
         stored.access_token.expose_secret().contains(NEW_SESSION),
         "the sign-in replaced the stored session"

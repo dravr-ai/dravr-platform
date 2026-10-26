@@ -55,7 +55,7 @@ use chrono_tz::Tz;
 use dravr_canot::channel::MessagingChannel;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
-    KEY_PROVIDER_REAUTH_PAUSED, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+    KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
@@ -282,7 +282,7 @@ impl ServerBackfillNotifier {
     /// `auth_recovery::mint_reconnect_url`'s hosted-login arm.
     ///
     /// `None`, logged, when `provider` has no hosted login or the token cannot
-    /// be minted. Both callers send no link for a closed credential login.
+    /// be minted.
     async fn hosted_login_url(
         &self,
         user_id: Uuid,
@@ -347,16 +347,6 @@ impl ServerBackfillNotifier {
     ) -> ReconnectNotice {
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        // A provider whose credential login is closed cannot be reconnected
-        // from settings either: the notice says its sign-in is paused.
-        if backend_resolver::credential_login_closed(provider) {
-            return ReconnectNotice {
-                body: self
-                    .strings
-                    .render(KEY_PROVIDER_REAUTH_PAUSED, locale, &[display]),
-                send_by: None,
-            };
-        }
         let link = if backend_resolver::hosted_login_target(provider).is_some() {
             self.hosted_login_url(user_id, tenant_id, provider, channel)
                 .await
@@ -1032,30 +1022,20 @@ impl BackfillNotifier for ServerBackfillNotifier {
             );
             return;
         }
+        let Some(link) = self
+            .hosted_login_url(user_id, tenant_id, provider, &channel_str)
+            .await
+        else {
+            return;
+        };
 
         // Render the localized reconnect message ({0}=provider brand, {1}=link)
-        // and send via the shared adapter rail. A provider whose credential
-        // login is closed has no link to send: the conversation is told its
-        // sign-in is paused instead, on every ask as the link would be.
+        // and send via the shared adapter rail.
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        let (body, send_by) = if backend_resolver::credential_login_closed(provider) {
-            let body = self
-                .strings
-                .render(KEY_PROVIDER_REAUTH_PAUSED, &locale, &[display]);
-            (body, None)
-        } else {
-            let Some(link) = self
-                .hosted_login_url(user_id, tenant_id, provider, &channel_str)
-                .await
-            else {
-                return;
-            };
-            let body =
-                self.strings
-                    .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &link.url]);
-            (body, Some(link.send_by))
-        };
+        let body =
+            self.strings
+                .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &link.url]);
 
         let outgoing = proactive_text(channel_type, recipient, body);
         let Some((adapter, channel_config)) = self
@@ -1074,8 +1054,8 @@ impl BackfillNotifier for ServerBackfillNotifier {
             // expired and keeps re-asking. The message row lands on the
             // user/session tenant; the queue row lands on the bot/channel-owner
             // tenant so the worker resolves the right channel config on re-send.
-            // The retry is bounded by the link's life when it carries one, and
-            // stops once the connection is reconnected.
+            // The retry is bounded by the link's life and stops once the
+            // connection is reconnected.
             let reauth_user_id = user_id.to_string();
             if let Err(enqueue_err) = enqueue_failed_outbound(
                 self.repos.messaging.as_ref(),
@@ -1089,7 +1069,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     queue_tenant_id: channel_tenant_id,
                     user_id: Some(&reauth_user_id),
                     channel: &channel_str,
-                    expires_at: send_by,
+                    expires_at: Some(link.send_by),
                     reauth: Some(OutboundReauthGuard {
                         tenant_id,
                         provider,

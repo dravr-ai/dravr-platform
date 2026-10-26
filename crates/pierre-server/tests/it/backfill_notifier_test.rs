@@ -149,7 +149,7 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
             user_uuid,
             tenant_id,
             &conversation_id,
-            "sciotte_coros",
+            "sciotte_garmin",
             1_700_000_000,
             7,
         )
@@ -188,13 +188,13 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         &conversation_id,
     )
     .await;
-    // A connected COROS (sciotte mirror), the connection the nudge names.
+    // A connected Garmin (sciotte mirror), the connection the nudge names.
     repos
         .provider_connections
         .register_connection(
             user_uuid,
             tenant_id,
-            "sciotte_coros",
+            "sciotte_garmin",
             &ConnectionType::OAuth,
             None,
         )
@@ -212,7 +212,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
     );
 
     notifier
-        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_coros")
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
         .await;
 
     // Extract the short code inside the lock scope, then drop the guard before
@@ -228,7 +228,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         let MessageContent::Text { body } = &sent[0].content else {
             panic!("expected a text nudge");
         };
-        assert!(body.contains("COROS"), "names the provider: {body}");
+        assert!(body.contains("Garmin"), "names the provider: {body}");
         // The nudge now carries a short, dot-free `<base>/r/<code>` link (the raw
         // JWT's dots break WhatsApp linkification) — not the full hosted-login URL.
         assert!(
@@ -263,7 +263,7 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
     // reconnect link was broken/never-clicked must keep getting the link on every
     // failed turn until they actually reconnect (which clears needs_reauth).
     notifier
-        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_coros")
+        .push_provider_reauth(user_uuid, tenant_id, &conversation_id, "sciotte_garmin")
         .await;
     assert_eq!(
         channel.sent.lock().unwrap().len(),

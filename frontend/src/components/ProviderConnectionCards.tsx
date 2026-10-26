@@ -252,8 +252,8 @@ export default function ProviderConnectionCards({
       return;
     }
 
-    // If already connected, no action needed; a paused card has no sign-in.
-    if (provider.connected || provider.connect_paused) return;
+    // If already connected, no action needed
+    if (provider.connected) return;
 
     // The Sciotte card is the user-facing "Strava" card. While shared-app OAuth
     // seats remain the server recommends `oauth`, so connect via the official
@@ -336,28 +336,23 @@ export default function ProviderConnectionCards({
         const isConnecting = connectingProvider === provider.provider;
         const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
         const owesAuthorization = syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required);
-        // Its sign-in is closed: the row says so and offers nothing to tap.
-        const isPaused = Boolean(provider.connect_paused) && !provider.connected;
-        const pausedLine = t('providers.connectPaused', { provider: provider.display_name });
-        const isActionable = !isPaused && !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
+        const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
 
         return (
           <button
             key={provider.provider}
             type="button"
             onClick={() => handleConnect(provider)}
-            disabled={(provider.connected && !owesAuthorization) || isPaused || isConnecting || !!connectingProvider}
+            disabled={(provider.connected && !owesAuthorization) || isConnecting || !!connectingProvider}
             className={`${ROW_CLASS} disabled:cursor-default`}
             aria-label={
               owesAuthorization
                 ? t('providers.authorizeToKeepSyncing', { provider: provider.display_name })
                 : provider.connected
                 ? t('providers.isConnectedAria', { provider: provider.display_name })
-                : isPaused
-                  ? pausedLine
-                  : isNonOAuth
-                    ? `${provider.display_name} - ${provider.description}`
-                    : t('providers.connectToAria', { provider: provider.display_name })
+                : isNonOAuth
+                  ? `${provider.display_name} - ${provider.description}`
+                  : t('providers.connectToAria', { provider: provider.display_name })
             }
           >
             <span
@@ -374,12 +369,7 @@ export default function ProviderConnectionCards({
             </span>
             <span className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 ${isNonOAuth ? 'opacity-60' : ''}`}>
               <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
-              <span
-                className={`min-w-0 text-xs text-on-surface-variant ${isPaused ? '' : 'truncate'}`}
-                data-testid={isPaused ? `provider-connect-paused-${provider.provider}` : undefined}
-              >
-                {isPaused ? pausedLine : provider.description}
-              </span>
+              <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
             </span>
             {owesAuthorization && (
               <span

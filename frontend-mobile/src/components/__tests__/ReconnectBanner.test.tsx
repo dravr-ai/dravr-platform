@@ -76,20 +76,6 @@ describe('ReconnectBanner', () => {
     expect(screen.queryByText(/COROS/)).toBeNull();
   });
 
-  it('never names a provider whose sign-in is paused, since it cannot be reconnected', async () => {
-    mockGetProvidersStatus.mockResolvedValue({
-      providers: PROVIDERS_RECONNECT.providers.map((provider) =>
-        provider.display_name === 'Garmin' ? { ...provider, connect_paused: true } : provider,
-      ),
-    });
-    const screen = renderBanner();
-
-    expect(await screen.findByTestId('reconnect-banner-providers')).toHaveTextContent(
-      'Reconnect Strava to see your new activities.',
-    );
-    expect(screen.queryByText(/Garmin/)).toBeNull();
-  });
-
   it('announces itself as an alert, with the button as its own focus stop', async () => {
     mockGetProvidersStatus.mockResolvedValue(PROVIDERS_RECONNECT);
     const screen = renderBanner();

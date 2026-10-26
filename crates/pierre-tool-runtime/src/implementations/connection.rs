@@ -565,25 +565,6 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
         // `resolve_backend` routes them to the API and the mirror goes dormant.
         if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
             if backend_resolver::serving_backends(provider) == [mirror] {
-                // Its credential login is closed, so there is no hosted login
-                // to hand off to: the agent says so instead. The auth-required
-                // signal would be answered as an expired connection, which an
-                // athlete who never connected does not have.
-                if backend_resolver::credential_login_closed(mirror) {
-                    info!(
-                        user_id = %user_uuid,
-                        provider = provider,
-                        "connect_provider: credential login closed, nothing to hand off to"
-                    );
-                    let brand = backend_resolver::brand_name(registry, provider).unwrap_or(provider);
-                    return Ok(ToolResult::error(json!({
-                        "error": format!(
-                            "{brand} cannot be connected right now: {brand} sign-in is paused \
-                             while Dravr moves to {brand}'s official connection. The athlete's \
-                             other connected providers keep working."
-                        )
-                    })));
-                }
                 info!(
                     user_id = %user_uuid,
                     provider = provider,

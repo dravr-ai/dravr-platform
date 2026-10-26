@@ -545,12 +545,6 @@ pub struct ProviderStatus {
     /// the credentials and posts `tos_consent: true` with the login; the login
     /// is refused without it.
     pub consent_required: bool,
-    /// The card's only way in is a credential login that is closed: the
-    /// client offers neither a connect nor a reconnect, and shows instead that
-    /// signing in is paused. A connected card keeps serving from the session
-    /// it already holds. Absent for every card that can still be connected.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub connect_paused: bool,
     /// Connecting needs an OAuth app of the athlete's own: no app of theirs,
     /// of their tenant's or of the server's can authorize this provider for
     /// them, so an OAuth start would reach the provider with no client it

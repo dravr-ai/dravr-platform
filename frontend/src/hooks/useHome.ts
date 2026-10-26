@@ -59,8 +59,6 @@ export interface ProviderConnectionState {
  * The server refreshes nothing for a connection flagged `needs_reauth`, so
  * its activities stay as old as its last sync. The flag only means something
  * on a connected provider, which is why a disconnected one is never named.
- * Nor is one whose sign-in is paused (`connect_paused`): it cannot be
- * reconnected, and its settings row says why.
  */
 export function useProviderConnection(): ProviderConnectionState {
   const { data, isSuccess } = useQuery({
@@ -73,9 +71,7 @@ export function useProviderConnection(): ProviderConnectionState {
     connected: providers.some((provider) => provider.connected),
     needsReconnect: [
       ...new Set(
-        providers
-          .filter((provider) => provider.connected && provider.needs_reauth && !provider.connect_paused)
-          .map((provider) => provider.display_name),
+        providers.filter((provider) => provider.connected && provider.needs_reauth).map((provider) => provider.display_name),
       ),
     ],
   };
