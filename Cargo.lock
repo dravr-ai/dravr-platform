@@ -4142,6 +4142,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bitflags 2.13.2",
+ "bytes",
  "chrono",
  "dashmap 5.5.3",
  "dravr-cageux",

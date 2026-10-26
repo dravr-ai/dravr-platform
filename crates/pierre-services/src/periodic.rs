@@ -40,6 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use futures_util::future::BoxFuture;
 use futures_util::FutureExt as _;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::WorkerRunRepository;
@@ -93,6 +94,22 @@ where
     F: FnMut() -> Fut + Send + 'static,
     Fut: Future<Output = AppResult<()>> + Send + 'static,
 {
+    // Generic only as far as boxing the tick: the loop below is one async
+    // state machine, and keeping it out of the generic function compiles it
+    // once instead of once per worker (carnet#1163).
+    run_periodic(name, period, ledger, Box::new(move || tick().boxed()))
+}
+
+/// A worker's tick, type-erased so [`run_periodic`] is not generic.
+type BoxedTick = Box<dyn FnMut() -> BoxFuture<'static, AppResult<()>> + Send>;
+
+/// The non-generic body of [`spawn_periodic`].
+fn run_periodic(
+    name: &'static str,
+    period: Duration,
+    ledger: Arc<dyn WorkerRunRepository>,
+    mut tick: BoxedTick,
+) -> AbortHandle {
     // A zero period would spin; two callers read theirs from the
     // environment, so a misconfigured `=0` clamps to a second rather than
     // taking the process down at boot.

@@ -28,7 +28,10 @@ use tokio::task::JoinHandle;
 /// body. A real socket rather than a mocked client, so the request shell —
 /// retry decision, vendor hook, generic mapping — runs exactly as it does in
 /// production.
-async fn stub_once(status_line: &'static str, body: &'static str) -> (String, JoinHandle<()>) {
+pub(super) async fn stub_once(
+    status_line: &'static str,
+    body: &'static str,
+) -> (String, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind stub");
     let addr = listener.local_addr().expect("stub addr");
     let handle = tokio::spawn(async move {

@@ -38,6 +38,7 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+bytes = "1.12"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.29", features = ["v4", "serde"] }
 tracing = "0.1"

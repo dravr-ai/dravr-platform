@@ -8,6 +8,7 @@ use crate::constants::oauth_providers;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::SharedHttpClient;
 use crate::request_budget::{self, RequestBudget};
+use bytes::Bytes;
 use chrono::{TimeZone, Utc};
 use reqwest::StatusCode;
 use secrecy::SecretString;
@@ -268,8 +269,47 @@ pub async fn api_request_with_retry<T, F>(
 ) -> AppResult<T>
 where
     T: for<'de> Deserialize<'de>,
-    F: Fn(StatusCode, &str) -> Option<AppError>,
+    F: Fn(StatusCode, &str) -> Option<AppError> + Sync,
 {
+    // Generic only as far as decoding the body: the retry loop runs in
+    // `request_body_with_retry`, which is compiled once rather than once per
+    // response type (carnet#1163).
+    let body = request_body_with_retry(
+        client,
+        url,
+        access_token,
+        provider_name,
+        retry_config,
+        budget,
+        &vendor_error,
+    )
+    .await?;
+    info!("Parsing JSON response from {provider_name} API");
+    serde_json::from_slice(&body).map_err(|e| {
+        // The category and position only: serde's message can quote the
+        // offending value, which is the athlete's provider data.
+        let at = format!(
+            "{:?} at line {} column {}",
+            e.classify(),
+            e.line(),
+            e.column()
+        );
+        error!("Failed to parse JSON response: {at}");
+        AppError::external_service(provider_name, format!("Failed to parse API response: {at}"))
+    })
+}
+
+/// The non-generic body of [`api_request_with_retry`]: the admitted, retried
+/// request and its error mapping, returning the success body undecoded.
+async fn request_body_with_retry(
+    client: &SharedHttpClient,
+    url: &str,
+    access_token: &str,
+    provider_name: &str,
+    retry_config: &RetryConfig,
+    budget: Option<&RequestBudget>,
+    vendor_error: &(dyn Fn(StatusCode, &str) -> Option<AppError> + Sync),
+) -> AppResult<Bytes> {
     info!("Starting {provider_name} API request to: {url}");
 
     let mut attempt = 0;
@@ -309,9 +349,8 @@ where
             return Err(api_error(status, &text, provider_name));
         }
 
-        info!("Parsing JSON response from {provider_name} API");
-        return response.json().await.map_err(|e| {
-            error!("Failed to parse JSON response: {e}");
+        return response.bytes().await.map_err(|e| {
+            error!("Failed to read API response body: {e}");
             AppError::external_service(provider_name, format!("Failed to parse API response: {e}"))
         });
     }

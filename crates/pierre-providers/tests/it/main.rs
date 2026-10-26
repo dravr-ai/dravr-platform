@@ -14,6 +14,7 @@
 
 mod ai_scope_planned_workouts_test;
 mod api_request_401_precedes_vendor_error_test;
+mod api_request_body_decode_test;
 mod coach_roster_capability_test;
 mod debug_redaction_test;
 mod deduplication_test;
