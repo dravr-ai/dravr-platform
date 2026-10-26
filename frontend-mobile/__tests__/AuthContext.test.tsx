@@ -21,6 +21,7 @@ jest.mock('../src/services/api', () => ({
     completeSignIn: jest.fn(),
     logout: jest.fn(),
     register: jest.fn(),
+    prepareRegistrationSignIn: jest.fn(),
     storeAuth: jest.fn(),
   },
   onAuthFailure: jest.fn(() => jest.fn()),
@@ -43,6 +44,19 @@ jest.mock('expo-linking', () => ({
   createURL: jest.fn((path: string) => `dravr://${path}`),
 }));
 
+/** The sign-in a registration carries, as `prepareRegistrationSignIn` makes it. */
+const REGISTRATION_SIGN_IN = {
+  request: {
+    client_id: 'dravr-mobile',
+    redirect_uri: 'dravr://auth/callback',
+    code_challenge: 'c'.repeat(43),
+    code_challenge_method: 'S256' as const,
+    state: 'registration-state',
+  },
+  codeVerifier: 'r'.repeat(43),
+  redirectUri: 'dravr://auth/callback',
+};
+
 const SIGN_IN_REQUEST = {
   authorizeUrl: 'https://api.example.com/oauth2/authorize?client_id=dravr-mobile',
   codeVerifier: 'v'.repeat(43),
@@ -61,6 +75,7 @@ jest.mock('../src/firebase', () => ({
 function TestAuthConsumer() {
   const { user, isAuthenticated, isLoading, signIn, logout, register } = useAuth();
   const [signInOutcome, setSignInOutcome] = React.useState('none');
+  const [registerOutcome, setRegisterOutcome] = React.useState('none');
 
   return (
     <>
@@ -68,6 +83,7 @@ function TestAuthConsumer() {
       <Text testID="authenticated">{isAuthenticated ? 'authenticated' : 'not-authenticated'}</Text>
       <Text testID="user-email">{user?.email || 'no-user'}</Text>
       <Text testID="sign-in-outcome">{signInOutcome}</Text>
+      <Text testID="register-outcome">{registerOutcome}</Text>
       <TouchableOpacity
         testID="login-btn"
         onPress={() => {
@@ -87,7 +103,12 @@ function TestAuthConsumer() {
       </TouchableOpacity>
       <TouchableOpacity
         testID="register-btn"
-        onPress={() => register('new@example.com', 'password123', 'New User')}
+        onPress={() => {
+          register('new@example.com', 'password123', 'New User').then(
+            ({ signedIn }) => setRegisterOutcome(signedIn ? 'signed-in' : 'registered'),
+            () => setRegisterOutcome('failed'),
+          );
+        }}
       >
         <Text>Register</Text>
       </TouchableOpacity>
@@ -580,32 +601,148 @@ describe('AuthContext', () => {
   });
 
   describe('register', () => {
-    it('should call register API', async () => {
-      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
-      (authApi.register as jest.Mock).mockResolvedValue({ success: true });
+    const newUser = {
+      user_id: 'new-1',
+      email: 'new@example.com',
+      is_admin: false,
+      role: 'user',
+      user_status: 'active',
+    };
 
-      const { getByTestId } = render(
+    async function renderAndRegister() {
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
+      (authApi.prepareRegistrationSignIn as jest.Mock).mockResolvedValue(REGISTRATION_SIGN_IN);
+      (authApi.storeAuth as jest.Mock).mockResolvedValue(undefined);
+      const view = render(
         <AuthProvider>
           <TestAuthConsumer />
         </AuthProvider>
       );
-
       await waitFor(() => {
-        expect(getByTestId('loading').children[0]).toBe('loaded');
+        expect(view.getByTestId('loading').children[0]).toBe('loaded');
       });
-
-      // Trigger register
       await act(async () => {
-        fireEvent.press(getByTestId('register-btn'));
+        fireEvent.press(view.getByTestId('register-btn'));
       });
+      await waitFor(() => {
+        expect(view.getByTestId('register-outcome').children[0]).not.toBe('none');
+      });
+      return view;
+    }
 
+    it('sends the sign-in it prepared on the hosted sign-in callback', async () => {
+      (authApi.register as jest.Mock).mockResolvedValue({ activation: 'review', message: 'Review.' });
+
+      const view = await renderAndRegister();
+
+      // The same callback the hosted sign-in returns to, so the server's
+      // first-party redirect check is the one it already applies.
+      expect(authApi.prepareRegistrationSignIn).toHaveBeenCalledWith('dravr://auth/callback', expect.anything());
       expect(authApi.register).toHaveBeenCalledWith({
         email: 'new@example.com',
         password: 'password123',
         display_name: 'New User',
         // No bot check on this call: the token is absent, not invented.
         turnstile_token: undefined,
+        sign_in: REGISTRATION_SIGN_IN.request,
       });
+      // An account waiting on review comes back with no code: nothing to redeem.
+      expect(view.getByTestId('register-outcome').children[0]).toBe('registered');
+      expect(authApi.completeSignIn).not.toHaveBeenCalled();
+      expect(authApi.storeAuth).not.toHaveBeenCalled();
+    });
+
+    it('signs an account active at once straight in with the code it came back with', async () => {
+      (authApi.register as jest.Mock).mockResolvedValue({
+        activation: 'active',
+        message: 'Ready.',
+        sign_in_code: 'registration-code',
+      });
+      (authApi.completeSignIn as jest.Mock).mockResolvedValue({
+        access_token: 'jwt-token',
+        token_type: 'Bearer',
+        csrf_token: 'csrf-token',
+        user: newUser,
+      });
+
+      const view = await renderAndRegister();
+
+      expect(view.getByTestId('register-outcome').children[0]).toBe('signed-in');
+      // Redeemed with the verifier only this registration held, on its callback.
+      expect(authApi.completeSignIn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'registration-code',
+          codeVerifier: REGISTRATION_SIGN_IN.codeVerifier,
+          redirectUri: 'dravr://auth/callback',
+        }),
+      );
+      expect(authApi.storeAuth).toHaveBeenCalledWith('jwt-token', 'csrf-token', newUser);
+      expect((authApi.completeSignIn as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+        (authApi.storeAuth as jest.Mock).mock.invocationCallOrder[0],
+      );
+      expect(view.getByTestId('authenticated').children[0]).toBe('authenticated');
+    });
+
+    it('leaves a created account to sign in when its code cannot be redeemed, without failing', async () => {
+      (authApi.register as jest.Mock).mockResolvedValue({
+        activation: 'active',
+        message: 'Ready.',
+        sign_in_code: 'spent-code',
+      });
+      // Shaped like an axios error, which carries the form it sent: the code
+      // and the PKCE verifier ride in `config.data`.
+      (authApi.completeSignIn as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('invalid_grant'), {
+          config: { data: `code=spent-code&code_verifier=${REGISTRATION_SIGN_IN.codeVerifier}` },
+          response: { status: 400, data: { error: 'invalid_grant' } },
+        }),
+      );
+
+      const view = await renderAndRegister();
+
+      // The account exists: the registration resolves, it does not reject.
+      expect(view.getByTestId('register-outcome').children[0]).toBe('registered');
+      expect(authApi.storeAuth).not.toHaveBeenCalled();
+      expect(view.getByTestId('authenticated').children[0]).toBe('not-authenticated');
+      // The failure is reported by its status; neither the code nor the
+      // verifier reaches the log.
+      const logged = JSON.stringify(warnSpy.mock.calls);
+      expect(logged).toContain('400');
+      expect(logged).not.toContain('spent-code');
+      expect(logged).not.toContain(REGISTRATION_SIGN_IN.codeVerifier);
+    });
+
+    it('redeems nothing for an active account the server sent no code for', async () => {
+      // An older server ignores `sign_in` and answers as it always has.
+      (authApi.register as jest.Mock).mockResolvedValue({ activation: 'active', message: 'Ready.' });
+
+      const view = await renderAndRegister();
+
+      expect(view.getByTestId('register-outcome').children[0]).toBe('registered');
+      expect(authApi.completeSignIn).not.toHaveBeenCalled();
+    });
+
+    it('still registers when the sign-in cannot be prepared', async () => {
+      (authApi.register as jest.Mock).mockResolvedValue({ activation: 'active', message: 'Ready.' });
+      (authApi.initializeAuth as jest.Mock).mockResolvedValue(false);
+      const view = render(
+        <AuthProvider>
+          <TestAuthConsumer />
+        </AuthProvider>
+      );
+      await waitFor(() => {
+        expect(view.getByTestId('loading').children[0]).toBe('loaded');
+      });
+      (authApi.prepareRegistrationSignIn as jest.Mock).mockRejectedValue(new Error('no randomness'));
+
+      await act(async () => {
+        fireEvent.press(view.getByTestId('register-btn'));
+      });
+
+      await waitFor(() => {
+        expect(view.getByTestId('register-outcome').children[0]).toBe('registered');
+      });
+      expect(authApi.register).toHaveBeenCalledWith(expect.not.objectContaining({ sign_in: expect.anything() }));
     });
   });
 

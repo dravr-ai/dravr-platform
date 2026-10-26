@@ -153,6 +153,38 @@ describe('beginSignIn with the browser WebCrypto', () => {
   })
 })
 
+describe('prepareRegistrationSignIn with the browser WebCrypto (carnet#1147)', () => {
+  it('asks for the code as dravr-web with an S256 challenge of the verifier it keeps', async () => {
+    const post = vi.fn()
+    const axios = { post, defaults: {} } as unknown as AxiosInstance
+    const signIn = await createAuthApi(axios, memoryStorage(), 'web').prepareRegistrationSignIn(
+      REDIRECT_URI,
+      webPkceCrypto
+    )
+
+    expect(signIn.request.client_id).toBe('dravr-web')
+    expect(signIn.request.redirect_uri).toBe(REDIRECT_URI)
+    expect(signIn.request.code_challenge_method).toBe('S256')
+    expect(signIn.redirectUri).toBe(REDIRECT_URI)
+    expect(signIn.request.state.length).toBeGreaterThan(0)
+    expect(signIn.codeVerifier).toMatch(/^[A-Za-z0-9\-._~]{43,128}$/)
+    const expected = base64Url(createHash('sha256').update(signIn.codeVerifier, 'ascii').digest())
+    expect(signIn.request.code_challenge).toBe(expected)
+    // What is sent never carries the verifier, and preparing sends nothing.
+    expect(JSON.stringify(signIn.request)).not.toContain(signIn.codeVerifier)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('draws a fresh verifier and state for every submit', async () => {
+    const axios = { post: vi.fn(), defaults: {} } as unknown as AxiosInstance
+    const api = createAuthApi(axios, memoryStorage(), 'web')
+    const a = await api.prepareRegistrationSignIn(REDIRECT_URI, webPkceCrypto)
+    const b = await api.prepareRegistrationSignIn(REDIRECT_URI, webPkceCrypto)
+    expect(a.codeVerifier).not.toBe(b.codeVerifier)
+    expect(a.request.state).not.toBe(b.request.state)
+  })
+})
+
 describe('readSignInCallback', () => {
   it('refuses a callback whose state is not the one this sign-in sent', () => {
     const params = new URLSearchParams({ code: 'c', state: 'forged' })

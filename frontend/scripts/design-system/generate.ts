@@ -41,9 +41,13 @@ function plugin(marks: Record<'ink' | 'mint', Record<string, string>>): BunPlugi
   return {
     name: 'design-system-globals',
     setup(build) {
-      build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => ({ path: args.path, namespace: 'react-global' }));
+      // The shim's path must not read as the react package: Bun 1.4 bundles a
+      // module resolved as `react` as CommonJS, and the shim's ESM exports vanish.
+      const shimPrefix = 'window-global:';
+      build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => ({ path: `${shimPrefix}${args.path}`, namespace: 'react-global' }));
       build.onLoad({ filter: /.*/, namespace: 'react-global' }, (args) => {
-        if (args.path.startsWith('react/jsx')) {
+        const specifier = args.path.slice(shimPrefix.length);
+        if (specifier.startsWith('react/jsx')) {
           return {
             loader: 'js',
             contents:
@@ -51,7 +55,7 @@ function plugin(marks: Record<'ink' | 'mint', Record<string, string>>): BunPlugi
               'export const jsx=j,jsxs=j,jsxDEV=j;export const Fragment=R.Fragment;',
           };
         }
-        const global = args.path.startsWith('react-dom') ? 'ReactDOM' : 'React';
+        const global = specifier.startsWith('react-dom') ? 'ReactDOM' : 'React';
         return { loader: 'js', contents: `const m=window.${global};export default m;export const {${Object.keys(global === 'React' ? REACT_NAMED : { createPortal: 1 }).join(',')}}=m;` };
       });
       build.onLoad({ filter: /DravrLogo\.tsx$/ }, async (args) => {

@@ -47,12 +47,7 @@ describe('settings pane parity — web', () => {
       'connected-mcp-apps',
       'sign-out',
     ]);
-    expect([...settingsPaneSections('about')]).toEqual([
-      'version',
-      'coach-model',
-      'help',
-      'legal',
-    ]);
+    expect([...settingsPaneSections('about')]).toEqual(['version', 'help', 'legal']);
   });
 
   it('leaves a single-destination pane with no section list to disagree about', () => {

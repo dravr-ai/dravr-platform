@@ -1,10 +1,9 @@
-// ABOUTME: Pins the About pane's four rows — version, the model that answers, help and legal
+// ABOUTME: Pins the About pane's three rows — version, help and legal — and that it names no model (carnet#1147)
 // ABOUTME: Help opens the docs hub and legal the privacy policy, which links the terms, both from the shared constants
 
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Linking } from 'react-native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { APP_VERSION, HELP_URL, LEGAL_URL, settingsPaneSections } from '@pierre/shared-constants';
 
 
@@ -16,74 +15,35 @@ jest.mock('@expo/vector-icons', () => ({
   Feather: () => null,
 }));
 
-jest.mock('../src/contexts/AuthContext', () => ({
-  useAuth: () => ({
-    user: { id: 'user-1', email: 'test@pierre.dev', role: 'user' },
-    isAuthenticated: true,
-  }),
-}));
-
-const mockGetLlmSettings = jest.fn();
-jest.mock('../src/services/api', () => ({
-  userApi: {
-    getLlmSettings: () => mockGetLlmSettings(),
-  },
-}));
-
 import { AboutScreen } from '../src/screens/settings/AboutScreen';
 
 function renderAbout() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <AboutScreen />
-    </QueryClientProvider>,
-  );
+  return render(<AboutScreen />);
 }
 
 describe('AboutScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetLlmSettings.mockResolvedValue({
-      providers: [],
-      user_credentials: [],
-      system_provider: {
-        name: 'copilot_headless',
-        display_name: 'Copilot Headless',
-        model: 'claude-sonnet-5',
-      },
-    });
   });
 
-  it('renders the four rows the shared declaration holds, in order', async () => {
+  it('renders the three rows the shared declaration holds, in order', async () => {
     const { getByTestId } = renderAbout();
     await waitFor(() => {
       expect(getByTestId('about-screen')).toBeTruthy();
     });
-    expect([...settingsPaneSections('about')]).toEqual(['version', 'coach-model', 'help', 'legal']);
+    expect([...settingsPaneSections('about')]).toEqual(['version', 'help', 'legal']);
     for (const section of settingsPaneSections('about')) {
       expect(getByTestId(`about-section-${section}`)).toBeTruthy();
     }
   });
 
-  it('states which model answers the athlete, read-only', async () => {
-    // The AI-provider pane was the only place this was visible, and it invited
-    // an API key alongside. The fact survives; the key field does not.
-    const { getByTestId, queryByTestId } = renderAbout();
+  it('names no model: which one answers is an operator reading, never an athlete one', async () => {
+    const { getByTestId, queryByTestId, queryByText } = renderAbout();
     await waitFor(() => {
-      expect(getByTestId('about-coach-model-value').props.children).toBe(
-        'Copilot Headless · claude-sonnet-5',
-      );
+      expect(getByTestId('about-screen')).toBeTruthy();
     });
-    expect(queryByTestId('llm-api-key-input')).toBeNull();
-  });
-
-  it('says so plainly when the server names no model', async () => {
-    mockGetLlmSettings.mockResolvedValue({ providers: [], user_credentials: [] });
-    const { getByTestId } = renderAbout();
-    await waitFor(() => {
-      expect(getByTestId('about-coach-model-value').props.children).toBe('Not available');
-    });
+    expect(queryByTestId('about-section-coach-model')).toBeNull();
+    expect(queryByText(/Agent model/)).toBeNull();
   });
 
   it('reports the shared release string rather than a second copy of it', async () => {

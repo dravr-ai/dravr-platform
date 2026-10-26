@@ -16,6 +16,7 @@
 //!   configured.
 
 use secrecy::SecretString;
+use std::fmt;
 use std::net::IpAddr;
 
 use axum::extract::State;
@@ -61,6 +62,45 @@ pub(crate) struct PublicRegisterRequest {
     /// without a form field for it are unchanged.
     #[serde(default)]
     pub signup_code: Option<SecretString>,
+    /// What the app needs to be signed straight in when the account comes
+    /// out active (carnet#1147). Absent, the registration answers as it
+    /// always has.
+    #[serde(default)]
+    pub sign_in: Option<RegistrationSignIn>,
+}
+
+/// The authorization request an app attaches to its registration: the same
+/// fields it would send `/oauth2/authorize`, so an account created active is
+/// issued the code the hosted login would have issued, bound to the app's
+/// PKCE challenge, and redeemed at `/oauth/token` the same way.
+#[derive(Clone, Deserialize)]
+pub(crate) struct RegistrationSignIn {
+    /// The first-party app (`dravr-web`, `dravr-mobile`)
+    pub client_id: String,
+    /// The callback the code is bound to, as `/oauth/token` will be told
+    pub redirect_uri: String,
+    /// The S256 challenge of the verifier the app keeps
+    pub code_challenge: String,
+    /// The challenge method; only `S256` is accepted
+    #[serde(default)]
+    pub code_challenge_method: Option<String>,
+    /// The app's opaque `state`
+    #[serde(default)]
+    pub state: Option<String>,
+}
+
+impl fmt::Debug for RegistrationSignIn {
+    /// `state` is the app's anti-forgery value, so it prints redacted, as
+    /// `AuthorizeRequest`'s does.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RegistrationSignIn")
+            .field("client_id", &self.client_id)
+            .field("redirect_uri", &self.redirect_uri)
+            .field("code_challenge", &self.code_challenge)
+            .field("code_challenge_method", &self.code_challenge_method)
+            .field("state", &self.state.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 /// `GET /api/auth/signup-config`: what the register form needs before it is

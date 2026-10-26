@@ -291,7 +291,7 @@ fn issue_tokens(
 
 /// The authorization server that issued the code, serving this deployment's
 /// first-party redirects.
-fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationServer {
+pub(crate) fn authorization_server(resources: &AuthRoutesContext) -> OAuth2AuthorizationServer {
     let repos = &resources.repos;
     OAuth2AuthorizationServer::from_config(
         &resources.config.oauth2_server,

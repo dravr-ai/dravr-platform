@@ -182,7 +182,6 @@ export type SettingsSectionId =
   | 'connected-mcp-apps'
   | 'sign-out'
   | 'version'
-  | 'coach-model'
   | 'help'
   | 'legal';
 
@@ -343,7 +342,7 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     hintKey: 'settingsTabs.aboutHint',
     web: 'about',
     mobile: '/(app)/(tabs)/(settings)/about',
-    holds: ['version', 'coach-model', 'help', 'legal'],
+    holds: ['version', 'help', 'legal'],
     flag: null,
   },
   {

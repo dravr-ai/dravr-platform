@@ -63,36 +63,6 @@ export interface UserOAuthAppsResponse {
   apps: UserOAuthApp[];
 }
 
-export interface LlmProviderStatus {
-  name: string;
-  display_name: string;
-  has_credentials: boolean;
-  credential_source: string | null;
-  is_active: boolean;
-}
-
-export interface LlmCredentialSummary {
-  id: string;
-  provider: string;
-  user_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SystemProviderInfo {
-  name: string;
-  display_name: string;
-  model?: string;
-}
-
-export interface LlmSettingsResponse {
-  current_provider: string | null;
-  providers: LlmProviderStatus[];
-  user_credentials: LlmCredentialSummary[];
-  tenant_credentials: LlmCredentialSummary[];
-  system_provider?: SystemProviderInfo;
-}
-
 export interface SaveLlmCredentialsRequest {
   provider: string;
   api_key: string;
@@ -404,17 +374,6 @@ export function createUserApi(axios: AxiosInstance) {
     },
 
     // ==================== LLM SETTINGS ====================
-
-    /**
-     * Get LLM settings.
-     *
-     * Read by both clients' About pane, which states which model answers the
-     * athlete — `system_provider` — as text they cannot edit.
-     */
-    async getLlmSettings(): Promise<LlmSettingsResponse> {
-      const response = await axios.get<LlmSettingsResponse>(ENDPOINTS.USER.LLM_SETTINGS);
-      return response.data;
-    },
 
     /**
      * Save LLM credentials for a provider.

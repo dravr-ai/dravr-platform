@@ -232,6 +232,12 @@ export interface RegisterResponse {
    */
   activation: 'active' | 'confirm_email' | 'review';
   message: string;
+  /**
+   * An authorization code for the account just created, present only when it
+   * is active and the request carried `sign_in` (carnet#1147). Redeemed like
+   * the hosted sign-in's code, with the verifier the app kept.
+   */
+  sign_in_code?: string;
 }
 
 /**

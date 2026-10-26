@@ -43,6 +43,11 @@ jest.mock('react-native-webview', () => {
 import { RegisterScreen } from '../src/screens/auth/RegisterScreen';
 import { apiRefusal } from '../integration/app/helpers/apiRefusal';
 
+/** What `register` resolves with when the athlete was not signed straight in. */
+function registered(response: Record<string, unknown>) {
+  return { response, signedIn: false };
+}
+
 describe('RegisterScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -124,13 +129,15 @@ describe('RegisterScreen', () => {
 
   describe('form submission', () => {
     it("registers with the trimmed fields and routes to pending-approval with what the account waits on, in the athlete's language", async () => {
-      mockRegister.mockResolvedValueOnce({
-        user_id: 'u1',
-        email: 'jean@example.com',
-        user_status: 'pending',
-        activation: 'confirm_email',
-        message: 'Confirm your email to activate your account.',
-      });
+      mockRegister.mockResolvedValueOnce(
+        registered({
+          user_id: 'u1',
+          email: 'jean@example.com',
+          user_status: 'pending',
+          activation: 'confirm_email',
+          message: 'Confirm your email to activate your account.',
+        }),
+      );
       const { getByTestId } = await renderReady();
 
       fireEvent.changeText(getByTestId('register-display-name-input'), '  Jean  ');
@@ -148,6 +155,42 @@ describe('RegisterScreen', () => {
           params: { message: 'Account created. Open the confirmation link we emailed you to activate it.' },
         }),
       );
+    });
+
+    // An account active at once comes back signed in (carnet#1147): the root
+    // gate routes it to onboarding or Home, so the screen must not race it.
+    it('leaves an athlete signed straight in to the root gate', async () => {
+      mockRegister.mockResolvedValueOnce({
+        response: { user_id: 'u1', user_status: 'active', activation: 'active', message: 'Ready.' },
+        signedIn: true,
+      });
+      const { getByTestId } = await renderReady();
+
+      fillForm(getByTestId);
+      fireEvent.press(getByTestId('register-submit-button'));
+
+      await waitFor(() => expect(mockRegister).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+      expect(Alert.alert).not.toHaveBeenCalled();
+    });
+
+    it('sends an active account whose code was not redeemed to sign in, without an alert', async () => {
+      mockRegister.mockResolvedValueOnce(
+        registered({ user_id: 'u1', user_status: 'active', activation: 'active', message: 'Ready.' }),
+      );
+      const { getByTestId } = await renderReady();
+
+      fillForm(getByTestId);
+      fireEvent.press(getByTestId('register-submit-button'));
+
+      await waitFor(() =>
+        expect(mockRouter.replace).toHaveBeenCalledWith({
+          pathname: '/(auth)/pending-approval',
+          params: { message: 'Account created — sign in to get started.' },
+        }),
+      );
+      expect(Alert.alert).not.toHaveBeenCalled();
     });
 
     it('alerts on a failed registration and does not navigate', async () => {
@@ -182,7 +225,7 @@ describe('RegisterScreen', () => {
     });
 
     it('sends the trimmed code as the signup code', async () => {
-      mockRegister.mockResolvedValueOnce({ user_id: 'u1', user_status: 'active', message: 'Welcome.' });
+      mockRegister.mockResolvedValueOnce(registered({ user_id: 'u1', user_status: 'active', message: 'Welcome.' }));
       const { getByTestId } = await renderReady();
 
       fillForm(getByTestId);
@@ -202,7 +245,7 @@ describe('RegisterScreen', () => {
     });
 
     it('omits a code left blank', async () => {
-      mockRegister.mockResolvedValueOnce({ user_id: 'u1', user_status: 'pending', message: 'Pending.' });
+      mockRegister.mockResolvedValueOnce(registered({ user_id: 'u1', user_status: 'pending', message: 'Pending.' }));
       const { getByTestId } = await renderReady();
 
       fillForm(getByTestId);
@@ -261,7 +304,7 @@ describe('RegisterScreen', () => {
 
     it('holds submit until Turnstile passes, then sends its token', async () => {
       mockGetSignupConfig.mockResolvedValue({ open: true, turnstile_site_key: '1x00000000000000000000AA' });
-      mockRegister.mockResolvedValueOnce({ user_id: 'u1', email: 'jean@example.com', user_status: 'pending', message: 'ok' });
+      mockRegister.mockResolvedValueOnce(registered({ user_id: 'u1', email: 'jean@example.com', user_status: 'pending', message: 'ok' }));
       const { findByTestId, getByTestId } = renderComponent();
 
       expect(await findByTestId('turnstile-webview')).toBeTruthy();

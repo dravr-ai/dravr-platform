@@ -52,7 +52,10 @@ impl AuthService {
     /// sign-up past the daily ceiling but not past a closed kill switch.
     /// The account is then created as any self-serve one is and the code is
     /// redeemed against it; a code that was used up between the check and
-    /// the claim leaves the account Pending rather than failing it.
+    /// the claim leaves the account Pending rather than failing it. An
+    /// account registration already made active (an operator allowed its
+    /// address) still spends the code, so a coach's code joins its group; a
+    /// claim that fails there leaves the account active and in no group.
     ///
     /// # Errors
     ///
@@ -73,6 +76,17 @@ impl AuthService {
         let mut response = self.register_through(request, true, true).await?;
         let user_id = Uuid::parse_str(&response.user_id)
             .map_err(|e| AppError::internal(format!("Registration returned a bad id: {e}")))?;
+        if response.user_status == UserStatus::Active {
+            // An operator's allow already activated the account; the code
+            // still carries the coach's group, so it is spent and joined.
+            return match self.redeem_for_active_signup(user_id, code).await {
+                Ok(redeemed) => Ok((response, Some(redeemed))),
+                Err(e) => {
+                    warn!(user_id = %user_id, error = %e, "Signup code not redeemed for an account its allow activated; it joins no group");
+                    Ok((response, None))
+                }
+            };
+        }
         let redeemed = match self.redeem_signup_code(user_id, code).await {
             Ok(redeemed) => redeemed,
             Err(e) => {
@@ -181,6 +195,51 @@ impl AuthService {
         }
         admit_signup_code(self.data.database()).await?;
 
+        let claimed = self.claim_and_record(user_id, code).await?;
+
+        let status = if self.email_already_proven(&user).await? {
+            self.activate_by_code(&user, claimed.granted_by).await?;
+            UserStatus::Active
+        } else {
+            UserStatus::Pending
+        };
+        Ok(RedeemedSignupCode {
+            source: claimed.source,
+            status,
+            coach_invite: claimed.coach_invite,
+        })
+    }
+
+    /// Redeem a code for an account registration has just made active (an
+    /// operator allowed its address): one use is claimed and recorded, and the
+    /// redemption is marked activated so no later confirmation reapplies it.
+    /// The account's approver is left as the allow set it.
+    async fn redeem_for_active_signup(
+        &self,
+        user_id: Uuid,
+        code: &SecretString,
+    ) -> AppResult<RedeemedSignupCode> {
+        let claimed = self.claim_and_record(user_id, code).await?;
+        self.data
+            .repos()
+            .signup_codes
+            .mark_activated(user_id, Utc::now())
+            .await?;
+        Ok(RedeemedSignupCode {
+            source: claimed.source,
+            status: UserStatus::Active,
+            coach_invite: claimed.coach_invite,
+        })
+    }
+
+    /// Claim one use of `code` and record it against `user_id`, releasing the
+    /// use again when the account already holds a redemption.
+    async fn claim_and_record(
+        &self,
+        user_id: Uuid,
+        code: &SecretString,
+    ) -> AppResult<signup_codes::ClaimedCode> {
+        let repos = self.data.repos();
         let claimed = signup_codes::claim(repos, code.expose_secret())
             .await?
             .ok_or_else(invalid_signup_code)?;
@@ -195,18 +254,7 @@ impl AuthService {
             ));
         }
         info!(user_id = %user_id, source = ?claimed.source, "Signup code redeemed");
-
-        let status = if self.email_already_proven(&user).await? {
-            self.activate_by_code(&user, claimed.granted_by).await?;
-            UserStatus::Active
-        } else {
-            UserStatus::Pending
-        };
-        Ok(RedeemedSignupCode {
-            source: claimed.source,
-            status,
-            coach_invite: claimed.coach_invite,
-        })
+        Ok(claimed)
     }
 
     /// The redemption waiting to activate `user`: one is recorded, it has not

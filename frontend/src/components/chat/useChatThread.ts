@@ -32,6 +32,7 @@ import { useMarkConversationRead } from '../../hooks/useMarkConversationRead';
 import { useEarlierMessages } from '../../hooks/useEarlierMessages';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useGroup } from '../../hooks/useGroups';
+import { useAuth } from '../../hooks/useAuth';
 import { useErrorToast } from '../ui';
 import { useMessageFeedback } from './useMessageFeedback';
 import { useOAuthCompletion } from './useOAuthCompletion';
@@ -218,6 +219,10 @@ export function useChatThread({
   // draft rather than as typed. Cleared when the composer empties.
   const draftSeededRef = useRef(false);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
+  // Which model wrote a reply, and how long it took, is an operator's reading
+  // (carnet#1147): an athlete talks to their agent, never to a model id.
+  const { user } = useAuth();
+  const showsReplyModel = user?.role === 'admin' || user?.role === 'super_admin';
   // What the server decided this turn draws, keyed by assistant message id.
   // Not persisted: a reloaded conversation has no block list on the wire, so
   // its rows are decoded back into the same shape by the renderer.
@@ -438,7 +443,7 @@ export function useChatThread({
 
   // Restore message metadata (model label) from conversation when loading existing messages
   useEffect(() => {
-    if (!selectedConversation || !messagesData?.messages?.length) return;
+    if (!showsReplyModel || !selectedConversation || !messagesData?.messages?.length) return;
     const conversation = cachedConversations(queryClient).find(c => c.id === selectedConversation);
     if (!conversation?.model) return;
 
@@ -453,7 +458,7 @@ export function useChatThread({
       }
       return changed ? newMap : prev;
     });
-  }, [selectedConversation, messagesData, queryClient]);
+  }, [showsReplyModel, selectedConversation, messagesData, queryClient]);
 
   /**
    * Send one turn and fold the result into the transcript.
@@ -559,7 +564,7 @@ export function useChatThread({
         const assistantMessageId = turn.assistant.message.id;
         const { model, execution_time_ms: executionTimeMs } = turn.telemetry;
 
-        if (assistantMessageId && model) {
+        if (showsReplyModel && assistantMessageId && model) {
           setMessageMetadata(prev => {
             const newMap = new Map(prev);
             newMap.set(assistantMessageId, { model, executionTimeMs });
@@ -715,7 +720,7 @@ export function useChatThread({
     // line has nothing left to say.
     setProgressStatusText(null);
     usageStatus.invalidate();
-  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t, roomGroupId]);
+  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t, roomGroupId, showsReplyModel]);
 
   /**
    * Stop the turn that is streaming.

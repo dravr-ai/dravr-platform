@@ -19,6 +19,7 @@ use pierre_routes_admin::auth::service::AdminAuthService;
 
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
+use crate::registration_sign_in::{registration_sign_in_code, PublicRegisterResponse};
 use crate::signup_code::{join_coach_group, meter_signup_code};
 use crate::signup_guards::{
     client_address, meter_sign_up, pass_human_check, PublicRegisterRequest,
@@ -286,7 +287,20 @@ pub(crate) async fn handle_public_register(
                 .await;
             }
 
-            Ok((StatusCode::CREATED, Json(response)).into_response())
+            // Sign the athlete straight in when the account came out active
+            // and the app asked (carnet#1147): a code the app redeems at
+            // /oauth/token, never a session set here.
+            let sign_in_code =
+                registration_sign_in_code(&resources, &response, body.sign_in.as_ref()).await;
+
+            Ok((
+                StatusCode::CREATED,
+                Json(PublicRegisterResponse {
+                    registration: response,
+                    sign_in_code,
+                }),
+            )
+                .into_response())
         }
         Err(e) => {
             if e.is_server_fault() {

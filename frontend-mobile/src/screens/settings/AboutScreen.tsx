@@ -1,48 +1,32 @@
-// ABOUTME: About pane — the release, which model answers the athlete, and the help and legal links, as one Section of Rows
-// ABOUTME: Row order comes from the shared settings declaration, so web lists the same four
+// ABOUTME: About pane — the release and the help and legal links, as one Section of Rows
+// ABOUTME: Row order comes from the shared settings declaration, so web lists the same three
 
 import React from 'react';
 import { View } from 'react-native';
 import { PaneScrollView, Row, Section } from '../../components/ui';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import {
   APP_VERSION,
   HELP_URL,
   LEGAL_URL,
-  QUERY_KEYS,
   settingsPane,
   settingsPaneSections,
 } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
-import { userApi } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
 import { openExternal } from '../../utils/openExternal';
 
 /**
- * What the app is, and who is answering.
+ * What the app is, and where help and the legal documents live.
  *
- * The model line is read-only on purpose: an athlete does not bring their own
- * provider key, so the fact of which model replies belongs beside the version
- * rather than beside a field that invites a credential.
+ * Which model answers is an operator's reading, never an athlete's
+ * (carnet#1147), so the pane names none.
  *
- * Four rows in one group: two facts that are read and two links that open the
+ * Three rows in one group: one fact that is read and two links that open the
  * browser, so only the links carry a chevron.
  */
 export function AboutScreen() {
   const { t } = useTranslation();
   const colors = useThemeColors();
-  const { isAuthenticated } = useAuth();
-
-  const { data: llmSettings } = useQuery({
-    queryKey: QUERY_KEYS.llmSettings.list(),
-    queryFn: () => userApi.getLlmSettings(),
-    enabled: isAuthenticated,
-  });
-  const systemProvider = llmSettings?.system_provider;
-  const coachModelLabel = systemProvider
-    ? [systemProvider.display_name, systemProvider.model].filter(Boolean).join(' · ')
-    : null;
 
   const sections = settingsPaneSections('about');
 
@@ -52,22 +36,6 @@ export function AboutScreen() {
     switch (section) {
       case 'version':
         return <Row key={section} compact last={last} title={t('app.version')} value={APP_VERSION} testID="about-section-version" />;
-
-      case 'coach-model':
-        // A model name is a name, not a figure, so it takes the hint slot
-        // rather than the mono value slot; the hint carries the id the sweep
-        // reads it by.
-        return (
-          <Row
-            key={section}
-            compact
-            last={last}
-            title={t('about.agentModel')}
-            hint={coachModelLabel ?? t('about.agentModelUnknown')}
-            hintTestID="about-coach-model-value"
-            testID="about-section-coach-model"
-          />
-        );
 
       case 'help':
         return (

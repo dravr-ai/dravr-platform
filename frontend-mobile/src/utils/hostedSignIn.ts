@@ -139,8 +139,11 @@ function retriesWithFreshKey(evidence: DeviceEvidence): boolean {
  * refuses an assertion — its key was lost to a database reset, or registered
  * on another server — the code is still good: the install drops the key and
  * redeems once more with a freshly attested one.
+ *
+ * Also redeems the code a registration comes back with when the account is
+ * active at once (carnet#1147), so that sign-in carries the same evidence.
  */
-async function redeemCode(request: CompleteSignIn): Promise<LoginResponse> {
+export async function redeemCode(request: CompleteSignIn): Promise<LoginResponse> {
   const attempt = await deviceEvidence(request.code);
   try {
     const session = await authApi.completeSignIn({ ...request, deviceEvidence: attempt?.evidence });

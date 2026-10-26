@@ -3,8 +3,10 @@
 
 // ABOUTME: Playwright E2E tests for user registration flow.
 // ABOUTME: Tests form validation, successful registration, error handling, and navigation.
+// ABOUTME: An account active at once is signed straight in with the code its registration returned (carnet#1147).
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { APP_SHELL_TIMEOUT_MS, loginToDashboard, setupDashboardMocks, waitForLoginScreen } from './test-helpers';
 
 // Helper to set up common API mocks for the registration page
@@ -416,4 +418,152 @@ test.describe('Registration Page - Accessibility', () => {
     // Button should be disabled during loading
     await expect(page.getByRole('button', { name: 'Creating account...' })).toBeDisabled();
   });
+});
+
+/** What the straight sign-in sent: the registration body and every code exchange. */
+interface SignInTraffic {
+  registerBody: Record<string, unknown> | null;
+  tokenForms: URLSearchParams[];
+  authorizeRequests: string[];
+}
+
+/**
+ * The signed-in athlete's mocks, then a registration that answers `register`
+ * and a token endpoint that answers `tokenStatus`. Registered after the
+ * dashboard mocks, so these answers win.
+ */
+async function mockStraightSignIn(
+  page: Page,
+  register: Record<string, unknown>,
+  tokenStatus = 200,
+): Promise<SignInTraffic> {
+  const traffic: SignInTraffic = { registerBody: null, tokenForms: [], authorizeRequests: [] };
+  await setupDashboardMocks(page, { role: 'user', email: 'newuser@test.com', displayName: 'New User' });
+  await setupBasicMocks(page);
+  // The Home basemap is a third-party tile server; nothing here is about it.
+  await page.route(/openfreemap\.org|arcgisonline\.com/, (route) => route.abort());
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/oauth2/authorize')) {
+      traffic.authorizeRequests.push(request.url());
+    }
+  });
+  await page.route('**/api/auth/register', async (route) => {
+    traffic.registerBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(register) });
+  });
+  if (tokenStatus !== 200) {
+    await page.route('**/oauth/token', async (route) => {
+      traffic.tokenForms.push(new URLSearchParams(route.request().postData() ?? ''));
+      await route.fulfill({
+        status: tokenStatus,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'invalid_grant', error_description: 'The code was already used' }),
+      });
+    });
+  } else {
+    // The dashboard mock answers; this one only records what was sent.
+    await page.route('**/oauth/token', async (route) => {
+      traffic.tokenForms.push(new URLSearchParams(route.request().postData() ?? ''));
+      await route.fallback();
+    });
+  }
+  return traffic;
+}
+
+async function submitRegistration(page: Page) {
+  await page.goto('/');
+  await waitForLoginScreen(page, 10000);
+  await page.getByText("Don't have an account?").click();
+  await page.waitForSelector('input[name="displayName"]', { timeout: 5000 });
+  await page.locator('input[name="email"]').fill('newuser@test.com');
+  await page.locator('input[name="password"]').fill('SecurePassword123');
+  await page.locator('input[name="confirmPassword"]').fill('SecurePassword123');
+  await page.getByRole('button', { name: 'Create Account' }).click();
+}
+
+const ACTIVE_ACCOUNT = {
+  user_id: 'user-123',
+  user_status: 'active',
+  activation: 'active',
+  message: 'Account created.',
+};
+
+/** RFC 7636 §4.2, computed with Node's hash rather than the app's. */
+function s256(verifier: string): string {
+  return createHash('sha256').update(verifier, 'ascii').digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+test.describe('Registration Page - Signed straight in (carnet#1147)', () => {
+  test('an active account with a sign-in code lands signed in without the hosted page', async ({ page }) => {
+    const traffic = await mockStraightSignIn(page, { ...ACTIVE_ACCOUNT, sign_in_code: 'register-code' });
+
+    await submitRegistration(page);
+
+    // The signed-in app shell, not the sign-in screen (which has a <main> too).
+    await expect(
+      page.getByRole('navigation', { name: 'Primary navigation' }).filter({ visible: true }).first(),
+    ).toBeVisible({ timeout: APP_SHELL_TIMEOUT_MS });
+    await expect(page.locator('input[name="displayName"]')).toHaveCount(0);
+    await expect(page.getByText('Account created — sign in to get started.')).toHaveCount(0);
+    expect(traffic.authorizeRequests).toEqual([]);
+
+    const signIn = traffic.registerBody?.sign_in as Record<string, string> | undefined;
+    expect(signIn).toBeDefined();
+    expect(signIn?.client_id).toBe('dravr-web');
+    expect(signIn?.code_challenge_method).toBe('S256');
+    expect(signIn?.redirect_uri).toBe(new URL('/auth/callback', page.url()).toString());
+
+    expect(traffic.tokenForms).toHaveLength(1);
+    const form = traffic.tokenForms[0];
+    expect(form.get('grant_type')).toBe('authorization_code');
+    expect(form.get('code')).toBe('register-code');
+    expect(form.get('client_id')).toBe('dravr-web');
+    expect(form.get('redirect_uri')).toBe(signIn?.redirect_uri);
+    // The verifier the tab kept is the one the sent challenge was made from.
+    expect(s256(form.get('code_verifier') ?? '')).toBe(signIn?.code_challenge);
+  });
+
+  test('an active account without a code (an older server) is greeted on sign-in', async ({ page }) => {
+    const traffic = await mockStraightSignIn(page, ACTIVE_ACCOUNT);
+
+    await submitRegistration(page);
+
+    await expect(page.getByText('Account created — sign in to get started.')).toBeVisible({ timeout: 5000 });
+    await waitForLoginScreen(page);
+    expect(traffic.tokenForms).toHaveLength(0);
+  });
+
+  test('a refused code exchange is greeted on sign-in, never as a failed registration', async ({ page }) => {
+    const traffic = await mockStraightSignIn(page, { ...ACTIVE_ACCOUNT, sign_in_code: 'spent-code' }, 400);
+
+    await submitRegistration(page);
+
+    await expect(page.getByText('Account created — sign in to get started.')).toBeVisible({ timeout: 5000 });
+    await waitForLoginScreen(page);
+    expect(traffic.tokenForms).toHaveLength(1);
+    await expect(page.getByText('Registration failed')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    // Signed out on the sign-in screen, not on the app shell.
+    await expect(page.locator('h1')).toContainText('Sign in');
+    await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toHaveCount(0);
+  });
+
+  for (const [activation, banner] of [
+    ['confirm_email', 'Account created. Open the confirmation link we emailed you to activate it.'],
+    ['review', "Account created. It will be reviewed, and you'll get an email once it's approved."],
+  ] as const) {
+    test(`a ${activation} account keeps today's greeting and redeems nothing`, async ({ page }) => {
+      const traffic = await mockStraightSignIn(page, {
+        user_id: 'user-123',
+        user_status: 'pending',
+        activation,
+        message: 'Account created.',
+      });
+
+      await submitRegistration(page);
+
+      await expect(page.getByText(banner)).toBeVisible({ timeout: 5000 });
+      expect(traffic.tokenForms).toHaveLength(0);
+    });
+  }
 });

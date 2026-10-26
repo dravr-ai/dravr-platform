@@ -6,9 +6,26 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { authApi, onAuthFailure, userApi } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
 import { forgetLanguageChoiceNative } from '@pierre/i18n/native';
-import { signInWithHostedPage } from '../utils/hostedSignIn';
+import * as Linking from 'expo-linking';
+import type { RegistrationSignIn } from '@pierre/api-client';
+import {
+  SIGN_IN_CALLBACK_PATH,
+  expoPkceCrypto,
+  redeemCode,
+  signInWithHostedPage,
+} from '../utils/hostedSignIn';
 import { releasePushDevice, unregisterPushDevice } from '../services/pushNotifications';
-import type { User, FirebaseLoginResponse, RegisterResponse } from '../types';
+import type { User, FirebaseLoginResponse, LoginResponse, RegisterResponse } from '../types';
+
+/**
+ * What a registration ended in: the server's response, and whether the
+ * athlete is now signed in — the account was active at once and its
+ * sign-in code was redeemed (carnet#1147).
+ */
+export interface RegistrationOutcome {
+  response: RegisterResponse;
+  signedIn: boolean;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -24,8 +41,11 @@ interface AuthContextType {
   logout: () => Promise<void>;
   /**
    * Create an account. Resolves with the server's response, whose `message`
-   * says what happens next; `turnstileToken` is the bot-check token when the
-   * sign-up config names a Turnstile site key.
+   * says what happens next, and whether the athlete is now signed in: an
+   * account active at once comes back with a sign-in code, redeemed here.
+   * A code that could not be redeemed resolves `signedIn: false`, never an
+   * error — the account exists. `turnstileToken` is the bot-check token when
+   * the sign-up config names a Turnstile site key.
    */
   register: (
     email: string,
@@ -33,7 +53,7 @@ interface AuthContextType {
     displayName?: string,
     turnstileToken?: string,
     signupCode?: string,
-  ) => Promise<RegisterResponse>;
+  ) => Promise<RegistrationOutcome>;
   updateUser: (patch: Partial<User>) => Promise<void>;
 }
 
@@ -158,6 +178,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return unsubscribe;
   }, []);
 
+  // Take a redeemed sign-in as this phone's session: the hosted sign-in and a
+  // registration that came back with a code both end here.
+  const adoptSession = useCallback(async (response: LoginResponse): Promise<void> => {
+    await authApi.storeAuth(response.access_token, response.csrf_token || '', response.user);
+    setUser(response.user);
+
+    // Best-effort: persist the device's IANA timezone so the chat
+    // prompt resolves {{CURRENT_DATE}} in the user's local calendar.
+    // Failures don't block sign-in — UTC fallback keeps chat usable.
+    void captureUserTimezone();
+  }, []);
+
   // The sign-in lives here rather than in the login screen so that it
   // completes even if the screen remounts while the browser is open: on
   // Android the redirect also reaches the router as a deep link.
@@ -166,16 +198,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!response) {
       return false;
     }
-
-    await authApi.storeAuth(response.access_token, response.csrf_token || '', response.user);
-    setUser(response.user);
-
-    // Best-effort: persist the device's IANA timezone so the chat
-    // prompt resolves {{CURRENT_DATE}} in the user's local calendar.
-    // Failures don't block sign-in — UTC fallback keeps chat usable.
-    void captureUserTimezone();
+    await adoptSession(response);
     return true;
-  }, []);
+  }, [adoptSession]);
 
   const loginWithFirebase = useCallback(async (idToken: string): Promise<FirebaseLoginResponse> => {
     const response = await authApi.loginWithFirebase({ idToken });
@@ -214,17 +239,52 @@ export function AuthProvider({ children }: AuthProviderProps) {
     displayName?: string,
     turnstileToken?: string,
     signupCode?: string,
-  ): Promise<RegisterResponse> => {
-    // After registration, user needs to log in (or wait for approval if pending).
-    // A signup code, when the athlete has one, approves the account at once.
-    return authApi.register({
+  ): Promise<RegistrationOutcome> => {
+    // A fresh PKCE pair and state for every submit (a state is spent once),
+    // on the callback the hosted sign-in uses. Without one the registration
+    // still goes through, and the athlete signs in as before.
+    let prepared: RegistrationSignIn | null = null;
+    try {
+      prepared = await authApi.prepareRegistrationSignIn(
+        Linking.createURL(SIGN_IN_CALLBACK_PATH),
+        expoPkceCrypto,
+      );
+    } catch (error) {
+      console.warn('Could not prepare the sign-in a registration carries:', error);
+    }
+
+    // A signup code, when the athlete has one, rides along for the server to check.
+    const response = await authApi.register({
       email,
       password,
       display_name: displayName,
       turnstile_token: turnstileToken,
       ...(signupCode ? { signup_code: signupCode } : {}),
+      ...(prepared ? { sign_in: prepared.request } : {}),
     });
-  }, []);
+
+    if (!prepared || response.activation !== 'active' || !response.sign_in_code) {
+      return { response, signedIn: false };
+    }
+    // The account exists from here on: a code that cannot be redeemed sends
+    // the athlete to sign in, never back to a "registration failed" whose
+    // retry would answer that the address is taken.
+    try {
+      const session = await redeemCode({
+        code: response.sign_in_code,
+        codeVerifier: prepared.codeVerifier,
+        redirectUri: prepared.redirectUri,
+      });
+      await adoptSession(session);
+      return { response, signedIn: true };
+    } catch (error) {
+      // The status only: an HTTP error carries the request body, whose code,
+      // PKCE verifier and device evidence must not reach a log.
+      const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
+      console.warn('Could not redeem the sign-in code a registration returned, status:', status ?? 'none');
+      return { response, signedIn: false };
+    }
+  }, [adoptSession]);
 
   const updateUser = useCallback(async (patch: Partial<User>) => {
     let next: User | null = null;

@@ -631,6 +631,7 @@ mod reconnect_prompt_on_served_turn_test;
 mod redaction_middleware_test;
 mod redaction_test;
 mod register_approval_login_e2e_test;
+mod register_sign_in_test;
 mod request_id_middleware_test;
 mod resolve_tenant_test;
 mod response_failure_log_test;

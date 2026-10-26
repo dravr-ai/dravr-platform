@@ -235,29 +235,6 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
-  // Mock user LLM settings (read by the About pane for the model line)
-  await page.route('**/api/user/llm-settings**', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          current_provider: null,
-          providers: [],
-          user_credentials: [],
-          tenant_credentials: [],
-          system_provider: {
-            name: 'copilot_headless',
-            display_name: 'Copilot Headless',
-            model: 'claude-sonnet-5',
-          },
-        }),
-      });
-    } else {
-      await route.fallback();
-    }
-  });
-
   // Mock admin store stats (needed by Coach Store tab badge)
   await page.route('**/api/admin/store/stats', async (route) => {
     await route.fulfill({
@@ -454,9 +431,8 @@ test.describe('Settings Page - User Mode', () => {
     // from the "Privacy & Data" pane and went somewhere else entirely.
     await expect(pane.getByText('Legal documents')).toBeVisible();
     await expect(pane.getByText('Terms & Privacy')).toHaveCount(0);
-    // Which model answers, read-only: a fact about the product, not a field
-    // that invites a credential.
-    await expect(pane.getByTestId('about-coach-model-value')).toBeVisible();
+    // Which model answers is an operator's reading, never an athlete's (carnet#1147).
+    await expect(pane.getByTestId('about-section-coach-model')).toHaveCount(0);
     // Both external rows go to a page that answers: help to the docs hub,
     // legal to the privacy policy, which links the terms.
     await expect(pane.getByTestId('about-section-help')).toHaveAttribute(

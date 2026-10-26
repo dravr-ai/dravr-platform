@@ -415,9 +415,7 @@ describe('UserSettings Component', () => {
       });
     });
 
-    it('states which model answers the athlete, without inviting a key', async () => {
-      // The AI-provider pane was the only place this was visible, and it put a
-      // password field beside it.
+    it('names no model in About: which one answers is an operator reading (carnet#1147)', async () => {
       const user = userEvent.setup();
 
       await act(async () => {
@@ -427,10 +425,10 @@ describe('UserSettings Component', () => {
       await user.click(screen.getByText('About'));
 
       await waitFor(() => {
-        expect(screen.getByTestId('about-coach-model-value')).toHaveTextContent(
-          'Copilot Headless · claude-sonnet-5',
-        );
+        expect(screen.getByText('Version')).toBeInTheDocument();
       });
+      expect(screen.queryByTestId('about-section-coach-model')).not.toBeInTheDocument();
+      expect(screen.queryByText(/claude-sonnet-5/)).not.toBeInTheDocument();
       expect(screen.queryByLabelText('API Key')).not.toBeInTheDocument();
     });
 

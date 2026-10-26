@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { classifyApiError, type SignInFailure } from '@pierre/ui-logic';
-import { readSignInCallback } from '@pierre/api-client';
+import { readSignInCallback, type CompleteSignIn } from '@pierre/api-client';
 import type { LoginResponse } from '@pierre/shared-types';
 import { authApi, adminApi, pierreApi, userApi } from '../services/api';
 import { AuthContext } from './auth';
@@ -140,6 +140,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // the logout POST itself returns 401 and fires another auth failure event)
   const isLoggingOutRef = useRef(false);
 
+  // Set while a registration's own sign-in code is being redeemed: a refused
+  // exchange there is a sign-in that failed, not a session to end.
+  const isRedeemingRegistrationRef = useRef(false);
+
   // Every cached answer belonged to the account whose session just ended —
   // a sign-out, or a dead session found on load or by a 401. Kept, the next
   // account signed in on this tab (a Google sign-in never reloads the page)
@@ -238,6 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (isLoggingOutRef.current) return;
       if (window.location.pathname.includes('/login')) return;
       if (isSignInCallbackPath()) return;
+      if (isRedeemingRegistrationRef.current) return;
       logout();
     };
 
@@ -297,6 +302,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     window.location.assign(request.authorizeUrl);
   }, []);
+
+  /**
+   * Redeem the code a registration came back with (carnet#1147), with the
+   * verifier the form kept in memory, and establish the session it grants.
+   *
+   * No pending sign-in is written: the code never travels through
+   * `/auth/callback`, so that return leg keeps refusing a code this tab did
+   * not start. Rejects when the exchange is refused; the caller falls back to
+   * the sign-in screen, since the account exists either way.
+   */
+  const completeSignInWithCode = async ({
+    code,
+    codeVerifier,
+    redirectUri,
+  }: Pick<CompleteSignIn, 'code' | 'codeVerifier' | 'redirectUri'>) => {
+    isRedeemingRegistrationRef.current = true;
+    try {
+      const response = await authApi.completeSignIn({ code, codeVerifier, redirectUri });
+      const { access_token, csrf_token, user: signedIn } = response;
+      await establishSession({ csrfToken: csrf_token, accessToken: access_token, user: signedIn });
+    } finally {
+      isRedeemingRegistrationRef.current = false;
+    }
+  };
 
   const clearSignInFailure = useCallback(() => setSignInFailure(null), []);
 
@@ -419,6 +448,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     loading: isLoading, // For test compatibility
     startSignIn,
+    completeSignInWithCode,
     signInFailure,
     clearSignInFailure,
     loginWithFirebase,

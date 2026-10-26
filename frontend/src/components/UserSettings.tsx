@@ -245,18 +245,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // Fetch usage quota status
   const { data: usageData, isLoading: usageLoading } = useUsageStatus();
 
-  // Which model answers this athlete. Read-only, and About is where it lives:
-  // the athlete does not choose a provider, so the fact belongs beside the
-  // version rather than beside a key field.
-  const { data: llmSettings } = useQuery({
-    queryKey: QUERY_KEYS.llmSettings.list(),
-    queryFn: () => userApi.getLlmSettings(),
-    enabled: isAuthenticated && activeTab === 'about',
-  });
-  const systemProvider = llmSettings?.system_provider;
-  const coachModelLabel = systemProvider
-    ? [systemProvider.display_name, systemProvider.model].filter(Boolean).join(' · ')
-    : null;
 
   const oauthApps: OAuthApp[] = oauthAppsResponse?.apps || [];
   const tokens: McpToken[] = tokensResponse?.tokens || [];
@@ -1431,21 +1419,6 @@ Authorization: Bearer <your-token-here>`}
                         <div className="flex-1">
                           <p className="text-xs text-on-surface-variant">{t('settingsUi.version')}</p>
                           <p className="text-sm text-on-surface font-medium">{APP_VERSION}</p>
-                        </div>
-                      </div>
-                    );
-                  case 'coach-model':
-                    return (
-                      <div
-                        key={section}
-                        data-testid="about-section-coach-model"
-                        className="flex items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-on-surface-variant">{t('about.agentModel')}</p>
-                          <p className="text-on-surface font-medium break-words" data-testid="about-coach-model-value">
-                            {coachModelLabel ?? t('about.agentModelUnknown')}
-                          </p>
                         </div>
                       </div>
                     );

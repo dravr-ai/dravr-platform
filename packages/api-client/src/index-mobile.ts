@@ -32,6 +32,8 @@ export type {
   SignInCallback,
   DeviceEvidence,
   CompleteSignIn,
+  RegistrationSignIn,
+  RegistrationSignInRequest,
 } from './domains/auth';
 export { readSignInCallback } from './domains/auth';
 export { base64UrlEncode } from './core/pkce';
@@ -105,9 +107,6 @@ export type {
   McpTokensResponse,
   CreateMcpTokenRequest,
   UserOAuthApp,
-  LlmProviderStatus,
-  LlmCredentialSummary,
-  LlmSettingsResponse,
   SaveLlmCredentialsRequest,
   SaveLlmCredentialsResponse,
   MemoryFactRow,

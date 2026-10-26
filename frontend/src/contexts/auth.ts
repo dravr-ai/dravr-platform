@@ -7,6 +7,7 @@
 import { createContext } from 'react';
 import type { User, UserRole, UserStatus, FirebaseLoginResponse } from '@pierre/shared-types';
 import type { SignInFailure } from '@pierre/ui-logic';
+import type { CompleteSignIn } from '@pierre/api-client';
 
 interface ImpersonationState {
   isImpersonating: boolean;
@@ -31,6 +32,11 @@ interface AuthContextType {
    * could not be left; on success the browser is already navigating away.
    */
   startSignIn: () => Promise<void>;
+  /**
+   * Redeem the sign-in code a registration returned (carnet#1147) with the
+   * verifier kept for it, and establish that session. Rejects when refused.
+   */
+  completeSignInWithCode: (signIn: Pick<CompleteSignIn, 'code' | 'codeVerifier' | 'redirectUri'>) => Promise<void>;
   /** Why the last hosted sign-in returned without a session, if it did. */
   signInFailure: SignInFailure | null;
   clearSignInFailure: () => void;

@@ -91,6 +91,7 @@ mod pending_session;
 mod provider_ai_consent;
 #[cfg(feature = "provider-sciotte")]
 mod provider_link_webhook;
+mod registration_sign_in;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte;
 #[cfg(feature = "provider-sciotte")]

@@ -123,7 +123,10 @@ export function RegisterScreen() {
         turnstileToken ?? undefined,
         signupCodeOrUndefined(signupCode),
       ),
-    onSuccess: (response) => {
+    onSuccess: ({ response, signedIn }) => {
+      // Signed straight in: the root gate routes to onboarding or Home, and a
+      // navigation from here would race it.
+      if (signedIn) return;
       // What the account waits on (awaiting review, or confirm the address to
       // activate) goes to the waiting screen rather than a fixed sentence,
       // worded in the athlete's language.

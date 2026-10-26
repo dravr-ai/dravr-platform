@@ -46,6 +46,7 @@ vi.mock('../../../services/api', () => ({
 }));
 
 vi.mock('../../../services/analytics', () => ({ track: vi.fn() }));
+vi.mock('../../../hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'athlete-1', role: 'user' } }) }));
 vi.mock('../../../hooks/useUsageStatus', () => ({
   useUsageStatus: () => ({
     level: 'none',

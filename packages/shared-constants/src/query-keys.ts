@@ -247,12 +247,6 @@ export const QUERY_KEYS = {
     list: () => ['mcp-tokens'] as const,
   },
 
-  // ==================== LLM SETTINGS ====================
-  llmSettings: {
-    all: ['llm-settings'] as const,
-    list: () => ['llm-settings'] as const,
-  },
-
   // ==================== NOTIFICATIONS ====================
   notifications: {
     all: ['notifications'] as const,

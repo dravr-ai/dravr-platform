@@ -21,6 +21,12 @@ vi.mock('../../firebase/config', () => ({
   isFirebaseEnabled: () => false,
 }))
 
+// The form reads the session's sign-in from AuthProvider; these cases never
+// get a sign-in code back, so it is never called.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ completeSignInWithCode: vi.fn() }),
+}))
+
 const { authApi } = await import('../../services/api')
 
 /** Cloudflare's always-pass test site key. */

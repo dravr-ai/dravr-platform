@@ -675,6 +675,65 @@ async fn a_coachs_code_approves_the_account_and_joins_the_coachs_group() {
     assert_eq!(coach_code.redeemed_by.len(), 1);
 }
 
+/// An address an operator already allowed registers active on its own; the
+/// coach's code it also carries must still join the coach's group, and count
+/// as used, rather than being refused as "already active" and dropped.
+#[tokio::test]
+async fn a_coachs_code_still_joins_the_group_when_the_address_was_already_allowed() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, group_id, auth, router) = coach_with_group(&resources, true).await;
+    let (status, invite) = create_invite(
+        &router,
+        &auth,
+        &group_id,
+        json!({ "approves_signup": true, "max_uses": 5, "expires_in_days": 14 }),
+    )
+    .await;
+    assert_eq!(status, 201, "{invite}");
+    let code = invite["code"].as_str().unwrap().to_owned();
+    let email = "allowed-athlete@example.com";
+    resources
+        .common
+        .repos
+        .pre_approved_emails
+        .allow(email, None, Some("cohort"))
+        .await
+        .unwrap();
+
+    let (status, body) = register(auth_routes(&resources), email, Some(&code)).await;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(
+        body["activation"], "active",
+        "the allow activates it: {body}"
+    );
+    let athlete = account(&resources, email).await;
+    assert_eq!(
+        athlete.user_status,
+        UserStatus::Active,
+        "the allowed address is active at once"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .groups
+            .get_member(&group_id, athlete.id)
+            .await
+            .unwrap()
+            .is_some(),
+        "the coach's code joins the coach's group even though the allow already activated the account"
+    );
+    let listed = signup_codes::list(&resources.common.repos).await.unwrap();
+    let coach_code = listed
+        .iter()
+        .find(|c| c.kind == signup_codes::CodeKind::Coach)
+        .expect("the coach's code is listed");
+    assert_eq!(
+        coach_code.use_count, 1,
+        "the code counts the use it was put to"
+    );
+}
+
 #[tokio::test]
 async fn only_a_roster_manager_mints_a_coach_code_and_only_within_its_caps() {
     let resources = create_test_server_resources().await.unwrap();

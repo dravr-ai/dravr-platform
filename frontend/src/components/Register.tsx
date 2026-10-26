@@ -1,12 +1,16 @@
 // ABOUTME: User registration page for new account creation
 // ABOUTME: Reads the sign-up config first: a paused notice when closed, a Turnstile check when keyed; takes an optional signup code
+// ABOUTME: An account active at once comes back with a sign-in code the form redeems, so the athlete lands signed in (carnet#1147)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import React, { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import type { RegistrationSignIn } from '@pierre/api-client';
 import { authApi } from '../services/api';
+import { useAuth } from '../hooks/useAuth';
+import { signInRedirectUri, webPkceCrypto } from '../utils/signIn';
 import { isFirebaseEnabled } from '../firebase/config';
 import { Button, Input, RevealButton } from './ui';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -24,8 +28,22 @@ interface RegisterProps {
   initialSignupCode?: string;
 }
 
+/**
+ * A fresh sign-in for this submit: its `state` is spent once, so a retry needs
+ * a new one. A browser that cannot hash (no WebCrypto off a secure origin)
+ * still registers, and is sent to sign in as before.
+ */
+async function prepareSignIn(): Promise<RegistrationSignIn | null> {
+  try {
+    return await authApi.prepareRegistrationSignIn(signInRedirectUri(), webPkceCrypto);
+  } catch {
+    return null;
+  }
+}
+
 export default function Register({ onNavigateToLogin, onRegistrationSuccess, initialSignupCode }: RegisterProps) {
   const { t } = useTranslation();
+  const { completeSignInWithCode } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -72,13 +90,30 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
 
     const trimmedCode = signupCode.trim();
     try {
+      const signIn = await prepareSignIn();
       const response = await authApi.register({
         email,
         password,
         display_name: displayName || undefined,
         turnstile_token: turnstileToken ?? undefined,
         ...(trimmedCode ? { signup_code: trimmedCode } : {}),
+        ...(signIn ? { sign_in: signIn.request } : {}),
       });
+      if (signIn && response.activation === 'active' && response.sign_in_code) {
+        try {
+          // The session replaces this screen: App renders the dashboard once
+          // the user is set.
+          await completeSignInWithCode({
+            code: response.sign_in_code,
+            codeVerifier: signIn.codeVerifier,
+            redirectUri: signIn.redirectUri,
+          });
+          return;
+        } catch {
+          // The account exists whatever the exchange said: fall back to the
+          // sign-in screen and its greeting, never a registration error.
+        }
+      }
       onRegistrationSuccess(describeRegistration(response, t), email);
     } catch (err: unknown) {
       // The server's sentence covers each guard: paused or past the day's

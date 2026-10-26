@@ -101,6 +101,29 @@ export interface CompleteSignIn {
   deviceEvidence?: DeviceEvidence;
 }
 
+/**
+ * What a registration sends so an account active at once comes back with an
+ * authorization code (carnet#1147): the same client, callback and PKCE
+ * challenge a hosted sign-in sends to `/oauth2/authorize`.
+ */
+export interface RegistrationSignInRequest {
+  client_id: string;
+  redirect_uri: string;
+  code_challenge: string;
+  code_challenge_method: 'S256';
+  state: string;
+}
+
+/** A registration's sign-in, prepared: what to send, and what to keep for the code. */
+export interface RegistrationSignIn {
+  /** Sent as `sign_in` on the registration. */
+  request: RegistrationSignInRequest;
+  /** Kept by the app and sent with the code; never leaves the device before then. */
+  codeVerifier: string;
+  /** Sent again with the code. */
+  redirectUri: string;
+}
+
 export interface RegisterCredentials {
   email: string;
   password: string;
@@ -113,6 +136,12 @@ export interface RegisterCredentials {
    * so nothing is created and the person can fix the typo.
    */
   signup_code?: string;
+  /**
+   * Asks for an authorization code when the account is active at once, so
+   * the athlete is signed straight in. Prepared fresh for every submit by
+   * `prepareRegistrationSignIn`.
+   */
+  sign_in?: RegistrationSignInRequest;
 }
 
 export interface FirebaseLoginData {
@@ -160,6 +189,26 @@ export function createAuthApi(
         authorizeUrl: `${origin}${ENDPOINTS.AUTH.AUTHORIZE}?${query.toString()}`,
         codeVerifier,
         state,
+        redirectUri,
+      };
+    },
+
+    /**
+     * Prepare the sign-in a registration carries: a fresh PKCE pair and
+     * `state` for this app's client and `redirectUri`, as `beginSignIn` makes
+     * them. Call it for every submit; a `state` is spent once.
+     */
+    async prepareRegistrationSignIn(redirectUri: string, crypto: PkceCrypto): Promise<RegistrationSignIn> {
+      const { codeVerifier, codeChallenge, state } = await createPkcePair(crypto);
+      return {
+        request: {
+          client_id: FIRST_PARTY_CLIENT_IDS[platform],
+          redirect_uri: redirectUri,
+          code_challenge: codeChallenge,
+          code_challenge_method: 'S256',
+          state,
+        },
+        codeVerifier,
         redirectUri,
       };
     },

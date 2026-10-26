@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The thread every web chat surface shares, driven through its own hook with no host chrome around it
-// ABOUTME: Pins a typed send, a stop reaching the running turn, a send with no thread opening one the host's way, and the composer's focus rule
+// ABOUTME: Pins a typed send, a stop reaching the running turn, a send with no thread opening one the host's way, the composer's focus rule, and that only an operator reads which model wrote a reply
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
-import type { Message } from '@pierre/shared-types';
+import type { Message, UserRole } from '@pierre/shared-types';
 import ChatThread from '../ChatThread';
 import { useChatThread, type OpenThread } from '../useChatThread';
 import type { PendingComposerAction } from '../types';
@@ -40,6 +40,11 @@ vi.mock('../../../services/api', () => ({
 }));
 
 vi.mock('../../../services/analytics', () => ({ track: vi.fn() }));
+// The viewer's role decides whether a reply names its model; each test sets it.
+const viewer = vi.hoisted(() => ({ role: 'user' as UserRole }));
+vi.mock('../../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { id: 'viewer-1', role: viewer.role } }),
+}));
 vi.mock('../../../hooks/useUsageStatus', () => ({
   useUsageStatus: () => ({
     level: 'none',
@@ -136,6 +141,7 @@ describe('ChatThread', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    viewer.role = 'user';
     getConversations.mockResolvedValue({
       conversations: [{ id: CONVERSATION_ID, title: 'Half marathon', agent_id: null }],
       total: 1,
@@ -164,6 +170,48 @@ describe('ChatThread', () => {
     });
     expect(await screen.findByText('Your week: 42 km, all easy.')).toBeInTheDocument();
     expect(openThread).not.toHaveBeenCalled();
+  });
+
+  it('never shows an athlete which model wrote a reply, live or reloaded', async () => {
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Half marathon', agent_id: null, model: 'stored-model' }],
+      total: 1,
+    });
+    const turn = heldTurn();
+    const user = userEvent.setup();
+    renderThread({ initial: CONVERSATION_ID, openThread });
+
+    await screen.findByText('Hi, ready when you are.');
+    await user.type(composer(), 'How does my week look?');
+    await user.click(screen.getByRole('button', { name: i18n.t('chat.sendMessageAria') }));
+    await act(async () => {
+      turn.finish(turnEnding('Your week: 42 km, all easy.'));
+    });
+    await screen.findByText('Your week: 42 km, all easy.');
+
+    expect(screen.queryByText(/test-model/), 'the live reply names no model').not.toBeInTheDocument();
+    expect(screen.queryByText(/stored-model/), 'the reloaded reply names no model').not.toBeInTheDocument();
+  });
+
+  it('shows an operator the model under each reply, live and reloaded', async () => {
+    viewer.role = 'admin';
+    getConversations.mockResolvedValue({
+      conversations: [{ id: CONVERSATION_ID, title: 'Half marathon', agent_id: null, model: 'stored-model' }],
+      total: 1,
+    });
+    const turn = heldTurn();
+    const user = userEvent.setup();
+    renderThread({ initial: CONVERSATION_ID, openThread });
+
+    expect(await screen.findByText(/stored-model/), 'the reloaded reply names its model').toBeInTheDocument();
+    await user.type(composer(), 'How does my week look?');
+    await user.click(screen.getByRole('button', { name: i18n.t('chat.sendMessageAria') }));
+    await act(async () => {
+      turn.finish(turnEnding('Your week: 42 km, all easy.'));
+    });
+    await screen.findByText('Your week: 42 km, all easy.');
+
+    expect(screen.getByText(/test-model/), 'the live reply names its model').toBeInTheDocument();
   });
 
   it('asks the server to stop the running turn from the composer’s stop button', async () => {
