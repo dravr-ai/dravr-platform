@@ -169,11 +169,12 @@ WORKDIR /app
 # whose private keys were compromised (announced 2026-10-19), plus their
 # Sectigo cross-signs. With the 10-17 bundle, anyone who can intercept the
 # server's traffic could forge a certificate for Strava, Garmin or an LLM API,
-# and every client that reads the system store would accept it: reqwest on
-# native-tls/OpenSSL (pierre-providers, dravr-canot) and Debian's nodejs, which
-# runs the Copilot and Claude Code CLIs. The rustls clients pin webpki-roots,
-# fixed separately at 1.0.10. Checked in a fresh trixie layer: curl and node
-# both reject dv-g3b-emudhra.we-have-a-problem.com.
+# and every client that reads the system store would accept it: every reqwest
+# 0.12 client, which runs on native-tls/OpenSSL because pierre-providers and
+# github-copilot-sdk turn on reqwest's default-tls and no caller selects rustls,
+# and Debian's nodejs, which runs the Copilot and Claude Code CLIs. Checked in a
+# fresh trixie layer: curl and node both reject
+# dv-g3b-emudhra.we-have-a-problem.com.
 ARG APT_SECURITY_EPOCH=2026-10-23
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
