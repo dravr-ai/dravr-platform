@@ -1197,7 +1197,7 @@
       "elapsedSeconds": "{{seconds}} s",
       "elapsedMinutes": "{{minutes}} min {{seconds}} s",
       "elapsedHours": "{{hours}} h {{minutes}} min",
-      "safeToLeave": "Ça peut prendre quelques minutes. Tu peux quitter cette page : la réponse t’attendra ici.",
+      "safeToLeave": "Ça peut prendre quelques minutes. Tu peux quitter : la réponse t’attendra ici.",
       "foldedOne": "Réfléchi {{duration}} · 1 étape",
       "foldedN": "Réfléchi {{duration}} · {{count}} étapes",
       "foldedNoSteps": "Réfléchi {{duration}}",

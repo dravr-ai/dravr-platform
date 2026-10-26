@@ -1197,7 +1197,7 @@
       "elapsedSeconds": "{{seconds}} s",
       "elapsedMinutes": "{{minutes}} min {{seconds}} s",
       "elapsedHours": "{{hours}} h {{minutes}} min",
-      "safeToLeave": "Isto pode demorar alguns minutos. Podes sair desta página: a resposta vai estar aqui à tua espera.",
+      "safeToLeave": "Isto pode demorar alguns minutos. Podes sair: a resposta vai estar aqui à tua espera.",
       "foldedOne": "Pensou durante {{duration}} · 1 passo",
       "foldedN": "Pensou durante {{duration}} · {{count}} passos",
       "foldedNoSteps": "Pensou durante {{duration}}",
