@@ -60,7 +60,6 @@ checksum = "430e900fdb40a811c1a3e0d85b1134e485d96699f8b90889a15c1da6a0b26c3f"
 dependencies = [
  "anyhow",
  "derive_more",
- "schemars 1.2.3",
  "serde",
  "serde_json",
  "serde_with",
@@ -1611,9 +1610,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.39.1"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35869a1cca0bc062de40bc0590e16c742ed0a2b6b09f25f2d50bb5be5e58425f"
+checksum = "92ca3c09e527823b8482aa7f263838fa51aaf07a5ca9f285d8e7f05ff0f2da0e"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1634,15 +1633,15 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.39.1"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00453cc17082da3c6eed0514010509fd59c715e8ef0a215c7b7ecbe1ab08f9a5"
+checksum = "f26a28414c535bfcd128b6ba7105f0d4c396758f718e5fd0d13fb0c5b974c336"
 dependencies = [
  "async-trait",
  "axum",
  "dravr-tronc",
  "embacle",
- "rand 0.8.8",
+ "rand 0.10.3",
  "serde_json",
  "subtle",
  "tokio",
@@ -4905,7 +4904,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -4943,7 +4942,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -7167,7 +7166,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
