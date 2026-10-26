@@ -29,30 +29,41 @@ pub(crate) const INSERT_TRANSCRIPT_ENTRY_SQL: &str = r"INSERT INTO group_transcr
 ///
 /// The group's human coach speaks to the room: their own words reach every
 /// reader, whatever the sharing switches. The agent's reply to the coach was
-/// written from the coach's view — every member who shares with the coach,
-/// their training and their words in the room — so it reaches a reader only
-/// when that view holds nothing the reader may not see: every other live
-/// member the coach sees shares with their peers. In a group of one athlete
-/// that is always so. A coach who wants a reply kept from the athletes asks
-/// in their thread about one athlete, which never fans out to the room. The
-/// rule reads the group's current coach, so a detached coach's entries are
-/// withheld again.
+/// written from the coach's view — the training and room words of every
+/// member who shared with the coach then — so it reaches a reader only when
+/// every other member of the group at the time it was written shares with
+/// their peers now. In a group of one athlete that is always so. Whether a
+/// member shared with the coach then is not recorded, so every member of the
+/// time counts: leaving the group or withdrawing a consent later can only
+/// hide a reply, never expose one. A coach who wants a reply kept from the
+/// athletes asks in their thread about one athlete, which never fans out to
+/// the room. The rule reads the group's current coach, so a detached coach's
+/// entries are withheld again.
+///
+/// The rule is never NULL: the room page selects it as a `bool` column, which
+/// `PostgreSQL` refuses to decode from NULL, so a group with no coach matches
+/// no author in the coach's branch rather than comparing against NULL.
 macro_rules! transcript_entry_visible {
     () => {
         r"(
                   e.author_user_id = $2
                   OR (
-                    e.author_user_id = g.coach_user_id
+                    g.coach_user_id IS NOT NULL
+                    AND e.author_user_id = g.coach_user_id
                     AND (
                       e.speaker = 'member'
                       OR NOT EXISTS (
                         SELECT 1 FROM coaching_group_members om
                         WHERE om.group_id = e.group_id
-                          AND om.left_at IS NULL
-                          AND om.coach_sharing_consent = TRUE
                           AND om.user_id <> g.coach_user_id
                           AND om.user_id <> $2
-                          AND NOT (g.peer_data_sharing = TRUE AND om.peer_sharing_consent = TRUE)
+                          AND om.joined_at <= e.created_at
+                          AND (om.left_at IS NULL OR om.left_at > e.created_at)
+                          AND NOT (
+                            om.left_at IS NULL
+                            AND g.peer_data_sharing = TRUE
+                            AND om.peer_sharing_consent = TRUE
+                          )
                       )
                     )
                   )
