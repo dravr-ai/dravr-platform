@@ -54,6 +54,23 @@ export const TURN_STEP_KEYS = {
   checkWeather: 'chat.turn.step.checkWeather',
   nutrition: 'chat.turn.step.nutrition',
   predict: 'chat.turn.step.predict',
+  updateCalendar: 'chat.turn.step.updateCalendar',
+  syncData: 'chat.turn.step.syncData',
+  checkConnections: 'chat.turn.step.checkConnections',
+  manageConnection: 'chat.turn.step.manageConnection',
+  updateProfile: 'chat.turn.step.updateProfile',
+  setGoal: 'chat.turn.step.setGoal',
+  reviewGoals: 'chat.turn.step.reviewGoals',
+  updateNotes: 'chat.turn.step.updateNotes',
+  reviewNotes: 'chat.turn.step.reviewNotes',
+  recommend: 'chat.turn.step.recommend',
+  findRoutes: 'chat.turn.step.findRoutes',
+  recipes: 'chat.turn.step.recipes',
+  lookUpFood: 'chat.turn.step.lookUpFood',
+  chooseMobility: 'chat.turn.step.chooseMobility',
+  browseAgents: 'chat.turn.step.browseAgents',
+  addAgent: 'chat.turn.step.addAgent',
+  linkMember: 'chat.turn.step.linkMember',
 } as const;
 
 /** The other words the indicator and the folded line are made of. */
@@ -75,11 +92,13 @@ export const TURN_TRAIL_KEYS = {
 type StepKind = keyof typeof TURN_STEP_KEYS;
 
 /**
- * What each tool the agent calls is doing, in the coach's words.
+ * What each tool the agent calls is doing, in the athlete's words — the one
+ * table both clients read.
  *
  * A tool's own name (`get_group_member_activities`) is plumbing: the trail
- * says what the step does for the athlete. A tool not listed here reads as
- * the generic "looking things up" — never as its name.
+ * says what the step does for the athlete. It covers every tool a chat turn
+ * can call (the server's `chat_callable_schemas`); a name not listed here
+ * reads as the generic "looking things up" — never as its name.
  */
 const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   get_activities: 'readActivities',
@@ -88,6 +107,10 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   compare_activities: 'readActivities',
   extract_activity_streams: 'readActivities',
   get_heart_rate_series: 'readActivities',
+  calculate_metrics: 'readActivities',
+  export_intervals: 'readActivities',
+  export_routes: 'readActivities',
+  export_latest_snapshot: 'readActivities',
   get_group_member_activities: 'readMemberActivities',
   get_training_history: 'readHistory',
   compute_training_history: 'readHistory',
@@ -101,27 +124,71 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   get_sleep_sessions: 'readRecovery',
   analyze_sleep_quality: 'readRecovery',
   get_health_snapshots: 'readRecovery',
+  track_sleep_trends: 'readRecovery',
+  optimize_sleep_schedule: 'readRecovery',
   get_athlete: 'readProfile',
-  get_fitness_config: 'readProfile',
-  get_user_configuration: 'readProfile',
-  calculate_personalized_zones: 'readProfile',
   estimate_lactate_thresholds: 'readProfile',
+  export_dossier: 'readProfile',
+  set_physiology: 'updateProfile',
+  import_provider_thresholds: 'updateProfile',
   get_roster_overview: 'readGroup',
   get_provider_roster: 'readGroup',
+  propose_athlete_link: 'linkMember',
   recommend_plan_flavour: 'choosePlanApproach',
   get_training_plan: 'readPlan',
   get_planned_workouts: 'readPlan',
   list_workout_templates: 'pickWorkouts',
-  prescribe_workout: 'pickWorkouts',
   save_training_plan: 'savePlan',
   publish_training_plan: 'savePlan',
+  prescribe_workout: 'updateCalendar',
+  push_training_plan: 'updateCalendar',
+  withdraw_prescribed_workout: 'updateCalendar',
   get_weather_forecast: 'checkWeather',
   analyze_weather_impact: 'checkWeather',
+  discover_routes: 'findRoutes',
+  compose_route: 'findRoutes',
   calculate_daily_nutrition: 'nutrition',
   analyze_meal_nutrition: 'nutrition',
   get_nutrient_timing: 'nutrition',
+  search_food: 'lookUpFood',
+  get_food_details: 'lookUpFood',
+  get_recipe: 'recipes',
+  get_recipe_constraints: 'recipes',
+  list_recipes: 'recipes',
+  search_recipes: 'recipes',
+  validate_recipe: 'recipes',
+  save_recipe: 'recipes',
+  delete_recipe: 'recipes',
+  list_stretching_exercises: 'chooseMobility',
+  get_stretching_exercise: 'chooseMobility',
+  suggest_stretches_for_activity: 'chooseMobility',
+  list_yoga_poses: 'chooseMobility',
+  get_yoga_pose: 'chooseMobility',
+  suggest_yoga_sequence: 'chooseMobility',
   predict_performance: 'predict',
   analyze_goal_feasibility: 'predict',
+  estimate_vo2max: 'predict',
+  set_goal: 'setGoal',
+  suggest_goals: 'reviewGoals',
+  track_progress: 'reviewGoals',
+  generate_recommendations: 'recommend',
+  suggest_rest_day: 'recommend',
+  remember_fact: 'updateNotes',
+  agent_note_add: 'updateNotes',
+  agent_followup_schedule: 'updateNotes',
+  commitment_create: 'updateNotes',
+  commitment_cancel: 'updateNotes',
+  recall_user_memory: 'reviewNotes',
+  list_coaching_playbooks: 'reviewNotes',
+  refresh_provider_data: 'syncData',
+  get_connection_status: 'checkConnections',
+  get_data_freshness: 'checkConnections',
+  list_data_sources: 'checkConnections',
+  connect_provider: 'manageConnection',
+  disconnect_provider: 'manageConnection',
+  browse_agent_store: 'browseAgents',
+  search_agent_store: 'browseAgents',
+  install_agent_from_store: 'addAgent',
 };
 
 /** Tool names longest first, so a qualified title matches its most specific tool. */

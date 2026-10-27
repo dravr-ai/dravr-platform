@@ -17,7 +17,8 @@
     "./common": {
       "types": "./src/common.ts",
       "import": "./src/common.ts"
-    }
+    },
+    "./chat-callable-tools.json": "./src/chat-callable-tools.json"
   },
   "scripts": {
     "preinstall": "node -e \"if(!process.env.npm_execpath || !process.env.npm_execpath.includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",

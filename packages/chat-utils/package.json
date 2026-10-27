@@ -44,6 +44,7 @@
     "@pierre/shared-types": "*"
   },
   "devDependencies": {
+    "@pierre/mcp-types": "*",
     "@pierre/shared-types": "*",
     "@types/geojson": "^7946.0.16",
     "typescript": "~5.8.3",

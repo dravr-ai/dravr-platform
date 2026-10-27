@@ -159,6 +159,7 @@ mod capture_staleness_test;
 mod capture_sweep_test;
 mod channel_config_classification_test;
 mod chat_awaiting_reply_test;
+mod chat_callable_tools_fixture_test;
 mod chat_database_test;
 mod chat_discover_group_commands_test;
 mod chat_input_source_test;
