@@ -749,7 +749,9 @@ async fn group_create_in_an_archived_empty_thread_adopts_it_and_takes_its_slot()
 
 /// The personal thread is never adopted as a room, however empty: it is the
 /// one Home opens and the coach posts into (carnet#840). The room is filed
-/// beside it, and the thread stays the athlete's own.
+/// beside it, and the thread stays the athlete's own. The answer stays there
+/// too, so its invite button names the new group and works from Home, a
+/// thread that names no group (carnet#1187).
 #[tokio::test]
 async fn group_create_in_the_personal_thread_files_the_room_beside_it() {
     let resources = create_test_server_resources().await.unwrap();
@@ -768,7 +770,13 @@ async fn group_create_in_the_personal_thread_files_the_room_beside_it() {
     let personal = opened.conversation;
     assert!(personal.personal);
 
-    let reply = send(router, &auth, &personal.id, "/group create Sunday Runners").await;
+    let reply = send(
+        router.clone(),
+        &auth,
+        &personal.id,
+        "/group create Sunday Runners",
+    )
+    .await;
     assert!(
         reply.rotated_to_conversation_id.is_none(),
         "Home never opens a room, so the athlete stays on their personal thread"
@@ -795,8 +803,31 @@ async fn group_create_in_the_personal_thread_files_the_room_beside_it() {
         .iter()
         .find(|c| c.title == "Sunday Runners")
         .expect("the room got a conversation of its own");
-    assert!(room.group_id.is_some());
+    let group_id = room.group_id.as_deref().expect("the room is the group's");
     assert!(!room.personal);
+
+    // Pressed on Home, the button invites to the group just made.
+    let buttons = actions(&reply);
+    assert_eq!(buttons.len(), 1, "the answer carries one invite button");
+    assert_eq!(
+        buttons[0].value,
+        format!("/group invite {group_id}"),
+        "the button names the group it invites to"
+    );
+    let invite = send(router, &auth, &personal.id, &buttons[0].value).await;
+    let invites = resources
+        .common
+        .repos
+        .groups
+        .list_invites(group_id)
+        .await
+        .unwrap();
+    assert_eq!(invites.len(), 1, "one invite, to the new group");
+    let body = &invite.assistant.message.content;
+    assert!(
+        body.contains("Sunday Runners") && body.contains(&invites[0].code),
+        "the invite names the group just created: {body}"
+    );
 }
 
 #[tokio::test]
@@ -821,7 +852,6 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
     );
     let buttons = actions(&reply);
     assert_eq!(buttons.len(), 1);
-    assert_eq!(buttons[0].value, "/group invite");
     assert_eq!(
         buttons[0].label,
         rendered(&resources, KEY_GROUP_INVITE_LABEL, &[])
@@ -838,6 +868,11 @@ async fn group_create_in_a_fresh_thread_binds_it_to_the_new_group() {
         .group_id
         .clone()
         .expect("the empty thread became the group chat");
+    assert_eq!(
+        buttons[0].value,
+        format!("/group invite {group_id}"),
+        "the button names the group it invites to"
+    );
     assert_eq!(thread.agent_id.as_deref(), Some(agent_id.as_str()));
     assert_eq!(thread.title, "Sunday Runners");
     let group = repos
@@ -1069,16 +1104,17 @@ async fn group_create_in_a_group_chat_moves_the_creator_and_its_answer_to_the_ne
         Some(COMMAND_FINISH_REASON),
         "the moved answer is still stamped a command, so no prompt replays it"
     );
+    let button = format!("/group invite {second_group}");
     assert!(
         answer
             .content_blocks
             .as_deref()
-            .is_some_and(|blocks| blocks.contains("/group invite")),
+            .is_some_and(|blocks| blocks.contains(&button)),
         "the invite button is kept with the answer"
     );
 
     // Pressed where it now lives, the button invites to the new group.
-    let invite = send(router, &auth, &created, "/group invite").await;
+    let invite = send(router, &auth, &created, &button).await;
     let body = &invite.assistant.message.content;
     assert!(
         body.contains("Coacher JF"),

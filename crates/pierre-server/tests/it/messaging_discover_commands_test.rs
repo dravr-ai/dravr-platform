@@ -21,9 +21,10 @@ mod discover_over_messaging {
     use pierre_commands::load_command_catalog;
     use pierre_contremaitre::messaging_strings::{
         KEY_DISCOVER_CARD_TITLE, KEY_DISCOVER_INSTALLED, KEY_DISCOVER_INSTALL_ALREADY,
-        KEY_GROUP_COACH_SHARING_PENDING, KEY_GROUP_CREATED, KEY_GROUP_JOINED,
-        KEY_HELP_DOMAIN_DISCOVER,
+        KEY_GROUP_COACH_SHARING_PENDING, KEY_GROUP_CREATED, KEY_GROUP_INVITE_FORBIDDEN,
+        KEY_GROUP_JOINED, KEY_GROUP_NOT_A_MEMBER, KEY_HELP_DOMAIN_DISCOVER,
     };
+    use pierre_core::errors::{AppError, ErrorCode};
     use pierre_core::models::agents::{AgentHandle, CreateAgentRequest};
     use pierre_core::models::groups::GroupInviteKind;
     use pierre_core::models::{
@@ -219,9 +220,35 @@ mod discover_over_messaging {
         athlete: &LinkedAthlete,
         text: &str,
     ) -> CommandResponse {
+        match try_command(resources, athlete, text).await.unwrap() {
+            DispatchOutcome::Executed { response, .. } => response,
+            DispatchOutcome::UnknownCommand { body } => panic!("`{text}` is unknown: {body}"),
+            DispatchOutcome::NotACommand => panic!("`{text}` is not a command"),
+        }
+    }
+
+    /// Run `text` as [`dispatch`] does and return the error the command was
+    /// refused with, which the ingress turns into the athlete's reply.
+    async fn refusal(
+        resources: &Arc<ServerContext>,
+        athlete: &LinkedAthlete,
+        text: &str,
+    ) -> AppError {
+        match try_command(resources, athlete, text).await {
+            Err(e) => e,
+            Ok(_) => panic!("`{text}` was expected to be refused"),
+        }
+    }
+
+    /// The one dispatcher call [`dispatch`] and [`refusal`] share.
+    async fn try_command(
+        resources: &Arc<ServerContext>,
+        athlete: &LinkedAthlete,
+        text: &str,
+    ) -> Result<DispatchOutcome, AppError> {
         let ctx: Arc<dyn CommandCtx> = Arc::<ServerContext>::clone(resources);
         let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
-        let outcome = try_dispatch(DispatchRequest {
+        try_dispatch(DispatchRequest {
             ctx: &ctx,
             command_registry: resources.common.command_registry.as_ref().unwrap(),
             command_handler_registry: resources.common.command_handler_registry.as_ref().unwrap(),
@@ -239,12 +266,6 @@ mod discover_over_messaging {
             origin: TurnOrigin::Athlete,
         })
         .await
-        .unwrap();
-        match outcome {
-            DispatchOutcome::Executed { response, .. } => response,
-            DispatchOutcome::UnknownCommand { body } => panic!("`{text}` is unknown: {body}"),
-            DispatchOutcome::NotACommand => panic!("`{text}` is not a command"),
-        }
     }
 
     /// The DM conversation's transcript, oldest first — where the ingress
@@ -639,6 +660,126 @@ mod discover_over_messaging {
         assert_eq!(
             record.group_id.as_deref(),
             Some(group_id.to_string().as_str())
+        );
+    }
+
+    /// `/group create`'s invite button names its group, so pressed in the DM
+    /// — where a bare `/group invite` falls back to the group the owner
+    /// touched last — it invites to the group its card announced
+    /// (carnet#1187). Only that group's managers get an invite out of it: a
+    /// stranger is refused exactly as for an id that names no group, never
+    /// handed an invite to a group of their own, and a plain member is
+    /// refused as on every other invite path.
+    #[tokio::test]
+    async fn telegram_group_create_button_invites_to_the_group_it_names() {
+        let resources = create_test_server_resources().await.unwrap();
+        let repos = &resources.common.repos;
+        let owner = link_telegram(&resources, "tg-invite-owner@test.com", "9906").await;
+        select_own_agent(repos, owner.user_id, owner.tenant_id).await;
+
+        let ride = dispatch(&resources, &owner, "/group create Ride Club").await;
+        dispatch(&resources, &owner, "/group create Run Club").await;
+        let groups = repos
+            .groups
+            .list_groups_for_user(owner.user_id)
+            .await
+            .unwrap();
+        let group_named = |name: &str| {
+            groups
+                .iter()
+                .find(|g| g.name == name)
+                .unwrap_or_else(|| panic!("{name} was created"))
+                .id
+                .to_string()
+        };
+        let (ride_id, run_id) = (group_named("Ride Club"), group_named("Run Club"));
+        let [button] = ride.actions.as_slice() else {
+            panic!("one invite button, got {:?}", ride.actions);
+        };
+        assert_eq!(
+            button.value,
+            format!("/group invite {ride_id}"),
+            "the button names the group its card announced"
+        );
+        assert!(
+            button.value.len() <= TELEGRAM_CALLBACK_LIMIT,
+            "the button fits a Telegram callback: {}",
+            button.value
+        );
+
+        let invited = dispatch(&resources, &owner, &button.value).await;
+        let ride_invites = repos.groups.list_invites(&ride_id).await.unwrap();
+        assert_eq!(ride_invites.len(), 1, "one invite, to the named group");
+        assert!(
+            invited.text.contains("Ride Club") && invited.text.contains(&ride_invites[0].code),
+            "the invite is to the group the card announced: {}",
+            invited.text
+        );
+        assert!(
+            repos.groups.list_invites(&run_id).await.unwrap().is_empty(),
+            "never to the group touched last"
+        );
+
+        let stranger = link_telegram(&resources, "tg-invite-stranger@test.com", "9907").await;
+        select_own_agent(repos, stranger.user_id, stranger.tenant_id).await;
+        dispatch(&resources, &stranger, "/group create Own Club").await;
+        let own_id = repos
+            .groups
+            .list_groups_for_user(stranger.user_id)
+            .await
+            .unwrap()[0]
+            .id
+            .to_string();
+        let foreign = refusal(&resources, &stranger, &button.value).await;
+        assert_eq!(
+            foreign.code,
+            ErrorCode::ResourceNotFound,
+            "a stranger's press is refused, not answered with an invite"
+        );
+        assert!(
+            foreign
+                .message
+                .starts_with(&rendered(&resources, KEY_GROUP_NOT_A_MEMBER, &[])),
+            "a stranger reads that they are not a member: {}",
+            foreign.message
+        );
+        let unknown = refusal(
+            &resources,
+            &stranger,
+            &format!("/group invite {}", Uuid::new_v4()),
+        )
+        .await;
+        assert_eq!(
+            unknown.message, foreign.message,
+            "an id that names no group reads exactly like a group they are not in"
+        );
+        assert_eq!(
+            repos.groups.list_invites(&ride_id).await.unwrap().len(),
+            1,
+            "a refused press files no invite to the named group"
+        );
+        assert!(
+            repos.groups.list_invites(&own_id).await.unwrap().is_empty(),
+            "a refused id never falls back to the stranger's own group"
+        );
+
+        let member = link_telegram(&resources, "tg-invite-member@test.com", "9908").await;
+        dispatch(
+            &resources,
+            &member,
+            &format!("/group join {}", ride_invites[0].code),
+        )
+        .await;
+        let forbidden = dispatch(&resources, &member, &button.value).await;
+        assert_eq!(
+            forbidden.text,
+            rendered(&resources, KEY_GROUP_INVITE_FORBIDDEN, &[]),
+            "a plain member reads that only managers invite"
+        );
+        assert_eq!(
+            repos.groups.list_invites(&ride_id).await.unwrap().len(),
+            1,
+            "a plain member files no invite"
         );
     }
 }

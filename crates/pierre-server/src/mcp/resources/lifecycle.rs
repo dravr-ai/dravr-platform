@@ -47,10 +47,11 @@ use pierre_commands::{
     discover::{DiscoverHandler, DiscoverInstallHandler},
     fortnight::FortnightHandler,
     group::{
-        GroupCoachHandler, GroupDigestHandler, GroupInviteHandler, GroupLeaveHandler,
-        GroupListHandler, GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
+        GroupCoachHandler, GroupDigestHandler, GroupLeaveHandler, GroupListHandler,
+        GroupMembersHandler, GroupRespondHandler, GroupStatusHandler,
     },
     group_consent::GroupConsentHandler,
+    group_invite::GroupInviteHandler,
     group_membership::{GroupCreateHandler, GroupJoinHandler},
     guardian_confirm::{ConfirmHandler, DenyHandler},
     help::HelpHandler,

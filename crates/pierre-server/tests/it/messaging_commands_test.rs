@@ -1667,10 +1667,9 @@ mod command_tests {
     // in `messaging_locale_test`.
 
     use dravr_canot::commands::CommandRegistry;
-    use pierre_commands::group::{
-        GroupInviteHandler, GroupListHandler, GroupMembersHandler, GroupStatusHandler,
-    };
+    use pierre_commands::group::{GroupListHandler, GroupMembersHandler, GroupStatusHandler};
     use pierre_commands::group_consent::GroupConsentHandler;
+    use pierre_commands::group_invite::GroupInviteHandler;
     use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
     use pierre_core::models::groups::{
         CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,

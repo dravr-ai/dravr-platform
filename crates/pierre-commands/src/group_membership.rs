@@ -151,11 +151,12 @@ impl GroupCreateHandler {
     /// button belong to the new group's chat, where `/group invite` resolves
     /// the new group rather than the one the command was typed in
     /// (carnet#1186). Home's personal thread stays put, since Home never opens
-    /// a room. A messaging channel keeps its session where it was — a
-    /// rotation there would post the new thread's welcome into the room. A
-    /// messaging DM's session conversation is the athlete's one thread on
-    /// that channel and stays theirs, so it is never bound; a dispatch with
-    /// no conversation has nothing to file.
+    /// a room; the button names its group, so it invites to the new group
+    /// from there too (carnet#1187). A messaging channel keeps its session
+    /// where it was — a rotation there would post the new thread's welcome
+    /// into the room. A messaging DM's session conversation is the athlete's
+    /// one thread on that channel and stays theirs, so it is never bound; a
+    /// dispatch with no conversation has nothing to file.
     async fn file_creator_conversation(
         ctx: &PlatformCommandContext,
         thread: Option<ConversationRecord>,
@@ -221,7 +222,6 @@ impl GroupCreateHandler {
                 Some(&group_id),
             )
             .await?;
-        // LIMITATION(registre#1187): `file_creator_conversation` keeps Home's personal thread in place, so the card's bare `/group invite` resolves no group there.
         if in_app && !thread.personal {
             ctx.rotation.record_with_turn(room.id);
         }
@@ -343,13 +343,16 @@ impl CommandHandler for GroupCreateHandler {
             "Coaching group created via /group create"
         );
 
+        // The button names the group, so it invites to this one wherever it
+        // is pressed: Home's personal thread names no group, and a messaging
+        // DM would fall back to the group touched last (carnet#1187).
         Ok(CommandResponse::card(
             group.name.clone(),
             reg.render(KEY_GROUP_CREATED, locale, &[&group.name, &agent.title]),
             vec![CommandAction {
                 label: reg.render(KEY_GROUP_INVITE_LABEL, locale, &[]),
                 action_type: "postback".to_owned(),
-                value: "/group invite".to_owned(),
+                value: format!("/group invite {}", group.id),
             }],
         ))
     }

@@ -1,5 +1,5 @@
 // ABOUTME: Handlers for /group slash commands in messaging
-// ABOUTME: List groups, show stats, list members, generate invites, leave group
+// ABOUTME: List groups, show stats, list members, leave group; resolve the group a command acts on
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,10 +9,6 @@ use dravr_canot::commands::CommandResponse;
 use pierre_core::errors::AppError;
 use tracing::{info, warn};
 
-#[cfg(not(feature = "tools-groups"))]
-use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
-#[cfg(feature = "tools-groups")]
-use pierre_contremaitre::messaging_strings::{KEY_COACH_INVITE_BODY, KEY_GROUP_INVITE_BODY};
 use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_COACH_DETACHED, KEY_GROUP_DIGEST_FORBIDDEN, KEY_GROUP_DIGEST_STATUS_CHAT,
     KEY_GROUP_DIGEST_STATUS_MANAGERS, KEY_GROUP_DIGEST_STATUS_OFF, KEY_GROUP_DIGEST_TIER_OFF,
@@ -26,8 +22,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::agents::ListAgentsFilter;
 use pierre_core::models::groups::{
-    CoachingGroup, GroupDigestMode, GroupInviteKind, GroupRespondMode, GroupRole,
-    UpdateGroupRequest,
+    CoachingGroup, GroupDigestMode, GroupRespondMode, GroupRole, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
@@ -47,12 +42,13 @@ pub(crate) struct TargetGroup {
     pub(crate) name: String,
     /// Tenant that owns the `coaching_groups` row — the conversation tenant
     /// when the chat binding supplied the group, the caller's own tenant on the
-    /// `list_groups_for_user` path (which reports no tenant).
+    /// `list_groups_for_user` path (which reports no tenant), the row's own
+    /// when the command named the group by id.
     pub(crate) tenant_id: TenantId,
     /// How the group was resolved, for the operator log line:
-    /// `"conversation_group_id"`, `"list_groups_for_user_first"`, or
+    /// `"conversation_group_id"`, `"list_groups_for_user_first"`,
     /// `"list_groups_for_user_all"` for a `/group consent` from a direct
-    /// message.
+    /// message, or `"named_group_id"` for a `/group invite <group-id>`.
     pub(crate) source: &'static str,
 }
 
@@ -129,7 +125,9 @@ async fn conversation_bound_group(
 /// its group refuses — and so does a solo in-app thread, where the fallback is
 /// off and `/group invite` in a conversation bound to no group offers nothing
 /// instead of the wrong group. `/group consent`, a privacy control, never takes
-/// the fallback at all: it resolves through [`resolve_consent_targets`].
+/// the fallback at all: it resolves through [`resolve_consent_targets`]. A
+/// `/group invite` that names its group takes neither: see
+/// [`issue_group_invite`](crate::group_invite::issue_group_invite).
 pub(crate) async fn resolve_target_group(
     ctx: &PlatformCommandContext,
 ) -> Result<TargetGroup, AppError> {
@@ -538,143 +536,6 @@ impl CommandHandler for GroupMembersHandler {
     /// its human coach.
     fn is_available(&self, standing: &CallerGroupStanding) -> bool {
         standing.ambient.is_some() || standing.ambient_coach
-    }
-}
-
-/// Issue an invite of `kind` for the conversation's group on the caller's
-/// behalf, refusing anyone who may not manage its members.
-///
-/// The one implementation behind two triggers: `/group invite [agent]` and
-/// `/agent invite` both resolve the same chat-bound group, enforce the same
-/// role and file the invite through the same `GroupService` path, so the
-/// two spellings cannot drift.
-///
-/// LIMITATION(registre#1059): `issue_group_invite` serves owners and admins only, so an athlete cannot invite their own coach from a personal thread.
-///
-/// # Errors
-///
-/// Returns an error when the caller has no group to invite into, is not a
-/// member of it, or the invite cannot be persisted.
-pub async fn issue_group_invite(
-    ctx: &PlatformCommandContext,
-    kind: GroupInviteKind,
-) -> Result<CommandResponse, AppError> {
-    let reg = ctx.ctx.messaging_strings_registry();
-    let locale = ctx.locale.as_str();
-
-    let group = resolve_target_group(ctx).await?;
-
-    // Check admin role
-    let member = ctx
-        .ctx
-        .repos()
-        .groups
-        .get_member(&group.id.to_string(), ctx.user_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("Membership not found"))?;
-
-    if !GroupInviteHandler::permits(member.role) {
-        return Ok(CommandResponse::text(reg.render(
-            KEY_GROUP_INVITE_FORBIDDEN,
-            locale,
-            &[],
-        )));
-    }
-
-    #[cfg(feature = "tools-groups")]
-    {
-        file_invite(ctx, &group, kind).await
-    }
-    #[cfg(not(feature = "tools-groups"))]
-    {
-        Ok(file_invite(ctx, &group, kind))
-    }
-}
-
-/// File the invite through `GroupService` and render the body for its kind.
-#[cfg(feature = "tools-groups")]
-async fn file_invite(
-    ctx: &PlatformCommandContext,
-    group: &TargetGroup,
-    kind: GroupInviteKind,
-) -> Result<CommandResponse, AppError> {
-    let reg = ctx.ctx.messaging_strings_registry();
-    let locale = ctx.locale.as_str();
-
-    // The invite is filed under the tenant that owns the group, not the
-    // issuer's — in a shared room those differ.
-    let invite = ctx
-        .ctx
-        .group_service()
-        .create_invite(group.id, ctx.user_id, group.tenant_id, Some(7), None, kind)
-        .await?;
-
-    // A coach invite attaches its redeemer as the group's human coach rather
-    // than adding an athlete, and the body says so.
-    let key = match kind {
-        GroupInviteKind::Coach => KEY_COACH_INVITE_BODY,
-        GroupInviteKind::Member => KEY_GROUP_INVITE_BODY,
-    };
-    Ok(CommandResponse::text(reg.render(
-        key,
-        locale,
-        &[&group.name, &invite.code, &invite.code],
-    )))
-}
-
-/// A build without the groups feature has no `GroupService` to file an
-/// invite through, so the caller is told invites are unavailable.
-#[cfg(not(feature = "tools-groups"))]
-fn file_invite(
-    ctx: &PlatformCommandContext,
-    group: &TargetGroup,
-    kind: GroupInviteKind,
-) -> CommandResponse {
-    let reg = ctx.ctx.messaging_strings_registry();
-    info!(
-        group_id = %group.id,
-        kind = kind.as_str(),
-        "Group invite requested on a build without the groups feature"
-    );
-    CommandResponse::text(reg.render(KEY_GROUP_INVITE_UNAVAILABLE, ctx.locale.as_str(), &[]))
-}
-
-/// Handler for `/group invite` — generate invite link
-#[derive(Debug)]
-pub struct GroupInviteHandler;
-
-impl GroupInviteHandler {
-    /// The single authority on who may invite. `execute` checks it against the
-    /// membership row it fetched; `is_available` checks it against the role
-    /// `/help` already resolved for the same group. `/agent invite` lists
-    /// itself on the same answer.
-    pub(crate) fn permits(role: GroupRole) -> bool {
-        role.can_manage_members()
-    }
-}
-
-#[async_trait]
-impl CommandHandler for GroupInviteHandler {
-    async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        // `/group invite coach` issues a coach invite (attaches the redeemer
-        // as the group's human coach); any other arg defaults to a standard
-        // athlete-membership invite.
-        let kind = if ctx
-            .args
-            .first()
-            .is_some_and(|a| a.trim().eq_ignore_ascii_case("coach"))
-        {
-            GroupInviteKind::Coach
-        } else {
-            GroupInviteKind::Member
-        };
-
-        issue_group_invite(ctx, kind).await
-    }
-
-    /// Acts on the conversation's group, so the caller's role *there* decides.
-    fn is_available(&self, standing: &CallerGroupStanding) -> bool {
-        standing.ambient.is_some_and(Self::permits)
     }
 }
 

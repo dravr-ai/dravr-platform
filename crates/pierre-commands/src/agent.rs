@@ -25,7 +25,8 @@ use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSou
 use pierre_services::agents::{retain_visible_agents, user_sees_coach_tools};
 use tracing::warn;
 
-use crate::group::{issue_group_invite, resolve_target_group, GroupInviteHandler};
+use crate::group::resolve_target_group;
+use crate::group_invite::{issue_group_invite, GroupInviteHandler};
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
 /// Maximum number of agents offered as buttons on the list card.
@@ -436,7 +437,7 @@ pub struct CoachInviteHandler;
 #[async_trait]
 impl CommandHandler for CoachInviteHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        issue_group_invite(ctx, GroupInviteKind::Coach).await
+        issue_group_invite(ctx, GroupInviteKind::Coach, None).await
     }
 
     /// Acts on the conversation's group, so the caller's role *there* decides

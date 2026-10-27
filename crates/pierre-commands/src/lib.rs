@@ -41,10 +41,12 @@ pub mod discover;
 pub mod dispatch;
 /// `/fortnight` — decide whether the next two weeks of the plan can be written.
 pub mod fortnight;
-/// Group coaching commands (status, invite, members, leave)
+/// Group coaching commands (status, members, leave)
 pub mod group;
 /// `/group consent` — whether a member shares with the group's coach and members
 pub mod group_consent;
+/// `/group invite` — an invite into the conversation's group, or the one a button names
+pub mod group_invite;
 /// Group membership commands (`/group create`, `/group join`)
 pub mod group_membership;
 /// Handlers for /confirm and /deny — Guardian pending-action resolution.
