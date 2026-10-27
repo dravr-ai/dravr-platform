@@ -492,8 +492,8 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional coaching platform to read (`intervals_icu`, `trainingpeaks`). Omit \
-                     to read every one you connected."
+                    "Coaching platform to read (`intervals_icu`, `trainingpeaks`); omit to read \
+                     every one you connected."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -504,19 +504,14 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
         answers_with::<ProviderRosterResult>(tool_definition(
             "get_provider_roster",
             "Read the roster of the coaching platform you coach on (Intervals.icu, TrainingPeaks) \
-             and where each athlete on it stands with your Dravr groups. Dravr members the roster \
-             names are listed by their Dravr name with a `state`: `linked`, `proposed` (waiting \
-             for them to confirm in the app), `proposable` (link them with \
-             `propose_athlete_link`), `member_email_unverified` (they verify their Dravr email \
-             first), `member_not_sharing` (they stopped sharing with you), \
-             `member_own_connection` (they connect the platform themselves: no link is needed, \
-             you reach their calendar through your own account), \
-             `linked_through_another_coach`, \
-             `member_holds_another_link`, `no_access` or `linked_not_reading`. Every other \
-             athlete is only counted, by state (`not_in_your_groups`, `roster_email_missing`) \
-             and by your access on the platform (`coach`, `follower`, `no_access`, `unknown`); \
-             their names are never shown. `next_steps` says what linking them takes. Read it \
-             from your own conversation, never a group's room.",
+             and where each athlete on it stands with your Dravr groups. Dravr members it names \
+             are listed by Dravr name with a `state`, such as `linked`, `proposed` (awaiting \
+             their confirmation in the app), `proposable` (link them with \
+             `propose_athlete_link`), `member_not_sharing` (they stopped sharing with you) or \
+             `member_own_connection` (no link needed: you reach their calendar through your own \
+             account). Every other athlete is only counted, by state and by your access on the \
+             platform; their names are never shown. `next_steps` says what linking them takes. \
+             Read it from your own conversation, never a group's room.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))

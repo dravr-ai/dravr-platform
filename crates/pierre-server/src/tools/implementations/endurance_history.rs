@@ -200,9 +200,7 @@ fn date_range_schema() -> JsonSchema {
         PropertySchema {
             property_type: "string".to_owned(),
             description: Some(
-                "Inclusive start of the window (ISO date YYYY-MM-DD). Defaults to \
-                 90 days before `to` when omitted."
-                    .to_owned(),
+                "Inclusive start date, YYYY-MM-DD; defaults to 90 days before `to`.".to_owned(),
             ),
             ..Default::default()
         },
@@ -212,8 +210,7 @@ fn date_range_schema() -> JsonSchema {
         PropertySchema {
             property_type: "string".to_owned(),
             description: Some(
-                "Inclusive end of the window (ISO date YYYY-MM-DD). Defaults to today in the \
-                 athlete's own timezone."
+                "Inclusive end date, YYYY-MM-DD; defaults to today in the athlete's timezone."
                     .to_owned(),
             ),
             ..Default::default()
@@ -237,13 +234,11 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
         let schema = date_range_schema();
         answers_with::<ComputeTrainingHistoryResult>(task_capable(tool_definition(
             "compute_training_history",
-            "Compute and persist Endurance daily training-state rollups for the \
-             authenticated user across the requested window — CTL, ATL, TSB \
-             (Coggan), acute:chronic load balance, monotony + strain (Foster), \
-             ramp rate, and daily TSS load. Use this to seed the \
-             `training_history` table on first use, after a long gap in syncs, \
-             or when the user asks for a specific historical window. Default \
-             window is the last 90 days.",
+            "Compute and store the Endurance daily training-state rows that \
+             get_training_history reads — CTL, ATL, TSB (Coggan), acute:chronic load \
+             balance, monotony + strain (Foster), ramp rate and daily TSS load. Use it the \
+             first time, after a long gap in syncs, or when the user asks for a specific \
+             historical window.",
             schema,
             annotations(Effect::IdempotentWrite, Reach::OpenWorld),
         )))
@@ -291,19 +286,14 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
         let schema = date_range_schema();
         answers_with::<TrainingHistoryResult>(tool_definition(
             "get_training_history",
-            "Fetch persisted Endurance daily training-state rollups for the \
-             authenticated user across the requested window. Returns \
-             chronological CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load \
-             rows. Use this BEFORE prescribing new load so coaching advice can \
-             cite the framework values (Coggan / Foster) on every numeric claim \
-             per the Endurance deterministic-output rule. Interpret TSB relative \
-             to CTL (form as % of fitness), and report `acwr` strictly as the \
-             magnitude of 7-day load against the 28-day baseline — a \
-             descriptive ratio, not a predictor of harm. Every session is \
-             scored against the FTP and threshold heart rate saved with \
-             set_physiology, as analyze_training_load does; a set_physiology \
-             save that changes one recomputes the stored rows. Default window \
-             is the last 90 days.",
+            "Fetch the stored Endurance daily training-state rows, chronological: \
+             CTL/ATL/TSB/ACWR/monotony/strain/ramp_rate/daily_load. Use this BEFORE \
+             prescribing new load, so every numeric claim cites these framework values \
+             (Coggan / Foster). Interpret TSB relative to CTL (form as % of fitness), and \
+             report `acwr` strictly as the magnitude of 7-day load against the 28-day \
+             baseline — a descriptive ratio, not a predictor of harm. Sessions are scored \
+             against the FTP and threshold heart rate saved with set_physiology; a save that \
+             changes either recomputes the rows.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

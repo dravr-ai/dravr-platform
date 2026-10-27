@@ -173,13 +173,10 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Place to search around, resolved by the same gazetteer as \
-                     get_weather_forecast. Prefer this over latitude/longitude. Give the \
-                     place's own name, optionally followed by its region and country to \
-                     choose among places of the same name: 'Prévost, Quebec, Canada', \
-                     'Saint-Alexis-des-Monts' or 'Mont-Tremblant'. Write the region out: \
-                     an abbreviation such as 'QC' chooses nothing. When set, the \
-                     latitude/longitude parameters are ignored."
+                    "Place to search around; latitude/longitude are ignored when it is set. \
+                     Give its own name, optionally followed by region and country to choose \
+                     among same-named places: 'Prévost, Quebec, Canada'. Write the region \
+                     out: an abbreviation such as 'QC' chooses nothing."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -190,11 +187,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             "latitude".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some(
-                    "Latitude of the search center, in decimal degrees. Only used when \
-                     `place` is NOT set. Example: 45.87 for Prévost, Québec."
-                        .to_owned(),
-                ),
+                description: Some("Search center latitude, decimal degrees.".to_owned()),
                 ..Default::default()
             },
         );
@@ -203,11 +196,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             "longitude".to_owned(),
             PropertySchema {
                 property_type: "number".to_owned(),
-                description: Some(
-                    "Longitude of the search center, in decimal degrees. Only used when \
-                     `place` is NOT set. Example: -74.08 for Prévost, Québec."
-                        .to_owned(),
-                ),
+                description: Some("Search center longitude, decimal degrees.".to_owned()),
                 ..Default::default()
             },
         );
@@ -217,10 +206,10 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "What kind of route to look for. One of: 'run', 'trail_running', \
-                     'ride', 'mountain_bike', 'gravel_ride', 'ebike_ride', 'hike', 'walk', \
-                     'cross_country_skiing', 'alpine_skiing', 'backcountry_skiing', \
-                     'snowshoe'. Defaults to 'run'; a name that is no sport is refused."
+                    "Route kind, one of: 'run', 'trail_running', 'ride', 'mountain_bike', \
+                     'gravel_ride', 'ebike_ride', 'hike', 'walk', 'cross_country_skiing', \
+                     'alpine_skiing', 'backcountry_skiing', 'snowshoe'. Defaults to 'run'; \
+                     other names are refused."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -232,9 +221,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Search radius around the resolved center, in meters. Clamped \
-                     between 500 and 50000. Defaults to 10000 (10 km)."
-                        .to_owned(),
+                    "Search radius in meters, clamped to 500-50000; default 10000.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -245,12 +232,10 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "Distance of the session the route is for, in meters (15000 for a \
-                     15 km run), between 500 and 500000. When set, routes whose length \
-                     lands within a tenth of it — in one pass or one out-and-back — lead \
-                     the list, and each route says whether it covers the distance in a \
-                     single pass, an out-and-back, or repeats. Omit it to get the nearest \
-                     routes regardless of length."
+                    "Session distance in meters (15000 for a 15 km run), 500 to 500000. \
+                     Routes covering it within a tenth in one pass or one out-and-back lead \
+                     the list, each with its `target_fit`. Omit for the nearest routes \
+                     regardless of length."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -270,35 +255,24 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
         };
         answers_with::<DiscoverRoutesResult>(tool_definition(
             "discover_routes",
-            "Discover real named running, cycling, hiking, or ski routes near a location, \
-             grounded in OpenStreetMap data via the Overpass API, around a `place` \
-             (preferred) or `latitude`/`longitude`. Use this whenever the user asks you \
-             to propose, suggest, or find \
-             a route, trail, or outdoor session in a specific area. Never invent street \
-             names, trail names, or terrain you have not verified via this tool. Returns up \
-             to 20 named routes, nearest first, each with coordinates and a measured \
-             `distance_from_center_meters` — quote that distance rather than estimating one \
-             from the coordinates. Signed itineraries and trails are listed ahead of paved \
-             connectors. `distance_meters` says what it measures in `distance_source`: \
-             `mapped_geometry` is the longest connected run of fetched ways carrying the \
-             name — a lower bound, since the trail can continue past it; `osm_tag` is the \
-             length declared for the whole route, of which only part may lie inside the \
-             radius. A signed route with no declared length has none. When the session \
-             has a distance, pass it as `target_distance_meters`; each route then carries \
-             `target_fit` (`single_pass`, `out_and_back` or `repeats`) and \
-             `passes_for_target` — tell \
-             the athlete plainly when a route needs an out-and-back or repeats. Elevation, \
-             surface and how flat or uninterrupted a route is are NOT returned: never \
-             describe a route as flat, hilly or suited to intervals on the strength of \
-             this tool. An empty list means OSM has no named route in that radius: widen \
-             `radius_meters` or say so plainly, never substitute a name you did not read \
-             here. For ski queries this reads OSM piste:type data (same source as \
-             OpenSkiMap). A route whose line is mapped carries a `route_ref`: to show the \
-             athlete that stretch, name it in a `dravr-viz` route block with `source_tool` \
-             \"discover_routes\" — never write coordinates. It also carries `connects_to`, the \
-             `route_ref`s of the other routes here that it physically meets. To propose an \
-             itinerary over several stretches, pass their refs in running order to \
-             `compose_route`, each meeting the next, and quote the distance it returns.",
+            "Find real named running, cycling, hiking or ski routes from OpenStreetMap around \
+             a `place` (preferred) or `latitude`/`longitude`. Call it whenever asked to \
+             propose or find a route, trail or outdoor session in an area. Never invent street \
+             or trail names or terrain not verified here. Returns up to 20 routes, nearest \
+             first: quote `distance_from_center_meters`, never a distance estimated from \
+             coordinates. `distance_source` qualifies `distance_meters`: `mapped_geometry` \
+             is a lower bound; `osm_tag` is the whole route's declared length, of which only \
+             part may lie inside the radius. When the session has a distance, pass \
+             `target_distance_meters` and tell the athlete plainly when a route's \
+             `target_fit` is `out_and_back` or `repeats`. Elevation and surface are NOT \
+             returned: never describe a route as flat, hilly or suited to intervals on the \
+             strength of this tool. An empty list means OSM has no named route in that \
+             radius: widen `radius_meters` or say so plainly, never substitute a name you did \
+             not read here. A mapped route carries a `route_ref`: to show it, name it in a \
+             `dravr-viz` route block with `source_tool` \"discover_routes\" — never write \
+             coordinates. For an itinerary over several stretches, pass their refs in running \
+             order to `compose_route`, each meeting the next (as `connects_to` lists), and \
+             quote the distance it returns.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))

@@ -417,7 +417,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             "gender".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Gender: male or female".to_owned()),
+                description: Some("male or female".to_owned()),
                 ..Default::default()
             },
         );
@@ -426,7 +426,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Activity level: sedentary, lightly_active, moderately_active, very_active, extra_active"
+                    "sedentary, lightly_active, moderately_active, very_active or extra_active"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -437,8 +437,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Training goal: maintenance, weight_loss, muscle_gain, endurance_performance"
-                        .to_owned(),
+                    "maintenance, weight_loss, muscle_gain or endurance_performance".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -456,7 +455,9 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
         );
         answers_with::<NutritionAnswer<DailyNutritionResult>>(tool_definition(
             "calculate_daily_nutrition",
-            "Calculate daily calorie and macronutrient needs based on biometrics and goals. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.",
+            "Calculate daily calorie and macronutrient needs from biometrics and goals. For an \
+             athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and \
+             `figures_withheld` instead of any amount: their clinician sets those.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -541,7 +542,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             "workout_intensity".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Workout intensity: low, moderate, high".to_owned()),
+                description: Some("low, moderate or high".to_owned()),
                 ..Default::default()
             },
         );
@@ -571,7 +572,9 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
         );
         answers_with::<NutritionAnswer<NutrientTimingResult>>(tool_definition(
             "get_nutrient_timing",
-            "Get optimal nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.",
+            "Get nutrient timing recommendations around workouts. For an athlete with a \
+             medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` \
+             instead of any amount: their clinician sets those.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -717,7 +720,7 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
         let schema = object_schema(properties, Some(vec!["query".to_owned()]));
         answers_with::<SearchFoodResult>(tool_definition(
             "search_food",
-            "Search USDA FoodData Central database for foods. Returns up to 10 results by default. Check the `has_more` field before requesting additional pages.",
+            "Search USDA FoodData Central for foods.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))

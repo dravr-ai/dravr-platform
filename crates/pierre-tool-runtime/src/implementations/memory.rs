@@ -151,7 +151,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Free-form note content (plain text, no markup, ≤ 2000 characters).".to_owned(),
+                    "The note, plain text without markup, ≤ 2000 characters.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -161,7 +161,8 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "ID of the agent authoring the note. Must match the agent attached to the active conversation.".to_owned(),
+                    "The authoring agent's ID; must match the agent attached to this conversation."
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -170,9 +171,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
             "conversation_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Optional originating conversation ID for provenance.".to_owned(),
-                ),
+                description: Some("Originating conversation ID, for provenance.".to_owned()),
                 ..Default::default()
             },
         );
@@ -182,7 +181,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
         );
         answers_with::<AgentNoteAddResult>(tool_definition(
             "agent_note_add",
-            "Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
+            "Save a private agent note about the user. Use it when you decide something the user said should be remembered across sessions.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
@@ -266,7 +265,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Reminder text (≤ 500 characters), e.g., 'check on Achilles pain after long run'.".to_owned(),
+                    "Reminder text, ≤ 500 characters, e.g. 'check on Achilles pain after long run'.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -283,9 +282,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
             "due_at".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Optional RFC3339 timestamp for when to surface the reminder.".to_owned(),
-                ),
+                description: Some("RFC3339 timestamp for when to surface the reminder.".to_owned()),
                 ..Default::default()
             },
         );
@@ -293,9 +290,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
             "conversation_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Optional originating conversation ID for provenance.".to_owned(),
-                ),
+                description: Some("Originating conversation ID, for provenance.".to_owned()),
                 ..Default::default()
             },
         );
@@ -305,7 +300,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
         );
         answers_with::<AgentFollowupScheduleResult>(tool_definition(
             "agent_followup_schedule",
-            "Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
+            "Schedule a future check-in, surfaced to the agent in the next conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
@@ -411,7 +406,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` is allowed on every kind and means the object stands alone. Unknown codes are rejected.".to_owned(),
+                    "What the fact says, as a code for the kind: goal → training_for | working_toward | target_race; preference → prefer | avoid | primarily_train; physiology → have_baseline; injury → have | recovering_from; schedule → can_train_on | cannot_train_on | need_session_on | unavailable; equipment → own | train_on; other → states. `states` fits every kind (the object stands alone). Unknown codes are rejected.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -440,9 +435,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Agent attaching the fact (optional; defaults to user-wide).".to_owned(),
-                ),
+                description: Some("Agent attaching the fact; omit for user-wide.".to_owned()),
                 ..Default::default()
             },
         );
@@ -457,7 +450,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
         );
         answers_with::<RememberFactResult>(tool_definition(
             "remember_fact",
-            "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the agent should remember next time.",
+            "Persist a structured durable fact about the user. Use it when the user explicitly confirms something the agent should remember next time.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
@@ -598,9 +591,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             "agent_id".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Optional agent scope. When set, only facts attached to this agent are returned.".to_owned(),
-                ),
+                description: Some("Return only facts attached to this agent.".to_owned()),
                 ..Default::default()
             },
         );
@@ -609,7 +600,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional fact kind filter (preference | physiology | injury | goal | schedule | equipment | other).".to_owned(),
+                    "Fact kind filter (preference | physiology | injury | goal | schedule | equipment | other).".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -625,7 +616,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
         let schema = object_schema(properties, None);
         answers_with::<RecallUserMemoryResult>(tool_definition(
             "recall_user_memory",
-            "Retrieve stored facts the harness has remembered about the user. Returns recent facts ordered by last-update timestamp. Use this when you need to confirm what you already know before answering.",
+            "Retrieve the facts remembered about the user, most recently updated first. Use it to confirm what you already know before answering.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

@@ -305,7 +305,7 @@ pub fn object_schema<S: BuildHasher>(
 pub fn format_property() -> PropertySchema {
     PropertySchema {
         property_type: "string".to_owned(),
-        description: Some("'json' (default) or 'toon', a more compact encoding.".to_owned()),
+        description: Some("'json' (default) or 'toon' (compact).".to_owned()),
         ..Default::default()
     }
 }

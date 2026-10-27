@@ -124,7 +124,10 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
         let schema = object_schema(properties, None);
         answers_with::<NutritionAnswer<RecipeConstraintsResult>>(tool_definition(
             "get_recipe_constraints",
-            "Get macro targets and constraints for LLM recipe generation. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, restrictions, time limits) and `figures_withheld` instead of any kcal or gram target, because their clinician sets those.",
+            "Get macro targets and constraints for generating a recipe. For an athlete with a \
+             medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, \
+             restrictions, time limits) and `figures_withheld` instead of any kcal or gram \
+             target: their clinician sets those.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -207,8 +210,8 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
                             PropertySchema {
                                 property_type: "string".to_owned(),
                                 description: Some(format!(
-                                    "Unit of measurement, one of {INGREDIENT_UNITS}. \
-                                     Omitted or unrecognised, the amount reads as grams"
+                                    "One of {INGREDIENT_UNITS}. Omitted or unrecognised, the \
+                                     amount reads as grams"
                                 )),
                                 ..Default::default()
                             },
@@ -294,7 +297,7 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
             "ingredients".to_owned(),
             PropertySchema {
                 property_type: "array".to_owned(),
-                description: Some("Array of {name, amount, unit}".to_owned()),
+                description: Some("Array of {name, amount, unit, preparation}".to_owned()),
                 items: Some(Box::new(PropertySchema {
                     property_type: "object".to_owned(),
                     properties: Some(BTreeMap::from([
@@ -319,8 +322,8 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
                             PropertySchema {
                                 property_type: "string".to_owned(),
                                 description: Some(format!(
-                                    "Unit of measurement, one of {INGREDIENT_UNITS}; an \
-                                     unrecognised unit reads as grams"
+                                    "One of {INGREDIENT_UNITS}; an unrecognised unit reads as \
+                                     grams"
                                 )),
                                 ..Default::default()
                             },

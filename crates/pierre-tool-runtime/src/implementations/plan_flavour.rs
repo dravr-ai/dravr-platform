@@ -252,8 +252,13 @@ impl RecommendPlanFlavourTool {
         p.insert(
             "interval_experience".to_owned(),
             vocab_prop(
-                "Structured interval history. Omitted means none — the safe reading for an athlete about whom nothing is known.",
-                &words(&IntervalExperience::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
+                "Structured interval history. Omitted means none, the safe reading.",
+                &words(
+                    &IntervalExperience::ALL
+                        .iter()
+                        .map(|v| v.as_str())
+                        .collect::<Vec<_>>(),
+                ),
             ),
         );
         p.insert(
@@ -708,7 +713,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
         );
         answers_with::<PlanFlavourResult>(tool_definition(
             "recommend_plan_flavour",
-            "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome through save_training_plan, passing `verdict` and `inputs` through exactly as returned here, with selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. This only recommends; it writes nothing.",
+            "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum; the profile and active plan fill in the rest. Returns the flavours they can run, ranked with reasons and evidence, the ones they cannot with the reason, the rule's confidence, and the season's phases laid backward from the goal. Present the verdict in your own voice, confirm the inputs it echoes, and save through save_training_plan with `verdict` and `inputs` exactly as returned, selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. It writes nothing.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

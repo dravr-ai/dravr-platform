@@ -139,9 +139,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             "window".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some(
-                    "Window length in days (1..=365). Defaults to 7 when omitted.".to_owned(),
-                ),
+                description: Some("Window length in days (1..=365); default 7.".to_owned()),
                 ..Default::default()
             },
         );
@@ -153,13 +151,9 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
         };
         answers_with::<LatestSnapshot>(task_capable(tool_definition(
             "export_latest_snapshot",
-            "Export the Endurance 'latest.json' snapshot for the authenticated user — \
-             per-activity intensity factor, efficiency factor, variability index, \
-             aerobic decoupling, and time-in-zone distribution aggregated over a \
-             sliding window. Default window is 7 days; pass `window` (1..=365) to \
-             change it. Use this when a coach needs a structured per-activity \
-             training-state snapshot grounded in the Endurance deterministic-output \
-             contract.",
+            "Export the Endurance latest snapshot: a structured per-activity training \
+             state — intensity factor, efficiency factor, variability index, aerobic \
+             decoupling and time-in-zone distribution — aggregated over a sliding window.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
@@ -230,19 +224,15 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
         };
         answers_with::<DossierExport>(tool_definition(
             "export_dossier",
-            "Export the Endurance 'dossier.json' aggregate for the authenticated \
-             user — physiological profile (VO2max, FTP, threshold pace, fitness \
-             level, critical power, W′, critical speed, D′), HR + power zones, \
-             goals and nutrition slots — composed at read time from \
-             the underlying tables. Critical power, W′, critical speed and D′ each \
-             carry `kind` (measured or estimated) and `origin`: quote an estimated \
-             value as an estimate attributed to its origin ('Vekta estimates your \
-             CP at 312 W'), never as a measurement. An FTP, threshold or max heart \
-             rate, or threshold pace a provider supplied is named in \
-             `threshold_provenance` with its origin: quote it as that provider's \
-             estimate ('intervals.icu has your FTP at 285 W'); one not named there \
-             is the athlete's own. Empty slots come back as `null` rather than \
-             404, so agents can rely on the shape.",
+            "Export the athlete's Endurance dossier — physiological profile (VO2max, FTP, \
+             threshold pace, fitness level, critical power, W′, critical speed, D′), HR + \
+             power zones, goals and nutrition slots; an empty slot is `null`. Critical \
+             power, W′, critical speed and D′ each carry `kind` (measured or estimated) and \
+             `origin`: quote an estimated value as an estimate attributed to its origin \
+             ('Vekta estimates your CP at 312 W'), never as a measurement. An FTP, threshold \
+             or max heart rate, or threshold pace named in `threshold_provenance` with its \
+             origin came from a provider: quote it as that provider's estimate ('intervals.icu \
+             has your FTP at 285 W'); one not named there is the athlete's own.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

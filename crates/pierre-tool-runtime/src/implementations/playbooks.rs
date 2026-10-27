@@ -132,7 +132,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
         // tool alone would split the tool and its storage across two vocabularies.
         answers_with::<ListCoachingPlaybooksResult>(tool_definition(
             "list_coaching_playbooks",
-            "List the coaching playbooks the harness has learned for this athlete — the trigger→intervention patterns and how well each has worked (success/failure counts + confidence). Use this to tell the athlete what you have learned about what works for them.",
+            "List the coaching playbooks learned for this athlete — trigger→intervention patterns with their success/failure counts and confidence. Use this to tell the athlete what you have learned works for them.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

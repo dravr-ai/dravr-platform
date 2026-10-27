@@ -369,9 +369,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             "category".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Filter by stretch category: static, dynamic, pnf, ballistic".to_owned(),
-                ),
+                description: Some("Stretch category: static, dynamic, pnf, ballistic".to_owned()),
                 ..Default::default()
             },
         );
@@ -379,9 +377,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             "difficulty".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Filter by difficulty: beginner, intermediate, advanced".to_owned(),
-                ),
+                description: Some("beginner, intermediate or advanced".to_owned()),
                 ..Default::default()
             },
         );
@@ -390,7 +386,9 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Filter by muscle group (e.g., hamstrings, quadriceps, calves)".to_owned(),
+                    "Muscle (e.g., hamstrings, quadriceps, calves) or body area (hips, back, \
+                     shoulders, it_band), which matches every muscle in it"
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -400,7 +398,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Filter by recommended activity (e.g., running, cycling, swimming)".to_owned(),
+                    "Recommended activity (e.g., running, cycling, swimming)".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -409,7 +407,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum number of results to return (default: 20)".to_owned()),
+                description: Some("Maximum results (default: 20)".to_owned()),
                 ..Default::default()
             },
         );
@@ -417,7 +415,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
 
         answers_with::<ListStretchingExercisesResult>(tool_definition(
             "list_stretching_exercises",
-            "List stretching exercises with optional filtering by category, difficulty, muscle group, or activity type",
+            "List stretching exercises matching the given filters.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -602,8 +600,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "The activity type to get stretches for (e.g., running, cycling, swimming, hiking)"
-                        .to_owned(),
+                    "Activity to stretch for (e.g., running, cycling, swimming, hiking)".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -613,8 +610,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional focus: warmup (dynamic stretches) or cooldown (static stretches)"
-                        .to_owned(),
+                    "warmup (dynamic stretches) or cooldown (static stretches)".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -623,7 +619,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum number of stretches to suggest (default: 6)".to_owned()),
+                description: Some("Maximum stretches (default: 6)".to_owned()),
                 ..Default::default()
             },
         );
@@ -631,7 +627,8 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
 
         answers_with::<SuggestStretchesResult>(tool_definition(
             "suggest_stretches_for_activity",
-            "Get personalized stretching recommendations based on your recent activity type",
+            "Get stretching recommendations for an activity type, of any kind unless `focus` \
+             narrows them.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -733,7 +730,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Filter by pose category: standing, seated, supine, prone, inversion, balance, twist"
+                    "Pose category: standing, seated, supine, prone, inversion, balance, twist"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -743,9 +740,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             "difficulty".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Filter by difficulty: beginner, intermediate, advanced".to_owned(),
-                ),
+                description: Some("beginner, intermediate or advanced".to_owned()),
                 ..Default::default()
             },
         );
@@ -754,8 +749,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Filter by pose type: stretch, strength, balance, relaxation, breathing"
-                        .to_owned(),
+                    "Pose type: stretch, strength, balance, relaxation, breathing".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -765,7 +759,9 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Filter by muscle group (e.g., hamstrings, hips, shoulders)".to_owned(),
+                    "Muscle (e.g., hamstrings) or body area (hips, back, shoulders, it_band), \
+                     which matches every muscle in it"
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -775,8 +771,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Filter by recovery context: post_cardio, rest_day, morning, evening"
-                        .to_owned(),
+                    "Recovery context: post_cardio, rest_day, morning, evening".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -785,7 +780,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             "limit".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Maximum number of results to return (default: 20)".to_owned()),
+                description: Some("Maximum results (default: 20)".to_owned()),
                 ..Default::default()
             },
         );
@@ -793,7 +788,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
 
         answers_with::<ListYogaPosesResult>(tool_definition(
             "list_yoga_poses",
-            "List yoga poses with optional filtering by category, difficulty, pose type, or recovery context",
+            "List yoga poses matching the given filters.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -993,8 +988,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Purpose of the sequence: post_cardio, rest_day, morning, evening, stress_relief"
-                        .to_owned(),
+                    "post_cardio, rest_day, morning, evening or stress_relief".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -1003,9 +997,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
             "duration_minutes".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some(
-                    "Target duration in minutes (10, 15, 20, 30). Default: 15".to_owned(),
-                ),
+                description: Some("Target minutes (10, 15, 20, 30). Default: 15".to_owned()),
                 ..Default::default()
             },
         );
@@ -1014,7 +1006,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Maximum difficulty level: beginner, intermediate, advanced".to_owned(),
+                    "Maximum difficulty: beginner, intermediate or advanced".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -1024,7 +1016,8 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional muscle/area focus: hips, hamstrings, back, shoulders".to_owned(),
+                    "Muscle or body-area focus (e.g., hips, hamstrings, back, shoulders)"
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -1033,7 +1026,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
 
         answers_with::<SuggestYogaSequenceResult>(tool_definition(
             "suggest_yoga_sequence",
-            "Create a personalized yoga sequence for recovery based on your recent activities or goals",
+            "Create a recovery yoga sequence for a `purpose`, fitted to the target duration.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

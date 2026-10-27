@@ -445,8 +445,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                 property_type: "boolean".to_owned(),
                 description: Some(
                     "Return every stored week. By default only the current and next week come \
-                     back — the fortnight the athlete acts on — and `weeks_omitted` counts the \
-                     later ones. Ask for all of them only to reshape the season beyond that."
+                     back, with `weeks_omitted` counting the rest; ask for all only to reshape \
+                     the season beyond them."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -460,9 +460,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                     "Add the readiness and compliance rails' view of the plan: the readiness \
                      level and its alerts; the days that level no longer allows, each with its \
                      reason (purpose_closed: the level closes the day's purpose; \
-                     template_above_level: the session needs a higher level, with the easier \
-                     template, or it falls back to the phase purpose); each week against its phase; where the \
-                     stored weeks stop covering the outline. Ask for it before adjusting or \
+                     template_above_level: the purpose is open but the session needs a higher \
+                     level, with the bank's easier template or the phase purpose it falls back \
+                     to); each week against its phase; where the stored weeks stop covering the \
+                     outline. Ask for it before adjusting or \
                      extending a plan; leave it off for 'what am I doing this week' (about a \
                      dozen extra reads)."
                         .to_owned(),
@@ -474,7 +475,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<GetTrainingPlanResult>(tool_definition(
             "get_training_plan",
-            "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means the athlete reads that calendar through their human coach's link and the coach updates it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat (in the coach's thread about one athlete it defaults to that athlete) — the athlete shares it into the room with `/plan share`. For a coach, `plan` is what the athlete sees and `draft` is the coach's own unpublished draft of it: its outline, the weeks as publishing would leave them, and `draft.state` — the weeks the athlete changed since the coach drafted them and whether their season was re-laid, which publish_training_plan would refuse.",
+            "Fetch the athlete's active training plan: outline (goal race, flavour, phases and their targets) and day-by-day weeks. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not the conversation, is the source of truth. It is the athlete's one season whichever agent laid it; `authors` names who laid it and wrote each week, and marks you. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (its prescription_ids are what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means their human coach updates it. A group's human coach reads a consenting athlete's plan with `athlete`; the athlete shares it into a room with `/plan share`. For a human coach, `plan` is what the athlete sees and `draft` their unpublished draft as publishing would leave it, with `draft.state`: weeks the athlete changed since and whether their season was re-laid, which publish_training_plan would refuse.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -683,8 +684,8 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         properties.insert(
             "agent_id".to_owned(),
             string_prop(
-                "The agent authoring this save, read only on a call with no conversation (a \
-                 direct MCP call); a chat turn's own agent always wins.",
+                "The authoring agent, read only on a direct MCP call with no conversation; a \
+                 chat turn's own agent always wins.",
             ),
         );
         properties.insert("outline".to_owned(), outline_schema());
@@ -702,7 +703,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the training plan you agreed with the athlete — the outline (goal race, strategy, the season phases, the flavour and who chose it, the season window) and/or day-by-day weeks (each may name the outline phase it instantiates, and each day the catalogue template it is built from with the values filled in) — in the SAME turn you state it. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or when the athlete asked you to re-lay or change the outline of a season another agent laid — then set replace_season to true. Re-save a week another agent wrote only when the athlete asks for that change. Saved plans are re-injected into future conversations; an unsaved plan is forgotten. Adjustments re-save only the changed week(s) and supersede prospectively; past weeks stay immutable. For a day with interval structure, give steps (same shape as prescribe_workout's session.structure) — that is what puts workout-builder steps and a planned load on the calendar; prose alone reaches it as a timed entry. Saving never writes to the athlete's calendar: when the reply's calendar.stale is true, their Intervals.icu calendar no longer matches the plan — tell them, and offer push_training_plan only when calendar.pushed_by is absent; when it is human_coach, the athlete reads that calendar through their human coach's link, so tell them their human coach updates it. A group's human coach saving for a consenting athlete — `athlete` from their own direct chat, never in a room, or no `athlete` in the coach's thread about that athlete — writes the coach's draft of the athlete's plan: the reply says draft: true, and the athlete sees none of it, on their plan, calendar or agent, until the coach publishes it with publish_training_plan.",
+            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their Intervals.icu calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))

@@ -76,8 +76,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Read only this source's synced sleep (whoop, garmin, intervals_icu). \
-                     Omit to merge every connected source's sleep per night"
+                    "Read only this source's synced sleep (whoop, garmin, intervals_icu); omit \
+                     to merge every source per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -88,8 +88,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some(format!(
-                    "Manual sleep data, used instead of a provider fetch when no \
-                     sleep_provider is named. {SLEEP_DATA_FIELDS}"
+                    "Manual sleep data, used instead of a fetch when no `sleep_provider` is \
+                     named. {SLEEP_DATA_FIELDS}"
                 )),
                 ..Default::default()
             },
@@ -120,9 +120,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<SleepQualityResult>>(tool_definition(
             "analyze_sleep_quality",
-            "Analyze last night's sleep to generate quality scores and insights. \
-             Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu); \
-             manual `sleep_data` replaces that fetch only when no `sleep_provider` is named.",
+            "Analyze last night's sleep into quality scores and insights, from synced nights \
+             (WHOOP, Garmin, intervals.icu) or manual `sleep_data`.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -170,8 +169,8 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Read only this source's synced sleep (whoop, garmin, intervals_icu). \
-                     Omit to merge every connected source's sleep per night"
+                    "Read only this source's synced sleep (whoop, garmin, intervals_icu); omit \
+                     to merge every source per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -182,8 +181,8 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch activities for training load (strava, garmin, coros, \
-                     whoop, intervals_icu, terra). Omit to auto-select"
+                    "Activity source for training load (strava, garmin, coros, whoop, \
+                     intervals_icu, terra); omit to auto-select"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -194,8 +193,8 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some(format!(
-                    "Manual sleep data, used instead of a provider fetch when no \
-                     sleep_provider is named. {SLEEP_DATA_FIELDS}"
+                    "Manual sleep data, used instead of a fetch when no `sleep_provider` is \
+                     named. {SLEEP_DATA_FIELDS}"
                 )),
                 ..Default::default()
             },
@@ -224,10 +223,9 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<RecoveryScoreResult>>(task_capable(tool_definition(
             "calculate_recovery_score",
-            "Calculate a holistic recovery score combining training stress, sleep and HRV. \
-             Fetches sleep and activities from connected providers automatically and computes \
-             CTL, ATL and TSB from those activities against the thresholds saved with \
-             set_physiology (FTP, threshold heart rate, max and resting heart rate, weight).",
+            "Calculate a recovery score from training stress, sleep and HRV. Fetches sleep and \
+             activities itself; CTL, ATL and TSB use the thresholds saved with set_physiology \
+             (FTP, threshold, max and resting HR, weight).",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
@@ -275,8 +273,8 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Read only this source's synced sleep (whoop, garmin, intervals_icu). \
-                     Omit to merge every connected source's sleep per night"
+                    "Read only this source's synced sleep (whoop, garmin, intervals_icu); omit \
+                     to merge every source per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -287,8 +285,8 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch activities for training load (strava, garmin, coros, \
-                     whoop, intervals_icu, terra). Omit to auto-select"
+                    "Activity source for training load (strava, garmin, coros, whoop, \
+                     intervals_icu, terra); omit to auto-select"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -299,8 +297,8 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some(format!(
-                    "Manual data for last night's sleep, used instead of a provider fetch when \
-                     no sleep_provider is named. {SLEEP_DATA_FIELDS}"
+                    "Manual data for last night's sleep, used instead of a fetch when no \
+                     `sleep_provider` is named. {SLEEP_DATA_FIELDS}"
                 )),
                 ..Default::default()
             },
@@ -329,10 +327,9 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
         let schema = object_schema(properties, None);
         answers_with::<RestDayResult>(task_capable(tool_definition(
             "suggest_rest_day",
-            "Get a recommendation on whether to rest or train. Fetches sleep and activities \
-             from connected providers automatically and computes CTL, ATL and TSB from those \
-             activities against the thresholds saved with set_physiology (FTP, threshold heart \
-             rate, max and resting heart rate, weight).",
+            "Recommend whether to rest or train. Fetches sleep and activities itself; CTL, ATL \
+             and TSB use the thresholds saved with set_physiology (FTP, threshold, max and \
+             resting HR, weight).",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
@@ -379,8 +376,8 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some(
-                    "Manual array of sleep data objects, used instead of a provider fetch when \
-                     no sleep_provider is named; at least 7 nights (the server's trend minimum)"
+                    "Manual array of sleep data objects (date, duration_hours and the other \
+                     sleep fields), used instead of a fetch when no `sleep_provider` is named"
                         .to_owned(),
                 ),
                 items: Some(Box::new(PropertySchema {
@@ -414,8 +411,8 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Read only this source's synced sleep history (whoop, garmin, intervals_icu). \
-                     Omit to merge every connected source's sleep per night"
+                    "Read only this source's synced sleep history (whoop, garmin, \
+                     intervals_icu); omit to merge every source per night"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -426,8 +423,8 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(format!(
-                    "Days of sleep history to fetch from the provider (default \
-                     {DEFAULT_TREND_DAYS}, max {MAX_TREND_DAYS})"
+                    "Days of sleep history to fetch (default {DEFAULT_TREND_DAYS}, max \
+                     {MAX_TREND_DAYS})"
                 )),
                 ..Default::default()
             },
@@ -435,9 +432,8 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<SleepTrendsResult>>(tool_definition(
             "track_sleep_trends",
-            "Analyze sleep patterns over time to identify trends and insights. Reads the \
-             nights synced from connected sources (WHOOP, Garmin, intervals.icu) over `days`; \
-             manual `sleep_history` replaces that fetch only when no `sleep_provider` is named.",
+            "Analyze sleep trends over `days` from synced nights (WHOOP, Garmin, intervals.icu) \
+             or manual `sleep_history`. Needs at least 7 nights.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -484,8 +480,8 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to fetch activities for training load (strava, garmin, coros, \
-                     whoop, intervals_icu, terra). Omit to auto-select"
+                    "Activity source for training load (strava, garmin, coros, whoop, \
+                     intervals_icu, terra); omit to auto-select"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -514,9 +510,9 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
         let schema = object_schema(properties, None);
         answers_with::<SleepScheduleResult>(task_capable(tool_definition(
             "optimize_sleep_schedule",
-            "Get personalized sleep schedule recommendations based on training and recovery \
-             needs. The training load is computed from the athlete's synced activities against \
-             the thresholds saved with set_physiology.",
+            "Get sleep schedule recommendations from training load and recovery needs; the \
+             load comes from synced activities against the thresholds saved with \
+             set_physiology.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))

@@ -932,12 +932,12 @@ impl SetPhysiologyTool {
             (
                 "threshold_hr",
                 "integer",
-                "Lactate threshold heart rate (LTHR) in bpm, from a 30-minute field test, a ramp test or a lab report. Heart-rate-based training load is scored against it.",
+                "Lactate threshold heart rate (LTHR) in bpm, from a field, ramp or lab test. Heart-rate training load is scored against it.",
             ),
             (
                 "lactate_threshold_percentage",
                 "number",
-                "Lactate threshold as a fraction of VO2 max, between 0.65 and 0.95 (about 0.75-0.90 for a trained athlete), as a lab test reports it. It places threshold pace in the pace zones, and with max_hr estimates the LTHR when no threshold_hr is saved.",
+                "Lactate threshold as a fraction of VO2 max, 0.65 to 0.95 (about 0.75-0.90 trained), as a lab reports it. Places threshold pace in the pace zones and, with max_hr, estimates the LTHR when no threshold_hr is saved.",
             ),
             ("vo2_max", "number", "VO2 max in ml/kg/min."),
             ("weight", "number", "Body weight in kilograms."),
@@ -960,7 +960,7 @@ impl SetPhysiologyTool {
             (
                 "sex",
                 "string",
-                "Physiological sex, only as the athlete states it: one of male, female. It selects the published equations that take one (Keytel's energy estimate, the sex-specific LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said.",
+                "Physiological sex, only as the athlete states it: male or female. It selects sex-specific published equations (Keytel's energy estimate, the LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said.",
             ),
             (
                 "critical_power_watts",
@@ -985,7 +985,7 @@ impl SetPhysiologyTool {
             (
                 "measured_on",
                 "string",
-                "The day the critical power, W′, critical speed or D′ in this call was measured or estimated, as YYYY-MM-DD, when the athlete or the source gives it.",
+                "Day this call's CP, W′, CS or D′ was measured or estimated, YYYY-MM-DD, when given.",
             ),
         ] {
             properties.insert(
@@ -1002,7 +1002,7 @@ impl SetPhysiologyTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(format!(
-                    "Who or what produced the critical power, W′, critical speed or D′ in this call: a provider or app (vekta, intervals.icu), a test (lab, 3-min all-out test), or {ATHLETE_REPORTED_ORIGIN} when the athlete named no source. An estimate is quoted with it."
+                    "Who produced this call's CP, W′, CS or D′: a provider or app (vekta, intervals.icu), a test (lab, 3-min all-out test), or {ATHLETE_REPORTED_ORIGIN} when the athlete named none. An estimate is quoted with it."
                 )),
                 ..Default::default()
             },
@@ -1012,7 +1012,7 @@ impl SetPhysiologyTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Required with critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters, and applies to all of them in this call. measured only when the athlete names the test that produced the value (a lab test, a 3-min all-out test, time trials fitted to the model); estimated when an app or provider modelled it from training data, or the athlete gave the number without naming a test. One of: measured, estimated.".to_owned(),
+                    "Required with critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters; applies to all of them in this call. measured only when the athlete names the test (lab, 3-min all-out, time trials fitted to the model); estimated when an app or provider modelled it, or the athlete gave a number without naming a test. One of: measured, estimated.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -1034,7 +1034,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         };
         answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
-            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
+            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′ — so load, zones and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))

@@ -192,7 +192,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Last day that counts, as YYYY-MM-DD in the athlete's local calendar. For 'this week' use the date of the coming Sunday from the current-date anchor.".to_owned(),
+                    "Last day that counts, YYYY-MM-DD in the athlete's local calendar; for 'this week', the coming Sunday from the current-date anchor.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -202,7 +202,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional lowercase sport slug the sessions must match ('run', 'ride', 'swim'). Omit to count any activity.".to_owned(),
+                    "Lowercase sport slug the sessions must match ('run', 'ride', 'swim'); omit to count any activity.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -226,7 +226,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
         );
         answers_with::<CommitmentCreateResult>(tool_definition(
             "commitment_create",
-            "Record a commitment the athlete just made, so it can be checked against their real activity data when the window closes. Call this ONLY after the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both first and call this on their answer. Do not use it for your own plans or reminders.",
+            "Record a commitment the athlete just made, to be checked against their real activity when the window closes. Call it ONLY once the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both and call it on their answer. Not for your own plans or reminders.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
@@ -376,7 +376,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCancelTool {
         let schema = object_schema(properties, Some(vec!["commitment_id".to_owned()]));
         answers_with::<CommitmentCancelResult>(tool_definition(
             "commitment_cancel",
-            "Retract a commitment the athlete no longer wants to be held to, so it is never counted or reported. Use when they say they are dropping it or the circumstances changed — injury, travel, a plan revision. Retracting is not failing; do not use this to record that they missed it.",
+            "Retract a commitment the athlete no longer wants to be held to; it is never counted or reported. Use when they drop it or circumstances change (injury, travel, a plan revision). Retracting is not failing: never use it to record that they missed it.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))

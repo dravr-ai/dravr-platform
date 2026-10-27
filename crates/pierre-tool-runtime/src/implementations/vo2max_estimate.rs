@@ -101,12 +101,11 @@ impl EstimateVo2maxTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Which field test the athlete did — one of cooper_test, rockport_walk, astrand_ryhming, from_pace, from_vdot, race_result. cooper_test: distance run in 12 minutes. \
-                     rockport_walk: a timed one-mile walk with heart rate at the finish. \
-                     astrand_ryhming: steady-state cycling at a known power with heart rate. \
-                     from_pace: a hard 3–8 minute speed and an easy speed. \
-                     from_vdot: a VDOT the athlete already knows. \
-                     race_result: a race or time trial the athlete ran — its distance and its time."
+                    "Which test: cooper_test (distance run in 12 minutes), rockport_walk (a timed \
+                     mile walk with finishing heart rate), astrand_ryhming (steady cycling at a \
+                     known power with heart rate), from_pace (a hard 3–8 minute speed and an easy \
+                     speed), from_vdot (a VDOT they know), race_result (a race or time trial's \
+                     distance and time)."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -327,7 +326,7 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
         };
         answers_with::<EstimateVo2maxResult>(tool_definition(
             "estimate_vo2max",
-            "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, a VDOT they already know, or a race or time trial they ran (its distance and time). Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
+            "Estimate the athlete's VO2max in ml/kg/min from a field test, race result or known VDOT they report (see `method`), e.g. 'I ran 2.8 km in 12 minutes'. Weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

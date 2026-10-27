@@ -226,9 +226,8 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "First date to push (YYYY-MM-DD). Defaults to today in the athlete's \
-                     calendar, and is never earlier than that: dates already past are not \
-                     rewritten."
+                    "First date to push, YYYY-MM-DD. Defaults to today in the athlete's \
+                     calendar and is never earlier."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -240,18 +239,16 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
         answers_with::<PushReport>(task_capable(tool_definition(
             "push_training_plan",
             "Put the athlete's active training plan on their calendar provider (Intervals.icu \
-             today), or bring the calendar up to date after the plan changed: creates the \
-             days that are missing, updates the ones that changed, removes the ones the \
-             plan no longer has, and leaves alone any the athlete edited on the provider. Never \
-             touches dates before today. Call it when the athlete or coach asks to put or \
-             update the plan on their calendar — not on your own initiative after a save; \
-             save_training_plan's reply says when the calendar is behind. Requires a saved \
-             plan and a connected account of a provider that writes a training calendar. A \
-             group's human coach pushes a consenting athlete's plan by passing `athlete` from \
-             their own direct chat in Dravr, through the athlete's Intervals.icu link: the \
-             athlete must have allowed calendar writes on it, and Intervals.icu must list the \
-             coach as their coach. Only the published plan is pushed: a coach's unpublished \
-             draft never is, and the reply's unpublished_draft says when one exists.",
+             today), or bring it up to date after the plan changed: creates missing days, \
+             updates changed ones, removes ones the plan no longer has, and leaves alone any \
+             the athlete edited on the provider. Never touches dates before today. Call it \
+             when the athlete or coach asks to put or update the plan on their calendar — not \
+             on your own initiative after a save. Needs a saved plan and a connected provider \
+             that writes a training calendar. A group's human coach pushes a consenting \
+             athlete's plan with `athlete`, through the athlete's Intervals.icu link: the \
+             athlete must allow calendar writes on it, and Intervals.icu must list the coach \
+             as their coach. Only the published plan is pushed, never a coach's unpublished \
+             draft (the reply's unpublished_draft says when one exists).",
             schema,
             annotations(Effect::Destructive, Reach::OpenWorld),
         )))

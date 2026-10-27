@@ -387,8 +387,8 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(format!(
-                    "Only templates that fit this season phase; a template written for \
-                     any phase always matches. One of: {}.",
+                    "Only templates fitting this phase (any-phase templates always match). \
+                     One of: {}.",
                     vocabulary(PhaseKind::ALL, PhaseKind::as_str)
                 )),
                 ..Default::default()
@@ -399,8 +399,8 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Only templates written for this sport, as the primary sport or a \
-                     variant. A snake_case sport name: run, ride, swim, strength_training, …"
+                    "Only templates written for this sport (primary or variant), in \
+                     snake_case: run, ride, swim, strength_training, …"
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -411,9 +411,9 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "How much of each template to return: summary (default) — slug, name, \
-                     purpose, sport, duration, evidence tier, parameter ranges and phase fit — \
-                     or full, the whole template with its steps and target zones."
+                    "summary (default): slug, name, purpose, sport, duration, evidence tier, \
+                     parameter ranges and phase fit; full: the whole template with its steps \
+                     and target zones."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -423,15 +423,12 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
         // The purpose list is the kernel's vocabulary, never a copy of it: a
         // purpose the kernel gains reaches the description the build it lands.
         let description = format!(
-            "List the workout template bank by what a session is for. Every \
-             template carries a purpose ({}), the season phases it fits, \
-             the readiness level it needs, the sports it is written for, its \
-             evidence tier, and parameter ranges (reps, work and rest seconds, \
-             duration, RPE, intensity per sport) with a default the agent fills \
-             in for the athlete. Filter with purpose, phase and sport; the reply \
-             lists the athlete's own saved sessions after the bank. Pass detail = \
-             full for the structured steps and target zones prescribe_workout \
-             pushes to the athlete's calendar provider.",
+            "List the workout template bank by what a session is for. Each \
+             template has a purpose ({}), the phases it fits, the readiness level \
+             it needs, its sports, evidence tier, and parameter ranges with \
+             defaults you fill in for the athlete. The athlete's own saved \
+             sessions follow the bank. detail = full returns the steps and target \
+             zones prescribe_workout pushes.",
             vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
         );
         answers_with::<WorkoutTemplatesResult>(tool_definition(
@@ -556,7 +553,7 @@ fn session_schema() -> PropertySchema {
         PropertySchema {
             property_type: "string".to_owned(),
             description: Some(format!(
-                "Optional: what the session is for, one of: {}. Omitted, it follows from \
+                "What the session is for, one of: {}. Omitted, it follows from \
                  intensity_distribution.",
                 vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
             )),
@@ -603,9 +600,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Slug of a stored template: one from the workout bank \
-                     (list_workout_templates), or a session you prescribed this athlete \
-                     before. Use `session` instead for anything new."
+                    "A stored template's slug: from the workout bank \
+                     (list_workout_templates) or a session you prescribed this athlete \
+                     before. Use `session` for anything new."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -616,9 +613,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             "date".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Calendar date the workout is scheduled for (YYYY-MM-DD).".to_owned(),
-                ),
+                description: Some("Date to schedule it on, YYYY-MM-DD.".to_owned()),
                 ..Default::default()
             },
         );
@@ -627,9 +622,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "The agent prescribing this, read only on a call with no conversation (a \
-                     direct MCP call); a chat turn's own agent always wins. Its package resolves \
-                     the template, and the ledger row names it."
+                    "The prescribing agent, read only on a direct MCP call with no \
+                     conversation; a chat turn's own agent always wins. Its package resolves \
+                     the template."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -640,9 +635,8 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "prescription_id of an earlier prescription to change in place — the \
-                     calendar entry keeps its slot and gets this workout. Omit to add a new \
-                     entry."
+                    "prescription_id of an earlier prescription to change in place; the \
+                     entry keeps its slot. Omit to add a new entry."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -654,19 +648,14 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
         answers_with::<PrescribeWorkoutResult>(tool_definition(
             "prescribe_workout",
             "Write one workout onto the athlete's calendar provider (Intervals.icu \
-             today) for a given date, and record it in the prescribed_workouts \
-             ledger. Requires a connected account of a provider that writes a \
-             training calendar. Pass EITHER \
-             template_slug — a slug from the workout bank (list_workout_templates \
-             filters it by purpose, phase and sport) or a session you prescribed \
-             this athlete before — OR session, a structured session you authored \
-             for anything those do not express. Without replaces every call adds a new \
-             calendar entry; with replaces = a prescription_id (from an earlier call, or \
-             from get_training_plan's calendar block) that entry is changed in place, on \
-             its own provider. withdraw_prescribed_workout removes one. A \
-             group's human coach prescribes for a consenting athlete by passing athlete \
-             from their own direct chat in Dravr, through the athlete's Intervals.icu link \
-             once the athlete allows calendar writes on it.",
+             today) for a date and record it; needs a connected provider that writes \
+             a training calendar. Pass EITHER template_slug OR session. Every call \
+             adds a new calendar entry unless replaces names a prescription_id (from \
+             an earlier call or get_training_plan's calendar block), which changes \
+             that entry in place on its own provider; withdraw_prescribed_workout \
+             removes one. A group's human coach prescribes for a consenting athlete \
+             with `athlete`, through the athlete's Intervals.icu link once they allow \
+             calendar writes on it.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::OpenWorld),
         ))
@@ -920,12 +909,12 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
         let schema = object_schema(properties, Some(vec!["prescription_id".to_owned()]));
         answers_with::<WithdrawWorkoutResult>(tool_definition(
             "withdraw_prescribed_workout",
-            "Remove a workout that prescribe_workout wrote to the athlete's calendar \
-             provider: deletes the calendar entry and marks the prescription withdrawn. \
-             Only for single prescriptions — an entry the training plan put there is \
-             removed by adjusting the plan (save_training_plan) and pushing it \
-             (push_training_plan). A group's human coach removes one from a consenting \
-             athlete's calendar by passing athlete, as prescribe_workout takes it.",
+            "Remove a workout prescribe_workout wrote to the athlete's calendar \
+             provider and mark the prescription withdrawn. Only for single \
+             prescriptions: an entry the training plan put there is removed by \
+             adjusting the plan (save_training_plan) and pushing it \
+             (push_training_plan). A group's human coach passes `athlete` as for \
+             prescribe_workout.",
             schema,
             annotations(Effect::Destructive, Reach::OpenWorld),
         ))

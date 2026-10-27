@@ -111,9 +111,7 @@ fn activity_id_schema() -> JsonSchema {
         "activity_id".to_owned(),
         PropertySchema {
             property_type: "string".to_owned(),
-            description: Some(
-                "Provider activity id to analyse (e.g. Strava activity id as string).".to_owned(),
-            ),
+            description: Some("Provider activity id, as a string (e.g. a Strava id).".to_owned()),
             ..Default::default()
         },
     );
@@ -135,11 +133,10 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
         let schema = activity_id_schema();
         answers_with::<IntervalsExport>(tool_definition(
             "export_intervals",
-            "Export the Endurance 'intervals.json' shape for a single activity — \
-             one row per lap with avg HR, normalized power, intensity factor, and \
-             decoupling. Use this when a coach needs the per-interval breakdown \
-             for tempo/threshold/VO2max workouts. Activities without laps return \
-             a single synthetic interval covering the whole session.",
+            "Export the Endurance 'intervals.json' shape for one activity, e.g. a \
+             tempo/threshold/VO2max workout — one row per lap with avg HR, normalized power, \
+             intensity factor and decoupling. An activity without laps returns one interval \
+             covering the whole session.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -195,10 +192,9 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
         let schema = activity_id_schema();
         answers_with::<RouteSummary>(tool_definition(
             "export_routes",
-            "Export the Endurance 'routes.json' shape for a single activity — \
-             GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss, \
-             and distinct climb segments with Strava-style category. Requires the \
-             activity stream to include lat/lon and altitude.",
+            "Export the Endurance 'routes.json' shape for one activity — GPX-derived terrain \
+             mix (flat/rolling/climb/steep), elevation gain/loss and climb segments with \
+             Strava-style category. Requires lat/lon and altitude in the activity stream.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -313,13 +309,11 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
         let schema = activity_id_schema();
         answers_with::<ActivityStreamsResult>(tool_definition(
             "extract_activity_streams",
-            "Return the raw per-second time-series streams for a single activity — \
-             heart_rate (bpm), power (watts), cadence (rpm/spm), speed (m/s), \
-             altitude (m), and gps_coordinates (lat/lon pairs). Each stream is \
-             omitted when the provider didn't record it; a sample the sensor \
-             missed is null, never a reading of 0. Use this when a coach \
-             needs the underlying samples to rerun a custom analysis the higher \
-             Endurance tools (export_intervals / export_routes) don't cover.",
+            "Return one activity's raw per-second streams — heart_rate (bpm), power \
+             (watts), cadence (rpm/spm), speed (m/s), altitude (m) and gps_coordinates \
+             (lat/lon pairs). A stream the provider didn't record is omitted; a sample the \
+             sensor missed is null, never a reading of 0. Use it for a custom analysis that \
+             export_intervals / export_routes don't cover.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

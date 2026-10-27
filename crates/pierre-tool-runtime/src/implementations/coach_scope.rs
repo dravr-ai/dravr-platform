@@ -62,12 +62,10 @@ pub(super) fn athlete_property() -> PropertySchema {
     PropertySchema {
         property_type: "string".to_owned(),
         description: Some(
-            "Roster display name of the athlete whose calendar this writes. Only the group's \
-             human coach (attached via a coach invite) may set it, for a consenting athlete in a \
-             group they coach who allowed their coach calendar writes, from Dravr's \
-             own app or channels and from a direct chat — never in a room. In the coach's thread \
-             about one athlete it defaults to that athlete; elsewhere, omit it to write your own \
-             calendar."
+            "Roster display name of a consenting athlete whose calendar this writes. Only a \
+             human coach of their group may set it, once the athlete allows calendar writes, \
+             from Dravr in a direct chat — never in a room. Defaults to the athlete of the \
+             coach's one-athlete thread."
                 .to_owned(),
         ),
         ..Default::default()

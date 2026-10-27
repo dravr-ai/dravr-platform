@@ -87,16 +87,14 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some(format!(
-                    "The route_ref of each stretch, in running order, from 1 to {MAX_STRETCHES}: \
-                     each one a route_ref that discover_routes (or an earlier compose_route) \
-                     returned in this conversation. Each stretch must physically meet the next — \
-                     a route's connects_to lists the ones it meets."
+                    "Each stretch's route_ref, in running order, 1 to {MAX_STRETCHES}, as \
+                     discover_routes (or an earlier compose_route) returned it in this \
+                     conversation."
                 )),
                 items: Some(Box::new(PropertySchema {
                     property_type: "string".to_owned(),
                     description: Some(
-                        "A route_ref, such as \"rt_3f9a0c41d27b8e65\", copied as it was returned."
-                            .to_owned(),
+                        "A route_ref, e.g. \"rt_3f9a0c41d27b8e65\", copied as returned.".to_owned(),
                     ),
                     ..Default::default()
                 })),
@@ -111,9 +109,8 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some(
-                    "True to come back the same way to the start (an aller-retour): the line is \
-                     drawn out and back, and the distance returned covers both ways. Defaults to \
-                     false."
+                    "True to come back the same way to the start (an aller-retour); the \
+                     returned distance then covers both ways."
                         .to_owned(),
                 ),
                 default_value: Some(Value::Bool(false)),
@@ -130,23 +127,19 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
         answers_with::<ComposeRouteResult>(tool_definition(
             "compose_route",
             &format!(
-                "Join stretches found by discover_routes into one itinerary, drawn as a single line \
-             and measured along it. Call it when the session you propose runs along more than \
-             one discovered route — the riverside path out, the rail trail on — or comes back \
-             the way it went. Pass `route_refs` in running order and `out_and_back: true` for an \
-             aller-retour. Stretches are joined only where they meet on the ground, within \
-             {JOIN_TOLERANCE_METERS:.0} m: each must meet the next, which is what a route's \
-             `connects_to` lists. A wider gap is \
-             refused rather than bridged, because a straight line across it may cross water, a \
-             fence or a road; the refusal names the two stretches that do not meet, so drop one, \
-             reorder them, or put a stretch that connects them in between — never propose a \
-             refused itinerary anyway. Returns one `route_ref` for the whole line and \
-             `distance_meters`: that is the distance to quote, never a sum you work out from \
-             the stretches. To show the itinerary, name that `route_ref` in a `dravr-viz` route \
-             block with `source_tool` \"compose_route\" — never write coordinates. A route_ref \
-             is kept for 24 hours: an unknown or expired one means calling discover_routes \
-             again. Elevation and surface are not known here either: never describe the \
-             itinerary as flat or hilly on the strength of this tool."
+                "Join stretches found by discover_routes into one itinerary, measured along one \
+             line. Call it when the session you propose runs along more than one discovered \
+             route, or comes back the way it went. Stretches join only where they meet on the \
+             ground, within {JOIN_TOLERANCE_METERS:.0} m: each must meet the next, as a \
+             route's `connects_to` lists. A wider gap is refused, never bridged; the refusal \
+             names the two that do not meet: drop one, reorder, or insert a stretch joining \
+             them — never propose a refused itinerary anyway. Quote the returned \
+             `distance_meters`, never a sum of the stretches. To show the itinerary, name the \
+             returned `route_ref` in a `dravr-viz` route block with `source_tool` \
+             \"compose_route\" — never write coordinates. An unknown or expired route_ref \
+             (kept 24 hours) means calling discover_routes again. Elevation and surface are \
+             unknown: never describe the itinerary as flat or hilly on the strength of this \
+             tool."
             ),
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),

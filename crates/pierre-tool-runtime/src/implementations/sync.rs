@@ -106,8 +106,8 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Provider to refresh: 'strava', 'garmin', 'whoop', or 'all' (the \
-                     default) to refresh all connected providers."
+                    "'strava', 'garmin', 'whoop', or 'all' (the default) to refresh all \
+                     connected providers."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -119,8 +119,8 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Why the refresh is needed (for logging). E.g., 'user asked about today's run \
-                     but latest activity is from 3 days ago'."
+                    "Why the refresh is needed, for logging (e.g. 'latest activity is 3 days \
+                     old')."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -132,9 +132,8 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some(
-                    "If true, wait for the sync to complete before returning. If false (default), \
-                     start sync in background and return immediately. Use true when you need fresh \
-                     data to answer the user's question."
+                    "true waits for the sync to finish; false (default) starts it in the \
+                     background and returns at once. Use true when you need fresh data to answer."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -144,9 +143,8 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
         let schema = object_schema(properties, None);
         answers_with::<RefreshProviderDataResult>(tool_definition(
             "refresh_provider_data",
-            "Trigger a data refresh from a connected fitness provider. Use when the user's data \
-             seems outdated, when they ask about recent activities that aren't showing, or when \
-             they explicitly request a sync. Set wait=true to block until sync completes.",
+            "Trigger a data refresh from a connected fitness provider when the user's data seems \
+             outdated, recent activities are missing, or they ask for a sync.",
             schema,
             annotations(Effect::IdempotentWrite, Reach::OpenWorld),
         ))
@@ -261,9 +259,8 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
         };
         answers_with::<DataFreshnessResult>(tool_definition(
             "get_data_freshness",
-            "Check how fresh the user's fitness data is across all connected providers. \
-             Returns last sync time and freshness level for each provider. Use this to \
-             decide if a refresh is needed before answering data-dependent questions.",
+            "Check how fresh the user's data is per connected provider (last sync time, \
+             freshness level), to decide whether to refresh before a data-dependent answer.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

@@ -366,8 +366,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Display name of the group member whose activities to fetch, as shown in the \
-                     group roster (e.g. 'Raph'). Required."
+                    "The member's display name as the group roster shows it, e.g. 'Raph'."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -378,9 +377,8 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional coaching-group id to pin the lookup to — the group bound to the \
-                     room the question was asked in. The member must belong to it and only \
-                     their consent for that group applies. Omit to search every group you share."
+                    "Id of the coaching group bound to the room the question was asked in; only \
+                     the member's consent for it applies. Omit to search every group you share."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -390,7 +388,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             "sport_type".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some("Optional sport filter (e.g. 'ride', 'run').".to_owned()),
+                description: Some("Sport filter, e.g. 'ride'.".to_owned()),
                 ..Default::default()
             },
         );
@@ -399,8 +397,8 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Optional Unix epoch-second lower bound. Pair with `before` to target a \
-                     specific past race or date range."
+                    "Unix epoch-second lower bound; pair with `before` for a specific past \
+                     race or date range."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -410,7 +408,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             "before".to_owned(),
             PropertySchema {
                 property_type: "integer".to_owned(),
-                description: Some("Optional Unix epoch-second upper bound.".to_owned()),
+                description: Some("Unix epoch-second upper bound.".to_owned()),
                 ..Default::default()
             },
         );
@@ -429,12 +427,10 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             "get_group_member_activities",
             "Fetch a CONSENTING group member's recent or past activities. This is the ONLY way to \
              read a peer's data in a group chat — `get_activities` always returns YOUR own data, \
-             never a peer's. Identify the member by their roster display name. For a specific past \
-             race or date range, pass `after`/`before` epoch-second bounds. Pass `group_id` to \
-             pin the lookup to the room's group. Returns an error (not data) if the member has \
-             not shared their data with you: with the group via `/group consent yes`, or with \
-             you as the group's coach (joining grants it, `/group consent coach no` revokes \
-             it); the error's `reason` says why.",
+             never a peer's. Returns an error (not data), whose `reason` says why, if the member \
+             has not shared their data with you: with the group via `/group consent yes`, or \
+             with you as the group's coach (joining grants it, `/group consent coach no` \
+             revokes it).",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))

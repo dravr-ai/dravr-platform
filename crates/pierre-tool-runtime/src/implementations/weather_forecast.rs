@@ -177,10 +177,7 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             "timestamp".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Instant within the next ~16 days, RFC 3339; looked up at the hour it falls in"
-                        .to_owned(),
-                ),
+                description: Some("RFC 3339 instant within the next ~16 days".to_owned()),
                 format: Some("date-time".to_owned()),
                 ..Default::default()
             },
@@ -190,11 +187,9 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Place name to geocode instead of coordinates, e.g. \"Chamonix\", resolved \
-                     by the same gazetteer as discover_routes. A region and country written out \
-                     after the name (\"Paris, Texas, United States\") choose among places of \
-                     the same name; an abbreviation chooses nothing. Ignored when latitude and \
-                     longitude are given"
+                    "Place name instead of coordinates. A region and country written out after \
+                     it (\"Paris, Texas, United States\") choose among same-named places; an \
+                     abbreviation chooses nothing. Ignored when latitude and longitude are given"
                         .to_owned(),
                 ),
                 min_length: Some(1),
@@ -226,12 +221,11 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
         };
         answers_with::<WeatherForecastResult>(tool_definition(
             "get_weather_forecast",
-            "Forecast weather — temperature, humidity, wind and conditions — for the hour \
-             containing a timestamp up to about 16 days ahead, e.g. a planned session. Give \
-             the location either as latitude and longitude, or as a place name (optionally \
-             narrowed by country_code), which is geocoded; when both are given the \
-             coordinates win and place is ignored. For a place, the output names the town \
-             used, and an ambiguous name takes the top-ranked match and says so.",
+            "Forecast weather (temperature, humidity, wind, conditions) for the hour of a \
+             timestamp up to about 16 days ahead, e.g. a planned session. Give the location as \
+             latitude and longitude, or as a place name (optionally narrowed by country_code). \
+             For a place, the output names the town used and says when an ambiguous name took \
+             the top-ranked match.",
             schema,
             // Hits the Open-Meteo forecast API (external infrastructure).
             ToolAnnotations {

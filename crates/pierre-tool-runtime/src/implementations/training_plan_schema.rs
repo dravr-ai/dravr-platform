@@ -37,10 +37,9 @@ pub(super) fn string_prop(description: &str) -> PropertySchema {
 /// same argument two ways.
 pub(super) fn athlete_prop() -> PropertySchema {
     string_prop(
-        "Roster display name of the athlete whose plan this is. Only the group's human coach \
-         (attached via a coach invite) may set it, for a consenting athlete in a group they \
-         coach, and only from a direct chat — never in a room. In the coach's thread about one \
-         athlete it defaults to that athlete; elsewhere, omit it to act on your own plan.",
+        "Roster display name of a consenting athlete whose plan this is. Only a human coach of \
+         their group may set it, from a direct chat — never in a room. Defaults to the athlete \
+         of the coach's one-athlete thread.",
     )
 }
 
@@ -105,14 +104,11 @@ fn array_prop(description: &str, items: PropertySchema) -> PropertySchema {
 /// Schema for one race entry (goal or secondary).
 fn race_schema(description: &str) -> PropertySchema {
     let mut p = HashMap::new();
-    p.insert(
-        "name".to_owned(),
-        string_prop("Race name as the athlete calls it."),
-    );
-    p.insert("date".to_owned(), string_prop("Race date, YYYY-MM-DD."));
+    p.insert("name".to_owned(), string_prop("As the athlete calls it."));
+    p.insert("date".to_owned(), string_prop("YYYY-MM-DD."));
     p.insert(
         "discipline".to_owned(),
-        string_prop("Discipline: gravel, xco, road, trail run, …"),
+        string_prop("gravel, xco, road, trail run, …"),
     );
     p.insert(
         "priority".to_owned(),
@@ -138,28 +134,19 @@ fn vocabulary<T: Copy>(all: &[T], name: fn(T) -> &'static str) -> String {
 /// Schema for a `{ min, max }` share of something (0 to 1).
 fn share_schema(description: &str) -> PropertySchema {
     let mut p = HashMap::new();
-    p.insert("min".to_owned(), number_prop("Lower bound, 0 to 1."));
-    p.insert("max".to_owned(), number_prop("Upper bound, 0 to 1."));
+    p.insert("min".to_owned(), number_prop("0 to 1."));
+    p.insert("max".to_owned(), number_prop("0 to 1."));
     object_prop(description, p, vec!["min".to_owned(), "max".to_owned()])
 }
 
 /// Schema for a phase's time-in-zone target.
 fn tid_target_schema() -> PropertySchema {
     let mut p = HashMap::new();
-    p.insert(
-        "z1".to_owned(),
-        share_schema("Share of training time below LT1."),
-    );
-    p.insert(
-        "z2".to_owned(),
-        share_schema("Share of training time between LT1 and LT2."),
-    );
-    p.insert(
-        "z3".to_owned(),
-        share_schema("Share of training time above LT2."),
-    );
+    p.insert("z1".to_owned(), share_schema("Below LT1."));
+    p.insert("z2".to_owned(), share_schema("Between LT1 and LT2."));
+    p.insert("z3".to_owned(), share_schema("Above LT2."));
     object_prop(
-        "Share of time below LT1 / between the thresholds / above LT2 the phase aims for. Give it when the plan runs on a catalogue flavour; omit otherwise.",
+        "Shares of training time the phase aims for. Give it when the plan runs on a catalogue flavour; omit otherwise.",
         p,
         vec!["z1".to_owned(), "z2".to_owned(), "z3".to_owned()],
     )
@@ -175,11 +162,8 @@ fn phase_schema() -> PropertySchema {
             vocabulary(PhaseKind::ALL, PhaseKind::as_str)
         )),
     );
-    p.insert(
-        "start".to_owned(),
-        string_prop("Phase start date, YYYY-MM-DD."),
-    );
-    p.insert("weeks".to_owned(), integer_prop("Phase length in weeks."));
+    p.insert("start".to_owned(), string_prop("Start date, YYYY-MM-DD."));
+    p.insert("weeks".to_owned(), integer_prop("Length in weeks."));
     p.insert(
         "purpose".to_owned(),
         string_prop(
@@ -192,7 +176,7 @@ fn phase_schema() -> PropertySchema {
     );
     p.insert(
         "target_hours".to_owned(),
-        number_prop("Optional target weekly volume in hours."),
+        number_prop("Target weekly volume in hours."),
     );
     p.insert(
         "volume_share_of_peak".to_owned(),
@@ -208,7 +192,7 @@ fn phase_schema() -> PropertySchema {
         PropertySchema {
             property_type: "object".to_owned(),
             description: Some(format!(
-                "Weights over the workout purposes this phase draws its sessions from, as {{purpose: weight}}. Purposes: {}.",
+                "{{purpose: weight}} over the workout purposes this phase draws sessions from: {}.",
                 vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
             )),
             ..Default::default()
@@ -246,7 +230,7 @@ fn flavour_schema() -> PropertySchema {
     let mut p = HashMap::new();
     p.insert(
         "id".to_owned(),
-        string_prop("A flavour id from the training catalogue (polarized-classic, pyramidal-base, hvlit-foundation, …); the save refuses an id the catalogue does not hold and lists the ones it does."),
+        string_prop("A training-catalogue flavour id (polarized-classic, pyramidal-base, hvlit-foundation, …); an unknown id is refused with the valid ones listed."),
     );
     p.insert(
         "selected_by".to_owned(),
@@ -256,13 +240,13 @@ fn flavour_schema() -> PropertySchema {
     );
     p.insert(
         "override_reason".to_owned(),
-        string_prop("Why a coach or athlete chose this flavour over the rule's proposal. Required for coach and athlete; omit for rule."),
+        string_prop("Why the coach or athlete overrode the rule's proposal. Required unless selected_by is rule."),
     );
     p.insert(
         "verdict".to_owned(),
         PropertySchema {
             property_type: "object".to_owned(),
-            description: Some("recommend_plan_flavour's `verdict`, passed through exactly as the tool returned it, when it ran. A rule selection must be the flavour it ranked first.".to_owned()),
+            description: Some("recommend_plan_flavour's `verdict`, verbatim, when it ran. A rule selection must be its first-ranked flavour.".to_owned()),
             ..Default::default()
         },
     );
@@ -270,12 +254,14 @@ fn flavour_schema() -> PropertySchema {
         "inputs".to_owned(),
         PropertySchema {
             property_type: "object".to_owned(),
-            description: Some("recommend_plan_flavour's `inputs`, passed through exactly as the tool returned it, when it ran.".to_owned()),
+            description: Some(
+                "recommend_plan_flavour's `inputs`, verbatim, when it ran.".to_owned(),
+            ),
             ..Default::default()
         },
     );
     object_prop(
-        "The flavour the season runs on, with who chose it. Omit for a plan laid out without one.",
+        "The flavour the season runs on, with who chose it. Omit when the plan has none.",
         p,
         vec!["id".to_owned(), "selected_by".to_owned()],
     )
@@ -297,7 +283,7 @@ fn template_params_schema() -> PropertySchema {
         p.insert(key.to_owned(), integer_prop(text));
     }
     object_prop(
-        "The values this day fills the template's ranges with (list_workout_templates shows each template's ranges and defaults).",
+        "Values filling the template's ranges (list_workout_templates shows ranges and defaults).",
         p,
         Vec::new(),
     )
@@ -315,27 +301,25 @@ fn fueling_schema() -> PropertySchema {
     p.insert(
         "carbs_g_per_h".to_owned(),
         number_prop(
-            "Carbohydrate target in grams per hour. Up to 60 g/h from any single source; above that requires multiple transportable carbohydrates, so state carb_source too.",
+            "Carbohydrate in g per hour. Above 60 g/h needs multiple transportable carbohydrates: state carb_source.",
         ),
     );
     p.insert(
         "fluid_ml_per_h".to_owned(),
-        number_prop("Fluid target in millilitres per hour."),
+        number_prop("Fluid in ml per hour."),
     );
     p.insert(
         "sodium_mg_per_h".to_owned(),
         number_prop(
-            "ESTIMATED sodium LOSS in mg per hour, not a required intake. Give it only when the athlete has a sweat measurement behind it; omit it otherwise rather than guessing.",
+            "ESTIMATED sodium LOSS in mg per hour, not a required intake. Give it only when a sweat measurement backs it; never guess.",
         ),
     );
     p.insert(
         "carb_source".to_owned(),
-        string_prop(
-            "Carbohydrate source when the rate depends on it — 'glucose:fructose 1:0.8'. Required in practice for any rate above 60 g/h.",
-        ),
+        string_prop("e.g. 'glucose:fructose 1:0.8'. Give it for any rate above 60 g/h."),
     );
     object_prop(
-        "What to take in during the session. Give it for any session long enough to need fuelling — except for an athlete with a medical/PAR-Q flag on file: their clinician sets these amounts, so omit it and describe fuelling in the day's workout in words (what to take and when, no amounts); a save carrying it for that athlete is refused.",
+        "In-session intake, for any session long enough to need fuelling. For an athlete with a medical/PAR-Q flag on file, omit it (a save carrying it is refused): their clinician sets amounts, so describe fuelling in the workout in words — what and when, no amounts.",
         p,
         vec!["carbs_g_per_h".to_owned(), "fluid_ml_per_h".to_owned()],
     )
@@ -355,26 +339,26 @@ fn day_schema() -> PropertySchema {
     p.insert(
         "duration_min".to_owned(),
         integer_prop(
-            "Planned duration in minutes; omit for rest days, and omit when steps are given — it is summed from them.",
+            "Planned minutes; omit for rest days and when steps are given (summed from them).",
         ),
     );
     p.insert(
         "intensity".to_owned(),
         string_prop(
-            "Intensity RELATIVE to thresholds ('Z2', 'tempo', '88-93% FTP'). Never absolute watts. With steps, the day's summary label.",
+            "Intensity RELATIVE to thresholds ('Z2', 'tempo', '88-93% FTP'), never absolute watts. With steps, the day's summary label.",
         ),
     );
     p.insert(
         "steps".to_owned(),
         array_prop(
-            "The session's steps, in order — the same shape as prescribe_workout's session.structure. Give them for any day with interval structure (warm-up, work, recovery, cool-down; repeat on the work and recovery steps): that is what puts workout-builder steps and a planned load on the athlete's calendar. Prose alone reaches the calendar as a timed entry. Omit for a steady or unstructured day.",
+            "The session's steps in order, same shape as prescribe_workout's session.structure. Give them for any day with interval structure (warm-up, work, recovery, cool-down; repeat on the work and recovery steps): that puts workout-builder steps and a planned load on the athlete's calendar, where prose alone arrives as a timed entry. Omit for a steady day.",
             step_schema(),
         ),
     );
     p.insert("fueling".to_owned(), fueling_schema());
     p.insert(
         "template_slug".to_owned(),
-        string_prop("The catalogue template this day instantiates (a slug from list_workout_templates). Give it for every quality session built from the bank; omit for a rest day or a session written without one."),
+        string_prop("The catalogue template this day instantiates (a list_workout_templates slug). Give it for every quality session built from the bank."),
     );
     p.insert("template_params".to_owned(), template_params_schema());
     object_prop(
@@ -399,7 +383,7 @@ pub(super) fn outline_schema() -> PropertySchema {
     p.insert(
         "races".to_owned(),
         array_prop(
-            "The rest of the race calendar. An A race here becomes a second peak the season is laid on, with a transition after the first; B and C races are carried for context. Omit the field to keep the calendar already stored; send an empty array to clear it.",
+            "The rest of the race calendar. An A race here becomes a second peak, with a transition after the first; B and C races are context. Omit to keep the stored calendar; send [] to clear it.",
             race_schema("A secondary race."),
         ),
     );
@@ -410,14 +394,16 @@ pub(super) fn outline_schema() -> PropertySchema {
     p.insert(
         "phases".to_owned(),
         array_prop(
-            "Ordered season phases, from the season start (or now) through the goal race and any later peak. Omit for a short plan that has no mesocycle structure.",
+            "Ordered season phases, from the season start (or now) through the goal race and any later peak. Omit for a short plan without mesocycles.",
             phase_schema(),
         ),
     );
     p.insert("flavour".to_owned(), flavour_schema());
     p.insert(
         "season_start".to_owned(),
-        string_prop("First day of the season the phases lay out, YYYY-MM-DD; omit when the plan runs from its first phase."),
+        string_prop(
+            "First day of the season, YYYY-MM-DD; omit when the plan runs from its first phase.",
+        ),
     );
     p.insert(
         "season_end".to_owned(),
@@ -431,7 +417,7 @@ pub(super) fn outline_schema() -> PropertySchema {
     // could be saved at all. The outline still needs a race to aim at and a
     // stated strategy.
     object_prop(
-        "The plan outline — the athlete's vision: goal race + strategy, optionally the season phases, the flavour and the season window. Required when creating a plan; omit to adjust weeks of the existing active plan. Re-sending an outline supersedes the athlete's current plan.",
+        "The season outline: goal race and strategy, optionally phases, flavour and season window. Required to create a plan; omit to adjust weeks of the active plan. Re-sending it supersedes the current plan.",
         p,
         vec!["goal_race".to_owned(), "strategy".to_owned()],
     )
@@ -440,7 +426,7 @@ pub(super) fn outline_schema() -> PropertySchema {
 /// Schema for the `weeks` half of the save payload.
 pub(super) fn weeks_schema() -> PropertySchema {
     array_prop(
-        "Day-by-day weeks to save. Send the full multi-week detail when the athlete asks to see the whole plan; send a single adjusted week for 'move Tuesday to Wednesday' changes.",
+        "Day-by-day weeks: every week when the athlete asks to see the whole plan, only the changed week for an adjustment ('move Tuesday to Wednesday').",
         week_schema(),
     )
 }
@@ -521,10 +507,10 @@ fn week_schema() -> PropertySchema {
     );
     p.insert(
         "phase_index".to_owned(),
-        integer_prop("Index (from 0) of the outline phase this week instantiates, so the week is measured against that phase's targets. Omit when the plan has no phases."),
+        integer_prop("Index (from 0) of the outline phase this week instantiates, so it is measured against that phase's targets. Omit when the plan has no phases."),
     );
     object_prop(
-        "One week of day-by-day prescriptions. Re-saving a week_start supersedes the previous version (prospective adjustment).",
+        "One week. Re-saving a week_start supersedes its previous version.",
         p,
         vec!["week_start".to_owned(), "days".to_owned()],
     )

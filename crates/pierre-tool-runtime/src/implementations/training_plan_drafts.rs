@@ -294,11 +294,9 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Roster display name of the coached athlete whose plan your draft is of. Only \
-                     the group's human coach (attached via a coach invite) may set it, for a \
-                     consenting athlete in a group they coach, and only from a direct chat — \
-                     never in a room. In the coach's thread about one athlete it defaults to that \
-                     athlete."
+                    "Roster display name of the consenting athlete whose plan your draft is of. \
+                     Only a human coach of their group may set it, from a direct chat — never in a \
+                     room. Defaults to the athlete of the coach's one-athlete thread."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -309,8 +307,8 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "`publish` makes your draft the athlete's live plan; `discard` throws it \
-                     away and leaves their plan as it is. One of: publish, discard."
+                    "publish (your draft becomes the athlete's live plan) or discard (it is \
+                     thrown away, their plan unchanged)."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -321,10 +319,9 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some(
-                    "Publish over the weeks the athlete's own agent changed since you drafted \
-                     them, and over a season re-laid under your draft. Set it only after the \
-                     coach saw the conflicts and chose to replace the athlete's changes. Read \
-                     only with `publish`."
+                    "Publish over weeks the athlete's own agent changed since you drafted them \
+                     and over a season re-laid under your draft. Set it only after the coach saw \
+                     the conflicts and chose to replace the athlete's changes."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -336,17 +333,14 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
         answers_with::<PublishTrainingPlanResult>(tool_definition(
             "publish_training_plan",
             "Publish or discard a group's human coach's draft of a coached athlete's training \
-             plan. A coach's save_training_plan for an athlete writes the coach's draft, which \
-             the athlete does not see: publish makes it their live plan in one step — the weeks \
-             the coach did not draft keep the athlete's own version — and discard throws it \
-             away. Call it only when the coach asks to publish or discard. When the athlete's \
-             own agent changed a drafted week after the coach drafted it, or re-laid the \
-             season, publish is refused with status `conflict` and nothing changes: tell the \
-             coach which weeks, and publish again with overwrite_athlete_changes only if they \
-             choose to replace the athlete's changes. Publishing does not touch the athlete's \
-             calendar; push_training_plan does that afterwards. In a coach's thread about one \
-             athlete, `athlete` defaults to that athlete. The caller's own plan has no draft: \
-             their saves are already live.",
+             plan (a coach's save_training_plan for an athlete writes that unseen draft). \
+             publish makes it their live plan in one step — weeks the coach did not draft keep \
+             the athlete's version. Call it only when the coach asks. When the athlete's own \
+             agent changed a drafted week or re-laid the season since, publish is refused with \
+             status `conflict` and nothing changes: tell the coach which weeks, and publish \
+             again with overwrite_athlete_changes only if they choose to replace them. \
+             Publishing does not touch the calendar; push_training_plan does that afterwards. \
+             The caller's own plan has no draft: their saves are already live.",
             schema,
             annotations(Effect::Destructive, Reach::OpenWorld),
         ))

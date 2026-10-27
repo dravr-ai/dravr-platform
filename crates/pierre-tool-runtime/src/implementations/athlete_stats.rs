@@ -92,9 +92,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider.".to_owned(),
-                ),
+                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
                 ..Default::default()
             },
         );
@@ -105,7 +103,8 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
 
         answers_with::<Formatted<GetAthleteResult>>(task_capable(tool_definition(
             "get_athlete",
-            "Retrieve the user's athlete profile from connected fitness providers including personal details and preferences",
+            "Get the athlete profile a connected provider reports: the provider's athlete ID, \
+             username, first and last name where public, and profile picture.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
@@ -275,9 +274,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider.".to_owned(),
-                ),
+                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
                 ..Default::default()
             },
         );
@@ -288,7 +285,19 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
 
         answers_with::<Formatted<GetStatsResult>>(task_capable(tool_definition(
             "get_stats",
-            "Retrieve aggregated activity statistics from a connected fitness provider. The top-level total_* fields cover exactly what the `coverage` field beside them says, so read `coverage` before quoting any total. `coverage.kind` is `lifetime` for ALL-TIME totals; `recent_activities` when the totals are summed over only the provider's `coverage.count` most recent activities, the oldest starting at `coverage.oldest`; `window` when they cover only the activities of the last `coverage.days` days. A provider that serves only a recent page of workouts (Wahoo, WHOOP) returns a sample, not lifetime totals. Report a `recent_activities` or `window` total as that sample or window ('your last N workouts since <date>', 'the last N days'), and never call it lifetime, all-time, career or total-ever. When the provider supplies it (currently Strava), a `year_to_date` object holds CURRENT-CALENDAR-YEAR totals — use that for 'this year' / annual questions and never report the other totals as annual. IMPORTANT: Strava's ride and run totals here count ONLY the base sport type and EXCLUDE variant disciplines (VirtualRide, GravelRide, MountainBikeRide, EBikeRide; TrailRun, VirtualRun), so they undercount multi-discipline athletes. For a true cross-discipline total (e.g. 'total km cycling this year'), do NOT report this single ride/run figure — call get_activities for the period and sum distance across all related sport types.",
+            "Aggregated activity totals from a connected provider. Read `coverage` before quoting \
+             any total_*: `coverage.kind` is `lifetime` (ALL-TIME), `recent_activities` (only \
+             the `coverage.count` most recent activities, oldest at `coverage.oldest`; e.g. \
+             Wahoo, WHOOP) or `window` (only the last `coverage.days` days). Report a \
+             `recent_activities` or `window` total as that sample or window ('your last N \
+             workouts since <date>', 'the last N days'), never as lifetime, all-time, career or \
+             total-ever. `year_to_date` (Strava) holds \
+             CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other \
+             totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport \
+             type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and \
+             VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT \
+             report them: call get_activities for the period and sum distance across all \
+             related sport types.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))

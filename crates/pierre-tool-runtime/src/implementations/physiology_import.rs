@@ -458,22 +458,17 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
         };
         answers_with::<ImportProviderThresholdsResult>(tool_definition(
             "import_provider_thresholds",
-            "Import the athlete's training thresholds — FTP, lactate threshold heart rate, max \
-             heart rate and threshold pace — from their Intervals.icu sport settings, read \
-             through their own Intervals.icu connection or the link through their human coach \
-             they confirmed. A threshold is filled only when the profile has none, or refreshed \
-             when it holds Intervals.icu's earlier value. A value the athlete set is never \
-             replaced: it comes back as kept_yours with both numbers, and adopting \
-             Intervals.icu's is the athlete's call, saved with set_physiology. A value outside \
-             the ranges every saved value is checked against is skipped with the reason. W′ is \
-             never imported: Intervals.icu's W′ belongs to its FTP-anchored model, not the \
-             critical-power model the profile's W′ is. An imported value is Intervals.icu's \
-             estimate: quote it with its origin ('intervals.icu has your FTP at 285 W'), never \
-             as a measurement. Zones are re-derived and the stored training history \
-             recomputed. The athlete's sex is recorded from their Intervals.icu profile only \
-             when it reports one and the profile holds none (sex_recorded); a sex the athlete \
-             stated is never replaced. Call it when the athlete asks to bring their thresholds over from \
-             Intervals.icu; report only what the result contains.",
+            "Import the athlete's FTP, lactate threshold heart rate, max heart rate and \
+             threshold pace from their Intervals.icu sport settings, through their own \
+             connection or the human coach's link they confirmed. Call it when the athlete asks \
+             to bring their thresholds over from Intervals.icu. A threshold is filled only when \
+             the profile has none or holds Intervals.icu's earlier value; one the athlete set is \
+             never replaced (kept_yours, with both numbers — adopting Intervals.icu's is the \
+             athlete's call, via set_physiology). Out-of-range values are skipped with the \
+             reason; W′ is never imported (a different model). Quote an imported value as \
+             Intervals.icu's estimate ('intervals.icu has your FTP at 285 W'), never as a \
+             measurement. Sex is recorded only when Intervals.icu reports one and the profile \
+             holds none (sex_recorded). Report only what the result contains.",
             schema,
             // A second import of unchanged settings writes nothing.
             annotations(Effect::IdempotentWrite, Reach::OpenWorld),

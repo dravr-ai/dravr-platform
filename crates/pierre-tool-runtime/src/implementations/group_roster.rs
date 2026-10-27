@@ -470,8 +470,8 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional id of one group you coach, to review only its athletes. Omit to \
-                     review every athlete you coach."
+                    "Id of one group you coach, to review only its athletes; omit to review \
+                     every athlete you coach."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -483,12 +483,11 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
             "get_roster_overview",
             "Review the athletes you COACH across your groups in one call: who trained this week, \
              who has gone quiet, weekly volume, fitness and form, recent sessions and broken \
-             sources. Each athlete carries a `status`; only `shared` athletes carry `training`. \
-             `no_coach_consent` means the athlete stopped sharing with you — they can share again \
-             with `/group consent coach yes`; never infer their numbers. In a group's room the \
-             review covers that group only. Use `get_group_member_activities` for one athlete's \
-             full session history, and `get_provider_roster` for the roster of your coaching \
-             platform (Intervals.icu, TrainingPeaks).",
+             sources. Only athletes whose `status` is `shared` carry `training`; \
+             `no_coach_consent` means they stopped sharing with you (they can share again with \
+             `/group consent coach yes`) — never infer their numbers. In a group's room it \
+             covers that group only. Use `get_group_member_activities` for one athlete's full \
+             session history, and `get_provider_roster` for your coaching platform's roster.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))

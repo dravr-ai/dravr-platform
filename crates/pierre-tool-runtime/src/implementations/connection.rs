@@ -454,7 +454,9 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional redirect URL for mobile app OAuth flows (supports dravr://, exp://, http://localhost, https://)".to_owned(),
+                    "Redirect URL for mobile-app OAuth flows (dravr://, exp://, http://localhost \
+                     or https://)"
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -464,7 +466,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
 
         answers_with::<ConnectProviderResult>(tool_definition(
             "connect_provider",
-            "Initiate OAuth connection flow to connect a fitness data provider like Strava, Garmin, or WHOOP",
+            "Start the OAuth flow to connect a fitness provider (e.g. Strava, Garmin, WHOOP).",
             schema,
             annotations(Effect::AdditiveWrite, Reach::OpenWorld),
         ))
@@ -652,7 +654,8 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional: specific provider to check (e.g., 'strava'). If omitted, checks all providers.".to_owned(),
+                    "A specific provider (e.g., 'strava'); omit to check all supported providers."
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -662,7 +665,9 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
 
         answers_with::<ConnectionStatusResult>(tool_definition(
             "get_connection_status",
-            "Check the connection status of fitness data providers. If no provider is specified, returns status for all supported providers.",
+            "Check which fitness providers are connected: each one's state (connected, \
+             disconnected, needs_reauth, or why a provider linked through a human coach reads \
+             nothing), whether it must be authorized again, and which backend serves it.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

@@ -189,8 +189,8 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional category filter: training, nutrition, recovery, recipes, mobility, \
-                     analysis, or custom."
+                    "Category filter: training, nutrition, recovery, recipes, mobility, analysis, \
+                     or custom."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -220,8 +220,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Opaque cursor from a previous call's `next_cursor`, to fetch the next page."
-                        .to_owned(),
+                    "A previous call's `next_cursor`, to fetch the next page.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -231,9 +230,9 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
         answers_with::<Formatted<BrowseAgentStoreResult>>(tool_definition(
             "browse_agent_store",
             "Browse the Agent Store — the catalogue of PUBLISHED agents anyone can install. Use \
-             this when the athlete asks what agents exist, or for an agent of a given kind they \
-             do not already have. Distinct from `list_agents`, which lists only the agents \
-             ALREADY in their library. Returns a page plus a `next_cursor` for the following one.",
+             this when the athlete asks what agents exist, or for an agent of a kind they do not \
+             already have. Distinct from `list_agents`, which lists only the agents ALREADY in \
+             their library.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -298,8 +297,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Text to match against a published agent's title, description or tags. \
-                     Required."
+                    "Text to match against a published agent's title, description or tags."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -317,10 +315,9 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
 
         answers_with::<Formatted<SearchAgentStoreResult>>(tool_definition(
             "search_agent_store",
-            "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail' or \
-             'vegetarian nutrition'. Searches the whole marketplace, unlike `search_agents`, \
-             which searches only the athlete's own library. Install a result with \
-             `install_agent_from_store`.",
+            "Search the Agent Store for PUBLISHED agents matching a phrase, e.g. 'ultra trail'. \
+             Searches the whole marketplace, unlike `search_agents`, which searches only the \
+             athlete's own library. Install a result with `install_agent_from_store`.",
             schema,
             annotations(Effect::ReadOnly, Reach::Internal),
         ))
@@ -381,8 +378,8 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "UUID of the published agent to install, as returned by \
-                     `browse_agent_store` or `search_agent_store`. Required."
+                    "UUID of the published agent, as `browse_agent_store` or \
+                     `search_agent_store` returned it."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -392,11 +389,9 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
 
         answers_with::<Formatted<InstallAgentFromStoreResult>>(tool_definition(
             "install_agent_from_store",
-            "Install a published Agent Store agent: add it to the athlete's team. A catalogue \
-             agent joins as itself, never as a copy. Call it only once the athlete has asked for \
-             that specific agent — pass the `id` from `browse_agent_store` or \
-             `search_agent_store`. After installing, `activate_agent` makes it the agent that \
-             answers.",
+            "Install a published Agent Store agent into the athlete's team; it joins as itself, \
+             never as a copy. Call it only once the athlete has asked for that specific agent. \
+             After installing, `activate_agent` makes it the agent that answers.",
             schema,
             annotations(Effect::IdempotentWrite, Reach::Internal),
         ))

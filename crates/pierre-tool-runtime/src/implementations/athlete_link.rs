@@ -333,8 +333,8 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Optional coaching platform to link on (`intervals_icu`, `trainingpeaks`). \
-                     Omit to use the one roster that lists the member."
+                    "Coaching platform to link on (`intervals_icu`, `trainingpeaks`); omit to \
+                     use the one roster that lists the member."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -346,11 +346,10 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
             "propose_athlete_link",
             "Propose linking a member of a group you coach to their entry on your coaching \
              platform roster (Intervals.icu, TrainingPeaks), so their workouts there read \
-             through your account. Name the member; the roster entry is the one whose email is \
-             their verified Dravr email. The member is asked to confirm in the Dravr app, and \
-             nothing is read until they do. Use `get_provider_roster` to see who is \
-             `proposable`. Refused in a group's room, for a member who stopped sharing with you, \
-             and when the roster does not list their email.",
+             through your account; the roster entry is the one carrying their verified Dravr \
+             email. The member confirms in the Dravr app; nothing is read until they do. Use \
+             `get_provider_roster` to see who is `proposable`. Refused in a group's room, for a \
+             member who stopped sharing with you, and when the roster does not list their email.",
             schema,
             // A second call for the same member is refused: the first
             // proposal holds them.

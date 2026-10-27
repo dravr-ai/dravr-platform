@@ -708,8 +708,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(format!(
-                    "Type of goal, one of {}. Any other type is refused: progress \
-                     cannot be measured for it.",
+                    "One of {}. Any other type is refused: progress cannot be measured for it.",
                     goal_type_vocabulary()
                 )),
                 ..Default::default()
@@ -720,8 +719,8 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "Target total over the timeframe, in the goal type's unit: km, hours or \
-                     activities. Must be greater than zero."
+                    "Target total over the timeframe in the goal type's unit (km, hours or \
+                     activities); greater than zero."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -732,7 +731,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(format!(
-                    "Window the target is counted over, one of {}. Default: 'month'.",
+                    "Window the target counts over, one of {}. Default: 'month'.",
                     GOAL_TIMEFRAMES.join(", ")
                 )),
                 ..Default::default()
@@ -751,9 +750,9 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Sport the goal counts (e.g. 'run', 'ride', 'swim'): progress then counts \
-                     only that sport's activities, trail and treadmill runs toward a run goal, \
-                     gravel and indoor rides toward a ride goal. Omit to count every activity."
+                    "Sport the goal counts (e.g. 'run', 'ride', 'swim'): only its activities \
+                     count, trail and treadmill runs toward a run goal, gravel and indoor rides \
+                     toward a ride goal. Omit to count every activity."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -767,8 +766,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
             "set_goal",
             "Create a fitness goal: a distance, duration or activity-count target over a week, \
              month, quarter or year, optionally for one sport. track_progress measures it \
-             against the activities recorded after the goal was created, only the named \
-             sport's when one is given.",
+             against activities recorded after the goal was created.",
             schema,
             annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
@@ -834,18 +832,15 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to analyze. Defaults to configured provider.".to_owned(),
-                ),
+                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema(properties, None);
         answers_with::<SuggestGoalsResult>(task_capable(tool_definition(
             "suggest_goals",
-            "Get up to five suggested fitness goals based on your activity history and fitness \
-             level. When the athlete's latitude is known, suggestions for sports out of season \
-             there are dropped rather than replaced.",
+            "Suggest up to five fitness goals from the athlete's activity history and fitness \
+             level; with a known latitude, out-of-season sports are dropped, not replaced.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
@@ -923,19 +918,16 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to query. Defaults to configured provider.".to_owned(),
-                ),
+                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
                 ..Default::default()
             },
         );
         let schema = object_schema(properties, Some(vec!["goal_id".to_owned()]));
         answers_with::<TrackProgressResult>(task_capable(tool_definition(
             "track_progress",
-            "Track progress toward a specific fitness goal: current value against target, \
-             percentage complete, whether it is on track, days remaining and a projected \
-             completion, counted over the activities recorded since the goal was created (only \
-             the goal's sport when it names one).",
+            "Track progress toward a fitness goal: current value vs target, percent complete, \
+             whether it is on track, days remaining and projected completion, over activities \
+             recorded since the goal was created (only the goal's sport when it names one).",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
@@ -1037,7 +1029,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(format!(
-                    "Type of goal, one of {}. Any other type is answered as unknown.",
+                    "One of {}. Any other type is answered as unknown.",
                     goal_type_vocabulary()
                 )),
                 ..Default::default()
@@ -1048,8 +1040,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some(
-                    "Target total over the timeframe, in the goal type's unit: km, hours or \
-                     activities."
+                    "Target total over the timeframe in the goal type's unit (km, hours or \
+                     activities)."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -1070,9 +1062,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to analyze. Defaults to configured provider.".to_owned(),
-                ),
+                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
                 ..Default::default()
             },
         );
@@ -1082,7 +1072,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
         );
         answers_with::<GoalFeasibilityResult>(task_capable(tool_definition(
             "analyze_goal_feasibility",
-            "Analyze whether a fitness goal is achievable based on your current fitness level and training history",
+            "Analyze whether a fitness goal is achievable from current fitness and training \
+             history.",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))

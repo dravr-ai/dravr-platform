@@ -215,24 +215,21 @@ fn input_properties() -> HashMap<String, PropertySchema> {
     properties.insert(
         "metric".to_owned(),
         string_property(format!(
-            "The series to read; defaults to heart_rate. One of: {}.",
+            "Series to read, default heart_rate. One of: {}.",
             metric_names().join(", ")
         )),
     );
     properties.insert(
         "start".to_owned(),
         string_property(format!(
-            "Start of the range as RFC3339 timestamp, inclusive. Defaults to \
-             {DEFAULT_LOOKBACK_HOURS} hours before `end`. A sample read spans at most \
-             {MAX_POINTS_RANGE_HOURS} hours and a windowed read {MAX_WINDOWED_RANGE_DAYS} \
-             days; a wider range keeps its most recent part."
+            "Inclusive RFC3339 start; defaults to {DEFAULT_LOOKBACK_HOURS} hours before \
+             `end`. A sample read spans at most {MAX_POINTS_RANGE_HOURS} hours and a windowed \
+             read {MAX_WINDOWED_RANGE_DAYS} days; a wider range keeps its most recent part."
         )),
     );
     properties.insert(
         "end".to_owned(),
-        string_property(
-            "End of the range as RFC3339 timestamp, exclusive. Defaults to now.".to_owned(),
-        ),
+        string_property("Exclusive RFC3339 end; defaults to now.".to_owned()),
     );
     properties.insert(
         "window_minutes".to_owned(),
@@ -298,9 +295,9 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
         answers_with::<Formatted<HeartRateSeriesResult>>(tool_definition(
             "get_heart_rate_series",
             "Get the athlete's stored intraday heart rate or HRV samples over a time range, \
-             one series per connected source, or one aggregated value per window when \
-             `window_minutes` is given. For daily resting heart rate and overnight HRV use \
-             get_recovery_metrics.",
+             one series per connected source. A source with no intraday samples is left out; \
+             with none at all, say so rather than estimating values. For daily resting heart \
+             rate and overnight HRV use get_recovery_metrics.",
             object_schema_with_format(input_properties(), None),
             annotations(Effect::ReadOnly, Reach::Internal),
         ))

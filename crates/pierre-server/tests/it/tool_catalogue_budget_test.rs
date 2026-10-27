@@ -26,11 +26,11 @@ use pierre_tool_runtime::registry::ToolRegistry;
 
 use crate::common;
 
-/// Bytes the chat catalogue may take on the wire. Measured at 112,728 bytes
-/// (88 tools, ~44k estimated tokens) on 2026-10-27, 111,406 once descriptions
-/// stopped restating their own parameters; carnet#1196 aims for a fifth under
-/// the first figure, about 90,000.
-const CATALOGUE_BUDGET_BYTES: usize = 111_500;
+/// Bytes the chat catalogue may take on the wire. It measured 112,728 bytes
+/// (88 tools, ~44k estimated tokens) on 2026-10-27; carnet#1196 rewrote every
+/// long description to its purpose, routing and rules, against a target of a
+/// fifth under that, about 90,000. The test prints the current size.
+const CATALOGUE_BUDGET_BYTES: usize = 94_750;
 
 /// How far under budget the catalogue may fall before the budget follows it down.
 const RATCHET_SLACK_BYTES: usize = 4 * 1024;

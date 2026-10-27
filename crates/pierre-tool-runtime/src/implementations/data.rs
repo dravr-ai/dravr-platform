@@ -121,9 +121,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             "provider".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
-                description: Some(
-                    "Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider.".to_owned(),
-                ),
+                description: Some("Fitness provider. Defaults to configured provider.".to_owned()),
                 ..Default::default()
             },
         );
@@ -133,7 +131,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Maximum number of activities to return (1-400). Use the smallest value that answers the question: 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise this to reach older/historical activities — the feed is newest-first; use `after`/`before` date bounds instead. Response includes has_more and pagination info for follow-up requests.".to_owned(),
+                    "Maximum activities (1-400): the smallest that answers the question, e.g. 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise it to reach older activities (the feed is newest-first); use `after`/`before`. has_more flags a next page.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -165,7 +163,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Unix timestamp (epoch seconds) upper bound — return only activities at or before this time. Pair with `after` to bound a specific year or date range (e.g. all of 2022 = after 1640995200, before 1672531200).".to_owned(),
+                    "Upper bound, epoch seconds. Pair with `after` for a year or date range (all of 2022 = after 1640995200, before 1672531200).".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -176,7 +174,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Unix timestamp (epoch seconds) lower bound — return only activities at or after this time. REQUIRED for any year- or date-scoped question (e.g. 'my 2022 races', 'runs last spring'): set `after` to the start of the range and `before` to the end. Do NOT try to reach older activities by raising `limit` — the feed is newest-first and will not page back far; date filters are the only way to query history. Deep historical windows are served from cache or fetched in the background: a first request may return a 'fetching, ask again shortly' status, and a client that declared the io.modelcontextprotocol/tasks extension receives a task handle to poll instead.".to_owned(),
+                    "Lower bound, epoch seconds. REQUIRED for any year- or date-scoped question ('my 2022 races', 'runs last spring'): set it to the range start and `before` to its end; date bounds are the only way to query history. A deep historical window may first return a 'fetching, ask again shortly' status.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -187,7 +185,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Output mode: 'summary' (default, minimal fields) or 'detailed' (full activity data).".to_owned(),
+                    "'summary' (default, minimal fields) or 'detailed' (full activity data)."
+                        .to_owned(),
                 ),
                 ..Default::default()
             },
@@ -198,11 +197,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "What the activities are for, so the data-sufficiency guidance \
-                     matches the question: 'weekly_summary', 'trend_analysis', \
-                     'race_preparation', 'recovery_assessment', or \
-                     'general_overview' (default)."
-                        .to_owned(),
+                    "Tunes the data-sufficiency guidance: 'weekly_summary', 'trend_analysis', 'race_preparation', 'recovery_assessment' or 'general_overview' (default).".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -215,7 +210,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Order of the returned list, applied BEFORE `limit` so the truncated set keeps the right activities. One of: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc' (shortest first), 'duration_desc' (longest time first), 'duration_asc' (shortest time first). Map the user's wording: 'de la plus longue à la plus courte' / 'longest to shortest' => distance_desc; 'oldest first' / 'du début' => date_asc.".to_owned(),
+                    "Applied BEFORE `limit`, so the truncated set keeps the right activities: 'date_desc' (default, newest first), 'date_asc' (oldest first), 'distance_desc' (longest first), 'distance_asc', 'duration_desc' (longest time first) or 'duration_asc'. 'longest to shortest' / 'de la plus longue à la plus courte' => distance_desc; 'oldest first' / 'du début' => date_asc.".to_owned(),
                 ),
                 ..Default::default()
             },
@@ -226,7 +221,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
         answers_with::<GetActivitiesResult>(task_capable(tool_definition(
             "get_activities",
-            "Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Use `sort_by` to honor an explicit ordering request (e.g. longest-to-shortest). Supports sport-type filtering and pagination.",
+            "Retrieve the user's activities from connected providers. For a year or date range \
+             (e.g. '2022 races'), pass `after`/`before`; do NOT page recent activities with \
+             `limit` to reach old data. Use `sort_by` for an explicit ordering request (e.g. \
+             longest to shortest).",
             schema,
             annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))

@@ -26,9 +26,9 @@ pub(super) fn provider_property() -> PropertySchema {
     PropertySchema {
         property_type: "string".to_owned(),
         description: Some(
-            "Calendar provider to write to, by name (e.g. intervals_icu). Optional: omitted, \
-             the athlete's connected provider that writes a training calendar is used, the \
-             first in alphabetical order when several are connected."
+            "Calendar provider to write to (e.g. intervals_icu). Omitted: the athlete's \
+             connected provider that writes a training calendar, the first alphabetically \
+             when several are."
                 .to_owned(),
         ),
         ..Default::default()
@@ -348,9 +348,9 @@ pub(super) fn step_schema() -> PropertySchema {
         PropertySchema {
             property_type: "integer".to_owned(),
             description: Some(format!(
-                "Required. How long ONE repetition of this step lasts, in whole seconds: at \
-                 least 1 and at most {MAX_STEP_DURATION_SECONDS}. A distance-based step still \
-                 needs its estimated duration here; never 0."
+                "Required. How long ONE repetition lasts, in whole seconds, at least 1 and at \
+                 most {MAX_STEP_DURATION_SECONDS}; a distance-based step gives its estimate. \
+                 Never 0."
             )),
             ..Default::default()
         },
@@ -381,11 +381,10 @@ pub(super) fn step_schema() -> PropertySchema {
         PropertySchema {
             property_type: "integer".to_owned(),
             description: Some(format!(
-                "Which repeated set this step belongs to, numbered 1, 2, 3 in step order \
-                 (at most {MAX_SESSION_STEPS}). Give every step of one set the same number and \
-                 the next set the next number, so 3 x (1 min on, 1 min off) straight into \
-                 3 x (30 s on, 30 s off) stays two sets; omit it when no two adjacent sets \
-                 share a repeat count."
+                "Which repeated set this step belongs to, numbered 1, 2, 3 in step order (at \
+                 most {MAX_SESSION_STEPS}): every step of a set shares its number, so \
+                 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) stays two \
+                 sets. Omit when no two adjacent sets share a repeat count."
             )),
             ..Default::default()
         },
@@ -395,7 +394,7 @@ pub(super) fn step_schema() -> PropertySchema {
         PropertySchema {
             property_type: "number".to_owned(),
             description: Some(format!(
-                "Distance in metres for a distance-based step, above 0 and at most \
+                "Metres for a distance-based step, above 0 and at most \
                  {MAX_STEP_DISTANCE_METERS}; duration_seconds is still required."
             )),
             ..Default::default()

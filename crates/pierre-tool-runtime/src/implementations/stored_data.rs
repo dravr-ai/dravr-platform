@@ -145,9 +145,8 @@ fn date_range_properties() -> BTreeMap<String, PropertySchema> {
         PropertySchema {
             property_type: "string".to_owned(),
             description: Some(format!(
-                "Start of the date range as RFC3339 timestamp. Defaults to \
-                 {DEFAULT_LOOKBACK_DAYS} days before `end`; a range longer than \
-                 {MAX_RANGE_DAYS} days keeps its most recent {MAX_RANGE_DAYS}."
+                "RFC3339 start; defaults to {DEFAULT_LOOKBACK_DAYS} days before `end`; a \
+                 range longer than {MAX_RANGE_DAYS} days keeps its most recent {MAX_RANGE_DAYS}."
             )),
             ..Default::default()
         },
@@ -156,9 +155,7 @@ fn date_range_properties() -> BTreeMap<String, PropertySchema> {
         "end".to_owned(),
         PropertySchema {
             property_type: "string".to_owned(),
-            description: Some(
-                "End of the date range as RFC3339 timestamp. Defaults to now.".to_owned(),
-            ),
+            description: Some("RFC3339 end; defaults to now.".to_owned()),
             ..Default::default()
         },
     );
