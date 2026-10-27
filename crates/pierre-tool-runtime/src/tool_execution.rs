@@ -563,16 +563,34 @@ pub fn parse_lenient_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
 /// payload (`get_activities`), and only the second is a context cost, so a
 /// budget is set from it rather than from the first.
 pub(crate) fn log_tool_response_size(func_response: &FunctionResponse) {
+    log_size(
+        "tool_response_size",
+        &func_response.name,
+        &func_response.response,
+    );
+}
+
+/// The same measurement for a call the Copilot/ACP agent made through the
+/// loopback seam, which calls the executor directly and so never reaches
+/// [`log_tool_response_size`].
+///
+/// A distinct `event_type` on purpose: the presence of `tool_response_size` is
+/// how ADR-016 tells an API or CLI loop from the loopback path, so reusing it
+/// would erase the one signal that names the path a turn ran.
+pub fn log_loopback_tool_response_size(tool_name: &str, response: &serde_json::Value) {
+    log_size("loopback_tool_response_size", tool_name, response);
+}
+
+fn log_size(event_type: &str, tool_name: &str, response: &serde_json::Value) {
     use pierre_formatters::TokenEfficiencyMetrics;
 
-    let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
+    let serialized = serde_json::to_string(response).unwrap_or_default();
     let byte_size = serialized.len();
-    let prompt = render_tool_payload_for_prompt(&func_response.name, &func_response.response);
+    let prompt = render_tool_payload_for_prompt(tool_name, response);
     let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&prompt);
-    let name = &func_response.name;
     info!(
-        event_type = "tool_response_size",
-        tool_name = %name,
+        event_type = event_type,
+        tool_name = %tool_name,
         response_bytes = byte_size,
         prompt_bytes = prompt.len(),
         estimated_tokens = estimated_tokens,

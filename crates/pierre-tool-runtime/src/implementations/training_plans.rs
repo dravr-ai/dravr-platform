@@ -47,7 +47,9 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::plan_goal_fact::{
     converge_goal_fact, fact_belongs_to_user, retire_superseded_goal_facts,
 };
-use pierre_services::training_plan_render::plan_goal_is_stale;
+use pierre_services::training_plan_render::{
+    plan_goal_is_stale, select_active_weeks, ACTIVE_WEEKS,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
@@ -85,6 +87,20 @@ use pierre_core::errors::{AppError, AppResult};
 use crate::implementations::guided_flow::{active_guided_flow, flow_withholds_writes};
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
+
+/// Keep the weeks [`select_active_weeks`] picks for `today` — the athlete's
+/// fortnight, the same one the prompt block, the plan card and `/plan` show —
+/// and return how many it dropped.
+fn window_to_active_weeks(weeks: &mut Vec<PlanWeek>, today: NaiveDate) -> usize {
+    let before = weeks.len();
+    let keep: Vec<String> = select_active_weeks(weeks, today, ACTIVE_WEEKS)
+        .weeks
+        .iter()
+        .map(|selected| selected.week.id.clone())
+        .collect();
+    weeks.retain(|week| keep.contains(&week.id));
+    before - weeks.len()
+}
 
 fn optional_string_field(args: &Value, key: &str) -> Option<String> {
     args.get(key)
@@ -424,6 +440,19 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             },
         );
         properties.insert(
+            "all_weeks".to_owned(),
+            PropertySchema {
+                property_type: "boolean".to_owned(),
+                description: Some(
+                    "Return every stored week. By default only the current and next week come \
+                     back — the fortnight the athlete acts on — and `weeks_omitted` counts the \
+                     later ones. Ask for all of them only to reshape the season beyond that."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
             "include_state".to_owned(),
             PropertySchema {
                 property_type: "boolean".to_owned(),
@@ -483,6 +512,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             // reads across the training-history, recovery, sleep and template
             // stores, and this tool is on the "what am I doing this week" hot
             // path.
+            let all_weeks = args
+                .get("all_weeks")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let include_state = args
                 .get("include_state")
                 .and_then(Value::as_bool)
@@ -553,6 +586,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                         athlete: scope.acting_for.clone(),
                         message: Some(message.to_owned()),
                         weeks: None,
+                        weeks_omitted: None,
                         fueling_withheld: fueling.redact_weeks(&mut []),
                         authors: Vec::new(),
                         goal_stale: None,
@@ -602,6 +636,14 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
 
             let draft = draft_section(repos, &scope, &active_weeks, &fueling).await?;
             let fueling_withheld = fueling.redact_weeks(&mut weeks);
+            // The athlete acts on a fortnight, and every week returned here is
+            // replayed into each later call of the conversation. The audit trail
+            // (`include_history`) and an explicit `all_weeks` keep the full set.
+            let weeks_omitted = if include_history || all_weeks {
+                None
+            } else {
+                Some(window_to_active_weeks(&mut weeks, today)).filter(|omitted| *omitted > 0)
+            };
             ok_typed(
                 "get_training_plan",
                 GetTrainingPlanResult {
@@ -609,6 +651,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
                     athlete: scope.acting_for.clone(),
                     message: None,
                     weeks: Some(weeks),
+                    weeks_omitted,
                     fueling_withheld,
                     authors,
                     goal_stale: Some(goal_stale),
@@ -1057,3 +1100,55 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
 // untrusted-content class as recalled memory, so a read taints the turn.
 crate::declare_security!(GetTrainingPlanTool => UNTRUSTED_OUTPUT);
 crate::declare_security!(SaveTrainingPlanTool => empty);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn week(id: &str, week_start: &str) -> PlanWeek {
+        PlanWeek {
+            id: id.to_owned(),
+            tenant_id: "tenant".to_owned(),
+            user_id: "user".to_owned(),
+            plan_id: "plan".to_owned(),
+            week_start: week_start.to_owned(),
+            focus: "volume".to_owned(),
+            phase_index: None,
+            days: Vec::new(),
+            status: WeekStatus::Active,
+            supersedes_id: None,
+            adjustment_reason: String::new(),
+            author_agent_id: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn window_keeps_the_current_and_next_week_and_counts_the_rest() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let mut weeks = vec![
+            week("over", "2026-10-26"),
+            week("current", "2026-11-02"),
+            week("next", "2026-11-09"),
+            week("later-1", "2026-11-16"),
+            week("later-2", "2026-11-23"),
+        ];
+
+        let omitted = window_to_active_weeks(&mut weeks, today);
+
+        let kept: Vec<&str> = weeks.iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(kept, ["current", "next"]);
+        assert_eq!(omitted, 3, "the week already over and the two later ones");
+    }
+
+    #[test]
+    fn window_leaves_a_short_plan_alone() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
+        let mut weeks = vec![week("current", "2026-11-02"), week("next", "2026-11-09")];
+
+        assert_eq!(window_to_active_weeks(&mut weeks, today), 0);
+        assert_eq!(weeks.len(), 2);
+    }
+}

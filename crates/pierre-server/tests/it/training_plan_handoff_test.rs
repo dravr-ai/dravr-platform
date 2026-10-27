@@ -533,7 +533,13 @@ async fn a_fuelling_conversation_reads_the_season() {
     let a = athlete().await;
     let season = endurance_lays_the_season(&a).await;
 
-    let fetched = call(&a, GetTrainingPlanTool, Some(&a.fuelling_dm), json!({})).await;
+    let fetched = call(
+        &a,
+        GetTrainingPlanTool,
+        Some(&a.fuelling_dm),
+        json!({ "all_weeks": true }),
+    )
+    .await;
     assert_eq!(plan_id(ok(&fetched)), season);
     let authors = fetched
         .get("authors")

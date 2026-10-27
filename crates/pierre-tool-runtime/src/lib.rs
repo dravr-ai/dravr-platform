@@ -146,6 +146,8 @@ mod head_stream;
 #[cfg(feature = "client-chat")]
 mod headless_finalize;
 #[cfg(feature = "client-chat")]
+mod prompt_projection;
+#[cfg(feature = "client-chat")]
 pub mod tool_execution;
 /// One API tool-loop iteration's call to the chain head, routed per iteration
 #[cfg(feature = "client-chat")]

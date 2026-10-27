@@ -45,6 +45,11 @@ pub struct GetTrainingPlanResult {
     /// The weeks, day by day. Absent when there is no plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weeks: Option<Vec<PlanWeek>>,
+    /// How many stored weeks `weeks` leaves out: the ones already over and the
+    /// ones beyond next week. Absent when `weeks` holds every stored week; ask
+    /// again with `all_weeks` to read them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weeks_omitted: Option<usize>,
     /// Present when a medical/PAR-Q flag is on file: the athlete's clinician
     /// sets their fuelling amounts, so no day in `weeks` carries `fueling`
     /// rates, `dates` names the days whose stored rates were withheld, and a

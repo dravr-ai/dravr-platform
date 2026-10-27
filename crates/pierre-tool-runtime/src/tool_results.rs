@@ -23,6 +23,7 @@ use serde_json::{Map, Value};
 use tracing::info;
 
 use crate::guardian::StepOutput;
+use crate::prompt_projection::project_plan_tool_payload;
 use crate::reconnect::offer_in_payload;
 use crate::reply_budget::REPLY_BUDGET_KEY;
 
@@ -39,9 +40,23 @@ use crate::reply_budget::REPLY_BUDGET_KEY;
 /// step rather than at the injection site.
 #[must_use]
 pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> String {
-    let projected = project_activities_payload(tool_name, response);
+    let projected = project_tool_payload(tool_name, response);
     let payload = projected.as_ref().unwrap_or(response);
     serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_owned())
+}
+
+/// The one projection every render of a tool result goes through.
+///
+/// `get_activities` first (carnet#128), then the plan-building tools
+/// ([`project_plan_tool_payload`], carnet#1197). `None` for any other tool and
+/// for a shape a projection does not recognise, so the payload travels whole.
+/// The API loop, the text loop, the capability re-ask and the loopback seam the
+/// Copilot/ACP agent calls through all call this, so a tool is projected once,
+/// the same way, on every path.
+#[must_use]
+pub fn project_tool_payload(tool_name: &str, response: &Value) -> Option<Value> {
+    project_activities_payload(tool_name, response)
+        .or_else(|| project_plan_tool_payload(tool_name, response))
 }
 
 /// The `get_activities` envelope fields that survive projection verbatim.
@@ -195,7 +210,7 @@ pub fn format_tool_results_as_text(responses: &[FunctionResponse]) -> String {
     let projected: Vec<FunctionResponse> = responses
         .iter()
         .map(|resp| {
-            project_activities_payload(&resp.name, &resp.response).map_or_else(
+            project_tool_payload(&resp.name, &resp.response).map_or_else(
                 || resp.clone(),
                 |payload| FunctionResponse {
                     name: resp.name.clone(),

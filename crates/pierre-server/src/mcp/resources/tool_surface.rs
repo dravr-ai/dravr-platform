@@ -51,8 +51,9 @@ use pierre_tool_runtime::implementations::guided_flow::{
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
+use pierre_tool_runtime::tool_execution::log_loopback_tool_response_size;
 use pierre_tool_runtime::tool_loop_io::PLATFORM_MCP_SERVER_NAME;
-use pierre_tool_runtime::tool_results::project_activities_payload;
+use pierre_tool_runtime::tool_results::project_tool_payload;
 use serde_json::Value;
 use tracing::{info, warn};
 
@@ -277,12 +278,14 @@ impl ToolSurface for TurnToolSurface {
                     // reached through this very surface, so the agent's chaining
                     // requirement is the API loop's requirement.
                     //
-                    // `None` for anything that is not a recognised `get_activities`
-                    // envelope, and then the payload travels whole. The projection
-                    // must never be the reason an agent has no data.
-                    ToolOutcome::json(
-                        project_activities_payload(tool_name, &payload).unwrap_or(payload),
-                    )
+                    // The plan-building tools (carnet#1197) go through the same
+                    // dispatch, so a result is cut once, the same way, on every path.
+                    //
+                    // `None` for anything that is not a recognised envelope, and then
+                    // the payload travels whole. The projection must never be the
+                    // reason an agent has no data.
+                    log_loopback_tool_response_size(tool_name, &payload);
+                    ToolOutcome::json(project_tool_payload(tool_name, &payload).unwrap_or(payload))
                 } else {
                     // The tool ran and declined — a Guardian block, a tenant
                     // disable, a provider needing reconnection. The model must

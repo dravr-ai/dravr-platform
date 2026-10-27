@@ -1161,6 +1161,9 @@ export interface GetTrainingHistoryParams {
  */
 export interface GetTrainingPlanParams {
 
+  /** Return every stored week. By default only the current and next week come back — the fortnight the athlete acts on — and `weeks_omitted` counts the later ones. Ask for all of them only to reshape the season beyond that. */
+  all_weeks?: boolean;
+
   /** Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to act on your own plan. */
   athlete?: string;
 

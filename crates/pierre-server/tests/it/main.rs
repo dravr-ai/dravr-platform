@@ -760,6 +760,7 @@ mod tool_catalog_completeness_test;
 mod tool_catalogue_budget_test;
 mod tool_error_handling_comprehensive_test;
 mod tool_output_schema_stability_test;
+mod tool_payload_projection_test;
 mod tool_registry_integration_test;
 mod tool_registry_regression_test;
 mod tool_schema_root_type_test;

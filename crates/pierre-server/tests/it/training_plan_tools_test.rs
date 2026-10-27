@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::llm::tool_simulation::generate_tool_catalog;
 use pierre_core::models::{
@@ -219,7 +219,7 @@ async fn assert_no_plan(
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(tenant_id),
         ))
@@ -228,6 +228,87 @@ async fn assert_no_plan(
     assert!(
         fetched["plan"].is_null(),
         "no partial plan may survive a rejected save: {fetched}"
+    );
+    Ok(())
+}
+
+/// `weeks` consecutive weeks from the Monday of this week, one rest day each.
+fn season_from_this_week(weeks: i64) -> Value {
+    let monday = Utc::now().date_naive()
+        - chrono::Duration::days(i64::from(
+            Utc::now().date_naive().weekday().num_days_from_monday(),
+        ));
+    let weeks: Vec<Value> = (0..weeks)
+        .map(|n| {
+            let start = (monday + chrono::Duration::weeks(n)).to_string();
+            json!({
+                "week_start": start,
+                "focus": format!("week {n}"),
+                "days": [{"date": start, "sport": "rest", "workout": "off"}],
+            })
+        })
+        .collect();
+    json!({
+        "agent_id": "endurance-coach",
+        "outline": {
+            "goal_race": {
+                "name": "Season opener",
+                "date": (monday + chrono::Duration::weeks(6)).to_string(),
+                "discipline": "gravel",
+                "priority": "A"
+            },
+            "strategy": "five weeks of base before the opener",
+            "phases": [
+                {"kind": "build", "start": monday.to_string(), "weeks": 5, "intent": "steady volume"}
+            ]
+        },
+        "weeks": weeks,
+    })
+}
+
+#[tokio::test]
+async fn get_training_plan_returns_the_fortnight_and_counts_the_rest() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            season_from_this_week(5),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "the season must save: {:?}", save.error);
+
+    let read = |args: Value| {
+        let executor = &executor;
+        let tenant_id = tenant_id.clone();
+        async move {
+            let response = executor
+                .execute_tool(make_request(
+                    "get_training_plan",
+                    args,
+                    user_id,
+                    Some(&tenant_id),
+                ))
+                .await?;
+            Ok::<Value, anyhow::Error>(response.result.expect("get result"))
+        }
+    };
+
+    let windowed = read(json!({"agent_id": "endurance-coach"})).await?;
+    assert_eq!(
+        windowed["weeks"].as_array().expect("weeks").len(),
+        2,
+        "the current and next week: the fortnight the athlete acts on"
+    );
+    assert_eq!(windowed["weeks_omitted"], 3);
+
+    let everything = read(json!({"agent_id": "endurance-coach", "all_weeks": true})).await?;
+    assert_eq!(everything["weeks"].as_array().expect("weeks").len(), 5);
+    assert!(
+        everything.get("weeks_omitted").is_none(),
+        "nothing left out, nothing to mark"
     );
     Ok(())
 }
@@ -250,7 +331,7 @@ async fn a_structured_day_saves_and_reads_back() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -448,7 +529,7 @@ async fn float_shaped_step_numbers_from_the_llm_are_accepted() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -568,7 +649,7 @@ async fn save_full_plan_then_get_roundtrip_with_goal_fact_writeback() -> Result<
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -651,7 +732,7 @@ async fn adjust_single_week_without_outline_supersedes_that_week() -> Result<()>
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -702,7 +783,7 @@ async fn float_shaped_numbers_from_the_llm_are_accepted() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -739,7 +820,7 @@ async fn invalid_week_date_rejects_whole_save_with_no_partial_writes() -> Result
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -983,7 +1064,7 @@ async fn oversized_strategy_is_rejected_with_no_write() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1083,7 +1164,7 @@ async fn a_real_but_non_goal_fact_id_is_not_linked() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1120,7 +1201,7 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
     let fresh = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1140,7 +1221,7 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
     let stale = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1375,7 +1456,7 @@ async fn outline_without_blocks_saves_and_reads_back() -> Result<()> {
     let fetched = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1548,7 +1629,7 @@ async fn a_goal_fact_ranked_below_the_list_cap_is_still_the_athletes_own() -> Re
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1743,7 +1824,7 @@ async fn a_week_only_adjustment_is_not_graded_as_an_opening_week() -> Result<()>
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -1795,7 +1876,7 @@ async fn a_date_outside_the_calendar_domain_is_rejected_with_no_write() -> Resul
         let get = executor
             .execute_tool(make_request(
                 "get_training_plan",
-                json!({"agent_id": "endurance-coach"}),
+                json!({"agent_id": "endurance-coach", "all_weeks": true}),
                 user_id,
                 Some(&tenant_id),
             ))
@@ -1849,7 +1930,7 @@ async fn a_hallucinated_week_count_is_rejected_with_no_write() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))
@@ -2419,7 +2500,7 @@ async fn a_vision_saves_with_its_flavour_and_reads_back() -> Result<()> {
     let get = executor
         .execute_tool(make_request(
             "get_training_plan",
-            json!({"agent_id": "endurance-coach"}),
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
             user_id,
             Some(&tenant_id),
         ))

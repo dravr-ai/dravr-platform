@@ -16178,6 +16178,10 @@
       "description": "Fetch the athlete's active training plan: goal race, flavour, season phases with their targets, and the day-by-day weeks. The plan is the athlete's one season, whichever agent laid it: `authors` names the agent that laid the season and the agents that wrote weeks, and marks which one is you. Use before answering any 'what's my plan / what am I doing this week' question — the stored plan, not memory of the conversation, is the source of truth. The calendar block lists what Dravr has on the athlete's Intervals.icu calendar (each entry's prescription_id is what prescribe_workout's replaces and withdraw_prescribed_workout take) and whether push_training_plan would change it; offer that push only when calendar.pushed_by is absent — human_coach means the athlete reads that calendar through their human coach's link and the coach updates it. A group's human coach reads a consenting athlete's plan by passing `athlete` from their own direct chat (in the coach's thread about one athlete it defaults to that athlete) — the athlete shares it into the room with `/plan share`. For a coach, `plan` is what the athlete sees and `draft` is the coach's own unpublished draft of it: its outline, the weeks as publishing would leave them, and `draft.state` — the weeks the athlete changed since the coach drafted them and whether their season was re-laid, which publish_training_plan would refuse.",
       "inputSchema": {
         "properties": {
+          "all_weeks": {
+            "description": "Return every stored week. By default only the current and next week come back — the fortnight the athlete acts on — and `weeks_omitted` counts the later ones. Ask for all of them only to reshape the season beyond that.",
+            "type": "boolean"
+          },
           "athlete": {
             "description": "Roster display name of the athlete whose plan this is. Only the group's human coach (attached via a coach invite) may set it, for a consenting athlete in a group they coach, and only from a direct chat — never in a room. In the coach's thread about one athlete it defaults to that athlete; elsewhere, omit it to act on your own plan.",
             "type": "string"
@@ -18646,6 +18650,15 @@
             },
             "type": [
               "array",
+              "null"
+            ]
+          },
+          "weeks_omitted": {
+            "description": "How many stored weeks `weeks` leaves out: the ones already over and the\nones beyond next week. Absent when `weeks` holds every stored week; ask\nagain with `all_weeks` to read them.",
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
               "null"
             ]
           }

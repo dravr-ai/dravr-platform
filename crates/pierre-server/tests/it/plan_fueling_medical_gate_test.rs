@@ -151,7 +151,11 @@ async fn save(executor: &UniversalToolExecutor, athlete: &Athlete, plan: Value) 
 
 async fn get_plan(executor: &UniversalToolExecutor, athlete: &Athlete) -> Result<Value> {
     let got = executor
-        .execute_tool(request("get_training_plan", athlete, json!({})))
+        .execute_tool(request(
+            "get_training_plan",
+            athlete,
+            json!({"all_weeks": true}),
+        ))
         .await?;
     assert!(got.success, "the plan reads: {:?}", got.error);
     Ok(got.result.expect("a result"))
