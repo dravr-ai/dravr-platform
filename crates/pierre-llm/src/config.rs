@@ -580,6 +580,30 @@ impl LlmChain {
         &self.entries[0]
     }
 
+    /// Every model the chain names on the Anthropic API, once each and in chain
+    /// order: each `anthropic` entry's model, then its pooled accounts', whether
+    /// or not that account's key is set.
+    #[must_use]
+    pub fn anthropic_models(&self) -> Vec<String> {
+        let mut models: Vec<String> = Vec::new();
+        for entry in self
+            .entries
+            .iter()
+            .filter(|entry| entry.provider == LlmProviderType::Anthropic)
+        {
+            for model in entry
+                .effective_model()
+                .into_iter()
+                .chain(entry.account_models.values().cloned())
+            {
+                if !models.contains(&model) {
+                    models.push(model);
+                }
+            }
+        }
+        models
+    }
+
     /// What parsing repaired or dropped, for the boot log.
     #[must_use]
     pub fn issues(&self) -> &[String] {
@@ -804,6 +828,21 @@ mod tests {
             chain.issues()[0].contains("names no model for anthropic#2"),
             "{:?}",
             chain.issues()
+        );
+    }
+
+    #[test]
+    fn anthropic_models_lists_each_anthropic_model_once_in_chain_order() {
+        let chain = LlmChain::parse(
+            "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,anthropic#3=claude-opus-5-5,copilot_sdk=claude-sonnet-5.5,gemini=gemini-flash-lite-latest",
+        );
+        assert_eq!(
+            chain.anthropic_models(),
+            ["claude-opus-5-5", "claude-haiku-5-5"]
+        );
+        assert_eq!(
+            LlmChain::parse("copilot_sdk=claude-sonnet-5.5").anthropic_models(),
+            Vec::<String>::new()
         );
     }
 

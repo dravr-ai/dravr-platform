@@ -26,11 +26,11 @@
 //! `anthropic#N` — see `anthropic_pooled_accounts`.
 
 use embacle::pool::PooledTier;
-use embacle::types::LlmProvider as EmbacleLlmProvider;
+use embacle::types::{ChatMessage, ChatRequest, LlmProvider as EmbacleLlmProvider};
 use embacle::{
-    AnthropicConfig, AnthropicProvider, CohereConfig, CohereProvider, GeminiConfig, GeminiProvider,
-    GroqConfig, GroqProvider, OpenAiCompatibleConfig, OpenAiCompatibleProvider, OpenRouterConfig,
-    OpenRouterProvider,
+    AnthropicConfig, AnthropicProvider, CohereConfig, CohereProvider, FunctionDeclaration,
+    GeminiConfig, GeminiProvider, GroqConfig, GroqProvider, OpenAiCompatibleConfig,
+    OpenAiCompatibleProvider, OpenRouterConfig, OpenRouterProvider,
 };
 use pierre_core::http_client::llm_inner_client;
 use tracing::{debug, info};
@@ -129,6 +129,45 @@ fn anthropic_provider(config: AnthropicConfig) -> Box<dyn EmbacleLlmProvider> {
         config,
         llm_inner_client().clone(),
     ))
+}
+
+/// The one-line request a tool-catalogue count is taken around
+const CATALOGUE_PROBE: &str = "Hi";
+
+/// The input tokens `tools` cost on `model`, counted by Anthropic on the
+/// tier's first account (carnet#1196).
+///
+/// One short request is counted with the tools and again without them; the
+/// difference is the catalogue plus the tool-use preamble Anthropic adds
+/// whenever tools are present (286 tokens on the 5.5 models). Counting is free
+/// and rate-limited apart from Messages.
+///
+/// # Errors
+///
+/// Returns `AppError` when `ANTHROPIC_API_KEY` is unset or invalid, or when
+/// the API refuses either count.
+pub async fn anthropic_tool_tokens(
+    model: &str,
+    tools: &[FunctionDeclaration],
+) -> Result<u32, AppError> {
+    count_tool_tokens(AnthropicConfig::from_env()?, model, tools).await
+}
+
+/// The with-and-without count behind [`anthropic_tool_tokens`], on `config`.
+async fn count_tool_tokens(
+    config: AnthropicConfig,
+    model: &str,
+    tools: &[FunctionDeclaration],
+) -> Result<u32, AppError> {
+    let provider = AnthropicProvider::with_client(
+        anthropic_config(config, Some(model)),
+        llm_inner_client().clone(),
+    );
+    let bare = ChatRequest::new(vec![ChatMessage::user(CATALOGUE_PROBE)]);
+    let with_tools = bare.clone().with_tools(tools.to_vec());
+    let without = provider.count_tokens(&bare).await?;
+    let with = provider.count_tokens(&with_tools).await?;
+    Ok(with.saturating_sub(without))
 }
 
 /// Gemini on `GEMINI_API_KEY`, on `model_override` else `PIERRE_LLM_DEFAULT_MODEL`.
@@ -336,5 +375,168 @@ fn local_display_name(provider_name: &str) -> &'static str {
         "vllm" => "vLLM (Local)",
         "localai" => "LocalAI",
         _ => "Local LLM",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use embacle::{AnthropicConfig, FunctionDeclaration};
+    use serde_json::json;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::{TcpListener, TcpStream};
+
+    use super::count_tool_tokens;
+
+    /// What the endpoint counts for a request that carries a `tools` block
+    const WITH_TOOLS: u32 = 1_830;
+    /// What the endpoint counts for the same request without one
+    const WITHOUT_TOOLS: u32 = 8;
+
+    /// One HTTP/1.1 request off `stream`: its head, then as many body bytes
+    /// as its `content-length` names.
+    async fn read_request(stream: &mut TcpStream) -> String {
+        let mut raw = Vec::new();
+        let mut buf = [0_u8; 4096];
+        loop {
+            let n = stream.read(&mut buf).await.expect("read the request");
+            if n == 0 {
+                break;
+            }
+            raw.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&raw);
+            if let Some(head_end) = text.find("\r\n\r\n") {
+                let length = text[..head_end]
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if raw.len() >= head_end + 4 + length {
+                    break;
+                }
+            }
+        }
+        String::from_utf8_lossy(&raw).into_owned()
+    }
+
+    /// Serve `POST /v1/messages/count_tokens` on a loopback port and record
+    /// every request. With `refuse` each one is answered 401, as Anthropic
+    /// answers a revoked key; otherwise the count is [`WITH_TOOLS`] when the
+    /// body carries tools, else [`WITHOUT_TOOLS`].
+    async fn count_tokens_endpoint(refuse: bool) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&seen);
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let request = read_request(&mut stream).await;
+                let (status, body) = if refuse {
+                    (
+                        "401 Unauthorized",
+                        r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#.to_owned(),
+                    )
+                } else {
+                    let tokens = if request.contains(r#""tools":"#) {
+                        WITH_TOOLS
+                    } else {
+                        WITHOUT_TOOLS
+                    };
+                    ("200 OK", format!(r#"{{"input_tokens":{tokens}}}"#))
+                };
+                recorded.lock().expect("record the request").push(request);
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("answer the request");
+                stream.shutdown().await.expect("close the connection");
+            }
+        });
+        (base_url, seen)
+    }
+
+    /// A one-tool catalogue whose name a request body shows.
+    fn catalogue() -> Vec<FunctionDeclaration> {
+        vec![FunctionDeclaration {
+            name: "get_activities".to_owned(),
+            description: "The athlete's recent activities".to_owned(),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": { "limit": { "type": "integer" } }
+            })),
+        }]
+    }
+
+    #[tokio::test]
+    async fn the_count_is_what_the_tools_add_on_the_model_asked_for() {
+        let (base_url, seen) = count_tokens_endpoint(false).await;
+        // embacle's default model is Haiku, so a request naming Opus proves
+        // the argument reached both counts.
+        let config = AnthropicConfig::new("sk-ant-test-key").with_base_url(base_url);
+
+        let tokens = count_tool_tokens(config, "claude-opus-5-5", &catalogue())
+            .await
+            .expect("the endpoint counts both requests");
+
+        assert_eq!(
+            tokens,
+            WITH_TOOLS - WITHOUT_TOOLS,
+            "the figure is the difference the tools make, never either raw count"
+        );
+        let requests = seen.lock().expect("read the requests").clone();
+        assert_eq!(
+            requests.len(),
+            2,
+            "one count with the tools and one without: {requests:?}"
+        );
+        for request in &requests {
+            assert!(
+                request.starts_with("POST /v1/messages/count_tokens "),
+                "every request goes to the counting endpoint, never Messages: {request}"
+            );
+            assert!(
+                request.contains(r#""model":"claude-opus-5-5""#),
+                "every count runs on the model asked for: {request}"
+            );
+        }
+        let with_tools: Vec<&String> = requests
+            .iter()
+            .filter(|request| request.contains(r#""tools":"#))
+            .collect();
+        let [with_tools] = with_tools.as_slice() else {
+            panic!("exactly one count carries the tools: {requests:?}");
+        };
+        assert!(
+            with_tools.contains("get_activities"),
+            "the tools counted are the catalogue handed in: {with_tools}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_count_is_an_error_never_a_zero() {
+        let (base_url, seen) = count_tokens_endpoint(true).await;
+        let config = AnthropicConfig::new("sk-ant-test-key").with_base_url(base_url);
+
+        let result = count_tool_tokens(config, "claude-opus-5-5", &catalogue()).await;
+
+        assert!(
+            result.is_err(),
+            "a refused key must surface as an error, got {result:?}"
+        );
+        assert!(
+            !seen.lock().expect("read the requests").is_empty(),
+            "the refusal must come from the endpoint, not from building the request"
+        );
     }
 }
