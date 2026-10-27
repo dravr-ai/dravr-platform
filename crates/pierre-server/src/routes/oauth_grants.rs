@@ -39,15 +39,13 @@ async fn resolve_tenant_id(
     if let Some(tenant_id) = active_tenant_id {
         return Ok(tenant_id.to_string());
     }
-    let tenants = resources
+    resources
         .common
         .repos
         .tenants
-        .list_for_user(user_id)
-        .await?;
-    tenants
-        .first()
-        .map(|tenant| tenant.id.to_string())
+        .first_for_user(user_id)
+        .await?
+        .map(|tenant_id| tenant_id.to_string())
         .ok_or_else(|| AppError::auth_invalid("User has no tenant"))
 }
 

@@ -1,60 +1,20 @@
-# ABOUTME: Helper flow to perform login with test credentials
-# ABOUTME: Logs in using mobiletest@pierre.dev / MobileTest1234 and waits for Home, the tab the app lands on
+# ABOUTME: Helper that signs the seeded tester (mobiletest@pierre.dev) in with a seeded session and waits for Home, the tab the app lands on
+# ABOUTME: For flows that are not testing sign-in: no hosted sign-in sheet; the login/ flows open the page through open-hosted-sign-in.yaml
 
 appId: host.exp.Exponent
 
 ---
-# Dismiss Expo Go project info sheet if it appeared late (after launch-app.yaml).
+# The tester is the account both CI lanes create with `pierre-cli user
+# create`; sign-in-seeded.yaml signs it in without the hosted page (carnet#1201).
 - runFlow:
-    when:
-      visible: "Close"
-    file: dismiss-dev-panel.yaml
-
-# Wait for login screen to be visible
-- extendedWaitUntil:
-    visible:
-      id: "login-screen"
-    timeout: 10000
-
-# Sign in on the server's hosted page (carnet#787): the app opens it in the
-# system browser and redeems the code it returns with. The credentials are
-# hardcoded to match the CI user seed. A browser already signed in to the
-# authorization server (a Chrome Custom Tab keeps its cookie between flows)
-# returns at once without showing the page, so the form is filled only when
-# it is there.
-- runFlow:
-    file: open-hosted-sign-in.yaml
-- runFlow:
-    when:
-      visible: "Password|Mot de passe|Contraseña|Passwort|Palavra-passe"
-    file: submit-hosted-sign-in.yaml
+    file: sign-in-seeded.yaml
     env:
       EMAIL: "mobiletest@pierre.dev"
-      PASSWORD: "MobileTest1234"
 
-# Wait for login screen to disappear (code redemption + auth state change).
-# 45s timeout accounts for slow CI servers (sign-in can take 20s+).
-- extendedWaitUntil:
-    notVisible:
-      id: "login-screen"
-    timeout: 45000
-
-# Capture screenshot for debugging what appears after login
-- takeScreenshot: "after-login-navigation"
-
-# Dismiss iOS "Save Password?" native dialog if present.
-# iOS can offer it after the hosted page's password form is submitted.
-# The dialog blocks the entire RN accessibility tree until dismissed, and it
-# arrives seconds after the login screen has gone, so it is watched for while
-# Home is awaited rather than checked once.
-- runFlow:
-    file: wait-for-home-after-login.yaml
-
-# Wait for Home — the first tab and where the app lands after login. A flow
-# that needs the conversation list goes there with navigate-to-chat.yaml; one
-# that needs the composer opens a thread with new-chat.yaml, which takes the
-# chat tab first when it starts on Home. 60s timeout provides ample margin for
-# slow CI environments where the Expo Router tree swap may take time.
+# Home is the first tab and where the app lands after a sign-in. A flow that
+# needs the conversation list goes there with navigate-to-chat.yaml; one that
+# needs the composer opens a thread with new-chat.yaml, which takes the chat
+# tab first when it starts on Home.
 - extendedWaitUntil:
     visible:
       id: "home-screen"

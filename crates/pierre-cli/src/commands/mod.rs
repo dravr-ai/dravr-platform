@@ -15,6 +15,8 @@ pub(crate) mod harness;
 pub(crate) mod key;
 pub(crate) mod provider_data;
 pub(crate) mod seed;
+#[cfg(feature = "e2e-seeded-sessions")]
+pub(crate) mod session;
 pub(crate) mod settings;
 pub(crate) mod signup_code;
 pub(crate) mod strava_pool;

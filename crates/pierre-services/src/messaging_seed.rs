@@ -57,9 +57,7 @@ pub async fn seed_from_env(repos: &RepositoryRegistry) {
 /// Resolve the admin user's primary tenant
 async fn resolve_admin_tenant(repos: &RepositoryRegistry, admin_email: &str) -> Option<TenantId> {
     let user = repos.users.get_by_email(admin_email).await.ok()??;
-    let tenants = repos.tenants.list_for_user(user.id).await.ok()?;
-    let tenant = tenants.first()?;
-    Some(tenant.id)
+    repos.tenants.first_for_user(user.id).await.ok()?
 }
 
 /// Upsert one env-seeded config and mark it platform scope.

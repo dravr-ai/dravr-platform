@@ -110,8 +110,10 @@ wait_for() {
     return 1
 }
 
+# pierre-cli with e2e-seeded-sessions: the control process mints every seeded
+# session with its `user mint-session` (carnet#1201), as in the CI lanes.
 echo "building pierre-mcp-server and pierre-cli"
-(cd "$ROOT" && cargo build --bin pierre-mcp-server --bin pierre-cli)
+(cd "$ROOT" && cargo build --bin pierre-mcp-server --bin pierre-cli --features pierre-cli/e2e-seeded-sessions)
 
 export DATABASE_URL="sqlite:$DATABASE_PATH"
 export PIERRE_MASTER_ENCRYPTION_KEY="$MASTER_KEY"
@@ -153,10 +155,15 @@ if [ "$MOBILE" = true ]; then
     CONTROL_PID=$!
     wait_for "http://127.0.0.1:$CONTROL_PORT/health" "the double's control API"
 
+    # The flows start signed in through the E2E bundle's seeded-session link
+    # (carnet#1201), which Metro serves only with EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1
+    # and a local API; the app redeems the link's code at the control process
+    # on the API's host, on EXPO_PUBLIC_E2E_CONTROL_PORT.
     echo "starting Metro on $METRO_PORT for Expo Go, the app pointed at Pierre"
     (
         cd "$ROOT/frontend-mobile"
-        EXPO_PUBLIC_API_URL="http://127.0.0.1:$PIERRE_PORT" CI=1 \
+        EXPO_PUBLIC_API_URL="http://127.0.0.1:$PIERRE_PORT" EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1 \
+            EXPO_PUBLIC_E2E_CONTROL_PORT="$CONTROL_PORT" CI=1 \
             exec bunx expo start --go --port "$METRO_PORT"
     ) >"$WORK/metro.log" 2>&1 &
     METRO_PID=$!

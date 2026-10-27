@@ -55,6 +55,10 @@
 //! pierre-cli seed llm-usage --days 60
 //! pierre-cli seed verdict-conversation --email verdicttest@pierre.dev
 //! pierre-cli seed coach-plan-thread --coach-email plancoach@pierre.dev --athlete-email planathlete@pierre.dev
+//!
+//! # Mint a mobile app session for a Maestro flow that starts signed in
+//! # (built with --features e2e-seeded-sessions, against a SQLite database only)
+//! pierre-cli user mint-session --email mobiletest@pierre.dev
 //! ```
 
 // A pub item this binary never uses is reachable from nowhere: the lint is
@@ -577,6 +581,20 @@ enum UserCommand {
         reason: Option<String>,
     },
 
+    /// Mint a mobile app session (access and refresh token, printed as JSON) as the hosted sign-in would
+    ///
+    /// The pair the `dravr-mobile` code exchange issues, from the same calls
+    /// and configuration: for the mobile E2E flows that start signed in
+    /// rather than through the sign-in sheet (carnet#1201). Built only with
+    /// the `e2e-seeded-sessions` feature, and refused on any database but
+    /// SQLite, so the shipped CLI cannot sign anyone in.
+    #[cfg(feature = "e2e-seeded-sessions")]
+    MintSession {
+        /// Email of the account to sign in
+        #[arg(long)]
+        email: String,
+    },
+
     /// Issue a one-time password reset token (printed once, deliver out-of-band)
     ResetPassword {
         /// Email of the user
@@ -912,6 +930,13 @@ async fn main() -> Result<()> {
         ) {
             return dispatch::dispatch_remote_user(action).await;
         }
+        // A seeded session signs an account in with no credential, so it is
+        // refused before any key or connection is opened unless the database
+        // is a local SQLite file: never a deployed one.
+        #[cfg(feature = "e2e-seeded-sessions")]
+        if matches!(action, UserCommand::MintSession { .. }) {
+            commands::session::require_local_database(&database_url)?;
+        }
         cli.command = Command::User { action };
     }
 
@@ -1030,6 +1055,10 @@ async fn main() -> Result<()> {
             }
             UserCommand::ResetPassword { email } => {
                 commands::user::reset_password(&repos, email).await?;
+            }
+            #[cfg(feature = "e2e-seeded-sessions")]
+            UserCommand::MintSession { email } => {
+                commands::session::mint_session(database, jwks_manager, &email).await?;
             }
             UserCommand::SetRateLimit {
                 email,

@@ -17,7 +17,7 @@ use crate::token_errors::{grant_error_response, oauth2_error};
 use crate::AuthRoutesContext;
 use pierre_auth::oauth2_server::endpoints::OAuth2AuthorizationServer;
 use pierre_auth::oauth2_server::first_party::{
-    MOBILE_APP_ATTEST_APP_ID, MOBILE_CLIENT_ID, MOBILE_PLAY_PACKAGE_NAME,
+    MOBILE_APP_ATTEST_APP_ID, MOBILE_CLIENT_ID, MOBILE_PLAY_PACKAGE_NAME, OFFLINE_ACCESS_SCOPE,
 };
 use pierre_auth::oauth2_server::mobile_attestation::{
     record_evidence, verify_evidence, verify_play_integrity, AppAttestEvidence, MobileEvidence,
@@ -31,8 +31,7 @@ use pierre_auth::dto::auth::{
     LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
 };
 
-use pierre_services::analytics::cache_user_email;
-use pierre_services::auth::AuthService;
+use pierre_services::auth::{AuthService, SessionOrigin};
 
 /// Handle the first-party `OAuth2` token request.
 ///
@@ -169,12 +168,17 @@ pub(crate) async fn handle_oauth2_token(
                 }
             }
             match auth_service
-                .sign_in_with_code(redeemed.user_id, &redeemed.tenant_id, &redeemed.client_id)
+                .sign_in_with_code(
+                    redeemed.user_id,
+                    &redeemed.tenant_id,
+                    &redeemed.client_id,
+                    SessionOrigin::AuthorizationCode,
+                )
                 .await
             {
                 Err(e) => Err(e),
                 Ok(response) => {
-                    record_sign_in(&response);
+                    record_signed_in_user(&response);
                     // A refresh token only for the client that asked for one.
                     // The web app never does: its session is the cookie, and a
                     // token it would discard is a live credential in a table.
@@ -225,12 +229,6 @@ pub(crate) async fn handle_oauth2_token(
         Err(e) => Ok(grant_error_response(e)),
     }
 }
-
-/// The scope a client requests to receive a refresh token alongside its JWT.
-///
-/// `OpenID` Connect Core §11's name for "I will need to act while the user is
-/// away", which is exactly what a phone closed for a week is.
-const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
 
 /// Whether a sign-in asked for a refresh token.
 fn requests_offline_access(scope: Option<&str>) -> bool {
@@ -465,23 +463,16 @@ fn refused_code(refusal: &OAuth2Error) -> Response {
     (status, Json(body)).into_response()
 }
 
-/// Record a completed sign-in on the span and raise the `user.login` notify
-/// event for it.
-fn record_sign_in(response: &LoginResponse) {
-    // notify: record tenant/user on the current span so the NotifyLayer can
-    // attribute the user.login event without the call site re-passing IDs.
+/// Record the account a completed sign-in opened on the request span.
+///
+/// The `user.login` notify event itself is raised by
+/// [`AuthService::sign_in_with_code`], which also carries the user and tenant
+/// on the event; the span keeps them for the request's own log lines.
+fn record_signed_in_user(response: &LoginResponse) {
     // tenant_id is optional on UserInfo; only record when present so the
-    // routing layer sees an empty field rather than a literal "None".
+    // span shows an empty field rather than a literal "None".
     Span::current().record("user_id", field::display(&response.user.user_id));
     if let Some(tenant_id) = response.user.tenant_id.as_deref() {
         Span::current().record("tenant_id", field::display(&tenant_id));
     }
-    // Warm the identity cache before emitting so the NotifyLayer enricher
-    // can attach this user's email to the user.login event itself.
-    cache_user_email(&response.user.user_id, &response.user.email);
-    info!(
-        target: "notify",
-        event = "user.login",
-        "user authenticated"
-    );
 }

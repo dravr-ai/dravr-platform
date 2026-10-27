@@ -19,10 +19,9 @@ export interface CoachServer {
   adminPassword: string;
 }
 
-/** The coach a setup made, as the flow signs in with them. */
+/** The coach a setup made: the account the flow signs in (with a seeded session) and the group it names. */
 export interface OnboardingCoach {
   email: string;
-  password: string;
   groupName: string;
 }
 
@@ -154,7 +153,7 @@ export async function freshOnboardingCoach(server: CoachServer): Promise<Onboard
   ) {
     throw new Error(`the coach is not waiting on the group step: ${JSON.stringify(onboarding)}`);
   }
-  return { email, password: COACH_PASSWORD, groupName: ONBOARDING_GROUP_NAME };
+  return { email, groupName: ONBOARDING_GROUP_NAME };
 }
 
 /**

@@ -59,7 +59,9 @@ describe('the wait for Home after a login', () => {
     // tree the Home wait reads, so a flow waiting for Home on its own fails
     // behind it on any simulator where AutoFill is on.
     // A flow signs in by submitting the hosted login page (carnet#787) and
-    // expects Home when it then waits for `home-screen` to be visible.
+    // expects Home when it then waits for `home-screen` to be visible. Only a
+    // login/ flow still does: every other one starts signed in with a seeded
+    // session (carnet#1201), which types no password and so raises no sheet.
     const loggingIn = FLOWS.filter((flow) => {
       const text = read(flow);
       return (
@@ -67,10 +69,19 @@ describe('the wait for Home after a login', () => {
         /extendedWaitUntil:\s*\n\s+visible:\s*\n\s+id: "home-screen"/.test(text)
       );
     });
-    expect(loggingIn).toEqual(expect.arrayContaining(['helpers/login.yaml', 'login/06-successful-login.yaml']));
+    expect(loggingIn).toEqual(expect.arrayContaining(['login/06-successful-login.yaml']));
     for (const flow of loggingIn) {
       expect({ flow, usesHelper: read(flow).includes('wait-for-home-after-login.yaml') }).toEqual({ flow, usesHelper: true });
     }
+  });
+
+  it('is not needed by the seeded sign-in, which never submits the hosted page', () => {
+    for (const flow of ['helpers/login.yaml', 'helpers/sign-in-seeded.yaml']) {
+      const text = commandsOf(flow);
+      expect({ flow, submitsPage: text.includes('submit-hosted-sign-in.yaml') }).toEqual({ flow, submitsPage: false });
+      expect({ flow, opensSheet: text.includes('open-hosted-sign-in.yaml') }).toEqual({ flow, opensSheet: false });
+    }
+    expect(commandsOf('helpers/login.yaml')).toContain('file: sign-in-seeded.yaml');
   });
 
   it('is the only flow that reaches the labelled-sheet dismissal', () => {

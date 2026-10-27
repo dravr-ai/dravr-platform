@@ -21,6 +21,13 @@ NATIVE_BUILD=false
 MOBILE_PLATFORM="ios"   # --android targets the booted emulator instead of the iOS simulator
 STREAM_LOGS=false
 START_TUNNEL=false
+# --maestro: also run the Maestro control process and serve the E2E bundle, so
+# flows outside login/ start signed in against this stack (carnet#1201). Opt-in
+# like --tunnel, because it adds a way to sign the app in from a link: a
+# pierre-cli that can mint a session for any account, and a Metro bundle that
+# carries the route redeeming one. Neither belongs in a stack nobody is driving
+# with Maestro.
+START_MAESTRO_CONTROL=false
 for arg in "$@"; do
     case $arg in
         --release)
@@ -44,6 +51,10 @@ for arg in "$@"; do
             START_TUNNEL=true
             shift
             ;;
+        --maestro)
+            START_MAESTRO_CONTROL=true
+            shift
+            ;;
     esac
 done
 
@@ -63,6 +74,7 @@ mkdir -p "$LOG_DIR"
 SERVER_LOG="$LOG_DIR/pierre-server.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
 EXPO_LOG="$LOG_DIR/expo.log"
+CONTROL_LOG="$LOG_DIR/maestro-control.log"  # --maestro only
 METRO_LOG="$LOG_DIR/metro.log"  # --native runs the Xcode build and Metro side by side
 
 # Credentials - use .envrc values or defaults
@@ -92,6 +104,7 @@ echo -e "${CYAN}=== Configuration ===${NC}"
 echo -e "  Build mode:      ${YELLOW}$BUILD_MODE${NC}"
 echo -e "  Native build:    $( [ "$NATIVE_BUILD" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Tunnel:          $( [ "$START_TUNNEL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
+echo -e "  Maestro control: $( [ "$START_MAESTRO_CONTROL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Stream logs:     $( [ "$STREAM_LOGS" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo ""
 
@@ -178,10 +191,16 @@ echo "    Database cleared"
 # Step 3: Build binaries
 # All seeders are now subcommands under `pierre-cli seed <domain>` — no separate binaries.
 print_step 3 "Building server binaries ($BUILD_MODE mode)..."
+# --maestro builds pierre-cli with `user mint-session`, which the control
+# process mints every seeded session with.
+CLI_FEATURES=()
+if [ "$START_MAESTRO_CONTROL" = "true" ]; then
+    CLI_FEATURES=(--features pierre-cli/e2e-seeded-sessions)
+fi
 if [ "$BUILD_MODE" = "release" ]; then
-    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture 2>&1 | tail -3
+    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
 else
-    cargo build --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture 2>&1 | tail -3
+    cargo build --bin pierre-mcp-server --bin pierre-cli --bin pierre-dev-fixture "${CLI_FEATURES[@]}" 2>&1 | tail -3
 fi
 echo "    Build complete"
 
@@ -364,6 +383,46 @@ if ! dev_wait_healthy "$SERVER_PORT" "$SERVER_PID"; then
     exit 1
 fi
 echo "    Server ready (PID: $SERVER_PID)"
+
+# Step 5a: Start the Maestro control process (if --maestro). It mints the
+# seeded sessions every flow outside login/ starts signed in with, through the
+# pierre-cli built above, against this stack's SQLite database, and serves the
+# onboarding and coach plan-thread setups. It also runs the sciotte double the
+# home-sync/ flow scripts, which this server is not pointed at: that flow
+# still needs scripts/e2e-home-sync-local.sh --mobile.
+CONTROL_PID=""
+CONTROL_PORT=8098
+if [ "$START_MAESTRO_CONTROL" = "true" ]; then
+    echo -e "${CYAN}    Starting the Maestro control process (port $CONTROL_PORT)...${NC}"
+    if [[ "$DATABASE_URL" != sqlite:* ]]; then
+        echo -e "${YELLOW}    DATABASE_URL is not SQLite; seeded sessions mint only against a local SQLite file. Skipping the control process.${NC}"
+    else
+        dev_stop maestro-control "Maestro control process"
+        dev_spawn maestro-control "$CONTROL_LOG" env \
+            PIERRE_URL="http://127.0.0.1:$SERVER_PORT" \
+            SCIOTTE_CONTROL_PORT="$CONTROL_PORT" \
+            E2E_REAL_DATABASE_PATH="$DB_PATH" \
+            PIERRE_CLI="$PROJECT_ROOT/target/$TARGET_DIR/pierre-cli" \
+            CONTROL_ADMIN_EMAIL="$ADMIN_EMAIL" \
+            CONTROL_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+            bash -c 'cd "$1/frontend" && exec bun e2e-real/home-sync-control.ts' _ "$PROJECT_ROOT"
+        CONTROL_PID=$DEV_SPAWNED_PID
+        if dev_wait_healthy "$CONTROL_PORT" "$CONTROL_PID" /health 30; then
+            echo "    Control process ready (PID: $CONTROL_PID)"
+        else
+            echo -e "${YELLOW}    The control process did not become healthy; seeded sign-ins will fail. Check: tail -f $CONTROL_LOG${NC}"
+        fi
+        # Metro serves the seeded-session route only with this set, in a
+        # development bundle whose API is local (metro.config.js): the Expo Go
+        # starts below on the simulator or emulator. Not --tunnel, nor a --native
+        # build without a local EXPO_PUBLIC_API_URL.
+        export EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1
+        export EXPO_PUBLIC_E2E_CONTROL_PORT="$CONTROL_PORT"
+        if [ "$START_TUNNEL" = "true" ]; then
+            echo -e "${YELLOW}    --tunnel points the app at a public URL, so Metro leaves the seeded-session route out: flows that start signed in will stop at the login screen.${NC}"
+        fi
+    fi
+fi
 
 # Step 5b: Start Cloudflare tunnel (if --tunnel)
 if [ "$START_TUNNEL" = "true" ]; then
@@ -633,6 +692,15 @@ else
     printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Starting" "$EXPO_PID"
 fi
 
+# Check the Maestro control process
+if [ -n "$CONTROL_PID" ]; then
+    if dev_pid_owns_port "$CONTROL_PID" "$CONTROL_PORT"; then
+        printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Maestro control" "http://127.0.0.1:$CONTROL_PORT" "Running" "$CONTROL_PID"
+    else
+        printf "%-15s %-35s ${RED}%-10s${NC} %-8s\n" "Maestro control" "http://127.0.0.1:$CONTROL_PORT" "Down" "-"
+    fi
+fi
+
 # Check tunnel
 if [ -n "${TUNNEL_URL:-}" ]; then
     printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "CF Tunnel" "$TUNNEL_URL" "Running" "$TUNNEL_PID"
@@ -650,6 +718,9 @@ if [ "$NATIVE_BUILD" = "true" ]; then
     echo "  Metro bundler:  tail -f $METRO_LOG"
 else
     echo "  Expo Mobile:    tail -f $EXPO_LOG"
+fi
+if [ -n "$CONTROL_PID" ]; then
+    echo "  Maestro control: tail -f $CONTROL_LOG"
 fi
 echo "  All logs:       tail -f $LOG_DIR/*.log"
 echo ""

@@ -203,17 +203,18 @@ impl ImpersonationRoutes {
             })?;
 
         // Get target user's default tenant for impersonation session.
-        // NOTE: We use tenants.first() here intentionally because:
+        // NOTE: We take the account's first tenant (`first_for_user`) intentionally because:
         // 1. The impersonator does not know which tenant the target_user wants to use
         // 2. The target_user has no active session/JWT from which to extract active_tenant_id
         // 3. The impersonator can switch tenants after starting the session if needed
         let active_tenant_id = resources
             .repos()
             .tenants
-            .list_for_user(target_user.id)
+            .first_for_user(target_user.id)
             .await
             .ok()
-            .and_then(|tenants| tenants.first().map(|t| t.id.to_string()));
+            .flatten()
+            .map(|tenant_id| tenant_id.to_string());
 
         // Generate impersonation token (JWT with impersonation claims)
         let impersonation_token = resources

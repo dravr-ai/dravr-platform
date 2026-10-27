@@ -1236,7 +1236,7 @@ jobs:
   # lane learned to. pierre-server's own unit tests run in the step after.
   leaf-crate-tests:
     name: Leaf-Crate Tests (every crate but pierre-server)
-    timeout-minutes: 60  # the 45-min test step plus build; the step bound cannot catch a hang before it
+    timeout-minutes: 80  # the 45-min test step, the 20-min mint-session step, plus build; the step bounds cannot catch a hang before them
     runs-on: ubuntu-latest
     needs: [fast-gate, detect-changes]
     if: needs.detect-changes.outputs.rust == 'true'
@@ -1318,6 +1318,31 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+
+      # The step above builds with --all-features, which turns on
+      # e2e-seeded-sessions, so it compiles mint_session_cli_test and never
+      # mint_session_absent_test: nothing would prove the pierre-cli the image
+      # ships (no such feature) lacks `user mint-session`, a command that signs
+      # an account in with no credential (carnet#1201). This builds pierre-cli
+      # alone with its default features and runs only that suite: one compile.
+      # A filter that matches nothing exits 0 with `running 0 tests`, so the
+      # exit status is judged first and the named test's `ok` line after it.
+      # The command writes to a file rather than into `$(...)` so that
+      # check-workflow-test-targets.sh can read its --test and module filter.
+      - name: Prove the shipped pierre-cli has no mint-session
+        run: |
+          log="$RUNNER_TEMP/mint-session-absent.log"
+          if ! cargo test -p pierre-cli --test it -- mint_session_absent_test:: > "$log" 2>&1; then
+            cat "$log"
+            echo "::error::pierre-cli's mint_session_absent_test failed or did not build"
+            exit 1
+          fi
+          cat "$log"
+          if ! grep -qE '^test mint_session_absent_test::[a-z_]+ \.\.\. ok$' "$log"; then
+            echo "::error::mint_session_absent_test ran no test — the filter or the cfg gate no longer selects it"
+            exit 1
+          fi
+        timeout-minutes: 20
 
       # pierre-server's in-module unit tests (ADR-027) — its tests/ binaries run
       # in their own lanes, and none of those runs the lib target. Compiling the

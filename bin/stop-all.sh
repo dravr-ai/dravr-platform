@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Stops this checkout's Pierre development services (server, fixture, frontend, mobile, tunnel)
+# ABOUTME: Stops this checkout's Pierre development services (server, fixture, frontend, mobile, tunnel, Maestro control)
 # ABOUTME: Every process it stops is one this checkout recorded; a peer worktree's stack is named and left running
 
 set -e
@@ -23,6 +23,9 @@ echo -e "${YELLOW}=== Stopping This Checkout's Pierre Services ===${NC}"
 dev_stop pierre-server "Pierre MCP Server"
 dev_stop fixture "Dev Fixture API"
 dev_stop sciotte "Sciotte scraper service"
+# The setup script's --maestro control process; its sciotte double is a child
+# in the same process group.
+dev_stop maestro-control "Maestro control process"
 dev_stop vite "Vite dev server"
 dev_stop expo "Expo / Metro"
 dev_stop expo-build "Native app build"

@@ -60,11 +60,12 @@ async fn resolve_user_and_tenant(
 
     let tenants_repo: &dyn TenantRepository = resources.common.repos.tenants.as_ref();
     let active_tenant = tenants_repo
-        .list_for_user(user_id)
+        .first_for_user(user_id)
         .await
         .ok()
-        .and_then(|ts| ts.first().map(|t| t.id.as_uuid()))
-        .unwrap_or_else(|| tenant_id.as_uuid());
+        .flatten()
+        .unwrap_or(tenant_id)
+        .as_uuid();
     Some((user_id, active_tenant))
 }
 

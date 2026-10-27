@@ -17,6 +17,11 @@ on:
       - 'scripts/ci/check-eas-submit-config.test.sh'
       - 'bin/ios-simulator.sh'
       - 'scripts/ci/ios-simulator-lib.test.sh'
+      - 'scripts/ci/check-seeded-session-route-not-bundled.sh'
+      - 'frontend/e2e-real/seeded-session.ts'
+      - 'frontend/e2e-real/pierre-cli.ts'
+      - 'frontend/e2e-real/seeded-session.test.ts'
+      - 'frontend/e2e-real/control-host.ts'
       - '.github/workflows/mobile-unit-tests.yml'
   pull_request:
     branches: [ main ]
@@ -27,6 +32,11 @@ on:
       - 'scripts/ci/check-eas-submit-config.test.sh'
       - 'bin/ios-simulator.sh'
       - 'scripts/ci/ios-simulator-lib.test.sh'
+      - 'scripts/ci/check-seeded-session-route-not-bundled.sh'
+      - 'frontend/e2e-real/seeded-session.ts'
+      - 'frontend/e2e-real/pierre-cli.ts'
+      - 'frontend/e2e-real/seeded-session.test.ts'
+      - 'frontend/e2e-real/control-host.ts'
 
 concurrency:
   # On main the sha is part of the group, so every commit gets its own group
@@ -112,6 +122,20 @@ jobs:
       - name: Run app integration specs
         working-directory: frontend-mobile
         run: bunx jest --config integration/jest.config.js --selectProjects app
+
+      # The E2E seeded-session route (app/(auth)/e2e/, carnet#1201) signs the
+      # app in from a link, so it must never reach a release bundle. The
+      # block-list test above pins metro.config.js's decision; this exports the
+      # production bundle a store build ships (about 15 s) and reads it.
+      - name: Check no production bundle carries the seeded-session route
+        run: ./scripts/ci/check-seeded-session-route-not-bundled.sh
+
+      # The Maestro control process hands each seeded session out behind a
+      # single-use code. Its store imports only node builtins, so bun runs the
+      # test from the checkout with no install.
+      - name: Test the control process's seeded-session codes
+        working-directory: frontend
+        run: bun test e2e-real/seeded-session.test.ts
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

@@ -32,6 +32,12 @@ on:
       - 'frontend/e2e-real/home-sync-control.ts'
       - 'frontend/e2e-real/onboarding-coach.ts'
       - 'frontend/e2e-real/coach-plan-thread.ts'
+      # Every flow but login/ starts signed in with a session the control
+      # process mints through this CLI command (carnet#1201).
+      - 'frontend/e2e-real/pierre-cli.ts'
+      - 'frontend/e2e-real/seeded-session.ts'
+      - 'frontend/e2e-real/control-host.ts'
+      - 'crates/pierre-cli/src/commands/session.rs'
       - 'crates/pierre-seeders/src/verdict_conversation.rs'
       - 'crates/pierre-seeders/src/coach_plan_thread.rs'
       - 'crates/pierre-seeders/src/coached_group.rs'
@@ -100,8 +106,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-mobile-server-1.99.1-
 
+      # pierre-cli gets the e2e-seeded-sessions feature, which adds the
+      # `user mint-session` command the control process mints every seeded
+      # session with (carnet#1201). The server image's build never names it,
+      # so the pierre-cli it ships cannot sign anyone in.
       - name: Build Pierre server (release)
-        run: cargo build --release
+        run: cargo build --release --features pierre-cli/e2e-seeded-sessions
         env:
           CARGO_INCREMENTAL: 0
 
@@ -137,6 +147,13 @@ jobs:
       # The "Run Maestro tests" step's timeout-minutes, read there and by its
       # script, whose lane deadline it is the budget of.
       E2E_STEP_TIMEOUT_MINUTES: "105"
+      # Metro serves the E2E-only seeded-session route (app/(auth)/e2e/) only
+      # with this set, in a development bundle whose EXPO_PUBLIC_API_URL is
+      # local (every step here that starts Metro sets it), so every flow but
+      # login/ can start signed in without the hosted sign-in sheet
+      # (carnet#1201). Job-wide because Metro is started, and restarted, from
+      # more than one step; a release bundle never has it.
+      EXPO_PUBLIC_E2E_SEEDED_SESSIONS: "1"
 
     steps:
       - name: Checkout code
@@ -332,8 +349,11 @@ jobs:
       # connects its Strava through the sciotte double it runs on 8097.
       # coach-plan/01 asks it for a fresh coach and athlete on every attempt,
       # made and seeded by the pierre-cli PIERRE_CLI names, with the server's
-      # key and model.
-      - name: Start the control process for the onboarding group and coach plan-thread flows
+      # key and model. Every flow but login/ asks it for a seeded session,
+      # minted by that same CLI (`user mint-session`), and starts signed in
+      # with it instead of through the hosted sign-in sheet, whose web content
+      # launch can stall for minutes on this simulator (carnet#1201).
+      - name: Start the control process for the seeded sessions and the onboarding group and coach plan-thread flows
         working-directory: frontend
         run: |
           nohup bun e2e-real/home-sync-control.ts > /tmp/home-sync-control.log 2>&1 &
@@ -775,6 +795,11 @@ jobs:
           echo "=== Simulator screenshot ==="
           xcrun simctl io "$SIMULATOR_UDID" screenshot /tmp/pre-smoke-screenshot.png 2>/dev/null && \
             echo "Screenshot captured" || echo "Screenshot failed"
+        env:
+          # A Metro restarted here serves the bundle the first one did: the app
+          # pointed at this server, which is also what metro.config.js requires
+          # before it serves the seeded-session route (carnet#1201).
+          EXPO_PUBLIC_API_URL: "http://127.0.0.1:8081"
 
       - name: Smoke test - verify Maestro can interact with app
         # The attempts get 570 s (the batch deadline below). The 150 s from
@@ -1007,6 +1032,10 @@ jobs:
           # chat/11 reads the seeded verdict conversation (carnet#802) and
           # onboarding/02 signs in as fresh coaches from the control process
           # (carnet#740); both assert copy in English or French only.
+          # Batch 2 opens no sign-in sheet: its flows start signed in with a
+          # seeded session the control process mints (carnet#1201). Only batch
+          # 1's login/02, 06 and 07 open the hosted page, behind the 240 s wait
+          # in helpers/open-hosted-sign-in.yaml.
           # coach-plan/01 publishes a coach's draft from their thread about an
           # athlete (carnet#1069/#1070). A retry re-runs the whole batch, flows
           # that passed included (run 38968652312 re-ran all three for one

@@ -27,6 +27,7 @@ use helpers::first_party_sign_in::{
     authorize_uri, callback_param, first_party_router, fresh_state, is_redirect, location, redeem,
     session_cookie, submit_login, FirstPartyClient, Pkce, SignIn, DEFAULT_PEER,
 };
+use helpers::notify_capture::{capture_notify, named};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::first_party::{
     MOBILE_CALLBACK_URI, MOBILE_CLIENT_ID, WEB_CLIENT_ID,
@@ -270,6 +271,47 @@ async fn a_pending_account_signs_in_and_is_told_it_is_pending() {
         .await
         .signed_in();
     assert_eq!(body["user"]["user_status"], "pending", "{body}");
+}
+
+/// Redeeming the code raises `user.login` once, on the event itself naming
+/// the account, the tenant the session opened in and the redeemed code as its
+/// source, so the Slack and `PostHog` mirrors see the same ids a request span
+/// used to lend them.
+#[tokio::test]
+async fn the_code_exchange_raises_user_login_naming_the_account_and_its_tenant() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, email) = athlete_with_status(&resources, UserStatus::Active).await;
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .first_for_user(user_id)
+        .await
+        .unwrap()
+        .expect("a test athlete owns a tenant");
+
+    let (events, guard) = capture_notify();
+    let body = SignIn::new(&email, PASSWORD)
+        .client(FirstPartyClient::Mobile)
+        .run(&resources)
+        .await
+        .signed_in();
+    drop(guard);
+    assert_eq!(body["user"]["user_id"], user_id.to_string(), "{body}");
+
+    let exchanged: Vec<_> = named(&events, "user.login")
+        .into_iter()
+        .filter(|event| {
+            event.fields.get("source").map(String::as_str) == Some("authorization_code")
+        })
+        .collect();
+    assert_eq!(
+        exchanged.len(),
+        1,
+        "one code redeemed, one user.login naming it: {exchanged:?}"
+    );
+    assert_eq!(exchanged[0].field("user_id"), user_id.to_string());
+    assert_eq!(exchanged[0].field("tenant_id"), tenant_id.to_string());
 }
 
 /// A suspended account is refused at the hosted form — told why, given no

@@ -845,30 +845,30 @@ pub async fn compute_user_admin_profile(
     // Installed agents require a tenant scope — use the user's first tenant.
     // Most users belong to exactly one tenant; for multi-tenant users we show
     // installs from their primary tenant only.
-    let tenants = data
+    let tenant_id = data
         .repos()
         .tenants
-        .list_for_user(target_user_id)
+        .first_for_user(target_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user tenants: {e}")))?;
 
     // Which one is selected now comes from the membership row rather than a
     // column on the user, since selection is per-tenant.
-    let selected_agent = if let Some(tenant) = tenants.first() {
+    let selected_agent = if let Some(tenant_id) = tenant_id {
         data.repos()
             .tenants
-            .get_selected_agent(tenant.id, target_user_id)
+            .get_selected_agent(tenant_id, target_user_id)
             .await
             .unwrap_or_default()
     } else {
         None
     };
 
-    let installed_agents = if let Some(tenant) = tenants.first() {
+    let installed_agents = if let Some(tenant_id) = tenant_id {
         let agents = data
             .repos()
             .store_listings
-            .get_installed_agents(target_user_id, tenant.id)
+            .get_installed_agents(target_user_id, tenant_id)
             .await
             .unwrap_or_default();
         agents

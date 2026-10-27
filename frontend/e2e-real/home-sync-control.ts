@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs the sciotte double behind a small control API, so a flow that cannot start processes (Maestro) can script it
-// ABOUTME: Scripts the Home sync flow's scraper, makes the onboarding group flow's fresh coaches, and seeds the coach plan-thread flow's pairs
+// ABOUTME: Scripts the Home sync flow's scraper, makes fresh coaches and coach plan-thread pairs, and mints the seeded sessions flows start signed in with
 
 import { Database } from 'bun:sqlite';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -10,6 +10,8 @@ import { startSciotteDouble, type ScrapedRide } from './sciotte-double';
 import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
 import { coachStepState, freshOnboardingCoach, type CoachServer } from './onboarding-coach';
 import { athletePlanState, freshCoachPlanThread, type PlanServer } from './coach-plan-thread';
+import { mintSeededSession, SeededSessionCodes } from './seeded-session';
+import { isControlHost } from './control-host';
 
 // `bun e2e-real/home-sync-control.ts` — a long-running process beside a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL naming the double
@@ -25,7 +27,15 @@ import { athletePlanState, freshCoachPlanThread, type PlanServer } from './coach
 // (frontend-mobile/.maestro/coach-plan/) asks it for a coach and athlete
 // seeded with an open draft (`POST /coach-plan-thread`), made by the
 // `pierre-cli` that PIERRE_CLI names, and for the athlete's season once the
-// draft is published (`GET /coach-plan-thread/state`).
+// draft is published (`GET /coach-plan-thread/state`). Every flow that is not
+// testing sign-in asks it for a session minted by that CLI
+// (`POST /seeded-session?email=…`, carnet#1201), which it holds behind a
+// single-use code; the flow opens the app's E2E session link with that code,
+// and the app redeems it here (`POST /seeded-session/redeem?code=…`) for the
+// token pair, so no token is ever in a link Maestro logs.
+//
+// Only requests addressed to 127.0.0.1, localhost or 10.0.2.2 on this port
+// are answered (control-host.ts).
 const CONTROL_PORT = Number(process.env.SCIOTTE_CONTROL_PORT ?? '8098');
 const PIERRE_URL = process.env.PIERRE_URL ?? 'http://127.0.0.1:8081';
 const DATABASE_PATH = process.env.E2E_REAL_DATABASE_PATH;
@@ -38,13 +48,15 @@ const COACH_SERVER: CoachServer = {
   adminEmail: process.env.CONTROL_ADMIN_EMAIL ?? ATHLETE_EMAIL,
   adminPassword: process.env.CONTROL_ADMIN_PASSWORD ?? ATHLETE_PASSWORD,
 };
-// The coach plan-thread flow's pairs are written by the CLI into the server's
-// own database; each request checks both are named.
+// The coach plan-thread flow's pairs and every seeded session are written by
+// the CLI into the server's own database; each request checks both are named.
 const PLAN_SERVER: PlanServer = {
   pierreUrl: PIERRE_URL,
   cliPath: process.env.PIERRE_CLI,
   databasePath: DATABASE_PATH,
 };
+/** Minted sessions waiting for the app to redeem their code. */
+const SEEDED_SESSIONS = new SeededSessionCodes();
 
 /** The rides of the good sync, and the one the scraper brings back once it recovers. */
 export const HOME_SYNC_RIDES = {
@@ -247,6 +259,10 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!isControlHost(req.headers.host, CONTROL_PORT)) {
+    reply(res, 421, { error: 'the control process answers only 127.0.0.1, localhost or 10.0.2.2 on its own port' });
+    return;
+  }
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${CONTROL_PORT}`);
   const path = url.pathname;
   if (req.method === 'POST' && path === '/setup') {
@@ -269,6 +285,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     reply(res, 200, await freshCoachPlanThread(PLAN_SERVER));
   } else if (req.method === 'GET' && path === '/coach-plan-thread/state') {
     reply(res, 200, await athletePlanState(PLAN_SERVER, url.searchParams.get('athlete') ?? ''));
+  } else if (req.method === 'POST' && path === '/seeded-session') {
+    const session = await mintSeededSession(PLAN_SERVER, url.searchParams.get('email') ?? '');
+    reply(res, 200, { code: SEEDED_SESSIONS.issue(session) });
+  } else if (req.method === 'POST' && path === '/seeded-session/redeem') {
+    const session = SEEDED_SESSIONS.redeem(url.searchParams.get('code') ?? '');
+    if (session === undefined) {
+      reply(res, 410, { error: 'the code is unknown, already redeemed or expired' });
+    } else {
+      reply(res, 200, session);
+    }
   } else if (req.method === 'GET' && path === '/health') {
     reply(res, 200, { status: 'ok' });
   } else {

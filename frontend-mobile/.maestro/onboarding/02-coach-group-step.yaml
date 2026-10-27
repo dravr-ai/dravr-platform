@@ -18,15 +18,10 @@
 # thread, the one the step made with its agent (carnet#843), as the web step
 # does; Later still lands on Home.
 #
-# The coach signs in on the hosted page, so Chrome's session cookie on Android
-# is cleared before each sign-in and once more when the flow ends, pass or
-# fail: a later flow that signs the seeded tester in must not be handed this
-# coach's session.
+# Each coach signs in with a seeded session the control process mints
+# (carnet#1201), never through the hosted sign-in sheet.
 
 appId: ai.dravr.app
-onFlowComplete:
-  - runFlow:
-      file: ../helpers/reset-browser-session.yaml
 
 ---
 # --- First coach: create the group, share it, ask for access, go to it ---
@@ -35,14 +30,11 @@ onFlowComplete:
     env:
       ACTION: coach
 - runFlow:
-    file: ../helpers/reset-browser-session.yaml
-- runFlow:
     file: ../helpers/launch-app.yaml
 - runFlow:
-    file: ../helpers/sign-in-as.yaml
+    file: ../helpers/sign-in-seeded.yaml
     env:
       EMAIL: ${output.coach.email}
-      PASSWORD: ${output.coach.password}
 
 # Signed in, the route guard lands the coach on Your group, never Home.
 - extendedWaitUntil:
@@ -168,14 +160,11 @@ onFlowComplete:
     env:
       ACTION: coach
 - runFlow:
-    file: ../helpers/reset-browser-session.yaml
-- runFlow:
     file: ../helpers/launch-app.yaml
 - runFlow:
-    file: ../helpers/sign-in-as.yaml
+    file: ../helpers/sign-in-seeded.yaml
     env:
       EMAIL: ${output.coach.email}
-      PASSWORD: ${output.coach.password}
 - extendedWaitUntil:
     visible:
       id: "onboarding-group-later"

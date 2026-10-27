@@ -375,14 +375,11 @@ async fn fetch_user_role(user_id: Uuid, tenant_id: TenantId, repos: &AuthRepos) 
 
 /// Get user's default tenant from the database
 async fn get_user_default_tenant(user_id: Uuid, repos: &AuthRepos) -> Option<TenantId> {
-    match repos.tenants.list_for_user(user_id).await {
-        Ok(tenants) => {
-            if tenants.is_empty() {
-                debug!(user_id = %user_id, "User does not belong to any tenant");
-                None
-            } else {
-                Some(tenants[0].id)
-            }
+    match repos.tenants.first_for_user(user_id).await {
+        Ok(Some(tenant_id)) => Some(tenant_id),
+        Ok(None) => {
+            debug!(user_id = %user_id, "User does not belong to any tenant");
+            None
         }
         Err(e) => {
             warn!(user_id = %user_id, error = %e, "Failed to list user tenants");

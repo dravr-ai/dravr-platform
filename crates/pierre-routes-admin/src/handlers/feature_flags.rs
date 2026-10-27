@@ -366,7 +366,16 @@ async fn resolve_self_flags(
     usage: &UsageRepos,
     user_id: Uuid,
 ) -> Result<EffectiveFlags, AppError> {
-    let tenant_uuid = primary_tenant_for_user(auth, user_id).await?;
+    // Multi-tenant memberships exist in this codebase but a user has one
+    // primary working tenant from the admin's perspective, the account's first
+    // tenant. A user not yet tied to any tenant gets `None`, and the flags fall
+    // back to their compile-time defaults.
+    let tenant_uuid = auth
+        .tenants
+        .first_for_user(user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to look up user tenants: {e}")))?
+        .map(|tenant_id| tenant_id.as_uuid());
 
     let resolved = match tenant_uuid {
         Some(tid) => usage
@@ -384,25 +393,6 @@ async fn resolve_self_flags(
         .into_iter()
         .map(|(k, v)| (k.as_str().to_owned(), v))
         .collect())
-}
-
-/// Lookup the user's primary tenant for flag resolution.
-///
-/// Multi-tenant memberships exist in this codebase but a user has one
-/// primary working tenant from the admin's perspective. We pick the first
-/// row from `TenantRepository::list_for_user` (stable order); when the user
-/// is not yet tied to any tenant we return `None` and the caller falls back
-/// to compile-time defaults.
-async fn primary_tenant_for_user(
-    auth: &AuthRepos,
-    user_id: Uuid,
-) -> Result<Option<Uuid>, AppError> {
-    let tenants = auth
-        .tenants
-        .list_for_user(user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to look up user tenants: {e}")))?;
-    Ok(tenants.first().map(|t| t.id.as_uuid()))
 }
 
 /// Admin: list stored tenant defaults. Empty vec when nothing is configured.

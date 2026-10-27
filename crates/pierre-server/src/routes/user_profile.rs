@@ -145,15 +145,14 @@ async fn get_my_quota(
     let tenant_id_str = if let Some(t) = auth.active_tenant_id {
         t.to_string()
     } else {
-        let rows = resources
+        resources
             .common
             .repos
             .tenants
-            .list_for_user(auth.user_id)
+            .first_for_user(auth.user_id)
             .await
-            .map_err(|e| AppError::internal(format!("tenant lookup failed: {e}")))?;
-        rows.first()
-            .map(|t| t.id.to_string())
+            .map_err(|e| AppError::internal(format!("tenant lookup failed: {e}")))?
+            .map(|tenant_id| tenant_id.to_string())
             .ok_or_else(|| AppError::not_found("user has no active tenant"))?
     };
     let user_id_str = auth.user_id.to_string();

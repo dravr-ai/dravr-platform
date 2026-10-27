@@ -35,6 +35,11 @@ export const onAuthFailure = (listener: () => void): (() => void) => {
   return adapter.authFailure.subscribe(listener);
 };
 
+// The secure token storage the API client reads its bearer and refresh token
+// from. Only the E2E-only seeded-session route writes it directly
+// (app/(auth)/e2e/session.tsx, carnet#1201); every sign-in goes through authApi.
+export const authStorage = adapter.authStorage;
+
 // Export domain APIs for direct import
 export const authApi = api.auth;
 export const chatApi = api.chat;

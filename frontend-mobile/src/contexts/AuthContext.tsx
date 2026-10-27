@@ -27,6 +27,9 @@ export interface RegistrationOutcome {
   signedIn: boolean;
 }
 
+/** What a sign-in hands the context to take as this phone's session. */
+export type AdoptedSession = Pick<LoginResponse, 'access_token' | 'csrf_token' | 'user'>;
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
@@ -55,6 +58,12 @@ interface AuthContextType {
     signupCode?: string,
   ) => Promise<RegistrationOutcome>;
   updateUser: (patch: Partial<User>) => Promise<void>;
+  /**
+   * Take a session whose tokens are already in storage as this phone's: the
+   * hosted sign-in and a registration that came back with a code end here,
+   * and so does the E2E build's seeded-session link (carnet#1201).
+   */
+  adoptSession: (session: AdoptedSession) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -179,8 +188,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   // Take a redeemed sign-in as this phone's session: the hosted sign-in and a
-  // registration that came back with a code both end here.
-  const adoptSession = useCallback(async (response: LoginResponse): Promise<void> => {
+  // registration that came back with a code both end here, as does the E2E
+  // build's seeded session.
+  const adoptSession = useCallback(async (response: AdoptedSession): Promise<void> => {
     await authApi.storeAuth(response.access_token, response.csrf_token || '', response.user);
     setUser(response.user);
 
@@ -310,7 +320,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
     register,
     updateUser,
-  }), [user, isAuthenticated, isLoading, signIn, loginWithFirebase, logout, register, updateUser]);
+    adoptSession,
+  }), [user, isAuthenticated, isLoading, signIn, loginWithFirebase, logout, register, updateUser, adoptSession]);
 
   return (
     <AuthContext.Provider value={value}>

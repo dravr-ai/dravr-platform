@@ -461,10 +461,11 @@ impl WebAdminRoutes {
 
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
-        let tenants = resources.repos.tenants.list_for_user(user_uuid).await?;
-        let tenant_id = tenants
-            .first()
-            .map(|t| t.id)
+        let tenant_id = resources
+            .repos
+            .tenants
+            .first_for_user(user_uuid)
+            .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_uuid} belongs to no tenant")))?;
 
         let tools = resources

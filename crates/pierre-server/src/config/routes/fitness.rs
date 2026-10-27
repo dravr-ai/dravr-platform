@@ -109,18 +109,13 @@ impl FitnessConfigurationRoutes {
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
         // Get tenant from tenant_users junction table
-        let tenants = self
-            .resources
+        self.resources
             .common
             .repos
             .tenants
-            .list_for_user(user_id)
+            .first_for_user(user_id)
             .await
-            .map_err(|e| AppError::database(format!("Failed to get tenants for user: {e}")))?;
-
-        tenants
-            .first()
-            .map(|t| t.id)
+            .map_err(|e| AppError::database(format!("Failed to get tenants for user: {e}")))?
             .ok_or_else(|| AppError::invalid_input(format!("User has no valid tenant: {user_id}")))
     }
 

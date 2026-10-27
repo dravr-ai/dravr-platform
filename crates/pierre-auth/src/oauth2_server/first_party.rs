@@ -40,6 +40,13 @@ pub const WEB_CLIENT_ID: &str = "dravr-web";
 /// The `client_id` Dravr's mobile app signs in as.
 pub const MOBILE_CLIENT_ID: &str = "dravr-mobile";
 
+/// The scope a first-party client requests to receive a refresh token beside its JWT.
+///
+/// `OpenID` Connect Core §11's name for "I will need to act while the user is
+/// away", which is exactly what a phone closed for a week is. The mobile app
+/// asks for it on every sign-in; the web app never does.
+pub const OFFLINE_ACCESS_SCOPE: &str = "offline_access";
+
 /// The App Attest app id of Dravr's iOS app: its Apple Team ID and bundle
 /// id, which every attestation and assertion it signs names (carnet#810).
 /// The Team ID is the one EAS signs the app with.

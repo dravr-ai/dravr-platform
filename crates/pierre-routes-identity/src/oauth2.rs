@@ -425,11 +425,12 @@ impl OAuth2Routes {
         }
         context
             .tenants
-            .list_for_user(user_id)
+            .first_for_user(user_id)
             .await
             .inspect_err(|e| error!("Failed to list tenants for the client grant: {e}"))
             .ok()
-            .and_then(|tenants| tenants.first().map(|t| t.id.to_string()))
+            .flatten()
+            .map(|tenant_id| tenant_id.to_string())
     }
 
     /// The authorization server every route checks, mints and validates

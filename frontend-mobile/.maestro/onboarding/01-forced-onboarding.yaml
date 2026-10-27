@@ -19,7 +19,13 @@ tags:
 
 ---
 - runFlow: ../helpers/launch-app.yaml
-- runFlow: ../helpers/login.yaml
+# The account TEST_EMAIL names, signed in with a seeded session (carnet#1201):
+# helpers/login.yaml would sign in the seeded tester and wait for Home, which a
+# zero-provider account never reaches.
+- runFlow:
+    file: ../helpers/sign-in-seeded.yaml
+    env:
+      EMAIL: ${TEST_EMAIL}
 
 # After login, RootLayoutNav resolves the user's onboarding-status and the
 # route guard redirects a zero-provider user to the connect screen. The chat

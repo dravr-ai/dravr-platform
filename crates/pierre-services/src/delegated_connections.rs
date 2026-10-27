@@ -1072,8 +1072,8 @@ impl<'a> Notices<'a> {
     /// The tenant a user signs in to by default, where their feed is read:
     /// the first of their tenants, as login picks it.
     async fn home_tenant(&self, user_id: Uuid) -> Option<TenantId> {
-        match self.repos.tenants.list_for_user(user_id).await {
-            Ok(tenants) => tenants.first().map(|tenant| tenant.id),
+        match self.repos.tenants.first_for_user(user_id).await {
+            Ok(tenant_id) => tenant_id,
             Err(e) => {
                 warn!(user_id = %user_id, error = %e, "Link notice skipped: tenant read failed");
                 None

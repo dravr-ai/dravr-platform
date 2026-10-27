@@ -44,25 +44,6 @@ impl TenantIsolation {
         verified_tenant_role(self.resources.repos(), user_id, tenant_id).await?;
         Ok(())
     }
-
-    /// Get user's default tenant (first tenant they belong to)
-    ///
-    /// # Errors
-    /// Returns an error if user has no tenant memberships
-    pub async fn get_user_default_tenant(&self, user_id: Uuid) -> AppResult<TenantId> {
-        let tenants = self
-            .resources
-            .repos()
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-
-        tenants
-            .first()
-            .map(|t| t.id)
-            .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))
-    }
 }
 
 /// The user's role in a tenant, read from the `tenant_users` junction table.

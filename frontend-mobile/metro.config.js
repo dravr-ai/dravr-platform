@@ -98,6 +98,33 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
+// The E2E seeded-session route (app/(auth)/e2e/, carnet#1201) signs the app in
+// with a session the Maestro control process holds, so it belongs only in the
+// bundle the mobile E2E lanes serve to Expo Go. Metro keeps the directory only
+// when all three hold:
+//   - EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1, which only the E2E lanes, the local
+//     E2E script and the dev stack's --maestro run set;
+//   - NODE_ENV is 'development', which `expo start` sets and every export
+//     (`expo export`, `expo export:embed`, so every store, TestFlight and EAS
+//     update bundle) replaces with 'production';
+//   - EXPO_PUBLIC_API_URL names a local server (the simulator's loopback or the
+//     Android emulator's 10.0.2.2), so a bundle pointed at a real server never
+//     carries a link that could sign someone into another account.
+// A file on the block list is not in Metro's file map, so Expo Router's route
+// context never sees it: the link has no route to land on, rather than one that
+// refuses. The route checks the same at runtime (`__DEV__`, the flag, the API
+// host), and scripts/ci/check-seeded-session-route-not-bundled.sh exports a
+// production bundle and fails if the route is in it.
+const SEEDED_SESSION_ROUTES = /(^|[\\/])app[\\/]\(auth\)[\\/]e2e([\\/]|$)/;
+const LOCAL_API_URL = /^https?:\/\/(127\.0\.0\.1|localhost|10\.0\.2\.2)(:\d+)?(\/|$)/i;
+const seededSessionsEnabled =
+  process.env.EXPO_PUBLIC_E2E_SEEDED_SESSIONS === '1' &&
+  process.env.NODE_ENV === 'development' &&
+  LOCAL_API_URL.test(process.env.EXPO_PUBLIC_API_URL || '');
+if (!seededSessionsEnabled) {
+  config.resolver.blockList = [].concat(config.resolver.blockList || [], SEEDED_SESSION_ROUTES);
+}
+
 // Use port 8082 to avoid conflict with Pierre MCP server on 8081
 config.server = {
   ...config.server,

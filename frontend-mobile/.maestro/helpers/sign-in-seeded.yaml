@@ -1,0 +1,91 @@
+# ABOUTME: Helper that signs the account EMAIL names in with a seeded session: minted by pierre-cli, opened as a single-use code in the E2E bundle's session link
+# ABOUTME: For every flow that is not testing sign-in; it never opens the hosted sign-in sheet, and stops once the app has taken the session
+
+appId: host.exp.Exponent
+
+---
+# The hosted sign-in sheet can stay blank for minutes on the CI iOS simulator
+# (carnet#869, carnet#1201): WebKit's web content launch stalls, and every
+# later sheet queues behind it. Only the login/ flows, whose subject is the
+# sign-in, open it. Every other flow starts signed in instead:
+#
+#   1. The control process (frontend/e2e-real/home-sync-control.ts) runs
+#      `pierre-cli user mint-session --email EMAIL`, which issues the pair the
+#      dravr-mobile code exchange would: same client, scope and expiry. It
+#      holds the pair and answers with a single-use code that lapses in a
+#      minute; no token is ever in a link, since this log is uploaded.
+#   2. The app opens <app>/--/e2e/session?code=…. That route exists only in a
+#      development bundle Metro served with EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1
+#      and a local API (metro.config.js); it redeems the code at the control
+#      process on the API's host, stores the pair where the code exchange does,
+#      has the server confirm it and adopts the session. It writes nothing if
+#      the app already holds a session.
+#   3. The root layout's guard then routes the account as after any sign-in:
+#      Home, or the onboarding step it still owes. The caller waits for its
+#      own screen.
+#
+# The flow starts on the login screen that launch-app.yaml leaves.
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 10000
+
+# The link goes to the project Expo Go is running: 127.0.0.1 on the iOS
+# simulator, 10.0.2.2 (the host's alias) on the Android emulator, as in
+# launch-app.yaml. iOS 27 asks before handing a link to Expo Go; the answer is
+# looked for once, right after the link. A link that reaches Expo Go while it
+# is still settling is not delivered, so one that left the login screen up is
+# sent once more, with a code of its own: a code is spent once.
+- repeat:
+    times: 2
+    while:
+      visible:
+        id: "login-screen"
+    commands:
+      - runScript:
+          file: sign-in-seeded.js
+          env:
+            EMAIL: ${EMAIL}
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - openLink: "exp://127.0.0.1:8082/--/e2e/session?${output.seededSession.query}"
+            - runFlow:
+                when:
+                  visible: "Open"
+                commands:
+                  - tapOn: "Open"
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - openLink: "exp://10.0.2.2:8082/--/e2e/session?${output.seededSession.query}"
+      - extendedWaitUntil:
+          notVisible:
+            id: "login-screen"
+          timeout: 15000
+          optional: true
+
+- extendedWaitUntil:
+    notVisible:
+      id: "login-screen"
+    timeout: 15000
+    label: "seeded sign-in: the session link never reached the app"
+# The route reads the server's answer before it hands over to the guard; a
+# refusal stays on its screen and is named here.
+- extendedWaitUntil:
+    notVisible:
+      id: "e2e-seeded-session"
+    timeout: 45000
+    optional: true
+- assertNotVisible:
+    id: "e2e-seeded-session-failure"
+    label: "seeded sign-in: the code, or the session it redeemed, was refused"
+- assertNotVisible:
+    id: "e2e-seeded-session"
+    label: "seeded sign-in: the session route never handed over to the app"

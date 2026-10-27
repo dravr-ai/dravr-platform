@@ -135,12 +135,9 @@ impl AuthService {
         RegistrationActivation::Review
             .message()
             .clone_into(&mut response.message);
-        match repos.tenants.list_for_user(user_id).await {
-            Ok(tenants) => {
-                if let Some(tenant) = tenants.first() {
-                    Self::announce_if_pending(&user, tenant.id, false);
-                }
-            }
+        match repos.tenants.first_for_user(user_id).await {
+            Ok(Some(tenant_id)) => Self::announce_if_pending(&user, tenant_id, false),
+            Ok(None) => {}
             Err(e) => {
                 warn!(user_id = %user_id, error = %e, "Could not read the tenant to announce a pending account");
             }

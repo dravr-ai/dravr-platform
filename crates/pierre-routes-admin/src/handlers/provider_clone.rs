@@ -39,7 +39,6 @@ use uuid::Uuid;
 
 use pierre_core::admin::models::{AdminAction, AdminTokenUsage, ValidatedAdminToken};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
 use pierre_services::scrape_session::{find_clone_source, CloneRefusal};
 
 use super::api_keys::json_response;
@@ -106,17 +105,6 @@ const fn refusal_status(refusal: &CloneRefusal) -> StatusCode {
     }
 }
 
-/// The target's default tenant: the first active one it belongs to.
-async fn target_tenant(context: &AdminApiContext, user_id: Uuid) -> AppResult<Option<TenantId>> {
-    Ok(context
-        .repos
-        .tenants
-        .list_for_user(user_id)
-        .await?
-        .first()
-        .map(|tenant| tenant.id))
-}
-
 /// `POST /admin/users/{user_id}/providers/{provider}/clone` — copy
 /// `from_user_id`'s scrape session for `provider` onto `user_id`.
 ///
@@ -162,7 +150,8 @@ pub async fn handle_clone_user_provider(
             return Ok(refusal(refusal_status(&refused), refused.message(), None));
         }
     };
-    let Some(tenant_id) = target_tenant(ctx, to_user).await? else {
+    // The target's default tenant: the first active one it belongs to.
+    let Some(tenant_id) = ctx.repos.tenants.first_for_user(to_user).await? else {
         return Ok(refusal(
             StatusCode::BAD_REQUEST,
             "The target account belongs to no active tenant to connect the provider in".to_owned(),

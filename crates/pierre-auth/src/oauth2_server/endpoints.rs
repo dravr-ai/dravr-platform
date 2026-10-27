@@ -341,11 +341,11 @@ impl OAuth2AuthorizationServer {
             tid
         } else {
             // Resolve actual tenant from database - use first tenant user belongs to
-            let tenants = self.tenants.list_for_user(user_id).await.map_err(|e| {
+            let first = self.tenants.first_for_user(user_id).await.map_err(|e| {
                 error!("Failed to get tenants for user {}: {:#}", user_id, e);
                 OAuth2Error::server_error("Failed to resolve user tenant")
             })?;
-            tenants.first().map(|t| t.id.to_string()).ok_or_else(|| {
+            first.map(|t| t.to_string()).ok_or_else(|| {
                 warn!("User {} has no tenant memberships", user_id);
                 OAuth2Error::invalid_request("User does not belong to any tenant")
             })?

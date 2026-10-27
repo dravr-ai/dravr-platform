@@ -547,7 +547,7 @@ impl McpAuthMiddleware {
         let active_tenant_id = self
             .repos
             .tenants
-            .list_for_user(db_key.user_id)
+            .first_for_user(db_key.user_id)
             .await
             .map_err(|e| {
                 AppError::database(format!(
@@ -555,8 +555,7 @@ impl McpAuthMiddleware {
                     db_key.user_id
                 ))
             })?
-            .first()
-            .map(|t| t.id.as_uuid());
+            .map(|tenant_id| tenant_id.as_uuid());
 
         Ok(Admitted {
             auth: AuthResult {
@@ -628,15 +627,14 @@ impl McpAuthMiddleware {
         let active_tenant_id = self
             .repos
             .tenants
-            .list_for_user(user_id)
+            .first_for_user(user_id)
             .await
             .map_err(|e| {
                 AppError::database(format!(
                     "Failed to resolve tenant for MCP token user {user_id}: {e}"
                 ))
             })?
-            .first()
-            .map(|t| t.id.as_uuid());
+            .map(|tenant_id| tenant_id.as_uuid());
 
         Ok(Admitted {
             auth: AuthResult {
@@ -732,18 +730,19 @@ impl McpAuthMiddleware {
         // different one. Falling back to the bot's tenant keeps the request
         // routable when the user has zero memberships (defensive — the OTP
         // link flow already rejects users with empty membership lists).
-        let active_tenant_id = self
-            .repos
-            .tenants
-            .list_for_user(user_id)
-            .await
-            .map_err(|e| {
-                AppError::database(format!(
-                    "Failed to resolve tenant for messaging user {user_id}: {e}"
-                ))
-            })?
-            .first()
-            .map_or_else(|| Some(tenant_id.as_uuid()), |t| Some(t.id.as_uuid()));
+        let active_tenant_id = Some(
+            self.repos
+                .tenants
+                .first_for_user(user_id)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!(
+                        "Failed to resolve tenant for messaging user {user_id}: {e}"
+                    ))
+                })?
+                .unwrap_or(tenant_id)
+                .as_uuid(),
+        );
 
         // Rate limit on the user's monthly budget (the JWT calculator, so an
         // admin's override applies here as on a session token — channel links

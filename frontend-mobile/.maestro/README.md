@@ -19,12 +19,12 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
    platform; `bun run ios` / `bun run android` are native Gradle/Xcode builds and are
    not what the flows expect.
    ```bash
-   # iOS simulator (default)
-   ../bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
+   # iOS simulator (default); --maestro so flows outside login/ can sign in (below)
+   ../bin/setup-db-with-seeds-and-oauth-and-start-servers.sh --maestro
 
    # Android emulator — boot an AVD first, then:
    ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
-     ../bin/setup-db-with-seeds-and-oauth-and-start-servers.sh --android
+     ../bin/setup-db-with-seeds-and-oauth-and-start-servers.sh --android --maestro
    ```
 
 ## Directory Structure
@@ -35,8 +35,9 @@ This directory contains Maestro E2E tests for the Pierre mobile app.
 ├── helpers/                 # Reusable helper flows
 │   ├── launch-app.yaml      # Launch app fresh
 │   ├── hide-dev-tools-button.yaml  # Switch off Expo Go's floating tools button (iOS)
-│   ├── login.yaml           # Perform login (hosted page, below)
-│   ├── sign-in-as.yaml      # Sign in as another account (EMAIL, PASSWORD env); stops when the login screen goes
+│   ├── login.yaml           # Sign the seeded tester in with a seeded session, wait for Home (below)
+│   ├── sign-in-seeded.yaml  # Sign any account in with a seeded session (EMAIL env); stops once the app took it
+│   ├── sign-in-seeded.js    # Its runScript: asks the control process for a single-use code
 │   ├── open-hosted-sign-in.yaml    # Tap Sign in, wait for the server's login page in the browser
 │   ├── submit-hosted-sign-in.yaml  # Fill Email/Password on that page (EMAIL, PASSWORD env) and submit
 │   ├── close-hosted-sign-in.yaml   # Close the page without signing in (Cancel / Back)
@@ -115,23 +116,90 @@ Measured on iOS 27.0 with Expo Go 57.0.9 (iPhone 17, Xcode 27, 2026-09-25):
 
 ## Signing in
 
+Only the `login/` flows sign in the way an athlete does. Every other flow starts
+signed in with a **seeded session** and never opens the sign-in sheet (carnet#1201).
+
+### Seeded sessions (every flow but `login/`)
+
+`helpers/login.yaml` signs the seeded tester (`mobiletest@pierre.dev`) in and waits
+for Home; `helpers/sign-in-seeded.yaml` signs in the account its `EMAIL` names and
+stops once the app has taken the session, for flows whose account lands somewhere
+else (a coach still in onboarding). Both start on the login screen `launch-app.yaml`
+leaves. Three parts:
+
+1. **Minting.** `helpers/sign-in-seeded.js` asks the control process
+   (`frontend/e2e-real/home-sync-control.ts`, `POST /seeded-session?email=…`), which
+   runs `pierre-cli user mint-session --email …` against the server's database. The
+   CLI issues the pair the `dravr-mobile` code exchange issues, through the same
+   server calls: the JWT, and an `offline_access` refresh token, with the expiry the
+   server's own configuration sets (`crates/pierre-cli/src/commands/session.rs`), and
+   raises `user.login` with `source=pierre_cli_mint_session`. The command exists only
+   in a `pierre-cli` built with `--features pierre-cli/e2e-seeded-sessions` (the CI
+   lanes, `scripts/e2e-home-sync-local.sh`, the dev stack's `--maestro`; never the
+   server image), and refuses any `DATABASE_URL` that is not `sqlite:`.
+2. **The code.** The control process keeps the pair in memory and answers with a
+   random single-use code that lapses after a minute. The link never carries a token:
+   Maestro writes every link it opens to `maestro.log`, which both lanes upload as an
+   artifact of this public repository.
+3. **The link.** The helper opens `exp://<host>:8082/--/e2e/session?code=…`
+   (`127.0.0.1` on iOS, `10.0.2.2` on Android), with a fresh code on each attempt. The
+   route (`app/(auth)/e2e/session.tsx`) redeems the code at the control process on the
+   API's own host (`POST http://<api host>:8098/seeded-session/redeem?code=…`, the port
+   `EXPO_PUBLIC_E2E_CONTROL_PORT` overrides), stores the pair where the code exchange
+   stores it, has `GET /api/auth/session` confirm it, and adopts the session as a
+   sign-in does; the root layout's guard then routes the account to Home or the
+   onboarding step it owes. A code that is spent, expired or unknown, a session the
+   server refuses, or an app that already holds a session (nothing is written then)
+   stays on that route's screen, and the helper fails naming it.
+4. **Local E2E development bundles only.** Metro serves `app/(auth)/e2e/` only when
+   `EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1`, `NODE_ENV=development` (what `expo start`
+   sets; every export sets `production`) and `EXPO_PUBLIC_API_URL` names a local
+   server (`127.0.0.1`, `localhost` or `10.0.2.2`); `metro.config.js` blocks the
+   directory otherwise, so Expo Router has no such route and the link lands on
+   "Unmatched Route". The route checks `__DEV__`, the flag and the API host again at
+   runtime. `__tests__/seededSessionBundling.test.ts` pins the block list, and
+   `scripts/ci/check-seeded-session-route-not-bundled.sh` (mobile unit lane) exports a
+   production bundle with every switch on and fails if the route is in it.
+
+The control process answers only requests addressed to `127.0.0.1`, `localhost` or
+`10.0.2.2` on its own port.
+
+So a local run of any flow but `login/` needs what CI has: the control process
+beside the server, with `PIERRE_CLI` naming a `pierre-cli` built with the feature
+from the same tree, `E2E_REAL_DATABASE_PATH` the server's SQLite file and the
+server's `PIERRE_MASTER_ENCRYPTION_KEY`; and Metro started with the flag and a local
+API. Two ways to get it:
+
+- `bin/setup-db-with-seeds-and-oauth-and-start-servers.sh --maestro` (with `--android`
+  for the emulator) builds that CLI, starts the control process on 8098 against the
+  dev database, and starts Expo Go with the flag. It is opt-in, like `--tunnel`,
+  because it adds a way to sign the app in from a link. It does not point the server
+  at the control process's sciotte double, so `home-sync/` still needs the script
+  below; with `--tunnel` the API is not local and Metro leaves the route out.
+- `scripts/e2e-home-sync-local.sh --mobile [flows…]` boots that whole stack on its
+  own ports, `home-sync/` included.
+
+### The hosted sign-in sheet (`login/` flows)
+
 The app has no password field (carnet#787): its sign-in button opens the server's
 hosted login page (`/oauth2/login`) in the system browser — ASWebAuthenticationSession
 on iOS (ephemeral, so no "wants to use … to sign in" alert and no cookie kept), a
 Chrome Custom Tab on Android — and redeems the authorization code it returns with.
-Flows type the credentials into that page. In Expo Go the return address is
+`login/02`, `06` and `07` type into that page. In Expo Go the return address is
 `exp://<host>:8082/--/auth/callback`, which the server accepts only with
 `OAUTH_ALLOW_EXPO_GO_REDIRECT=true` — set it on any server these flows run against.
 Chrome keeps the server's session cookie between flows, so a flow that needs the page
 to appear starts with `helpers/reset-browser-session.yaml`.
 
 On the iOS simulator the sheet can stay blank for minutes: WebKit's web content process
-for it was asked for and has not launched (carnet#869). `helpers/open-hosted-sign-in.yaml`
-taps once and waits up to 240 s for the page, never cancelling and re-tapping, because a
-new sheet only queues behind the stuck launch. A sheet still blank after that fails the
-flow on its blank `BrowserView` — the report reads "Assertion is false: id:
-BrowserView.*WebViewProcessID=0(&.*)? is not visible", and the flow's own log names the
-step "hosted sign-in: the sheet's web content process never launched".
+for it was asked for and has not launched (carnet#869), and SafariViewService queues
+every later sheet behind the stuck launch — the reason the other flows no longer open
+it. `helpers/open-hosted-sign-in.yaml` taps once and waits up to 240 s for the page,
+never cancelling and re-tapping, because a new sheet only queues behind the stuck
+launch. A sheet still blank after that fails the flow on its blank `BrowserView` — the
+report reads "Assertion is false: id: BrowserView.*WebViewProcessID=0(&.*)? is not
+visible", and the flow's own log names the step "hosted sign-in: the sheet's web
+content process never launched".
 
 ## Flows that need more than the seeded tester
 
@@ -140,9 +208,9 @@ step "hosted sign-in: the sheet's web content process never launched".
   verdicttest@pierre.dev` writes the conversation, the reply and its supported verdict
   (with a DOI) on an account of its own: on mobiletest it would fill the chat list the
   start-a-chat flows expect empty and badge the chat tab. The flow signs in with
-  `helpers/sign-in-as.yaml` and resets the browser session when it ends. Both CI lanes
-  and `bin/setup-db-with-seeds-and-oauth-and-start-servers.sh` create the account and
-  run the seeder.
+  `helpers/sign-in-seeded.yaml`. Both CI lanes and
+  `bin/setup-db-with-seeds-and-oauth-and-start-servers.sh` create the account and run
+  the seeder.
 - `onboarding/02-coach-group-step.yaml` and `home-sync/` call the control process,
   `frontend/e2e-real/home-sync-control.ts` (port 8098), from their `runScript` steps.
   It runs the sciotte double on 8097, so the server must have

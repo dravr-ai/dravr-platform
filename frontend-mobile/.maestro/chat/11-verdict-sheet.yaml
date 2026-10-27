@@ -22,24 +22,16 @@
 appId: ai.dravr.app
 # The verdict conversation belongs to its own seeded account, so the shared
 # tester's chat list stays empty for the flows that start a chat from it and
-# its tab carries no unread badge. Signing out of the browser afterwards hands
-# the next flow back to the tester.
-onFlowComplete:
-  - runFlow:
-      file: ../helpers/reset-browser-session.yaml
+# its tab carries no unread badge. The account signs in with a seeded session
+# (carnet#1201), so no browser keeps a session for the next flow.
 
 ---
 - runFlow:
-    file: ../helpers/reset-browser-session.yaml
-- runFlow:
     file: ../helpers/launch-app.yaml
 - runFlow:
-    file: ../helpers/sign-in-as.yaml
+    file: ../helpers/sign-in-seeded.yaml
     env:
       EMAIL: "verdicttest@pierre.dev"
-      PASSWORD: "VerdictTest1234"
-- runFlow:
-    file: ../helpers/wait-for-home-after-login.yaml
 - extendedWaitUntil:
     visible:
       id: "home-screen"

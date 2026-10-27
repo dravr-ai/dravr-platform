@@ -42,6 +42,23 @@ pub trait TenantRepository: Send + Sync {
     async fn get_by_slug(&self, slug: &str) -> AppResult<Tenant>;
     /// List tenants for a user
     async fn list_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>>;
+    /// The tenant a session opens in when nothing names one: the first of
+    /// [`Self::list_for_user`], or `None` when the account belongs to no
+    /// active, owned tenant.
+    ///
+    /// The single home of the "account's first tenant" rule: every caller
+    /// that needs a user's default tenant id, and no particular one, asks
+    /// here rather than taking the head of the list itself. A caller that
+    /// needs the whole [`Tenant`] (its name, its plan) reads the head of
+    /// [`Self::list_for_user`], which is the same tenant, instead of paying
+    /// a second lookup for it.
+    async fn first_for_user(&self, user_id: Uuid) -> AppResult<Option<TenantId>> {
+        Ok(self
+            .list_for_user(user_id)
+            .await?
+            .first()
+            .map(|tenant| tenant.id))
+    }
     /// Every tenant the user holds a membership row in, whatever the tenant's
     /// state or ownership, ordered by id.
     ///

@@ -41,10 +41,13 @@ use crate::operator_mail::PendingSignupMail;
 /// Sign-in through an external identity (Firebase, Google) and the account rules both follow
 mod federated;
 
+/// The first-party session a redeemed code (or the CLI's seeded session) opens, and its user.login event
+mod code_sign_in;
 /// The operator's bounds on a stranger's sign-up, and activation on a proven address
 mod self_signup;
 /// Signup codes: register with one, redeem one from the pending page, activate on a proven address
 mod signup_code;
+pub use code_sign_in::SessionOrigin;
 pub use signup_code::RedeemedSignupCode;
 
 pub use federated::{FederatedIdentity, SignupSource};
@@ -494,65 +497,6 @@ impl AuthService {
         })
     }
 
-    /// Open the first-party session an authorization code signs in to.
-    ///
-    /// Dravr's web and mobile apps sign in on the hosted login page, which
-    /// checks the password (or Google), and redeem the code it issues
-    /// (carnet#787). `user_id` and `tenant_id` are what that code recorded,
-    /// and `client_id` the app that redeemed it, which the session's JWT
-    /// names in its `client_id` claim. The session is the one a sign-in has
-    /// always opened: the self grant, 24 hours, the tenant the code names
-    /// while the athlete still belongs to it. A suspended account is refused;
-    /// a pending one signs in, so the app can show the approval it awaits.
-    ///
-    /// # Errors
-    /// Returns an error if the account is gone or suspended, or the session
-    /// cannot be minted
-    pub async fn sign_in_with_code(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: &str,
-        client_id: &str,
-    ) -> AppResult<LoginResponse> {
-        let repos = self.data.repos();
-        let user = repos.users.get_global(user_id).await?.ok_or_else(|| {
-            AppError::auth_invalid("The account this sign-in names no longer exists")
-        })?;
-        Self::reject_if_suspended(&user)?;
-
-        let tenant_id = if self.is_tenant_member(user.id, tenant_id).await? {
-            Some(tenant_id.to_owned())
-        } else {
-            self.ensure_user_has_tenant(&user).await?
-        };
-        let jwt_token = self
-            .auth_manager
-            .generate_client_session_token(
-                &user,
-                &self.jwks_manager,
-                tenant_id.clone(),
-                Some(client_id),
-            )
-            .map_err(|e| AppError::internal(format!("Failed to generate token: {e}")))?;
-        let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
-
-        repos
-            .users
-            .update_last_active(user.id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
-
-        info!(user_id = %user.id, client_id, "User signed in with an authorization code");
-
-        let user_info = self.user_info(&user, tenant_id).await;
-        Ok(LoginResponse {
-            jwt_token: Some(SecretString::from(jwt_token)),
-            csrf_token: SecretString::default(), // Will be set by HTTP handler
-            expires_at: expires_at.to_rfc3339(),
-            user: user_info,
-        })
-    }
-
     /// Handle Firebase login - authenticate with Firebase ID token
     ///
     /// Validates the Firebase ID token, then signs the person it names in
@@ -712,16 +656,16 @@ impl AuthService {
     /// # Errors
     /// Returns error if database operations fail
     async fn ensure_user_has_tenant(&self, user: &User) -> AppResult<Option<String>> {
-        let tenants = self
+        let first = self
             .data
             .repos()
             .tenants
-            .list_for_user(user.id)
+            .first_for_user(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
-        if let Some(first) = tenants.first() {
-            return Ok(Some(first.id.to_string()));
+        if let Some(first) = first {
+            return Ok(Some(first.to_string()));
         }
 
         // User has no tenant — create a personal one (handles admin setup, CLI users)

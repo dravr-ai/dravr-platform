@@ -20,10 +20,27 @@ postgresql = ["pierre-database/postgresql", "pierre-services/postgresql"]
 # Enables the GCP Cloud KMS KEK target for `pierre-cli key rewrap-kek`.
 gcp-kms = ["pierre-auth/gcp-kms"]
 tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", "pierre-services/health-sync"]
+# `user mint-session`: signs an account in with no credential, for the mobile
+# E2E lanes' seeded sessions (carnet#1201). Only those lanes and the dev stack's
+# --maestro run build it; the server image's feature list never names it, so
+# the pierre-cli it ships has no such command.
+e2e-seeded-sessions = [
+    "dep:pierre-cache",
+    "dep:pierre-config",
+    "dep:pierre-providers",
+    "dep:pierre-runtime-context",
+]
 
 [dependencies]
 # Workspace crates
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+# `user mint-session` (feature e2e-seeded-sessions) builds the server's
+# AuthService: its cache, configuration, provider registry and data context,
+# the way a booting server builds them.
+pierre-cache = { version = "0.3.0", path = "../pierre-cache", optional = true }
+pierre-config = { version = "0.3.0", path = "../pierre-config", optional = true }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers", optional = true }
+pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", optional = true }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }

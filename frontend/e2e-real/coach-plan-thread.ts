@@ -4,11 +4,8 @@
 // ABOUTME: A fresh coach and athlete whose plan thread holds the coach's open draft, seeded by pierre-cli, and the athlete's season read back
 // ABOUTME: Served by the Maestro control process (home-sync-control.ts) to the mobile coach plan-thread flow, a new pair on every attempt
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { firstPartySignIn } from '../../scripts/auth/first-party-sign-in.js';
-
-const execFileAsync = promisify(execFile);
+import { runPierreCli, type CliServer } from './pierre-cli';
 
 /** One password for every account this makes: each is new, so nothing is shared but the string. */
 const PASSWORD = 'PlanE2e-Pass1234';
@@ -16,25 +13,17 @@ const PASSWORD = 'PlanE2e-Pass1234';
 /** The athlete's roster name, which the coach's thread is titled and subtitled with. */
 const ATHLETE_NAME = 'Maya Tempo';
 
-/** How long one `pierre-cli` run may take before the setup fails naming it. */
-const CLI_TIMEOUT_MS = 60_000;
-
 /** The athletes made so far, so a state read signs in as nobody else. */
 const athletes = new Set<string>();
 
 /** The server under test, the database it serves and the CLI that seeds it. */
-export interface PlanServer {
+export interface PlanServer extends CliServer {
   pierreUrl: string;
-  /** The `pierre-cli` binary built from the same tree as the server. */
-  cliPath: string | undefined;
-  /** The SQLite file the server under test uses. */
-  databasePath: string | undefined;
 }
 
-/** What a setup made, as the flow signs in with it and asserts it. */
+/** What a setup made: the coach the flow signs in (with a seeded session), and what it asserts. */
 export interface CoachPlanThread {
   coachEmail: string;
-  coachPassword: string;
   athleteEmail: string;
   /** The athlete as the coach's thread names them. */
   athleteName: string;
@@ -50,30 +39,6 @@ export interface CoachPlanThread {
 export interface AthletePlanState {
   /** The live season's goal race, or `null` when the athlete has none. */
   liveRace: string | null;
-}
-
-/**
- * Run `pierre-cli` against the server's database. The CLI's own error output
- * names what failed; the arguments are never echoed, since they carry a
- * password.
- */
-async function cli(server: PlanServer, args: string[]): Promise<void> {
-  if (server.cliPath === undefined || server.cliPath === '') {
-    throw new Error('PIERRE_CLI names the pierre-cli binary that seeds the server under test');
-  }
-  if (server.databasePath === undefined || server.databasePath === '') {
-    throw new Error('E2E_REAL_DATABASE_PATH names the SQLite file the server under test uses');
-  }
-  try {
-    await execFileAsync(server.cliPath, args, {
-      env: { ...process.env, DATABASE_URL: `sqlite:${server.databasePath}`, RUST_LOG: 'warn' },
-      timeout: CLI_TIMEOUT_MS,
-    });
-  } catch (error) {
-    const failed = error as { stderr?: string; code?: number | string };
-    const why = failed.stderr?.trim() || `exit ${String(failed.code)}`;
-    throw new Error(`pierre-cli ${args.slice(0, 2).join(' ')} failed: ${why}`, { cause: error });
-  }
 }
 
 async function call(server: PlanServer, path: string, token: string): Promise<unknown> {
@@ -123,9 +88,9 @@ export async function freshCoachPlanThread(server: PlanServer): Promise<CoachPla
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const coachEmail = `plan-coach-e2e-${stamp}@pierre.dev`;
   const athleteEmail = `plan-athlete-e2e-${stamp}@pierre.dev`;
-  await cli(server, ['user', 'create', '--email', coachEmail, '--password', PASSWORD, '--name', 'Coach e2e']);
-  await cli(server, ['user', 'create', '--email', athleteEmail, '--password', PASSWORD, '--name', ATHLETE_NAME]);
-  await cli(server, ['seed', 'coach-plan-thread', '--coach-email', coachEmail, '--athlete-email', athleteEmail]);
+  await runPierreCli(server, ['user', 'create', '--email', coachEmail, '--password', PASSWORD, '--name', 'Coach e2e']);
+  await runPierreCli(server, ['user', 'create', '--email', athleteEmail, '--password', PASSWORD, '--name', ATHLETE_NAME]);
+  await runPierreCli(server, ['seed', 'coach-plan-thread', '--coach-email', coachEmail, '--athlete-email', athleteEmail]);
 
   const token = await signIn(server, coachEmail);
   const { conversations } = (await call(server, '/api/chat/conversations?limit=50&offset=0', token)) as {
@@ -149,7 +114,6 @@ export async function freshCoachPlanThread(server: PlanServer): Promise<CoachPla
   athletes.add(athleteEmail);
   return {
     coachEmail,
-    coachPassword: PASSWORD,
     athleteEmail,
     athleteName: planThread.subject_display_name,
     groupName: groupThread.title,

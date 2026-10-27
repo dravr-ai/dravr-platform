@@ -460,11 +460,10 @@ pub(crate) async fn handle_session(
     let active_tenant_id = match auth_result.active_tenant_id.map(TenantId::from_uuid) {
         Some(tid) if tenants.get_user_role(user_id, tid).await?.is_some() => Some(tid.to_string()),
         _ => tenants
-            .list_for_user(user_id)
+            .first_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?
-            .first()
-            .map(|t| t.id.to_string()),
+            .map(|tenant_id| tenant_id.to_string()),
     };
     let tenant_id_for_response = active_tenant_id.clone();
 

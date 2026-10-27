@@ -220,12 +220,11 @@ async fn resolve_tenant_id<C: BillingCtx>(
     if let Some(tenant) = auth.active_tenant_id {
         return Ok(tenant.to_string());
     }
-    let rows = BillingCtx::repos(resources)
+    BillingCtx::repos(resources)
         .tenants
-        .list_for_user(auth.user_id)
-        .await?;
-    rows.first()
-        .map(|t| t.id.to_string())
+        .first_for_user(auth.user_id)
+        .await?
+        .map(|tenant_id| tenant_id.to_string())
         .ok_or_else(|| AppError::not_found("user has no active tenant"))
 }
 

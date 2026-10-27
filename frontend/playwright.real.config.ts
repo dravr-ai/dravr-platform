@@ -18,6 +18,11 @@ const SCRAPER_DOUBLE_SPECS = ['**/home-sync.real.spec.ts', '**/coros-code-step.r
 
 export default defineConfig({
   testDir: './e2e-real',
+  // Playwright's default match also takes `*.test.ts`, and e2e-real holds a
+  // `bun test` suite for the control process's code store
+  // (seeded-session.test.ts, run by the mobile unit lane) that Playwright's
+  // loader cannot import: only the specs are this suite's.
+  testMatch: '**/*.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
