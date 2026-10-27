@@ -18,6 +18,7 @@
 //! `MAX_WINDOWS` windows. A wider span keeps its most recent part, and the
 //! payload echoes the window that was read.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -35,7 +36,7 @@ use crate::conversions::{
     answers_with, apply_format, object_schema_with_format, ok_typed, tool_definition,
     tool_result_to_response, Formatted,
 };
-use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
+use crate::implementations::data_helpers::parse_output_format;
 use crate::implementations::stored_data::DateRange;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
@@ -301,7 +302,7 @@ impl McpTool<dyn ToolRuntime> for GetHeartRateSeriesTool {
              `window_minutes` is given. For daily resting heart rate and overnight HRV use \
              get_recovery_metrics.",
             object_schema_with_format(input_properties(), None),
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

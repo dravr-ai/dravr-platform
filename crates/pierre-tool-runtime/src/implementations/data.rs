@@ -22,6 +22,7 @@
 //! athlete, stats) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -60,8 +61,8 @@ use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
     attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
-    historical_window_read_limit, pagination_has_more, read_only_annotations,
-    response_cache_eligible, window_fetch_limit, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    historical_window_read_limit, pagination_has_more, response_cache_eligible, window_fetch_limit,
+    PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -226,7 +227,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             "get_activities",
             "Retrieve user's fitness activities from connected providers. For a specific year or date range (e.g. '2022 races'), pass `after`/`before` epoch-second bounds — do NOT page recent activities via `limit` to reach old data. Use `sort_by` to honor an explicit ordering request (e.g. longest-to-shortest). Supports sport-type filtering and pagination.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

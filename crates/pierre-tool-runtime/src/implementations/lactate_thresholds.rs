@@ -14,6 +14,7 @@
 //! one power zone model, the same one `set_physiology` persists an FTP's
 //! zones with, and names the profile field to save. It never writes — `set_physiology` stays the profile's only writer.
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,7 +26,6 @@ use tracing::info;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::implementations::configuration::render_power_zones;
-use crate::implementations::data_helpers::read_only_annotations;
 use crate::implementations::lactate_thresholds_output::{
     BandRow, CurveFit, DeterminedThreshold, LactatePowerZones, LactateThresholdsResult,
     StoredThresholds, ThresholdReport, UndeterminedThreshold,
@@ -370,7 +370,7 @@ impl McpTool<dyn ToolRuntime> for EstimateLactateThresholdsTool {
             "estimate_lactate_thresholds",
             "Locate the athlete's lactate thresholds from a step test they report — each stage's power in watts or pace in seconds per kilometre, its blood lactate in mmol/L, and heart rate if a strap was worn. Returns LT1 by the log-log breakpoint and LT2 by modified Dmax, Dmax and the 4.0 mmol/L convention, each under its own name with the intensity, lactate and heart rate at that point; the lactate band table from 1.0 to 4.0 mmol/L; and power zones anchored on the modified-Dmax LT2 when the stages are in watts. Call it when the athlete reports a test such as '200 W 1.1, 225 W 1.4, 250 W 2.3, 275 W 4.1 mmol'. Needs at least four stages, each harder than the last. This only estimates: to keep a threshold, call set_physiology with ftp_watts or threshold_pace_sec_per_km, and threshold_hr for its heart rate, after the athlete confirms it.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

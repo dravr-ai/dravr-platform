@@ -35,6 +35,7 @@
 //! 4. **Bounded.** At most [`MAX_ROSTER_ATHLETES`] snapshots are fetched per
 //!    call, and `truncated` says when the roster was cut.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -52,7 +53,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, GroupMember, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::refusal;
@@ -489,12 +490,7 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
              full session history, and `get_provider_roster` for the roster of your coaching \
              platform (Intervals.icu, TrainingPeaks).",
             schema,
-            Some(ToolAnnotations {
-                read_only_hint: Some(true),
-                destructive_hint: Some(false),
-                idempotent_hint: Some(true),
-                ..ToolAnnotations::default()
-            }),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

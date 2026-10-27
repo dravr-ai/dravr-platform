@@ -20,6 +20,7 @@
 //! resolved and where it came from is echoed back as `inputs`, so the agent
 //! can confirm before saving the outcome through `save_training_plan`.
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -30,7 +31,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::info;
 
-use super::data_helpers::read_only_annotations;
 use super::plan_scope::{resolve_plan_scope, PlanScopeRequest};
 use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
@@ -711,7 +711,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
             "recommend_plan_flavour",
             "Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum. The stored profile fills in training age, the devices they have thresholds for and their primary sport; the active plan fills in the goal race. Returns every flavour they can run ranked with the reasons and evidence behind each, every flavour they cannot run with the reason stated, how confident the rule is, and the season's phases laid backward from the goal on the skeleton that fits. Present the verdict in your own voice, confirm the inputs it echoes back, and save the outcome through save_training_plan, passing `verdict` and `inputs` through exactly as returned here, with selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. This only recommends; it writes nothing.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

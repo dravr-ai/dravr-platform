@@ -11,6 +11,7 @@
 //! the Letta/MemGPT-style "active memory" complement to the background
 //! fact extractor in `services/memory_extraction.rs`.
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::SentenceRenderer;
@@ -39,28 +40,8 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
-
-/// Annotation set for tools that mutate memory state.
-fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotation set for read-only memory recall.
-fn read_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 fn require_string_field(args: &Value, key: &str) -> AppResult<String> {
     args.get(key)
@@ -204,7 +185,7 @@ impl McpTool<dyn ToolRuntime> for AgentNoteAddTool {
             "agent_note_add",
             "Persist a private agent note about the user for the harness memory layer. Use this when you decide that something the user said should be remembered across sessions.",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -327,7 +308,7 @@ impl McpTool<dyn ToolRuntime> for AgentFollowupScheduleTool {
             "agent_followup_schedule",
             "Schedule a future check-in the agent should remember. The reminder is injected into the system prompt of the next coaching conversation. Use when you tell the user 'I'll check back on X tomorrow.'",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -479,7 +460,7 @@ impl McpTool<dyn ToolRuntime> for RememberFactTool {
             "remember_fact",
             "Persist a structured durable fact about the user (preference, physiology, injury, goal, schedule, equipment, other). Use this when the user explicitly confirms something the agent should remember next time.",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -647,7 +628,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             "recall_user_memory",
             "Retrieve stored facts the harness has remembered about the user. Returns recent facts ordered by last-update timestamp. Use this when you need to confirm what you already know before answering.",
             schema,
-            Some(read_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

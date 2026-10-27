@@ -21,6 +21,7 @@
 //! - `ShowAgentTool` - Show a hidden agent
 //! - `ListHiddenAgentsTool` - List hidden agents
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -33,10 +34,7 @@ use super::agents_output::{
     update_agent_payload, CreateAgentResult, DeleteAgentResult, GetAgentResult, ListAgentsResult,
     SearchAgentsResult, ToggleAgentFavoriteResult, UpdateAgentResult,
 };
-use super::agents_tool_shape::{
-    category_property, destructive_annotations, extract_format, read_only_annotations,
-    string_list_property, write_annotations,
-};
+use super::agents_tool_shape::{category_property, extract_format, string_list_property};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, apply_format, object_schema, object_schema_with_format, ok_typed,
@@ -125,7 +123,7 @@ impl McpTool<dyn ToolRuntime> for ListAgentsTool {
             "list_agents",
             "List available AI agents for personalized training guidance",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -258,7 +256,7 @@ impl McpTool<dyn ToolRuntime> for CreateAgentTool {
             "create_agent",
             "Create a custom AI agent with personalized training guidance",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -376,7 +374,7 @@ impl McpTool<dyn ToolRuntime> for GetAgentTool {
             "get_agent",
             "Get detailed information about a specific agent",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -483,7 +481,7 @@ impl McpTool<dyn ToolRuntime> for UpdateAgentTool {
             "update_agent",
             "Update an existing agent's settings",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -596,7 +594,7 @@ impl McpTool<dyn ToolRuntime> for DeleteAgentTool {
             "delete_agent",
             "Delete an agent",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::Internal),
         ))
     }
 
@@ -671,7 +669,8 @@ impl McpTool<dyn ToolRuntime> for ToggleAgentFavoriteTool {
             "toggle_agent_favorite",
             "Toggle the favorite status of an agent",
             schema,
-            Some(write_annotations()),
+            // Flips the stored value, so a repeat call undoes the first.
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -769,7 +768,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentsTool {
             "search_agents",
             "Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

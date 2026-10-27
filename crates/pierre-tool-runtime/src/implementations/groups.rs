@@ -28,6 +28,7 @@
 //! (cross-tenant lookup), matching how their 1-1 chat resolves data — the same
 //! correction applied to the group snapshot fetcher in [`crate::group_fitness`].
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,7 +44,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
 use pierre_core::models::Activity;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
 use pierre_tools_core::ToolResult;
@@ -66,15 +67,6 @@ use pierre_services::athlete_display_name::fetch_user_display_name;
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
 /// Hard cap on returned peer activities (token-budget guard).
 const MAX_PEER_ACTIVITY_LIMIT: usize = 100;
-
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 /// Factory for group-scoped tools, registered under the `tools-groups` feature.
 #[must_use]
@@ -444,7 +436,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
              you as the group's coach (joining grants it, `/group consent coach no` revokes \
              it); the error's `reason` says why.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

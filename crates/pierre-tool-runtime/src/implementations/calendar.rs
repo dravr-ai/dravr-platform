@@ -10,7 +10,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ConnectionType, ProviderConnection, RelativeIntensity, TenantId, WorkoutStep,
 };
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver::resolve_backend;
 use pierre_providers::core::FitnessProvider;
 use pierre_services::plan_calendar_push::{calendar_read_target, resolve_calendar_target};
@@ -19,18 +19,6 @@ use uuid::Uuid;
 
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
-
-/// Annotation set for a tool that deletes calendar entries on the provider:
-/// destructive, but safe to repeat (a second call finds nothing to delete).
-pub(super) fn destructive_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 /// The `provider` property `push_training_plan`, `prescribe_workout` and
 /// `withdraw_prescribed_workout` share.

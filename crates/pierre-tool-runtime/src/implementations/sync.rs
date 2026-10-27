@@ -4,13 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ProviderFreshness, RefreshConfig, TenantId};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::provider_refresh::{RefreshService, SyncMetrics};
@@ -27,26 +28,6 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-
-/// Annotations for the refresh tool — writes data (triggers sync), open world (external APIs)
-fn refresh_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        open_world_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for the read-only freshness check
-fn freshness_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 // ============================================================================
 // RefreshProviderDataTool
@@ -167,7 +148,7 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
              seems outdated, when they ask about recent activities that aren't showing, or when \
              they explicitly request a sync. Set wait=true to block until sync completes.",
             schema,
-            Some(refresh_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::OpenWorld),
         ))
     }
 
@@ -284,7 +265,7 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
              Returns last sync time and freshness level for each provider. Use this to \
              decide if a refresh is needed before answering data-dependent questions.",
             schema,
-            Some(freshness_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

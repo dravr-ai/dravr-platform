@@ -14,6 +14,7 @@
 //!
 //! All tools reach the rows through the `FitnessConfigRepository` in the repository registry.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -148,7 +149,7 @@ impl McpTool<dyn ToolRuntime> for GetFitnessConfigTool {
             "get_fitness_config",
             "Get fitness configuration for the current user (falls back to tenant default)",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -263,7 +264,7 @@ impl McpTool<dyn ToolRuntime> for SetFitnessConfigTool {
             "set_fitness_config",
             "Save or update fitness configuration for the current user or tenant",
             schema,
-            None,
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -362,7 +363,7 @@ impl McpTool<dyn ToolRuntime> for ListFitnessConfigsTool {
             "list_fitness_configs",
             "List all available fitness configuration names for the user and tenant",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -465,7 +466,7 @@ impl McpTool<dyn ToolRuntime> for DeleteFitnessConfigTool {
             "delete_fitness_config",
             "Delete a fitness configuration by name",
             schema,
-            None,
+            annotations(Effect::Destructive, Reach::Internal),
         ))
     }
 

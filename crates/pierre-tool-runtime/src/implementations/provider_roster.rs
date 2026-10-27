@@ -32,6 +32,7 @@
 //!    coach access, still reads their roster, with what it takes to link
 //!    anyone on it.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -45,7 +46,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{CoachAccessStatus, RosterAccess, TenantId};
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_runtime_context::DataContext;
 use pierre_services::coach_platform::{check_roster_transport, roster_platforms, CoachPlatform};
 use pierre_services::delegated_link_states::{roster_link_states, LinkState, RosterLinkState};
@@ -517,12 +518,7 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
              their names are never shown. `next_steps` says what linking them takes. Read it \
              from your own conversation, never a group's room.",
             schema,
-            Some(ToolAnnotations {
-                read_only_hint: Some(true),
-                destructive_hint: Some(false),
-                idempotent_hint: Some(true),
-                ..ToolAnnotations::default()
-            }),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 

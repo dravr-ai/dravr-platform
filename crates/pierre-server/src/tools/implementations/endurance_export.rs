@@ -6,6 +6,7 @@
 
 use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
+use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -25,7 +26,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
 use pierre_core::models::Dossier;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
@@ -65,16 +66,6 @@ const MIN_WINDOW_DAYS: u32 = 1;
 
 /// Maximum activities pulled per call — same cap as the HTTP endpoint.
 const MAX_ACTIVITIES_PER_CALL: usize = 200;
-
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
 
 fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     context.tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
@@ -170,7 +161,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
              training-state snapshot grounded in the Endurance deterministic-output \
              contract.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -237,7 +228,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        answers_with::<DossierExport>(task_capable(tool_definition(
+        answers_with::<DossierExport>(tool_definition(
             "export_dossier",
             "Export the Endurance 'dossier.json' aggregate for the authenticated \
              user — physiological profile (VO2max, FTP, threshold pace, fitness \
@@ -253,8 +244,8 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
              is the athlete's own. Empty slots come back as `null` rather than \
              404, so agents can rely on the shape.",
             schema,
-            Some(read_only_annotations()),
-        )))
+            annotations(Effect::ReadOnly, Reach::Internal),
+        ))
     }
 
     fn capabilities(&self) -> ToolCapabilities {

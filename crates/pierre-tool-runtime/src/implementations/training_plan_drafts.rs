@@ -21,6 +21,7 @@
 //! ([`run_live_plan_rails`]). Neither path can publish without the other's
 //! steps.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -45,7 +46,6 @@ use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use tracing::info;
 
-use super::calendar::destructive_annotations;
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
 use super::training_plan_authorship::load_conversation;
 use super::training_plan_push::calendar_preview_after_save;
@@ -348,7 +348,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
              athlete, `athlete` defaults to that athlete. The caller's own plan has no draft: \
              their saves are already live.",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::OpenWorld),
         ))
     }
 

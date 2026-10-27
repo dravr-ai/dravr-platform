@@ -64,6 +64,8 @@ pub mod activity_backfill_resume;
 pub mod activity_fetch;
 /// What a model may see of provider data under each provider's AI policy.
 pub mod ai_view;
+/// The MCP behaviour hints every tool declares (carnet#1198).
+pub mod annotations;
 pub mod capabilities;
 /// Nightly capture refresh — the actor behind the capture-staleness reader.
 pub mod capture_sweep;

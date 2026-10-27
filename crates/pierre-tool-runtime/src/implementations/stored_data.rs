@@ -21,6 +21,7 @@
 //! `pierre_services::stored_health`, which applies each row's provider terms before
 //! the per-night or per-day merge here (carnet#771).
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -40,7 +41,7 @@ use crate::conversions::{
     answers_with, apply_format, format_property, object_schema, ok_typed, tool_definition,
     tool_result_to_response, Formatted,
 };
-use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
+use crate::implementations::data_helpers::parse_output_format;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -282,7 +283,7 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             "get_sleep_sessions",
             "Get stored sleep sessions from the database",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -382,7 +383,7 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             "get_recovery_metrics",
             "Get stored recovery and readiness metrics",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -459,7 +460,7 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             "get_health_snapshots",
             "Get stored health snapshots (body composition, vitals)",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -533,7 +534,7 @@ impl McpTool<dyn ToolRuntime> for ListDataSourcesTool {
             "list_data_sources",
             "List connected data sources (devices and providers)",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

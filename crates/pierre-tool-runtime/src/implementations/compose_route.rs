@@ -14,6 +14,7 @@
 //! stores its line, so the model quotes a distance it did not add up and
 //! draws a map from a reference it did not have to copy coordinates into.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -34,7 +35,7 @@ use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 
 /// What separates the stretch names in a composed route's own name.
@@ -69,17 +70,6 @@ pub struct ComposedStretch {
     /// The stretch's name: the trail's name in OSM, or a composed route's
     /// stretch names joined in running order.
     pub name: String,
-}
-
-fn compose_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        // Reads lines discover_routes already stored; queries nothing outside.
-        open_world_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
 }
 
 /// Tool that joins discovered stretches into one itinerary, measured and
@@ -159,7 +149,7 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
              itinerary as flat or hilly on the strength of this tool."
             ),
             schema,
-            Some(compose_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

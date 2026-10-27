@@ -16,6 +16,7 @@
 //!
 //! All tools use direct database access for seeded mobility data.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -418,7 +419,7 @@ impl McpTool<dyn ToolRuntime> for ListStretchingExercisesTool {
             "list_stretching_exercises",
             "List stretching exercises with optional filtering by category, difficulty, muscle group, or activity type",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -524,7 +525,7 @@ impl McpTool<dyn ToolRuntime> for GetStretchingExerciseTool {
             "get_stretching_exercise",
             "Get detailed information about a specific stretching exercise",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -632,7 +633,7 @@ impl McpTool<dyn ToolRuntime> for SuggestStretchesForActivityTool {
             "suggest_stretches_for_activity",
             "Get personalized stretching recommendations based on your recent activity type",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -794,7 +795,7 @@ impl McpTool<dyn ToolRuntime> for ListYogaPosesTool {
             "list_yoga_poses",
             "List yoga poses with optional filtering by category, difficulty, pose type, or recovery context",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -907,7 +908,7 @@ impl McpTool<dyn ToolRuntime> for GetYogaPoseTool {
             "get_yoga_pose",
             "Get detailed information about a specific yoga pose",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -1034,7 +1035,7 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
             "suggest_yoga_sequence",
             "Create a personalized yoga sequence for recovery based on your recent activities or goals",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

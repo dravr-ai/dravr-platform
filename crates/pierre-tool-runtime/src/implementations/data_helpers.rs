@@ -1,4 +1,4 @@
-// ABOUTME: Shared vocabulary for the data tools — coverage notes, cache eligibility, annotations
+// ABOUTME: Shared vocabulary for the data tools — coverage notes, cache eligibility
 // ABOUTME: Split out of data.rs, which was frozen over the size ceiling and could not grow
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,9 +6,9 @@
 
 //! Helpers shared by the data-access tools.
 //!
-//! These were defined inside `data.rs` next to `GetActivitiesTool`, but five of
-//! them are read from other files — `read_only_annotations` from twelve — so
-//! they were already a shared vocabulary living in one tool's implementation.
+//! These were defined inside `data.rs` next to `GetActivitiesTool`, but most of
+//! them are read from other files, so they were already a shared vocabulary
+//! living in one tool's implementation.
 //! Splitting them out is what the file-size gate asks for when a frozen file
 //! needs to change, and it puts each item where its callers can see it.
 
@@ -19,7 +19,6 @@ use serde_json::{json, Value};
 
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
-use pierre_mcp_schema::ToolAnnotations;
 use pierre_providers::backend_resolver::user_facing_name;
 use uuid::Uuid;
 
@@ -362,17 +361,6 @@ pub fn parse_output_format(args: &Value) -> OutputFormat {
     args.get("format")
         .and_then(Value::as_str)
         .map_or(OutputFormat::Json, OutputFormat::from_str_param)
-}
-
-/// Annotations for read-only data retrieval tools
-#[must_use]
-pub fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
 }
 
 // ============================================================================

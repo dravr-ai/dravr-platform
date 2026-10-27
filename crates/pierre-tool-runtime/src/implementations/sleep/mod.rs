@@ -25,6 +25,7 @@ mod recovery_notice;
 /// The shapes the sleep tools answer with, and their derived schemas.
 pub mod output;
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -123,7 +124,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeSleepQualityTool {
              Reads the nights synced from connected sources (WHOOP, Garmin, intervals.icu); \
              manual `sleep_data` replaces that fetch only when no `sleep_provider` is named.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -228,7 +229,7 @@ impl McpTool<dyn ToolRuntime> for CalculateRecoveryScoreTool {
              CTL, ATL and TSB from those activities against the thresholds saved with \
              set_physiology (FTP, threshold heart rate, max and resting heart rate, weight).",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -333,7 +334,7 @@ impl McpTool<dyn ToolRuntime> for SuggestRestDayTool {
              activities against the thresholds saved with set_physiology (FTP, threshold heart \
              rate, max and resting heart rate, weight).",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -438,7 +439,7 @@ impl McpTool<dyn ToolRuntime> for TrackSleepTrendsTool {
              nights synced from connected sources (WHOOP, Garmin, intervals.icu) over `days`; \
              manual `sleep_history` replaces that fetch only when no `sleep_provider` is named.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -517,7 +518,7 @@ impl McpTool<dyn ToolRuntime> for OptimizeSleepScheduleTool {
              needs. The training load is computed from the athlete's synced activities against \
              the thresholds saved with set_physiology.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

@@ -24,6 +24,7 @@
 //! "This week" is a civil-calendar claim; resolving it in UTC would tell an
 //! athlete in Auckland they missed a Sunday run at lunchtime on Sunday.
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,7 +52,7 @@ use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 /// What `commitment_create` answers with.
@@ -84,16 +85,6 @@ pub struct CommitmentCancelResult {
     /// Whether one was actually cancelled. False when nothing open matched,
     /// which is a success: the athlete is not committed either way.
     pub cancelled: bool,
-}
-
-/// Annotation set for tools that mutate commitment state.
-fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
 }
 
 fn require_string_field(args: &Value, key: &str) -> AppResult<String> {
@@ -237,7 +228,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCreateTool {
             "commitment_create",
             "Record a commitment the athlete just made, so it can be checked against their real activity data when the window closes. Call this ONLY after the athlete has agreed to a specific number of sessions by a specific day — if they only said 'ok' to your suggestion, or gave no count or no deadline, ask them to confirm both first and call this on their answer. Do not use it for your own plans or reminders.",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -387,7 +378,7 @@ impl McpTool<dyn ToolRuntime> for CommitmentCancelTool {
             "commitment_cancel",
             "Retract a commitment the athlete no longer wants to be held to, so it is never counted or reported. Use when they say they are dropping it or the circumstances changed — injury, travel, a plan revision. Retracting is not failing; do not use this to record that they missed it.",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

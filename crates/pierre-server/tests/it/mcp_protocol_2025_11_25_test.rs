@@ -243,30 +243,6 @@ async fn test_tool_annotations_json_serialization() {
     assert_eq!(annotations["destructiveHint"], false);
 }
 
-/// Test that tools without annotations omit the field in JSON
-#[tokio::test]
-async fn test_unannotated_tools_omit_annotations() {
-    common::init_server_config();
-
-    let tools = get_tools();
-
-    // Find a tool that doesn't have explicit annotations (analytics tools beyond analyze_activity)
-    let calculate_metrics = tools
-        .iter()
-        .find(|t| t.name == "calculate_metrics")
-        .expect("calculate_metrics tool should exist");
-
-    let json_value = serde_json::to_value(calculate_metrics).expect("Should serialize");
-
-    // Tools with None annotations should have the field omitted (skip_serializing_if)
-    // OR they might have annotations assigned by apply_tool_annotations
-    // Either way, the JSON should be valid MCP
-    assert!(
-        json_value["name"].is_string(),
-        "Tool name should always be present"
-    );
-}
-
 /// Test that `ClientInfo` accepts 2025-11-25 extended fields
 #[tokio::test]
 async fn test_client_info_accepts_extended_fields() {
@@ -356,7 +332,20 @@ async fn test_write_tool_annotations() {
         .annotations
         .as_ref()
         .expect("create_agent should have annotations");
-    assert_eq!(annotations.read_only_hint, Some(false));
-    assert_eq!(annotations.destructive_hint, Some(false));
-    assert_eq!(annotations.idempotent_hint, Some(true));
+    assert_eq!(
+        annotations.read_only_hint,
+        Some(false),
+        "bug: create_agent writes, so it must not advertise readOnlyHint"
+    );
+    assert_eq!(
+        annotations.destructive_hint,
+        Some(false),
+        "bug: create_agent removes nothing, so it must not advertise destructiveHint"
+    );
+    // Every call inserts a new agent row, so a repeat is not a no-op.
+    assert_eq!(
+        annotations.idempotent_hint,
+        Some(false),
+        "bug: a repeated create_agent adds another agent, so it is not idempotent"
+    );
 }

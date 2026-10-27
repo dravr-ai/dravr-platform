@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,10 +24,7 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
 use tracing::warn;
 
-use super::calendar::{
-    calendar_ledger_target, destructive_annotations, provider_arg, provider_property,
-    LedgerCalendar,
-};
+use super::calendar::{calendar_ledger_target, provider_arg, provider_property, LedgerCalendar};
 use super::coach_scope::{athlete_property, resolve_calendar_scope};
 use super::plan_scope::PlanScope;
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
@@ -257,7 +255,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              optional from_date, optional provider (needed only to choose between several \
              connected calendars), optional athlete.",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::OpenWorld),
         )))
     }
 

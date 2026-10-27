@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use pierre_core::models::agents::AgentCategory;
 use pierre_formatters::OutputFormat;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 
 /// A `category` property: `lead`, then the vocabulary `AgentCategory::parse` reads.
 pub(super) fn category_property(lead: &str) -> PropertySchema {
@@ -46,34 +46,4 @@ pub(super) fn extract_format(args: &Value) -> OutputFormat {
         .and_then(Value::as_str)
         .map(OutputFormat::from_str_param)
         .unwrap_or_default()
-}
-
-/// Annotations for idempotent write operations (create, update)
-pub(super) fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for destructive operations (delete)
-pub(super) fn destructive_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for read-only agent retrieval operations
-pub(super) fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
 }

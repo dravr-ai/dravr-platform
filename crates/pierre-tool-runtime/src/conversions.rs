@@ -47,13 +47,13 @@ pub fn tool_definition(
     name: &str,
     description: &str,
     input_schema: JsonSchema,
-    annotations: Option<ToolAnnotations>,
+    annotations: ToolAnnotations,
 ) -> Tool {
     Tool {
         name: name.to_owned(),
         description: description.to_owned(),
         input_schema: to_canonical_value(&serde_json::to_value(input_schema).unwrap_or_default()),
-        annotations,
+        annotations: Some(annotations),
         output_schema: None,
         execution: None,
     }

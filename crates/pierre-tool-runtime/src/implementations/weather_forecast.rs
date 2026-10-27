@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
@@ -132,17 +133,6 @@ impl From<WeatherSample> for ForecastSample {
     }
 }
 
-fn forecast_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        title: Some("Weather forecast".to_owned()),
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        // Hits the Open-Meteo forecast API (external infrastructure).
-        open_world_hint: Some(true),
-    }
-}
-
 /// Tool returning the weather forecast at a place and hour.
 ///
 /// The one `get_weather_forecast` definition: dravr-meteo's (a timestamp, and
@@ -243,7 +233,11 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
              coordinates win and place is ignored. For a place, the output names the town \
              used, and an ambiguous name takes the top-ranked match and says so.",
             schema,
-            Some(forecast_annotations()),
+            // Hits the Open-Meteo forecast API (external infrastructure).
+            ToolAnnotations {
+                title: Some("Weather forecast".to_owned()),
+                ..annotations(Effect::ReadOnly, Reach::OpenWorld)
+            },
         ))
     }
 

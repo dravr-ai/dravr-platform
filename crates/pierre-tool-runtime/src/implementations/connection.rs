@@ -11,6 +11,7 @@
 //! - `GetConnectionStatusTool` - Check provider connection status
 //! - `DisconnectProviderTool` - Disconnect and revoke OAuth tokens
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::Arc;
@@ -34,7 +35,7 @@ use pierre_config::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::untrusted::display_line;
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus};
 use pierre_providers::ProviderRegistry;
 use pierre_services::delegated_connections::describe_link;
@@ -294,35 +295,6 @@ pub fn is_notice_refusal(error: &AppError) -> bool {
         == Some(NOTICE_REFUSAL_ACTION)
 }
 
-/// Annotations for tools that interact with external OAuth services
-fn open_world_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        open_world_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for read-only connection status checks
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for destructive operations like disconnect
-fn destructive_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
 // ============================================================================
 // ConnectProviderTool - Initiate OAuth connection flow
 // ============================================================================
@@ -494,7 +466,7 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             "connect_provider",
             "Initiate OAuth connection flow to connect a fitness data provider like Strava, Garmin, or WHOOP",
             schema,
-            Some(open_world_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::OpenWorld),
         ))
     }
 
@@ -692,7 +664,7 @@ impl McpTool<dyn ToolRuntime> for GetConnectionStatusTool {
             "get_connection_status",
             "Check the connection status of fitness data providers. If no provider is specified, returns status for all supported providers.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -848,7 +820,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             "disconnect_provider",
             "Disconnect from a fitness data provider by removing stored OAuth tokens",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::OpenWorld),
         ))
     }
 

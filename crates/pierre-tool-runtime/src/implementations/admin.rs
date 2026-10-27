@@ -24,6 +24,7 @@
 //! without it — and `ctx.require_tenant()` to obtain the active tenant
 //! before forwarding to the repository. Both refuse with `PermissionDenied`.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -55,7 +56,7 @@ use pierre_core::models::agents::{
 use pierre_core::models::TenantId;
 use pierre_core::pagination::parse_limit_offset;
 use pierre_formatters::OutputFormat;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
 /// Extract output format ("json" or "toon") from tool arguments.
@@ -64,36 +65,6 @@ fn extract_format(args: &Value) -> OutputFormat {
         .and_then(Value::as_str)
         .map(OutputFormat::from_str_param)
         .unwrap_or_default()
-}
-
-/// Annotations for idempotent write operations (create, update, assign).
-fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for destructive operations (delete, unassign).
-fn destructive_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for read-only retrieval operations.
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
 }
 
 /// Verify that a target user belongs to a given tenant.
@@ -161,7 +132,7 @@ impl McpTool<dyn ToolRuntime> for AdminListSystemAgentsTool {
             "admin_list_system_agents",
             "List all system agents in the tenant (admin only)",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -308,7 +279,7 @@ impl McpTool<dyn ToolRuntime> for AdminCreateSystemAgentTool {
             "admin_create_system_agent",
             "Create a new system agent visible to all tenant users (admin only)",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -404,7 +375,7 @@ impl McpTool<dyn ToolRuntime> for AdminGetSystemAgentTool {
             "admin_get_system_agent",
             "Get detailed information about a system agent (admin only)",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -527,7 +498,7 @@ impl McpTool<dyn ToolRuntime> for AdminUpdateSystemAgentTool {
             "admin_update_system_agent",
             "Update an existing system agent (admin only)",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -655,7 +626,7 @@ impl McpTool<dyn ToolRuntime> for AdminDeleteSystemAgentTool {
             "admin_delete_system_agent",
             "Delete a system agent and remove all assignments (admin only)",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::Internal),
         ))
     }
 
@@ -744,7 +715,7 @@ impl McpTool<dyn ToolRuntime> for AdminAssignAgentTool {
             "admin_assign_agent",
             "Assign a system agent to a specific user (admin only)",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -853,7 +824,7 @@ impl McpTool<dyn ToolRuntime> for AdminUnassignAgentTool {
             "admin_unassign_agent",
             "Remove an agent assignment from a user (admin only)",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::Internal),
         ))
     }
 
@@ -950,7 +921,7 @@ impl McpTool<dyn ToolRuntime> for AdminListAgentAssignmentsTool {
             "admin_list_agent_assignments",
             "List all assignments for a system agent (admin only)",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

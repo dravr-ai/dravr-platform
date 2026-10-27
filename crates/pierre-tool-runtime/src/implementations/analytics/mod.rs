@@ -43,6 +43,7 @@ pub use inner::{generate_nutrition_recommendations, load_nutrition_athlete, Nutr
 // are asserted against the thresholds the athlete saved.
 pub use inner::generate_training_recommendations;
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -79,21 +80,10 @@ use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::weather::analyze_weather_impact;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
-
-/// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
-fn analytics_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 // ============================================================================
 // Helper functions for provider creation and activity fetching
@@ -155,7 +145,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeTrainingLoadTool {
             "analyze_training_load",
             "Analyze training load from per-activity TSS (the provider's own figure, else estimated from power against the FTP saved with set_physiology, from heart rate against the threshold heart rate saved there — measured, else estimated from the lactate threshold and max HR — or from pace or duration). Returns CTL (fitness), ATL (fatigue) and TSB (form), form as a percentage of CTL with its band, weekly TSS totals and a taper reading.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -228,7 +218,7 @@ impl McpTool<dyn ToolRuntime> for DetectPatternsTool {
             "detect_patterns",
             "Detect one training pattern per call, chosen with `pattern_type`: the weekly schedule, the hard/easy balance, weekly volume progression, or overtraining warning signs. Needs at least 3 activities.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -310,7 +300,7 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             "calculate_fitness_score",
             "Calculate a fitness score (0-100) from chronic training load (40%), consistency, the share of weeks with three or more activities (30%), and pace improvement (30%), over the period chosen with `timeframe`; omitted, it scores the last 30 days. Chronic training load scores each session against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does. A named `sleep_provider` adds a sleep-based adjustment.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -392,7 +382,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             "analyze_weather_impact",
             "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -611,7 +601,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeActivityTool {
             "analyze_activity",
             "Analyze a single activity: a short summary with insights and recommendations drawn from its distance, elevation gain, heart rate and calories, plus its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -716,7 +706,7 @@ impl McpTool<dyn ToolRuntime> for GetActivityIntelligenceTool {
             "get_activity_intelligence",
             "Get insights and recommendations for a specific activity, drawn from its distance, elevation gain, heart rate and calories, with its performance metrics (distance, duration, elevation, average and peak heart rate, calories). An ID that is not found analyzes the most recent activity instead and says so under `auto_selected`.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -805,7 +795,7 @@ impl McpTool<dyn ToolRuntime> for CalculateMetricsTool {
             "calculate_metrics",
             "Calculate metrics for an activity: pace, speed, metres covered per metre climbed, and its average heart rate read on the athlete's zones",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -882,7 +872,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzePerformanceTrendsTool {
             "analyze_performance_trends",
             "Analyze performance trends over time with statistical analysis and insights for a specific metric",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -971,7 +961,7 @@ impl McpTool<dyn ToolRuntime> for CompareActivitiesTool {
             "compare_activities",
             "Compare an activity against similar activities, personal bests, or a specific other activity",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -1038,7 +1028,7 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             "generate_recommendations",
             "Generate personalized training recommendations. The `training_plan`, `recovery` and `all` modes advise on CTL, ATL and TSB scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load reports them. In `nutrition` mode, an athlete with a medical/PAR-Q flag on file gets foods and timing with no amount to eat or drink, and `figures_withheld` saying their clinician sets those; the session itself is still described. Calories burned are the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex; without either, `calories` is null and `calories_unavailable` says why.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -1105,7 +1095,7 @@ impl McpTool<dyn ToolRuntime> for PredictPerformanceTool {
             "predict_performance",
             "Predict 5K, 10K, half-marathon and marathon times (VDOT, Daniels) from the fastest-paced recent run of 3 km or more that took under 2 hours; the run used is returned under `best_performance`. Running only.",
             schema,
-            Some(analytics_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

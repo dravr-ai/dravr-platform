@@ -21,6 +21,7 @@
 //! [`pierre_services::athlete_claim_context`] — and not against the
 //! literature alone (carnet#852).
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,18 +49,8 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::json_value::to_value_as_written;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
-
-/// Annotation set for read-but-persists-an-audit-row tools.
-fn verify_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
 
 fn parse_category(raw: &str) -> AppResult<ClaimCategory> {
     ClaimCategory::parse(raw)
@@ -148,7 +139,7 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             "verify_claim",
             "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → the athlete's own physiology → the athlete's own activity record → evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply an MCP client or agent writes from this server's data is checked only through this tool. Call it on every figure about the athlete (category athlete_data) before stating it, and on any physiological, nutrition, training, or supplement claim you are not certain about.",
             schema,
-            Some(verify_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

@@ -13,6 +13,7 @@
 //! both bridge into the shared `fitness_api` handlers because the chat
 //! pipeline's prefetch stage calls those same handlers directly.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,7 +37,7 @@ use crate::conversions::{
     answers_with, format_property, object_schema, task_capable, tool_definition,
     tool_result_to_response, Formatted,
 };
-use crate::implementations::data_helpers::{parse_output_format, read_only_annotations};
+use crate::implementations::data_helpers::parse_output_format;
 use crate::implementations::handler_bridge;
 use crate::implementations::last_known::{self, Fallback};
 use crate::protocol::format::formatted_response;
@@ -106,7 +107,7 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
             "get_athlete",
             "Retrieve the user's athlete profile from connected fitness providers including personal details and preferences",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -289,7 +290,7 @@ impl McpTool<dyn ToolRuntime> for GetStatsTool {
             "get_stats",
             "Retrieve aggregated activity statistics from a connected fitness provider. The top-level total_* fields cover exactly what the `coverage` field beside them says, so read `coverage` before quoting any total. `coverage.kind` is `lifetime` for ALL-TIME totals; `recent_activities` when the totals are summed over only the provider's `coverage.count` most recent activities, the oldest starting at `coverage.oldest`; `window` when they cover only the activities of the last `coverage.days` days. A provider that serves only a recent page of workouts (Wahoo, WHOOP) returns a sample, not lifetime totals. Report a `recent_activities` or `window` total as that sample or window ('your last N workouts since <date>', 'the last N days'), and never call it lifetime, all-time, career or total-ever. When the provider supplies it (currently Strava), a `year_to_date` object holds CURRENT-CALENDAR-YEAR totals — use that for 'this year' / annual questions and never report the other totals as annual. IMPORTANT: Strava's ride and run totals here count ONLY the base sport type and EXCLUDE variant disciplines (VirtualRide, GravelRide, MountainBikeRide, EBikeRide; TrailRun, VirtualRun), so they undercount multi-discipline athletes. For a true cross-discipline total (e.g. 'total km cycling this year'), do NOT report this single ride/run figure — call get_activities for the period and sum distance across all related sport types.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

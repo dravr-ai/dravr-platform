@@ -6,6 +6,7 @@
 
 use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
+use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -25,7 +26,7 @@ use pierre_config::environment::default_provider;
 use pierre_core::models::TimeSeriesData;
 use pierre_fitness_compute::intervals::IntervalsExport;
 use pierre_fitness_compute::routes::RouteSummary;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, tool_definition, tool_result_to_response,
@@ -49,16 +50,6 @@ pub struct ActivityStreamsResult {
     /// Heart rate, power, cadence, GPS and altitude as recorded; a missed
     /// sample is a gap (`null`), never a value.
     pub streams: TimeSeriesData,
-}
-
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
 }
 
 fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
@@ -150,7 +141,7 @@ impl McpTool<dyn ToolRuntime> for ExportIntervalsTool {
              for tempo/threshold/VO2max workouts. Activities without laps return \
              a single synthetic interval covering the whole session.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -209,7 +200,7 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
              and distinct climb segments with Strava-style category. Requires the \
              activity stream to include lat/lon and altitude.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -330,7 +321,7 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
              needs the underlying samples to rerun a custom analysis the higher \
              Endurance tools (export_intervals / export_routes) don't cover.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

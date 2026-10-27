@@ -15,6 +15,7 @@
 //!
 //! All tools use direct intelligence module and USDA API access.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -457,7 +458,7 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             "calculate_daily_nutrition",
             "Calculate daily calorie and macronutrient needs based on biometrics and goals. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -572,7 +573,7 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             "get_nutrient_timing",
             "Get optimal nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount, because their clinician sets those.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -718,7 +719,7 @@ impl McpTool<dyn ToolRuntime> for SearchFoodTool {
             "search_food",
             "Search USDA FoodData Central database for foods. Returns up to 10 results by default. Check the `has_more` field before requesting additional pages.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 
@@ -823,7 +824,7 @@ impl McpTool<dyn ToolRuntime> for GetFoodDetailsTool {
             "get_food_details",
             "Get detailed nutritional information for a specific food item",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 
@@ -929,7 +930,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
             "analyze_meal_nutrition",
             "Analyze nutritional content of a meal from its ingredients",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -15,7 +16,6 @@ use tracing::info;
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
-use crate::implementations::data_helpers::read_only_annotations;
 use crate::implementations::physiology::{optional_number, optional_whole_number};
 use crate::runtime::ToolRuntime;
 use dravr_cageux::algorithms::{VdotAlgorithm, Vo2maxAlgorithm};
@@ -329,7 +329,7 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
             "estimate_vo2max",
             "Estimate the athlete's VO2max in ml/kg/min from a field test they describe — a Cooper 12-minute run distance, a Rockport timed mile walk with finishing heart rate, an Astrand-Ryhming steady-state ride at a known power, a hard-versus-easy pace ratio, a VDOT they already know, or a race or time trial they ran (its distance and time). Call it when the athlete reports a test result such as 'I ran 2.8 km in 12 minutes' or 'I walked a mile in 13 minutes and my heart rate was 140'. Body weight and age come from the stored profile when not restated, and the result says which inputs were defaulted. This only estimates: to keep the number, call set_physiology with vo2_max after the athlete confirms it.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

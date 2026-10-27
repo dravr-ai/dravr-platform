@@ -10,6 +10,7 @@
 //! - `DeactivateAgentTool` - Deactivate the active agent
 //! - `GetActiveAgentTool` - Get currently active agent
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -26,9 +27,7 @@ use crate::implementations::agents_output::{
     activate_agent_payload, active_agent_payload, ActivateAgentResult, DeactivateAgentResult,
     GetActiveAgentResult,
 };
-use crate::implementations::agents_tool_shape::{
-    extract_format, read_only_annotations, write_annotations,
-};
+use crate::implementations::agents_tool_shape::extract_format;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -63,7 +62,7 @@ impl McpTool<dyn ToolRuntime> for ActivateAgentTool {
             "activate_agent",
             "Activate an agent for personalized training guidance",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -126,7 +125,7 @@ impl McpTool<dyn ToolRuntime> for DeactivateAgentTool {
             "deactivate_agent",
             "Deactivate the current agent and return to default AI guidance",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -180,7 +179,7 @@ impl McpTool<dyn ToolRuntime> for GetActiveAgentTool {
             "get_active_agent",
             "Get the currently active agent",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

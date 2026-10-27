@@ -14,6 +14,7 @@
 //! - `CalculatePersonalizedZonesTool` - Calculate training zones
 //! - `ValidateConfigurationTool` - Validate configuration values
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -493,7 +494,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationCatalogTool {
             "get_configuration_catalog",
             "Get the complete catalog of available configuration options",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -542,7 +543,7 @@ impl McpTool<dyn ToolRuntime> for GetConfigurationProfilesTool {
             "get_configuration_profiles",
             "Get available configuration profile templates",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -602,7 +603,7 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
             "get_user_configuration",
             "Get your current training configuration settings",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -693,7 +694,7 @@ impl McpTool<dyn ToolRuntime> for UpdateUserConfigurationTool {
             "Update your training configuration settings: apply a profile template and set \
              catalogue overrides on top of it",
             schema,
-            None,
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -826,7 +827,7 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             "calculate_personalized_zones",
             "Calculate training zones from the athlete's own measurements, falling back to their saved physiology for anything not supplied here. Zone families whose inputs are unknown are listed under `unavailable` instead of being estimated; `input_sources` says where each number came from.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -992,7 +993,7 @@ impl McpTool<dyn ToolRuntime> for ValidateConfigurationTool {
             "validate_configuration",
             "Validate configuration parameters for physiological correctness",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

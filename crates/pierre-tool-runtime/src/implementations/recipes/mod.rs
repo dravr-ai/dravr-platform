@@ -15,6 +15,7 @@
 //! - `DeleteRecipeTool` - Delete a recipe
 //! - `SearchRecipesTool` - Search recipes
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -125,7 +126,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
             "get_recipe_constraints",
             "Get macro targets and constraints for LLM recipe generation. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, restrictions, time limits) and `figures_withheld` instead of any kcal or gram target, because their clinician sets those.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -227,7 +228,7 @@ impl McpTool<dyn ToolRuntime> for ValidateRecipeTool {
             "validate_recipe",
             "Validate recipe nutrition using USDA FoodData Central",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 
@@ -405,7 +406,7 @@ impl McpTool<dyn ToolRuntime> for SaveRecipeTool {
             "save_recipe",
             "Save a validated recipe to your collection",
             schema,
-            None,
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -470,7 +471,7 @@ impl McpTool<dyn ToolRuntime> for ListRecipesTool {
             "list_recipes",
             "List your saved recipes",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -516,7 +517,7 @@ impl McpTool<dyn ToolRuntime> for GetRecipeTool {
             "get_recipe",
             "Get details of a specific recipe",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -562,7 +563,7 @@ impl McpTool<dyn ToolRuntime> for DeleteRecipeTool {
             "delete_recipe",
             "Delete a recipe from your collection",
             schema,
-            None,
+            annotations(Effect::Destructive, Reach::Internal),
         ))
     }
 
@@ -624,7 +625,7 @@ impl McpTool<dyn ToolRuntime> for SearchRecipesTool {
             "search_recipes",
             "Search your recipes by name, tags, or description",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

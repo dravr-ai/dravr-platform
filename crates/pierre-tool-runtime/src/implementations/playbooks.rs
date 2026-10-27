@@ -15,6 +15,7 @@
 //!   "forget this"). Tenant + user scoped, and registered under a non-chat
 //!   category so the LLM can never delete a playbook on its own.
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,28 +33,8 @@ use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::json_value::to_value_as_written;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
-
-/// Annotation set for the read-only listing tool.
-fn read_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotation set for the destructive forget tool.
-fn forget_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 /// One learned playbook, as `list_coaching_playbooks` reports it.
 ///
@@ -153,7 +134,7 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             "list_coaching_playbooks",
             "List the coaching playbooks the harness has learned for this athlete — the trigger→intervention patterns and how well each has worked (success/failure counts + confidence). Use this to tell the athlete what you have learned about what works for them.",
             schema,
-            Some(read_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -254,7 +235,7 @@ impl McpTool<dyn ToolRuntime> for ForgetPlaybookTool {
             "forget_playbook",
             "Delete one learned coaching playbook by id (GDPR forget). The athlete can only forget their own playbooks.",
             schema,
-            Some(forget_annotations()),
+            annotations(Effect::Destructive, Reach::Internal),
         ))
     }
 

@@ -33,6 +33,7 @@
 //! recorded for it ([`super::physiology_import`]), so a later import keeps the
 //! athlete's number instead of replacing it.
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -68,7 +69,7 @@ use pierre_core::models::{
     SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
 };
 use pierre_fitness_compute::AthleteInputs;
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 
 /// Lightest body weight accepted, in kilograms. Below this the value is a
@@ -140,18 +141,6 @@ const MEASUREMENT_SOURCE_MAX_CHARS: usize = 80;
 /// `measured_on` describe, as the error messages name them.
 const PROVENANCED_FIELDS: &str =
     "critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters";
-
-/// Annotation set for the physiology write.
-fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        // An upsert of the same values lands the same row, but a second call
-        // carrying different values legitimately changes the profile.
-        idempotent_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
 
 /// Read an optional number, rejecting a non-numeric value rather than
 /// silently ignoring it — a dropped measurement is exactly the failure this
@@ -1047,7 +1036,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             "set_physiology",
             "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex — so training load, zones and every personalised calculation use their real numbers instead of generic per-sport estimates. Training load is scored against what is saved here and nowhere else — power against the FTP, heart rate against the threshold heart rate (estimated from the lactate threshold and max HR when none is saved) — in analyze_training_load, get_training_history, calculate_fitness_score, generate_recommendations and the recovery tools. Also saves critical power, W′, critical speed and D′, each with whether it was measured or estimated (measurement_kind) and by whom (measurement_source); an estimated value is quoted as an estimate with its source, never as a measurement. Call this whenever the athlete states one of these values, for example 'my FTP is 285' or 'my max HR is 190'. Pass only the fields they actually gave you; everything else keeps its stored value. The result is the profile re-read from storage after the write, so report back only what it contains.",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

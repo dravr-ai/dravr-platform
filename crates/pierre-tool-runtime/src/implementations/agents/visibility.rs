@@ -10,6 +10,7 @@
 //! - `ShowAgentTool` - Show a hidden agent
 //! - `ListHiddenAgentsTool` - List hidden agents
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -24,9 +25,7 @@ use crate::conversions::{
 use crate::implementations::agents_output::{
     list_hidden_agents_payload, HideAgentResult, ListHiddenAgentsResult, ShowAgentResult,
 };
-use crate::implementations::agents_tool_shape::{
-    extract_format, read_only_annotations, write_annotations,
-};
+use crate::implementations::agents_tool_shape::extract_format;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -61,7 +60,7 @@ impl McpTool<dyn ToolRuntime> for HideAgentTool {
             "hide_agent",
             "Hide an agent from listings",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -137,7 +136,7 @@ impl McpTool<dyn ToolRuntime> for ShowAgentTool {
             "show_agent",
             "Show a previously hidden agent",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 
@@ -202,7 +201,7 @@ impl McpTool<dyn ToolRuntime> for ListHiddenAgentsTool {
             "list_hidden_agents",
             "List all hidden agents",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

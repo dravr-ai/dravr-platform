@@ -14,6 +14,7 @@
 //!
 //! Uses the goal engine directly for clean, efficient goal management.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -769,7 +770,7 @@ impl McpTool<dyn ToolRuntime> for SetGoalTool {
              against the activities recorded after the goal was created, only the named \
              sport's when one is given.",
             schema,
-            None,
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 
@@ -846,7 +847,7 @@ impl McpTool<dyn ToolRuntime> for SuggestGoalsTool {
              level. When the athlete's latitude is known, suggestions for sports out of season \
              there are dropped rather than replaced.",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -936,7 +937,7 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
              completion, counted over the activities recorded since the goal was created (only \
              the goal's sport when it names one).",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 
@@ -1083,7 +1084,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeGoalFeasibilityTool {
             "analyze_goal_feasibility",
             "Analyze whether a fitness goal is achievable based on your current fitness level and training history",
             schema,
-            None,
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         )))
     }
 

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use uuid::Uuid;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
     answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
@@ -147,26 +148,6 @@ fn coverage_note(c: &TrainingHistoryComputed) -> Option<String> {
     }
 }
 
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
-
-fn write_safe_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
-
 fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     context.tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
         AppError::new(
@@ -264,7 +245,7 @@ impl McpTool<dyn ToolRuntime> for ComputeTrainingHistoryTool {
              or when the user asks for a specific historical window. Default \
              window is the last 90 days.",
             schema,
-            Some(write_safe_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::OpenWorld),
         )))
     }
 
@@ -324,7 +305,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
              save that changes one recomputes the stored rows. Default window \
              is the last 90 days.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 

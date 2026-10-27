@@ -30,6 +30,7 @@
 //! Nothing in the answer comes from the roster beyond whether the member is
 //! on it: no roster name, email or athlete id.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -44,7 +45,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::TenantId;
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_services::coach_platform::{roster_platforms, CoachPlatform};
 use pierre_services::delegated_connections::{propose, Proposal};
 use pierre_services::delegated_link_states::{LinkState, RosterLinkState};
@@ -351,14 +352,9 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
              `proposable`. Refused in a group's room, for a member who stopped sharing with you, \
              and when the roster does not list their email.",
             schema,
-            Some(ToolAnnotations {
-                read_only_hint: Some(false),
-                destructive_hint: Some(false),
-                // A second call for the same member is refused: the first
-                // proposal holds them.
-                idempotent_hint: Some(false),
-                ..ToolAnnotations::default()
-            }),
+            // A second call for the same member is refused: the first
+            // proposal holds them.
+            annotations(Effect::AdditiveWrite, Reach::Internal),
         ))
     }
 

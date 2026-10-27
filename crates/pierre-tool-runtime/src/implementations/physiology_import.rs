@@ -40,6 +40,7 @@
 //! model, while the profile's `w_prime_joules` is the critical-power model's,
 //! paired with `critical_power_watts`; the two are not interchangeable.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -54,7 +55,7 @@ use pierre_core::models::{
     SportType, TenantId, ThresholdProvenance, UserPhysiologicalProfile,
 };
 use pierre_fitness_compute::AthleteInputs;
-use pierre_mcp_schema::{JsonSchema, ToolAnnotations};
+use pierre_mcp_schema::JsonSchema;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::delegation::is_settings_not_shared;
 use pierre_tools_core::ToolResult;
@@ -474,13 +475,8 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
              stated is never replaced. Call it when the athlete asks to bring their thresholds over from \
              Intervals.icu; report only what the result contains.",
             schema,
-            Some(ToolAnnotations {
-                read_only_hint: Some(false),
-                destructive_hint: Some(false),
-                // A second import of unchanged settings writes nothing.
-                idempotent_hint: Some(true),
-                ..ToolAnnotations::default()
-            }),
+            // A second import of unchanged settings writes nothing.
+            annotations(Effect::IdempotentWrite, Reach::OpenWorld),
         ))
     }
 

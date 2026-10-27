@@ -68,7 +68,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -129,7 +130,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -246,7 +248,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -287,7 +290,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -443,7 +447,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -542,7 +547,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -726,7 +732,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -777,7 +784,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -898,7 +906,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -960,7 +969,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -1010,7 +1020,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -1458,6 +1469,12 @@
         "title": "GoalFeasibilityResult",
         "type": "object"
       },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
       "execution": {
         "taskSupport": "optional"
       }
@@ -1563,6 +1580,12 @@
         ],
         "title": "AnalyzeMealNutritionResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -2098,6 +2121,12 @@
         "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
         "title": "Formatted",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -2952,7 +2981,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -3137,6 +3167,12 @@
         "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
         "title": "NutritionAnswer",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -4294,6 +4330,12 @@
         ],
         "title": "PersonalizedZonesResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -4689,6 +4731,12 @@
         "title": "Formatted",
         "type": "object"
       },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
       "execution": {
         "taskSupport": "optional"
       }
@@ -4731,7 +4779,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -4816,7 +4865,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -5256,7 +5306,7 @@
         "readOnlyHint": false,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": false
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -5325,6 +5375,8 @@
       },
       "annotations": {
         "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
         "openWorldHint": true
       }
     },
@@ -5428,7 +5480,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -5456,7 +5509,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -5497,7 +5551,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -5555,6 +5610,12 @@
         ],
         "title": "DeleteFitnessConfigResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -5591,6 +5652,12 @@
         ],
         "title": "DeleteRecipeResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -6086,7 +6153,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -6748,7 +6816,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -6871,7 +6940,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -8068,9 +8138,6 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      },
-      "execution": {
-        "taskSupport": "optional"
       }
     },
     {
@@ -8526,7 +8593,7 @@
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
-        "openWorldHint": false
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -8950,7 +9017,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": true,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -9808,7 +9876,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -10315,7 +10384,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -10744,7 +10814,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -10909,7 +10980,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -11245,6 +11317,12 @@
         ],
         "title": "ConfigurationCatalogResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -11509,6 +11587,12 @@
         ],
         "title": "ConfigurationProfilesResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -11660,7 +11744,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -11790,7 +11875,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -12037,6 +12123,12 @@
         ],
         "title": "GetFitnessConfigResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -12138,6 +12230,12 @@
         ],
         "title": "FoodDetailsResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -12323,7 +12421,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -12643,7 +12742,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -12919,7 +13019,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -13145,6 +13246,12 @@
         "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
         "title": "NutritionAnswer",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -13602,7 +13709,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -13885,7 +13993,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -14195,6 +14304,12 @@
         "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
         "title": "Formatted",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -14413,6 +14528,12 @@
         "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
         "title": "NutritionAnswer",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -14750,7 +14871,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -15021,7 +15143,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -15420,7 +15543,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -15665,7 +15789,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -15808,6 +15933,12 @@
         ],
         "title": "StretchingExerciseDetail",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -18530,7 +18661,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -18818,6 +18950,12 @@
         ],
         "title": "UserConfigurationResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -19214,6 +19352,12 @@
         ],
         "title": "YogaPoseDetail",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -19254,7 +19398,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -20708,7 +20853,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -20878,7 +21024,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21110,7 +21257,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21261,7 +21409,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21457,7 +21606,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21518,6 +21668,12 @@
         ],
         "title": "ListFitnessConfigsResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21654,7 +21810,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21851,6 +22008,12 @@
         "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
         "title": "Formatted",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -21975,6 +22138,12 @@
         ],
         "title": "ListStretchingExercisesResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -23351,6 +23520,12 @@
         ],
         "title": "ListYogaPosesResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -23470,6 +23645,12 @@
         ],
         "title": "SleepScheduleResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -23955,7 +24136,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -24788,7 +24970,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -25695,7 +25878,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -25862,6 +26046,7 @@
       },
       "annotations": {
         "readOnlyHint": false,
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
       }
@@ -25934,7 +26119,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -26058,6 +26244,12 @@
         ],
         "title": "SaveRecipeResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -26969,7 +27161,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -27148,7 +27341,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -27338,7 +27532,8 @@
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -27462,6 +27657,12 @@
         ],
         "title": "SearchFoodResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -27653,6 +27854,12 @@
         "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
         "title": "Formatted",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -27717,6 +27924,12 @@
         ],
         "title": "SetFitnessConfigResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -27804,6 +28017,12 @@
         ],
         "title": "SetGoalResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -28862,7 +29081,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -28908,7 +29128,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -28990,6 +29211,12 @@
         ],
         "title": "SuggestGoalsResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -29288,6 +29515,12 @@
         "title": "RestDayResult",
         "type": "object"
       },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
       "execution": {
         "taskSupport": "optional"
       }
@@ -29416,6 +29649,12 @@
         ],
         "title": "SuggestStretchesResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -29574,6 +29813,12 @@
         ],
         "title": "SuggestYogaSequenceResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -29614,7 +29859,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -29746,6 +29992,12 @@
         ],
         "title": "TrackProgressResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       },
       "execution": {
         "taskSupport": "optional"
@@ -29973,6 +30225,12 @@
         "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
         "title": "Formatted",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -30083,7 +30341,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": true
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -30132,6 +30391,12 @@
         ],
         "title": "UpdateUserConfigurationResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -30186,6 +30451,12 @@
         ],
         "title": "ValidateConfigurationResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -30396,6 +30667,12 @@
         ],
         "title": "ValidateRecipeResult",
         "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -30482,7 +30759,8 @@
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
-        "idempotentHint": false
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {

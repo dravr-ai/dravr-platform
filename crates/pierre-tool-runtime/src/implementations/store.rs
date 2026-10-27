@@ -29,6 +29,7 @@
 //! that belongs to a deliberate UI gesture, not to an LLM's reading of a
 //! sentence.
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -53,7 +54,7 @@ use pierre_services::agents::coach_tools_for;
 use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
-use super::agents_tool_shape::{extract_format, read_only_annotations, write_annotations};
+use super::agents_tool_shape::extract_format;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, apply_format, object_schema_with_format, ok_typed, tool_definition,
@@ -239,7 +240,7 @@ impl McpTool<dyn ToolRuntime> for BrowseAgentStoreTool {
              do not already have. Distinct from `list_agents`, which lists only the agents \
              ALREADY in their library. Returns a page plus a `next_cursor` for the following one.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -326,7 +327,7 @@ impl McpTool<dyn ToolRuntime> for SearchAgentStoreTool {
              which searches only the athlete's own library. Install a result with \
              `install_agent_from_store`.",
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -402,7 +403,7 @@ impl McpTool<dyn ToolRuntime> for InstallAgentFromStoreTool {
              `search_agent_store`. After installing, `activate_agent` makes it the agent that \
              answers.",
             schema,
-            Some(write_annotations()),
+            annotations(Effect::IdempotentWrite, Reach::Internal),
         ))
     }
 

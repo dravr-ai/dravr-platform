@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::slice;
@@ -25,8 +26,8 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::calendar::{
-    destructive_annotations, entry_provider_property, provider_arg, provider_property,
-    required_text, step_schema, validate_step, TargetRule, MAX_SESSION_STEPS,
+    entry_provider_property, provider_arg, provider_property, required_text, step_schema,
+    validate_step, TargetRule, MAX_SESSION_STEPS,
 };
 use super::coach_scope::{athlete_property, resolve_calendar_scope};
 use super::plan_scope::PlanWriter;
@@ -47,7 +48,7 @@ use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_mcp_schema::{PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::PropertySchema;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_tools_core::ToolResult;
 
@@ -61,26 +62,6 @@ const WITHDRAW_TOOL: &str = "withdraw_prescribed_workout";
 /// event body, so an unbounded payload inflates both.
 const MAX_SESSION_DURATION_MINUTES: u64 = 24 * 60;
 const MAX_NAME_LEN: usize = 200;
-
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        open_world_hint: Some(false),
-        ..ToolAnnotations::default()
-    }
-}
-
-fn write_safe_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(false),
-        open_world_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     context.tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
@@ -457,7 +438,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
             "list_workout_templates",
             &description,
             schema,
-            Some(read_only_annotations()),
+            annotations(Effect::ReadOnly, Reach::Internal),
         ))
     }
 
@@ -691,7 +672,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              from their own direct chat in Dravr, through the athlete's Intervals.icu link \
              once the athlete allows calendar writes on it.",
             schema,
-            Some(write_safe_annotations()),
+            annotations(Effect::AdditiveWrite, Reach::OpenWorld),
         ))
     }
 
@@ -952,7 +933,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              prescription_id, optional provider (the entry's own provider is used; naming a \
              different one is refused), optional athlete.",
             schema,
-            Some(destructive_annotations()),
+            annotations(Effect::Destructive, Reach::OpenWorld),
         ))
     }
 

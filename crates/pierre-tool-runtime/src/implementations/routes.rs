@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,7 +33,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{resolve_sport_type, SportType, TenantId};
-use pierre_mcp_schema::{JsonSchema, PropertySchema, ToolAnnotations};
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 
 /// What `discover_routes` answers with.
@@ -151,17 +152,6 @@ const MIN_TARGET_DISTANCE_METERS: f64 = 500.0;
 /// rides (a 400 km brevet), a figure is a typo or a unit mix-up rather than a
 /// session.
 const MAX_TARGET_DISTANCE_METERS: f64 = 500_000.0;
-
-fn discover_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        // Hits Overpass API (external OSM infrastructure)
-        open_world_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
 
 /// Tool for discovering real routes and trails near a location from OSM data.
 ///
@@ -315,7 +305,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              itinerary over several stretches, pass their refs in running order to \
              `compose_route`, each meeting the next, and quote the distance it returns.",
             schema,
-            Some(discover_annotations()),
+            annotations(Effect::ReadOnly, Reach::OpenWorld),
         ))
     }
 
