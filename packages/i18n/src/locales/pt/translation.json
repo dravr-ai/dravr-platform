@@ -1126,14 +1126,6 @@
     "startConversation": "Começa uma conversa",
     "startConversationPrompt": "Começa uma conversa",
     "startupQueryLabel": "Pergunta inicial (opcional)",
-    "status": {
-      "callingTool": "a chamar {{tool}}…",
-      "generatingResponse": "a gerar a resposta…",
-      "readingQuestion": "a ler a tua pergunta…",
-      "runningTool": "a executar uma ferramenta…",
-      "stage": "{{stage}}…",
-      "thinking": "a pensar…"
-    },
     "streaming": "a pensar…",
     "suggestionHint": "Clica numa sugestão para preencher o campo:",
     "systemBadge": "Sistema",
@@ -1141,7 +1133,6 @@
     "systemPromptPlaceholder": "Define a personalidade, a especialidade e o estilo de comunicação do teu agente...",
     "systemPromptTokenEstimate": "~{{tokens, number}} tokens ({{percent, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}}% do contexto)",
     "theClaim": "A afirmação",
-    "thinking": "A pensar...",
     "timeFrameLabel": "Período",
     "title": "Conversa",
     "toolBudgetSection": "Orçamento de ferramentas",

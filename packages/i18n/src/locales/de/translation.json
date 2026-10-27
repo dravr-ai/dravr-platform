@@ -1126,14 +1126,6 @@
     "startConversation": "Starte eine Unterhaltung",
     "startConversationPrompt": "Starte eine Unterhaltung",
     "startupQueryLabel": "Startanfrage (optional)",
-    "status": {
-      "callingTool": "{{tool}} wird aufgerufen…",
-      "generatingResponse": "Antwort wird erstellt…",
-      "readingQuestion": "liest deine Frage…",
-      "runningTool": "Werkzeug wird ausgeführt…",
-      "stage": "{{stage}}…",
-      "thinking": "denkt nach…"
-    },
     "streaming": "denke nach…",
     "suggestionHint": "Klick auf einen Vorschlag, um das Feld zu füllen:",
     "systemBadge": "System",
@@ -1141,7 +1133,6 @@
     "systemPromptPlaceholder": "Lege Persönlichkeit, Schwerpunkt und Kommunikationsstil deines Agenten fest...",
     "systemPromptTokenEstimate": "~{{tokens, number}} Tokens ({{percent, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}} % des Kontexts)",
     "theClaim": "Die Aussage",
-    "thinking": "Denke nach...",
     "timeFrameLabel": "Zeitraum",
     "title": "Chat",
     "toolBudgetSection": "Werkzeug-Budget",

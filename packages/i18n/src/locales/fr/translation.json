@@ -1126,14 +1126,6 @@
     "startConversation": "Commence une discussion",
     "startConversationPrompt": "Démarre une conversation",
     "startupQueryLabel": "Requête de démarrage (facultatif)",
-    "status": {
-      "callingTool": "appel de {{tool}}…",
-      "generatingResponse": "génération de la réponse…",
-      "readingQuestion": "lecture de ta question…",
-      "runningTool": "exécution d'un outil…",
-      "stage": "{{stage}}…",
-      "thinking": "réflexion…"
-    },
     "streaming": "réflexion…",
     "suggestionHint": "Clique sur une suggestion pour remplir le champ :",
     "systemBadge": "Système",
@@ -1141,7 +1133,6 @@
     "systemPromptPlaceholder": "Définis la personnalité, la spécialité et le style de communication de ton agent...",
     "systemPromptTokenEstimate": "~{{tokens, number}} jetons ({{percent, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}} % du contexte)",
     "theClaim": "L’affirmation",
-    "thinking": "Réflexion...",
     "timeFrameLabel": "Période",
     "title": "Discussion",
     "toolBudgetSection": "Budget d’outils",

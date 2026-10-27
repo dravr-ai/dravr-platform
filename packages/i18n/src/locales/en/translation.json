@@ -1126,14 +1126,6 @@
     "startConversation": "Start a discussion",
     "startConversationPrompt": "Start a conversation",
     "startupQueryLabel": "Startup Query (optional)",
-    "status": {
-      "callingTool": "calling {{tool}}…",
-      "generatingResponse": "generating response…",
-      "readingQuestion": "reading your question…",
-      "runningTool": "running a tool…",
-      "stage": "{{stage}}…",
-      "thinking": "thinking…"
-    },
     "streaming": "thinking...",
     "suggestionHint": "Click a suggestion to fill the input:",
     "systemBadge": "System",
@@ -1141,7 +1133,6 @@
     "systemPromptPlaceholder": "Define your agent's personality, expertise, and communication style...",
     "systemPromptTokenEstimate": "~{{tokens, number}} tokens ({{percent, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}}% of context)",
     "theClaim": "The claim",
-    "thinking": "Thinking...",
     "timeFrameLabel": "Time frame",
     "title": "Chat",
     "toolBudgetSection": "Tool Budget",
