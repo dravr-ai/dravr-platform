@@ -1170,7 +1170,7 @@ export interface GetTrainingPlanParams {
   /** Include superseded week versions (the adjustment audit trail). */
   include_history?: boolean;
 
-  /** Add the readiness and compliance rails' view of the plan: the readiness level and its alerts; the days that level no longer allows, each with its reason (purpose_closed: the level closes the day's purpose; template_above_level: the session needs a higher level, with the easier template or fallback purpose); each week against its phase; where the stored weeks stop covering the outline. Ask for it before adjusting or extending a plan; leave it off for 'what am I doing this week' (about a dozen extra reads). */
+  /** Add the readiness and compliance rails' view of the plan: the readiness level and its alerts; the days that level no longer allows, each with its reason (purpose_closed: the level closes the day's purpose; template_above_level: the session needs a higher level, with the easier template, or it falls back to the phase purpose); each week against its phase; where the stored weeks stop covering the outline. Ask for it before adjusting or extending a plan; leave it off for 'what am I doing this week' (about a dozen extra reads). */
   include_state?: boolean;
 }
 
