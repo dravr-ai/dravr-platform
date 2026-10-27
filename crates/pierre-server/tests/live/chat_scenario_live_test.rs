@@ -46,7 +46,7 @@ use std::thread::sleep as thread_sleep;
 use std::time::Duration;
 
 use helpers::chat_scenario::{
-    live_driver::RealExecution, load_scenario, run_scenario, LiveScenarioDriver,
+    attempt_tally, live_driver::RealExecution, load_scenario, run_scenario, LiveScenarioDriver,
     VocabularyContractRegistry,
 };
 use tokio::runtime::Builder as TokioRuntimeBuilder;
@@ -72,6 +72,10 @@ use tokio::runtime::Builder as TokioRuntimeBuilder;
 /// the function body so the workspace's `clippy::items_after_statements`
 /// lint stays satisfied.
 const MAX_SCENARIO_ATTEMPTS: usize = 4;
+
+/// Marks the attempt-tally lines in the job log; the chat-eval workflow
+/// greps for it to build the job summary, so the two must change together.
+const ATTEMPT_TALLY_PREFIX: &str = "attempt-tally: ";
 
 /// Seed an athlete on a real server for a scenario that grades written state.
 ///
@@ -241,16 +245,23 @@ fn live_driver_executes_every_scenario() {
 
     let vocab = VocabularyContractRegistry::with_defaults();
     let mut failures: Vec<String> = Vec::new();
+    // The attempt each scenario first passed on, `None` when none did.
+    // Retries make the verdict pass@MAX_SCENARIO_ATTEMPTS, which on its own
+    // cannot tell a scenario that passes first time from one that scrapes
+    // through on its last draw; the tally keeps that difference visible.
+    let mut tally: Vec<(String, Option<usize>)> = Vec::new();
 
     for (path, scenario) in &selected {
         let mut last_attempt_failures: Vec<String> = Vec::new();
-        let mut scenario_passed = false;
-        for attempt in 0..MAX_SCENARIO_ATTEMPTS {
-            if attempt > 0 {
+        let mut passed_on: Option<usize> = None;
+        for attempt in 1..=MAX_SCENARIO_ATTEMPTS {
+            if attempt > 1 {
                 eprintln!(
-                    "scenario {} did not pass on attempt {}; retrying with fresh driver state",
+                    "scenario {} did not pass on attempt {}/{MAX_SCENARIO_ATTEMPTS}; retrying with \
+                     fresh driver state:\n{}",
                     path.display(),
-                    attempt - 1
+                    attempt - 1,
+                    last_attempt_failures.join("\n")
                 );
                 thread_sleep(Duration::from_secs(6));
             }
@@ -274,14 +285,21 @@ fn live_driver_executes_every_scenario() {
                 .map(|r| format!("{}: {}", path.display(), r.failure_summary()))
                 .collect();
             if attempt_failures.is_empty() {
-                scenario_passed = true;
+                passed_on = Some(attempt);
                 break;
             }
             last_attempt_failures = attempt_failures;
         }
-        if !scenario_passed {
+        if passed_on.is_none() {
             failures.extend(last_attempt_failures);
         }
+        tally.push((scenario.name.clone(), passed_on));
+    }
+
+    // Printed before the verdict so a red run still reports it. The
+    // workflow copies these lines into the job summary.
+    for line in attempt_tally::render(&tally, MAX_SCENARIO_ATTEMPTS) {
+        eprintln!("{ATTEMPT_TALLY_PREFIX}{line}");
     }
 
     assert!(

@@ -336,6 +336,23 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/chat-scenario-live.log"
           grep -Eq '^test result: ok\. 1 passed' "$RUNNER_TEMP/chat-scenario-live.log"
 
+      - name: Attempt tally to job summary
+        # Retries make the verdict pass@4, so a scenario that needed its
+        # last draw reads exactly like one that passed first time. The test
+        # prints which attempt each scenario passed on (ATTEMPT_TALLY_PREFIX
+        # in chat_scenario_live_test.rs); this surfaces it per shard. A run
+        # that died before the tally leaves the summary saying so.
+        if: always()
+        run: |
+          {
+            echo "### Attempt tally — shard ${{ matrix.shard }}/${{ strategy.job-total }}"
+            if grep -q '^attempt-tally: ' "$RUNNER_TEMP/chat-scenario-live.log" 2>/dev/null; then
+              sed -n 's/^attempt-tally: /- /p' "$RUNNER_TEMP/chat-scenario-live.log"
+            else
+              echo "- no tally: the run ended before every scenario was graded"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Dump Ollama log on failure
         if: failure()
         run: |

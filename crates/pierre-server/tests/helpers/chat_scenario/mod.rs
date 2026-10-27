@@ -36,6 +36,7 @@
 //! replay harness).
 
 pub(crate) mod asserters;
+pub(crate) mod attempt_tally;
 pub(crate) mod drift;
 pub(crate) mod format;
 pub(crate) mod live_driver;

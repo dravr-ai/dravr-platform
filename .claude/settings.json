@@ -66,6 +66,16 @@
             "command": "[ -f scripts/setup/cargo-sweep-nightly.sh ] && bash scripts/setup/cargo-sweep-nightly.sh check || true"
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 20,
+            "command": "[ -f .claude/skills/bilan/hooks/post-compact-state.sh ] && bash .claude/skills/bilan/hooks/post-compact-state.sh || true"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
