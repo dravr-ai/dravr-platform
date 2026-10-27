@@ -457,17 +457,14 @@ impl McpTool<dyn ToolRuntime> for GetTrainingPlanTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some(
-                    "Include what the readiness and compliance rails make of the plan as it \
-                     stands: the athlete's readiness level and the alerts behind it, the days \
-                     that level no longer allows — each with its reason (purpose_closed: the \
-                     level closes the day's purpose; template_above_level: the purpose is \
-                     open but the session needs a higher level) and, for the latter, the \
-                     easier template of that purpose the athlete's bank holds or the phase \
-                     purpose it falls back to — how each week measures against its phase, \
-                     and where the stored weeks stop covering the outline. Ask for it before \
-                     adjusting or extending a plan; leave it off for 'what am I doing this \
-                     week', since it costs roughly a dozen extra reads across the training \
-                     history, recovery, sleep and template stores."
+                    "Add the readiness and compliance rails' view of the plan: the readiness \
+                     level and its alerts; the days that level no longer allows, each with its \
+                     reason (purpose_closed: the level closes the day's purpose; \
+                     template_above_level: the session needs a higher level, with the easier \
+                     template or fallback purpose); each week against its phase; where the \
+                     stored weeks stop covering the outline. Ask for it before adjusting or \
+                     extending a plan; leave it off for 'what am I doing this week' (about a \
+                     dozen extra reads)."
                         .to_owned(),
                 ),
                 ..Default::default()
