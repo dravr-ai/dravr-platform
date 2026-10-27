@@ -1408,7 +1408,7 @@
       "create_no_agent": "Escolhe primeiro o agente do grupo: /agent add @handle nesta conversa e volta a correr /group create.",
       "create_unavailable": "O coaching em grupo não está incluído no teu plano.",
       "create_usage": "Uso: /group create nome-do-grupo — por exemplo /group create Corredores de domingo",
-      "created": "Grupo «{0}» criado com o agente {1}. Convida membros com /group invite.",
+      "created": "Grupo «{0}» criado com o agente {1}. Convida membros com o botão abaixo.",
       "description": "Listar os meus grupos",
       "digest_forbidden": "Só o proprietário do grupo, os seus administradores e o seu coach humano podem mudar o resumo semanal.",
       "digest_status": {

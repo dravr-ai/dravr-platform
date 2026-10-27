@@ -1408,7 +1408,7 @@
       "create_no_agent": "Choisis d'abord l'agent du groupe : /agent add @handle dans cette discussion, puis relance /group create.",
       "create_unavailable": "Le coaching de groupe n'est pas inclus dans ton forfait.",
       "create_usage": "Usage : /group create nom-du-groupe — par exemple /group create Coureurs du dimanche",
-      "created": "Groupe « {0} » créé avec l'agent {1}. Invite des membres avec /group invite.",
+      "created": "Groupe « {0} » créé avec l'agent {1}. Invite des membres avec le bouton ci-dessous.",
       "description": "Lister mes groupes",
       "digest_forbidden": "Seuls le propriétaire du groupe, ses admins et son coach humain peuvent changer le récap hebdo.",
       "digest_status": {

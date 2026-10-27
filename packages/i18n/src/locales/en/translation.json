@@ -1408,7 +1408,7 @@
       "create_no_agent": "Pick the group's agent first: /agent add @handle in this chat, then run /group create again.",
       "create_unavailable": "Group coaching is not included in your plan.",
       "create_usage": "Usage: /group create group-name — for example /group create Sunday Runners",
-      "created": "Group \"{0}\" created with agent {1}. Invite members with /group invite.",
+      "created": "Group \"{0}\" created with agent {1}. Invite members with the button below.",
       "description": "List my groups",
       "digest_forbidden": "Only the group's owner, its admins and its human coach can change the weekly recap.",
       "digest_status": {

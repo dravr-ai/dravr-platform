@@ -1408,7 +1408,7 @@
       "create_no_agent": "Wähle zuerst den Agenten der Gruppe: /agent add @handle in diesem Chat, dann /group create erneut.",
       "create_unavailable": "Gruppencoaching ist in deinem Tarif nicht enthalten.",
       "create_usage": "Verwendung: /group create Gruppenname — zum Beispiel /group create Sonntagsläufer",
-      "created": "Gruppe „{0}\" mit Agent {1} erstellt. Lade Mitglieder mit /group invite ein.",
+      "created": "Gruppe „{0}\" mit Agent {1} erstellt. Lade Mitglieder über die Schaltfläche unten ein.",
       "description": "Meine Gruppen auflisten",
       "digest_forbidden": "Nur der Eigentümer der Gruppe, ihre Admins und ihr menschlicher Coach können den Wochenrückblick ändern.",
       "digest_status": {
