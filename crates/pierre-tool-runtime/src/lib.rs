@@ -69,6 +69,8 @@ pub mod annotations;
 pub mod capabilities;
 /// Nightly capture refresh — the actor behind the capture-staleness reader.
 pub mod capture_sweep;
+/// The tool declarations a chat turn sends, and their wire size (carnet#1196).
+pub mod chat_catalogue;
 /// Which tools a group's coach may call in their own group (carnet#742).
 pub mod coach_seat;
 pub mod commitment_refresh;

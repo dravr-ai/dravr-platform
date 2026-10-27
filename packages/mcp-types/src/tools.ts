@@ -82,7 +82,7 @@ export interface AdminGetSystemAgentParams {
   /** ID of the system agent to retrieve */
   agent_id: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 }
 
@@ -102,7 +102,7 @@ export interface AdminListAgentAssignmentsParams {
  */
 export interface AdminListSystemAgentsParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Maximum number of agents to return. Default: 50, max: 100 */
@@ -197,7 +197,7 @@ export interface AnalyzeActivityParams {
   /** ID of the activity to analyze */
   activity_id: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider (e.g., 'strava'). Defaults to configured provider. */
@@ -246,7 +246,7 @@ export interface AnalyzeMealNutritionParams {
  */
 export interface AnalyzePerformanceTrendsParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Metric to analyze: 'pace' (default), 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power' */
@@ -268,7 +268,7 @@ export interface AnalyzeSleepQualityParams {
   /** User's baseline HRV (RMSSD, ms) for comparison */
   baseline_hrv?: number;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Array of recent HRV values (RMSSD, ms) for trend analysis */
@@ -287,7 +287,7 @@ export interface AnalyzeSleepQualityParams {
  */
 export interface AnalyzeTrainingLoadParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
@@ -325,7 +325,7 @@ export interface BrowseAgentStoreParams {
   /** Opaque cursor from a previous call's `next_cursor`, to fetch the next page. */
   cursor?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Agents per page (1-100, default 20). */
@@ -366,7 +366,7 @@ export interface CalculateDailyNutritionParams {
  */
 export interface CalculateFitnessScoreParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider to query. Defaults to configured provider. */
@@ -391,7 +391,7 @@ export interface CalculateMetricsParams {
   /** Age in years (optional; else the saved one), used to estimate the maximum heart rate by the configured max-HR algorithm (algorithm.maxhr) when none is given or saved */
   age?: number;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Maximum heart rate in bpm (optional; else the saved one, else estimated from age). With the saved resting heart rate it cuts the athlete's zones the average heart rate is read on. */
@@ -435,7 +435,7 @@ export interface CalculateRecoveryScoreParams {
   /** User's baseline HRV (RMSSD, ms) */
   baseline_hrv?: number;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Array of recent HRV values (RMSSD, ms) */
@@ -495,7 +495,7 @@ export interface CompareActivitiesParams {
   /** Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity'; any other value is refused */
   comparison_type?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider name. Defaults to configured provider. */
@@ -611,7 +611,7 @@ export interface DeleteRecipeParams {
  */
 export interface DetectPatternsParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Which pattern to detect: 'weekly_schedule' (which weekdays they train, how consistently, activities per week), 'training_blocks' (share of hard and easy sessions, and whether recovery between hard efforts is adequate), 'progression' (weekly volume trend and spike weeks), or 'overtraining' (heart-rate drift, performance decline, short recovery between hard efforts). Defaults to 'weekly_schedule'; any other value is refused. */
@@ -633,7 +633,7 @@ export interface DisconnectProviderParams {
 
 
 /**
- * Discover real named running, cycling, hiking, or ski routes near a location, grounded in OpenStreetMap data via the Overpass API. Pass either a place name via `place` (preferred — e.g. "Prévost, Quebec, Canada" or "Saint-Alexis-des-Monts") or explicit `latitude`/`longitude` coordinates. Place names are resolved by the same gazetteer as get_weather_forecast before the Overpass query, so the LLM never has to guess coordinates; a region and country after the name, written out, choose among places of the same name. Use this whenever the user asks you to propose, suggest, or find a route, trail, or outdoor session in a specific area. Never invent street names, trail names, or terrain you have not verified via this tool. Returns up to 20 named routes, nearest first, each with coordinates and a measured `distance_from_center_meters` — quote that distance rather than estimating one from the coordinates. Signed itineraries and trails are listed ahead of paved connectors. `distance_meters` says what it measures in `distance_source`: `mapped_geometry` is the longest connected run of fetched ways carrying the name — a lower bound, since the trail can continue past it; `osm_tag` is the length declared for the whole route, of which only part may lie inside the radius. A signed route with no declared length has none. When the session has a distance, pass it as `target_distance_meters`: routes within a tenth of it, in one pass or one out-and-back, are listed first, and each carries `target_fit` (`single_pass`, `out_and_back` or `repeats`) and `passes_for_target` — tell the athlete plainly when a route needs an out-and-back or repeats. Elevation, surface and how flat or uninterrupted a route is are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. For ski queries this reads OSM piste:type data (same source as OpenSkiMap). A route whose line is mapped carries a `route_ref`: to show the athlete that stretch, name it in a `dravr-viz` route block with `source_tool` "discover_routes" — never write coordinates. It also carries `connects_to`, the `route_ref`s of the other routes here that it physically meets. To propose an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next, and quote the distance it returns.
+ * Discover real named running, cycling, hiking, or ski routes near a location, grounded in OpenStreetMap data via the Overpass API, around a `place` (preferred) or `latitude`/`longitude`. Use this whenever the user asks you to propose, suggest, or find a route, trail, or outdoor session in a specific area. Never invent street names, trail names, or terrain you have not verified via this tool. Returns up to 20 named routes, nearest first, each with coordinates and a measured `distance_from_center_meters` — quote that distance rather than estimating one from the coordinates. Signed itineraries and trails are listed ahead of paved connectors. `distance_meters` says what it measures in `distance_source`: `mapped_geometry` is the longest connected run of fetched ways carrying the name — a lower bound, since the trail can continue past it; `osm_tag` is the length declared for the whole route, of which only part may lie inside the radius. A signed route with no declared length has none. When the session has a distance, pass it as `target_distance_meters`; each route then carries `target_fit` (`single_pass`, `out_and_back` or `repeats`) and `passes_for_target` — tell the athlete plainly when a route needs an out-and-back or repeats. Elevation, surface and how flat or uninterrupted a route is are NOT returned: never describe a route as flat, hilly or suited to intervals on the strength of this tool. An empty list means OSM has no named route in that radius: widen `radius_meters` or say so plainly, never substitute a name you did not read here. For ski queries this reads OSM piste:type data (same source as OpenSkiMap). A route whose line is mapped carries a `route_ref`: to show the athlete that stretch, name it in a `dravr-viz` route block with `source_tool` "discover_routes" — never write coordinates. It also carries `connects_to`, the `route_ref`s of the other routes here that it physically meets. To propose an itinerary over several stretches, pass their refs in running order to `compose_route`, each meeting the next, and quote the distance it returns.
  */
 export interface DiscoverRoutesParams {
 
@@ -781,7 +781,7 @@ export interface ForgetPlaybookParams {
  */
 export interface GenerateRecommendationsParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
@@ -797,7 +797,7 @@ export interface GenerateRecommendationsParams {
  */
 export interface GetActiveAgentParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 }
 
@@ -816,7 +816,7 @@ export interface GetActivitiesParams {
   /** Unix timestamp (epoch seconds) upper bound — return only activities at or before this time. Pair with `after` to bound a specific year or date range (e.g. all of 2022 = after 1640995200, before 1672531200). */
   before?: number;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Maximum number of activities to return (1-400). Use the smallest value that answers the question: 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Do NOT raise this to reach older/historical activities — the feed is newest-first; use `after`/`before` date bounds instead. Response includes has_more and pagination info for follow-up requests. */
@@ -847,7 +847,7 @@ export interface GetActivityIntelligenceParams {
   /** ID of the activity to analyze */
   activity_id: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider name (e.g., 'strava'). Defaults to configured provider. */
@@ -863,7 +863,7 @@ export interface GetAgentParams {
   /** ID of the agent to retrieve */
   agent_id: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 }
 
@@ -873,7 +873,7 @@ export interface GetAgentParams {
  */
 export interface GetAthleteParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider. */
@@ -962,7 +962,7 @@ export interface GetHealthSnapshotsParams {
   /** End of the date range as RFC3339 timestamp. Defaults to now. */
   end?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
@@ -981,7 +981,7 @@ export interface GetHeartRateSeriesParams {
   /** End of the range as RFC3339 timestamp, exclusive. Defaults to now. */
   end?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** The series to read; defaults to heart_rate. One of: heart_rate, hrv_rmssd, hrv_sdnn. */
@@ -1045,7 +1045,7 @@ export interface GetProviderRosterParams {
  */
 export interface GetRecipeParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Recipe ID */
@@ -1086,7 +1086,7 @@ export interface GetRecoveryMetricsParams {
   /** End of the date range as RFC3339 timestamp. Defaults to now. */
   end?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
@@ -1112,7 +1112,7 @@ export interface GetSleepSessionsParams {
   /** End of the date range as RFC3339 timestamp. Defaults to now. */
   end?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Start of the date range as RFC3339 timestamp. Defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
@@ -1125,7 +1125,7 @@ export interface GetSleepSessionsParams {
  */
 export interface GetStatsParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider to query (e.g., 'strava', 'garmin'). Defaults to configured default provider. */
@@ -1234,7 +1234,7 @@ export interface InstallAgentFromStoreParams {
   /** UUID of the published agent to install, as returned by `browse_agent_store` or `search_agent_store`. Required. */
   agent_id: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 }
 
@@ -1250,7 +1250,7 @@ export interface ListAgentsParams {
   /** Only show favorites. Default: false */
   favorites_only?: boolean;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Include agents you hid. Default: false */
@@ -1282,7 +1282,7 @@ export interface ListCoachingPlaybooksParams {
  */
 export interface ListDataSourcesParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 }
 
@@ -1302,7 +1302,7 @@ export interface ListFitnessConfigsParams {
  */
 export interface ListHiddenAgentsParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 }
 
@@ -1312,7 +1312,7 @@ export interface ListHiddenAgentsParams {
  */
 export interface ListRecipesParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Maximum results (default: 20, max: 100) */
@@ -1413,7 +1413,7 @@ export interface OptimizeSleepScheduleParams {
  */
 export interface PredictPerformanceParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Fitness provider to query (e.g., 'strava'). Defaults to configured provider. */
@@ -1425,7 +1425,7 @@ export interface PredictPerformanceParams {
 
 
 /**
- * Write one workout onto the athlete's calendar provider (Intervals.icu today) for a given date, and record it in the prescribed_workouts ledger. Requires a connected account of a provider that writes a training calendar. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Args: date (YYYY-MM-DD), template_slug or session, optional agent_id, optional replaces, optional provider (needed only to choose between several connected calendars; a replaced entry stays on its own provider). Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place instead. withdraw_prescribed_workout removes one. A group's human coach prescribes for a consenting athlete by passing athlete from their own direct chat in Dravr, through the athlete's Intervals.icu link once the athlete allows calendar writes on it.
+ * Write one workout onto the athlete's calendar provider (Intervals.icu today) for a given date, and record it in the prescribed_workouts ledger. Requires a connected account of a provider that writes a training calendar. Pass EITHER template_slug — a slug from the workout bank (list_workout_templates filters it by purpose, phase and sport) or a session you prescribed this athlete before — OR session, a structured session you authored for anything those do not express. Without replaces every call adds a new calendar entry; with replaces = a prescription_id (from an earlier call, or from get_training_plan's calendar block) that entry is changed in place, on its own provider. withdraw_prescribed_workout removes one. A group's human coach prescribes for a consenting athlete by passing athlete from their own direct chat in Dravr, through the athlete's Intervals.icu link once the athlete allows calendar writes on it.
  */
 export interface PrescribeWorkoutParams {
 
@@ -1520,7 +1520,7 @@ export interface PublishTrainingPlanParams {
 
 
 /**
- * Put the athlete's active training plan on their calendar provider (Intervals.icu today), or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on the provider. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected account of a provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan by passing `athlete` from their own direct chat in Dravr, through the athlete's Intervals.icu link: the athlete must have allowed calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed: a coach's unpublished draft never is, and the reply's unpublished_draft says when one exists. Args: optional from_date, optional provider (needed only to choose between several connected calendars), optional athlete.
+ * Put the athlete's active training plan on their calendar provider (Intervals.icu today), or bring the calendar up to date after the plan changed: creates the days that are missing, updates the ones that changed, removes the ones the plan no longer has, and leaves alone any the athlete edited on the provider. Never touches dates before today. Call it when the athlete or coach asks to put or update the plan on their calendar — not on your own initiative after a save; save_training_plan's reply says when the calendar is behind. Requires a saved plan and a connected account of a provider that writes a training calendar. A group's human coach pushes a consenting athlete's plan by passing `athlete` from their own direct chat in Dravr, through the athlete's Intervals.icu link: the athlete must have allowed calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed: a coach's unpublished draft never is, and the reply's unpublished_draft says when one exists.
  */
 export interface PushTrainingPlanParams {
 
@@ -1949,7 +1949,7 @@ export interface SaveTrainingPlanParams {
  */
 export interface SearchAgentStoreParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Max results (1-100, default 20). */
@@ -1968,7 +1968,7 @@ export interface SearchAgentsParams {
   /** Only matches in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom. */
   category?: string;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Maximum results per request. Default: 20, max: 100 */
@@ -2003,7 +2003,7 @@ export interface SearchFoodParams {
  */
 export interface SearchRecipesParams {
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Maximum results (default: 10, max: 100) */
@@ -2230,7 +2230,7 @@ export interface TrackSleepTrendsParams {
   /** Days of sleep history to fetch from the provider (default 14, max 366) */
   days?: number;
 
-  /** Output format: 'json' (default) or 'toon' (token-efficient for LLMs). */
+  /** 'json' (default) or 'toon', a more compact encoding. */
   format?: string;
 
   /** Manual array of sleep data objects, used instead of a provider fetch when no sleep_provider is named; at least 7 nights (the server's trend minimum) */
@@ -2345,7 +2345,7 @@ export interface VerifyClaimParams {
 
 
 /**
- * Remove a workout that prescribe_workout wrote to the athlete's calendar provider: deletes the calendar entry and marks the prescription withdrawn. Only for single prescriptions — an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). A group's human coach removes one from a consenting athlete's calendar by passing athlete, as prescribe_workout takes it. Args: prescription_id, optional provider (the entry's own provider is used; naming a different one is refused), optional athlete.
+ * Remove a workout that prescribe_workout wrote to the athlete's calendar provider: deletes the calendar entry and marks the prescription withdrawn. Only for single prescriptions — an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). A group's human coach removes one from a consenting athlete's calendar by passing athlete, as prescribe_workout takes it.
  */
 export interface WithdrawPrescribedWorkoutParams {
 

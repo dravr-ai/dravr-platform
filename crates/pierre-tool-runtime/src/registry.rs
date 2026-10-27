@@ -15,7 +15,6 @@
 //! This design mirrors `ProviderRegistry` from `src/providers/registry.rs`
 //! to maintain consistency across the codebase.
 
-use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
@@ -23,36 +22,11 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
-use serde::Serialize;
 
 use crate::security::{RuntimeTool, SecurityLabels};
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
-
-/// Per-tool schema size measurement
-#[derive(Debug, Clone, Serialize)]
-pub struct ToolSchemaSize {
-    /// Tool name
-    pub name: String,
-    /// Serialized schema byte size
-    pub bytes: usize,
-    /// Estimated token count (chars / 4)
-    pub tokens: usize,
-}
-
-/// Aggregate schema token estimate for all registered tools
-#[derive(Debug, Clone, Serialize)]
-pub struct SchemaTokenEstimate {
-    /// Total serialized byte size of all tool schemas
-    pub total_bytes: usize,
-    /// Estimated total token count
-    pub estimated_tokens: usize,
-    /// Number of registered tools
-    pub tool_count: usize,
-    /// Per-tool breakdown sorted by token cost descending
-    pub per_tool: Vec<ToolSchemaSize>,
-}
 
 /// Build a typed [`ToolSchema`] from a tronc [`Tool`] definition.
 ///
@@ -505,49 +479,6 @@ impl ToolRegistry {
             .filter(|(_, tool)| tool.capabilities().contains(ToolCapabilities::WRITES_DATA))
             .map(|(name, _)| name.as_str())
             .collect()
-    }
-
-    /// Calculate the total serialized schema size and estimated token count for all tools.
-    ///
-    /// Returns `(total_bytes, estimated_tokens, tool_count, per_tool)` where `per_tool`
-    /// contains `(name, bytes, tokens)` for each registered tool.
-    #[must_use]
-    pub fn total_schema_token_estimate(&self) -> SchemaTokenEstimate {
-        use pierre_formatters::TokenEfficiencyMetrics;
-
-        let mut per_tool = Vec::with_capacity(self.tools.len());
-        let mut total_bytes: usize = 0;
-        let mut total_estimated_tokens: usize = 0;
-
-        for tool in self.tools.values() {
-            let def = tool.definition();
-            let schema = serde_json::json!({
-                "name": def.name,
-                "description": def.description,
-                "inputSchema": def.input_schema,
-            });
-            let serialized = serde_json::to_string(&schema).unwrap_or_default();
-            let bytes = serialized.len();
-            let tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
-
-            total_bytes += bytes;
-            total_estimated_tokens += tokens;
-            per_tool.push(ToolSchemaSize {
-                name: def.name,
-                bytes,
-                tokens,
-            });
-        }
-
-        // Sort by token cost descending for easy identification of largest tools
-        per_tool.sort_by_key(|b| Reverse(b.tokens));
-
-        SchemaTokenEstimate {
-            total_bytes,
-            estimated_tokens: total_estimated_tokens,
-            tool_count: self.tools.len(),
-            per_tool,
-        }
     }
 }
 

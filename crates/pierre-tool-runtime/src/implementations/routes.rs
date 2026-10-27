@@ -271,13 +271,9 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
         answers_with::<DiscoverRoutesResult>(tool_definition(
             "discover_routes",
             "Discover real named running, cycling, hiking, or ski routes near a location, \
-             grounded in OpenStreetMap data via the Overpass API. Pass either a place name \
-             via `place` (preferred — e.g. \"Prévost, Quebec, Canada\" or \
-             \"Saint-Alexis-des-Monts\") or explicit `latitude`/`longitude` coordinates. \
-             Place names are resolved by the same gazetteer as get_weather_forecast before \
-             the Overpass query, so the LLM never has to guess coordinates; a region and \
-             country after the name, written out, choose among places of the same name. \
-             Use this whenever the user asks you to propose, suggest, or find \
+             grounded in OpenStreetMap data via the Overpass API, around a `place` \
+             (preferred) or `latitude`/`longitude`. Use this whenever the user asks you \
+             to propose, suggest, or find \
              a route, trail, or outdoor session in a specific area. Never invent street \
              names, trail names, or terrain you have not verified via this tool. Returns up \
              to 20 named routes, nearest first, each with coordinates and a measured \
@@ -288,8 +284,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
              name — a lower bound, since the trail can continue past it; `osm_tag` is the \
              length declared for the whole route, of which only part may lie inside the \
              radius. A signed route with no declared length has none. When the session \
-             has a distance, pass it as `target_distance_meters`: routes within a tenth \
-             of it, in one pass or one out-and-back, are listed first, and each carries \
+             has a distance, pass it as `target_distance_meters`; each route then carries \
              `target_fit` (`single_pass`, `out_and_back` or `repeats`) and \
              `passes_for_target` — tell \
              the athlete plainly when a route needs an out-and-back or repeats. Elevation, \

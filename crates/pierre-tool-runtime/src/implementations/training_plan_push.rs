@@ -251,9 +251,7 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
              their own direct chat in Dravr, through the athlete's Intervals.icu link: the \
              athlete must have allowed calendar writes on it, and Intervals.icu must list the \
              coach as their coach. Only the published plan is pushed: a coach's unpublished \
-             draft never is, and the reply's unpublished_draft says when one exists. Args: \
-             optional from_date, optional provider (needed only to choose between several \
-             connected calendars), optional athlete.",
+             draft never is, and the reply's unpublished_draft says when one exists.",
             schema,
             annotations(Effect::Destructive, Reach::OpenWorld),
         )))

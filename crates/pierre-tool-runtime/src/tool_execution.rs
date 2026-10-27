@@ -48,12 +48,10 @@ use crate::tool_results::{
     extract_activity_list, format_tool_results_as_text, reconnect_offer_in_responses,
     reconnect_offer_in_steps, render_tool_payload_for_prompt,
 };
-use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 use pierre_core::errors::AppError;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::{
-    ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionDeclaration, FunctionResponse,
-    MessageRole, Tool,
+    ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionResponse, MessageRole,
 };
 
 // ============================================================================
@@ -1092,37 +1090,4 @@ pub(crate) async fn run_headless_tool_loop(
 /// when it hands the turn there — bounding them to this turn.
 pub(crate) fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
     TurnKey::new(Some(params.tenant_id.as_uuid()), params.user_id)
-}
-
-// ============================================================================
-// Tool Declarations
-// ============================================================================
-
-/// Build the LLM tool definition set for chat-mode function calling.
-///
-/// Derives function declarations from the registry's chat-callable schemas
-/// so the surface stays in lockstep with what the prose "Available Tools"
-/// section of the system prompt advertises. The previous hand-curated 15-tool
-/// list drifted from the registry — newer tools (endurance dossier/history,
-/// nutrition, mobility) ended up advertised in prose but missing from the
-/// function-calling surface, producing "no callable tool" refusals when
-/// agent prompts referenced them.
-///
-/// Tool descriptions and parameter schemas come from each `McpTool`
-/// implementation's `description()` / `input_schema()` methods, with any
-/// contremaitre overlay already applied by `ToolRegistry::build_schema`.
-#[must_use]
-pub fn build_mcp_tools(tool_registry: &ToolRegistry) -> Tool {
-    let schemas = tool_registry.chat_callable_schemas();
-    let function_declarations = schemas
-        .into_iter()
-        .map(|schema| FunctionDeclaration {
-            name: schema.name,
-            description: schema.description,
-            parameters: Some(to_canonical_value(&schema.input_schema)),
-        })
-        .collect();
-    Tool {
-        function_declarations,
-    }
 }

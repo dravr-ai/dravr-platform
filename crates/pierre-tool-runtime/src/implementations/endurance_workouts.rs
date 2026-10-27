@@ -660,14 +660,10 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
              template_slug — a slug from the workout bank (list_workout_templates \
              filters it by purpose, phase and sport) or a session you prescribed \
              this athlete before — OR session, a structured session you authored \
-             for anything those do not express. Args: date (YYYY-MM-DD), \
-             template_slug or session, \
-             optional agent_id, optional replaces, optional provider (needed only to \
-             choose between several connected calendars; a replaced entry stays on \
-             its own provider). Without replaces every call \
-             adds a new calendar entry; with replaces = a prescription_id (from an \
-             earlier call, or from get_training_plan's calendar block) that entry \
-             is changed in place instead. withdraw_prescribed_workout removes one. A \
+             for anything those do not express. Without replaces every call adds a new \
+             calendar entry; with replaces = a prescription_id (from an earlier call, or \
+             from get_training_plan's calendar block) that entry is changed in place, on \
+             its own provider. withdraw_prescribed_workout removes one. A \
              group's human coach prescribes for a consenting athlete by passing athlete \
              from their own direct chat in Dravr, through the athlete's Intervals.icu link \
              once the athlete allows calendar writes on it.",
@@ -929,9 +925,7 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
              Only for single prescriptions — an entry the training plan put there is \
              removed by adjusting the plan (save_training_plan) and pushing it \
              (push_training_plan). A group's human coach removes one from a consenting \
-             athlete's calendar by passing athlete, as prescribe_workout takes it. Args: \
-             prescription_id, optional provider (the entry's own provider is used; naming a \
-             different one is refused), optional athlete.",
+             athlete's calendar by passing athlete, as prescribe_workout takes it.",
             schema,
             annotations(Effect::Destructive, Reach::OpenWorld),
         ))

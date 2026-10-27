@@ -17,10 +17,11 @@ use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
+use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::protocol::UniversalExecutor;
-use pierre_tool_runtime::tool_execution::{self as chat_tool_loop, build_mcp_tools};
+use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use tracing::{info, warn};
 
@@ -412,12 +413,21 @@ pub(crate) async fn dispatch_llm_with_tools(
         temperature: agent_ctx.and_then(|c| c.temperature),
         mcp_servers,
     };
+    // The tool block as this turn sends it: overlay applied, seat and flow
+    // withholds taken out. A digest that differs from the previous turn's is
+    // a cache miss on every model before the system prompt is even read
+    // (carnet#1196).
+    let catalogue = measure_catalogue(&tools);
     info!(
         provider = %provider_name,
         message_count = llm_messages.len(),
         max_iterations,
         streams_text = tool_params.streams_text(),
         streams_partial_text,
+        tool_count = catalogue.tool_count,
+        tools_bytes = catalogue.bytes,
+        tools_estimated_tokens = catalogue.estimated_tokens,
+        tools_digest = %catalogue.digest,
         "Chat pipeline dispatch starting tool loop"
     );
     let loop_start = Instant::now();

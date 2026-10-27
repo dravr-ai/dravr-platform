@@ -756,6 +756,7 @@ mod token_refresh_test;
 mod tool_annotations_invariant_test;
 mod tool_call_charged_once_test;
 mod tool_catalog_completeness_test;
+mod tool_catalogue_budget_test;
 mod tool_error_handling_comprehensive_test;
 mod tool_output_schema_stability_test;
 mod tool_registry_integration_test;

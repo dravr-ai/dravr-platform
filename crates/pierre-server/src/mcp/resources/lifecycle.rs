@@ -491,6 +491,7 @@ impl ServerContext {
                 registry.register(tool);
             }
             registry.set_tool_descriptions(Arc::clone(&contremaitre_tool_desc_registry));
+            Self::log_tool_catalogue_size(&registry);
             Arc::new(registry)
         };
 
@@ -964,18 +965,41 @@ impl ServerContext {
 
         let mut registry = ToolRegistry::new();
         register_builtin_tools(&mut registry);
-
-        // Log total schema token cost at startup for capacity planning
-        let estimate = registry.total_schema_token_estimate();
-        info!(
-            event_type = "tool_schema_size",
-            total_bytes = estimate.total_bytes,
-            estimated_tokens = estimate.estimated_tokens,
-            tool_count = estimate.tool_count,
-            "Tool registry schema size at startup"
-        );
-
         registry
+    }
+
+    /// Log the chat tool catalogue's wire size once per boot (carnet#1196).
+    ///
+    /// Two surfaces: the athlete's own turn, which sends every chat-callable
+    /// tool, and the coach's seat, which withholds the coach's own data tools.
+    /// The contremaitre overlay has not synced yet at this point, so this is
+    /// the compiled-in text; every turn's dispatch line carries the size and
+    /// digest it actually sent.
+    fn log_tool_catalogue_size(registry: &ToolRegistry) {
+        use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
+        use pierre_tool_runtime::coach_seat::TurnSeat;
+
+        /// How many of the largest tools the line names
+        const LARGEST_LOGGED: usize = 20;
+
+        let mut tools = build_mcp_tools(registry);
+        let chat = measure_catalogue(&tools);
+        tools
+            .function_declarations
+            .retain(|decl| !TurnSeat::Coach.withholds(registry, &decl.name));
+        let coach_seat = measure_catalogue(&tools);
+        info!(
+            event_type = "tool_catalogue_size",
+            tool_count = chat.tool_count,
+            bytes = chat.bytes,
+            estimated_tokens = chat.estimated_tokens,
+            digest = %chat.digest,
+            coach_seat_tool_count = coach_seat.tool_count,
+            coach_seat_bytes = coach_seat.bytes,
+            coach_seat_estimated_tokens = coach_seat.estimated_tokens,
+            largest = %chat.largest(LARGEST_LOGGED),
+            "Chat tool catalogue size at startup"
+        );
     }
 
     /// Sync tool catalog table with the live tool registry at startup.

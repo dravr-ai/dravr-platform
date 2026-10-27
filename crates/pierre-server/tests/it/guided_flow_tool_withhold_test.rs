@@ -24,11 +24,11 @@
 
 use pierre_core::models::GuidedFlow;
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+use pierre_tool_runtime::chat_catalogue::build_mcp_tools;
 use pierre_tool_runtime::implementations::guided_flow::{
     flow_withholds_writes, is_withheld_during_guided_flow, GUIDED_FLOW_WITHHELD_TOOLS,
 };
 use pierre_tool_runtime::registry::ToolRegistry;
-use pierre_tool_runtime::tool_execution::build_mcp_tools;
 use std::sync::Arc;
 
 fn full_registry() -> Arc<ToolRegistry> {

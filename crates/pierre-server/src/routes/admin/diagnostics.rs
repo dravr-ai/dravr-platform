@@ -35,6 +35,7 @@ use uuid::Uuid;
 
 use pierre_core::errors::AppResult;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget};
+use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
@@ -93,8 +94,9 @@ pub fn routes(context: DiagnosticsContext, auth_service: AdminAuthService) -> Ro
 
 /// `GET /admin/diagnostics/tool-schema-size`.
 ///
-/// Returns the estimated token cost of all registered MCP tool schemas,
-/// broken down per tool and sorted by token cost descending.
+/// Returns the wire size of the chat tool catalogue — the declarations an
+/// athlete's turn sends, with the contremaitre overlay as it stands now —
+/// with its digest and every tool, largest first (carnet#1196).
 ///
 /// # Errors
 ///
@@ -106,9 +108,9 @@ pub async fn handle_tool_schema_size(
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
 
-    let estimate = context.tool_registry.total_schema_token_estimate();
+    let catalogue = measure_catalogue(&build_mcp_tools(&context.tool_registry));
 
-    Ok((StatusCode::OK, Json(estimate)))
+    Ok((StatusCode::OK, Json(catalogue)))
 }
 
 /// `POST /admin/diagnostics/tronc-canary`.

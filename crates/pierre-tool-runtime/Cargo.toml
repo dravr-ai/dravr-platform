@@ -85,6 +85,9 @@ regex = "1.13"
 schemars = { version = "1.2", features = ["chrono04", "uuid1"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# The chat catalogue's digest: two turns whose tool blocks differ cannot share
+# a prompt-cache prefix, and the digest is how a log line shows it.
+sha2 = "0.10"
 thiserror = "2.0"
 # time: the bounded wait a refused token refresh gives a concurrent winner.
 tokio = { version = "1.54", features = ["rt", "sync", "macros", "time"] }

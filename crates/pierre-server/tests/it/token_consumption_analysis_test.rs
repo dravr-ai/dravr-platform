@@ -1,5 +1,5 @@
 // ABOUTME: Comprehensive token consumption analysis tests for DRAVR-419/420/417 close-out
-// ABOUTME: Validates schema token estimates, TOON efficiency, prompt sizes, and cost projections
+// ABOUTME: Validates TOON efficiency, prompt sizes, and cost projections; tool schemas are in tool_catalogue_budget_test
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,8 +13,6 @@ use pierre_formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
 use pierre_llm::prompts::{
     AGENT_GENERATION_PROMPT, PIERRE_SYSTEM_PROMPT, PLATFORM_CONTRACT_PROMPT,
 };
-use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
-use pierre_tool_runtime::registry::ToolRegistry;
 use serde::Serialize;
 
 #[derive(Serialize, Clone)]
@@ -81,53 +79,6 @@ fn create_realistic_activities(count: usize) -> Vec<ActivitySample> {
             }
         })
         .collect()
-}
-
-mod axis1_schema_tokens {
-    use super::*;
-
-    #[test]
-    fn test_tool_schema_total_token_estimate() {
-        let mut registry = ToolRegistry::new();
-        register_builtin_tools(&mut registry);
-        let estimate = registry.total_schema_token_estimate();
-
-        println!("\n=== AXIS 1: Tool Schema Token Budget (DRAVR-419) ===");
-        let tool_count = estimate.tool_count;
-        let total_bytes = estimate.total_bytes;
-        let estimated_tokens = estimate.estimated_tokens;
-        println!("Total tools registered: {tool_count}");
-        println!("Total schema bytes:     {total_bytes}");
-        println!("Estimated tokens:       {estimated_tokens}");
-        println!();
-        println!("Top 10 tools by token cost:");
-        println!("{:<40} {:>8} {:>8}", "Tool", "Bytes", "Tokens");
-        println!("{}", "-".repeat(58));
-        for tool in estimate.per_tool.iter().take(10) {
-            println!("{:<40} {:>8} {:>8}", tool.name, tool.bytes, tool.tokens);
-        }
-        println!();
-
-        assert!(estimate.tool_count > 0, "Should have registered tools");
-        assert!(estimate.total_bytes > 0, "Total bytes should be non-zero");
-        assert!(
-            estimate.estimated_tokens > 0,
-            "Estimated tokens should be non-zero"
-        );
-        assert_eq!(
-            estimate.per_tool.len(),
-            estimate.tool_count,
-            "Per-tool breakdown should match tool count"
-        );
-        // Verify sorted descending by tokens
-        assert!(
-            estimate
-                .per_tool
-                .windows(2)
-                .all(|w| w[0].tokens >= w[1].tokens),
-            "Per-tool list should be sorted descending by tokens"
-        );
-    }
 }
 
 mod axis1_toon_efficiency {
