@@ -27,7 +27,9 @@ use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_middleware::provider_link_token::verify_link_token;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_tool_runtime::activity_backfill::backfill_session_expired;
-use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
+use pierre_tool_runtime::capture_sweep::{
+    refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
+};
 use pierre_tool_runtime::protocol::reauth_notice::{flag_needs_reauth, notify_needs_reauth};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::Value;
@@ -203,9 +205,13 @@ async fn a_sweep_flag_tells_the_athlete_once_in_the_app_and_on_every_linked_chat
     f.link_chat("telegram", "tg-athlete-1").await;
     f.link_chat("whatsapp", "15145550101").await;
 
-    let report = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .unwrap();
+    let report = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     assert!(
         report
             .connections

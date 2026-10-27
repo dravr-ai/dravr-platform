@@ -37,7 +37,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
 use pierre_tool_runtime::capture_sweep::{
-    refresh_captures, RefreshOutcome, SweepBudget, DEFAULT_CONNECTION_LIMIT,
+    refresh_captures, RefreshOutcome, SweepBudget, SweepSelection, DEFAULT_CONNECTION_LIMIT,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -88,6 +88,43 @@ async fn fixture_with_connection(provider: &str) -> Fixture {
     }
 }
 
+/// The few-hourly sweep keeps the athletes who chat current and leaves the rest
+/// to the daily one (carnet#1206): a connection that never served its athlete
+/// is passed over, and the same connection is walked by an unselective sweep.
+#[tokio::test]
+async fn an_active_only_sweep_passes_over_a_connection_nobody_used() {
+    let f = fixture_with_connection("whoop").await;
+    let active_only = SweepSelection {
+        active_within: Some(Duration::days(7)),
+        skip_fetched_within: Some(Duration::hours(2)),
+    };
+
+    let report = refresh_captures(&f.runtime, SweepBudget::default(), active_only)
+        .await
+        .expect("refresh report");
+    assert_eq!(
+        report.attempted, 0,
+        "bug: a connection that never served its athlete must not wake its provider"
+    );
+    assert_eq!(report.passed_over, 1, "bug: the pass-over must be reported");
+
+    let everyone = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
+    assert_eq!(
+        everyone.attempted, 1,
+        "bug: the daily sweep must still walk every live connection"
+    );
+    assert_eq!(
+        everyone.passed_over, 0,
+        "bug: an unselective sweep passes over nothing"
+    );
+}
+
 /// The sweep's whole point: a connection whose credential is gone gets flagged,
 /// and the flag lands in the database.
 ///
@@ -100,9 +137,13 @@ async fn fixture_with_connection(provider: &str) -> Fixture {
 async fn the_sweep_flags_a_connection_whose_credential_is_gone() {
     let f = fixture_with_connection("strava").await;
 
-    let report = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .expect("refresh report");
+    let report = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
 
     let line = report
         .connections
@@ -144,15 +185,23 @@ async fn the_sweep_flags_a_connection_whose_credential_is_gone() {
 async fn a_flagged_connection_is_not_swept_again() {
     let f = fixture_with_connection("sciotte").await;
 
-    let first = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .expect("first sweep");
+    let first = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("first sweep");
     assert_eq!(first.attempted, 1, "the live connection was attempted once");
     assert_eq!(first.flagged, 1);
 
-    let second = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .expect("second sweep");
+    let second = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("second sweep");
     assert_eq!(
         second.attempted, 0,
         "a flagged connection must not be re-attempted"
@@ -205,9 +254,13 @@ async fn a_connection_reconnected_while_its_fetch_ran_is_not_reported_flagged() 
     let f = fixture_with_connection("strava").await;
     stamp_connected_at(&f, "strava", Utc::now() + Duration::minutes(5)).await;
 
-    let report = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .expect("refresh report");
+    let report = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
 
     let line = report
         .connections
@@ -248,6 +301,7 @@ async fn an_exhausted_budget_is_reported_not_hidden() {
             total: StdDuration::ZERO,
             connection_limit: DEFAULT_CONNECTION_LIMIT,
         },
+        SweepSelection::default(),
     )
     .await
     .expect("refresh report");
@@ -505,9 +559,13 @@ async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
     let (f, scraper) = athlete_on_the_mirror().await;
 
     scraper.session_alive.store(false, Ordering::SeqCst);
-    let flagging = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .expect("refresh report");
+    let flagging = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
     assert_eq!(flagging.attempted, 1);
     assert_eq!(flagging.flagged, 1);
     assert_eq!(
@@ -536,9 +594,13 @@ async fn a_flag_the_session_outlived_is_cleared_by_the_next_fetch_it_serves() {
          `sciotte` is the one re-armed, with the refusal it recorded cleared"
     );
 
-    let next = refresh_captures(&f.runtime, SweepBudget::default())
-        .await
-        .expect("refresh report");
+    let next = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
     assert_eq!(
         (next.attempted, next.refreshed, next.flagged),
         (1, 1, 0),

@@ -70,7 +70,9 @@ use pierre_mcp_server::services::activity_route::{
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
-use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
+use pierre_tool_runtime::capture_sweep::{
+    refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
+};
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -1680,6 +1682,7 @@ async fn a_sweep_fetch_dropped_at_its_bound_is_recorded_failed() {
             per_connection: StdDuration::from_secs(1),
             ..SweepBudget::default()
         },
+        SweepSelection::default(),
     )
     .await
     .unwrap();

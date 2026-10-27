@@ -49,7 +49,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ReauthMark, TenantId};
-use pierre_database::repositories::ActivityFetchFailure;
+use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
 use pierre_providers::core::ActivityQueryParams;
 use serde::Serialize;
 use tokio::time::timeout;
@@ -118,6 +118,40 @@ impl Default for SweepBudget {
     }
 }
 
+/// Which live connections one sweep refreshes.
+///
+/// The daily sweep walks every live connection. Between two of them an
+/// athlete's scraped capture moves only when they chat, and a chat's own read
+/// outlives the turn's budget, so its result lands after the reply that
+/// needed it (carnet#1206). A sweep run every few hours over the athletes who
+/// chat keeps their head current without waking the scraper for everyone.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SweepSelection {
+    /// Only connections that served the athlete — a chat turn or an app load
+    /// — within this long. `None` walks every live connection.
+    pub active_within: Option<ChronoDuration>,
+    /// Pass over connections whose last successful fetch is younger than
+    /// this: a turn or an earlier sweep already refreshed them.
+    pub skip_fetched_within: Option<ChronoDuration>,
+}
+
+impl SweepSelection {
+    /// Whether `connection` is one this sweep refreshes at `now`.
+    fn selects(&self, connection: &CaptureFreshness, now: DateTime<Utc>) -> bool {
+        let active = self.active_within.is_none_or(|window| {
+            connection
+                .last_used_at
+                .is_some_and(|used| used >= now - window)
+        });
+        let due = self.skip_fetched_within.is_none_or(|window| {
+            connection
+                .last_fetch_at
+                .is_none_or(|fetched| fetched < now - window)
+        });
+        active && due
+    }
+}
+
 /// What one connection's refresh attempt did.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -182,14 +216,17 @@ pub struct RefreshReport {
     /// Flagged scrape sessions the sweep retried, each also counted in
     /// `attempted` and in the outcome it reached.
     pub retried: usize,
+    /// Live connections the sweep's [`SweepSelection`] left out: not used
+    /// recently enough, or fetched recently enough already.
+    pub passed_over: usize,
     /// Whether the sweep reached every connection in the snapshot.
     pub completed: bool,
     /// Every connection walked, in the order it was walked.
     pub connections: Vec<ConnectionRefresh>,
 }
 
-/// Refresh the recent head of every live provider connection, then retry the
-/// flagged scrape sessions whose retry is due.
+/// Refresh the recent head of every live provider connection `selection`
+/// picks, then retry the flagged scrape sessions whose retry is due.
 ///
 /// Walks the same snapshot the staleness reader judges — which already excludes
 /// connections needing re-auth, since a known-dead one has nothing to refresh.
@@ -209,14 +246,21 @@ pub struct RefreshReport {
 pub async fn refresh_captures(
     runtime: &Arc<dyn ToolRuntime>,
     budget: SweepBudget,
+    selection: SweepSelection,
 ) -> AppResult<RefreshReport> {
     let started_at = Utc::now();
     let deadline = Instant::now() + budget.total;
-    let snapshot = runtime
+    let live = runtime
         .repos()
         .activity_cache
         .capture_freshness_snapshot(budget.connection_limit)
         .await?;
+    let live_count = live.len();
+    let snapshot: Vec<CaptureFreshness> = live
+        .into_iter()
+        .filter(|connection| selection.selects(connection, started_at))
+        .collect();
+    let passed_over = live_count - snapshot.len();
 
     let after_ts = (started_at - ChronoDuration::days(HEAD_WINDOW_DAYS)).timestamp();
     let params = ActivityQueryParams {
@@ -256,6 +300,7 @@ pub async fn refresh_captures(
         failed = tally.failed,
         skipped = tally.skipped,
         retried,
+        passed_over,
         completed,
         "Capture sweep finished"
     );
@@ -269,6 +314,7 @@ pub async fn refresh_captures(
         failed: tally.failed,
         skipped: tally.skipped,
         retried,
+        passed_over,
         completed,
         connections,
     })
@@ -584,5 +630,76 @@ async fn flag_connection(
                 error: format!("flag failed: {e}"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, Duration, Utc};
+    use pierre_database::repositories::CaptureFreshness;
+
+    use super::SweepSelection;
+
+    fn connection(
+        last_used_at: Option<DateTime<Utc>>,
+        last_fetch_at: Option<DateTime<Utc>>,
+    ) -> CaptureFreshness {
+        CaptureFreshness {
+            tenant_id: "tenant".to_owned(),
+            user_id: "athlete".to_owned(),
+            provider: "sciotte_strava".to_owned(),
+            last_used_at,
+            last_fetch_at,
+        }
+    }
+
+    const ACTIVE_ONLY: SweepSelection = SweepSelection {
+        active_within: Some(Duration::days(7)),
+        skip_fetched_within: Some(Duration::hours(2)),
+    };
+
+    /// The 2026-10-27 athlete: chatted yesterday, last fetched this morning.
+    #[test]
+    fn an_athlete_who_chats_and_was_not_fetched_lately_is_refreshed() {
+        let now = Utc::now();
+        let row = connection(
+            Some(now - Duration::days(1)),
+            Some(now - Duration::hours(5)),
+        );
+        assert!(
+            ACTIVE_ONLY.selects(&row, now),
+            "bug: an active athlete's stale head must be refreshed"
+        );
+    }
+
+    #[test]
+    fn an_athlete_who_has_not_chatted_this_week_waits_for_the_daily_sweep() {
+        let now = Utc::now();
+        for used in [None, Some(now - Duration::days(8))] {
+            let row = connection(used, None);
+            assert!(
+                !ACTIVE_ONLY.selects(&row, now),
+                "bug: an idle athlete must not wake the scraper: {used:?}"
+            );
+            assert!(
+                SweepSelection::default().selects(&row, now),
+                "bug: the daily sweep walks every live connection: {used:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_head_a_turn_just_refreshed_is_not_fetched_again() {
+        let now = Utc::now();
+        let row = connection(Some(now), Some(now - Duration::minutes(30)));
+        assert!(
+            !ACTIVE_ONLY.selects(&row, now),
+            "bug: a head fetched 30 minutes ago must be passed over"
+        );
+        let never_fetched = connection(Some(now), None);
+        assert!(
+            ACTIVE_ONLY.selects(&never_fetched, now),
+            "bug: a head never fetched is always due"
+        );
     }
 }

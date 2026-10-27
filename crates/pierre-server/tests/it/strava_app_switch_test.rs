@@ -68,7 +68,9 @@ use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::oauth_redirects::oauth_failure_url;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::{remove_user, UserRemoval};
-use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
+use pierre_tool_runtime::capture_sweep::{
+    refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
+};
 use pierre_tool_runtime::implementations::connection::mint_oauth_authorize_url;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 #[cfg(feature = "client-chat")]
@@ -1265,7 +1267,7 @@ async fn the_capture_sweep_does_not_flag_a_rate_limited_or_failing_refresh() {
     ] {
         *mock.refresh_rejection.lock().unwrap() = Some((status, STRAVA_RATE_LIMITED.to_owned()));
 
-        let report = refresh_captures(&runtime, SweepBudget::default())
+        let report = refresh_captures(&runtime, SweepBudget::default(), SweepSelection::default())
             .await
             .expect("refresh report");
         let line = report
@@ -1990,7 +1992,7 @@ async fn an_unreadable_token_row_is_an_error_and_flags_nothing() {
         "{payload}"
     );
 
-    let report = refresh_captures(&runtime, SweepBudget::default())
+    let report = refresh_captures(&runtime, SweepBudget::default(), SweepSelection::default())
         .await
         .expect("refresh report");
     let line = report

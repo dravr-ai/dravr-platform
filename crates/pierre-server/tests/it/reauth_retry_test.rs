@@ -29,7 +29,7 @@ use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
-use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget};
+use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget, SweepSelection};
 use pierre_tool_runtime::reauth_retry::SCRAPE_SESSION_RETRY_INTERVAL_HOURS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -273,32 +273,48 @@ async fn the_sweep_retries_a_flagged_scrape_session_once_per_interval() {
     let f = fixture("sweep-retry").await;
     f.scraper.session_alive.store(false, Ordering::SeqCst);
 
-    let within = refresh_captures(&f.runtime(), SweepBudget::default())
-        .await
-        .unwrap();
+    let within = refresh_captures(
+        &f.runtime(),
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(within.retried, 0, "a flag younger than the interval waits");
     assert_eq!(f.scraper.reads(), 0);
 
     f.age_past_interval("sciotte").await;
-    let refused = refresh_captures(&f.runtime(), SweepBudget::default())
-        .await
-        .unwrap();
+    let refused = refresh_captures(
+        &f.runtime(),
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!((refused.retried, refused.attempted), (1, 1));
     assert_eq!(refused.flagged, 1, "the refused retry is reported flagged");
     assert_eq!(f.scraper.reads(), 1);
     assert_eq!(f.status("sciotte").await, ConnectionStatus::NeedsReauth);
 
-    let throttled = refresh_captures(&f.runtime(), SweepBudget::default())
-        .await
-        .unwrap();
+    let throttled = refresh_captures(
+        &f.runtime(),
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(throttled.retried, 0, "retried within the interval");
     assert_eq!(f.scraper.reads(), 1, "the scraper is not asked again");
 
     f.scraper.session_alive.store(true, Ordering::SeqCst);
     f.age_past_interval("sciotte").await;
-    let served = refresh_captures(&f.runtime(), SweepBudget::default())
-        .await
-        .unwrap();
+    let served = refresh_captures(
+        &f.runtime(),
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!((served.retried, served.refreshed), (1, 1));
     assert_eq!(f.scraper.reads(), 2);
     assert_eq!(
@@ -317,9 +333,13 @@ async fn the_sweep_never_retries_a_flagged_oauth_grant() {
     f.flag("strava").await;
     f.age_past_interval("strava").await;
 
-    let report = refresh_captures(&f.runtime(), SweepBudget::default())
-        .await
-        .unwrap();
+    let report = refresh_captures(
+        &f.runtime(),
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     assert!(
         report
             .connections

@@ -71,7 +71,9 @@ use pierre_providers::CoreFitnessProvider;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::DelegatedConnectionRoutes;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
-use pierre_tool_runtime::capture_sweep::{refresh_captures, RefreshOutcome, SweepBudget};
+use pierre_tool_runtime::capture_sweep::{
+    refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
+};
 use pierre_tool_runtime::implementations::connection::GetConnectionStatusTool;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
@@ -909,9 +911,13 @@ async fn the_member_is_told_the_coach_must_reconnect(w: &World) {
     assert_eq!(card["needs_reauth"], false, "{card}");
     assert_eq!(card["delegation"]["coach_needs_reauth"], true);
 
-    let report = refresh_captures(&w.runtime, SweepBudget::default())
-        .await
-        .unwrap();
+    let report = refresh_captures(
+        &w.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .unwrap();
     let member = report
         .connections
         .iter()

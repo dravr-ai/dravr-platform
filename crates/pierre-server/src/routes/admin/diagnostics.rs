@@ -34,7 +34,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use pierre_core::errors::AppResult;
-use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget};
+use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget, SweepSelection};
 use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -179,6 +179,29 @@ pub struct CaptureStalenessQuery {
     stale_after_hours: Option<i64>,
     /// A connection must have served within this many hours to be judged.
     active_within_hours: Option<i64>,
+}
+
+/// Query parameters for `/admin/diagnostics/capture-refresh`. Both absent,
+/// the sweep walks every live connection, as the daily monitor asks.
+///
+/// Either one given is clamped to `1..=MAX_THRESHOLD_HOURS`, as the staleness
+/// reader's are: an unbounded window would overflow `now - window`.
+#[derive(Debug, Default, Deserialize)]
+pub struct CaptureRefreshQuery {
+    /// Only connections that served the athlete within this many hours.
+    active_within_hours: Option<u32>,
+    /// Pass over connections a fetch already reached within this many hours.
+    skip_fetched_within_hours: Option<u32>,
+}
+
+impl CaptureRefreshQuery {
+    fn selection(&self) -> SweepSelection {
+        let hours = |h: u32| Duration::hours(i64::from(h).clamp(1, MAX_THRESHOLD_HOURS));
+        SweepSelection {
+            active_within: self.active_within_hours.map(hours),
+            skip_fetched_within: self.skip_fetched_within_hours.map(hours),
+        }
+    }
 }
 
 /// One connection being served from cache by a provider that has stopped
@@ -358,6 +381,10 @@ pub async fn handle_capture_staleness(
 /// for a 2FA phone tap at 04:00, which is what makes an unattended nightly
 /// possible at all.
 ///
+/// `active_within_hours` and `skip_fetched_within_hours` narrow the sweep to
+/// the athletes who chat and whose head no turn refreshed lately: the lane
+/// that runs every few hours between two daily sweeps (carnet#1206).
+///
 /// Runs inline rather than detached: the service scales to zero, so a spawned
 /// task has no CPU to run on once the response is sent. It is bounded per
 /// connection and overall, and reports `completed: false` for a sweep whose
@@ -376,13 +403,81 @@ pub async fn handle_capture_staleness(
 pub async fn handle_capture_refresh(
     State(context): State<Arc<DiagnosticsContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
+    Query(params): Query<CaptureRefreshQuery>,
 ) -> AppResult<impl IntoResponse> {
     // Mutating, and it spends provider calls: this flips connection status and
     // wakes the scraper, so it takes the manage permission rather than the view
     // one its read-only sibling is content with.
     admin_token.require_permission(&AdminPermission::ManageConfiguration)?;
 
-    let report = refresh_captures(&context.runtime, SweepBudget::default()).await?;
+    let report =
+        refresh_captures(&context.runtime, SweepBudget::default(), params.selection()).await?;
 
     Ok((StatusCode::OK, Json(report)))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::extract::Query;
+    use axum::http::Uri;
+    use chrono::Duration;
+
+    use super::{CaptureRefreshQuery, SweepSelection, MAX_THRESHOLD_HOURS};
+
+    fn selection_of(uri: &str) -> SweepSelection {
+        let uri: Uri = uri.parse().expect("a uri");
+        let Query(query) = Query::<CaptureRefreshQuery>::try_from_uri(&uri).expect("a query");
+        query.selection()
+    }
+
+    /// The parameters the three-hourly lane sends narrow the sweep.
+    #[test]
+    fn the_active_lane_parameters_reach_the_sweep() {
+        let selection = selection_of(
+            "/admin/diagnostics/capture-refresh?active_within_hours=168&skip_fetched_within_hours=2",
+        );
+        assert_eq!(
+            selection.active_within,
+            Some(Duration::hours(168)),
+            "bug: active_within_hours must narrow the sweep"
+        );
+        assert_eq!(
+            selection.skip_fetched_within,
+            Some(Duration::hours(2)),
+            "bug: skip_fetched_within_hours must pass over fresh heads"
+        );
+    }
+
+    /// A window past the bound is clamped to it, so the sweep's `now - window`
+    /// stays in range instead of panicking the request.
+    #[test]
+    fn an_out_of_range_window_is_clamped() {
+        let selection = selection_of(
+            "/admin/diagnostics/capture-refresh?active_within_hours=4294967295&skip_fetched_within_hours=0",
+        );
+        assert_eq!(
+            selection.active_within,
+            Some(Duration::hours(MAX_THRESHOLD_HOURS)),
+            "bug: an oversized window must be clamped to the bound"
+        );
+        assert_eq!(
+            selection.skip_fetched_within,
+            Some(Duration::hours(1)),
+            "bug: a zero window must be clamped to one hour"
+        );
+    }
+
+    /// The daily monitor sends neither, and keeps walking every connection.
+    #[test]
+    fn no_parameters_walk_every_live_connection() {
+        let selection = selection_of("/admin/diagnostics/capture-refresh");
+        assert_eq!(
+            selection.active_within, None,
+            "bug: the daily sweep is unselective"
+        );
+        assert_eq!(
+            selection.skip_fetched_within, None,
+            "bug: the daily sweep is unselective"
+        );
+    }
 }

@@ -1,0 +1,101 @@
+# ABOUTME: Every three hours, refreshes the provider captures of the athletes who chatted this week
+# ABOUTME: Keeps a scraped head current between daily sweeps, since a chat's own read lands after its reply
+#
+# A scraped capture (sciotte Strava, Garmin, …) moves only when something reads
+# it. The daily sweep in monitor-capture-staleness.yml reads every live
+# connection once a day; between two sweeps the head moves only when the athlete
+# chats, and a chat's read drives a headless browser for 20-30 s against a 15 s
+# turn budget, so its result lands after the reply that needed it. On 2026-10-27
+# an athlete's 07:56 ride was missing from a 11:21 answer for exactly that reason
+# (carnet#1206).
+#
+# This lane runs the same server-side sweep, narrowed to connections that served
+# their athlete in the last week (a chat turn or an app load touches
+# `provider_connections.last_used_at`) and passing over heads a fetch reached in
+# the last two hours. An athlete who has not chatted this week waits for the
+# daily sweep, so the scraper is not woken for everyone eight times a day.
+# Flagged scrape sessions are the one exception: every sweep also retries the
+# ones whose retry is due, whoever owns them, and their own six-hour claim
+# (SCRAPE_SESSION_RETRY_INTERVAL_HOURS) holds each to four reads a day.
+#
+# The sweep runs inline on the request because the API scales to zero: a timer
+# inside the server would have no CPU between requests. It never attempts a
+# login, exactly like the daily sweep.
+
+name: "Sync: Active Athlete Captures (dev)"
+
+on:
+  schedule:
+    # Every three hours at :37 — off :00 and off the daily sweep's :17.
+    - cron: '37 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      active_within_hours:
+        description: "Only connections that served their athlete within this many hours"
+        required: false
+        default: "168"
+      skip_fetched_within_hours:
+        description: "Pass over connections a fetch already reached within this many hours"
+        required: false
+        default: "2"
+
+concurrency:
+  # Shared with the daily sweep: two sweeps at once would scrape the same heads.
+  group: monitor-capture-staleness
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-active:
+    name: Active athletes' captures are refreshed
+    runs-on: ubuntu-latest
+    # The sweep is bounded server-side at 480 s; the request at 540 s.
+    timeout-minutes: 12
+
+    steps:
+      # A sync lane that cannot reach the server must red, not skip: a silent
+      # green is the failure this lane exists to prevent.
+      - name: Require the credentials this lane cannot work without
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} secrets.CANARY_ADMIN_TOKEN"
+          [ -n "${BASE_URL}" ] || MISSING="${MISSING} vars.DEV_PUBLIC_BASE_URL"
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing:${MISSING} — see monitor-capture-staleness.yml for how CANARY_ADMIN_TOKEN is minted (carnet#170)."
+            exit 1
+          fi
+
+      - name: Refresh the captures of athletes who chatted this week
+        env:
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          BASE_URL: ${{ vars.DEV_PUBLIC_BASE_URL }}
+          ACTIVE_WITHIN_HOURS: ${{ github.event.inputs.active_within_hours || '168' }}
+          SKIP_FETCHED_WITHIN_HOURS: ${{ github.event.inputs.skip_fetched_within_hours || '2' }}
+        run: |
+          set -euo pipefail
+          URL="${BASE_URL}/admin/diagnostics/capture-refresh?active_within_hours=${ACTIVE_WITHIN_HOURS}&skip_fetched_within_hours=${SKIP_FETCHED_WITHIN_HOURS}"
+          CODE=$(curl -sS -X POST \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Accept: application/json" \
+            --max-time 540 \
+            -o /tmp/refresh.json \
+            -w '%{http_code}' \
+            "${URL}" || echo "000")
+          if [ "${CODE}" != "200" ]; then
+            echo "::error::capture-refresh answered HTTP ${CODE}"
+            head -c 2000 /tmp/refresh.json 2>/dev/null || true
+            exit 1
+          fi
+          # Counts only: the body carries ids, and this repo's CI logs are public.
+          jq '{attempted, refreshed, flagged, failed, skipped, retried, passed_over, completed}' /tmp/refresh.json
+          {
+            echo "### Active athlete capture refresh"
+            echo
+            jq -r '"attempted \(.attempted) · refreshed \(.refreshed) · flagged \(.flagged) · failed \(.failed) · skipped \(.skipped) · passed over \(.passed_over) · completed \(.completed)"' /tmp/refresh.json
+          } >> "${GITHUB_STEP_SUMMARY}"
