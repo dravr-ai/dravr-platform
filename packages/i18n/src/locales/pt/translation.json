@@ -217,7 +217,7 @@
     "chooseHowYouSignIn": "Escolhe como inicias sessão em",
     "chooseVerificationMethod": "Escolhe um método de verificação",
     "chooseVerificationMethodShort": "Escolhe um método de verificação",
-    "claimVerdictSummary": "{{count}} veredictos sobre afirmações — o pior: {{status}}, {{strength}}",
+    "claimVerdictSummary": "{{count}} vereditos sobre afirmações — no geral: {{status}}, {{strength}}",
     "claimVerdictsLabel": "Veredictos sobre as afirmações:",
     "claimVerdictsStatus": "Veredictos sobre as afirmações: {{status}}",
     "clientId": "ID de cliente",
@@ -801,7 +801,8 @@
     "providerAccountConnected": "A tua conta {{provider}} foi ligada ao Dravr com sucesso.",
     "providerReadyToSync": "Tudo pronto para sincronizar {{provider}}",
     "oauthAppSetupIntro": "{{provider}} exige que cada utilizador registe a sua própria aplicação de programador. Cria uma em <portal>{{host}}</portal> e usa o URI de redirecionamento indicado abaixo.",
-    "connectedOn": "Ligado em {{date}}"
+    "connectedOn": "Ligado em {{date}}",
+    "claimVerdictSummaryStatusOnly": "{{count}} vereditos sobre afirmações — no geral: {{status}}"
   },
   "auth": {
     "activatesOnConfirm": "A tua conta fica ativa assim que o endereço for confirmado",
@@ -1151,6 +1152,16 @@
     "verdictStatusSupported": "sustentada",
     "verdictStatusUnsupported": "sem suporte",
     "verdictStatusUnverifiable": "não verificável",
+    "verdictCountContradictedOne": "{{count}} contradita",
+    "verdictCountContradictedN": "{{count}} contraditas",
+    "verdictCountUnsupportedOne": "{{count}} sem suporte",
+    "verdictCountUnsupportedN": "{{count}} sem suporte",
+    "verdictCountSupportedOne": "{{count}} sustentada",
+    "verdictCountSupportedN": "{{count}} sustentadas",
+    "verdictCountUnverifiableOne": "{{count}} não verificável",
+    "verdictCountUnverifiableN": "{{count}} não verificáveis",
+    "verdictCountRhetoricalOne": "{{count}} retórica",
+    "verdictCountRhetoricalN": "{{count}} retóricas",
     "verdictsCount": "{{count}} vereditos",
     "verdictsLoading": "A carregar os vereditos…",
     "verdictsTitle": "Vereditos sobre esta resposta",
@@ -1170,6 +1181,8 @@
     "verdictCategoryOther": "outra",
     "roomCorrectionOwn": "Correção do teu treinador humano",
     "roomCorrectionTo": "Correção do treinador humano para {{name}}",
+    "roomCorrectionOwnNamed": "Correção de {{coach}}, o teu treinador humano",
+    "roomCorrectionToNamed": "Correção de {{coach}} para {{name}}",
     "roomCorrectionOf": "Sobre: {{excerpt}}",
     "turn": {
       "step": {
@@ -1221,7 +1234,8 @@
       "stepDone": "Concluído",
       "stepsLabel": "Passos da resposta",
       "tabTitle": "({{count}}) {{title}}"
-    }
+    },
+    "verdictsNone": "Nenhum veredito"
   },
   "coachReview": {
     "allAthletes": "Todos os atletas",
@@ -1254,7 +1268,12 @@
     "unmatchedFigures": "Números que a verificação não conseguiu associar às atividades de {{name}}: {{count}}",
     "unnamedAthlete": "Um atleta",
     "verdicts": "O que a verificação encontrou",
+    "weekCorrectedN": "{{count}} corrigidas",
+    "weekCorrectedOne": "{{count}} corrigida",
     "weekCount": "Esta semana: {{flags}} assinaladas · {{corrections}} corrigidas",
+    "weekFlaggedN": "{{count}} assinaladas",
+    "weekFlaggedOne": "{{count}} assinalada",
+    "weekSummary": "Esta semana: {{flagged}} · {{corrected}}",
     "withheld": "Esta resposta não pode ser mostrada aqui."
   },
   "commands": {
@@ -2090,7 +2109,10 @@
     "avgVolumeIn": "Vol. médio ({{unit}})",
     "approvesSignupLabel": "Também aprova novas contas",
     "approvesSignupHint": "Quem se registar com este código salta a análise e entra neste grupo. Até 50 utilizações, durante 30 dias no máximo.",
-    "signupCodeBadge": "Código de registo"
+    "signupCodeBadge": "Código de registo",
+    "sortBy": "Ordenar por",
+    "sortAscending": "Crescente",
+    "sortDescending": "Decrescente"
   },
   "home": {
     "plan": {
@@ -2729,6 +2751,7 @@
     "blurbAchievement": "Recordes pessoais, sequências e marcos.",
     "blurbAgent": "As mensagens que o teu agente te envia, incluindo os seguimentos dos teus compromissos.",
     "blurbAi": "As análises que o teu agente traz por iniciativa própria entre conversas.",
+    "blurbCoach": "As mensagens do teu agente e do teu treinador humano: os seguimentos dos teus compromissos e os planos publicados para ti.",
     "blurbRecovery": "Alertas de sono, HRV e prontidão dos teus dispositivos ligados.",
     "blurbReminders": "Tudo aquilo que pediste para te lembrarmos.",
     "blurbSystem": "Avisos sobre a conta, as ligações e o serviço.",
@@ -2737,6 +2760,7 @@
     "catAgent": "Agente",
     "catAi": "Análises de IA",
     "catAll": "Todas",
+    "catCoach": "Coaching",
     "catRecovery": "Recuperação",
     "catReminders": "Lembretes",
     "catSystem": "Sistema",
@@ -2761,6 +2785,8 @@
       "reply": "Responder"
     },
     "channel_body": "🔔 {0}\n\n{1}",
+    "collapsedSimilarN": "+{{count}} semelhantes",
+    "collapsedSimilarOne": "+{{count}} semelhante",
     "daysAgo": "há {{count}} d",
     "digest": {
       "athlete": {
@@ -3508,6 +3534,9 @@
     "notificationDelete": "Eliminar a notificação",
     "notificationMarkAllRead": "Marcar tudo como lido",
     "notificationsCaughtUp": "Estás em dia",
+    "notificationsUnreadOne": "{{count}} por ler",
+    "notificationsUnreadN": "{{count}} por ler",
+    "notificationsTotal": "{{count}} no total",
     "notificationsEmpty": "Sem notificações",
     "notificationsEmptyCategory": "Sem notificações em {{category}}",
     "oauthCloseTabHint": "Podes fechar este separador e voltar à tua conversa.",

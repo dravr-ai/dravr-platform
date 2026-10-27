@@ -217,7 +217,7 @@
     "chooseHowYouSignIn": "Choose how you sign in to",
     "chooseVerificationMethod": "Choose a verification method",
     "chooseVerificationMethodShort": "Choose verification method",
-    "claimVerdictSummary": "{{count}} claim verdicts — worst: {{status}}, {{strength}}",
+    "claimVerdictSummary": "{{count}} claim verdicts — overall: {{status}}, {{strength}}",
     "claimVerdictsLabel": "Claim verdicts:",
     "claimVerdictsStatus": "Claim verdicts: {{status}}",
     "clientId": "Client ID",
@@ -801,7 +801,8 @@
     "providerAccountConnected": "Your {{provider}} account has been successfully connected to Dravr.",
     "providerReadyToSync": "{{provider}} is ready to sync",
     "oauthAppSetupIntro": "{{provider}} requires each user to register their own developer app. Create one at <portal>{{host}}</portal> and use the redirect URI shown below.",
-    "connectedOn": "Connected {{date}}"
+    "connectedOn": "Connected {{date}}",
+    "claimVerdictSummaryStatusOnly": "{{count}} claim verdicts — overall: {{status}}"
   },
   "auth": {
     "activatesOnConfirm": "Your account activates as soon as the address is confirmed",
@@ -1151,6 +1152,16 @@
     "verdictStatusSupported": "supported",
     "verdictStatusUnsupported": "unsupported",
     "verdictStatusUnverifiable": "unverifiable",
+    "verdictCountContradictedOne": "{{count}} contradicted",
+    "verdictCountContradictedN": "{{count}} contradicted",
+    "verdictCountUnsupportedOne": "{{count}} unsupported",
+    "verdictCountUnsupportedN": "{{count}} unsupported",
+    "verdictCountSupportedOne": "{{count}} supported",
+    "verdictCountSupportedN": "{{count}} supported",
+    "verdictCountUnverifiableOne": "{{count}} unverifiable",
+    "verdictCountUnverifiableN": "{{count}} unverifiable",
+    "verdictCountRhetoricalOne": "{{count}} rhetorical",
+    "verdictCountRhetoricalN": "{{count}} rhetorical",
     "verdictsCount": "{{count}} verdicts",
     "verdictsLoading": "Loading verdicts…",
     "verdictsTitle": "Verdicts on this reply",
@@ -1170,6 +1181,8 @@
     "verdictCategoryOther": "other",
     "roomCorrectionOwn": "Your human coach's correction",
     "roomCorrectionTo": "Human coach's correction for {{name}}",
+    "roomCorrectionOwnNamed": "Correction from {{coach}}, your human coach",
+    "roomCorrectionToNamed": "Correction from {{coach}} for {{name}}",
     "roomCorrectionOf": "On: {{excerpt}}",
     "turn": {
       "step": {
@@ -1221,7 +1234,8 @@
       "stepDone": "Done",
       "stepsLabel": "Reply steps",
       "tabTitle": "({{count}}) {{title}}"
-    }
+    },
+    "verdictsNone": "No verdicts"
   },
   "coachReview": {
     "allAthletes": "All athletes",
@@ -1254,7 +1268,12 @@
     "unmatchedFigures": "Figures the checker couldn't match to {{name}}'s activities: {{count}}",
     "unnamedAthlete": "An athlete",
     "verdicts": "What the checker found",
+    "weekCorrectedN": "{{count}} corrected",
+    "weekCorrectedOne": "{{count}} corrected",
     "weekCount": "This week: {{flags}} flagged · {{corrections}} corrected",
+    "weekFlaggedN": "{{count}} flagged",
+    "weekFlaggedOne": "{{count}} flagged",
+    "weekSummary": "This week: {{flagged}} · {{corrected}}",
     "withheld": "This reply can't be shown here."
   },
   "commands": {
@@ -2090,7 +2109,10 @@
     "avgVolumeIn": "Avg Vol ({{unit}})",
     "approvesSignupLabel": "Also approves new accounts",
     "approvesSignupHint": "Whoever signs up with this code skips the review and joins this group. Up to 50 uses, for 30 days at most.",
-    "signupCodeBadge": "Signup code"
+    "signupCodeBadge": "Signup code",
+    "sortBy": "Sort by",
+    "sortAscending": "Ascending",
+    "sortDescending": "Descending"
   },
   "home": {
     "plan": {
@@ -2729,6 +2751,7 @@
     "blurbAchievement": "Personal bests, streaks and milestones.",
     "blurbAgent": "Messages your agent sends you, including commitment check-ins.",
     "blurbAi": "Proactive insights your agent surfaces between conversations.",
+    "blurbCoach": "Messages from your agent and your human coach: commitment check-ins, and the plans published for you.",
     "blurbRecovery": "Sleep, HRV and readiness alerts from your connected devices.",
     "blurbReminders": "Anything you asked to be reminded about.",
     "blurbSystem": "Account, connection and service notices.",
@@ -2737,6 +2760,7 @@
     "catAgent": "Agent",
     "catAi": "AI Insights",
     "catAll": "All",
+    "catCoach": "Coaching",
     "catRecovery": "Recovery",
     "catReminders": "Reminders",
     "catSystem": "System",
@@ -2761,6 +2785,8 @@
       "reply": "Reply"
     },
     "channel_body": "🔔 {0}\n\n{1}",
+    "collapsedSimilarN": "+{{count}} similar",
+    "collapsedSimilarOne": "+{{count}} similar",
     "daysAgo": "{{count}}d ago",
     "digest": {
       "athlete": {
@@ -3508,6 +3534,9 @@
     "notificationDelete": "Delete notification",
     "notificationMarkAllRead": "Mark all read",
     "notificationsCaughtUp": "All caught up",
+    "notificationsUnreadOne": "{{count}} unread",
+    "notificationsUnreadN": "{{count}} unread",
+    "notificationsTotal": "{{count}} total",
     "notificationsEmpty": "No notifications",
     "notificationsEmptyCategory": "No {{category}} notifications",
     "oauthCloseTabHint": "You can close this tab and return to your conversation.",

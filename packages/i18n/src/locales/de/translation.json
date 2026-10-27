@@ -217,7 +217,7 @@
     "chooseHowYouSignIn": "Wähle, wie du dich anmeldest bei",
     "chooseVerificationMethod": "Wähle eine Bestätigungsmethode",
     "chooseVerificationMethodShort": "Bestätigungsmethode wählen",
-    "claimVerdictSummary": "{{count}} Urteile zu Aussagen — schlechtestes: {{status}}, {{strength}}",
+    "claimVerdictSummary": "{{count}} Urteile zu Aussagen — insgesamt: {{status}}, {{strength}}",
     "claimVerdictsLabel": "Urteile zu den Aussagen:",
     "claimVerdictsStatus": "Urteile zu den Aussagen: {{status}}",
     "clientId": "Client-ID",
@@ -801,7 +801,8 @@
     "providerAccountConnected": "Dein {{provider}}-Konto wurde erfolgreich mit Dravr verbunden.",
     "providerReadyToSync": "{{provider}} ist bereit zur Synchronisierung",
     "oauthAppSetupIntro": "{{provider}} verlangt, dass jede Person ihre eigene Entwickler-App registriert. Erstelle eine unter <portal>{{host}}</portal> und verwende die unten angezeigte Redirect-URI.",
-    "connectedOn": "Verbunden am {{date}}"
+    "connectedOn": "Verbunden am {{date}}",
+    "claimVerdictSummaryStatusOnly": "{{count}} Urteile zu Aussagen — insgesamt: {{status}}"
   },
   "auth": {
     "activatesOnConfirm": "Dein Konto wird aktiv, sobald die Adresse bestätigt ist",
@@ -1151,6 +1152,16 @@
     "verdictStatusSupported": "gestützt",
     "verdictStatusUnsupported": "ungestützt",
     "verdictStatusUnverifiable": "nicht überprüfbar",
+    "verdictCountContradictedOne": "{{count}} widerlegt",
+    "verdictCountContradictedN": "{{count}} widerlegt",
+    "verdictCountUnsupportedOne": "{{count}} ungestützt",
+    "verdictCountUnsupportedN": "{{count}} ungestützt",
+    "verdictCountSupportedOne": "{{count}} gestützt",
+    "verdictCountSupportedN": "{{count}} gestützt",
+    "verdictCountUnverifiableOne": "{{count}} nicht überprüfbar",
+    "verdictCountUnverifiableN": "{{count}} nicht überprüfbar",
+    "verdictCountRhetoricalOne": "{{count}} rhetorisch",
+    "verdictCountRhetoricalN": "{{count}} rhetorisch",
     "verdictsCount": "{{count}} Urteile",
     "verdictsLoading": "Urteile werden geladen…",
     "verdictsTitle": "Urteile zu dieser Antwort",
@@ -1170,6 +1181,8 @@
     "verdictCategoryOther": "Sonstiges",
     "roomCorrectionOwn": "Korrektur deines menschlichen Coaches",
     "roomCorrectionTo": "Korrektur des menschlichen Coaches für {{name}}",
+    "roomCorrectionOwnNamed": "Korrektur von {{coach}}, deinem menschlichen Coach",
+    "roomCorrectionToNamed": "Korrektur von {{coach}} für {{name}}",
     "roomCorrectionOf": "Zu: {{excerpt}}",
     "turn": {
       "step": {
@@ -1221,7 +1234,8 @@
       "stepDone": "Erledigt",
       "stepsLabel": "Schritte der Antwort",
       "tabTitle": "({{count}}) {{title}}"
-    }
+    },
+    "verdictsNone": "Keine Urteile"
   },
   "coachReview": {
     "allAthletes": "Alle Athleten",
@@ -1254,7 +1268,12 @@
     "unmatchedFigures": "Zahlen, die die Prüfung keiner Aktivität von {{name}} zuordnen konnte: {{count}}",
     "unnamedAthlete": "Ein Athlet",
     "verdicts": "Was die Prüfung ergab",
+    "weekCorrectedN": "{{count}} korrigiert",
+    "weekCorrectedOne": "{{count}} korrigiert",
     "weekCount": "Diese Woche: {{flags}} markiert · {{corrections}} korrigiert",
+    "weekFlaggedN": "{{count}} markiert",
+    "weekFlaggedOne": "{{count}} markiert",
+    "weekSummary": "Diese Woche: {{flagged}} · {{corrected}}",
     "withheld": "Diese Antwort kann hier nicht angezeigt werden."
   },
   "commands": {
@@ -2090,7 +2109,10 @@
     "avgVolumeIn": "Ø Vol. ({{unit}})",
     "approvesSignupLabel": "Genehmigt auch neue Konten",
     "approvesSignupHint": "Wer sich mit diesem Code anmeldet, überspringt die Prüfung und tritt dieser Gruppe bei. Bis zu 50 Nutzungen, höchstens 30 Tage lang.",
-    "signupCodeBadge": "Anmeldecode"
+    "signupCodeBadge": "Anmeldecode",
+    "sortBy": "Sortieren nach",
+    "sortAscending": "Aufsteigend",
+    "sortDescending": "Absteigend"
   },
   "home": {
     "plan": {
@@ -2729,6 +2751,7 @@
     "blurbAchievement": "Persönliche Bestleistungen, Serien und Meilensteine.",
     "blurbAgent": "Nachrichten, die dein Agent dir schickt, einschließlich Nachfragen zu deinen Vorsätzen.",
     "blurbAi": "Erkenntnisse, die dein Agent zwischen den Unterhaltungen von sich aus liefert.",
+    "blurbCoach": "Nachrichten von deinem Agenten und deinem menschlichen Coach: Nachfragen zu deinen Vorsätzen und die für dich veröffentlichten Pläne.",
     "blurbRecovery": "Hinweise zu Schlaf, HRV und Bereitschaft von deinen verbundenen Geräten.",
     "blurbReminders": "Alles, woran du dich erinnern lassen wolltest.",
     "blurbSystem": "Hinweise zu Konto, Verbindungen und Dienst.",
@@ -2737,6 +2760,7 @@
     "catAgent": "Agent",
     "catAi": "KI-Analysen",
     "catAll": "Alle",
+    "catCoach": "Coaching",
     "catRecovery": "Erholung",
     "catReminders": "Erinnerungen",
     "catSystem": "System",
@@ -2761,6 +2785,8 @@
       "reply": "Antworten"
     },
     "channel_body": "🔔 {0}\n\n{1}",
+    "collapsedSimilarN": "+{{count}} ähnliche",
+    "collapsedSimilarOne": "+{{count}} ähnliche",
     "daysAgo": "vor {{count}} T.",
     "digest": {
       "athlete": {
@@ -3508,6 +3534,9 @@
     "notificationDelete": "Benachrichtigung löschen",
     "notificationMarkAllRead": "Alle als gelesen markieren",
     "notificationsCaughtUp": "Alles gelesen",
+    "notificationsUnreadOne": "{{count}} ungelesen",
+    "notificationsUnreadN": "{{count}} ungelesen",
+    "notificationsTotal": "{{count}} insgesamt",
     "notificationsEmpty": "Keine Benachrichtigungen",
     "notificationsEmptyCategory": "Keine Benachrichtigungen in {{category}}",
     "oauthCloseTabHint": "Du kannst diesen Tab schließen und zu deiner Unterhaltung zurückkehren.",
