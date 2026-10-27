@@ -3215,7 +3215,7 @@
     "startChatting": "Start chatting",
     "starting": "Starting…",
     "strava": "Strava",
-    "stravaSciotte": "Strava — Sciotte",
+    "stravaSciotte": "Strava (using usr/pwd from Dravr)",
     "switchProvider": "Switch Provider",
     "syncFailed": "Sync failed",
     "syncNow": "Sync now",
