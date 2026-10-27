@@ -47,9 +47,7 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::plan_goal_fact::{
     converge_goal_fact, fact_belongs_to_user, retire_superseded_goal_facts,
 };
-use pierre_services::training_plan_render::{
-    plan_goal_is_stale, select_active_weeks, ACTIVE_WEEKS,
-};
+use pierre_services::training_plan_render::{self, plan_goal_is_stale, ACTIVE_WEEKS};
 use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
@@ -93,7 +91,7 @@ use pierre_tools_core::ToolResult;
 /// and return how many it dropped.
 fn window_to_active_weeks(weeks: &mut Vec<PlanWeek>, today: NaiveDate) -> usize {
     let before = weeks.len();
-    let keep: Vec<String> = select_active_weeks(weeks, today, ACTIVE_WEEKS)
+    let keep: Vec<String> = training_plan_render::select_active_weeks(weeks, today, ACTIVE_WEEKS)
         .weeks
         .iter()
         .map(|selected| selected.week.id.clone())
@@ -1137,7 +1135,7 @@ mod tests {
         let omitted = window_to_active_weeks(&mut weeks, today);
 
         let kept: Vec<&str> = weeks.iter().map(|w| w.id.as_str()).collect();
-        assert_eq!(kept, ["current", "next"]);
+        assert_eq!(kept, ["current", "next"], "only the fortnight stays");
         assert_eq!(omitted, 3, "the week already over and the two later ones");
     }
 
@@ -1146,7 +1144,11 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2026, 11, 4).unwrap();
         let mut weeks = vec![week("current", "2026-11-02"), week("next", "2026-11-09")];
 
-        assert_eq!(window_to_active_weeks(&mut weeks, today), 0);
-        assert_eq!(weeks.len(), 2);
+        assert_eq!(
+            window_to_active_weeks(&mut weeks, today),
+            0,
+            "a plan inside the fortnight has nothing to omit"
+        );
+        assert_eq!(weeks.len(), 2, "no week of a short plan is dropped");
     }
 }

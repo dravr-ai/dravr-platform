@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 use tracing::info;
 
 use crate::guardian::StepOutput;
-use crate::prompt_projection::project_plan_tool_payload;
+use crate::prompt_projection;
 use crate::reconnect::offer_in_payload;
 use crate::reply_budget::REPLY_BUDGET_KEY;
 
@@ -56,7 +56,7 @@ pub fn render_tool_payload_for_prompt(tool_name: &str, response: &Value) -> Stri
 #[must_use]
 pub fn project_tool_payload(tool_name: &str, response: &Value) -> Option<Value> {
     project_activities_payload(tool_name, response)
-        .or_else(|| project_plan_tool_payload(tool_name, response))
+        .or_else(|| prompt_projection::project_plan_tool_payload(tool_name, response))
 }
 
 /// The `get_activities` envelope fields that survive projection verbatim.

@@ -102,9 +102,12 @@ fn peer_activities_keep_what_a_comparison_and_the_verifier_read() {
         ],
         "a field added to the peer row must be a decision, not a drift"
     );
-    assert_eq!(projected["member"], "Alex");
-    assert_eq!(projected["group"], "Tuesday Crew");
-    assert_eq!(projected["count"], 3);
+    assert_eq!(projected["member"], "Alex", "member is cited, never cut");
+    assert_eq!(
+        projected["group"], "Tuesday Crew",
+        "group is cited, never cut"
+    );
+    assert_eq!(projected["count"], 3, "count stays the tool's own figure");
     assert!(
         projected.get("omitted").is_none(),
         "nothing was cut, nothing to mark"
@@ -128,7 +131,8 @@ fn peer_activities_drop_null_fields_instead_of_sending_them() {
 
     assert_eq!(
         keys(&projected["activities"][0]),
-        ["duration_seconds", "id", "name", "sport", "start_date"]
+        ["duration_seconds", "id", "name", "sport", "start_date"],
+        "a null field must be dropped, not sent as null"
     );
 }
 
@@ -139,9 +143,14 @@ fn peer_activities_say_when_rows_were_left_out() {
 
     assert_eq!(
         projected["activities"].as_array().unwrap().len(),
-        PEER_ACTIVITY_ROWS
+        PEER_ACTIVITY_ROWS,
+        "the row cap is the projection's, not the fixture's"
     );
-    assert_eq!(projected["omitted"], 100 - PEER_ACTIVITY_ROWS);
+    assert_eq!(
+        projected["omitted"],
+        100 - PEER_ACTIVITY_ROWS,
+        "omitted counts exactly the rows cut"
+    );
     let note = projected["note"].as_str().unwrap();
     assert!(
         note.contains("not the full list") && note.contains("not evidence"),
@@ -230,7 +239,10 @@ fn training_plan_fortnight_fits_its_budget() {
         cut <= TRAINING_PLAN_MAX_BYTES,
         "projected training plan weighs {cut} B, budget {TRAINING_PLAN_MAX_BYTES} B (was {full} B)"
     );
-    assert!(cut < full);
+    assert!(
+        cut < full,
+        "the projection removed nothing: {full} B -> {cut} B"
+    );
 }
 
 #[test]
@@ -256,11 +268,21 @@ fn training_plan_drops_the_repeated_owner_keys_and_keeps_what_edits_chain_on() {
         assert!(week.get(noise).is_none(), "week still carries {noise}");
     }
     // What a save_training_plan edit and a calendar push key on.
-    assert_eq!(projected["plan"]["id"], "plan-1");
-    assert_eq!(week["id"], "week-0");
-    assert_eq!(week["week_start"], "2026-11-02");
-    assert_eq!(week["days"].as_array().unwrap().len(), 7);
-    assert_eq!(week["days"][1]["template_slug"], "sweet-spot-over-unders");
+    assert_eq!(
+        projected["plan"]["id"], "plan-1",
+        "the outline id is chained on"
+    );
+    assert_eq!(week["id"], "week-0", "the week id is chained on");
+    assert_eq!(week["week_start"], "2026-11-02", "week_start is chained on");
+    assert_eq!(
+        week["days"].as_array().unwrap().len(),
+        7,
+        "every day of a kept week stays"
+    );
+    assert_eq!(
+        week["days"][1]["template_slug"], "sweet-spot-over-unders",
+        "a day's template slug is cited"
+    );
     assert_eq!(
         week["days"][1]["steps"].as_array().unwrap().len(),
         6,
@@ -280,10 +302,13 @@ fn training_plan_keeps_an_adjustment_reason_that_says_something() {
     let projected = project_tool_payload("get_training_plan", &response).unwrap();
 
     assert_eq!(
-        projected["weeks"][0]["adjustment_reason"],
-        "legs heavy, moved tempo to Wednesday"
+        projected["weeks"][0]["adjustment_reason"], "legs heavy, moved tempo to Wednesday",
+        "a reason that says something is not noise"
     );
-    assert_eq!(projected["weeks"][0]["supersedes_id"], "week-0-v1");
+    assert_eq!(
+        projected["weeks"][0]["supersedes_id"], "week-0-v1",
+        "a set supersedes_id is not noise"
+    );
 }
 
 #[test]
@@ -294,8 +319,14 @@ fn training_plan_with_no_plan_still_reads_as_no_plan() {
     });
     let projected = project_tool_payload("get_training_plan", &response).unwrap();
 
-    assert!(projected["plan"].is_null());
-    assert_eq!(projected["message"], "no active training plan — build one");
+    assert!(
+        projected["plan"].is_null(),
+        "a null plan must not be dropped or replaced"
+    );
+    assert_eq!(
+        projected["message"], "no active training plan — build one",
+        "the no-plan message reaches the model"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -377,9 +408,12 @@ fn workout_templates_keep_the_picking_fields_and_drop_the_raw_params() {
     ] {
         assert!(row.get(kept).is_some(), "summary row lost {kept}");
     }
-    assert_eq!(row["slug"], "threshold-0");
-    assert_eq!(projected["count"], 3);
-    assert!(projected.get("omitted").is_none());
+    assert_eq!(row["slug"], "threshold-0", "the first row stays first");
+    assert_eq!(projected["count"], 3, "count stays the tool's own figure");
+    assert!(
+        projected.get("omitted").is_none(),
+        "nothing was cut, nothing to mark"
+    );
 }
 
 #[test]
@@ -388,10 +422,18 @@ fn workout_templates_say_when_rows_were_left_out() {
 
     assert_eq!(
         projected["templates"].as_array().unwrap().len(),
-        TEMPLATE_ROWS
+        TEMPLATE_ROWS,
+        "the row cap is the projection's, not the fixture's"
     );
-    assert_eq!(projected["omitted"], 80 - TEMPLATE_ROWS);
-    assert!(projected["note"].as_str().unwrap().contains("`purpose`"));
+    assert_eq!(
+        projected["omitted"],
+        80 - TEMPLATE_ROWS,
+        "omitted counts exactly the rows cut"
+    );
+    assert!(
+        projected["note"].as_str().unwrap().contains("`purpose`"),
+        "the note names the filter that reaches the rest"
+    );
 }
 
 #[test]
@@ -429,9 +471,15 @@ fn an_unrecognised_shape_travels_whole() {
             project_tool_payload(tool, &error_shape).is_none(),
             "{tool}: an error envelope must reach the model intact"
         );
-        assert!(project_tool_payload(tool, &json!("text")).is_none());
+        assert!(
+            project_tool_payload(tool, &json!("text")).is_none(),
+            "{tool}: a non-object payload must travel whole"
+        );
     }
-    assert!(project_tool_payload("get_athlete", &peer_activities(3)).is_none());
+    assert!(
+        project_tool_payload("get_athlete", &peer_activities(3)).is_none(),
+        "a tool with no projection must travel whole"
+    );
 }
 
 #[test]
@@ -461,7 +509,11 @@ fn the_text_loop_and_the_api_loop_render_the_same_projection() {
         response,
     }]);
 
-    assert!(api.len() <= WORKOUT_TEMPLATES_MAX_BYTES);
+    assert!(
+        api.len() <= WORKOUT_TEMPLATES_MAX_BYTES,
+        "the API loop render weighs {} B, budget {WORKOUT_TEMPLATES_MAX_BYTES} B",
+        api.len()
+    );
     assert!(
         !text.contains("\"params\""),
         "the text loop must project through the same seam as the API loop"
