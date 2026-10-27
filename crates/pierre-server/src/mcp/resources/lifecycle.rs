@@ -997,6 +997,9 @@ impl ServerContext {
         tools
             .function_declarations
             .retain(|decl| !TurnSeat::Coach.withholds(registry, &decl.name));
+        // LIMITATION(registre#1208): `coach_seat` sizes `TurnSeat::Coach`
+        // (a group's room) only; `TurnSeat::AthleteThread` is sized per turn
+        // by the dispatch line, never here.
         let coach_seat = measure_catalogue(&tools);
         info!(
             event_type = "tool_catalogue_size",
