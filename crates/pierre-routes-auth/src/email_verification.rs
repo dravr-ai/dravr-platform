@@ -252,14 +252,22 @@ pub(crate) enum ConfirmOutcome {
 /// token. Only the holder of the matching verifier learns any of this, so the
 /// endpoint still reveals nothing about addresses to anyone else.
 ///
+/// Counted in the client address's sign-up window, as the resend is, so one
+/// address cannot press through tokens faster than a person would.
+///
 /// # Errors
 ///
-/// Returns `AppError` when the database cannot be read or written; every
-/// state a link can be in is a 200 carrying its [`ConfirmOutcome`].
+/// Returns `AppError` for a request past its address's window and when the
+/// database cannot be read or written; every state a link can be in is a 200
+/// carrying its [`ConfirmOutcome`].
 pub(crate) async fn handle_confirm_email(
     State(resources): State<AuthRoutesContext>,
+    peer: PeerAddress,
+    headers: HeaderMap,
     Json(request): Json<ConfirmEmailRequest>,
 ) -> Result<Response, AppError> {
+    let client = client_address(&resources.rate_limiter, peer, &headers);
+    meter_sign_up(&resources.rate_limiter, client).await?;
     let outcome = confirm(&resources, request.token.expose_secret()).await?;
     Ok((StatusCode::OK, Json(json!({ "status": outcome }))).into_response())
 }

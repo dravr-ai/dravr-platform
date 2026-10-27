@@ -213,8 +213,8 @@ pub enum OAuth2Endpoint {
     /// window (carnet#1088)
     PasswordLoginKnownDevice,
     /// A self-serve account sign-up (`POST /api/auth/register`, the messaging
-    /// link page's register form) or a verification-mail resend, metered per
-    /// client address
+    /// link page's register form), a verification-mail resend or a
+    /// confirmation press, metered per client address
     SignUp,
     /// An attempt to redeem a signup code, at registration or from the
     /// pending page, metered per client address (carnet#1128)

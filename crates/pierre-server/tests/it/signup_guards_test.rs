@@ -13,7 +13,8 @@
 //!    operator's own door (the admin register route) stays open;
 //! 2. the 24-hour ceiling refuses past the accounts it admits;
 //!    both refusals are a 429 reading the paused message;
-//! 3. one client address gets a window of sign-ups, and another address its own;
+//! 3. one client address gets a window of sign-ups, resends and confirmation
+//!    presses, and another address its own;
 //! 4. with Turnstile configured, a missing or refused token is refused and
 //!    an outage at Cloudflare is not;
 //! 5. with sign-up open to verified addresses, proving the address — by the
@@ -407,6 +408,28 @@ async fn verification_resends_count_in_the_same_window() {
     );
 }
 
+#[tokio::test]
+async fn confirmation_presses_count_in_the_same_window() {
+    let resources = context().await;
+    let client = Ipv4Addr::new(198, 51, 100, 31);
+    for _ in 0..SIGN_UP_RPM {
+        assert_eq!(
+            press_confirm_from(&resources, client, "unknown.verifier").await,
+            "invalid",
+            "an answer, within the window"
+        );
+    }
+    let response = AxumTestRequest::post("/api/auth/verify-email")
+        .json(&json!({ "token": "unknown.verifier" }))
+        .send(auth_routes_from(&resources, client))
+        .await;
+    assert_eq!(
+        response.status(),
+        429,
+        "one address cannot press through tokens faster than a person would"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 4. The bot check
 // ---------------------------------------------------------------------------
@@ -508,9 +531,14 @@ async fn mint_link(resources: &ServerContext, user_id: Uuid, ttl_minutes: i64) -
 
 /// Press the confirmation page's button for `token`, returning the outcome.
 async fn press_confirm(resources: &ServerContext, token: &str) -> String {
+    press_confirm_from(resources, Ipv4Addr::new(203, 0, 113, 7), token).await
+}
+
+/// Press the confirmation page's button for `token` from `client`.
+async fn press_confirm_from(resources: &ServerContext, client: Ipv4Addr, token: &str) -> String {
     let response = AxumTestRequest::post("/api/auth/verify-email")
         .json(&json!({ "token": token }))
-        .send(auth_routes(resources))
+        .send(auth_routes_from(resources, client))
         .await;
     assert_eq!(response.status(), 200, "{}", response.body_text());
     let body: Value = response.json();
@@ -791,10 +819,12 @@ async fn a_locked_out_link_answers_no_one_even_with_the_right_verifier() {
     let (selector, _) = token.split_once('.').unwrap();
     let forged = format!("{selector}.not-the-verifier");
 
-    // Spend every attempt the token allows on wrong guesses.
-    for _ in 0..5 {
+    // Spend every attempt the token allows on wrong guesses, each from its
+    // own address so no address window refuses one: the cap under test is
+    // the token's, and spreading guesses across addresses does not escape it.
+    for n in 0..5 {
         assert_eq!(
-            press_confirm(&resources, &forged).await,
+            press_confirm_from(&resources, Ipv4Addr::new(198, 51, 100, 40 + n), &forged).await,
             "invalid",
             "a wrong verifier is refused"
         );

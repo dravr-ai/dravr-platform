@@ -11,7 +11,7 @@
 //! two guards here belong to the doors a browser reaches:
 //!
 //! - a window per client address ([`OAuth2Endpoint::SignUp`]), shared by the
-//!   register form and the verification-mail resend;
+//!   register form, the verification-mail resend and the confirmation press;
 //! - the Turnstile bot check, on the register form only, when its keys are
 //!   configured.
 
@@ -125,7 +125,8 @@ pub(crate) fn client_address(
     peer.0.map(|ip| limiter.client_address(ip, headers))
 }
 
-/// Count one sign-up (or resend) from `client` in its address's window.
+/// Count one sign-up, resend or confirmation press from `client` in its
+/// address's window.
 ///
 /// A router served without `ConnectInfo` has no address to key a window on,
 /// and admits the request; the deployed server always has one.
