@@ -51,6 +51,8 @@ export type {
   LoginResponse,
   RegisterResponse,
   SignupConfig,
+  EmailConfirmationStatus,
+  EmailConfirmationResponse,
   FirebaseLoginResponse,
   SessionResponse,
   ExtendedProviderStatus,

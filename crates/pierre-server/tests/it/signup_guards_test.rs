@@ -19,7 +19,10 @@
 //! 5. with sign-up open to verified addresses, proving the address — by the
 //!    link, or before a later sign-in — is what activates the account, and an
 //!    unproven one never activates;
-//! 6. the admin settings route reads and writes all three knobs.
+//! 6. the confirmation link is claimed only by the page's button, so a
+//!    scanner following it spends nothing, a second press answers as the
+//!    first, and an expired link re-sends from itself;
+//! 7. the admin settings route reads and writes all three knobs.
 
 use crate::common;
 use crate::helpers;
@@ -484,24 +487,41 @@ async fn self_activating() -> ServerContext {
     resources
 }
 
-/// Follow a confirmation link minted for `user_id`, as the mailed one is.
-async fn follow_confirmation_link(resources: &ServerContext, user_id: Uuid) -> String {
+/// Store a confirmation link for `user_id` valid for `ttl_minutes` (negative
+/// for one already expired), returning the token it mails.
+async fn mint_link(resources: &ServerContext, user_id: Uuid, ttl_minutes: i64) -> String {
     let generated = generate_link_token();
     resources
         .common
         .repos
         .email_verification
-        .store_token(user_id, &generated.selector, &generated.verifier_hash, 60)
+        .store_token(
+            user_id,
+            &generated.selector,
+            &generated.verifier_hash,
+            ttl_minutes,
+        )
         .await
         .unwrap();
-    let response =
-        AxumTestRequest::get(&format!("/api/auth/verify-email?token={}", generated.token))
-            .send(auth_routes(resources))
-            .await;
-    response
-        .header("location")
-        .expect("verify-email redirects")
-        .to_owned()
+    generated.token
+}
+
+/// Press the confirmation page's button for `token`, returning the outcome.
+async fn press_confirm(resources: &ServerContext, token: &str) -> String {
+    let response = AxumTestRequest::post("/api/auth/verify-email")
+        .json(&json!({ "token": token }))
+        .send(auth_routes(resources))
+        .await;
+    assert_eq!(response.status(), 200, "{}", response.body_text());
+    let body: Value = response.json();
+    body["status"].as_str().unwrap().to_owned()
+}
+
+/// Follow a confirmation link minted for `user_id` the whole way, as a person
+/// does: the link opens the page, the page's button confirms.
+async fn follow_confirmation_link(resources: &ServerContext, user_id: Uuid) -> String {
+    let token = mint_link(resources, user_id, 60).await;
+    press_confirm(resources, &token).await
 }
 
 #[tokio::test]
@@ -528,9 +548,11 @@ async fn following_the_confirmation_link_activates_the_account() {
     let (_, body) = register(auth_routes(&resources), "proven@example.com", None).await;
     let user_id = Uuid::parse_str(body["user_id"].as_str().unwrap()).unwrap();
 
-    let location = follow_confirmation_link(&resources, user_id).await;
-    assert!(location.contains("status=verified"), "{location}");
-    assert!(!location.contains("verified_pending"), "{location}");
+    assert_eq!(
+        follow_confirmation_link(&resources, user_id).await,
+        "verified",
+        "a proven address on a self-activating sign-up is ready to sign in"
+    );
     assert_eq!(
         status_of(&resources, "proven@example.com").await,
         UserStatus::Active
@@ -543,8 +565,11 @@ async fn without_self_activation_a_proven_address_still_waits_for_review() {
     let (_, body) = register(auth_routes(&resources), "reviewed@example.com", None).await;
     let user_id = Uuid::parse_str(body["user_id"].as_str().unwrap()).unwrap();
 
-    let location = follow_confirmation_link(&resources, user_id).await;
-    assert!(location.contains("verified_pending"), "{location}");
+    assert_eq!(
+        follow_confirmation_link(&resources, user_id).await,
+        "verified_pending",
+        "a proven address still waits for a human when sign-up does not self-activate"
+    );
     assert_eq!(
         status_of(&resources, "reviewed@example.com").await,
         UserStatus::Pending
@@ -618,7 +643,203 @@ async fn an_unproven_address_never_activates_at_sign_in() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. The admin settings route
+// 6. The confirmation link itself
+// ---------------------------------------------------------------------------
+
+/// Verification links minted for `user_id` in the last hour.
+async fn links_minted(resources: &ServerContext, user_id: Uuid) -> i64 {
+    resources
+        .common
+        .repos
+        .email_verification
+        .count_recent_tokens(user_id, chrono::Utc::now() - chrono::Duration::hours(1))
+        .await
+        .unwrap()
+}
+
+async fn registered(resources: &ServerContext, email: &str) -> Uuid {
+    let (_, body) = register(auth_routes(resources), email, None).await;
+    Uuid::parse_str(body["user_id"].as_str().unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn following_the_link_opens_the_page_and_spends_nothing() {
+    let resources = self_activating().await;
+    let user_id = registered(&resources, "scanned@example.com").await;
+    let token = mint_link(&resources, user_id, 60).await;
+
+    // What a mail scanner does: GET the link, every time it sees it.
+    for _ in 0..3 {
+        let response = AxumTestRequest::get(&format!("/api/auth/verify-email?token={token}"))
+            .send(auth_routes(&resources))
+            .await;
+        let location = response.header("location").expect("forwards to the page");
+        assert!(
+            location.ends_with(&format!("/verify-email#token={token}")),
+            "the token rides in the fragment, never a query string: {location}"
+        );
+    }
+    assert_eq!(
+        status_of(&resources, "scanned@example.com").await,
+        UserStatus::Pending,
+        "a GET proves nothing"
+    );
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "verified",
+        "the person's own press still finds the link unspent"
+    );
+}
+
+#[tokio::test]
+async fn a_second_press_answers_as_the_first_did() {
+    let resources = self_activating().await;
+    let user_id = registered(&resources, "twice@example.com").await;
+    let token = mint_link(&resources, user_id, 60).await;
+
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "verified",
+        "the first press proves the address"
+    );
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "verified",
+        "a spent link on a proven address is not an expired link"
+    );
+}
+
+#[tokio::test]
+async fn a_spent_link_on_a_pending_account_still_says_it_waits_for_review() {
+    let resources = context().await;
+    let user_id = registered(&resources, "twice-pending@example.com").await;
+    let token = mint_link(&resources, user_id, 60).await;
+
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "verified_pending",
+        "the first press proves the address of an account still in review"
+    );
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "verified_pending",
+        "a second press on a pending account is not told the link expired"
+    );
+}
+
+#[tokio::test]
+async fn an_expired_link_resends_from_the_link_without_the_address() {
+    let resources = self_activating().await;
+    let user_id = registered(&resources, "expired@example.com").await;
+    let token = mint_link(&resources, user_id, -1).await;
+
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "expired",
+        "a genuine link past its lifetime on an unproven address is expired, not invalid"
+    );
+
+    let before = links_minted(&resources, user_id).await;
+    let response = AxumTestRequest::post("/api/auth/resend-verification")
+        .json(&json!({ "token": token }))
+        .send(auth_routes(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a resend by link answers with the neutral message"
+    );
+    assert_eq!(
+        links_minted(&resources, user_id).await,
+        before + 1,
+        "the link names its owner, so a fresh one is issued to them"
+    );
+}
+
+#[tokio::test]
+async fn a_wrong_verifier_learns_nothing_and_mails_nothing() {
+    let resources = self_activating().await;
+    let user_id = registered(&resources, "guessed@example.com").await;
+    let token = mint_link(&resources, user_id, -1).await;
+    let (selector, _) = token.split_once('.').unwrap();
+    let forged = format!("{selector}.not-the-verifier");
+
+    assert_eq!(
+        press_confirm(&resources, &forged).await,
+        "invalid",
+        "a selector with the wrong verifier reveals nothing about the account"
+    );
+
+    let before = links_minted(&resources, user_id).await;
+    let response = AxumTestRequest::post("/api/auth/resend-verification")
+        .json(&json!({ "token": forged }))
+        .send(auth_routes(&resources))
+        .await;
+    assert_eq!(response.status(), 200, "the same neutral answer");
+    assert_eq!(
+        links_minted(&resources, user_id).await,
+        before,
+        "a selector alone cannot send mail"
+    );
+}
+
+#[tokio::test]
+async fn a_locked_out_link_answers_no_one_even_with_the_right_verifier() {
+    let resources = self_activating().await;
+    let user_id = registered(&resources, "locked@example.com").await;
+    let token = mint_link(&resources, user_id, 60).await;
+    let (selector, _) = token.split_once('.').unwrap();
+    let forged = format!("{selector}.not-the-verifier");
+
+    // Spend every attempt the token allows on wrong guesses.
+    for _ in 0..5 {
+        assert_eq!(
+            press_confirm(&resources, &forged).await,
+            "invalid",
+            "a wrong verifier is refused"
+        );
+    }
+    assert_eq!(
+        press_confirm(&resources, &token).await,
+        "invalid",
+        "past the attempt cap the real verifier no longer confirms, nor learns the link is expired"
+    );
+
+    let before = links_minted(&resources, user_id).await;
+    let response = AxumTestRequest::post("/api/auth/resend-verification")
+        .json(&json!({ "token": token }))
+        .send(auth_routes(&resources))
+        .await;
+    assert_eq!(response.status(), 200, "the same neutral answer");
+    assert_eq!(
+        links_minted(&resources, user_id).await,
+        before,
+        "a locked-out link cannot be used to mail a fresh one"
+    );
+    assert_eq!(
+        status_of(&resources, "locked@example.com").await,
+        UserStatus::Pending,
+        "a locked-out link proves nothing"
+    );
+}
+
+#[tokio::test]
+async fn a_resend_names_the_account_one_way_only() {
+    let resources = context().await;
+    for body in [
+        json!({}),
+        json!({ "email": "a@example.com", "token": "s.v" }),
+    ] {
+        let response = AxumTestRequest::post("/api/auth/resend-verification")
+            .json(&body)
+            .send(auth_routes(&resources))
+            .await;
+        assert_eq!(response.status(), 400, "{body}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. The admin settings route
 // ---------------------------------------------------------------------------
 
 fn admin_api(resources: &Arc<ServerContext>, human_check_configured: bool) -> Router {

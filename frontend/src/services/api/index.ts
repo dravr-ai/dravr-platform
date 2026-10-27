@@ -54,6 +54,8 @@ export { adminApi } from './admin';
 export { coachAccessAdminApi } from './coachAccessAdmin';
 // Accepting a mailed invitation: its link opens the web app only.
 export { invitationsApi } from './invitations';
+// Confirming an address from its mailed link, which opens the web app only.
+export { emailConfirmationApi } from './emailConfirmation';
 export { coachRepliesApi } from './coachReplies';
 export { adminUsageApi } from './usage';
 export { messagingApi } from './messaging';

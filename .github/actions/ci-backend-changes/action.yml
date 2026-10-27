@@ -49,7 +49,7 @@ runs:
             - 'packages/i18n/**'                          # messaging_strings.rs include_str!, the locale tests
             - 'packages/shared-constants/**'              # activity-sports.json (activity_sports.rs)
             - 'packages/mcp-types/**'                     # mcp_type_generation_multitenant_test.rs
-            - 'frontend/src/utils/invitationLink.ts'      # invitation.rs
+            - 'frontend/src/utils/tokenLink.ts'           # invitation.rs, email_verification.rs
             - 'sdk/**'                                    # pierre-server/build.rs builds it; tests/common.rs runs it
             - 'infra/environments/dev/*.tf'               # llm_test, oauth_launch_reaper_test, claim_verification_judge_error_test, key_material_alert_test
             - 'commands/**'                               # the command catalogue the server loads

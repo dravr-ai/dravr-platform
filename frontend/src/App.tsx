@@ -7,9 +7,9 @@ import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
-import VerifyEmail, { parseVerifyStatus, type VerifyEmailStatus } from './components/VerifyEmail';
+import VerifyEmail from './components/VerifyEmail';
 import AcceptInvitation from './components/AcceptInvitation';
-import { ACCEPT_INVITATION_PATH, parseInvitationToken } from './utils/invitationLink';
+import { ACCEPT_INVITATION_PATH, VERIFY_EMAIL_PATH, parseLinkToken } from './utils/tokenLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -58,10 +58,10 @@ function getOAuthCallbackParams(): {
 }
 
 /**
- * Whether the current URL is the email-confirmation landing: /verify-email
+ * Whether the current URL is a mailed address-confirmation link: /verify-email#token=…
  */
 function isVerifyEmailPath(): boolean {
-  return window.location.pathname === '/verify-email';
+  return window.location.pathname === VERIFY_EMAIL_PATH;
 }
 
 /**
@@ -110,13 +110,15 @@ function AppContent() {
   const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<ReturnType<typeof getOAuthCallbackParams>>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
-  const [verifyEmailStatus, setVerifyEmailStatus] = useState<VerifyEmailStatus | null>(() =>
-    isVerifyEmailPath() ? parseVerifyStatus(window.location.search) : null,
+  // The confirmation token, read once from the link's fragment. `undefined`
+  // when this page load is not a confirmation link.
+  const [verifyEmailToken, setVerifyEmailToken] = useState<string | null | undefined>(() =>
+    isVerifyEmailPath() ? parseLinkToken(window.location.hash) : undefined,
   );
   // The invitation token, read once from the link's fragment. `undefined`
   // when this page load is not an invitation link.
   const [invitationToken, setInvitationToken] = useState<string | null | undefined>(() =>
-    isAcceptInvitationPath() ? parseInvitationToken(window.location.hash) : undefined,
+    isAcceptInvitationPath() ? parseLinkToken(window.location.hash) : undefined,
   );
   const localQueryClient = useQueryClient();
 
@@ -205,11 +207,11 @@ function AppContent() {
     }
   }, [isLoading, isAuthenticated]);
 
-  // The invitation token is a single-use credential: once read into state, it
-  // leaves the address bar and the history entry, so a reload or a shared
-  // screenshot of the URL cannot carry it anywhere.
+  // The invitation and confirmation tokens are single-use credentials: once
+  // read into state, they leave the address bar and the history entry, so a
+  // reload or a shared screenshot of the URL cannot carry them anywhere.
   useEffect(() => {
-    if (isAcceptInvitationPath()) {
+    if (isAcceptInvitationPath() || isVerifyEmailPath()) {
       window.history.replaceState({}, document.title, '/');
     }
   }, []);
@@ -247,13 +249,13 @@ function AppContent() {
   // arrives here from their mail client, usually signed out and often on a
   // different device from the one they registered on, so gating it behind the
   // login form would strand them on the step that was meant to unblock them.
-  if (verifyEmailStatus) {
+  if (verifyEmailToken !== undefined) {
     return (
       <VerifyEmail
-        status={verifyEmailStatus}
+        token={verifyEmailToken}
         onContinue={() => {
           window.history.replaceState({}, document.title, '/');
-          setVerifyEmailStatus(null);
+          setVerifyEmailToken(undefined);
         }}
       />
     );

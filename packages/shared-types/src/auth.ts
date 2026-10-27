@@ -253,6 +253,22 @@ export interface SignupConfig {
   turnstile_site_key: string | null;
 }
 
+/**
+ * What pressing the confirmation page's button came to, from
+ * `POST /api/auth/verify-email`.
+ *
+ * `verified` and `verified_pending` are also the answer for a link already
+ * used on a proven address, so a second press reads like the first.
+ * `expired` is a genuine link on an unproven address: the page re-sends from
+ * the same token. `invalid` is a link this server never issued.
+ */
+export type EmailConfirmationStatus = 'verified' | 'verified_pending' | 'expired' | 'invalid';
+
+/** Response from `POST /api/auth/verify-email`. */
+export interface EmailConfirmationResponse {
+  status: EmailConfirmationStatus;
+}
+
 /** Response from Firebase login */
 export interface FirebaseLoginResponse {
   csrf_token: string;

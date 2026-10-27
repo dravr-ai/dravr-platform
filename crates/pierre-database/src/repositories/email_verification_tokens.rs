@@ -43,6 +43,13 @@ pub(crate) const VERIFICATION_LINK_TOKEN: LinkTokenTable = LinkTokenTable {
     max_attempts: LINK_TOKEN_MAX_ATTEMPTS,
 };
 
+/// The token behind selector `$1`, used or expired or not, with its owner and
+/// stored hash — unless it reached the attempt cap `$2`: a locked-out token
+/// answers no one, so the lockout cannot be routed around through this read.
+pub(crate) const VERIFICATION_TOKEN_OWNER_SQL: &str =
+    "SELECT user_id, token_hash FROM email_verification_tokens \
+     WHERE selector = $1 AND attempt_count < $2";
+
 /// Tokens issued for a user since a moment, used or not, for rate limiting.
 pub(crate) const COUNT_RECENT_VERIFICATION_TOKENS_SQL: &str = r"
             SELECT COUNT(*) AS cnt
@@ -114,6 +121,32 @@ macro_rules! impl_email_verification_repository {
                     verifier_hash
                 )?;
                 $ids::read(&row, "user_id")
+            }
+
+            async fn token_owner(
+                &self,
+                selector: &str,
+                verifier_hash: &str,
+            ) -> AppResult<Option<Uuid>> {
+                let Some(row) = sqlx::query(VERIFICATION_TOKEN_OWNER_SQL)
+                    .bind(selector)
+                    .bind(VERIFICATION_LINK_TOKEN.max_attempts)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| VERIFICATION_LINK_TOKEN.database_error("look up", &e))?
+                else {
+                    return Ok(None);
+                };
+                let stored_hash: String = row
+                    .try_get("token_hash")
+                    .map_err(|e| VERIFICATION_LINK_TOKEN.database_error("read the hash of", &e))?;
+                if VERIFICATION_LINK_TOKEN
+                    .check_verifier(&stored_hash, verifier_hash)
+                    .is_err()
+                {
+                    return Ok(None);
+                }
+                $ids::read(&row, "user_id").map(Some)
             }
 
             async fn count_recent_tokens(

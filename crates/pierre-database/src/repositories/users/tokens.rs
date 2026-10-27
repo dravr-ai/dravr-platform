@@ -74,6 +74,15 @@ pub trait EmailVerificationRepository: Send + Sync {
     /// verifier costs one attempt without consuming the token; past the attempt
     /// cap the token self-invalidates (brute-force lockout).
     async fn consume_token(&self, selector: &str, verifier_hash: &str) -> AppResult<Uuid>;
+    /// The user a token was issued to — live, used or expired — when
+    /// `verifier_hash` matches its stored hash; `None` for an unknown selector,
+    /// a wrong verifier, or a token locked out at its attempt cap.
+    ///
+    /// Spends no attempt and claims nothing: it answers "whose link is this"
+    /// for the person holding the whole token, so a link that no longer
+    /// verifies can still say the address is already proven, or send a fresh
+    /// one to its owner without asking them to type the address again.
+    async fn token_owner(&self, selector: &str, verifier_hash: &str) -> AppResult<Option<Uuid>>;
     /// Count tokens issued for a user since `since`, for rate limiting.
     async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
     /// Stamp `users.email_verified_at`. Idempotent — a second call leaves the

@@ -1,4 +1,4 @@
-// ABOUTME: Email-verification endpoints — issue a link, consume it, re-send it
+// ABOUTME: Email-verification endpoints — issue a link, confirm it on a button press, re-send it
 // ABOUTME: Split from login.rs: proving an address is its own concern, not part of signing in
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,14 +6,24 @@
 
 //! Confirming that a registered address belongs to the person who typed it.
 //!
-//! Three surfaces, all anti-enumeration by construction:
+//! Four surfaces, all anti-enumeration by construction:
 //!
-//! - [`issue_verification_email`] — mints a single-use token and mails it.
-//!   Best-effort: registration has already succeeded by the time it runs.
-//! - [`handle_verify_email`] — consumes the token from the mailed link, stamps
-//!   the address as proven, and applies the approval decision.
-//! - [`handle_resend_verification`] — re-issues a link, answering identically
-//!   whether or not the address exists.
+//! - [`issue_verification_email`] — mints a single-use token and mails a link
+//!   to the web app's confirmation page. Best-effort: registration has already
+//!   succeeded by the time it runs.
+//! - [`handle_verify_email_link`] — a GET on the API's verify URL (the shape
+//!   links had before the page did): forwards to the page and claims nothing.
+//! - [`handle_confirm_email`] — the page's button: claims the token, stamps the
+//!   address as proven, and applies the approval decision.
+//! - [`handle_resend_verification`] — re-issues a link for an address, or for
+//!   a link that no longer verifies, answering identically whether or not the
+//!   account exists.
+//!
+//! Claiming only on a POST is the point. Mail security scanners (Outlook Safe
+//! Links, corporate gateways) and prefetching clients GET every link in a
+//! message; when the GET claimed the token, the person's own click found it
+//! spent and was told the link had expired, on an address that was in fact
+//! proven.
 //!
 //! These lived in `login.rs` until that file crossed the size ratchet. The
 //! split is not bookkeeping: verifying an address is a distinct lifecycle step
@@ -30,8 +40,8 @@ use tracing::{error, info, warn};
 
 use crate::signup_guards::{client_address, meter_sign_up};
 use crate::AuthRoutesContext;
-use pierre_core::errors::AppError;
-use pierre_core::models::UserStatus;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::{User, UserStatus};
 use pierre_middleware::PeerAddress;
 use pierre_services::email_verification::resolve_settings;
 use pierre_services::link_token::{generate_link_token, split_link_token};
@@ -137,9 +147,10 @@ async fn within_send_budget(
 
 /// Mint and persist a single-use token, returning the link to mail.
 ///
-/// The link points at the API, not the SPA: the token is consumed server-side
-/// and the browser is then redirected to the frontend with a result code, so a
-/// single-use token never sits in the SPA's history or a referrer header.
+/// The link opens the web app's confirmation page with the token in the
+/// fragment: a fragment never reaches a server log or a referrer header, and
+/// the page claims the token only when the person presses its button. A mail
+/// scanner that follows every link therefore cannot spend it first.
 ///
 /// `None` means the token could not be stored, so no link may be sent — mailing
 /// one that will never verify is worse than mailing nothing.
@@ -164,101 +175,112 @@ async fn mint_verification_url(
         return None;
     }
 
-    Some(format!(
-        "{}/api/auth/verify-email?token={}",
-        resources.config.base_url,
-        urlencoding::encode(&generated.token)
-    ))
+    Some(confirmation_page_url(resources, &generated.token))
 }
 
-/// Query string for `GET /api/auth/verify-email`.
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct VerifyEmailQuery {
-    /// The `<selector>.<verifier>` token from the emailed link.
-    pub token: Option<SecretString>,
-}
-
-/// Where to send the browser after a verification attempt.
-///
-/// Always a redirect, never JSON: this URL is opened by a human clicking a link
-/// in their mail client, so the response has to be a page they can read.
-fn verification_redirect(resources: &AuthRoutesContext, status: &str) -> Response {
+/// The web app's confirmation page, carrying `token` in its fragment.
+fn confirmation_page_url(resources: &AuthRoutesContext, token: &str) -> String {
     let base = resources
         .config
         .frontend_url
         .as_deref()
         .unwrap_or(&resources.config.base_url);
-    let location = format!("{base}/verify-email?status={status}");
-    Redirect::to(&location).into_response()
+    format!(
+        "{base}{VERIFY_EMAIL_PAGE}#token={}",
+        urlencoding::encode(token)
+    )
 }
 
-/// Split the `<selector>.<verifier>` token and claim it, returning the user it
-/// proves.
-///
-/// Every rejection reason collapses to `None` deliberately: a missing token, a
-/// malformed one, an expired one and a wrong verifier are all answered with the
-/// same redirect, so the endpoint never tells a caller which of those it was.
-async fn claim_token(resources: &AuthRoutesContext, token: Option<&str>) -> Option<uuid::Uuid> {
-    let token = token.filter(|t| !t.is_empty())?;
-    let (selector, verifier_hash) = split_link_token(token)?;
+/// The web app's page a confirmation link opens.
+const VERIFY_EMAIL_PAGE: &str = "/verify-email";
 
-    match resources
-        .repos
-        .email_verification
-        .consume_token(&selector, &verifier_hash)
-        .await
-    {
-        Ok(id) => Some(id),
-        Err(e) => {
-            // The caller is answered the same either way; only the log knows
-            // whether the token was bad or the lookup failed.
-            if e.is_server_fault() {
-                error!(error = %e, "verification token could not be checked");
-            } else {
-                info!(error = %e, "verification token rejected");
-            }
-            None
-        }
-    }
+/// Query string for `GET /api/auth/verify-email`.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct VerifyEmailQuery {
+    /// The `<selector>.<verifier>` token from the link.
+    pub token: Option<SecretString>,
 }
 
 /// `GET /api/auth/verify-email?token=...`
 ///
-/// Consumes the emailed token, stamps the address as proven, and applies the
-/// approval decision — which promotes the account to Active when auto-approval
-/// says so, and otherwise leaves it Pending but verified.
-///
-/// # Errors
-///
-/// Never returns `Err`: every outcome is a redirect carrying a status the SPA
-/// renders, because the caller is a mail client following a link and cannot do
-/// anything useful with a JSON error body.
-pub(crate) async fn handle_verify_email(
+/// Sends the browser on to the confirmation page with the token moved into the
+/// fragment, and claims nothing. A GET is what every link scanner, preview
+/// fetcher and prefetching mail client issues on its own, so it must never
+/// spend a single-use credential; only the page's button does that, through
+/// [`handle_confirm_email`].
+pub(crate) async fn handle_verify_email_link(
     State(resources): State<AuthRoutesContext>,
     Query(query): Query<VerifyEmailQuery>,
 ) -> Response {
-    let Some(user_id) = claim_token(
-        &resources,
-        query.token.as_ref().map(ExposeSecret::expose_secret),
-    )
-    .await
-    else {
-        return verification_redirect(&resources, "invalid");
-    };
+    let token = query.token.as_ref().map_or("", ExposeSecret::expose_secret);
+    Redirect::to(&confirmation_page_url(&resources, token)).into_response()
+}
 
-    let first_proof = match resources
-        .repos
-        .email_verification
-        .mark_verified(user_id)
-        .await
-    {
-        Ok(first_proof) => first_proof,
+/// Body of `POST /api/auth/verify-email`.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ConfirmEmailRequest {
+    /// The `<selector>.<verifier>` token from the link.
+    pub token: SecretString,
+}
+
+/// What a confirmation attempt came to, as the page renders it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ConfirmOutcome {
+    /// The address is proven and the account is active: go and sign in
+    Verified,
+    /// The address is proven but a human still has to approve the account
+    VerifiedPending,
+    /// The link is genuine but no longer verifies and the address is still
+    /// unproven: the page offers a fresh link for this same token
+    Expired,
+    /// Not a link this server issued, or a wrong verifier
+    Invalid,
+}
+
+/// `POST /api/auth/verify-email` with `{ "token": … }`
+///
+/// Claims the token, stamps the address as proven, and applies the approval
+/// decision — which promotes the account to Active when auto-approval says so,
+/// and otherwise leaves it Pending but verified.
+///
+/// A token that no longer verifies is not the end of it. When the caller holds
+/// the whole token of a link this server issued, the answer is about that
+/// account: a second press, or a link a scanner already followed, finds the
+/// address proven and answers exactly as the first press did; an expired link
+/// on an unproven address answers `expired`, and the page re-sends from the
+/// token. Only the holder of the matching verifier learns any of this, so the
+/// endpoint still reveals nothing about addresses to anyone else.
+///
+/// # Errors
+///
+/// Returns `AppError` when the database cannot be read or written; every
+/// state a link can be in is a 200 carrying its [`ConfirmOutcome`].
+pub(crate) async fn handle_confirm_email(
+    State(resources): State<AuthRoutesContext>,
+    Json(request): Json<ConfirmEmailRequest>,
+) -> Result<Response, AppError> {
+    let outcome = confirm(&resources, request.token.expose_secret()).await?;
+    Ok((StatusCode::OK, Json(json!({ "status": outcome }))).into_response())
+}
+
+/// The confirmation itself, apart from its HTTP shape.
+async fn confirm(resources: &AuthRoutesContext, token: &str) -> Result<ConfirmOutcome, AppError> {
+    let Some((selector, verifier_hash)) = split_link_token(token) else {
+        return Ok(ConfirmOutcome::Invalid);
+    };
+    let repo = &resources.repos.email_verification;
+
+    let user_id = match repo.consume_token(&selector, &verifier_hash).await {
+        Ok(user_id) => user_id,
+        Err(e) if e.is_server_fault() => return Err(e),
         Err(e) => {
-            error!(error = %e, user_id = %user_id, "failed to stamp email as verified");
-            return verification_redirect(&resources, "error");
+            info!(error = %e, "verification token refused; checking whose link it is");
+            return spent_link_outcome(resources, &selector, &verifier_hash).await;
         }
     };
 
+    let first_proof = repo.mark_verified(user_id).await?;
     let status = match resources
         .account_service()
         .apply_approval_after_verification(user_id, first_proof)
@@ -280,28 +302,62 @@ pub(crate) async fn handle_verify_email(
     // cross-repo change plus a rev bump before the platform can emit it.
     // The fact itself is durable in `users.email_verified_at`, so nothing is
     // lost by adding the event when contremaitre is next touched.
-    // Two different destinations because they are two different situations: an
-    // active account should go and sign in, a pending one is still waiting on a
-    // human and needs to be told that rather than bounced at a login form.
-    let outcome = if status == UserStatus::Active {
-        "verified"
-    } else {
-        "verified_pending"
-    };
-    verification_redirect(&resources, outcome)
+    Ok(proven(status))
 }
 
-/// Request body for `POST /api/auth/resend-verification`.
+/// The outcome for a token `consume_token` refused: used, expired, locked out,
+/// or never issued.
+async fn spent_link_outcome(
+    resources: &AuthRoutesContext,
+    selector: &str,
+    verifier_hash: &str,
+) -> Result<ConfirmOutcome, AppError> {
+    let repo = &resources.repos.email_verification;
+    let Some(user_id) = repo.token_owner(selector, verifier_hash).await? else {
+        info!("verification token rejected");
+        return Ok(ConfirmOutcome::Invalid);
+    };
+    if !repo.is_verified(user_id).await? {
+        info!(user_id = %user_id, "verification link no longer valid; address unproven");
+        return Ok(ConfirmOutcome::Expired);
+    }
+    let status = resources
+        .repos
+        .users
+        .get_global(user_id)
+        .await?
+        .map_or(UserStatus::Pending, |user| user.user_status);
+    Ok(proven(status))
+}
+
+/// Where a proven address sends its owner. Two destinations because they are
+/// two situations: an active account should go and sign in, a pending one is
+/// still waiting on a human and needs to be told that rather than bounced at a
+/// login form.
+fn proven(status: UserStatus) -> ConfirmOutcome {
+    if status == UserStatus::Active {
+        ConfirmOutcome::Verified
+    } else {
+        ConfirmOutcome::VerifiedPending
+    }
+}
+
+/// Request body for `POST /api/auth/resend-verification`: exactly one of the
+/// two ways to name the account.
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct ResendVerificationRequest {
-    /// Address to re-send the confirmation link to.
-    pub email: String,
+    /// Address to re-send the confirmation link to — the waiting screen of a
+    /// signed-in account, which knows it.
+    pub email: Option<String>,
+    /// A link this server issued that no longer verifies — the confirmation
+    /// page, which holds it and must not ask the person to type their address.
+    pub token: Option<SecretString>,
 }
 
 /// `POST /api/auth/resend-verification`
 ///
 /// Re-issues a confirmation link. Always answers with the same message whether
-/// or not the address exists, is already verified, or has tripped its hourly
+/// or not the account exists, is already verified, or has tripped its hourly
 /// cap — the response must not let a caller probe which addresses are registered.
 ///
 /// Counted in the client address's sign-up window (carnet#1063), so one
@@ -309,9 +365,10 @@ pub(crate) struct ResendVerificationRequest {
 ///
 /// # Errors
 ///
-/// Returns `AppError` for a malformed email and for a request past its
-/// address's window; every account-state outcome is a 200 with the neutral
-/// message.
+/// Returns `AppError` for a request past its address's window, and for a
+/// body that names the account by neither or both of `email` and `token`, or
+/// by a malformed email; every account-state outcome is a 200 with the
+/// neutral message.
 pub(crate) async fn handle_resend_verification(
     State(resources): State<AuthRoutesContext>,
     peer: PeerAddress,
@@ -325,13 +382,37 @@ pub(crate) async fn handle_resend_verification(
     let client = client_address(&resources.rate_limiter, peer, &headers);
     meter_sign_up(&resources.rate_limiter, client).await?;
 
-    if !request.email.contains('@') || request.email.len() < 5 {
-        return Err(AppError::invalid_input("Invalid email format"));
-    }
-
-    let Ok(Some(user)) = resources.repos.users.get_by_email(&request.email).await else {
-        info!("resend-verification for unknown address (anti-enumeration)");
-        return Ok((StatusCode::OK, Json(neutral)).into_response());
+    let user = match (request.email, request.token) {
+        (Some(email), None) => {
+            if !email.contains('@') || email.len() < 5 {
+                return Err(AppError::invalid_input("Invalid email format"));
+            }
+            resources.repos.users.get_by_email(&email).await
+        }
+        (None, Some(token)) => link_owner(&resources, token.expose_secret()).await,
+        (None, None) => {
+            return Err(AppError::invalid_input(
+                "Name the account by email or by link",
+            ))
+        }
+        (Some(_), Some(_)) => {
+            return Err(AppError::invalid_input(
+                "Name the account by email or by link, not both",
+            ))
+        }
+    };
+    let user = match user {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            info!("resend-verification for unknown account (anti-enumeration)");
+            return Ok((StatusCode::OK, Json(neutral)).into_response());
+        }
+        Err(e) => {
+            // The caller still gets the neutral answer; only the log knows the
+            // lookup failed rather than finding no account.
+            error!(error = %e, "resend-verification could not look up the account");
+            return Ok((StatusCode::OK, Json(neutral)).into_response());
+        }
     };
 
     // Already proven — silently do nothing rather than mail a pointless link.
@@ -348,10 +429,57 @@ pub(crate) async fn handle_resend_verification(
     issue_verification_email(
         &resources,
         user.id,
-        &request.email,
+        &user.email,
         user.display_name.as_deref(),
     )
     .await;
 
     Ok((StatusCode::OK, Json(neutral)).into_response())
+}
+
+/// The account a link was issued to, when the caller holds its whole token.
+async fn link_owner(resources: &AuthRoutesContext, token: &str) -> AppResult<Option<User>> {
+    let Some((selector, verifier_hash)) = split_link_token(token) else {
+        return Ok(None);
+    };
+    match resources
+        .repos
+        .email_verification
+        .token_owner(&selector, &verifier_hash)
+        .await?
+    {
+        Some(user_id) => resources.repos.users.get_global(user_id).await,
+        None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::VERIFY_EMAIL_PAGE;
+
+    /// The web app's side of the link, relative to this crate.
+    const WEB_TOKEN_LINK: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../frontend/src/utils/tokenLink.ts"
+    );
+
+    /// A parity check between two artefacts nothing at runtime joins: this
+    /// crate builds the confirmation link, the web app routes its path and
+    /// reads the `token` fragment key [`super::confirmation_page_url`] writes.
+    #[test]
+    fn the_web_app_routes_the_confirmation_path_and_reads_its_fragment() {
+        let web = fs::read_to_string(WEB_TOKEN_LINK).expect("the web app's link module");
+        assert!(
+            web.contains(&format!(
+                "export const VERIFY_EMAIL_PATH = '{VERIFY_EMAIL_PAGE}';"
+            )),
+            "the web app must route {VERIFY_EMAIL_PAGE}"
+        );
+        assert!(
+            web.contains(".get('token')"),
+            "the web app must read the `token` fragment key the link carries"
+        );
+    }
 }

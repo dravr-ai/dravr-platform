@@ -194,7 +194,7 @@ mod tests {
     /// The web app's side of the link, relative to this crate.
     const WEB_INVITATION_LINK: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../frontend/src/utils/invitationLink.ts"
+        "/../../frontend/src/utils/tokenLink.ts"
     );
 
     /// A parity check between two artefacts nothing at runtime joins: this

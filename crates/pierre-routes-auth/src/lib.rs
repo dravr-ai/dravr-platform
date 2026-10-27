@@ -299,11 +299,13 @@ impl AuthRoutes {
                 "/api/auth/signup-config",
                 get(signup_guards::handle_signup_config),
             )
-            // Opened by a mail client following a link, so it answers with a
-            // redirect to the SPA rather than JSON.
+            // GET is a link followed (by a person or a mail scanner) and only
+            // forwards to the confirmation page; POST is that page's button,
+            // the one request that claims the token.
             .route(
                 "/api/auth/verify-email",
-                get(email_verification::handle_verify_email),
+                get(email_verification::handle_verify_email_link)
+                    .post(email_verification::handle_confirm_email),
             )
             .route(
                 "/api/auth/resend-verification",

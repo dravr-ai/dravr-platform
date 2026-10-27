@@ -1,84 +1,88 @@
-// ABOUTME: Landing page for /verify-email — renders the outcome the API redirected here with
-// ABOUTME: Four outcomes, each with a different next action; never a dead end
+// ABOUTME: Landing page for /verify-email#token=… — confirms the address on a button press, never on load
+// ABOUTME: Every outcome has a next action, and an expired link re-sends from itself without asking for the address
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
-import { authApi } from '../services/api';
+import type { EmailConfirmationStatus } from '@pierre/shared-types';
+import { authApi, emailConfirmationApi } from '../services/api';
 import { Button, Card, Input } from './ui';
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
 
-/** The outcomes `GET /api/auth/verify-email` can redirect here with. */
-export type VerifyEmailStatus = 'verified' | 'verified_pending' | 'invalid' | 'error';
+/** Where the page is: waiting for the press, waiting for the server, or an outcome. */
+type Phase = 'confirm' | 'confirming' | EmailConfirmationStatus | 'error';
 
-/** Parse the `status` query parameter, defaulting to the failure case. */
-export function parseVerifyStatus(search: string): VerifyEmailStatus {
-  const value = new URLSearchParams(search).get('status');
-  if (
-    value === 'verified' ||
-    value === 'verified_pending' ||
-    value === 'invalid' ||
-    value === 'error'
-  ) {
-    return value;
-  }
-  // An unrecognised or missing status means we cannot claim success.
-  return 'error';
-}
+type ResendState = 'idle' | 'sending' | 'sent' | 'failed';
 
 /**
  * Terminal page of the email-confirmation round trip.
  *
- * The token is consumed server-side and the browser arrives here with only an
- * outcome, so a single-use credential never lands in SPA history or a referrer
- * header. Every outcome offers a way forward — an expired link is the single
- * most common failure in this flow, and it has to lead somewhere better than an
- * apology.
+ * The link carries its single-use token in the fragment, and nothing spends it
+ * until the person presses the button. Mail scanners open every link in a
+ * message, and some run the page's script: a confirmation fired on load would
+ * spend the token before its owner saw it, and their own click would then be
+ * told the link had expired.
+ *
+ * `token` is `null` when the link arrived without one.
  */
 export default function VerifyEmail({
-  status,
+  token,
   onContinue,
 }: {
-  status: VerifyEmailStatus;
+  token: string | null;
   onContinue: () => void;
 }) {
   const { t } = useTranslation();
+  const [phase, setPhase] = useState<Phase>(token ? 'confirm' : 'invalid');
   const [email, setEmail] = useState('');
-  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
+  const [resendState, setResendState] = useState<ResendState>('idle');
 
+  const handleConfirm = async () => {
+    if (!token || phase === 'confirming') return;
+    setPhase('confirming');
+    try {
+      const { status } = await emailConfirmationApi.confirmEmail(token);
+      setPhase(status);
+    } catch {
+      setPhase('error');
+    }
+  };
+
+  // An expired link names its own account, so it re-sends from the token; only
+  // a link the server never issued has to fall back to asking for the address.
   const handleResend = async () => {
-    if (!email.includes('@') || resendState === 'sending') return;
+    if (resendState === 'sending') return;
+    const request =
+      phase === 'expired' && token
+        ? () => emailConfirmationApi.resendForLink(token)
+        : email.includes('@')
+          ? () => authApi.resendVerification(email)
+          : null;
+    if (!request) return;
     setResendState('sending');
     try {
-      await authApi.resendVerification(email);
+      await request();
       setResendState('sent');
     } catch {
       setResendState('failed');
     }
   };
 
-  const copy = {
-    verified: {
-      heading: t('auth.emailConfirmed'),
-      body: t('auth.emailConfirmedBody'),
-    },
-    verified_pending: {
-      heading: t('auth.emailConfirmed'),
-      body: "Thanks — that's your part done. An administrator still needs to approve the account, and you'll get an email the moment they do.",
-    },
-    invalid: {
-      heading: t('auth.linkExpired'),
-      body: t('auth.linkExpiredBody'),
-    },
-    error: {
-      heading: t('frag.couldntConfirm'),
-      body: t('auth.verifyErrorBody'),
-    },
-  }[status];
+  const copy: Record<Phase, { heading: string; body: string }> = {
+    confirm: { heading: t('auth.confirmEmailHeading'), body: t('auth.confirmEmailBody') },
+    confirming: { heading: t('auth.confirmEmailHeading'), body: t('auth.confirmEmailBody') },
+    verified: { heading: t('auth.emailConfirmed'), body: t('auth.emailConfirmedBody') },
+    verified_pending: { heading: t('auth.emailConfirmed'), body: t('auth.emailConfirmedPendingBody') },
+    expired: { heading: t('auth.linkExpired'), body: t('auth.linkExpiredBody') },
+    invalid: { heading: t('auth.linkInvalid'), body: t('auth.linkInvalidBody') },
+    error: { heading: t('frag.couldntConfirm'), body: t('auth.verifyErrorBody') },
+  };
+  const { heading, body } = copy[phase];
 
-  const showResend = status === 'invalid' || status === 'error';
+  const awaitingPress = phase === 'confirm' || phase === 'confirming';
+  const confirmed = phase === 'verified' || phase === 'verified_pending';
 
   return (
     <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface pad-safe-top">
@@ -87,25 +91,52 @@ export default function VerifyEmail({
           <div className="px-8 py-10">
             <div className="flex flex-col items-center text-center">
               <DravrLogo size={64} />
-              <h1 className="mt-6 font-display text-2xl font-semibold text-on-surface">{copy.heading}</h1>
-              <p className="mt-3 text-sm text-on-surface-variant max-w-sm">{copy.body}</p>
+              <h1 className="mt-6 font-display text-2xl font-semibold text-on-surface">{heading}</h1>
+              <p className="mt-3 text-sm text-on-surface-variant max-w-sm">{body}</p>
             </div>
 
-            {showResend && (
+            {awaitingPress && (
+              <div className="mt-8">
+                <Button size="lg"
+                  variant="primary"
+                  onClick={() => void handleConfirm()}
+                  disabled={phase === 'confirming'}
+                  className="w-full"
+                >
+                  {phase === 'confirming' ? t('auth.confirmingEmail') : t('auth.confirmEmailButton')}
+                </Button>
+              </div>
+            )}
+
+            {phase === 'error' && (
+              <div className="mt-8">
+                <Button size="lg" variant="primary" onClick={() => void handleConfirm()} className="w-full">
+                  {t('common.tryAgain')}
+                </Button>
+              </div>
+            )}
+
+            {(phase === 'expired' || phase === 'invalid') && (
               <div className="mt-8 space-y-3">
-                <Input
-                  id="verify-resend-email"
-                  type="email"
-                  label={t('auth.emailAddressLabel')}
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+                {phase === 'invalid' && (
+                  <Input
+                    id="verify-resend-email"
+                    type="email"
+                    label={t('auth.emailAddressLabel')}
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                )}
                 <Button size="lg"
                   variant="primary"
                   onClick={() => void handleResend()}
-                  disabled={resendState === 'sending' || !email.includes('@')}
+                  disabled={
+                    resendState === 'sending' ||
+                    resendState === 'sent' ||
+                    (phase === 'invalid' && !email.includes('@'))
+                  }
                   className="w-full"
                 >
                   {resendState === 'sending' ? t('auth.resendSending') : t('auth.sendNewLink')}
@@ -123,11 +154,13 @@ export default function VerifyEmail({
               </div>
             )}
 
-            <div className="mt-8">
-              <Button size="lg" variant={showResend ? 'secondary' : 'primary'} onClick={onContinue} className="w-full">
-                {t('auth.continueToSignIn')}
-              </Button>
-            </div>
+            {!awaitingPress && (
+              <div className="mt-8">
+                <Button size="lg" variant={confirmed ? 'primary' : 'secondary'} onClick={onContinue} className="w-full">
+                  {t('auth.continueToSignIn')}
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       </div>
