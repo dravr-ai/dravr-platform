@@ -43,7 +43,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use embacle::types::ToolCallRequest;
+use embacle::types::{RunnerError, ToolCallRequest};
 use futures_util::stream;
 use pierre_chat_pipeline::stages::auth_recovery::{
     apply_auth_recovery, AuthRecovery, AuthRecoveryDeps,
@@ -64,12 +64,16 @@ use pierre_core::models::{
 };
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotHeadlessConfig,
-    CopilotHeadlessRunner, FunctionResponse, HeadlessToolResponse, LlmCapabilities, LlmProvider,
-    ObservedToolCall, StreamChunk, Tool,
+    CopilotHeadlessRunner, FunctionResponse, HeadlessStreamEvent, HeadlessToolResponse,
+    LlmCapabilities, LlmProvider, ObservedToolCall, StreamChunk, Tool,
 };
 use pierre_mcp_server::context::ServerContext;
 use pierre_middleware::provider_link_token::{verify_link_token, CONNECT_PROVIDER};
 use pierre_providers::ai_scope;
+use pierre_services::chat_stream::{
+    TurnEvent, TurnEventSink, TOOL_STATUS_COMPLETED, TOOL_STATUS_IN_PROGRESS,
+};
+use pierre_tool_runtime::headless_stream::forward_headless_stream;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -78,6 +82,7 @@ use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult};
 use pierre_tool_runtime::tool_results::render_tool_payload_for_prompt;
 use pierre_tool_runtime::tool_results::{extract_activity_list, reconnect_offer_in_responses};
 use serde_json::{json, Value};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::common::{
@@ -964,13 +969,22 @@ async fn finish_headless_turn(
         acp_turn_token,
         acp_reply(),
         Arc::new(ActivitiesThenAnswer::new()),
+        None,
     )
     .await
 }
 
+/// A turn whose reply streamed to `sink` in `deltas` before it ended.
+struct StreamedReply {
+    sink: TurnEventSink,
+    deltas: Vec<&'static str>,
+}
+
 /// [`finish_headless_turn`] for a given ACP `reply`, with `provider` as the
 /// chain the turn runs on — the one the text loop asks when the reply hands the
-/// turn to it.
+/// turn to it — and, with `streamed`, on a turn that streamed its text: the
+/// deltas cross the production forwarder first, which decides what reached
+/// the sink, and the assembly is handed what it would be in production.
 async fn finish_headless_turn_with(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -978,6 +992,7 @@ async fn finish_headless_turn_with(
     acp_turn_token: &str,
     reply: HeadlessToolResponse,
     provider: Arc<dyn LlmProvider>,
+    streamed: Option<StreamedReply>,
 ) -> ToolLoopResult {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let executor = Arc::new(
@@ -994,6 +1009,21 @@ async fn finish_headless_turn_with(
         function_declarations: Vec::new(),
     };
     let request = ChatRequest::new(Vec::new());
+    let (reply, stream_sink, prose_delivered) = match streamed {
+        Some(StreamedReply { sink, deltas }) => {
+            let events: Vec<Result<HeadlessStreamEvent, RunnerError>> = deltas
+                .into_iter()
+                .map(|delta| Ok(HeadlessStreamEvent::TextDelta(delta.to_owned())))
+                .chain([Ok(HeadlessStreamEvent::Done(reply))])
+                .collect();
+            let turn = forward_headless_stream(Box::pin(tokio_stream::iter(events)), "", &sink)
+                .await
+                .expect("the stream ends on its Done event");
+            (turn.response, Some(sink), turn.prose_delivered)
+        }
+        None => (reply, None, false),
+    };
+    let streamed_to = stream_sink.clone().filter(|_| prose_delivered);
     let user = user_id.to_string();
     let params = ToolLoopParams {
         provider: &provider,
@@ -1007,11 +1037,12 @@ async fn finish_headless_turn_with(
         call_recorder: None,
         tool_message_recorder: None,
         temperature: None,
-        stream_sink: None,
+        stream_sink,
         mcp_servers: Vec::new(),
     };
     finalize_headless_turn(
         reply,
+        streamed_to.as_ref(),
         &runner,
         &request,
         &params,
@@ -1096,8 +1127,10 @@ async fn a_headless_turn_handed_to_the_text_loop_keeps_its_loopback_offer() {
     let provider = Arc::new(AnswersFromResults {
         models: vec![HEADLESS_MODEL.to_owned()],
     });
-    let result =
-        finish_headless_turn_with(&resources, user_id, tenant, &acp_turn, reply, provider).await;
+    let result = finish_headless_turn_with(
+        &resources, user_id, tenant, &acp_turn, reply, provider, None,
+    )
+    .await;
 
     assert_eq!(
         result.content, AGENT_ANSWER,
@@ -1112,6 +1145,134 @@ async fn a_headless_turn_handed_to_the_text_loop_keeps_its_loopback_offer() {
         result.served_without_provider.as_deref(),
         Some("sciotte_garmin"),
         "the offer the loopback raised survives the hand-off"
+    );
+}
+
+/// The ACP reply that hands the turn to the text loop: one `<tool_call>`
+/// block, after the words `preamble` puts before it.
+fn tool_call_reply(preamble: &str) -> HeadlessToolResponse {
+    HeadlessToolResponse {
+        content: format!("{preamble}{CONNECTION_STATUS_BLOCK}"),
+        model: HEADLESS_MODEL.to_owned(),
+        tool_calls: Vec::new(),
+        usage: None,
+        finish_reason: Some("stop".to_owned()),
+    }
+}
+
+/// The block a reply asks for its connections with, as text.
+const CONNECTION_STATUS_BLOCK: &str =
+    "<tool_call>\n{\"name\": \"get_connection_status\", \"arguments\": {}}\n</tool_call>";
+
+/// Run `reply` as a turn that streamed `deltas`, handed to the text loop, and
+/// return the result with every event its sink received, in order.
+async fn stream_turn_handed_to_the_text_loop(
+    reply: HeadlessToolResponse,
+    deltas: Vec<&'static str>,
+) -> (ToolLoopResult, Vec<TurnEvent>) {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = athlete_with_a_dead_primary(&resources).await;
+    let acp_turn = Uuid::new_v4().to_string();
+    let provider = Arc::new(AnswersFromResults {
+        models: vec![HEADLESS_MODEL.to_owned()],
+    });
+    let (sink, mut events) = mpsc::unbounded_channel();
+    let result = finish_headless_turn_with(
+        &resources,
+        user_id,
+        tenant,
+        &acp_turn,
+        reply,
+        provider,
+        Some(StreamedReply { sink, deltas }),
+    )
+    .await;
+    let mut received = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        received.push(event);
+    }
+    (result, received)
+}
+
+/// The `(title, status)` of every tool step in `events`, in order.
+fn tool_steps(events: &[TurnEvent]) -> Vec<(&str, &str)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            TurnEvent::Progress(progress) => {
+                Some((progress.title.as_str(), progress.status.as_str()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A streamed Copilot reply handed to the text loop takes its words back
+/// before the text loop runs the block: the reply is the text loop's answer,
+/// and the words before the block would otherwise sit in the bubble while the
+/// block's tool step ran under them.
+#[tokio::test]
+async fn a_headless_turn_handed_to_the_text_loop_takes_back_its_streamed_words_first() {
+    let preamble = "Je regarde tes connexions. ";
+    let (result, received) = stream_turn_handed_to_the_text_loop(
+        tool_call_reply(preamble),
+        vec![preamble, CONNECTION_STATUS_BLOCK],
+    )
+    .await;
+
+    assert_eq!(
+        result.content, AGENT_ANSWER,
+        "the text loop answered the turn from the block's result"
+    );
+    assert!(
+        matches!(
+            received.as_slice(),
+            [TurnEvent::ProseDelta(words), TurnEvent::ProseRetract, ..] if words == preamble
+        ),
+        "the words before the block reach the bubble, and are taken back before anything else \
+         the turn sends: {received:?}"
+    );
+    let retractions = received
+        .iter()
+        .filter(|event| matches!(event, TurnEvent::ProseRetract))
+        .count();
+    assert_eq!(retractions, 1, "taken back once: {received:?}");
+    assert_eq!(
+        tool_steps(&received),
+        vec![
+            ("get_connection_status", TOOL_STATUS_IN_PROGRESS),
+            ("get_connection_status", TOOL_STATUS_COMPLETED),
+        ],
+        "the block's call is a step on the trail, after the retraction"
+    );
+}
+
+/// A streamed Copilot reply that wrote nothing but its `<tool_call>` block put
+/// nothing in the bubble — the block never crosses the sink — so handing it to
+/// the text loop takes nothing back: no retraction reaches the client.
+#[tokio::test]
+async fn a_headless_turn_that_streamed_only_its_block_sends_no_retraction() {
+    let (result, received) =
+        stream_turn_handed_to_the_text_loop(tool_call_reply(""), vec![CONNECTION_STATUS_BLOCK])
+            .await;
+
+    assert_eq!(
+        result.content, AGENT_ANSWER,
+        "the text loop answered the turn from the block's result"
+    );
+    assert!(
+        !received
+            .iter()
+            .any(|event| matches!(event, TurnEvent::ProseDelta(_) | TurnEvent::ProseRetract)),
+        "nothing reached the bubble, so nothing is taken back: {received:?}"
+    );
+    assert_eq!(
+        tool_steps(&received),
+        vec![
+            ("get_connection_status", TOOL_STATUS_IN_PROGRESS),
+            ("get_connection_status", TOOL_STATUS_COMPLETED),
+        ],
+        "the block's call is still a step on the trail"
     );
 }
 
@@ -1148,8 +1309,10 @@ async fn a_headless_turn_handed_to_the_text_loop_folds_no_activity_list() {
     let provider = Arc::new(AnswersFromResults {
         models: vec![HEADLESS_MODEL.to_owned()],
     });
-    let result =
-        finish_headless_turn_with(&resources, user_id, tenant, &acp_turn, reply, provider).await;
+    let result = finish_headless_turn_with(
+        &resources, user_id, tenant, &acp_turn, reply, provider, None,
+    )
+    .await;
 
     assert_eq!(result.content, AGENT_ANSWER);
     assert_eq!(

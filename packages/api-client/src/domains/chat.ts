@@ -6,6 +6,7 @@
 
 import { AxiosError, type AxiosInstance } from 'axios';
 import type {
+  AwaitingReply,
   ChatMessageAction,
   ClaimVerdict,
   CommandCatalogueResponse,
@@ -31,6 +32,7 @@ import {
 import type { PlatformAdapter } from '../types/platform';
 import { ENDPOINTS } from '../core/endpoints';
 import { requireShape } from '../core/shape';
+import { readBodyProgressively } from '../core/body-reader';
 import {
   parseTurnBody,
   TurnIdleAbortedError,
@@ -77,6 +79,13 @@ export interface MessagesResponse {
    * `before` set to the oldest message held.
    */
   has_more?: boolean;
+  /**
+   * The caller's question a turn is still answering, or `null`. Set only on
+   * the newest window: a client that reloaded mid-turn shows the reply as
+   * coming and re-reads the thread until it lands or this turns `null`.
+   * Optional because a cache entry the client wrote itself may not carry it.
+   */
+  awaiting_reply?: AwaitingReply | null;
 }
 
 /** Which window of a thread to read. */
@@ -526,7 +535,8 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
      *
      * The callbacks describe the turn as it unfolds: `onProgress` for tool
      * calls the pipeline observed, `onDelta` for assistant text arriving
-     * ahead of the reply (only the ACP provider branch produces any), then
+     * ahead of the reply (the Copilot ACP and Anthropic API heads produce
+     * it) and `onRetract` when that text turns out not to be the reply, then
      * exactly one terminal callback — `onBlock` for each renderable piece of
      * the finished reply followed by `onDone`, or `onError`. It resolves
      * rather than rejecting, because the callbacks already carry the outcome.
@@ -564,8 +574,9 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         // `onBlock` is dispatched by the body reader, not here: a streamed
         // turn fires each block as the server decides it, and a single-JSON
         // answer walks the envelope's list. One place, both shapes.
-        turn = await parseTurnBody(adapter.readBody(response), {
+        turn = await parseTurnBody(readBodyProgressively(response), {
           onDelta: options?.onDelta,
+          onRetract: options?.onRetract,
           onProgress: options?.onProgress,
           onBlock: options?.onBlock,
         });

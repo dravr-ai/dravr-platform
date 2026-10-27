@@ -54,7 +54,7 @@ async fn a_call_that_did_not_run_is_not_recorded_as_having_run() {
         },
     ];
 
-    let outcome = execute_function_calls(&executor, &calls, &user_id.to_string(), tenant_id)
+    let outcome = execute_function_calls(&executor, &calls, &user_id.to_string(), tenant_id, None)
         .await
         .expect("dispatch returns an outcome even when a tool fails");
 

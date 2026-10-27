@@ -197,3 +197,18 @@ export interface TurnProgress {
    */
   status: string;
 }
+
+/**
+ * The caller's question a turn is still answering, as the newest window of a
+ * thread's messages reports it. Mirrors `AwaitingReply` in
+ * `crates/pierre-server/src/routes/chat/dto.rs`.
+ *
+ * A turn runs on past the request that started it, so a client that reloads
+ * mid-turn learns from this that a reply is still coming.
+ */
+export interface AwaitingReply {
+  /** Id of the question row. */
+  question_id: string;
+  /** When the question was asked (RFC 3339), as its row carries it. */
+  asked_at: string;
+}

@@ -7,6 +7,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useReducer } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  AWAITING_REPLY_POLL_MS,
+  awaitedSince,
   COMMAND_FINISH_REASON,
   composeRoomThread,
   hasEarlierMessages,
@@ -15,11 +17,17 @@ import {
   providerStatusLine,
   readLostTurn,
   reduceLostTurn,
-  statusForProgress,
   threadSubtitle,
+  type TurnTrail,
 } from '@pierre/chat-utils';
 import { holdIdleWhileBusy, idleSignal, MENTION_PREFIX, trackAbsence } from '@pierre/shared-constants';
-import { describeApiError, describeTurnFailure, isTurnFailureRetryable } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  describeTurnFailure,
+  isTurnFailureRetryable,
+  streamedReplyCallbacks,
+  useTurnTrail,
+} from '@pierre/ui-logic';
 import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
 import type { Agent, ClaimVerdict, Conversation, MessageOrigin, ReplyBlock, TurnSendOptions } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
@@ -36,6 +44,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useErrorToast } from '../ui';
 import { useMessageFeedback } from './useMessageFeedback';
 import { useOAuthCompletion } from './useOAuthCompletion';
+import { useReplyTabMark } from '../../hooks/useReplyTabMark';
 import type { Message, MessageFeedback, MessageMetadata, OAuthNotification, PendingComposerAction } from './types';
 
 /**
@@ -148,8 +157,22 @@ export interface ChatThreadState {
 
   // The turn in flight.
   isStreaming: boolean;
+  /**
+   * A turn is running in this thread: streaming here, or — after a reload —
+   * one the server says it is still answering. The composer's stop button
+   * shows for the whole of it.
+   */
+  turnInFlight: boolean;
   streamingContent: string;
-  progressStatusText: string | null;
+  /** The steps of the turn streaming here; `null` when none streams. */
+  liveTrail: TurnTrail | null;
+  /**
+   * When the reply the server is still writing was asked for (epoch ms),
+   * when nothing streams here — a reload mid-turn. `null` otherwise.
+   */
+  awaitingSince: number | null;
+  /** Each finished reply's trail this session, keyed by the reply's id. */
+  turnTrails: ReadonlyMap<string, TurnTrail>;
   isStopping: boolean;
   stopTurn: () => Promise<void>;
   sendTurn: (content: string, options?: TurnSendOptions) => Promise<void>;
@@ -202,10 +225,20 @@ export function useChatThread({
   // another thread while a turn streams, and a stop has to reach the turn that
   // is running, not the thread on screen.
   const streamingConversationRef = useRef<string | null>(null);
-  // What the in-flight turn is doing right now — the stage it entered or the
-  // tool it is calling — read off the turn's own `progress` frames. Same
+  // What the in-flight turn has done and is doing — the stage it entered,
+  // the tools it called — read off the turn's own `progress` frames. Same
   // response body the reply arrives on, so there is nothing to correlate.
-  const [progressStatusText, setProgressStatusText] = useState<string | null>(null);
+  const {
+    live: liveTrail,
+    finished: turnTrails,
+    begin: beginTrail,
+    progress: trailProgress,
+    prose: trailProse,
+    retract: trailRetract,
+    finish: finishTrail,
+  } = useTurnTrail();
+  // A reply that lands while the tab is hidden marks the tab's title.
+  const markReplyLanded = useReplyTabMark();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // A failed turn, kept by the reducer both clients share until a read of the
   // thread holds its reply or another turn starts. Web paints its note as the
@@ -247,7 +280,7 @@ export function useChatThread({
   // Fetch messages for selected conversation — the caller's own rows. In a
   // group thread these are the model's context store, and the room below is
   // woven through them.
-  const { data: messagesData, isLoading: messagesLoading } = useQuery<MessagesResponse>({
+  const { data: messagesData, isLoading: messagesLoading, isPending: messagesPending } = useQuery<MessagesResponse>({
     queryKey: QUERY_KEYS.chat.messages(selectedConversation),
     queryFn: () => chatApi.getConversationMessages(selectedConversation!),
     enabled: !!selectedConversation,
@@ -259,7 +292,31 @@ export function useChatThread({
     // edge (`onActive` sets it), so the thread is re-read the moment they are
     // back, and the note below comes down once that read holds the answer.
     refetchOnWindowFocus: true,
+    // A reload mid-turn holds no stream: the server's `awaiting_reply` says a
+    // reply is still being written, and the thread is re-read every few
+    // seconds until it lands. Never while a turn streams here — its own
+    // `onDone` writes the reply, and a re-read racing it would drop rows.
+    // Kept up in a hidden tab, which is where the athlete was told to go.
+    refetchInterval: query =>
+      !isStreaming && awaitedSince(query.state.data?.awaiting_reply, query.state.data?.messages ?? []) !== null
+        ? AWAITING_REPLY_POLL_MS
+        : false,
+    refetchIntervalInBackground: true,
   });
+
+  // The reply the server is still writing for a question in this thread,
+  // when nothing streams here: the indicator shows from when it was asked.
+  const serverAwaitingSince = useMemo(
+    () => awaitedSince(messagesData?.awaiting_reply, messagesData?.messages ?? []),
+    [messagesData],
+  );
+  const awaitingSince = isStreaming ? null : serverAwaitingSince;
+  // A turn runs in this thread — streaming here, or restored after a reload.
+  // Either way a second one must not start: sends wait behind it.
+  const turnInFlight = isStreaming || awaitingSince !== null;
+  // A queued send also waits for the thread's first read to answer: until it
+  // does, nobody knows whether the server is still writing a reply in it.
+  const holdQueuedSend = turnInFlight || messagesPending;
 
   // The open thread reads itself: the marker advances once the messages
   // resolve and again on every reply that lands, so the row's unread count
@@ -278,10 +335,14 @@ export function useChatThread({
     () => readLostTurn(lostTurn, selectedConversation, messagesData?.messages ?? []),
     [lostTurn, selectedConversation, messagesData],
   );
+  // While the server says it is still writing the reply, the lost stream is
+  // not a failure: the indicator stands in for the note until the reply lands
+  // or the server stops waiting without one.
   const shownError = useMemo<string | null>(() => {
     if (!lostTurn || errorMessage !== lostTurn.note.text) return errorMessage;
+    if (awaitingSince !== null) return null;
     return lostReading.kind === 'waiting' ? errorMessage : null;
-  }, [errorMessage, lostTurn, lostReading]);
+  }, [errorMessage, lostTurn, lostReading, awaitingSince]);
   // The turn a shown failure can re-send: only a failure a retry may get
   // past (`isTurnFailureRetryable` — never the idle stop, a quota or a
   // refusal), and only a question the server never stored. One it did store
@@ -363,6 +424,34 @@ export function useChatThread({
     enabled: !!roomGroupId && !!messagesData,
     refetchOnWindowFocus: true,
   });
+
+  // The reply the server was writing, with nothing streaming here, has
+  // landed — or the server stopped waiting without one. Whatever the reply
+  // changed is re-read the way a live turn's `onDone` would: the list row,
+  // the room's other lines, the verdict chips.
+  const awaitedRef = useRef<{ conversation: string | null; since: number | null }>({
+    conversation: null,
+    since: null,
+  });
+  useEffect(() => {
+    const previous = awaitedRef.current;
+    awaitedRef.current = { conversation: selectedConversation, since: serverAwaitingSince };
+    if (
+      isStreaming ||
+      !selectedConversation ||
+      previous.conversation !== selectedConversation ||
+      previous.since === null ||
+      serverAwaitingSince !== null
+    ) {
+      return;
+    }
+    setIsStopping(false);
+    const newest = messagesData?.messages[messagesData.messages.length - 1];
+    if (newest?.role === 'assistant') markReplyLanded();
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.verdicts(selectedConversation) });
+    if (roomGroupId) queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomGroupId) });
+  }, [selectedConversation, serverAwaitingSince, isStreaming, messagesData, markReplyLanded, queryClient, roomGroupId]);
   // A failed turn's question the server never stored — the turn was refused
   // before it ran — is still the athlete's words: it stays in the thread, above
   // the failure note and its retry, rather than vanishing with the re-read.
@@ -469,7 +558,7 @@ export function useChatThread({
    * caller never seeds it and waits for React to commit before sending.
    */
   const sendTurn = useCallback(async (content: string, options: TurnSendOptions = {}) => {
-    if (!content || !selectedConversation || isStreaming) return;
+    if (!content || !selectedConversation || turnInFlight) return;
 
     setIsStreaming(true);
     streamingConversationRef.current = selectedConversation;
@@ -505,9 +594,10 @@ export function useChatThread({
       messages: [...(old?.messages || []), tempUserMessage],
     }));
 
-    setProgressStatusText(null);
+    beginTrail();
 
-    let assembled = '';
+    // The reply's words as they stream, and the trail's writing phase with them.
+    const streamed = streamedReplyCallbacks(setStreamingContent, { prose: trailProse, retract: trailRetract });
     // The server decided which pieces this surface draws; `onBlock` collects
     // them in that order. Held here until `onDone` supplies the assistant
     // message id they are keyed by.
@@ -523,15 +613,10 @@ export function useChatThread({
       // waiting, the signal covers the one who walked away.
       signal: idleSignal(),
       origin: options.origin,
-      onDelta: delta => {
-        assembled += delta;
-        setStreamingContent(assembled);
-      },
+      ...streamed,
       onProgress: progress => {
-        // One vocabulary, rendered the same way here and on mobile and in the
-        // messaging channels' placeholder edits.
-        const status = statusForProgress(progress);
-        if (status !== null) setProgressStatusText(t(status.key, status.params));
+        // The shared trail names each step the same way here and on mobile.
+        trailProgress(progress);
       },
       onBlock: block => {
         // A quota notice is a fact about the turn rather than about the reply,
@@ -563,6 +648,11 @@ export function useChatThread({
 
         const assistantMessageId = turn.assistant.message.id;
         const { model, execution_time_ms: executionTimeMs } = turn.telemetry;
+
+        // The trail folds into one line above the reply it led to, and a
+        // reply landing in a hidden tab marks the tab.
+        finishTrail(assistantMessageId || null, turn.telemetry.tools_called);
+        markReplyLanded();
 
         if (showsReplyModel && assistantMessageId && model) {
           setMessageMetadata(prev => {
@@ -606,10 +696,12 @@ export function useChatThread({
             QUERY_KEYS.chat.messages(selectedConversation),
             (old: MessagesResponse | undefined) => {
               const existing = old?.messages ?? [];
+              // The turn is answered: a read taken while it ran said it was
+              // awaited, and that must not outlive the reply.
               if (existing.some(m => m.id === persisted.id)) {
-                return { ...old, messages: existing };
+                return { ...old, messages: existing, awaiting_reply: null };
               }
-              return { ...old, messages: [...existing, persisted] };
+              return { ...old, messages: [...existing, persisted], awaiting_reply: null };
             },
           );
         }
@@ -685,6 +777,7 @@ export function useChatThread({
         }
       },
       onError: error => {
+        finishTrail(null);
         // Worded from the shared catalogue by the failure's stable code, in the
         // athlete's language — never the server's English description.
         const note = describeTurnFailure(error, { t, online: navigator.onLine });
@@ -724,11 +817,11 @@ export function useChatThread({
     setIsStopping(false);
     streamingConversationRef.current = null;
     setStreamingContent('');
-    // The delivered assistant reply is now the source of truth; the progress
-    // line has nothing left to say.
-    setProgressStatusText(null);
+    // The delivered reply is now the source of truth. A turn that ended with
+    // neither `onDone` nor `onError` has no trail left to show.
+    finishTrail(null);
     usageStatus.invalidate();
-  }, [selectedConversation, isStreaming, queryClient, usageStatus, onSelectConversation, t, roomGroupId, showsReplyModel]);
+  }, [selectedConversation, turnInFlight, queryClient, usageStatus, onSelectConversation, t, roomGroupId, showsReplyModel, beginTrail, trailProse, trailRetract, trailProgress, finishTrail, markReplyLanded]);
 
   /**
    * Stop the turn that is streaming.
@@ -739,12 +832,19 @@ export function useChatThread({
    * be sent, the button is handed back and the turn carries on.
    */
   const stopTurn = useCallback(async () => {
-    const streamingConversation = streamingConversationRef.current;
+    // After a reload the turn runs with no stream here: the stop goes to the
+    // thread the server says is still being answered, and a re-read brings
+    // the notice it closes the question with.
+    const restored = streamingConversationRef.current === null && awaitingSince !== null;
+    const streamingConversation = streamingConversationRef.current ?? (restored ? selectedConversation : null);
     if (!streamingConversation || isStopping) return;
     setIsStopping(true);
     try {
       const stopped = await chatApi.stopTurn(streamingConversation);
       if (!stopped) setIsStopping(false);
+      if (restored) {
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.messages(streamingConversation) });
+      }
     } catch (error) {
       setIsStopping(false);
       showErrorToast(
@@ -752,17 +852,19 @@ export function useChatThread({
         describeApiError(error, { t, fallbackKey: 'chat.turnTryAgain' }),
       );
     }
-  }, [isStopping, showErrorToast, t]);
+  }, [isStopping, showErrorToast, t, awaitingSince, selectedConversation, queryClient]);
 
   /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
   const sendComposer = useCallback(() => {
     const typed = newMessage.trim();
-    if (!typed) return;
+    // While a turn runs the composer is disabled; a send that still reaches
+    // here keeps the athlete's words in the box rather than dropping them.
+    if (!typed || turnInFlight) return;
     const origin: MessageOrigin | undefined = draftSeededRef.current ? 'draft' : undefined;
     draftSeededRef.current = false;
     setNewMessage('');
     void sendTurn(typed, { origin });
-  }, [newMessage, sendTurn]);
+  }, [newMessage, sendTurn, turnInFlight]);
 
   // A draft the athlete erased entirely is no longer a draft: what they type
   // next is their own.
@@ -775,16 +877,17 @@ export function useChatThread({
     setNewMessage(text);
   }, []);
 
-  // A prompt queued while the conversation was still being created is sent
-  // as soon as one exists. It goes straight to `sendTurn`, never through the
-  // composer and its send button.
+  // A prompt queued while the conversation was still being created, or while
+  // a turn was running in it — streaming here or restored after a reload — is
+  // sent as soon as there is a thread and no turn in it. It goes straight to
+  // `sendTurn`, never through the composer and its send button.
   useEffect(() => {
-    if (pendingPrompt && selectedConversation && !isStreaming) {
+    if (pendingPrompt && selectedConversation && !holdQueuedSend) {
       const promptToSend = pendingPrompt;
       setPendingPrompt(null);
       void sendTurn(promptToSend.text, { origin: promptToSend.origin, display: promptToSend.display });
     }
-  }, [pendingPrompt, selectedConversation, isStreaming, sendTurn]);
+  }, [pendingPrompt, selectedConversation, holdQueuedSend, sendTurn]);
 
   /**
    * Put `text` in front of the athlete in a thread, creating one when none is
@@ -794,6 +897,13 @@ export function useChatThread({
    */
   const runComposerAction = useCallback((action: PendingComposerAction) => {
     if (action.kind === 'send' && selectedConversation) {
+      // A turn already runs here, or the thread's first read has not said
+      // whether one does: the line waits in the same queue a send with no
+      // thread does, and goes out once that turn has its reply.
+      if (holdQueuedSend) {
+        setPendingPrompt({ text: action.text, origin: action.origin, display: action.display });
+        return;
+      }
       void sendTurn(action.text, { origin: action.origin, display: action.display });
       return;
     }
@@ -809,7 +919,7 @@ export function useChatThread({
     // A command line (`/`, the palette opener) is not a question draft.
     draftSeededRef.current = !action.text.startsWith('/');
     setNewMessage(action.text);
-  }, [selectedConversation, startConversation, sendTurn]);
+  }, [selectedConversation, startConversation, sendTurn, holdQueuedSend]);
 
   // The host's own composer action — the `/groups/join/:code` deep link, which
   // lands on chat and sends `/group join CODE` as its first turn.
@@ -827,7 +937,7 @@ export function useChatThread({
    * failure followed by its replacement.
    */
   const retryMessage = useCallback(async (messageId: string) => {
-    if (!selectedConversation || isStreaming) return;
+    if (!selectedConversation || turnInFlight) return;
 
     const messages = messagesData?.messages || [];
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -848,7 +958,7 @@ export function useChatThread({
       }),
     );
     await sendTurn(messages[userMessageIndex].content);
-  }, [selectedConversation, isStreaming, messagesData?.messages, queryClient, sendTurn]);
+  }, [selectedConversation, turnInFlight, messagesData?.messages, queryClient, sendTurn]);
 
   /** Re-send what a failed turn sent, shown as it was shown. */
   const retryFailedTurn = useCallback(() => {
@@ -892,8 +1002,11 @@ export function useChatThread({
     verdictsFetching,
     refetchVerdicts,
     isStreaming,
+    turnInFlight,
     streamingContent,
-    progressStatusText,
+    liveTrail,
+    awaitingSince,
+    turnTrails,
     isStopping,
     stopTurn,
     sendTurn,

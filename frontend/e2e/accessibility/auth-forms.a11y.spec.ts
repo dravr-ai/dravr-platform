@@ -141,7 +141,7 @@ test.describe('Auth Forms Accessibility', () => {
       // loads, then fades in through btn-base's transition. A scan taken
       // mid-fade measures a half-transparent button: 4.06:1 on a loaded
       // machine, 2026-10-19. Scan the form at rest; looping animations
-      // (borealBreath, aiTyping) never finish, so only finite ones are waited on.
+      // (borealBreath) never finish, so only finite ones are waited on.
       await expect(page.locator('button[type="submit"]')).toBeEnabled();
       await page.waitForFunction(() =>
         document

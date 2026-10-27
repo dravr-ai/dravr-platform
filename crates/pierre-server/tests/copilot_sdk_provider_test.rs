@@ -213,6 +213,7 @@ async fn finish(reply: HeadlessToolResponse) -> ToolLoopResult {
     };
     finalize_headless_turn(
         reply,
+        None,
         &runner,
         &request,
         &params,

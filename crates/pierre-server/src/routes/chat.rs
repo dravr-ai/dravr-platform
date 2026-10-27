@@ -47,13 +47,13 @@ use crate::services::chat_verdicts;
 
 pub(crate) use common::get_tenant_id;
 pub use dto::{
-    preview_text, AddParticipantRequest, ChatMessageAction, ConversationListResponse,
-    ConversationResponse, ConversationSummaryResponse, CreateConversationRequest, FeedbackRating,
-    LastMessageResponse, ListConversationsQuery, MessageActionsResponse, MessageFeedbackEntry,
-    MessageResponse, MessagesListResponse, OpenTopicRequest, OpenTopicResponse,
-    ParticipantListResponse, ParticipantResponse, PersonalThreadResponse, SendMessageRequest,
-    StarterResponse, StartersResponse, UpdateConversationRequest, UpsertFeedbackRequest,
-    MAX_LIST_LIMIT,
+    preview_text, AddParticipantRequest, AwaitingReply, ChatMessageAction,
+    ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
+    CreateConversationRequest, FeedbackRating, LastMessageResponse, ListConversationsQuery,
+    MessageActionsResponse, MessageFeedbackEntry, MessageResponse, MessagesListResponse,
+    OpenTopicRequest, OpenTopicResponse, ParticipantListResponse, ParticipantResponse,
+    PersonalThreadResponse, SendMessageRequest, StarterResponse, StartersResponse,
+    UpdateConversationRequest, UpsertFeedbackRequest, MAX_LIST_LIMIT,
 };
 pub(crate) use personal::welcome_onboarding_lead;
 pub use read_marker::MarkReadRequest;

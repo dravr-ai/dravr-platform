@@ -484,7 +484,7 @@
 
   /* ==========================================================================
      AI effect legacy — all the old ai-glow / ai-thinking / ai-breathe /
-     ai-response / ai-input-focus / card-ai / ai-typing-dot / ai-gradient-border
+     ai-response / ai-input-focus / card-ai / ai-gradient-border
      / ai-shimmer classes are preserved as no-ops or subtle tonal shifts so
      existing components don't crash. Over time, content sweep will delete the
      class references entirely.
@@ -511,27 +511,6 @@
   .card-ai {
     @apply card;
     background: linear-gradient(145deg, rgba(163, 208, 190, 0.08) 0%, rgba(13, 59, 46, 0.04) 100%);
-  }
-
-  .ai-typing-dot {
-    @apply w-2 h-2 rounded-full;
-    background-color: rgb(var(--color-outline));
-    animation: aiTyping 1.4s infinite ease-in-out both;
-  }
-
-  .ai-typing-dot:nth-child(1) { animation-delay: -0.32s; }
-  .ai-typing-dot:nth-child(2) { animation-delay: -0.16s; }
-  .ai-typing-dot:nth-child(3) { animation-delay: 0s; }
-
-  @keyframes aiTyping {
-    0%, 80%, 100% {
-      transform: scale(0.6);
-      opacity: 0.5;
-    }
-    40% {
-      transform: scale(1);
-      opacity: 1;
-    }
   }
 
   .ai-gradient-border {

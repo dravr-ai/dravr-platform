@@ -61,7 +61,8 @@ pub struct TurnProgress {
     pub title: String,
     /// Latest state, in the producer's own vocabulary: `"started"` /
     /// `"finished"` for a stage, and the ACP call state (`"Pending"`,
-    /// `"InProgress"`, `"Completed"`, …) for a tool.
+    /// `"InProgress"`, `"Completed"`, `"Failed"`) for a tool — plus
+    /// [`TOOL_STATUS_NOT_RUN`], which the platform's own tool loops add.
     pub status: String,
 }
 
@@ -94,17 +95,40 @@ pub const STAGE_STATUS_STARTED: &str = "started";
 /// Status a stage reports as it is left.
 pub const STAGE_STATUS_FINISHED: &str = "finished";
 
+/// Status a tool call reports as it starts running — the ACP word, so a
+/// client reads a call from either tool loop the same way.
+pub const TOOL_STATUS_IN_PROGRESS: &str = "InProgress";
+/// Status a tool call reports when it ran and succeeded (ACP's word).
+pub const TOOL_STATUS_COMPLETED: &str = "Completed";
+/// Status a tool call reports when it ran and failed (ACP's word).
+pub const TOOL_STATUS_FAILED: &str = "Failed";
+/// Status a started tool call reports when it never ran after all: the
+/// runtime Guardian blocked it, or parked it for the athlete to confirm.
+///
+/// Not an ACP state — ACP has none for a call withdrawn before it ran — so
+/// the platform names its own, and a client takes the step off the trail
+/// rather than checking it off.
+pub const TOOL_STATUS_NOT_RUN: &str = "NotRun";
+
 /// One event on a turn's stream.
 ///
-/// A turn emits any number of [`Self::Progress`], [`Self::ProseDelta`] and
-/// [`Self::Block`] events, then exactly one of [`Self::Done`] or
-/// [`Self::Failed`]. Nothing follows the terminal event.
+/// A turn emits any number of [`Self::Progress`], [`Self::ProseDelta`],
+/// [`Self::ProseRetract`] and [`Self::Block`] events, then exactly one of
+/// [`Self::Done`] or [`Self::Failed`]. Nothing follows the terminal event.
 #[derive(Debug, Clone)]
 pub enum TurnEvent {
     /// A stage or tool call reported its latest state.
     Progress(TurnProgress),
     /// The next slice of assistant text to append to the in-flight bubble.
     ProseDelta(String),
+    /// Every slice of text sent so far will not be the reply: the in-flight
+    /// bubble is emptied, and any delta after this one starts it afresh.
+    ///
+    /// Sent when streamed text turns out to be something other than the
+    /// answer — words before a tool call, a stream the provider broke off
+    /// before the turn re-runs on another tier, a refusal, a reply a later
+    /// check replaces. The `done` frame still carries the reply itself.
+    ProseRetract,
     /// One renderable piece of the reply, in the order the server decided it.
     ///
     /// Pre-serialized because the block shape is owned by the HTTP layer's
@@ -158,7 +182,7 @@ impl TurnEvent {
     /// Serialize this event as an SSE `(event name, data)` pair.
     ///
     /// The single place the wire names live. A client reads exactly these
-    /// five frame names off a turn body.
+    /// six frame names off a turn body.
     #[must_use]
     pub fn frame(self) -> (&'static str, String) {
         match self {
@@ -173,6 +197,7 @@ impl TurnEvent {
                 .to_string(),
             ),
             Self::ProseDelta(delta) => ("delta", json!({ "delta": delta }).to_string()),
+            Self::ProseRetract => ("retract", json!({}).to_string()),
             Self::Block(block) => ("block", block.to_string()),
             Self::Done(turn) => ("done", turn.to_string()),
             Self::Failed(failure) => {

@@ -439,6 +439,14 @@ module "backend" {
       PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
 
+      # Every tool-loop iteration runs on the turn's own model (Opus), not on
+      # the Haiku default the code picks for an `anthropic` head. Measured on
+      # a plan turn (carnet#1193): Haiku's first call of each turn writes the
+      # whole 62–97k prefix into its own cache, and only 41% of its iteration
+      # answers were kept since 2026-10-20, so inheriting charged ~49% less
+      # quota for ~8% more USD. JF's call, 2026-10-26.
+      PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit"
+
       # The synthetic LLM probe runs once per instance start and never again:
       # its "ping" is a real turn on the head's account — a call billed
       # against the Anthropic organization's prepaid credit. Athlete turns

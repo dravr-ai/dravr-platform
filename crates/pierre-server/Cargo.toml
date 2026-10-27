@@ -288,7 +288,7 @@ pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", fe
 # Integration tests only — production code uses structured AppError (anyhow is banned in src/)
 anyhow = "1.0"
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
-pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["sse"] }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
 jsonschema = { version = "0.46.10", default-features = false }

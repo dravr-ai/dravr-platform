@@ -45,6 +45,7 @@ use pierre_mcp_server::services::turn_runner::TurnRunner;
 use pierre_mcp_server::{
     constants,
     mcp::resources::{ServerContext, ServerContextOptions},
+    routes::chat::ChatRoutes,
     routes::mcp::McpRoutes,
     utils,
 };
@@ -498,6 +499,28 @@ pub(crate) async fn setup_test_environment_with_tier(
     let repos = database.repositories();
     repos.users.create(&user).await?;
     Ok((database, user_id))
+}
+
+/// Serve the chat routes over `resources` on a loopback port of the OS's
+/// choosing, and return the base URL a client reaches them at.
+///
+/// Lives here rather than in `pierre-test-support`, which holds the SSE frame
+/// reader the streaming suites decode its turn bodies with: the routes are
+/// `pierre_mcp_server`'s own, and the support crate is a dependency of crates
+/// below the server, so it cannot name them. Both the `it` binary and the
+/// top-level suites that write the environment load this file.
+pub(crate) async fn spawn_chat_server(resources: &Arc<ServerContext>) -> String {
+    let app = ChatRoutes::routes(Arc::clone(resources));
+    let listener = TokioTcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a loopback port");
+    let addr = listener.local_addr().expect("the bound port's address");
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("the chat routes serve");
+    });
+    format!("http://{addr}")
 }
 
 /// Create test `ServerContext` with all components properly initialized

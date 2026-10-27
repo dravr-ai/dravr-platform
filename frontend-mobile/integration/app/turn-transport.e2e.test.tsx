@@ -61,8 +61,8 @@ describe('PHASE 4 — one transport, read by the mobile client', () => {
   });
 
   it('takes a turn that streamed deltas and shows the finished reply, not the fragments', async () => {
-    // React Native's fetch hands the body over complete, so the app declares
-    // no partial-text rendering. The delta frames must still be consumed
+    // The app declares no partial-text rendering: a delta only moves the
+    // trail to its writing phase. The delta frames must still be consumed
     // without corrupting the turn — a parser that mistook them for the reply
     // would show 'Ta ' + 'charge ' twice over.
     stub = installHttpStub({

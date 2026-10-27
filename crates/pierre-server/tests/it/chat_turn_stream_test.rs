@@ -20,26 +20,21 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::common;
+use crate::common::{self, spawn_chat_server};
 
 use async_trait::async_trait;
-use futures_util::stream::{self, StreamExt};
+use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk, TokenUsage,
 };
-use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::routes::chat::ChatRoutes;
+use pierre_test_support::sse::{read_frames, Frame};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::net::SocketAddr;
-use std::str;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpListener;
-use tokio::time::timeout;
 
 /// The agent's reply, verbatim. Every assertion about prose compares against
 /// this exact string so a surface that quietly rewrote it fails loudly.
@@ -109,30 +104,6 @@ impl LlmProvider for MockLlmProvider {
     }
 }
 
-/// One decoded SSE frame: its `event:` name and its joined `data:` payload.
-#[derive(Debug, Clone)]
-struct Frame {
-    event: String,
-    data: String,
-}
-
-impl Frame {
-    fn json(&self) -> Value {
-        serde_json::from_str(&self.data)
-            .unwrap_or_else(|e| panic!("frame {} carried unreadable JSON: {e}", self.event))
-    }
-}
-
-async fn spawn_chat_server(resources: &Arc<ServerContext>) -> String {
-    let app = ChatRoutes::routes(Arc::clone(resources));
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let addr: SocketAddr = listener.local_addr().expect("local addr");
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("serve");
-    });
-    format!("http://{addr}")
-}
-
 async fn create_conversation(client: &Client, base_url: &str, token: &str) -> String {
     let resp = client
         .post(format!("{base_url}/api/chat/conversations"))
@@ -149,52 +120,6 @@ async fn create_conversation(client: &Client, base_url: &str, token: &str) -> St
     );
     let body: Value = resp.json().await.expect("conv json");
     body["id"].as_str().expect("conv id").to_owned()
-}
-
-/// Read the whole SSE body, decoding every frame until the stream ends or
-/// the deadline elapses.
-async fn read_frames(response: reqwest::Response, deadline: Duration) -> Vec<Frame> {
-    let mut buffer = String::new();
-    let mut out: Vec<Frame> = Vec::new();
-    let mut stream = response.bytes_stream();
-
-    let _ = timeout(deadline, async {
-        while let Some(chunk) = stream.next().await {
-            let Ok(bytes) = chunk else { break };
-            let Ok(decoded) = str::from_utf8(&bytes) else {
-                continue;
-            };
-            buffer.push_str(decoded);
-
-            while let Some(end) = buffer.find("\n\n") {
-                let raw = buffer[..end].to_owned();
-                buffer.drain(..=end + 1);
-
-                let mut event = String::new();
-                let mut data_lines: Vec<&str> = Vec::new();
-                for line in raw.split('\n') {
-                    if let Some(rest) = line.strip_prefix("event:") {
-                        rest.trim().clone_into(&mut event);
-                    } else if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim());
-                    }
-                }
-                if !event.is_empty() && !data_lines.is_empty() {
-                    let terminal = event == "done" || event == "failed";
-                    out.push(Frame {
-                        event,
-                        data: data_lines.join("\n"),
-                    });
-                    if terminal {
-                        return;
-                    }
-                }
-            }
-        }
-    })
-    .await;
-
-    out
 }
 
 async fn send_turn_streaming(
@@ -228,7 +153,7 @@ fn stage_progress(frames: &[Frame]) -> Vec<(String, String)> {
     frames
         .iter()
         .filter(|f| f.event == "progress")
-        .map(Frame::json)
+        .map(|frame| frame.json().expect("frame JSON"))
         .filter(|p| p["kind"] == "stage")
         .map(|p| {
             (
@@ -294,13 +219,13 @@ async fn one_stream_carries_progress_blocks_and_the_finished_turn() {
     let block_frames: Vec<Value> = frames
         .iter()
         .filter(|f| f.event == "block")
-        .map(Frame::json)
+        .map(|frame| frame.json().expect("frame JSON"))
         .collect();
     assert!(
         !block_frames.is_empty(),
         "a reply resolves to at least one block: {frames:?}"
     );
-    let envelope = terminal.json();
+    let envelope = terminal.json().expect("done frame JSON");
     let envelope_blocks = envelope["assistant"]["blocks"]
         .as_array()
         .expect("envelope carries an ordered block list");
@@ -454,7 +379,7 @@ async fn a_failed_turn_names_its_error_code_on_the_terminal_frame() {
 
     let terminal = frames.last().expect("stream produced no frames");
     assert_eq!(terminal.event, "failed", "frames = {frames:?}");
-    let payload = terminal.json();
+    let payload = terminal.json().expect("failed frame JSON");
     assert_eq!(
         payload["code"], "ResourceUnavailable",
         "the failed frame carries the code a client maps to its catalogue: {payload}"

@@ -27,9 +27,15 @@ jest.mock('@pierre/chat-utils', () => ({
   // mirror the real implementation so the hook under test behaves identically.
   filterDisplayMessages: (messages: { role: string }[]) =>
     messages.filter((m) => m.role !== 'tool_call' && m.role !== 'tool_result'),
-  // The real mapping, not a stub: the progress line the athlete reads is the
-  // point of the strip, and a stubbed mapper would let a broken one pass.
-  statusForProgress: jest.requireActual('@pierre/chat-utils').statusForProgress,
+  // The real turn trail, not a stub: the steps the athlete reads are the
+  // point of the indicator, and a stubbed reducer would let a broken one pass.
+  EMPTY_TURN_TRAILS: jest.requireActual('@pierre/chat-utils').EMPTY_TURN_TRAILS,
+  reduceTurnTrails: jest.requireActual('@pierre/chat-utils').reduceTurnTrails,
+  turnCurrentLine: jest.requireActual('@pierre/chat-utils').turnCurrentLine,
+  doneSteps: jest.requireActual('@pierre/chat-utils').doneSteps,
+  awaitedSince: jest.requireActual('@pierre/chat-utils').awaitedSince,
+  AWAITING_REPLY_POLL_MS: jest.requireActual('@pierre/chat-utils').AWAITING_REPLY_POLL_MS,
+  TURN_STEP_KEYS: jest.requireActual('@pierre/chat-utils').TURN_STEP_KEYS,
   // The real lost-turn reducer: every send and every read goes through it,
   // and a stub would decide nothing about when a failure's note stands.
   readLostTurn: jest.requireActual('@pierre/chat-utils').readLostTurn,
@@ -349,8 +355,8 @@ describe('useMessages', () => {
       expect(result.current.messages[0].role).toBe('user');
       expect(result.current.messages[1].role).toBe('assistant');
       expect(result.current.isSending).toBe(false);
-      // The strip collapses once the reply is the source of truth.
-      expect(result.current.progressText).toBeNull();
+      // The live trail ends once the reply is the source of truth.
+      expect(result.current.liveTrail).toBeNull();
     });
 
     // carnet#828: a starter sends its opaque postback and shows its label;
@@ -498,11 +504,10 @@ describe('useMessages', () => {
       expect(result.current.verdicts).toEqual([supported]);
     });
 
-    it('shows what the turn is doing while it is still in flight, then clears it', async () => {
-      // The progress strip is the whole reason the AG-UI subscription existed.
-      // It is now fed by the turn's own body, so the text must appear while
-      // the send is still running — asserting it after the turn lands would
-      // pass against a hook that never rendered anything.
+    it('shows what the turn is doing while it is still in flight, then folds it', async () => {
+      // The trail is fed by the turn's own body, so the step must appear
+      // while the send is still running — asserting it after the turn lands
+      // would pass against a hook that never rendered anything.
       let release: (() => void) | null = null;
       const inFlight = new Promise<void>((resolve) => {
         release = resolve;
@@ -555,16 +560,125 @@ describe('useMessages', () => {
         await Promise.resolve();
       });
 
-      // The latest progress event wins, in the vocabulary every surface shares.
-      expect(result.current.progressText).toBe('calling get_activities…');
+      // The running tool is the current line, in the words every surface shares.
+      const { turnCurrentLine, TURN_STEP_KEYS } = jest.requireActual('@pierre/chat-utils');
+      expect(result.current.liveTrail).not.toBeNull();
+      expect(turnCurrentLine(result.current.liveTrail).key).toBe(TURN_STEP_KEYS.readActivities);
+      expect(result.current.turnInFlight).toBe(true);
 
       await act(async () => {
         release?.();
         await sending;
       });
 
-      expect(result.current.progressText).toBeNull();
+      // The trail folds above the reply it led to, its one step checked.
+      expect(result.current.liveTrail).toBeNull();
+      expect(result.current.turnTrails.get('a')?.steps).toEqual([
+        expect.objectContaining({ id: 'call-1', done: true }),
+      ]);
       expect(result.current.messages.some((m) => m.role === 'assistant')).toBe(true);
+    });
+
+    it('shows the reply as it is written, empties it on a retraction, and hands over to the persisted reply', async () => {
+      // Each stage of the body is released by the test, so every assertion
+      // reads the hook while the turn is still running.
+      const gates: (() => void)[] = [];
+      const gate = () => new Promise<void>((resolve) => gates.push(resolve));
+      const releaseNext = async () => {
+        await act(async () => {
+          gates.shift()?.();
+          await Promise.resolve();
+        });
+      };
+      mockSendTurn.mockImplementation(
+        async (
+          _conversationId: string,
+          _content: string,
+          options: {
+            onDelta?: (delta: string) => void;
+            onRetract?: () => void;
+            onDone?: (turn: unknown) => void;
+          },
+        ) => {
+          options.onDelta?.('Je regarde ');
+          options.onDelta?.('tes sorties.');
+          await gate();
+          options.onRetract?.();
+          await gate();
+          options.onDelta?.('Ta semaine ');
+          await gate();
+          options.onDone?.({
+            user_message: { id: 'u', role: 'user', content: 'Hello', created_at: 'now' },
+            assistant: {
+              message: { id: 'a', role: 'assistant', content: 'Ta semaine est chargée.', created_at: 'now' },
+              blocks: [],
+              finish_reason: 'stop',
+            },
+            telemetry: {
+              model: 'mock',
+              provider_name: 'mock',
+              tool_calls_count: 0,
+              tools_called: [],
+              execution_time_ms: 10,
+            },
+          });
+        },
+      );
+
+      const { result } = renderHook(() => useMessages());
+      const { turnCurrentLine, TURN_STEP_KEYS } = jest.requireActual('@pierre/chat-utils');
+
+      let sending: Promise<string | null>;
+      await act(async () => {
+        sending = result.current.sendTurn('conv-1', 'Hello');
+        await Promise.resolve();
+      });
+      // The words are on screen before the turn ends, and nothing is persisted yet.
+      expect(result.current.streamingContent).toBe('Je regarde tes sorties.');
+      expect(turnCurrentLine(result.current.liveTrail).key).toBe(TURN_STEP_KEYS.writing);
+      expect(result.current.messages.some((m) => m.role === 'assistant')).toBe(false);
+
+      // Taken back: the bubble empties and the turn is thinking again.
+      await releaseNext();
+      expect(result.current.streamingContent).toBe('');
+      expect(turnCurrentLine(result.current.liveTrail).key).toBe(TURN_STEP_KEYS.thinking);
+
+      // The next words start the bubble afresh, never glued to the old ones.
+      await releaseNext();
+      expect(result.current.streamingContent).toBe('Ta semaine ');
+      expect(turnCurrentLine(result.current.liveTrail).key).toBe(TURN_STEP_KEYS.writing);
+
+      await act(async () => {
+        gates.shift()?.();
+        await sending;
+      });
+      // The persisted reply takes the streamed words' place.
+      expect(result.current.streamingContent).toBe('');
+      expect(result.current.messages.find((m) => m.role === 'assistant')?.content).toBe(
+        'Ta semaine est chargée.',
+      );
+    });
+
+    it('leaves no streamed words behind when the turn fails', async () => {
+      mockSendTurn.mockImplementation(
+        (
+          _conversationId: string,
+          _content: string,
+          options: { onDelta?: (delta: string) => void; onError?: (error: Error) => void },
+        ) => {
+          options.onDelta?.('Ta semaine ');
+          options.onError?.(new TypeError('Network request failed'));
+          return Promise.resolve();
+        },
+      );
+
+      const { result } = renderHook(() => useMessages());
+      await act(async () => {
+        await result.current.sendTurn('conv-1', 'Hello');
+      });
+
+      expect(result.current.streamingContent).toBe('');
+      expect(result.current.messages.at(-1)?.isError).toBe(true);
     });
 
     it('should handle API error and show error message', async () => {

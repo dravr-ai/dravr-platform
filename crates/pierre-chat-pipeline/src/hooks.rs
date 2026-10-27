@@ -119,11 +119,12 @@ pub struct PipelineHooks<'a> {
     /// pipeline emits lifecycle, step, and error events against
     /// `agui.sink`.
     pub agui: Option<AgUiRun<'a>>,
-    /// Optional sink for the turn's live event stream. When present the
-    /// pipeline reports each stage it enters and leaves, the dispatch stage
-    /// calls the LLM provider's streaming variant where one exists, and every
-    /// observation is forwarded as a [`TurnEvent`] so the route layer can
-    /// wrap the stream in an SSE response.
+    /// Optional sink for the turn's live event stream, set by a surface that
+    /// reads frames. When present the pipeline reports each stage it enters
+    /// and leaves, the tool loop reports each tool it runs whatever the
+    /// provider, the reply text streams through it where the serving
+    /// provider streams one, and every observation is forwarded as a
+    /// [`TurnEvent`] so the route layer can wrap the stream in an SSE response.
     pub stream_sink: Option<TurnEventSink>,
     /// Optional chart publisher. Wired by surfaces whose
     /// [`crate::BlockSupport::scene_raster`] is set; the pipeline emits

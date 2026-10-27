@@ -111,7 +111,7 @@ const CONST_PROSE = /^\s*(?:export\s+)?const\s+[A-Z_][A-Z0-9_]*\s*=\s*(?:'([A-Z]
  * while every gate reported zero (carnet#206).
  *
  * Backticks are included because an interpolated status line is still copy.
- * Two or more words keeps a returned key (`return 'chat.status.thinking'`) and
+ * Two or more words keeps a returned key (`return 'chat.turn.step.thinking'`) and
  * a returned enum value out.
  */
 const RETURN_PROSE =

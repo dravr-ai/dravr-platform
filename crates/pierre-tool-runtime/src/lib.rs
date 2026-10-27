@@ -91,6 +91,10 @@ pub mod guardian;
 #[cfg(feature = "client-chat")]
 pub mod headless_stream;
 pub mod implementations;
+/// The gate streamed reply text crosses on its way to the turn sink: canary
+/// and `<tool_call>` filtering, and the retraction of text that is not the reply
+#[cfg(feature = "client-chat")]
+pub mod prose_stream;
 /// Universal protocol envelope (types, executor, auth, format, provider helpers, handlers)
 pub mod protocol;
 /// Protocol conversion + universal request/response re-exports
@@ -132,6 +136,9 @@ pub mod cli_loop;
 ///   headless reply that wrote them instead of calling its tools natively)
 #[cfg(feature = "client-chat")]
 pub mod function_dispatch;
+/// One streamed API tool-loop call to the chain head, its prose forwarded to the turn sink
+#[cfg(feature = "client-chat")]
+mod head_stream;
 /// How a Copilot headless turn ends: a text tool call handed to the text
 /// loop, a degenerate reply retried once, the loopback's signals drained
 #[cfg(feature = "client-chat")]

@@ -120,6 +120,7 @@ export type {
   AssistantTurn,
   TurnEnvelope,
   TurnProgress,
+  AwaitingReply,
 } from './turn.js';
 
 // Claim-verdict row and the one severity rollup both clients read

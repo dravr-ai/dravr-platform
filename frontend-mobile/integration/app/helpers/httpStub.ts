@@ -27,9 +27,11 @@ export interface StubbedResponse {
    * Response body.
    *
    * A value is handed to axios already decoded. On the fetch transport a
-   * string is sent verbatim — which is how an SSE body is stubbed — and
-   * anything else is JSON-encoded, matching the single-document answer the
-   * server sends for a slash command.
+   * string is sent verbatim — which is how an SSE body is stubbed — a
+   * `ReadableStream` is served as the body stream itself, so a spec can hold
+   * the turn open between frames (see {@link heldBody}), and anything else is
+   * JSON-encoded, matching the single-document answer the server sends for a
+   * slash command.
    */
   data: unknown;
   /** Response headers, lower-cased. */
@@ -57,6 +59,43 @@ export function sseTurn(
     ...blocks.map((block) => `event: block\ndata: ${JSON.stringify(block)}\n\n`),
     `event: done\ndata: ${JSON.stringify(turn)}\n\n`,
   ].join('');
+}
+
+/** One SSE frame, as the chat route writes it. */
+export function sseFrame(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+/** A turn body the spec writes frame by frame, the way a slow turn reaches the phone. */
+export interface HeldBody {
+  /** The body stream to stub the route with. */
+  stream: ReadableStream<Uint8Array>;
+  /** Send these bytes to the client now. */
+  write(text: string): void;
+  /** End the body. */
+  close(): void;
+}
+
+/**
+ * A response body the spec holds open.
+ *
+ * A stubbed string arrives in one chunk, so nothing can be observed between
+ * the first step and the reply. This one delivers each `write` as its own
+ * chunk, which is how the server's frames reach a client that streams.
+ */
+export function heldBody(): HeldBody {
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  return {
+    stream,
+    write: (text) => controller?.enqueue(encoder.encode(text)),
+    close: () => controller?.close(),
+  };
 }
 
 /** The stage sequence a real turn emits, in pipeline order. */
@@ -217,7 +256,9 @@ export function installHttpStub(routes: StubRoutes): HttpStub {
     }
     const stubbed = typeof route === 'function' ? route(request) : route;
     const body =
-      typeof stubbed.data === 'string' ? stubbed.data : JSON.stringify(stubbed.data);
+      typeof stubbed.data === 'string' || stubbed.data instanceof ReadableStream
+        ? stubbed.data
+        : JSON.stringify(stubbed.data);
     return new Response(body, {
       status: stubbed.status ?? 200,
       headers: stubbed.headers ?? {},

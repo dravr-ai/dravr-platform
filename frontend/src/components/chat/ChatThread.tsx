@@ -171,7 +171,9 @@ export default function ChatThread({
             isLoading={thread.messagesLoading}
             isStreaming={thread.isStreaming}
             streamingContent={thread.streamingContent}
-            progressStatusText={thread.progressStatusText}
+            liveTrail={thread.liveTrail}
+            awaitingSince={thread.awaitingSince}
+            turnTrails={thread.turnTrails}
             errorMessage={thread.shownError}
             oauthNotification={thread.oauthNotification}
             onDismissError={thread.dismissError}
@@ -198,7 +200,7 @@ export default function ChatThread({
         value={thread.composerText}
         onChange={thread.setComposerText}
         onSend={thread.sendComposer}
-        isStreaming={thread.isStreaming}
+        isStreaming={thread.turnInFlight}
         onStop={() => void thread.stopTurn()}
         isStopping={thread.isStopping}
         disabled={thread.usageStatus.sendDisabled}

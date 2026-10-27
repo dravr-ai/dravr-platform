@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The typing indicator's geometry and its motion — it hugs its content and the dots breathe
-// ABOUTME: A full-width slab of nothing with three frozen dots reads as a broken bubble, not as typing
+// ABOUTME: The typing indicator's geometry and its motion — the dots mark the current step and breathe
+// ABOUTME: A full-width slab of nothing with three frozen dots reads as a broken bubble, not as typing; streamed words sit above it
 
 import React from 'react';
 import { Animated, Image, StyleSheet } from 'react-native';
@@ -10,6 +10,7 @@ import { act, render, within } from '@testing-library/react-native';
 
 import { MessageList, typingDotAnimation } from '../src/screens/chat/MessageList';
 import type { Message } from '../src/types';
+import en from '@pierre/i18n/locales/en/translation.json';
 
 /** Far enough into the first fade that every dot has left its resting value. */
 const TIME_INTO_THE_FIRST_FADE_MS = 700;
@@ -21,12 +22,13 @@ const message: Message = {
   created_at: '2026-09-02T10:00:00Z',
 };
 
-function renderSending() {
+function renderSending(streamingContent?: string) {
   return render(
     <MessageList
       messages={[message]}
       isLoading={false}
       isSending
+      streamingContent={streamingContent}
       messageFeedback={{}}
       messageFeedbackComment={{}}
       flatListRef={React.createRef()}
@@ -48,21 +50,37 @@ function dotOpacity(element: { props: { style?: unknown } }): number {
 }
 
 describe('MessageList typing indicator', () => {
-  it('hugs its own content instead of stretching across the thread', () => {
+  it('sits beside the step the turn is on, as a mark rather than a bubble', () => {
     const { getByTestId } = renderSending();
 
-    const indicator = getByTestId('thinking-indicator');
-    const style = StyleSheet.flatten(indicator.props.style) as {
-      alignSelf?: string;
-      maxWidth?: string | number;
-    };
+    // The dots are the working mark of the current step's row: a row lays its
+    // children out side by side at their own width, so nothing stretches them
+    // into a message-shaped slab.
+    const row = within(getByTestId('turn-current-step'));
+    const dots = row.getByTestId('thinking-indicator');
+    expect(dots.props.className).toContain('flex-row');
+    // No bubble chrome: no fill, no cap at 85% of the screen.
+    expect(dots.props.className).not.toMatch(/\bbg-|max-w-/);
+    // And the step it is on, in words, beside it.
+    expect(row.getByText(en.chat.turn.step.thinking)).toBeTruthy();
+  });
 
-    // A plain parent stretches its child across the cross axis; alignSelf is
-    // what makes the row size to the mark and the three dots.
-    expect(style.alignSelf).toBe('flex-start');
-    // And it is not a bubble capped at 85% of the screen any more: nothing
-    // caps it, because nothing stretches it.
-    expect(style.maxWidth).toBeUndefined();
+  it('draws the reply as it is written above the indicator, which keeps running under it', () => {
+    const { getByTestId, queryByTestId } = renderSending('Ta semaine est **chargée**.');
+
+    const streamed = within(getByTestId('streaming-reply'));
+    expect(streamed.getByText('chargée')).toBeTruthy();
+    // The dots stay until the reply lands: the turn is still running while it
+    // writes, and the flows that wait for the reply wait on them.
+    expect(getByTestId('thinking-indicator')).toBeTruthy();
+    expect(queryByTestId('turn-current-step')).toBeTruthy();
+  });
+
+  it('draws no reply bubble before the first words arrive', () => {
+    const { queryByTestId, getByTestId } = renderSending('');
+
+    expect(queryByTestId('streaming-reply')).toBeNull();
+    expect(getByTestId('thinking-indicator')).toBeTruthy();
   });
 
   it('is the three dots alone, with no mark beside them', () => {

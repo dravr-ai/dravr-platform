@@ -27,8 +27,8 @@
 use axum::routing::get;
 use axum::{Json, Router};
 use pierre_chat_pipeline::{
-    ProgressiveSupport, ProseFormat, ProviderStreaming, ReplyBlockKind, SurfaceId, SurfaceProfile,
-    SurfaceRequest, TurnBudget,
+    ProgressiveSupport, ProseFormat, ReplyBlockKind, SurfaceId, SurfaceProfile, SurfaceRequest,
+    TurnBudget,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::NotificationScreen;
@@ -95,8 +95,8 @@ pub struct SurfaceCapabilityRow {
     /// reply before the turn finishes.
     pub progressive: String,
     /// Whether a turn on this surface puts partial text on the wire when the
-    /// provider emits deltas. Both halves of the streaming question, crossed
-    /// once here so a reader does not have to.
+    /// provider emits deltas: the surface reads frames, so the turn's tool
+    /// loop gets a sink to stream into.
     pub streams_text_deltas: bool,
     /// Fixed tool-loop budget, or `null` when it resolves from agent/admin
     /// configuration.
@@ -183,9 +183,7 @@ fn row(profile: &SurfaceProfile) -> SurfaceCapabilityRow {
             ProgressiveSupport::DeltaChannel => "delta_channel",
         }
         .to_owned(),
-        streams_text_deltas: render
-            .progressive
-            .delivers_partial_text(ProviderStreaming::TextDeltas),
+        streams_text_deltas: render.progressive.has_delta_channel(),
         max_tool_iterations: match profile.budget {
             TurnBudget::Fixed(iterations) => Some(iterations),
             TurnBudget::AgentOrAdminDefault => None,

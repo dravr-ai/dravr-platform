@@ -22,10 +22,6 @@
       "types": "./src/conversation-row.ts",
       "import": "./src/conversation-row.ts"
     },
-    "./progress": {
-      "types": "./src/progress.ts",
-      "import": "./src/progress.ts"
-    },
     "./blocks": {
       "types": "./src/blocks.ts",
       "import": "./src/blocks.ts"

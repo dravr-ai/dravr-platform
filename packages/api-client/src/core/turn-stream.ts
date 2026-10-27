@@ -19,6 +19,13 @@ export interface TurnCallbacks {
   /** The next slice of assistant text to append to the in-flight bubble. */
   onDelta?: (delta: string) => void;
   /**
+   * The text streamed so far is not the reply — words before a tool call, a
+   * stream that broke off before the turn re-ran elsewhere, a refusal, a
+   * reply a later check replaced. Empty the in-flight bubble; the next
+   * `onDelta` starts it again, and `onDone` still carries the reply.
+   */
+  onRetract?: () => void;
+  /**
    * One renderable piece of the finished reply, in the order the server put
    * them in. Fired for every block before `onDone`, so a client lays out what
    * it was given in one walk instead of hunting the list for each block type
@@ -265,7 +272,7 @@ function failedFrameError(data: string): TurnFailedError {
 }
 
 /** The live half of {@link TurnCallbacks}: what a caller learns mid-turn. */
-export type TurnProgressSink = Pick<TurnCallbacks, 'onDelta' | 'onProgress' | 'onBlock'>;
+export type TurnProgressSink = Pick<TurnCallbacks, 'onDelta' | 'onRetract' | 'onProgress' | 'onBlock'>;
 
 /**
  * Read a turn off its response body.
@@ -274,7 +281,8 @@ export type TurnProgressSink = Pick<TurnCallbacks, 'onDelta' | 'onProgress' | 'o
  * answers with, in one pass and with no content-type sniff:
  *
  * - a `text/event-stream` body: `progress` frames report the stage or tool
- *   the turn is working on, `delta` frames append assistant text, `block`
+ *   the turn is working on, `delta` frames append assistant text, a
+ *   `retract` frame takes back the text streamed so far, `block`
  *   frames carry each renderable piece of the reply as the server decides it,
  *   a `failed` frame ends the turn, and the `done` frame carries the finished
  *   {@link TurnEnvelope};
@@ -315,6 +323,8 @@ export async function parseTurnBody(
       } else if (frame.event === 'delta') {
         const parsed = parseJson<{ delta?: string }>(frame.data);
         if (parsed?.delta) sink.onDelta?.(parsed.delta);
+      } else if (frame.event === 'retract') {
+        sink.onRetract?.();
       } else if (frame.event === 'block') {
         const parsed = parseJson<ReplyBlock>(frame.data);
         if (parsed?.type) {

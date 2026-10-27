@@ -10,12 +10,12 @@
  *
  * Modules under `packages/` are imported by both clients and have no locale:
  * whatever wording they return is rendered verbatim. Returning English is how
- * the chat progress line and the quota banner came to read English under
+ * the chat progress line and the quota banner once came to read English under
  * French chrome (carnet#206, carnet#207), so they return this instead and the
  * component translates at the edge, where the athlete's language is known.
  */
 export interface TranslatableText {
-  /** Dotted catalogue key, e.g. `chat.status.generatingResponse`. */
+  /** Dotted catalogue key, e.g. `chat.turn.step.readActivities`. */
   key: string;
   /** Interpolation values for that key, absent when it takes none. */
   params?: Record<string, string | number>;

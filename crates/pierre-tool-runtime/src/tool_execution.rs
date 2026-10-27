@@ -65,11 +65,13 @@ use pierre_llm::{
 ///
 /// Flow: `complete_with_tools_on_head()` → parse `function_calls` → execute via
 /// MCP → iterate. An iteration that picks a tool may run on a cheaper model
-/// than the reply (`tool_iteration`). Every call goes to the chain's head
-/// alone, outside the chain's own fallback: a head fault comes back as
-/// [`ApiLoopError::Head`] for [`run_api_turn`] to re-run on the tail, routed
-/// by the tail's capabilities, instead of embacle handing this tool-carrying
-/// request to a tier that cannot honour it.
+/// than the reply (`tool_iteration`); a call on the turn's own model streams
+/// its prose to the turn's sink where the loop streams text (`head_stream`).
+/// Every call goes to the chain's head alone, outside the chain's own
+/// fallback: a head fault comes back as [`ApiLoopError::Head`] for
+/// [`run_api_turn`] to re-run on the tail, routed by the tail's capabilities,
+/// instead of embacle handing this tool-carrying request to a tier that cannot
+/// honour it.
 ///
 /// # Errors
 ///
@@ -115,6 +117,7 @@ pub(crate) async fn run_api_tool_loop(
                     function_calls,
                     params.user_id,
                     params.tenant_id,
+                    params.stream_sink.as_ref(),
                 )
                 .await?;
 
@@ -231,6 +234,7 @@ pub(crate) async fn run_api_tool_loop(
                 &text_tool_calls,
                 params.user_id,
                 params.tenant_id,
+                params.stream_sink.as_ref(),
             )
             .await?;
             #[allow(clippy::cast_possible_truncation)]
@@ -421,6 +425,7 @@ pub async fn run_cli_tool_loop(
             &parsed_tool_calls,
             params.user_id,
             params.tenant_id,
+            params.stream_sink.as_ref(),
         )
         .await?;
 
@@ -956,7 +961,7 @@ pub(crate) async fn run_headless_tool_loop(
         )
     })?;
 
-    let stream = params.stream_sink.is_some();
+    let stream = params.streams_text();
     info!(
         stream,
         provider = params.provider.name(),
@@ -1000,18 +1005,23 @@ pub(crate) async fn run_headless_tool_loop(
         .clear_offer(&turn_key);
 
     let call_start = Instant::now();
-    let converse_result = if let Some(sink) = params.stream_sink.as_ref() {
-        headless_stream::run_headless_streaming(headless_runner.as_ref(), &request, sink).await
+    // The sink the turn's prose reached, when any did: what a reply that turns
+    // out not to be the turn's answer has to take back.
+    let converse_result = if let Some(sink) = params.stream_sink.as_ref().filter(|_| stream) {
+        headless_stream::run_headless_streaming(headless_runner.as_ref(), &request, sink)
+            .await
+            .map(|turn| (turn.response, turn.prose_delivered.then_some(sink)))
     } else {
         headless_runner
             .converse(&request)
             .await
+            .map(|response| (response, None))
             .map_err(AppError::from)
     };
     let latency_ms = millis_elapsed(call_start);
     let prompt_text = join_prompt_text(llm_messages.iter().map(|m| m.content.as_str()));
-    let headless_response = match converse_result {
-        Ok(r) => {
+    let (headless_response, streamed_to) = match converse_result {
+        Ok((r, streamed_to)) => {
             let tools_in_response: Vec<String> =
                 r.tool_calls.iter().map(observed_tool_name).collect();
             emit_call_record_with_text(
@@ -1030,7 +1040,7 @@ pub(crate) async fn run_headless_tool_loop(
                 Some(&prompt_text),
                 Some(&r.content),
             );
-            r
+            (r, streamed_to)
         }
         Err(e) => {
             // `prompt_text` is already assembled above for the success
@@ -1062,6 +1072,7 @@ pub(crate) async fn run_headless_tool_loop(
 
     finalize_headless_turn(
         headless_response,
+        streamed_to,
         headless_runner.as_ref(),
         &request,
         params,

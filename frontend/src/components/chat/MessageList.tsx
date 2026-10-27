@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The thread's transcript — bubbles grouped by author, a day pill between days, and the live rows of a turn
-// ABOUTME: Streaming text, the thinking dots, an error and a provider notice all speak from the agent's side of the thread
+// ABOUTME: Streaming text, a running turn's steps, an error and a provider notice all speak from the agent's side of the thread
 
 import { useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
@@ -15,12 +15,14 @@ import {
   isSameMessageGroup,
   localDayKey,
   messageChannelOrigin,
+  type TurnTrail,
 } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import MessageBubble from './MessageBubble';
 import DaySeparator from './DaySeparator';
 import TopicDivider from './TopicDivider';
 import CoachAvatar from './CoachAvatar';
+import { FoldedTurnTrail, LiveTurnIndicator, LiveTurnLine } from './TurnTrail';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls, topicAnchorId } from './utils';
@@ -54,10 +56,20 @@ interface MessageListProps {
   isLoading: boolean;
   isStreaming: boolean;
   streamingContent: string;
-  /** Live AG-UI pipeline status for the in-flight turn (e.g. "calling
-   *  get_activities…"), or `null` when no progress is known. Rendered
-   *  in the streaming bubble alongside the token-delta text. */
-  progressStatusText?: string | null;
+  /**
+   * The steps of the turn streaming here, or `null` when none streams. Drawn
+   * as a checked list with the current step and a timer where the reply will
+   * be, and as one line under the reply's words once they stream.
+   */
+  liveTrail?: TurnTrail | null;
+  /**
+   * When the reply the server is still writing was asked for (epoch ms),
+   * with no stream here — the thread was reloaded mid-turn. The indicator
+   * shows from then, with no steps, since they are not known.
+   */
+  awaitingSince?: number | null;
+  /** Each finished reply's trail this session, keyed by the reply's id; folded above it. */
+  turnTrails?: ReadonlyMap<string, TurnTrail>;
   errorMessage: string | null;
   oauthNotification: OAuthNotification | null;
   onDismissError: () => void;
@@ -118,7 +130,9 @@ export default function MessageList({
   isLoading,
   isStreaming,
   streamingContent,
-  progressStatusText,
+  liveTrail = null,
+  awaitingSince = null,
+  turnTrails,
   errorMessage,
   oauthNotification,
   onDismissError,
@@ -253,6 +267,7 @@ export default function MessageList({
       // words from a messaging app say where they came from.
       const origin = messageChannelOrigin(msg);
       const time = formatMessageTime(msg.created_at, language);
+      const foldedTrail = turnTrails?.get(msg.id);
       out.push(
         <MessageItem
           key={msg.id}
@@ -267,6 +282,7 @@ export default function MessageList({
           assistantLabel={assistantLabel}
           timestamp={origin ? `${time} · ${t('chat.fromChannel', { channel: origin.label })}` : time}
           groupStart={groupStart}
+          lead={foldedTrail ? <FoldedTurnTrail trail={foldedTrail} /> : undefined}
           // The bubble hands back the reply as a reader outside the app can
           // use it — its charts named rather than left as ⟦viz:N⟧ markers —
           // because only the bubble has the resolved scenes to name them from.
@@ -297,6 +313,7 @@ export default function MessageList({
     messageBlocks,
     verdicts,
     assistantLabel,
+    turnTrails,
     onCopyMessage,
     onShareMessage,
     onThumbsUp,
@@ -346,7 +363,7 @@ export default function MessageList({
         </MessageBubble>
       )}
 
-      {/* Streaming response */}
+      {/* Streaming response, with what the turn is on under its words */}
       {isStreaming && streamingContent && (
         <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
           <div className="text-on-surface text-base leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
@@ -354,29 +371,21 @@ export default function MessageList({
               {linkifyUrls(streamingContent)}
             </Markdown>
           </div>
-          {/* Live pipeline progress (tool calls / steps) below the streamed
-              text so the user sees what the model is doing even after the
-              first tokens arrive. */}
-          {progressStatusText && (
-            <div className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
-              <div className="pierre-spinner h-3 w-3"></div>
-              <span>{progressStatusText}</span>
-            </div>
-          )}
+          {liveTrail ? <LiveTurnLine trail={liveTrail} /> : null}
         </MessageBubble>
       )}
 
-      {/* Thinking indicator — three breathing dots, the way every messenger says "typing" */}
+      {/* The running turn before its words: the steps it has taken, the one it
+          is on, and how long it has run. After a reload the server's word
+          that a reply is coming stands in for the stream, with no steps. */}
       {isStreaming && !streamingContent && (
         <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
-          <div className="flex items-center gap-2 text-sm text-on-surface-variant" role="status" aria-live="polite">
-            <span className="flex items-center gap-1" aria-hidden="true">
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-              <span className="ai-typing-dot" />
-            </span>
-            <span>{progressStatusText ?? t('chat.thinking')}</span>
-          </div>
+          <LiveTurnIndicator trail={liveTrail} />
+        </MessageBubble>
+      )}
+      {!isStreaming && awaitingSince !== null && (
+        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+          <LiveTurnIndicator trail={null} startedAt={awaitingSince} />
         </MessageBubble>
       )}
 

@@ -469,6 +469,8 @@ struct SseInputs {
 ///
 /// - `event: progress` — a stage entered/left, or a tool call's latest state
 /// - `event: delta` — the next slice of assistant prose
+/// - `event: retract` — the prose streamed so far is not the reply; the
+///   in-flight bubble empties and the next delta starts it again
 /// - `event: block` — one renderable piece of the finished reply
 /// - `event: done` — the whole [`TurnResponse`], identical to the body the
 ///   blocking branch returns

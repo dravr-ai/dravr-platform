@@ -4501,8 +4501,11 @@ name = "pierre-test-support"
 version = "0.3.0"
 dependencies = [
  "chrono",
+ "futures-util",
  "pierre-core",
  "pierre-database",
+ "reqwest 0.12.28",
+ "serde_json",
  "sqlx",
  "tokio",
  "uuid",

@@ -21,6 +21,8 @@ import type {
   TurnSendOptions,
 } from '@pierre/shared-types';
 import {
+  AWAITING_REPLY_POLL_MS,
+  awaitedSince,
   composeRoomThread,
   filterDisplayMessages,
   hasEarlierMessages,
@@ -29,13 +31,13 @@ import {
   type EarlierWindows,
   readLostTurn,
   reduceLostTurn,
-  statusForProgress,
   type LostTurn,
+  type TurnTrail,
 } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
-import { describeApiError, describeTurnFailure } from '@pierre/ui-logic';
+import { describeApiError, describeTurnFailure, streamedReplyCallbacks, useTurnTrail } from '@pierre/ui-logic';
 
 export interface MessagesState {
   messages: Message[];
@@ -78,14 +80,33 @@ export interface MessagesState {
    */
   quotaNotice: ReplyNotice | null;
   /**
-   * What the in-flight turn is doing right now (e.g. "reading your
-   * question…"), or `null` between turns.
+   * The steps of the turn running on this client — what it has done and what
+   * it is on — or `null` when none runs here.
    *
-   * Read off the turn's own response body — the same one the reply arrives
-   * on — so there is no second subscription to open and nothing to correlate.
-   * Reset to `null` once the turn lands.
+   * Read off the turn's own response body, the same one the reply arrives
+   * on, through the reducer both clients share.
    */
-  progressText: string | null;
+  liveTrail: TurnTrail | null;
+  /**
+   * The reply of the turn running on this client as it is being written, or
+   * `''` before its first words and once it has landed. Emptied when the
+   * server takes the words back; the persisted reply replaces it at `done`.
+   */
+  streamingContent: string;
+  /** Each finished reply's trail this session, keyed by the reply's id. */
+  turnTrails: ReadonlyMap<string, TurnTrail>;
+  /**
+   * When the reply the server is still writing for the open thread was asked
+   * for (epoch ms), while no turn runs on this client — the app was closed or
+   * the thread reopened mid-turn. `null` otherwise. While it is set, the
+   * thread is re-read every few seconds until the reply lands.
+   */
+  awaitingSince: number | null;
+  /**
+   * A turn is running in the open thread: sent from here, or one the server
+   * says it is still answering. The stop button shows for the whole of it.
+   */
+  turnInFlight: boolean;
   /**
    * The open group thread's room could not be read, so the thread shows only
    * the caller's own side of it — said on screen rather than left as a gap.
@@ -186,7 +207,31 @@ export function useMessages(): MessagesState & MessagesActions {
   const [verdicts, setVerdicts] = useState<ClaimVerdict[]>([]);
   const [verdictsLoading, setVerdictsLoading] = useState(false);
   const [quotaNotice, setQuotaNotice] = useState<ReplyNotice | null>(null);
-  const [progressText, setProgressText] = useState<string | null>(null);
+  const {
+    live: liveTrail,
+    finished: turnTrails,
+    begin: beginTrail,
+    progress: trailProgress,
+    prose: trailProse,
+    retract: trailRetract,
+    finish: finishTrail,
+    reset: resetTrails,
+  } = useTurnTrail();
+  const [streamingContent, setStreamingContent] = useState('');
+  const [awaitingSince, setAwaitingSince] = useState<number | null>(null);
+  // What the last read of the open thread said about a reply still being
+  // written, so the read that finds it landed can act on the change.
+  const awaitedRef = useRef<{ conversationId: string; since: number } | null>(null);
+  // The next re-read of a thread whose reply is still being written.
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Re-reads the thread for the poll; set once the readers below exist.
+  const rereadRef = useRef<(conversationId: string) => Promise<void>>(async () => undefined);
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
   const [roomUnavailable, setRoomUnavailable] = useState(false);
   const [hasEarlier, setHasEarlier] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
@@ -240,11 +285,14 @@ export function useMessages(): MessagesState & MessagesActions {
     }, delayMs);
   }, [scrollToBottom]);
 
-  // Cleanup scroll timer on unmount
+  // Cleanup scroll and poll timers on unmount
   useEffect(() => {
     return () => {
       if (scrollTimerRef.current) {
         clearTimeout(scrollTimerRef.current);
+      }
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
       }
     };
   }, []);
@@ -294,10 +342,37 @@ export function useMessages(): MessagesState & MessagesActions {
     const transcript = joinMessageWindows(earlier?.messages, response.messages || []);
     const own = filterDisplayMessages(transcript);
     const rows = room ? composeRoomThread(own, room) : own;
+    // A reply the server is still writing, when no turn runs here: the app
+    // was closed or the thread reopened mid-turn. A reply already in the
+    // transcript settles it whatever the flag says.
+    const awaited = sendingConversationRef.current === null
+      ? awaitedSince(response.awaiting_reply, transcript)
+      : null;
+    const wasAwaited = awaitedRef.current?.conversationId === conversationId;
+    awaitedRef.current = awaited === null ? null : { conversationId, since: awaited };
+    setAwaitingSince(awaited);
+    stopPolling();
+    if (awaited !== null) {
+      // Read again in a few seconds, for as long as this thread stays open.
+      pollTimerRef.current = setTimeout(() => {
+        pollTimerRef.current = null;
+        void rereadRef.current(conversationId);
+      }, AWAITING_REPLY_POLL_MS);
+    } else if (wasAwaited) {
+      // The reply landed, or the server stopped waiting without one: the
+      // stop is done, and the list row moves the way a live turn moves it.
+      setIsStopping(false);
+      invalidateConversationList();
+    }
     const lost = lostTurnRef.current;
     const reading = readLostTurn(lost, conversationId, transcript);
     lostTurnRef.current = reduceLostTurn(lost, { type: 'read', conversationId, transcript });
-    if (reading.kind === 'waiting') {
+    if (reading.kind === 'waiting' && awaited !== null) {
+      // The server still holds the turn: the lost stream is not a failure,
+      // and the indicator stands in for the note until the reply lands.
+      setMessages(rows);
+      setError(null);
+    } else if (reading.kind === 'waiting') {
       // Not answered yet. The note sits under the question — the server's
       // copy when it received the turn, the client's own when it never did —
       // so its Retry re-sends the right line.
@@ -322,10 +397,12 @@ export function useMessages(): MessagesState & MessagesActions {
     setMessageFeedback(ratings);
     setMessageFeedbackComment(comments);
 
-    await refreshVerdicts(conversationId);
+    // A thread still waiting for its reply has no new verdicts to read; the
+    // read that brings the reply reads them.
+    if (awaited === null) await refreshVerdicts(conversationId);
 
     if (follow) deferredScrollToBottom(100);
-  }, [deferredScrollToBottom, earlierOf, refreshVerdicts]);
+  }, [deferredScrollToBottom, earlierOf, refreshVerdicts, stopPolling, invalidateConversationList]);
 
   /**
    * Read a thread: the caller's own conversation and, for a group thread, the
@@ -354,7 +431,41 @@ export function useMessages(): MessagesState & MessagesActions {
     }
   }, [earlierOf]);
 
+  /**
+   * The poll's re-read of a thread whose reply is still being written. Skipped
+   * once the athlete has opened another thread or sent a turn here — that
+   * turn's own body brings the reply — and retried on a failed read.
+   */
+  useEffect(() => {
+    rereadRef.current = async (conversationId: string) => {
+      const stillWaiting = () =>
+        openConversationRef.current === conversationId && sendingConversationRef.current === null;
+      if (!stillWaiting()) return;
+      try {
+        const { response, room } = await readThread(conversationId, roomGroupOf(conversationId));
+        if (!stillWaiting()) return;
+        await showTranscript(conversationId, response, room, false);
+      } catch (err) {
+        console.error('Failed to re-read the thread awaiting its reply:', err);
+        if (!stillWaiting()) return;
+        stopPolling();
+        pollTimerRef.current = setTimeout(() => {
+          pollTimerRef.current = null;
+          void rereadRef.current(conversationId);
+        }, AWAITING_REPLY_POLL_MS);
+      }
+    };
+  }, [readThread, roomGroupOf, showTranscript, stopPolling]);
+
   const loadMessages = useCallback(async (conversationId: string, groupId: string | null = null) => {
+    if (openConversationRef.current !== conversationId) {
+      // Another thread: its turn trails and its wait are not this one's.
+      stopPolling();
+      awaitedRef.current = null;
+      setAwaitingSince(null);
+      setIsStopping(false);
+      resetTrails();
+    }
     openConversationRef.current = conversationId;
     openRoomRef.current = groupId ? { conversationId, groupId } : null;
     try {
@@ -366,7 +477,7 @@ export function useMessages(): MessagesState & MessagesActions {
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
-  }, [readThread, showTranscript]);
+  }, [readThread, showTranscript, stopPolling, resetTrails, t]);
 
   /**
    * Re-read a thread whose turn was lost while the athlete was away, now that
@@ -462,7 +573,15 @@ export function useMessages(): MessagesState & MessagesActions {
     setMessages(prev => [...prev, userMessage]);
     deferredScrollToBottom(200);
 
-    setProgressText(null);
+    // A turn sent here brings its own reply: no re-read races it.
+    stopPolling();
+    awaitedRef.current = null;
+    setAwaitingSince(null);
+    beginTrail();
+    setStreamingContent('');
+    // The reply's words as the turn's body streams them, and the trail's
+    // writing phase with them.
+    const streamed = streamedReplyCallbacks(setStreamingContent, { prose: trailProse, retract: trailRetract });
 
     // The reply arrives already decomposed: the server read this surface's
     // render capabilities and decided which pieces get their own block. Held
@@ -488,10 +607,9 @@ export function useMessages(): MessagesState & MessagesActions {
         // and the thread is re-read when the athlete returns.
         signal,
         origin: options.origin,
-        onProgress: progress => {
-          const status = statusForProgress(progress);
-          if (status !== null) setProgressText(t(status.key, status.params));
-        },
+        // The shared trail names each step the same way here and on the web.
+        onProgress: trailProgress,
+        ...streamed,
         onBlock: block => {
           // A quota notice is a fact about the turn rather than about the
           // reply, and the usage banner is where it belongs. Everything else
@@ -504,6 +622,10 @@ export function useMessages(): MessagesState & MessagesActions {
         },
         onDone: turn => {
           const assistantId = turn.assistant.message.id;
+          // The persisted reply takes the streamed words' place.
+          setStreamingContent('');
+          // The trail folds into one line above the reply it led to.
+          finishTrail(assistantId || null, turn.telemetry.tools_called);
           if (turnBlocks.length > 0 && assistantId) {
             const blocks = [...turnBlocks];
             setMessageBlocks(prev => ({ ...prev, [assistantId]: blocks }));
@@ -551,6 +673,8 @@ export function useMessages(): MessagesState & MessagesActions {
           if (!rotatedTo) void refreshVerdicts(conversationId);
         },
         onError: sendErr => {
+          setStreamingContent('');
+          finishTrail(null);
           setError(turnFailureText(sendErr));
           invalidateConversationList();
           const errorResponse = failedTurnRow(sendErr, signal.aborted);
@@ -585,7 +709,10 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(false);
     setIsStopping(false);
     sendingConversationRef.current = null;
-    setProgressText(null);
+    // A turn that ended with neither `onDone` nor `onError` has no trail and
+    // no streamed words left.
+    setStreamingContent('');
+    finishTrail(null);
     recoverOnReturn(heldIds);
     // The turn joined the room, and other members may have spoken since it
     // was last read: a group thread re-reads its room once the reply is in.
@@ -593,10 +720,15 @@ export function useMessages(): MessagesState & MessagesActions {
     const roomGroup = roomGroupOf(conversationId);
     if (landed && !rotatedTo && (roomGroup || openedTopic)) void loadMessages(conversationId, roomGroup);
     return rotatedTo;
-  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, roomGroupOf, loadMessages]);
+  }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, roomGroupOf, loadMessages, stopPolling, beginTrail, trailProgress, trailProse, trailRetract, finishTrail, turnFailureText]);
 
   const stopTurn = useCallback(async () => {
-    const conversationId = sendingConversationRef.current;
+    // A turn restored after the app reopened runs with no body here: the stop
+    // goes to the open thread the server says is still being answered, and a
+    // re-read brings the notice it closes the question with.
+    const restored = sendingConversationRef.current === null && awaitedRef.current !== null;
+    const conversationId = sendingConversationRef.current
+      ?? (restored ? awaitedRef.current?.conversationId ?? null : null);
     if (!conversationId || isStopping) return;
     setIsStopping(true);
     try {
@@ -604,6 +736,7 @@ export function useMessages(): MessagesState & MessagesActions {
       // deliver it: there is nothing to wait for, so the button is handed back.
       const stopped = await chatApi.stopTurn(conversationId);
       if (!stopped) setIsStopping(false);
+      if (restored) await rereadRef.current(conversationId);
     } catch (err) {
       setIsStopping(false);
       setError(describeApiError(err, { t, fallbackKey: 'chat.turnTryAgain' }));
@@ -629,7 +762,14 @@ export function useMessages(): MessagesState & MessagesActions {
     openConversationRef.current = conversationId;
     lostTurnRef.current = reduceLostTurn(lostTurnRef.current, { type: 'sent' });
 
-    setProgressText(null);
+    stopPolling();
+    awaitedRef.current = null;
+    setAwaitingSince(null);
+    beginTrail();
+    setStreamingContent('');
+    // The reply's words as the turn's body streams them, and the trail's
+    // writing phase with them.
+    const streamed = streamedReplyCallbacks(setStreamingContent, { prose: trailProse, retract: trailRetract });
 
     // Every row the client held, the retried one included: a stored reply
     // being regenerated is still on the server, where it answers the original
@@ -645,10 +785,8 @@ export function useMessages(): MessagesState & MessagesActions {
     try {
       await chatApi.sendTurn(conversationId, sent, {
         signal,
-        onProgress: progress => {
-          const status = statusForProgress(progress);
-          if (status !== null) setProgressText(t(status.key, status.params));
-        },
+        onProgress: trailProgress,
+        ...streamed,
         onBlock: block => {
           if (block.type === 'notice') {
             setQuotaNotice(block.notice);
@@ -658,6 +796,8 @@ export function useMessages(): MessagesState & MessagesActions {
         },
         onDone: turn => {
           const retriedId = turn.assistant.message.id;
+          setStreamingContent('');
+          finishTrail(retriedId || null, turn.telemetry.tools_called);
           if (!retriedId) return;
           if (retriedBlocks.length > 0) {
             const blocks = [...retriedBlocks];
@@ -677,6 +817,8 @@ export function useMessages(): MessagesState & MessagesActions {
           void refreshVerdicts(conversationId);
         },
         onError: err => {
+          setStreamingContent('');
+          finishTrail(null);
           setError(turnFailureText(err));
           invalidateConversationList();
           const errorRow = failedTurnRow(err, signal.aborted);
@@ -709,9 +851,10 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(false);
     setIsStopping(false);
     sendingConversationRef.current = null;
-    setProgressText(null);
+    setStreamingContent('');
+    finishTrail(null);
     recoverOnReturn(heldIds);
-  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts]);
+  }, [messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, stopPolling, beginTrail, trailProgress, trailProse, trailRetract, finishTrail, turnFailureText]);
 
   // Apply a rating change optimistically and persist it. Clicking the active
   // rating again toggles it off (DELETE); otherwise the rating is upserted.
@@ -821,6 +964,12 @@ export function useMessages(): MessagesState & MessagesActions {
   }, [earlierOf, roomGroupOf, showTranscript]);
 
   const clearMessages = useCallback(() => {
+    stopPolling();
+    awaitedRef.current = null;
+    setAwaitingSince(null);
+    setIsStopping(false);
+    resetTrails();
+    setStreamingContent('');
     openConversationRef.current = null;
     openRoomRef.current = null;
     newestWindowRef.current = null;
@@ -831,7 +980,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setMessageBlocks({});
     setVerdicts([]);
     setError(null);
-  }, []);
+  }, [stopPolling, resetTrails]);
 
   return {
     messages,
@@ -844,7 +993,11 @@ export function useMessages(): MessagesState & MessagesActions {
     verdicts,
     verdictsLoading,
     quotaNotice,
-    progressText,
+    liveTrail,
+    streamingContent,
+    turnTrails,
+    awaitingSince,
+    turnInFlight: isSending || awaitingSince !== null,
     roomUnavailable,
     hasEarlier,
     loadingEarlier,

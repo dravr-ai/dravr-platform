@@ -49,15 +49,19 @@ pub(crate) fn with_tool_defs(request: &ChatRequest, tools: Option<Vec<Tool>>) ->
     tool_defs_from(tools).map_or_else(|| request.clone(), |defs| request.clone().with_tools(defs))
 }
 
-/// Lift a plain `ChatResponse` into the tool-carrying shape, preserving any
-/// tool calls the provider reported.
-pub(crate) fn with_tools_response(response: ChatResponse) -> ChatResponseWithTools {
-    ChatResponseWithTools {
-        content: Some(response.content),
-        model: response.model,
-        usage: response.usage,
-        function_calls: function_calls_from(response.tool_calls),
-        finish_reason: response.finish_reason,
-        warnings: response.warnings,
+impl ChatResponseWithTools {
+    /// Lift a plain `ChatResponse` into the tool-carrying shape, preserving
+    /// any tool calls the provider reported — the closing response of a
+    /// streamed tool turn included.
+    #[must_use]
+    pub fn from_chat_response(response: ChatResponse) -> Self {
+        Self {
+            content: Some(response.content),
+            model: response.model,
+            usage: response.usage,
+            function_calls: function_calls_from(response.tool_calls),
+            finish_reason: response.finish_reason,
+            warnings: response.warnings,
+        }
     }
 }

@@ -25,7 +25,12 @@ use axum::{
 use serde::Deserialize;
 
 use crate::mcp::resources::ServerContext;
+use crate::services::messaging_ingress::turn_watchdog;
+use chrono::Utc;
+use pierre_chat_pipeline::turn_stop::{awaiting_question, recent_rows};
 use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
+use pierre_database::repositories::ChatRepository;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_services::locale::resolve_user_locale;
@@ -33,7 +38,7 @@ use pierre_tool_runtime::derived_content;
 
 use super::common::get_tenant_id;
 use super::dto::{
-    preview_text, resolve_stored_blocks, MessageFeedbackEntry, MessageResponse,
+    preview_text, resolve_stored_blocks, AwaitingReply, MessageFeedbackEntry, MessageResponse,
     MessagesListResponse, TopicResponse, TopicsListResponse,
 };
 
@@ -158,13 +163,63 @@ pub(super) async fn get_messages(
         })
         .collect();
 
+    let awaiting_reply = awaiting_reply(
+        &resources,
+        chat,
+        &conversation_id,
+        &user_id_str,
+        tenant_id,
+        before,
+    )
+    .await?;
+
     let response = MessagesListResponse {
         messages: messages_list,
         feedback,
         has_more: page.has_more,
+        awaiting_reply,
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// The caller's question a turn is still working on, if any.
+///
+/// Only the newest window (`before` absent) says whether a reply is coming:
+/// an older one is history the client scrolled back to, and answers `None`.
+///
+/// Read from the same tail of the conversation `POST …/stop` reads, not from
+/// the window being served — a window of one row may not reach the question —
+/// so a client told a reply is coming can always stop that turn, and the two
+/// never disagree about which question is open. Only the caller's own question
+/// counts: in a shared conversation, another participant's running turn is
+/// theirs to wait on.
+///
+/// Aged against the turn watchdog ([`turn_watchdog`]), the one figure the
+/// server names as the longest a healthy turn can run. An in-app turn is not
+/// cut at it — only the messaging path enforces it — but nothing a live turn
+/// waits on lasts longer, so an unanswered question past it is a turn that died
+/// without writing a row, and reporting it would keep a client waiting on
+/// nothing.
+async fn awaiting_reply(
+    resources: &ServerContext,
+    chat: &dyn ChatRepository,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    before: Option<&str>,
+) -> Result<Option<AwaitingReply>, AppError> {
+    if before.is_some() {
+        return Ok(None);
+    }
+    let rows = recent_rows(chat, conversation_id, user_id, tenant_id).await?;
+    let ceiling = turn_watchdog(&resources.common.config.timeouts);
+    Ok(
+        awaiting_question(&rows, user_id, Utc::now(), ceiling).map(|question| AwaitingReply {
+            question_id: question.id.clone(),
+            asked_at: question.created_at.clone(),
+        }),
+    )
 }
 
 /// List a conversation's topics, newest first, as a participant: one per

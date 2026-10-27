@@ -60,7 +60,7 @@ async function* slices(body: string, sizes: number[]): AsyncGenerator<string> {
   if (at < body.length) yield body.slice(at);
 }
 
-/** The whole body in one piece — how React Native's fetch hands it over. */
+/** The whole body in one piece — how a runtime with no body stream hands it over. */
 async function* whole(body: string): AsyncGenerator<string> {
   yield body;
 }
@@ -117,6 +117,30 @@ describe('parseTurnBody — the streaming shape', () => {
     expect(parsed.assistant.message.content).toBe('Ta charge monte depuis trois semaines.');
     expect(parsed.assistant.blocks).toHaveLength(2);
     expect(parsed.telemetry.model).toBe('gpt-5-codex');
+  });
+
+  it('takes back the streamed words at a retract frame, in stream order', async () => {
+    const turn = envelope();
+    const events: string[] = [];
+    const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const body = [
+      frame('delta', { delta: 'Je regarde ' }),
+      frame('delta', { delta: 'tes sorties.' }),
+      frame('retract', {}),
+      ...DELTAS.map((delta) => frame('delta', { delta })),
+      frame('done', turn),
+    ].join('');
+
+    await parseTurnBody(slices(body, [11, 5, 60, 2, 300]), {
+      onDelta: (delta) => events.push(delta),
+      onRetract: () => events.push('<retract>'),
+    });
+
+    expect(events).toEqual(['Je regarde ', 'tes sorties.', '<retract>', ...DELTAS]);
+    // What a bubble built from these callbacks is left showing: the reply
+    // alone, never glued to the words taken back.
+    const shown = events.reduce((bubble, event) => (event === '<retract>' ? '' : bubble + event), '');
+    expect(shown).toBe(turn.assistant.message.content);
   });
 
   it('reads the same body handed over in one piece, as React Native hands it over', async () => {

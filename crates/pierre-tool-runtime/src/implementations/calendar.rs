@@ -347,7 +347,11 @@ pub(super) fn step_schema() -> PropertySchema {
         "duration_seconds".to_owned(),
         PropertySchema {
             property_type: "integer".to_owned(),
-            description: Some("How long ONE repetition of this step lasts, in seconds.".to_owned()),
+            description: Some(format!(
+                "Required. How long ONE repetition of this step lasts, in whole seconds: at \
+                 least 1 and at most {MAX_STEP_DURATION_SECONDS}. A distance-based step still \
+                 needs its estimated duration here; never 0."
+            )),
             ..Default::default()
         },
     );
@@ -355,11 +359,10 @@ pub(super) fn step_schema() -> PropertySchema {
         "target_zone".to_owned(),
         PropertySchema {
             property_type: "string".to_owned(),
-            description: Some(
-                "Intensity RELATIVE to the athlete's thresholds (\"Z2\", \"Z2 HR\", \
-                 \"Threshold\", \"sweet spot\", \"88-93% FTP\"). Never absolute watts."
-                    .to_owned(),
-            ),
+            description: Some(format!(
+                "Intensity RELATIVE to the athlete's thresholds. Use {TARGET_VOCABULARY}; \
+                 any other text is rejected. Never absolute watts."
+            )),
             ..Default::default()
         },
     );
@@ -367,7 +370,9 @@ pub(super) fn step_schema() -> PropertySchema {
         "repeat".to_owned(),
         PropertySchema {
             property_type: "integer".to_owned(),
-            description: Some("Repetitions of this step; omit for a single block.".to_owned()),
+            description: Some(format!(
+                "Repetitions of this step, from 1 to {MAX_STEP_REPEAT}; omit for a single block."
+            )),
             ..Default::default()
         },
     );
@@ -375,13 +380,13 @@ pub(super) fn step_schema() -> PropertySchema {
         "repeat_group".to_owned(),
         PropertySchema {
             property_type: "integer".to_owned(),
-            description: Some(
-                "Which repeated set this step belongs to, numbered 1, 2, 3 in step order. \
-                 Give every step of one set the same number and the next set the next \
-                 number, so 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) \
-                 stays two sets; omit it when no two adjacent sets share a repeat count."
-                    .to_owned(),
-            ),
+            description: Some(format!(
+                "Which repeated set this step belongs to, numbered 1, 2, 3 in step order \
+                 (at most {MAX_SESSION_STEPS}). Give every step of one set the same number and \
+                 the next set the next number, so 3 x (1 min on, 1 min off) straight into \
+                 3 x (30 s on, 30 s off) stays two sets; omit it when no two adjacent sets \
+                 share a repeat count."
+            )),
             ..Default::default()
         },
     );
@@ -389,7 +394,10 @@ pub(super) fn step_schema() -> PropertySchema {
         "distance_meters".to_owned(),
         PropertySchema {
             property_type: "number".to_owned(),
-            description: Some("Distance in metres for a distance-based step.".to_owned()),
+            description: Some(format!(
+                "Distance in metres for a distance-based step, above 0 and at most \
+                 {MAX_STEP_DISTANCE_METERS}; duration_seconds is still required."
+            )),
             ..Default::default()
         },
     );
@@ -407,7 +415,9 @@ pub(super) fn step_schema() -> PropertySchema {
     );
     PropertySchema {
         property_type: "object".to_owned(),
-        description: Some("One step of the session.".to_owned()),
+        description: Some(format!(
+            "One step of the session; a session has at most {MAX_SESSION_STEPS} steps."
+        )),
         properties: Some(p.into_iter().collect()),
         required: Some(vec![
             "label".to_owned(),
@@ -429,6 +439,65 @@ mod tests {
             provider.to_owned(),
             connection_type,
         )
+    }
+
+    /// The description of `field` on a step, as the model reads it.
+    fn step_field_description(field: &str) -> String {
+        step_schema()
+            .properties
+            .and_then(|p| p.get(field).and_then(|s| s.description.clone()))
+            .unwrap_or_else(|| panic!("step_schema describes {field}"))
+    }
+
+    /// carnet#1193: every bound `validate_step` enforces is stated in the
+    /// schema, so the model meets it before a rejected save costs a round.
+    #[test]
+    fn the_step_schema_states_every_bound_the_validator_enforces() {
+        let duration = step_field_description("duration_seconds");
+        assert!(duration.contains("Required"), "{duration}");
+        assert!(duration.contains("at least 1"), "{duration}");
+        assert!(
+            duration.contains(&MAX_STEP_DURATION_SECONDS.to_string()),
+            "{duration}"
+        );
+        assert!(duration.contains("distance-based"), "{duration}");
+
+        let target = step_field_description("target_zone");
+        assert!(target.contains(TARGET_VOCABULARY), "{target}");
+        assert!(target.contains("Never absolute watts"), "{target}");
+
+        let repeat = step_field_description("repeat");
+        assert!(repeat.contains(&MAX_STEP_REPEAT.to_string()), "{repeat}");
+        let group = step_field_description("repeat_group");
+        assert!(group.contains(&MAX_SESSION_STEPS.to_string()), "{group}");
+        let distance = step_field_description("distance_meters");
+        assert!(
+            distance.contains(&MAX_STEP_DISTANCE_METERS.to_string()),
+            "{distance}"
+        );
+        let step = step_schema().description.unwrap_or_default();
+        assert!(step.contains(&MAX_SESSION_STEPS.to_string()), "{step}");
+    }
+
+    /// Every example the target description gives is one the validator takes.
+    #[test]
+    fn the_target_vocabulary_examples_resolve() {
+        for example in [
+            "Z2",
+            "Z2 HR",
+            "sweet spot",
+            "88-93% FTP",
+            "90-95% threshold pace",
+        ] {
+            assert!(
+                TARGET_VOCABULARY.contains(example),
+                "{example} is in the vocabulary"
+            );
+            assert!(
+                RelativeIntensity::parse(example).is_some(),
+                "{example} resolves"
+            );
+        }
     }
 
     #[test]

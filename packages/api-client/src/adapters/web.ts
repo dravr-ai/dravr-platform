@@ -8,7 +8,6 @@ import type {
   PlatformAdapter,
   AuthStorage,
   AuthFailureHandler,
-  ResponseBodyReader,
 } from '../types/platform';
 
 const STORAGE_KEYS = {
@@ -128,35 +127,6 @@ function getDefaultBaseUrl(): string {
 }
 
 /**
- * Reads a response body progressively, as the browser receives it.
- *
- * This is what lets a chat turn paint while the model is still writing: each
- * chunk is decoded and handed on the moment it lands, instead of waiting for
- * the connection to close.
- */
-const readBodyProgressively: ResponseBodyReader = async function* (response) {
-  const body = response.body;
-  if (!body) {
-    yield await response.text();
-    return;
-  }
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      yield decoder.decode(value, { stream: true });
-    }
-    // Flush whatever the decoder was holding for a split multi-byte sequence.
-    const tail = decoder.decode();
-    if (tail) yield tail;
-  } finally {
-    reader.releaseLock();
-  }
-};
-
-/**
  * Creates a platform adapter for web (browser) environment.
  */
 export function createWebAdapter(options?: WebAdapterOptions): PlatformAdapter {
@@ -168,7 +138,6 @@ export function createWebAdapter(options?: WebAdapterOptions): PlatformAdapter {
     },
     authStorage: createWebAuthStorage(),
     authFailure: createWebAuthFailureHandler(),
-    readBody: readBodyProgressively,
     // the browser holds an httpOnly session cookie.
     turnCredentials: 'include',
     platform: 'web',

@@ -26,7 +26,7 @@ use tracing::{info, warn};
 
 use crate::mcp_bridge::ToolSessionTurn;
 use crate::recorders::{turn_call_recorder, ChatRepoToolMessageRecorder};
-use crate::surface_profile::{ProviderStreaming, SurfaceProfile};
+use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::{call_type_for_profile, ChatPipelineContext};
 use embacle_tool_host::ToolSession;
@@ -129,6 +129,11 @@ pub(crate) struct DispatchedTurn {
     /// The peer blocks the grounding stage injected (Stage 12c): the
     /// provenance the recovery stages read pre-grounded peer data from.
     pub peer_blocks: Vec<PeerGroundingBlock>,
+    /// Whether any tier that may have served the turn streams its tool loop's
+    /// text, so a later stage that replaces the reply may have text on the
+    /// turn's sink to take back. Read only where a sink is installed; false
+    /// when every tier answers whole, whose sink carried tool progress alone.
+    pub streams_partial_text: bool,
 }
 
 #[tracing::instrument(
@@ -264,28 +269,18 @@ pub(crate) async fn dispatch_llm_with_tools(
         .await
     };
 
-    // Cross the surface's transport half with the provider's producer half.
-    // A delta sink is installed only where both answer yes: the surface reads
-    // frames AND this turn's loop emits text deltas. On a function-calling
-    // provider the sink would receive nothing, and passing it anyway is what
-    // made the headless loop log `stream = true` for turns that never
-    // streamed and left the route holding a channel no frame ever crossed.
-    let provider_streaming = ProviderStreaming::from_sdk_tool_calling(
-        provider.capabilities().supports_sdk_tool_calling(),
-    );
-    let streams_partial_text = profile
-        .render
-        .progressive
-        .delivers_partial_text(provider_streaming);
-    let stream_sink = stream_sink.filter(|_| streams_partial_text);
-
-    info!(
-        provider = %provider_name,
-        message_count = llm_messages.len(),
-        max_iterations,
-        streams_partial_text,
-        "Chat pipeline dispatch starting tool loop"
-    );
+    // The sink reaches the loop whenever the surface reads frames (only the
+    // in-app SSE body installs one): every loop reports the tools it runs
+    // through it, so a coach on a head that answers whole (Gemini, Cohere, a
+    // CLI runner) still watches each step as it happens. Whether reply text
+    // streams through it too is `ToolLoopParams::streams_text`, the one rule,
+    // which the fallback asks again of each tail's own provider. A messaging
+    // surface has no sink at all: its webhook sends one message per turn.
+    //
+    // What a later stage that replaces the reply may have to take back: text
+    // from the head, or from a tail the head faulted over to. Read by that
+    // stage only on a sink, so the sink half of the rule is its own.
+    let streams_partial_text = provider.any_tier_streams_tool_loop_text();
 
     // Stage 14: Multi-turn tool execution loop.
     //
@@ -417,6 +412,14 @@ pub(crate) async fn dispatch_llm_with_tools(
         temperature: agent_ctx.and_then(|c| c.temperature),
         mcp_servers,
     };
+    info!(
+        provider = %provider_name,
+        message_count = llm_messages.len(),
+        max_iterations,
+        streams_text = tool_params.streams_text(),
+        streams_partial_text,
+        "Chat pipeline dispatch starting tool loop"
+    );
     let loop_start = Instant::now();
     let loop_result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await;
 
@@ -510,5 +513,6 @@ pub(crate) async fn dispatch_llm_with_tools(
         activities_prefetched: prefetched_activities,
         tool_rounds,
         peer_blocks,
+        streams_partial_text,
     })
 }

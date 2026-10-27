@@ -27,7 +27,7 @@ pub use pierre_core::models;
 pub use pierre_core::llm::{
     ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
     LlmProviderRegistry, McpHeader, McpServerConfig, McpTransport, MessageRole, StreamChunk,
-    TokenUsage,
+    TokenUsage, ToolStreamEvent, ToolTurnStream,
 };
 
 /// What one recorded LLM call is, its sink, and the recorded completion

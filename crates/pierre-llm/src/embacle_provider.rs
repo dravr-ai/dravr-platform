@@ -6,6 +6,7 @@
 
 use std::env;
 use std::fmt;
+use std::mem;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -28,7 +29,10 @@ use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
 use tracing::{info, info_span, warn, Instrument, Span};
 
-use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
+use super::{
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, ToolStreamEvent,
+    ToolTurnStream,
+};
 use crate::chain_guard::copilot_headroom_checker;
 use crate::chain_observer::ChainObserver;
 use crate::config::{ChainEntry, HttpProvider, LlmProviderType, ProviderConstruction};
@@ -762,6 +766,33 @@ impl LlmProvider for EmbacleProvider {
         ))
     }
 
+    /// embacle's stream, its closing response carrying the same capability
+    /// warnings [`Self::complete`] attaches, judged against the head: the
+    /// stream is opened on the runner this provider wraps, and no chain
+    /// observer reports another tier for it.
+    async fn complete_stream_with_tools(
+        &self,
+        request: &ChatRequest,
+    ) -> Result<ToolTurnStream, AppError> {
+        let embacle_stream = EmbacleLlmProvider::complete_stream_with_tools(&*self.runner, request)
+            .instrument(self.request_span("complete_stream_with_tools", request))
+            .await
+            .map_err(AppError::from)?;
+        // Judged now rather than at `Done`: what is dropped depends on the
+        // request alone, and the stream outlives the borrowed request — this
+        // keeps the whole conversation from being cloned into the closure.
+        let mut dropped = dropped_parameters(self.head.name(), self.head.capabilities(), request);
+        Ok(Box::pin(embacle_stream.map(move |item| {
+            item.map_err(AppError::from).map(|event| match event {
+                ToolStreamEvent::Done(mut response) => {
+                    attach_warnings(&mut response, mem::take(&mut dropped));
+                    ToolStreamEvent::Done(response)
+                }
+                other => other,
+            })
+        })))
+    }
+
     async fn health_check(&self) -> Result<bool, AppError> {
         EmbacleLlmProvider::health_check(&*self.runner)
             .instrument(info_span!(
@@ -805,10 +836,25 @@ fn attach_capability_warnings(
     capabilities: LlmCapabilities,
     request: &ChatRequest,
 ) {
+    attach_warnings(
+        response,
+        dropped_parameters(provider, capabilities, request),
+    );
+}
+
+/// Every parameter of `request` that `provider`, with `capabilities`,
+/// silently drops.
+fn dropped_parameters(
+    provider: &str,
+    capabilities: LlmCapabilities,
+    request: &ChatRequest,
+) -> Vec<String> {
     // Permissive mode never fails; it only lists what was dropped.
-    let Ok(dropped) = validate_capabilities(provider, capabilities, request, false) else {
-        return;
-    };
+    validate_capabilities(provider, capabilities, request, false).unwrap_or_default()
+}
+
+/// Add `dropped` to `response`'s warnings, leaving them unset when it is empty.
+fn attach_warnings(response: &mut ChatResponse, dropped: Vec<String>) {
     if !dropped.is_empty() {
         response
             .warnings

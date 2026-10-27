@@ -67,6 +67,11 @@ interface MessageItemProps {
   /** First row of a run by the same author — gets the avatar and the author line. */
   groupStart?: boolean;
   /**
+   * What sits above an agent reply's words inside its bubble — the line the
+   * turn that wrote it folded into. Absent on every other row.
+   */
+  lead?: ReactNode;
+  /**
    * Put this reply on the clipboard.
    *
    * Receives the reply as text a reader outside the app can use — its charts
@@ -180,6 +185,7 @@ const MessageItem = memo(function MessageItem({
   assistantLabel,
   timestamp,
   groupStart = true,
+  lead,
   onCopy,
   onShare,
   onThumbsUp,
@@ -549,6 +555,7 @@ const MessageItem = memo(function MessageItem({
         finishReason={message.finish_reason}
         actions={room ? undefined : actions}
       >
+        {lead}
         {replyBlocks.map((block, index) => renderBlock(block, index))}
       </MessageBubble>
       {/* Optional thumbs-down reason — the down rating is already saved; this

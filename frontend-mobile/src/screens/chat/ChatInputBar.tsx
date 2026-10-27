@@ -23,6 +23,10 @@ interface ChatInputBarProps {
   inputText: string;
   partialTranscript: string;
   isListening: boolean;
+  /**
+   * A turn is running in this thread — sent from here, or one the server is
+   * still answering after the app reopened. The send slot is the stop button.
+   */
   isSending: boolean;
   /** A stop was sent and the turn has not ended yet; the stop button waits. */
   isStopping: boolean;

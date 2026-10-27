@@ -13,7 +13,8 @@
 //! dispatch chokepoint every transport funnels through) in `enforce` mode and
 //! asserts the runtime Guardian blocks a consequential tool while leaving reads
 //! untouched, then drives the same block through `POST /mcp` to pin what an MCP
-//! client receives.
+//! client receives. A chat turn's tool batch reports the blocked call to the
+//! athlete's trail as never run, and its siblings after it not at all.
 
 use crate::common;
 
@@ -28,11 +29,17 @@ use common::{
 };
 use pierre_config::environment::GuardianSettings;
 use pierre_core::models::TenantId;
+use pierre_llm::FunctionCall;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_services::chat_stream::{
+    TurnEvent, TOOL_STATUS_COMPLETED, TOOL_STATUS_IN_PROGRESS, TOOL_STATUS_NOT_RUN,
+};
+use pierre_tool_runtime::function_dispatch::execute_function_calls;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -198,5 +205,69 @@ async fn guardian_enforce_chokepoint_denies_irreversible_allows_reads_e2e() {
         data,
         json!({ "error_code": "guardian_denied", "reason": "budget_exceeded" }),
         "the client reads the Guardian's code and reason from content: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
+    common::init_server_config();
+    let resources = create_test_server_resources_with_config(test_server_config_with_guardian(
+        GuardianSettings {
+            mode: Some("enforce".to_owned()),
+            max_destructive_per_turn: Some("0".to_owned()),
+            ..GuardianSettings::default()
+        },
+    ))
+    .await
+    .expect("server resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let executor = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_turn_token("trail-turn".to_owned());
+    let call = |name: &str, args: Value| FunctionCall {
+        name: name.to_owned(),
+        args,
+    };
+    // A read that runs, the irreversible call the zero budget denies, and a
+    // read after it that the batch never reaches.
+    let calls = vec![
+        call("get_connection_status", json!({})),
+        call("disconnect_provider", json!({ "provider": "strava" })),
+        call("get_connection_status", json!({})),
+    ];
+    let (sink, mut events) = mpsc::unbounded_channel();
+
+    let outcome = execute_function_calls(
+        &executor,
+        &calls,
+        &user_id.to_string(),
+        TenantId::from_uuid(Uuid::new_v4()),
+        Some(&sink),
+    )
+    .await
+    .expect("dispatch returns an outcome");
+
+    assert!(
+        outcome.guardian_denied.is_some(),
+        "the batch stops on the Guardian's denial"
+    );
+    let mut steps: Vec<(String, String)> = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let TurnEvent::Progress(progress) = event {
+            steps.push((progress.title, progress.status));
+        }
+    }
+    assert_eq!(
+        steps,
+        [
+            ("get_connection_status", TOOL_STATUS_IN_PROGRESS),
+            ("get_connection_status", TOOL_STATUS_COMPLETED),
+            ("disconnect_provider", TOOL_STATUS_IN_PROGRESS),
+            ("disconnect_provider", TOOL_STATUS_NOT_RUN),
+        ]
+        .map(|(title, status)| (title.to_owned(), status.to_owned())),
+        "the read is a step done, the denied call is withdrawn, and the read after it never starts"
     );
 }

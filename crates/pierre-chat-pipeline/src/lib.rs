@@ -78,8 +78,8 @@ pub use hooks::{
 pub use quota_policy::{check_pre_chat_quotas_scoped, settle_turn_notice, PreChatScope};
 pub use stages::command_persistence::{CommandPersistence, PersistedCommandReply};
 pub use surface_profile::{
-    BlockSupport, MessagingTransportCaps, ProgressiveSupport, ProseFormat, ProviderStreaming,
-    RenderCapabilities, SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
+    BlockSupport, MessagingTransportCaps, ProgressiveSupport, ProseFormat, RenderCapabilities,
+    SurfaceId, SurfaceProfile, SurfaceRequest, TurnBudget,
 };
 pub use turn_service::{
     dispatch_slash, execute, CommandTurn, ServedTurn, SlashRequest, TurnRequest,
@@ -646,6 +646,7 @@ async fn run_turn(
         activities_prefetched,
         tool_rounds,
         peer_blocks,
+        streams_partial_text,
     } = dispatch_stage(
         DispatchStageArgs {
             hooks,
@@ -683,6 +684,7 @@ async fn run_turn(
             peer_blocks: &peer_blocks,
             guided_walk: onboarding_turn.as_ref().map(|turn| &turn.state),
             seat,
+            streamed_to: hooks.stream_sink.as_ref().filter(|_| streams_partial_text),
         },
         &mut result,
         hooks,

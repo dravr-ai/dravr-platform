@@ -28,6 +28,7 @@ use pierre_llm::provider_stop::ProviderStop;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ChatResponse};
 use pierre_services::prompt_leak;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::prose_stream;
 use tracing::{info, warn};
 
 use crate::envelope::ReconnectPrompt;
@@ -41,6 +42,7 @@ use crate::stages::peer_grounding::PeerGroundingBlock;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::{chat_provider_from_resources_arc, ChatPipelineContext};
+use crate::{TurnEvent, TurnEventSink};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
 /// One bounded re-ask when the model answered as the provider instead of the agent.
@@ -82,10 +84,15 @@ async fn reask_after_identity_leak(
     llm_messages: &[ChatMessage],
     active_model: &str,
     result: &mut ToolLoopResult,
+    draft: &mut StreamedDraft<'_>,
 ) {
     if narration::identity_leak_match(&result.content).is_none() {
         return;
     }
+    // The leaked reply is never delivered: the re-ask replaces it, or Stage
+    // 15.4 withholds it. Taken back now rather than left on screen for the
+    // length of the re-ask.
+    draft.take_back();
     let Some(provider) = resolve_reask_provider(ctx) else {
         return;
     };
@@ -205,6 +212,30 @@ pub(crate) struct RecoveryAndPostProcessInputs<'a> {
     /// Whose data the turn's tools ran against: in a coach's thread about one
     /// athlete, capability recovery never fetches the sender's own activities.
     pub seat: TurnSeat,
+    /// The sink the tool loop streamed the draft reply to, when it streamed
+    /// one: a stage that replaces the draft takes the streamed text back there.
+    pub streamed_to: Option<&'a TurnEventSink>,
+}
+
+/// The draft reply the tool loop streamed, while it may still be on screen.
+///
+/// Every stage below judges the whole reply after the athlete has watched it
+/// arrive. One that replaces it — a Guardian's deterministic reply, a
+/// disproven capability claim re-asked away, a reconnect message, an identity
+/// break re-asked or withheld — takes the streamed text back the moment it
+/// knows, so the bubble stops showing words that will not be the reply while
+/// the rest of the turn runs. The `done` frame still carries the reply itself.
+struct StreamedDraft<'a> {
+    sink: Option<&'a TurnEventSink>,
+}
+
+impl StreamedDraft<'_> {
+    /// Take the streamed draft back, once: later replacements find it gone.
+    fn take_back(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            prose_stream::deliver(sink, TurnEvent::ProseRetract);
+        }
+    }
 }
 
 /// Wrap stages 14b–18: run auth recovery, then either post-process the model's
@@ -234,7 +265,9 @@ pub(crate) async fn run_recovery_and_post_process(
         peer_blocks,
         guided_walk,
         seat,
+        streamed_to,
     } = inputs;
+    let mut draft = StreamedDraft { sink: streamed_to };
     // Guardian short-circuits take precedence over re-auth: a tool blocked by
     // the runtime Guardian (enforce mode) renders the deterministic "blocked
     // for safety" reply, and a parked confirm-required call renders the
@@ -253,6 +286,7 @@ pub(crate) async fn run_recovery_and_post_process(
             result,
         );
     if guardian_denied || guardian_confirm {
+        draft.take_back();
         return (
             stages::post_process::PostProcessedReply {
                 content: mem::take(&mut result.content),
@@ -300,6 +334,9 @@ pub(crate) async fn run_recovery_and_post_process(
     )
     .await;
     let recovery_replaced_reply = result.content != content_before_recovery;
+    if recovery_replaced_reply {
+        draft.take_back();
+    }
 
     let recovery = stages::auth_recovery::apply_auth_recovery(
         stages::auth_recovery::AuthRecoveryDeps {
@@ -320,6 +357,7 @@ pub(crate) async fn run_recovery_and_post_process(
     // a sibling served, and a blanked turn whose mint failed, both keep an
     // answer to shape, so they owe the identity re-ask and post-processing.
     if recovery.owns_reply {
+        draft.take_back();
         return (
             stages::post_process::PostProcessedReply {
                 content: mem::take(&mut result.content),
@@ -347,7 +385,7 @@ pub(crate) async fn run_recovery_and_post_process(
     //
     // Cloned for the same one comparison as `content_before_recovery` above.
     let content_before_identity_reask = result.content.clone();
-    reask_after_identity_leak(ctx, input, llm_messages, active_model, result).await;
+    reask_after_identity_leak(ctx, input, llm_messages, active_model, result, &mut draft).await;
     stamp_reinstated_denial(
         recovery_replaced_reply,
         result.content != content_before_identity_reask,
@@ -393,6 +431,11 @@ pub(crate) async fn run_recovery_and_post_process(
         hooks,
     )
     .await;
+    // The response boundary withheld the reply (a canary, an identity break
+    // the re-ask did not mend) and put the canned string in its place.
+    if post_processed.leak_replaced {
+        draft.take_back();
+    }
     (post_processed, recovery.prompt)
 }
 

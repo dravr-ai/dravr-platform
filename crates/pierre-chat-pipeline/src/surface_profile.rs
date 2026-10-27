@@ -176,9 +176,10 @@ pub struct BlockSupport {
 ///
 /// This is a property of the transport, not of the model: it says whether the
 /// bytes have somewhere to go early, not whether anything early is produced.
-/// The producer half is [`ProviderStreaming`], and only both together answer
-/// "does this athlete watch the reply appear" — which is why the two are
-/// crossed at the dispatch site rather than collapsed into one boolean here.
+/// A surface with a delta channel is the one the ingress installs a turn sink
+/// for, and whether text reaches that sink is the tool loop's own answer
+/// (`pierre_tool_runtime::tool_loop_io::ToolLoopParams::streams_text`), asked
+/// of whichever tier runs the loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgressiveSupport {
     /// The reply is delivered once, whole. A messaging webhook sends one
@@ -200,53 +201,6 @@ impl ProgressiveSupport {
     #[must_use]
     pub const fn has_delta_channel(self) -> bool {
         matches!(self, Self::DeltaChannel)
-    }
-
-    /// Whether *this* turn will actually put partial text on the wire.
-    ///
-    /// True only where a surface that can carry deltas meets a provider that
-    /// emits them. Everything else — a messaging webhook on any provider, an
-    /// in-app turn on a function-calling provider — answers false, and a
-    /// caller that would have installed a delta sink skips it.
-    #[must_use]
-    pub const fn delivers_partial_text(self, provider: ProviderStreaming) -> bool {
-        matches!(
-            (self, provider),
-            (Self::DeltaChannel, ProviderStreaming::TextDeltas)
-        )
-    }
-}
-
-/// Whether the active provider's tool loop produces text deltas.
-///
-/// Carried as a plain answer rather than a capability bitflag so this module
-/// stays free of the LLM crates: the dispatch stage, which holds the resolved
-/// provider, converts and passes it in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderStreaming {
-    /// The loop forwards partial text as the model produces it. Today only
-    /// the SDK-tool-calling (Copilot ACP headless) loop does: it is the sole
-    /// producer of `TurnEvent::ProseDelta` in the workspace.
-    TextDeltas,
-    /// The loop returns the reply in one piece. Every function-calling
-    /// provider (Gemini, Cohere, Groq, `OpenRouter`, `OpenAI`-compatible) and
-    /// every text-simulation CLI runner answers here.
-    WholeReply,
-}
-
-impl ProviderStreaming {
-    /// Read the answer off the provider's SDK-tool-calling capability.
-    ///
-    /// The same flag that routes a turn to the headless loop is the one that
-    /// decides whether that turn can stream, so both read one input and
-    /// cannot disagree.
-    #[must_use]
-    pub const fn from_sdk_tool_calling(sdk_tool_calling: bool) -> Self {
-        if sdk_tool_calling {
-            Self::TextDeltas
-        } else {
-            Self::WholeReply
-        }
     }
 }
 
@@ -270,9 +224,9 @@ pub struct RenderCapabilities {
     pub interactive: bool,
     /// Whether the transport can carry the reply before the turn finishes.
     ///
-    /// Not "does this athlete see tokens appear" — that answer needs the
-    /// active provider too, via
-    /// [`ProgressiveSupport::delivers_partial_text`].
+    /// Not "does this athlete see tokens appear": that answer needs the
+    /// provider whose tool loop runs too, which the loop gives itself
+    /// (`ToolLoopParams::streams_text` in pierre-tool-runtime).
     pub progressive: ProgressiveSupport,
 }
 

@@ -1462,10 +1462,10 @@ export interface PrescribeWorkoutParams {
   /** The steps in order. Total duration is summed from them. */
   structure: {
 
-  /** Distance in metres for a distance-based step. */
+  /** Distance in metres for a distance-based step, above 0 and at most 1000000; duration_seconds is still required. */
   distance_meters?: number;
 
-  /** How long ONE repetition of this step lasts, in seconds. */
+  /** Required. How long ONE repetition of this step lasts, in whole seconds: at least 1 and at most 21600. A distance-based step still needs its estimated duration here; never 0. */
   duration_seconds: number;
 
   /** What this step is ("Warm-up", "Montées", "Interval", "Cool-down"). */
@@ -1474,13 +1474,13 @@ export interface PrescribeWorkoutParams {
   /** Coaching cue for this step, in your own voice — it reaches the athlete's calendar entry. */
   note?: string;
 
-  /** Repetitions of this step; omit for a single block. */
+  /** Repetitions of this step, from 1 to 100; omit for a single block. */
   repeat?: number;
 
-  /** Which repeated set this step belongs to, numbered 1, 2, 3 in step order. Give every step of one set the same number and the next set the next number, so 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) stays two sets; omit it when no two adjacent sets share a repeat count. */
+  /** Which repeated set this step belongs to, numbered 1, 2, 3 in step order (at most 50). Give every step of one set the same number and the next set the next number, so 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) stays two sets; omit it when no two adjacent sets share a repeat count. */
   repeat_group?: number;
 
-  /** Intensity RELATIVE to the athlete's thresholds ("Z2", "Z2 HR", "Threshold", "sweet spot", "88-93% FTP"). Never absolute watts. */
+  /** Intensity RELATIVE to the athlete's thresholds. Use a zone (Z1-Z7, or 'Z2 HR'), a named zone (recovery, endurance, tempo, threshold, VO2max, anaerobic, sprint), 'sweet spot', or a percent band ('75%', '88-93% FTP', '95-100% threshold HR', '90-95% threshold pace'); any other text is rejected. Never absolute watts. */
   target_zone: string;
 }[];
 };
@@ -1884,10 +1884,10 @@ export interface SaveTrainingPlanParams {
   /** The session's steps, in order — the same shape as prescribe_workout's session.structure. Give them for any day with interval structure (warm-up, work, recovery, cool-down; repeat on the work and recovery steps): that is what puts workout-builder steps and a planned load on the athlete's calendar. Prose alone reaches the calendar as a timed entry. Omit for a steady or unstructured day. */
   steps?: {
 
-  /** Distance in metres for a distance-based step. */
+  /** Distance in metres for a distance-based step, above 0 and at most 1000000; duration_seconds is still required. */
   distance_meters?: number;
 
-  /** How long ONE repetition of this step lasts, in seconds. */
+  /** Required. How long ONE repetition of this step lasts, in whole seconds: at least 1 and at most 21600. A distance-based step still needs its estimated duration here; never 0. */
   duration_seconds: number;
 
   /** What this step is ("Warm-up", "Montées", "Interval", "Cool-down"). */
@@ -1896,13 +1896,13 @@ export interface SaveTrainingPlanParams {
   /** Coaching cue for this step, in your own voice — it reaches the athlete's calendar entry. */
   note?: string;
 
-  /** Repetitions of this step; omit for a single block. */
+  /** Repetitions of this step, from 1 to 100; omit for a single block. */
   repeat?: number;
 
-  /** Which repeated set this step belongs to, numbered 1, 2, 3 in step order. Give every step of one set the same number and the next set the next number, so 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) stays two sets; omit it when no two adjacent sets share a repeat count. */
+  /** Which repeated set this step belongs to, numbered 1, 2, 3 in step order (at most 50). Give every step of one set the same number and the next set the next number, so 3 x (1 min on, 1 min off) straight into 3 x (30 s on, 30 s off) stays two sets; omit it when no two adjacent sets share a repeat count. */
   repeat_group?: number;
 
-  /** Intensity RELATIVE to the athlete's thresholds ("Z2", "Z2 HR", "Threshold", "sweet spot", "88-93% FTP"). Never absolute watts. */
+  /** Intensity RELATIVE to the athlete's thresholds. Use a zone (Z1-Z7, or 'Z2 HR'), a named zone (recovery, endurance, tempo, threshold, VO2max, anaerobic, sprint), 'sweet spot', or a percent band ('75%', '88-93% FTP', '95-100% threshold HR', '90-95% threshold pace'); any other text is rejected. Never absolute watts. */
   target_zone: string;
 }[];
 

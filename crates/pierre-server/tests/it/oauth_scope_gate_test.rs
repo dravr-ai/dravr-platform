@@ -192,7 +192,7 @@ async fn a_scope_refusal_on_the_chat_path_is_a_failed_tool_result_naming_the_sco
         args: json!({"goal_type": "distance", "target_value": 100.0}),
     }];
 
-    let outcome = execute_function_calls(&executor, &calls, &user_id.to_string(), tenant)
+    let outcome = execute_function_calls(&executor, &calls, &user_id.to_string(), tenant, None)
         .await
         .expect("dispatch returns an outcome even when a tool is refused");
 

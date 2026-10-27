@@ -16,6 +16,8 @@
 //! - [`delegation`] — the group, agent and membership a coach's delegated
 //!   link rests on.
 //! - [`server`] — `User` fixtures in a consistent default shape.
+//! - `sse` (feature `sse`) — the frames a client reads off a streaming chat
+//!   turn's body.
 //!
 //! ## Always a dev-dependency
 //!
@@ -38,6 +40,9 @@
 //! own `postgresql` feature selects that backend forwards it here, so the
 //! factory honours a `PostgreSQL` `DATABASE_URL` exactly when the test binary
 //! was built able to open one.
+//!
+//! `sse` builds the SSE frame reader, and with it an HTTP client; only a
+//! consumer whose suites read a streaming turn turns it on.
 
 /// Deleting an account the way production does.
 pub mod account;
@@ -51,3 +56,6 @@ pub mod fault_proxy;
 pub mod fit;
 /// `User` fixtures in a consistent default shape.
 pub mod server;
+/// The frames a client reads off a streaming chat turn's SSE body.
+#[cfg(feature = "sse")]
+pub mod sse;

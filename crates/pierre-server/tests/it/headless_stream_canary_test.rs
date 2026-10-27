@@ -26,7 +26,8 @@ use pierre_llm::{
     ChatMessage, ChatRequest, HeadlessEventStream, HeadlessStreamEvent, HeadlessToolResponse,
 };
 use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
-use pierre_tool_runtime::headless_stream::{forward_headless_stream, request_canary};
+use pierre_tool_runtime::headless_stream::forward_headless_stream;
+use pierre_tool_runtime::prose_stream::request_canary;
 use tokio::sync::mpsc;
 
 fn done(content: &str) -> HeadlessStreamEvent {
@@ -77,7 +78,8 @@ async fn a_canary_split_across_deltas_never_reaches_the_sink() {
     let (tx, mut rx): (TurnEventSink, _) = mpsc::unbounded_channel();
     let response = forward_headless_stream(stream_of(events), &canary, &tx)
         .await
-        .expect("the stream still completes");
+        .expect("the stream still completes")
+        .response;
 
     let seen = drain_prose(&mut rx);
     assert!(
@@ -128,10 +130,14 @@ async fn a_clean_stream_is_delivered_whole_and_in_order() {
     events.push(done(&whole));
 
     let (tx, mut rx): (TurnEventSink, _) = mpsc::unbounded_channel();
-    forward_headless_stream(stream_of(events), &canary, &tx)
+    let turn = forward_headless_stream(stream_of(events), &canary, &tx)
         .await
         .expect("the stream completes");
 
+    assert!(
+        turn.prose_delivered,
+        "a turn whose words reached the sink says so, so a reply it replaces is taken back"
+    );
     assert_eq!(
         drain_prose(&mut rx),
         whole,

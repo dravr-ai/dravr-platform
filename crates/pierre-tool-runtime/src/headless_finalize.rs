@@ -11,9 +11,11 @@ use pierre_core::llm::tool_simulation;
 use pierre_core::narration::is_degenerate_reply;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::{ChatMessage, ChatRequest, ChatResponse, TokenUsage};
+use pierre_services::chat_stream::{TurnEvent, TurnEventSink};
 use tracing::{info, warn};
 
 use crate::guardian::HeadlessBlock;
+use crate::prose_stream;
 use crate::tool_execution::{headless_turn_key, parse_lenient_tool_call_blocks, run_cli_tool_loop};
 use crate::tool_loop_io::{
     observed_tool_name, GuardianConfirmRequest, GuardianDenial, ToolLoopParams, ToolLoopResult,
@@ -50,6 +52,10 @@ use crate::tool_loop_telemetry::millis_elapsed;
 /// either — and the text loop's own asks carry the same MCP servers, so a model
 /// that calls a tool natively there raises them the same way.
 ///
+/// `streamed_to` is the sink the reply's prose reached, `None` when none did
+/// (a turn that did not stream, or one that wrote only `<tool_call>` blocks):
+/// a reply that will not be the turn's answer is taken back there.
+///
 /// `pub` so the integration suite can drive the production assembly — a stamped
 /// store and an ACP reply in, the `ToolLoopResult` the chat pipeline reads out —
 /// rather than restate it against a hand-built result and pin nothing.
@@ -60,6 +66,7 @@ use crate::tool_loop_telemetry::millis_elapsed;
 /// call fails.
 pub async fn finalize_headless_turn(
     headless_response: pierre_llm::HeadlessToolResponse,
+    streamed_to: Option<&TurnEventSink>,
     headless_runner: &dyn pierre_llm::HeadlessTurnProvider,
     request: &ChatRequest,
     params: &ToolLoopParams<'_>,
@@ -76,6 +83,7 @@ pub async fn finalize_headless_turn(
                 "Headless reply asked for tools as text <tool_call> blocks; running the turn \
                  through the text tool loop"
             );
+            take_back_streamed_reply(streamed_to);
             let first_reply = ChatResponse {
                 content: headless_response.content,
                 model: headless_response.model,
@@ -130,6 +138,7 @@ pub async fn finalize_headless_turn(
             content_len = content.len(),
             "Headless turn produced no synthesized answer (empty, parroted tool-result echo, or a dangling fragment); retrying converse once"
         );
+        take_back_streamed_reply(streamed_to);
         let retry = retry_headless_turn(headless_runner, request, params, prompt_text).await?;
         content = retry.content;
         usage = retry.usage;
@@ -239,6 +248,21 @@ fn take_loopback_signals(params: &ToolLoopParams<'_>) -> LoopbackSignals {
         served_without_provider,
         guardian_denied,
         guardian_confirm,
+    }
+}
+
+/// Take back the first reply's streamed prose, which will not be the turn's
+/// reply: the text loop's answer to its `<tool_call>` blocks, or the retry of
+/// a degenerate turn, replaces it, and neither streams. Left on screen it
+/// would read as the reply while the text loop's tool steps ran under it.
+///
+/// Sent only to the sink the first reply's prose actually reached, which the
+/// forwarder knows once it has released everything it held: a reply that wrote
+/// nothing but `<tool_call>` blocks, which never cross, put nothing on screen
+/// and sends no retraction.
+fn take_back_streamed_reply(streamed_to: Option<&TurnEventSink>) {
+    if let Some(sink) = streamed_to {
+        prose_stream::deliver(sink, TurnEvent::ProseRetract);
     }
 }
 

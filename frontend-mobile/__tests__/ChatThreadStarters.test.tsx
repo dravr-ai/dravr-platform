@@ -32,7 +32,6 @@ jest.mock('../src/screens/chat/MessageList', () => {
   };
 });
 jest.mock('../src/screens/chat/ChatInputBar', () => ({ ChatInputBar: () => null }));
-jest.mock('../src/screens/chat/ChatProgressStrip', () => ({ ChatProgressStrip: () => null }));
 jest.mock('../src/screens/chat/UsageWarningBanner', () => ({ UsageWarningBanner: () => null }));
 jest.mock('../src/screens/chat/VerdictSheet', () => ({ VerdictSheet: () => null }));
 jest.mock('../src/screens/chat/useChatVoiceInput', () => ({ useChatVoiceInput: () => ({}) }));

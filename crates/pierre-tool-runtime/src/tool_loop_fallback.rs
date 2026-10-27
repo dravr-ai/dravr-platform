@@ -216,6 +216,12 @@ async fn run_on_tail(
         call_recorder: params.call_recorder.clone(),
         tool_message_recorder: params.tool_message_recorder.clone(),
         temperature: params.temperature,
+        // The sink is the surface's half, which the tail inherits unchanged.
+        // Whether text streams through it is then the tail's own answer
+        // (`ToolLoopParams::streams_text` reads `provider`), not the head's: a
+        // Copilot tail behind a Gemini head streams (its ACP stream is also
+        // where its tool progress arrives), an Anthropic head's Gemini tail
+        // does not.
         stream_sink: params.stream_sink.clone(),
         mcp_servers: params.mcp_servers.clone(),
     };

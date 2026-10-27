@@ -96,12 +96,14 @@ pub struct ToolLoopParams<'a> {
     /// to every `ChatRequest` in the loop via `with_temperature`. When
     /// `None`, the provider/server default is used.
     pub temperature: Option<f32>,
-    /// Optional sink for token-level streaming events. When set on the
-    /// headless tool loop branch, the loop calls Copilot's
-    /// `converse_stream()` instead of `converse()` and forwards each
-    /// observed text delta and tool-call snapshot through the sink.
-    /// The sink is a [`pierre_services::chat_stream::TurnEventSink`]
-    /// — see that type for the event shape.
+    /// The turn's event sink, present exactly when the surface reads frames as
+    /// they arrive (the in-app SSE body, the only place a sink is installed)
+    /// and absent on a surface that takes the reply whole (a messaging
+    /// webhook). Every loop reports each tool it runs through it as started /
+    /// completed / failed / not run, whatever the provider; whether reply text
+    /// streams through it too is [`Self::streams_text`]'s answer. The sink is a
+    /// [`pierre_services::chat_stream::TurnEventSink`] — see that type for the
+    /// event shape.
     pub stream_sink: Option<TurnEventSink>,
     /// MCP servers exposed to an ACP-managed provider (Copilot Headless) so
     /// the model can call Dravr tools natively over the Agent Client Protocol
@@ -109,6 +111,24 @@ pub struct ToolLoopParams<'a> {
     /// loop forwards these into the ACP `session/new`; other loops ignore
     /// them. Empty for providers without SDK tool calling.
     pub mcp_servers: Vec<McpServerConfig>,
+}
+
+impl ToolLoopParams<'_> {
+    /// Whether this loop puts reply text on [`Self::stream_sink`] as the model
+    /// produces it: the one rule for "does this athlete watch the reply
+    /// appear", asked of the head's loop for the turn and of each tail's loop
+    /// when the turn falls back to it.
+    ///
+    /// True only where both halves meet: a sink, which is there exactly when
+    /// the surface reads frames, and a provider whose tool loop emits deltas
+    /// (`ChatProvider::streams_tool_loop_text`): SDK tool calling (the headless
+    /// loop then calls `converse_stream()` rather than `converse()`), or an API
+    /// head that streams a tool-calling turn. False leaves the sink carrying
+    /// tool progress alone, and the reply arrives whole in the terminal frame.
+    #[must_use]
+    pub fn streams_text(&self) -> bool {
+        self.stream_sink.is_some() && self.provider.streams_tool_loop_text()
+    }
 }
 
 impl fmt::Debug for ToolLoopParams<'_> {
@@ -123,6 +143,7 @@ impl fmt::Debug for ToolLoopParams<'_> {
             .field("max_iterations", &self.max_iterations)
             .field("temperature", &self.temperature)
             .field("stream_sink", &self.stream_sink)
+            .field("streams_text", &self.streams_text())
             // Names only: each server's transport carries its bearer header.
             .field(
                 "mcp_servers",

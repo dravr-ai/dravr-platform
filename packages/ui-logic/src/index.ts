@@ -18,6 +18,15 @@ export {
   useAsyncAction,
 } from './useAsyncAction';
 
+// A chat turn's trail of steps and its ticking clock, held for one thread
+export {
+  type StreamedReplyCallbacks,
+  type TurnTrailState,
+  streamedReplyCallbacks,
+  useTurnTrail,
+  useTurnElapsedMs,
+} from './useTurnTrail';
+
 // Toast hook
 export {
   type ToastType,

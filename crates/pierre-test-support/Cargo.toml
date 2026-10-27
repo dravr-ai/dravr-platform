@@ -1,4 +1,4 @@
-# ABOUTME: Test fixtures shared by the workspace's integration tests: the test-database factory and user fixtures
+# ABOUTME: Test fixtures shared by the workspace's integration tests: the test-database factory, user fixtures, SSE reader
 # ABOUTME: Never a normal dependency; every consumer lists it under [dev-dependencies] only (ADR-027)
 
 [package]
@@ -15,11 +15,18 @@ default = []
 # Clone per-test databases from a PostgreSQL template when DATABASE_URL names
 # a PostgreSQL server. A consumer's own `postgresql` feature forwards here.
 postgresql = ["pierre-database/postgresql", "sqlx/postgres"]
+# The SSE frame reader (`sse`) the suites that drive a streaming chat turn over
+# HTTP share. Opt-in, so a consumer that never reads a stream does not build an
+# HTTP client.
+sse = ["dep:futures-util", "dep:reqwest", "dep:serde_json"]
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 chrono = { version = "0.4", features = ["serde"] }
+futures-util = { version = "0.3", optional = true }
+reqwest = { version = "0.12", features = ["stream"], default-features = false, optional = true }
+serde_json = { version = "1.0", optional = true }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default-features = false }
 # "sync" backs the OnceCell holding the migrated SQLite image; "net", "io-util",
 # "rt", "time" and "macros" back the fault proxy's relay.

@@ -649,6 +649,23 @@ pub struct MessagesListResponse {
     /// Whether older messages remain before the first one served: the thread
     /// is read in windows from the newest back (carnet#840).
     pub has_more: bool,
+    /// The caller's question a turn is still working on, or `null`.
+    ///
+    /// A turn runs detached from the request that started it and its reply
+    /// streams only on that request's body, so a client that reloads mid-turn
+    /// holds nothing that says a reply is coming. This says it, from the rows
+    /// on file. Always serialized — `null` rather than absent — and set only
+    /// on the newest window: an older window is history, and says `null`.
+    pub awaiting_reply: Option<AwaitingReply>,
+}
+
+/// The caller's question whose reply is still being written.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AwaitingReply {
+    /// Id of the question row.
+    pub question_id: String,
+    /// When the question was asked (RFC 3339), as its row carries it.
+    pub asked_at: String,
 }
 
 /// One topic of a thread, for the History list.

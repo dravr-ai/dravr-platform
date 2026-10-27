@@ -81,9 +81,41 @@ export type {
   ConversationRowModel,
 } from './conversation-row';
 
-// Turn-progress event → status text mapping (shared by web + mobile)
-export { statusForProgress, THINKING_PLACEHOLDER_KEY } from './progress';
-export type { ProgressStatus } from './progress';
+// A running turn as a trail of steps: the reducer both clients feed progress
+// frames into, the thread-level state machine both clients' hooks hold, the
+// coach-facing name of every tool, the timer and the
+// safe-to-leave note's thresholds, the line a finished turn folds into, and
+// when a thread the server says is still being answered has its reply.
+export {
+  AWAITING_REPLY_POLL_MS,
+  EMPTY_TURN_TRAILS,
+  TURN_ELAPSED_AFTER_MS,
+  TURN_SAFE_TO_LEAVE_AFTER_MS,
+  TURN_STEP_KEYS,
+  TURN_TRAIL_KEYS,
+  awaitedSince,
+  doneSteps,
+  foldTurnTrail,
+  formatTurnDuration,
+  reduceTurnTrail,
+  reduceTurnTrails,
+  runningStep,
+  startTurnTrail,
+  toolStepLabel,
+  turnCurrentLine,
+  turnElapsedMs,
+  turnIndicator,
+} from './turn-trail';
+export type {
+  FoldedTrail,
+  TurnIndicator,
+  TurnPhase,
+  TurnStep,
+  TurnTrail,
+  TurnTrailEvent,
+  TurnTrails,
+  TurnTrailsAction,
+} from './turn-trail';
 export type { TranslatableText, Translate } from './text';
 
 // Inline visual blocks: split a reply on its positional markers, parse the

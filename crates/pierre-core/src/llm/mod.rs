@@ -37,7 +37,7 @@ use crate::errors::{AppError, ErrorCode};
 
 pub use embacle::types::{
     ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, McpHeader, McpServerConfig,
-    McpTransport, MessageRole, StreamChunk, TokenUsage,
+    McpTransport, MessageRole, StreamChunk, TokenUsage, ToolStreamEvent,
 };
 
 /// Text-based tool simulation for CLI LLM runners (re-exported from embacle)
@@ -52,6 +52,13 @@ pub use embacle::tool_simulation;
 /// Uses [`AppError`] for error handling (platform-specific).
 /// Embacle defines its own stream type with [`RunnerError`] for standalone use.
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, AppError>> + Send>>;
+
+/// Stream type for a completion that may call tools, streaming its text
+///
+/// Zero or more [`ToolStreamEvent::TextDelta`]s, then exactly one
+/// [`ToolStreamEvent::Done`], or a single `Err` item and no `Done` — embacle's
+/// `ToolStream` contract, with [`AppError`] for the error.
+pub type ToolTurnStream = Pin<Box<dyn Stream<Item = Result<ToolStreamEvent, AppError>> + Send>>;
 
 // ============================================================================
 // Error Conversion: embacle → AppError
@@ -174,6 +181,27 @@ pub trait LlmProvider: Send + Sync {
     /// Returns a stream of chunks that can be consumed incrementally.
     /// Falls back to non-streaming if not supported.
     async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError>;
+
+    /// Perform a completion that may call tools, streaming its text
+    ///
+    /// The tools travel on `request.tools`, as for [`Self::complete`]. The
+    /// default answers through `complete` as a single
+    /// [`ToolStreamEvent::Done`] with no deltas, so every provider answers it;
+    /// a provider that streams a tool-calling turn natively overrides it.
+    ///
+    /// # Errors
+    ///
+    /// An `Err` here means no stream was opened. A failure once it is open is
+    /// the stream's own `Err` item.
+    async fn complete_stream_with_tools(
+        &self,
+        request: &ChatRequest,
+    ) -> Result<ToolTurnStream, AppError> {
+        let response = self.complete(request).await?;
+        Ok(Box::pin(tokio_stream::once(Ok(ToolStreamEvent::Done(
+            response,
+        )))))
+    }
 
     /// Check if the provider is healthy and API key is valid
     async fn health_check(&self) -> Result<bool, AppError>;

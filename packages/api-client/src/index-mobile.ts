@@ -9,7 +9,6 @@ export type {
   PlatformAdapter,
   AuthStorage,
   AuthFailureHandler,
-  ResponseBodyReader,
   HttpClientConfig,
   ApiClientOptions,
   ApiMetadata,

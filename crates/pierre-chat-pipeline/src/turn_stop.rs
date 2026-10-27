@@ -42,6 +42,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use chrono::{DateTime, TimeDelta, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ConversationTurnId, LlmUsageRecord, PersistedReplyBlock, TenantId, STOPPED_TURN_FINISH_REASON,
@@ -177,6 +178,40 @@ pub fn question_state(rows: &[MessageRecord], question_id: &str) -> Option<Quest
     } else {
         QuestionState::Unanswered
     })
+}
+
+/// The question of `user_id`'s whose turn may still be running among `rows`
+/// (oldest first): their newest question, while it has neither a reply nor a
+/// stop and was asked less than `ceiling` before `now`.
+///
+/// The same question `POST …/stop` would close, so a client told a reply is
+/// coming can always stop it. `ceiling` is the longest a live turn can run:
+/// past it, an unanswered question is a turn that died without writing a row
+/// (an instance killed past the shutdown drain), and saying a reply is coming
+/// would keep a client waiting on nothing. A question whose `created_at` does
+/// not parse cannot be aged, so it is not reported as awaiting either.
+#[must_use]
+pub fn awaiting_question<'a>(
+    rows: &'a [MessageRecord],
+    user_id: &str,
+    now: DateTime<Utc>,
+    ceiling: Duration,
+) -> Option<&'a MessageRecord> {
+    let question = latest_question_by(rows, user_id)?;
+    if !matches!(
+        question_state(rows, &question.id),
+        Some(QuestionState::Unanswered)
+    ) {
+        return None;
+    }
+    let asked_at = DateTime::parse_from_rfc3339(&question.created_at)
+        .inspect_err(|e| {
+            warn!(error = %e, question_id = question.id.as_str(), "question timestamp does not parse; not reporting it as awaiting");
+        })
+        .ok()?;
+    let age = now.signed_duration_since(asked_at.with_timezone(&Utc));
+    let ceiling = TimeDelta::from_std(ceiling).unwrap_or(TimeDelta::MAX);
+    (age <= ceiling).then_some(question)
 }
 
 /// The conversation's tail, oldest first, as far back as a stop is looked for.
@@ -418,4 +453,61 @@ async fn consumed_usage(scope: &StopScope<'_>) -> Option<TokenUsage> {
         )
         .with_reasoning(Some(sum(|call| call.reasoning_tokens))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const QUESTION: &str = "construis-moi un plan pour le marathon";
+
+    fn question_at(created_at: &str) -> MessageRecord {
+        MessageRecord {
+            id: "q".to_owned(),
+            conversation_id: "conv".to_owned(),
+            role: "user".to_owned(),
+            content: QUESTION.to_owned(),
+            token_count: None,
+            prompt_tokens: None,
+            model: None,
+            finish_reason: None,
+            content_blocks: author_marker("alice"),
+            created_at: created_at.to_owned(),
+            transport_policy: TransportPolicy::AnyTransport,
+            channel_type: None,
+        }
+    }
+
+    /// The ceiling is inclusive, and a question that cannot be aged is not
+    /// reported: a client told to wait must have a turn that can still answer.
+    #[test]
+    fn the_ceiling_is_measured_from_the_questions_own_timestamp() {
+        let asked = DateTime::parse_from_rfc3339("2026-10-26T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ceiling = Duration::from_mins(16);
+        let rows = vec![question_at("2026-10-26T10:00:00Z")];
+
+        let at_ceiling = asked + TimeDelta::minutes(16);
+        assert_eq!(
+            awaiting_question(&rows, "alice", at_ceiling, ceiling).map(|q| q.id.as_str()),
+            Some("q"),
+            "a question exactly at the ceiling is still awaited"
+        );
+        let past = at_ceiling + TimeDelta::seconds(1);
+        assert!(
+            awaiting_question(&rows, "alice", past, ceiling).is_none(),
+            "a question past the ceiling is a turn that died"
+        );
+        assert!(
+            awaiting_question(&rows, "bob", asked, ceiling).is_none(),
+            "only the author waits on a question"
+        );
+
+        let unreadable = vec![question_at("yesterday")];
+        assert!(
+            awaiting_question(&unreadable, "alice", asked, ceiling).is_none(),
+            "a question that cannot be aged is not reported"
+        );
+    }
 }

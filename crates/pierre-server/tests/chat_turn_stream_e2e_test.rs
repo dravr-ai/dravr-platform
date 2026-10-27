@@ -23,19 +23,14 @@
 
 mod common;
 
-use futures_util::StreamExt;
-use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::routes::chat::ChatRoutes;
+use common::spawn_chat_server;
+
+use pierre_test_support::sse::read_frames;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::{Client, StatusCode};
 use serde_json::{json, Value};
 use std::env;
-use std::net::SocketAddr;
-use std::str;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpListener;
-use tokio::time::timeout;
 
 /// RAII guard that overrides a set of environment variables.
 ///
@@ -86,23 +81,6 @@ fn force_dispatch_failure_via_env() -> EnvGuard {
     EnvGuard::apply(&[("GEMINI_API_KEY", None)])
 }
 
-/// One decoded SSE frame.
-#[derive(Debug, Clone)]
-struct Frame {
-    event: String,
-    data: String,
-}
-
-async fn spawn_chat_server(resources: &Arc<ServerContext>) -> String {
-    let app = ChatRoutes::routes(Arc::clone(resources));
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let addr: SocketAddr = listener.local_addr().expect("local addr");
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("serve");
-    });
-    format!("http://{addr}")
-}
-
 async fn create_conversation(client: &Client, base_url: &str, token: &str) -> String {
     let resp = client
         .post(format!("{base_url}/api/chat/conversations"))
@@ -119,50 +97,6 @@ async fn create_conversation(client: &Client, base_url: &str, token: &str) -> St
     );
     let body: Value = resp.json().await.expect("conv json");
     body["id"].as_str().expect("conv id").to_owned()
-}
-
-async fn read_frames(response: reqwest::Response, deadline: Duration) -> Vec<Frame> {
-    let mut buffer = String::new();
-    let mut out: Vec<Frame> = Vec::new();
-    let mut stream = response.bytes_stream();
-
-    let _ = timeout(deadline, async {
-        while let Some(chunk) = stream.next().await {
-            let Ok(bytes) = chunk else { break };
-            let Ok(decoded) = str::from_utf8(&bytes) else {
-                continue;
-            };
-            buffer.push_str(decoded);
-
-            while let Some(end) = buffer.find("\n\n") {
-                let raw = buffer[..end].to_owned();
-                buffer.drain(..=end + 1);
-
-                let mut event = String::new();
-                let mut data_lines: Vec<&str> = Vec::new();
-                for line in raw.split('\n') {
-                    if let Some(rest) = line.strip_prefix("event:") {
-                        rest.trim().clone_into(&mut event);
-                    } else if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim());
-                    }
-                }
-                if !event.is_empty() && !data_lines.is_empty() {
-                    let terminal = event == "done" || event == "failed";
-                    out.push(Frame {
-                        event,
-                        data: data_lines.join("\n"),
-                    });
-                    if terminal {
-                        return;
-                    }
-                }
-            }
-        }
-    })
-    .await;
-
-    out
 }
 
 /// A turn that dies at dispatch still tells the athlete how far it got, and

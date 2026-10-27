@@ -24,7 +24,6 @@ import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSectio
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { openExternal } from '../../utils/openExternal';
 import { ChatInputBar } from './ChatInputBar';
-import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
@@ -341,7 +340,11 @@ export function ChatThread({
         conversationId={conversationId}
         messages={messagesHook.messages}
         isLoading={isLoading}
-        isSending={messagesHook.isSending}
+        isSending={messagesHook.turnInFlight}
+        liveTrail={messagesHook.liveTrail}
+        streamingContent={messagesHook.streamingContent}
+        awaitingSince={messagesHook.awaitingSince}
+        turnTrails={messagesHook.turnTrails}
         messageFeedback={messagesHook.messageFeedback}
         messageFeedbackComment={messagesHook.messageFeedbackComment}
         messageBlocks={messagesHook.messageBlocks}
@@ -364,15 +367,13 @@ export function ChatThread({
         onReachStart={() => void messagesHook.loadEarlier()}
       />
 
-      <ChatProgressStrip statusText={messagesHook.progressText} />
-
       <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 
       <ChatInputBar
         inputText={inputText}
         partialTranscript={voiceInput.partialTranscript}
         isListening={voiceInput.isListening}
-        isSending={messagesHook.isSending}
+        isSending={messagesHook.turnInFlight}
         isStopping={messagesHook.isStopping}
         onStopTurn={() => void messagesHook.stopTurn()}
         disabled={usageStatus.sendDisabled}

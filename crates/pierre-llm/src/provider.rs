@@ -36,14 +36,14 @@ use tracing::{error, info, warn};
 
 use super::{
     ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, EmbacleProvider, LlmCapabilities,
-    LlmProvider, Tool,
+    LlmProvider, Tool, ToolTurnStream,
 };
 use crate::config::{LlmChain, LlmProviderType};
 use crate::errors::AppError;
 use crate::health::TierProbe;
 use crate::model_check::validate_model_for_provider;
 use crate::stage::{LlmStage, StageModels};
-use crate::tool_bridge::{with_tool_defs, with_tools_response};
+use crate::tool_bridge::with_tool_defs;
 
 /// Name every retired chain variable the environment still sets.
 ///
@@ -172,6 +172,52 @@ impl ChatProvider {
             Self::Embacle(provider) => provider.stage_model(stage),
             Self::Custom(_) => None,
         }
+    }
+
+    /// Whether a tool-calling turn on this provider's head streams its reply
+    /// text as the model writes it.
+    ///
+    /// True for an Anthropic Messages API head: the one runner whose
+    /// `complete_stream_with_tools` streams natively, where every other runner
+    /// answers it with a single closing response. Asked of the head, by the
+    /// kind it was built as — the tool loop converses with the head alone, and
+    /// a tail only serves a turn the head could not finish. A custom provider
+    /// and a runner of no kind answer false.
+    #[must_use]
+    pub fn streams_tool_turn_text(&self) -> bool {
+        match self {
+            Self::Embacle(provider) => provider.kind() == Some(LlmProviderType::Anthropic),
+            Self::Custom(_) => false,
+        }
+    }
+
+    /// Whether this provider's tool loop puts reply text on the turn's sink as
+    /// the model writes it.
+    ///
+    /// Two loops do: the SDK-tool-calling (Copilot ACP) loop, whose stream is
+    /// also where its tool observations arrive, and the API loop on a head that
+    /// streams a tool-calling turn ([`Self::streams_tool_turn_text`]). Every
+    /// other function-calling provider and every text-simulation CLI runner
+    /// answers whole. Asked of the tier that runs the loop: the head for the
+    /// turn, then each tail the turn falls back to, by its own capabilities.
+    #[must_use]
+    pub fn streams_tool_loop_text(&self) -> bool {
+        self.capabilities().supports_sdk_tool_calling() || self.streams_tool_turn_text()
+    }
+
+    /// Whether any tier that may serve a tool turn streams its reply text.
+    ///
+    /// The turn starts on the head, and a faulted head hands it to
+    /// [`Self::fallback_tail`], whose loop streams by its own capability, so a
+    /// Gemini head in front of a Copilot tier can still put text on the wire.
+    /// A solo provider is its own only tier.
+    #[must_use]
+    pub fn any_tier_streams_tool_loop_text(&self) -> bool {
+        let tiers = self.chain_tiers();
+        if tiers.is_empty() {
+            return self.streams_tool_loop_text();
+        }
+        tiers.iter().any(Self::streams_tool_loop_text)
     }
 
     /// The model this provider's turns run their tool-calling iterations on,
@@ -406,7 +452,7 @@ impl ChatProvider {
     ) -> Result<ChatResponseWithTools, AppError> {
         let forwarded = with_tool_defs(request, tools);
         let response = self.inner().complete(&forwarded).await?;
-        Ok(with_tools_response(response))
+        Ok(ChatResponseWithTools::from_chat_response(response))
     }
 
     /// [`Self::complete_with_tools`] against the chain's head alone, outside
@@ -430,6 +476,30 @@ impl ChatProvider {
         match self.chain_head() {
             Some(head) => head.complete_with_tools(request, tools).await,
             None => self.complete_with_tools(request, tools).await,
+        }
+    }
+
+    /// [`Self::complete_with_tools_on_head`], streaming the reply text.
+    ///
+    /// The same request to the same head, outside the chain's fallback, as a
+    /// stream of text deltas closed by the response the non-streaming call
+    /// returns — tool calls, finish reason and usage included. A head that
+    /// cannot stream a tool turn answers with that closing response alone (see
+    /// [`Self::streams_tool_turn_text`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the head's error when the stream cannot be opened; a failure
+    /// once it is open is the stream's own `Err` item.
+    pub async fn complete_stream_with_tools_on_head(
+        &self,
+        request: &ChatRequest,
+        tools: Option<Vec<Tool>>,
+    ) -> Result<ToolTurnStream, AppError> {
+        let forwarded = with_tool_defs(request, tools);
+        match self.chain_head() {
+            Some(head) => head.inner().complete_stream_with_tools(&forwarded).await,
+            None => self.inner().complete_stream_with_tools(&forwarded).await,
         }
     }
 
@@ -550,6 +620,13 @@ impl LlmProvider for ChatProvider {
         self.inner().complete_stream(request).await
     }
 
+    async fn complete_stream_with_tools(
+        &self,
+        request: &ChatRequest,
+    ) -> Result<ToolTurnStream, AppError> {
+        self.inner().complete_stream_with_tools(request).await
+    }
+
     async fn health_check(&self) -> Result<bool, AppError> {
         self.inner().health_check().await
     }
@@ -563,7 +640,7 @@ mod tests {
         LlmCapabilities as RunnerCapabilities, LlmProvider as RunnerProvider, RunnerError,
     };
 
-    use super::{ChatProvider, EmbacleProvider, QuotaCooldowns};
+    use super::{ChatProvider, EmbacleProvider, LlmProviderType, QuotaCooldowns};
 
     /// A tier that is only ever asked what it can do.
     struct Tier {
@@ -663,6 +740,62 @@ mod tests {
         );
 
         assert!(ChatProvider::Embacle(api("gemini")).chain_head().is_none());
+    }
+
+    #[test]
+    fn only_an_anthropic_head_streams_a_tool_turns_text() {
+        let anthropic = || api("anthropic").of_kind(LlmProviderType::Anthropic);
+        assert!(
+            ChatProvider::Embacle(anthropic()).streams_tool_turn_text(),
+            "the Anthropic Messages API streams a tool-calling turn natively"
+        );
+        assert!(
+            chain(vec![anthropic(), copilot("copilot_sdk")]).streams_tool_turn_text(),
+            "a chain is asked by its head, the tier the tool loop converses with"
+        );
+        assert!(
+            !chain(vec![
+                api("gemini").of_kind(LlmProviderType::Gemini),
+                anthropic()
+            ])
+            .streams_tool_turn_text(),
+            "an Anthropic tail does not make a Gemini head stream"
+        );
+        assert!(
+            !ChatProvider::Embacle(api("anthropic")).streams_tool_turn_text(),
+            "a runner of no kind is not known to stream, whatever it is named"
+        );
+    }
+
+    #[test]
+    fn the_tool_loop_streams_text_on_copilot_and_on_an_anthropic_head_only() {
+        let anthropic = || api("anthropic").of_kind(LlmProviderType::Anthropic);
+        let gemini = || api("gemini").of_kind(LlmProviderType::Gemini);
+        assert!(
+            ChatProvider::Embacle(copilot("copilot_sdk")).streams_tool_loop_text(),
+            "the ACP loop streams its reply and its tool observations"
+        );
+        assert!(
+            ChatProvider::Embacle(anthropic()).streams_tool_loop_text(),
+            "the API loop streams a tool-calling turn on the Anthropic Messages API"
+        );
+        assert!(
+            !ChatProvider::Embacle(gemini()).streams_tool_loop_text(),
+            "a function-calling head other than Anthropic answers whole"
+        );
+        let gemini_then_copilot = chain(vec![gemini(), copilot("copilot_sdk")]);
+        assert!(
+            !gemini_then_copilot.streams_tool_loop_text(),
+            "the turn's own loop runs on the Gemini head"
+        );
+        assert!(
+            gemini_then_copilot.any_tier_streams_tool_loop_text(),
+            "a faulted Gemini head hands the turn to a Copilot tier that streams"
+        );
+        assert!(
+            !chain(vec![gemini(), api("cohere")]).any_tier_streams_tool_loop_text(),
+            "no tier of an all-whole chain streams"
+        );
     }
 
     #[test]

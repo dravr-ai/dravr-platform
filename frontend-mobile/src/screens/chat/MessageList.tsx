@@ -46,8 +46,9 @@ import {
   verdictToneAlerts,
 } from '@pierre/shared-types';
 import type { RenderBlock } from '@pierre/scene-types';
-import { parseSceneBlocks, splitVizMarkers } from '@pierre/chat-utils';
+import { parseSceneBlocks, splitVizMarkers, type TurnTrail } from '@pierre/chat-utils';
 import DaySeparator from './DaySeparator';
+import { FoldedTurnTrail, LiveTurnIndicator } from './TurnTrail';
 import TopicDivider from './TopicDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
@@ -404,7 +405,22 @@ interface MessageListProps {
   conversationId?: string | null;
   messages: Message[];
   isLoading: boolean;
+  /**
+   * A turn is running in this thread: sent from here, or one the server is
+   * still answering after the app reopened. Its indicator ends the list.
+   */
   isSending: boolean;
+  /** The steps of the turn sent from here; `null` for none, or for a restored turn. */
+  liveTrail?: TurnTrail | null;
+  /**
+   * The reply of the turn sent from here as it is being written; `''` before
+   * its first words. Drawn above the turn's indicator until the reply lands.
+   */
+  streamingContent?: string;
+  /** When a restored turn's question was asked (epoch ms), so its clock reads true. */
+  awaitingSince?: number | null;
+  /** Each finished reply's trail, keyed by the reply's id: folded above that reply. */
+  turnTrails?: ReadonlyMap<string, TurnTrail>;
   messageFeedback: Record<string, 'up' | 'down' | null>;
   /** Saved thumbs-down reasons, keyed by message id. */
   messageFeedbackComment: Record<string, string>;
@@ -473,6 +489,10 @@ export function MessageList({
   messages,
   isLoading,
   isSending,
+  liveTrail = null,
+  streamingContent = '',
+  awaitingSince = null,
+  turnTrails,
   messageFeedback,
   messageFeedbackComment,
   messageBlocks,
@@ -794,6 +814,7 @@ export function MessageList({
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
+    const foldedTrail = isUser || isError ? undefined : turnTrails?.get(item.id);
     const rows = (verdicts ?? []).filter((verdict) => verdict.message_id === item.id);
     // One list, whatever the turn's age: the server's own blocks when it just
     // landed, the same shape decoded from the persisted row when it did not.
@@ -861,13 +882,16 @@ export function MessageList({
             ) : null}
           </View>
         ) : (
-          /* The coach's turn — full width, no bubble, prose then the clock.
+          <>
+          {/* A long turn's steps, folded into one line above its reply. */}
+          {foldedTrail ? <FoldedTurnTrail trail={foldedTrail} /> : null}
+          {/* The coach's turn — full width, no bubble, prose then the clock.
              Copy, share, the two ratings and retry live behind a long press,
              presented by the platform's own menu; nothing but the time sits
              under the prose. A reply the room holds for the caller outside
              this conversation — one given in another of their threads of the
              group — is no row of this conversation, so it has no menu: rating
-             and retry act on this conversation's rows only. */
+             and retry act on this conversation's rows only. */}
           <Pressable
             testID={`message-turn-${item.id}`}
             className="w-full"
@@ -894,6 +918,7 @@ export function MessageList({
               </Text>
             ) : null}
           </Pressable>
+          </>
         )}
         {/* Optional thumbs-down reason — the down rating is already saved; this
             adds/updates the free-text comment on the same feedback row. */}
@@ -987,27 +1012,25 @@ export function MessageList({
   };
 
   /**
-   * The coach is composing.
+   * The coach is composing: the turn's steps, the one it is on beside three
+   * breathing dots, and on a long turn the time it has run.
    *
-   * Three breathing dots, hugging their own content: `alignSelf` is what
-   * sizes this row, since a plain parent stretches its child across the full
-   * width and a message-shaped slab holding 70pt of content reads as a broken
-   * bubble rather than as "typing". No bubble chrome and no mark for the same
-   * reason — there is no message here yet to put in one, and the header
-   * already names who is typing.
+   * The dots hug their own content: no bubble chrome and no mark — there is
+   * no message here yet to put in one, and the header already names who is
+   * typing.
    */
   const renderThinkingIndicator = () => (
-    <View
-      className="mb-4 flex-row items-center"
-      style={{ alignSelf: 'flex-start' }}
-      testID="thinking-indicator"
-    >
-      <View className="flex-row items-center gap-1">
-        {Array.from({ length: TYPING_DOT_COUNT }, (_, index) => (
-          <TypingDot key={index} index={index} />
-        ))}
-      </View>
-    </View>
+    <LiveTurnIndicator
+      trail={liveTrail}
+      startedAt={liveTrail ? null : awaitingSince}
+      glyph={
+        <View className="flex-row items-center gap-1" testID="thinking-indicator">
+          {Array.from({ length: TYPING_DOT_COUNT }, (_, index) => (
+            <TypingDot key={index} index={index} />
+          ))}
+        </View>
+      }
+    />
   );
 
   /**
@@ -1068,8 +1091,25 @@ export function MessageList({
     return renderEmptyChat();
   }
 
+  /**
+   * The running turn: the reply's words as they are written, when any have
+   * arrived, then the indicator — which stays under them, dots and all, until
+   * the reply lands, so the turn reads as still running while it writes.
+   */
+  const renderLiveTurn = () =>
+    streamingContent ? (
+      <View>
+        <View className="mt-3 mb-2" testID="streaming-reply">
+          {renderProse(streamingContent, [], 0)}
+        </View>
+        {renderThinkingIndicator()}
+      </View>
+    ) : (
+      renderThinkingIndicator()
+    );
+
   const renderFooter = () => {
-    if (isSending) return renderThinkingIndicator();
+    if (isSending) return renderLiveTurn();
     if (isLoading) {
       return (
         <View className="items-start py-3" testID="messages-loading">
