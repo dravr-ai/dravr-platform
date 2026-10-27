@@ -34,6 +34,9 @@ pub struct TierQuotaConfig {
     /// Cap on data-only MCP tool calls per day (Strava fetches, etc.).
     /// These count toward `daily_tool_calls` but not toward `daily_tokens`.
     pub daily_tool_calls: i64,
+    /// Weekly cap on the same data-only MCP tool calls `daily_tool_calls`
+    /// counts.
+    pub weekly_tool_calls: i64,
     /// Monthly cost cap in USD. Tenant LLM spend that exceeds this number
     /// is reported to Stripe as a metered overage event by the billing
     /// cron. `f64::INFINITY` disables overage billing for the tier.
@@ -65,6 +68,7 @@ pub const STARTER: TierQuotaConfig = TierQuotaConfig {
     max_messages_per_agent_per_day: 25,
     max_active_agents: 3,
     daily_tool_calls: 200,
+    weekly_tool_calls: 500,
     // Starter is opt-in to upgrade — no overage billing.
     monthly_cost_cap_usd: f64::INFINITY,
 };
@@ -80,6 +84,7 @@ pub const PROFESSIONAL: TierQuotaConfig = TierQuotaConfig {
     max_messages_per_agent_per_day: 200,
     max_active_agents: 20,
     daily_tool_calls: 2_000,
+    weekly_tool_calls: 500,
     // $50/month included; spillover billed via Stripe Meters.
     monthly_cost_cap_usd: 50.0,
 };
@@ -97,6 +102,7 @@ pub const ENTERPRISE: TierQuotaConfig = TierQuotaConfig {
     max_messages_per_agent_per_day: i64::MAX,
     max_active_agents: i64::MAX,
     daily_tool_calls: i64::MAX,
+    weekly_tool_calls: i64::MAX,
     // Enterprise contracts negotiate seat-based pricing; no auto-overage.
     monthly_cost_cap_usd: f64::INFINITY,
 };

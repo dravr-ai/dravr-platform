@@ -385,7 +385,8 @@ fn counter_type_to_config_key(counter_type: &str) -> String {
 /// the single source of truth in `pierre_core::models::tier_quota`.
 /// Counter types not yet represented in [`TierQuotaConfig`] keep their
 /// historical defaults so admin overrides remain the only knob.
-fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
+#[must_use]
+pub fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
     let q = TierQuotaConfig::for_tier(tier);
     match counter_type {
         "daily_messages" => q.daily_messages,
@@ -393,6 +394,7 @@ fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
         "weekly_tokens" => q.weekly_tokens,
         "monthly_tokens" => q.monthly_tokens,
         "daily_tool_calls" => q.daily_tool_calls,
+        "weekly_tool_calls" => q.weekly_tool_calls,
         "daily_conversations" => q.max_conversations_per_day,
         "conversation_messages" => q.max_messages_per_conversation,
         "daily_coach_messages" => q.max_messages_per_agent_per_day,
@@ -400,7 +402,7 @@ fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
         // Counter types we have not yet keyed to tier fall back to the
         // historical defaults; admins can override via admin_config.
         "weekly_messages" => 250,
-        "weekly_tool_calls" | "weekly_activity_summary" => 500,
+        "weekly_activity_summary" => 500,
         "daily_activity_detailed" => 20,
         _ => 100,
     }

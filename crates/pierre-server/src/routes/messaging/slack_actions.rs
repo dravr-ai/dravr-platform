@@ -27,6 +27,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 mod coach_access_tap;
+mod ops_card;
+mod quota_unlock_tap;
 mod sign_up_tap;
 
 use super::webhooks;
@@ -38,6 +40,7 @@ use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
 use pierre_services::locale::resolve_channel_locale;
 use pierre_services::provider_notice::under_ai_consent;
+use quota_unlock_tap::{answer_quota_unlock_tap, raise_can_lift};
 use sign_up_tap::answer_sign_up_tap;
 
 /// Channel type key Slack channel links are stored under in
@@ -56,7 +59,8 @@ enum ActionRoute {
     /// ingested as the message it spells, into the athlete's turn.
     AthleteTurn,
     /// Anything else: an ops room's decision (approve/reject a sign-up,
-    /// grant/decline coach access), which refuses what it cannot parse.
+    /// grant/decline coach access, raise a capped athlete to Enterprise),
+    /// which refuses what it cannot parse.
     Ops,
 }
 
@@ -91,7 +95,8 @@ impl ActionRoute {
 ///   it — the same session, gates and turn a typed message gets.
 /// - **Ops actions**: the buttons [`OpsDecisionActions`] posts — approve or
 ///   reject under `user.pending_approval`, grant or decline under
-///   `coach_access.requested` — each honoured only in the room its event's
+///   `coach_access.requested`, raise to Enterprise under
+///   `quota.limit_reached` — each honoured only in the room its event's
 ///   routing rule names.
 ///
 /// Security chain:
@@ -99,8 +104,9 @@ impl ActionRoute {
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
 /// 3. Per-route authorization — the event's room for approve/reject, the
 ///    room plus an active super-admin behind the Slack identity's channel
-///    link for grant/decline, the channel link and user-status gate for
-///    command postbacks and the athlete's taps. The signature proves the
+///    link for grant/decline and for raising a capped athlete's tier, the
+///    channel link and user-status gate for command postbacks and the
+///    athlete's taps. The signature proves the
 ///    click came from Slack, never that the clicking Slack identity may act
 ///    as a given Dravr user.
 pub(crate) async fn handle_slack_action(
@@ -127,7 +133,8 @@ pub(crate) async fn handle_slack_action(
         ActionRoute::Ops => {}
     }
 
-    // --- Ops actions below (approve/reject users, grant/decline coach access) ---
+    // --- Ops actions below (approve/reject users, grant/decline coach access,
+    // raise a capped athlete to Enterprise) ---
 
     let ops_action = parse_action_id(&action.action_id)?;
 
@@ -149,6 +156,9 @@ pub(crate) async fn handle_slack_action(
         }
         OpsAction::CoachAccess(decision, request_id) => {
             answer_coach_access_tap(resources, &action, decision, request_id).await
+        }
+        OpsAction::RaiseToEnterprise(user_uuid) => {
+            answer_quota_unlock_tap(resources, &action, user_uuid).await
         }
     }
 }
@@ -444,6 +454,8 @@ enum OpsAction {
     SignUp(ActionType, Uuid),
     /// Grant or decline the request under `coach_access.requested`.
     CoachAccess(CoachAccessDecision, Uuid),
+    /// Raise the athlete a `quota.limit_reached` notice names to Enterprise.
+    RaiseToEnterprise(Uuid),
 }
 
 impl OpsAction {
@@ -453,6 +465,7 @@ impl OpsAction {
         match self {
             Self::SignUp(..) => PENDING_APPROVAL_EVENT,
             Self::CoachAccess(..) => COACH_ACCESS_REQUESTED_EVENT,
+            Self::RaiseToEnterprise(_) => QUOTA_LIMIT_REACHED_EVENT,
         }
     }
 }
@@ -569,6 +582,10 @@ const GRANT_COACH_ACCESS_PREFIX: &str = "grant_coach_access:";
 /// follows it.
 const DECLINE_COACH_ACCESS_PREFIX: &str = "decline_coach_access:";
 
+/// `action_id` prefix of the Raise to Enterprise button; the capped athlete's
+/// id follows it.
+const RAISE_TIER_ENTERPRISE_PREFIX: &str = "raise_tier_enterprise:";
+
 /// Read an ops button's `action_id` back: one of the prefixes
 /// [`OpsDecisionActions`] posts, followed by the id the tap acts on.
 fn parse_action_id(action_id: &str) -> AppResult<OpsAction> {
@@ -587,6 +604,8 @@ fn parse_action_id(action_id: &str) -> AppResult<OpsAction> {
             CoachAccessDecision::Decline,
             id(raw)?,
         ))
+    } else if let Some(raw) = action_id.strip_prefix(RAISE_TIER_ENTERPRISE_PREFIX) {
+        Ok(OpsAction::RaiseToEnterprise(id(raw)?))
     } else {
         Err(AppError::invalid_input(format!(
             "Unknown action: {action_id}"
@@ -602,46 +621,72 @@ const PENDING_APPROVAL_EVENT: &str = "user.pending_approval";
 /// rule names the room they are honoured in.
 const COACH_ACCESS_REQUESTED_EVENT: &str = "coach_access.requested";
 
+/// The notify event the Raise to Enterprise button goes out under; its routing
+/// rule names the room it is honoured in.
+const QUOTA_LIMIT_REACHED_EVENT: &str = "quota.limit_reached";
+
 /// Posts the buttons an operator decides from in Slack: Approve and Reject
 /// under `user.pending_approval`, Grant and Decline under
-/// `coach_access.requested`.
+/// `coach_access.requested`, Raise to Enterprise under `quota.limit_reached`.
 ///
 /// Registered once at startup via [`pierre_logging::set_notify_actions`],
 /// which takes a single provider, so every ops event's buttons are posted
 /// here. The `NotifyLayer` calls it on the tracing thread, so it reads only
 /// the event's fields. Each button's `action_id` is a prefix
 /// [`parse_action_id`] reads followed by the id the tap acts on — the waiting
-/// account's `user_id`, the coach-access `request_id`; an event without it
-/// gets no buttons, since a tap could not say what it acts on.
+/// account's `user_id`, the coach-access `request_id`, the capped athlete's
+/// `user_id`; an event without it gets no buttons, since a tap could not say
+/// what it acts on. A capped athlete a raise could not unlock gets none
+/// either ([`raise_can_lift`]).
 #[derive(Debug)]
 pub struct OpsDecisionActions;
 
 impl NotifyActions for OpsDecisionActions {
     fn actions_for(&self, event: &str, fields: &HashMap<String, String>) -> Option<Vec<Value>> {
-        let (id_field, primary, danger) = match event {
+        let (id_field, buttons): (&str, &[DecisionButton]) = match event {
             PENDING_APPROVAL_EVENT => (
                 "user_id",
-                (APPROVE_USER_PREFIX, "Approve"),
-                (REJECT_USER_PREFIX, "Reject"),
+                &[
+                    (APPROVE_USER_PREFIX, "Approve", "primary"),
+                    (REJECT_USER_PREFIX, "Reject", "danger"),
+                ],
             ),
             COACH_ACCESS_REQUESTED_EVENT => (
                 "request_id",
-                (GRANT_COACH_ACCESS_PREFIX, "Grant"),
-                (DECLINE_COACH_ACCESS_PREFIX, "Decline"),
+                &[
+                    (GRANT_COACH_ACCESS_PREFIX, "Grant", "primary"),
+                    (DECLINE_COACH_ACCESS_PREFIX, "Decline", "danger"),
+                ],
+            ),
+            QUOTA_LIMIT_REACHED_EVENT => (
+                "user_id",
+                &[(
+                    RAISE_TIER_ENTERPRISE_PREFIX,
+                    "Raise to Enterprise",
+                    "primary",
+                )],
             ),
             _ => return None,
         };
         let id = fields.get(id_field)?;
-        Some(vec![
-            decision_button(primary, id, "primary"),
-            decision_button(danger, id, "danger"),
-        ])
+        if event == QUOTA_LIMIT_REACHED_EVENT && !raise_can_lift(fields) {
+            return None;
+        }
+        Some(
+            buttons
+                .iter()
+                .map(|&button| decision_button(button, id))
+                .collect(),
+        )
     }
 }
 
+/// An ops button as `(action_id prefix, label, Slack style)`.
+type DecisionButton = (&'static str, &'static str, &'static str);
+
 /// One ops button: `label`, styled `style`, whose `action_id` is `prefix`
 /// followed by `id`.
-fn decision_button((prefix, label): (&str, &str), id: &str, style: &str) -> Value {
+fn decision_button((prefix, label, style): DecisionButton, id: &str) -> Value {
     json!({
         "type": "button",
         "action_id": format!("{prefix}{id}"),
@@ -711,6 +756,7 @@ mod tests {
         parse_action_id, parse_slack_action, verify_ops_channel, verify_slack_signature,
         ActionRoute, ActionType, CoachAccessDecision, ContremaitreRoutingProvider, OpsAction,
         OpsDecisionActions, SlackAction, COACH_ACCESS_REQUESTED_EVENT, PENDING_APPROVAL_EVENT,
+        QUOTA_LIMIT_REACHED_EVENT,
     };
 
     /// The `action_id`s of the buttons posted under `event`.
@@ -814,6 +860,39 @@ mod tests {
     }
 
     #[test]
+    fn raise_to_enterprise_is_the_one_button_under_a_reached_cap_and_acts_on_the_athlete() {
+        let user_id = Uuid::new_v4();
+        let fields = HashMap::from([
+            ("user_id".to_owned(), user_id.to_string()),
+            ("tenant_id".to_owned(), Uuid::new_v4().to_string()),
+            ("limit_type".to_owned(), "daily_messages".to_owned()),
+            ("tier".to_owned(), "starter".to_owned()),
+            ("limit".to_owned(), "50".to_owned()),
+        ]);
+        assert_eq!(
+            buttons_under(QUOTA_LIMIT_REACHED_EVENT, &fields),
+            [(
+                OpsAction::RaiseToEnterprise(user_id),
+                "button",
+                "primary",
+                "Raise to Enterprise"
+            )]
+            .map(owned),
+            "a reached cap offers exactly one unlock, never a danger button"
+        );
+        assert_eq!(
+            button_action_ids(QUOTA_LIMIT_REACHED_EVENT, &fields),
+            Some(vec![format!("raise_tier_enterprise:{user_id}")]),
+            "the button's action_id is the raise prefix followed by the athlete"
+        );
+        for id in button_action_ids(QUOTA_LIMIT_REACHED_EVENT, &fields).unwrap() {
+            assert_eq!(ActionRoute::of(&id), ActionRoute::Ops, "{id}");
+            let action = parse_action_id(&id).unwrap();
+            assert_eq!(action.event(), QUOTA_LIMIT_REACHED_EVENT, "{id}");
+        }
+    }
+
+    #[test]
     fn no_buttons_for_another_event_or_an_event_naming_nothing_to_act_on() {
         let fields = HashMap::from([
             ("user_id".to_owned(), Uuid::new_v4().to_string()),
@@ -830,6 +909,13 @@ mod tests {
             button_action_ids(PENDING_APPROVAL_EVENT, &HashMap::new()),
             None
         );
+        // A reached-cap notice that lost its athlete has nobody to raise.
+        let no_athlete = HashMap::from([("limit_type".to_owned(), "weekly_tokens".to_owned())]);
+        assert_eq!(
+            button_action_ids(QUOTA_LIMIT_REACHED_EVENT, &no_athlete),
+            None,
+            "no user_id, no Raise to Enterprise button"
+        );
         // A coach-access notice without its request names only the requester.
         let requester_only = HashMap::from([("user_id".to_owned(), Uuid::new_v4().to_string())]);
         assert_eq!(
@@ -843,6 +929,8 @@ mod tests {
         for unknown in [
             "grant_coach_access:not-a-uuid",
             "approve_user:",
+            "raise_tier_enterprise:not-a-uuid",
+            "raise_tier_enterprise:",
             "promote_user:6f1c2b9e-0000-4000-8000-000000000001",
         ] {
             assert!(parse_action_id(unknown).is_err(), "{unknown}");
@@ -871,6 +959,7 @@ mod tests {
             "reject_user:6f1c2b9e-0000-4000-8000-000000000001",
             "grant_coach_access:6f1c2b9e-0000-4000-8000-000000000001",
             "decline_coach_access:6f1c2b9e-0000-4000-8000-000000000001",
+            "raise_tier_enterprise:6f1c2b9e-0000-4000-8000-000000000001",
             "0",
             "ex:one:1",
             "uc:one:connect",
@@ -963,9 +1052,10 @@ mod tests {
             .reload(
                 "version: 1\ndefaults:\n  channel: \"C0DEFAULT\"\nevents:\n  \
                  user.pending_approval:\n    channel: \"C0SIGNUPS\"\n  \
-                 coach_access.requested:\n    channel: \"C0COACHES\"\n",
+                 coach_access.requested:\n    channel: \"C0COACHES\"\n  \
+                 quota.limit_reached:\n    channel: \"C0QUOTA\"\n",
             )
-            .expect("a two-room table parses");
+            .expect("a three-room table parses");
 
         let grant = OpsAction::CoachAccess(CoachAccessDecision::Grant, Uuid::new_v4()).event();
         let approve = OpsAction::SignUp(ActionType::Approve, Uuid::new_v4()).event();
@@ -977,6 +1067,18 @@ mod tests {
             .expect_err("a grant from the sign-up room is refused");
         assert!(err.to_string().contains("ops channel"), "{err}");
         assert!(verify_ops_channel(&tap_in("C0COACHES", ""), approve, &routing).is_err());
+
+        // A raise is honoured in the quota room and nowhere else.
+        let raise = OpsAction::RaiseToEnterprise(Uuid::new_v4()).event();
+        assert!(verify_ops_channel(&tap_in("C0QUOTA", ""), raise, &routing).is_ok());
+        for elsewhere in ["C0SIGNUPS", "C0COACHES", "C0DEFAULT"] {
+            assert!(
+                verify_ops_channel(&tap_in(elsewhere, ""), raise, &routing).is_err(),
+                "a raise from {elsewhere} must be refused"
+            );
+        }
+        // Nor is the quota room where sign-ups are decided.
+        assert!(verify_ops_channel(&tap_in("C0QUOTA", ""), approve, &routing).is_err());
 
         // A table naming only the sign-up room leaves coach access nowhere.
         routing

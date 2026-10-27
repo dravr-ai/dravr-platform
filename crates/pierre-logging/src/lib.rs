@@ -97,7 +97,9 @@ pub fn set_notify_enricher(enricher: Arc<dyn NotifyEnricher>) {
 /// Set once at startup (before [`init_from_env`]) by the binary, which owns
 /// the Slack interactivity route the buttons are answered by. The layer posts
 /// the elements it returns under an event's immediate Slack post — the
-/// Approve and Reject buttons under `user.pending_approval`.
+/// Approve and Reject buttons under `user.pending_approval`, Grant and
+/// Decline under `coach_access.requested`, Raise to Enterprise under
+/// `quota.limit_reached`.
 static NOTIFY_ACTIONS: OnceLock<Arc<dyn NotifyActions>> = OnceLock::new();
 
 /// Register the [`NotifyActions`] used by the `NotifyLayer`.

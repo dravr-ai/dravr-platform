@@ -696,6 +696,7 @@ mod slack_actions_unit_test;
 mod slack_athlete_tap_test;
 mod slack_coach_access_action_test;
 mod slack_ops_action_signature_test;
+mod slack_quota_unlock_action_test;
 mod slack_room_plan_share_test;
 mod slack_socket_unit_test;
 mod slash_outbound_persistence_test;

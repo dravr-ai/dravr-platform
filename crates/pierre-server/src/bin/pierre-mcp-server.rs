@@ -190,8 +190,9 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
         config.frontend_url.as_deref(),
     )));
     // Register the ops buttons: Approve/Reject under user.pending_approval,
-    // Grant/Decline under coach_access.requested; the Slack interactivity
-    // route that answers them is a messaging route.
+    // Grant/Decline under coach_access.requested, Raise to Enterprise under
+    // quota.limit_reached; the Slack interactivity route that answers them is
+    // a messaging route.
     #[cfg(feature = "client-messaging")]
     pierre_logging::set_notify_actions(Arc::new(OpsDecisionActions));
     pierre_logging::init_from_env()?;
