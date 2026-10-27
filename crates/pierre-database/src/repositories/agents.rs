@@ -326,7 +326,16 @@ pub trait CoachingGroupRepository: Send + Sync {
         group: &CoachingGroup,
     ) -> AppResult<CoachingGroup>;
 
-    /// Get a group by ID with tenant isolation
+    /// Get a group by ID.
+    ///
+    /// The id alone finds the row; the `tenant_id` argument filters nothing.
+    /// Coaching groups are cross-tenant — members join one group from
+    /// different tenants — so the group's own `tenant_id` field names only
+    /// the tenant that owns it. [`Self::admits_member_or_coach`] decides who
+    /// may read the group; the writes ([`Self::update_group`],
+    /// [`Self::delete_group`], [`Self::set_group_coach_user`]) also filter on
+    /// the `tenant_id` they are given, so they match only under the tenant
+    /// that owns the group.
     async fn get_group(
         &self,
         group_id: &str,

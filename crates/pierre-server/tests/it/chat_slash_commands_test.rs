@@ -321,6 +321,43 @@ async fn seed_group_membership(
     group_id
 }
 
+/// A user of a tenant of their own who holds the Admin role in `group_id`,
+/// which `group_tenant` owns: a member who joined from elsewhere.
+async fn seed_admin_from_another_tenant(
+    resources: &Arc<ServerContext>,
+    email: &str,
+    group_id: Uuid,
+    group_tenant: TenantId,
+) -> (Uuid, TenantId, String) {
+    let (admin_id, admin_tenant, admin_auth) = seed_user_tenant(resources, email).await;
+    assert_ne!(
+        admin_tenant, group_tenant,
+        "fixture bug: the admin must join from another tenant"
+    );
+    let now = chrono::Utc::now();
+    resources
+        .common
+        .repos
+        .groups
+        .add_member(&GroupMember {
+            id: Uuid::new_v4(),
+            group_id,
+            user_id: admin_id,
+            tenant_id: group_tenant.to_string(),
+            role: GroupRole::Admin,
+            peer_sharing_consent: false,
+            coach_sharing_consent: false,
+            coach_consents: CoachConsents::default(),
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        })
+        .await
+        .unwrap();
+    (admin_id, admin_tenant, admin_auth)
+}
+
 /// Send `/help` and return the rendered listing.
 async fn fetch_help(router: axum::Router, auth: &str) -> String {
     let conv_id = create_conversation(router.clone(), auth).await;
@@ -970,6 +1007,110 @@ async fn agent_add_in_a_group_thread_by_a_member_is_refused() {
         conversation_agent(&resources, &conv_id, user_id, tenant_id).await,
         bound_before,
         "nothing was bound"
+    );
+}
+
+/// `/agent assign` writes a group under the caller's own tenant, as
+/// `PUT /api/groups/{group_id}` does, so an admin who joined from another
+/// tenant is refused not-found on both — never told the group was updated
+/// while its agent stays where it was.
+#[tokio::test]
+async fn agent_assign_by_an_admin_from_another_tenant_is_refused_like_the_rest_route() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (owner_id, owner_tenant, _owner_auth) =
+        seed_user_tenant(&resources, "assign-owner@test.com").await;
+    let first_coach = seed_agent(&resources, owner_id, owner_tenant, "First Coach", "First.").await;
+    let group_id = seed_group_membership(
+        &resources,
+        owner_id,
+        owner_tenant,
+        &first_coach,
+        GroupRole::Owner,
+    )
+    .await;
+
+    let (admin_id, admin_tenant, admin_auth) =
+        seed_admin_from_another_tenant(&resources, "assign-admin@test.com", group_id, owner_tenant)
+            .await;
+    let installed_id = install_recovery_agent(&resources, admin_id, admin_tenant).await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = create_conversation(router.clone(), &admin_auth).await;
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &admin_auth)
+        .json(&json!({"content": format!("/agent assign {installed_id} {group_id}")}))
+        .send(router)
+        .await;
+
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::NOT_FOUND,
+        "a write that matched no row is refused, not reported done: {}",
+        resp.body_text()
+    );
+    assert_eq!(
+        group_agent(&resources, group_id, owner_tenant).await,
+        first_coach,
+        "the group's agent is untouched"
+    );
+}
+
+/// `/agent add` in a group room writes under the tenant the room's binding
+/// resolves. In the in-app room of an admin who joined from another tenant
+/// that is the admin's own tenant, which does not own the group: the update
+/// matches no row, and the command answers not-found with nothing moved —
+/// neither the group nor the room — rather than reporting the change made.
+#[tokio::test]
+async fn agent_add_whose_group_update_matches_no_row_is_answered_not_found() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (owner_id, owner_tenant, _owner_auth) =
+        seed_user_tenant(&resources, "add-owner@test.com").await;
+    let first_coach = seed_agent(&resources, owner_id, owner_tenant, "First Coach", "First.").await;
+    let group_id = seed_group_membership(
+        &resources,
+        owner_id,
+        owner_tenant,
+        &first_coach,
+        GroupRole::Owner,
+    )
+    .await;
+
+    let (admin_id, admin_tenant, admin_auth) =
+        seed_admin_from_another_tenant(&resources, "add-admin@test.com", group_id, owner_tenant)
+            .await;
+    install_recovery_agent(&resources, admin_id, admin_tenant).await;
+
+    let router = ChatRoutes::routes(Arc::clone(&resources));
+    let conv_id = group_conversation(
+        &resources,
+        router.clone(),
+        &admin_auth,
+        admin_tenant,
+        group_id,
+    )
+    .await;
+    let bound_before = conversation_agent(&resources, &conv_id, admin_id, admin_tenant).await;
+    let resp = AxumTestRequest::post(&format!("/api/chat/conversations/{conv_id}/messages"))
+        .header("authorization", &admin_auth)
+        .json(&json!({"content": "/coach add @recovery-coach"}))
+        .send(router)
+        .await;
+
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::NOT_FOUND,
+        "an update that matched no row is refused, not reported done: {}",
+        resp.body_text()
+    );
+    assert_eq!(
+        group_agent(&resources, group_id, owner_tenant).await,
+        first_coach,
+        "the group's agent is untouched"
+    );
+    assert_eq!(
+        conversation_agent(&resources, &conv_id, admin_id, admin_tenant).await,
+        bound_before,
+        "the room was not rebound"
     );
 }
 

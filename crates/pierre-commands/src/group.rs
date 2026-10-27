@@ -48,7 +48,7 @@ pub(crate) struct TargetGroup {
     /// How the group was resolved, for the operator log line:
     /// `"conversation_group_id"`, `"list_groups_for_user_first"`,
     /// `"list_groups_for_user_all"` for a `/group consent` from a direct
-    /// message, or `"named_group_id"` for a `/group invite <group-id>`.
+    /// message, or `"named_group_id"` for a group a command named by id.
     pub(crate) source: &'static str,
 }
 
@@ -68,6 +68,8 @@ pub(crate) enum ConsentTargets {
 /// [`PlatformCommandContext::conversation_tenant_id`], or a binding pointing at
 /// a group that tenant cannot see, is an error: the caller must refuse rather
 /// than pick some other group.
+///
+/// LIMITATION(registre#1205): `conversation_bound_group` reports the conversation's tenant, which in a cross-tenant member's in-app room is theirs, not the group row's.
 async fn conversation_bound_group(
     ctx: &PlatformCommandContext,
     conversation_id: &str,
@@ -126,8 +128,7 @@ async fn conversation_bound_group(
 /// off and `/group invite` in a conversation bound to no group offers nothing
 /// instead of the wrong group. `/group consent`, a privacy control, never takes
 /// the fallback at all: it resolves through [`resolve_consent_targets`]. A
-/// `/group invite` that names its group takes neither: see
-/// [`issue_group_invite`](crate::group_invite::issue_group_invite).
+/// command that names its group by id takes neither: see [`named_group`].
 pub(crate) async fn resolve_target_group(
     ctx: &PlatformCommandContext,
 ) -> Result<TargetGroup, AppError> {
@@ -137,6 +138,39 @@ pub(crate) async fn resolve_target_group(
     find_target_group(ctx)
         .await?
         .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))
+}
+
+/// Find the group a command names by id, or `None` when no group has it.
+///
+/// `/group invite <group-id>` — the button `/group create` puts on its
+/// answer, which must invite to the group just made wherever it is pressed
+/// (carnet#1187) — and `/agent assign <agent-id> <group-id>` name their group
+/// this way. The id alone finds the row: a coaching group spans tenants, so
+/// the lookup admits no one — each command checks the caller's membership
+/// next — and the tenant reported is the row's own. Each command answers
+/// `None` with the refusal it gives a group the caller is not in, so the
+/// reply never tells a stranger whether a group exists.
+pub(crate) async fn named_group(
+    ctx: &PlatformCommandContext,
+    group_id: Uuid,
+) -> Result<Option<TargetGroup>, AppError> {
+    let Some(group) = ctx
+        .ctx
+        .repos()
+        .groups
+        .get_group(&group_id.to_string(), ctx.tenant_id)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let tenant_id = TenantId::parse_str(&group.tenant_id)
+        .map_err(|e| AppError::internal(format!("Invalid group tenant: {e}")))?;
+    Ok(Some(TargetGroup {
+        id: group.id,
+        name: group.name,
+        tenant_id,
+        source: "named_group_id",
+    }))
 }
 
 /// Resolve the groups a `/group consent` decision may apply to.

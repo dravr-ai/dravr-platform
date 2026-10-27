@@ -25,7 +25,7 @@ use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSou
 use pierre_services::agents::{retain_visible_agents, user_sees_coach_tools};
 use tracing::warn;
 
-use crate::group::resolve_target_group;
+use crate::group::{named_group, resolve_target_group};
 use crate::group_invite::{issue_group_invite, GroupInviteHandler};
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
@@ -473,7 +473,7 @@ impl CommandHandler for AgentAssignHandler {
 
         // Validate both IDs are valid UUIDs
         let _ = parse_uuid(agent_id)?;
-        let _ = parse_uuid(group_id)?;
+        let group_uuid = parse_uuid(group_id)?;
 
         // Verify agent exists and is accessible in this tenant
         let agent = ctx
@@ -484,17 +484,15 @@ impl CommandHandler for AgentAssignHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Coach {agent_id}")))?;
 
-        // Verify user has permission on this group (tenant-scoped via get_group)
-        let group = ctx
-            .ctx
-            .repos()
-            .groups
-            .get_group(group_id, ctx.tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
-
         let reg = ctx.ctx.messaging_strings_registry();
         let locale = ctx.locale.as_str();
+
+        // An unknown id and a group the caller is not in read the same.
+        let not_a_member =
+            || AppError::not_found(reg.render(KEY_AGENT_ASSIGN_NOT_A_MEMBER, locale, &[]));
+        let group = named_group(ctx, group_uuid)
+            .await?
+            .ok_or_else(not_a_member)?;
 
         // Verify user is admin/owner of this group
         let member = ctx
@@ -503,9 +501,7 @@ impl CommandHandler for AgentAssignHandler {
             .groups
             .get_member(group_id, ctx.user_id)
             .await?
-            .ok_or_else(|| {
-                AppError::not_found(reg.render(KEY_AGENT_ASSIGN_NOT_A_MEMBER, locale, &[]))
-            })?;
+            .ok_or_else(not_a_member)?;
 
         if !Self::permits(member.role) {
             return Ok(CommandResponse::text(reg.render(
@@ -516,6 +512,9 @@ impl CommandHandler for AgentAssignHandler {
         }
 
         require_athlete_facing(&agent)?;
+        // Written under the caller's own tenant, as
+        // `PUT /api/groups/{group_id}` writes it: an admin who joined the
+        // group from another tenant is refused not-found here and there alike.
         update_group_agent(ctx, group_id, ctx.tenant_id, agent_id).await?;
 
         Ok(CommandResponse::text(reg.render(
@@ -561,10 +560,10 @@ async fn record_slash_selection(ctx: &PlatformCommandContext, agent_id: &str) {
 
 /// Point a group at `agent_id` and record the selection.
 ///
-/// `group_tenant_id` is the tenant that owns the `coaching_groups` row — the
-/// conversation tenant when the chat binding supplied the group (a shared
-/// room's group belongs to the channel tenant), the caller's own tenant for
-/// `/agent assign`, which names the group by id in the caller's scope.
+/// `group_tenant_id` is the tenant the update filters on: the caller's own
+/// tenant for `/agent assign`, as the REST route writes a group, and the
+/// tenant [`resolve_target_group`] resolved for `/agent add`. A write that
+/// matched no row is answered not-found rather than reported as done.
 async fn update_group_agent(
     ctx: &PlatformCommandContext,
     group_id: &str,
@@ -587,7 +586,8 @@ async fn update_group_agent(
         .repos()
         .groups
         .update_group(group_id, group_tenant_id, &update)
-        .await?;
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
     // Shared by `/agent add` (group conversation) and `/agent assign`, so
     // both surfaces record the selection exactly once.

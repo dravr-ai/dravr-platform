@@ -2472,6 +2472,82 @@ mod command_tests {
         assert!(response.text.contains("Code:"));
     }
 
+    /// `/agent assign` names its group by id. An id no group has and a group
+    /// the caller is not in get the same refusal, so the reply never says
+    /// whether a group exists, and neither moves the group's agent.
+    #[tokio::test]
+    async fn agent_assign_answers_an_unknown_group_like_one_the_caller_is_not_in() {
+        use pierre_commands::agent::AgentAssignHandler;
+        use pierre_contremaitre::messaging_strings::KEY_AGENT_ASSIGN_NOT_A_MEMBER;
+        use pierre_core::errors::ErrorCode;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (owner_id, owner_tenant) = create_test_user(&resources, "assignowner@test.com").await;
+        let first = seed_agent(&resources, owner_id, owner_tenant, "First", "desc").await;
+        let gid =
+            create_group_row(&resources, owner_tenant, &first, owner_id, "Squad", false).await;
+        add_group_member(
+            &resources,
+            gid,
+            owner_id,
+            owner_tenant,
+            GroupRole::Owner,
+            None,
+            false,
+        )
+        .await;
+
+        let (stranger_id, stranger_tenant) =
+            create_test_user(&resources, "assignstranger@test.com").await;
+        let target = seed_agent(&resources, stranger_id, stranger_tenant, "Target", "desc").await;
+
+        let mut refusals = Vec::new();
+        for group in [gid.to_string(), Uuid::new_v4().to_string()] {
+            let ctx = group_ctx(
+                &resources,
+                stranger_id,
+                stranger_tenant,
+                vec![target.clone(), group.clone()],
+                &format!("/agent assign {target} {group}"),
+                None,
+            );
+            let Err(refusal) = AgentAssignHandler.execute(&ctx).await else {
+                panic!("/agent assign on {group} was expected to be refused");
+            };
+            assert_eq!(
+                refusal.code,
+                ErrorCode::ResourceNotFound,
+                "refused as not found: {}",
+                refusal.message
+            );
+            refusals.push(refusal.message);
+        }
+
+        let not_a_member = resources.mcp.messaging_strings_registry.render(
+            KEY_AGENT_ASSIGN_NOT_A_MEMBER,
+            "en",
+            &[],
+        );
+        assert!(
+            refusals[0].starts_with(&not_a_member),
+            "a stranger reads that they are not a member: {}",
+            refusals[0]
+        );
+        assert_eq!(
+            refusals[1], refusals[0],
+            "an id that names no group reads exactly like a group they are not in"
+        );
+        let group = resources
+            .common
+            .repos
+            .groups
+            .get_group(&gid.to_string(), owner_tenant)
+            .await
+            .unwrap()
+            .expect("the group exists");
+        assert_eq!(group.agent_id, first, "the group's agent is untouched");
+    }
+
     /// `/group consent` with an unrecognized argument returns usage help
     /// instead of silently doing nothing (parsed before any group lookup).
     #[tokio::test]

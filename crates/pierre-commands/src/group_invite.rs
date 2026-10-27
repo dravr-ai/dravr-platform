@@ -14,55 +14,20 @@ use pierre_contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
 use pierre_contremaitre::messaging_strings::{KEY_COACH_INVITE_BODY, KEY_GROUP_INVITE_BODY};
 use pierre_contremaitre::messaging_strings::{KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_NOT_A_MEMBER};
 use pierre_core::models::groups::{GroupInviteKind, GroupRole};
-use pierre_core::models::TenantId;
 #[cfg(not(feature = "tools-groups"))]
 use tracing::info;
 use uuid::Uuid;
 
-use crate::group::{resolve_target_group, CallerGroupStanding, TargetGroup};
+use crate::group::{named_group, resolve_target_group, CallerGroupStanding, TargetGroup};
 use crate::{CommandHandler, PlatformCommandContext};
-
-/// Resolve the group a `/group invite <group-id>` names by id.
-///
-/// That is the button `/group create` puts on its answer, and it must invite
-/// to the group just made wherever it is pressed: in Home's personal thread,
-/// which names no group, and in a messaging DM, where the fallback would pick
-/// whichever group the caller touched last (carnet#1187). The id alone finds
-/// the row, as it does for `/agent assign`: a coaching group spans tenants,
-/// so what admits the caller is the membership row [`issue_group_invite`]
-/// checks next, and the invite is filed under the row's own tenant. An
-/// unknown id answers "not a member", the answer [`issue_group_invite`] gives
-/// a group the caller is not in, so the reply never tells a stranger whether
-/// a group exists.
-async fn named_group(
-    ctx: &PlatformCommandContext,
-    group_id: Uuid,
-) -> Result<TargetGroup, AppError> {
-    let reg = ctx.ctx.messaging_strings_registry();
-    let group = ctx
-        .ctx
-        .repos()
-        .groups
-        .get_group(&group_id.to_string(), ctx.tenant_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, ctx.locale.as_str(), &[]))
-        })?;
-    let tenant_id = TenantId::parse_str(&group.tenant_id)
-        .map_err(|e| AppError::internal(format!("Invalid group tenant: {e}")))?;
-    Ok(TargetGroup {
-        id: group.id,
-        name: group.name,
-        tenant_id,
-        source: "named_group_id",
-    })
-}
 
 /// Issue an invite of `kind` on the caller's behalf, refusing anyone who may
 /// not manage the group's members.
 ///
 /// The group is the conversation's, or the one `named` names when the
-/// command carried its id ([`named_group`]). The one implementation behind
+/// command carried its id ([`named_group`]), and the invite is filed under
+/// its [`TargetGroup::tenant_id`]. An unknown id and a group the caller is
+/// not in get the same "not a member" answer. The one implementation behind
 /// two triggers: `/group invite [agent]` and `/agent invite` resolve the
 /// conversation's group through the same ladder, enforce the same role and
 /// file the invite through the same `GroupService` path, so the two
@@ -82,8 +47,9 @@ pub(crate) async fn issue_group_invite(
     let reg = ctx.ctx.messaging_strings_registry();
     let locale = ctx.locale.as_str();
 
+    let not_a_member = || AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[]));
     let group = match named {
-        Some(group_id) => named_group(ctx, group_id).await?,
+        Some(group_id) => named_group(ctx, group_id).await?.ok_or_else(not_a_member)?,
         None => resolve_target_group(ctx).await?,
     };
 
@@ -94,7 +60,7 @@ pub(crate) async fn issue_group_invite(
         .groups
         .get_member(&group.id.to_string(), ctx.user_id)
         .await?
-        .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
+        .ok_or_else(not_a_member)?;
 
     if !GroupInviteHandler::permits(member.role) {
         return Ok(CommandResponse::text(reg.render(
