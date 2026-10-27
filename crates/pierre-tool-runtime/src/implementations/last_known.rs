@@ -30,6 +30,7 @@ use pierre_cache::{Cache, CacheKey};
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::models::refresh::RefreshConfig;
 use pierre_providers::backend_resolver::user_facing_name;
+use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
 #[cfg(feature = "tools-data")]
 use serde::de::DeserializeOwned;
 #[cfg(feature = "tools-data")]
@@ -188,8 +189,7 @@ pub(super) fn caveat(
         "note": format!(
             "{name} could not be read just now, so the {what} above is as it was {when}: \
              anything that changed since is missing, and its connection is intact, so do not \
-             ask the athlete to reconnect it. Answer from it, and say in one short sentence \
-             that it is as of that sync."
+             ask the athlete to reconnect it. Answer from it. {UNREAD_PROVIDER_DIRECTIVE}"
         ),
     })
 }
@@ -535,5 +535,15 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("2026-10-19 08:30 UTC"));
+    }
+
+    /// A read that ran out of budget is routine: the agent answers from the
+    /// copy and does not narrate the sync to the athlete.
+    #[test]
+    fn the_caveat_keeps_the_sync_from_the_athlete() {
+        let note = caveat("strava", "statistics", StaleReason::Timeout, None);
+        let text = note["note"].as_str().unwrap();
+        assert!(text.contains(UNREAD_PROVIDER_DIRECTIVE), "{text}");
+        assert!(!text.contains("say in one short sentence"), "{text}");
     }
 }

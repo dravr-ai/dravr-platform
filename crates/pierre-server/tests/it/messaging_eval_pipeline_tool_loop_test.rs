@@ -40,6 +40,7 @@
 mod pipeline_tool_loop {
     use crate::common::create_test_server_resources_with_llm_and_tools;
     use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::language_classification::language_classification_reply;
     use crate::helpers::messaging_eval::assert_tool_called;
     use async_trait::async_trait;
     use axum::http::StatusCode;
@@ -178,16 +179,21 @@ mod pipeline_tool_loop {
             &[]
         }
 
-        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
-            let n = self.calls.fetch_add(1, Ordering::SeqCst);
-            let content = if n == 0 {
-                // First call: emit a <tool_call> block. CLI tool loop
-                // parses this and routes to the stub via the registry.
-                format!(r#"<tool_call>{{"name":"{STUB_TOOL_NAME}","arguments":{{}}}}</tool_call>"#)
-            } else {
-                // Subsequent calls: plain text reply ends the loop.
-                "All set — stub tool ran successfully.".to_owned()
-            };
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            // The locale check a short message triggers is answered first,
+            // so the scripted replies below stay the turn's.
+            let content = language_classification_reply(request).unwrap_or_else(|| {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    // First call: emit a <tool_call> block. CLI tool loop
+                    // parses this and routes to the stub via the registry.
+                    format!(
+                        r#"<tool_call>{{"name":"{STUB_TOOL_NAME}","arguments":{{}}}}</tool_call>"#
+                    )
+                } else {
+                    // Subsequent calls: plain text reply ends the loop.
+                    "All set — stub tool ran successfully.".to_owned()
+                }
+            });
             Ok(ChatResponse {
                 content,
                 model: "mock-model".to_owned(),

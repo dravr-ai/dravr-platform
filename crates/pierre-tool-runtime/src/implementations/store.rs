@@ -51,7 +51,6 @@ use pierre_services::agent_store::{
     DEFAULT_STORE_PAGE_SIZE, MAX_STORE_PAGE_SIZE,
 };
 use pierre_services::agents::coach_tools_for;
-use pierre_services::locale::resolve_user_locale;
 use pierre_tools_core::ToolResult;
 
 use super::agents_tool_shape::extract_format;
@@ -63,14 +62,10 @@ use crate::conversions::{
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 
-/// The language the athlete reads the catalogue in — their stored locale,
-/// or the platform default when the row does not say.
+/// The language the athlete reads the catalogue in — the turn's, else their
+/// stored locale, else the platform default.
 async fn athlete_locale(context: &ToolExecutionContext) -> String {
-    resolve_user_locale(
-        context.resources.data().repos().users.as_ref(),
-        context.user_id,
-    )
-    .await
+    context.render_locale(context.user_id).await
 }
 
 /// Whether the caller may find coach-facing agents in the catalogue.

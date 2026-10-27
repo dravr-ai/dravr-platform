@@ -57,7 +57,6 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::{parse_plan_date, RacePriority, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_clock::athlete_today;
-use pierre_services::locale::resolve_user_locale;
 use pierre_services::plan_card::flavour_label;
 use pierre_tools_core::ToolResult;
 
@@ -828,7 +827,7 @@ impl McpTool<dyn ToolRuntime> for RecommendPlanFlavourTool {
 
             // The verdict speaks the athlete's language: the labels are what
             // the agent says, resolved the way the memory tool resolves them.
-            let locale = resolve_user_locale(repos.users.as_ref(), user_id).await;
+            let locale = context.render_locale(user_id).await;
             let strings = context.resources.messaging_strings_registry();
 
             info!(

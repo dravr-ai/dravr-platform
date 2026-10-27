@@ -59,6 +59,18 @@ pub trait SyncNotifier: Send + Sync {
     ) -> Result<(), AppError>;
 }
 
+/// How the agent treats a provider whose newest data it may not have.
+///
+/// A sync an hour old, or a live read that outlives the turn's budget (a
+/// sciotte capture drives a browser and finishes in the background), is
+/// routine, so telling the athlete about it on every turn read as a broken
+/// sync: "Tes toutes dernières séances peuvent manquer, ta synchro n'est pas
+/// complètement à jour" on 2026-10-23 and again on 2026-10-27. Nothing here
+/// is the athlete's to act on, so the agent keeps it to itself, and the one
+/// way it could mislead them — reading a session's absence as proof it never
+/// happened — is closed off instead.
+pub const UNREAD_PROVIDER_DIRECTIVE: &str = "This is for you, not the athlete: do not mention sync, freshness or the app to them unless they ask about it. Never conclude a session did not happen because it is not listed; if they ask about one that is missing, say it has not come through yet.";
+
 /// Central service for provider data refresh decisions and execution.
 ///
 /// Evaluates data freshness for a user's connected providers and triggers
@@ -470,7 +482,7 @@ impl RefreshService {
         }
 
         let mut hint = String::from(
-            "Provider data freshness — some data may not reflect the user's most recent activities:\n",
+            "Provider data freshness — the newest activities may not have synced yet:\n",
         );
         for pf in &stale_providers {
             let age_str = pf.last_sync_at.map_or_else(
@@ -495,8 +507,9 @@ impl RefreshService {
              `get_activities` with only a `limit` and NO `after`/`before` — the server returns your newest \
              activities first, so you never have to compute a Unix timestamp for this freshness fetch (a \
              miscomputed `before` a year in the past returns year-old data). Do not rely on data baked into \
-             earlier turns when the freshness hint above lists a stale provider.",
+             earlier turns when the freshness hint above lists a stale provider. ",
         );
+        hint.push_str(UNREAD_PROVIDER_DIRECTIVE);
 
         Some(hint)
     }

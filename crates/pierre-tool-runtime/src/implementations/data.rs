@@ -101,6 +101,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::FragmentReport;
 use pierre_providers::spi::ProviderCapabilities;
+use pierre_services::locale::user_locale as stored_locale;
 use pierre_services::weather_backfill;
 use pierre_tools_core::ToolResult;
 
@@ -517,14 +518,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .ok()
                 .flatten();
             let user_timezone = user_global.as_ref().and_then(|u| u.timezone.clone());
-            // User's BCP-47 locale ("fr"/"en"/"es"/"de"/"pt") drives the localized
-            // sport-type tags in the rendered activity list; default to English
-            // when the lookup fails or the field is empty.
-            let user_locale = user_global
-                .as_ref()
-                .map(|u| u.locale.clone())
-                .filter(|l| !l.is_empty())
-                .unwrap_or_else(|| "en".to_owned());
+            // The list is athlete-visible beside the reply: the turn's language,
+            // else the stored locale (`render_locale`'s rule, on the row read here).
+            let user_locale = context
+                .turn_locale
+                .clone()
+                .unwrap_or_else(|| stored_locale(user_global.as_ref()));
 
             // A deep historical `after` must reach the coverage-aware gate below,
             // never a cached response. The gate reads the durable window + backfill

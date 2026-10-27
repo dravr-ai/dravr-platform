@@ -51,6 +51,7 @@ use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
 use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
+use pierre_tool_runtime::context::TURN_LOCALE;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -535,7 +536,13 @@ async fn execute_turn(
         steps_after,
     };
 
-    let run = crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks);
+    // Every tool the turn dispatches renders in the language the turn
+    // resolved, not the profile's stored one: the activity list ships beside
+    // the reply and must read in the same language.
+    let run = TURN_LOCALE.scope(
+        Some(profile.locale.clone()),
+        crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks),
+    );
     let envelope = match &request.hooks.stop {
         None => run.await?,
         Some(stop) => {

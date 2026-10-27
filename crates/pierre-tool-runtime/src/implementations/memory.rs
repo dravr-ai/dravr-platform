@@ -13,7 +13,6 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
-use pierre_services::locale::resolve_user_locale;
 use pierre_services::memory_facts::SentenceRenderer;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -674,9 +673,7 @@ impl McpTool<dyn ToolRuntime> for RecallUserMemoryTool {
             ai_scope::retain_admitted(&mut facts, |fact| fact.transport_policy);
             // The agent reads each fact as a sentence in the athlete's own
             // locale, rendered by the same function the memory screen uses.
-            let locale =
-                resolve_user_locale(context.resources.repos().users.as_ref(), context.user_id)
-                    .await;
+            let locale = context.render_locale(context.user_id).await;
             let sentences =
                 SentenceRenderer::new(context.resources.messaging_strings_registry(), &locale);
 

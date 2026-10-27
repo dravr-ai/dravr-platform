@@ -24,6 +24,14 @@
 //!
 //! A message under `MIN_DETECTABLE_CHARS` ("ok", "oui", "Yes") is an
 //! acknowledgement, and keeps the language the conversation already runs in.
+//!
+//! A message under `SHORT_MESSAGE_CHARS` leaves that language only on firm
+//! evidence. An athlete who writes French drops accents and borrows English
+//! words: on 2026-10-23 "Synchro complete?" read as English (lingua 0.50, the
+//! LLM `en` too) and the reply switched mid-conversation. Lingua's verdict
+//! against the conversation's language counts only from
+//! `SWITCH_CONFIDENCE`, and even then the LLM confirms it, because lingua
+//! calls "Recovery ride demain?" English at 0.91 where the LLM reads `fr`.
 
 use std::fmt;
 use std::sync::Arc;
@@ -39,6 +47,19 @@ use tracing::warn;
 /// Below this many characters a message is an acknowledgement, and the
 /// language the conversation already runs in is what the athlete wants.
 const MIN_DETECTABLE_CHARS: usize = 12;
+
+/// Below this many characters a message is too short for a local verdict
+/// alone to move the conversation to another language. Every mislabel
+/// measured on 2026-10-27 ("Synchro complete?", "Am I overtraining?" read as
+/// German, "Mon FTP est ok?" as German, "Recovery ride demain?" as English)
+/// was 22 characters or fewer; sentences that switch on purpose run longer.
+const SHORT_MESSAGE_CHARS: usize = 40;
+
+/// The confidence lingua must give a short message's language before it is
+/// weighed against the conversation's: "Synchro complete?" scored English
+/// 0.50, "C'est complete?" 0.42, while "What about tomorrow?" scored 0.97 and
+/// "Show my last ride" 0.60. Below it the conversation's language holds.
+const SWITCH_CONFIDENCE: f64 = 0.6;
 
 /// How long the turn waits on the LLM's answer before keeping the stored
 /// locale: the classification runs before the reply, so it bounds latency
@@ -85,6 +106,12 @@ pub fn detect_locale(text: &str) -> Option<&'static str> {
     lingua_detector::detect(text)
 }
 
+/// How confident lingua is, from 0 to 1, that `text` is in `locale`.
+#[cfg(feature = "language-detection")]
+fn locale_confidence(text: &str, locale: &str) -> f64 {
+    lingua_detector::confidence(text, locale)
+}
+
 /// The language of `text` when it can be read locally. This build carries no
 /// local detector (the `language-detection` feature is off), so it is always
 /// `None` and [`resolve_turn_locale`] asks the LLM.
@@ -94,26 +121,48 @@ pub const fn detect_locale(_text: &str) -> Option<&'static str> {
     None
 }
 
+/// How confident the local detector is that `text` is in `locale`. This
+/// build has none, and [`detect_locale`] never names a locale to ask about.
+#[cfg(not(feature = "language-detection"))]
+const fn locale_confidence(_text: &str, _locale: &str) -> f64 {
+    0.0
+}
+
 /// The locale a turn is conducted in: the language of the athlete's message,
 /// read locally when possible and by the LLM otherwise, else `fallback` — the
 /// locale the surface resolved before the turn.
+///
+/// A short message stays in `fallback` unless lingua is confident it is in
+/// another language and the LLM agrees.
 pub async fn resolve_turn_locale(
     classifier: Option<LocaleClassifier<'_>>,
     text: &str,
     fallback: &str,
 ) -> String {
-    if text.trim().chars().count() < MIN_DETECTABLE_CHARS {
+    let chars = text.trim().chars().count();
+    if chars < MIN_DETECTABLE_CHARS {
         return fallback.to_owned();
     }
-    if let Some(locale) = detect_locale(text) {
-        return locale.to_owned();
-    }
+    let lingua_switch = match detect_locale(text) {
+        Some(locale) if locale == fallback || chars >= SHORT_MESSAGE_CHARS => {
+            return locale.to_owned();
+        }
+        Some(locale) if locale_confidence(text, locale) < SWITCH_CONFIDENCE => {
+            return fallback.to_owned();
+        }
+        // A confident switch on a short message stands only if the LLM names
+        // the same language.
+        Some(locale) => Some(locale),
+        // Undecided: the LLM rules.
+        None => None,
+    };
     let Some(classifier) = classifier else {
         return fallback.to_owned();
     };
-    classify_locale_with_llm(classifier, text)
-        .await
-        .map_or_else(|| fallback.to_owned(), str::to_owned)
+    match classify_locale_with_llm(classifier, text).await {
+        Some(locale) if lingua_switch.is_none_or(|switch| switch == locale) => locale.to_owned(),
+        _ => fallback.to_owned(),
+    }
 }
 
 /// Ask the LLM which of the five languages `text` is in, recording the call's
@@ -242,6 +291,9 @@ mod lingua_detector {
         Language::Portuguese,
     ];
 
+    /// The locale code of each of [`PLATFORM_LANGUAGES`], in the same order.
+    const LOCALES: [&str; 5] = ["en", "fr", "es", "de", "pt"];
+
     /// How far apart the two best candidates' confidences must be before the
     /// best one counts; closer than this, the text is ambiguous. 0.1 is where
     /// the measurement stopped mislabelling "Muéstrame mis últimas cinco
@@ -257,15 +309,26 @@ mod lingua_detector {
             .build()
     });
 
+    /// The platform locale lingua calls `text` in.
     pub(super) fn detect(text: &str) -> Option<&'static str> {
         DETECTOR
             .detect_language_of(text)
-            .map(|language| match language {
-                Language::English => "en",
-                Language::French => "fr",
-                Language::Spanish => "es",
-                Language::German => "de",
-                Language::Portuguese => "pt",
+            .and_then(|language| {
+                PLATFORM_LANGUAGES
+                    .iter()
+                    .position(|candidate| *candidate == language)
+            })
+            .map(|index| LOCALES[index])
+    }
+
+    /// Lingua's confidence, from 0 to 1, that `text` is in `locale`; 0 for a
+    /// locale outside the five.
+    pub(super) fn confidence(text: &str, locale: &str) -> f64 {
+        LOCALES
+            .iter()
+            .position(|candidate| *candidate == locale)
+            .map_or(0.0, |index| {
+                DETECTOR.compute_language_confidence(text, PLATFORM_LANGUAGES[index])
             })
     }
 }
@@ -688,7 +751,7 @@ mod tests {
 
     #[cfg(feature = "language-detection")]
     mod lingua {
-        use super::super::detect_locale;
+        use super::super::{detect_locale, resolve_turn_locale};
 
         #[test]
         fn short_questions_resolve_to_their_own_language() {
@@ -712,6 +775,95 @@ mod tests {
             ] {
                 assert_eq!(detect_locale(text), Some(expected), "{text}");
             }
+        }
+
+        /// The 2026-10-23 incident: a French conversation, "Synchro
+        /// complete?", answered in English. A weak verdict on a short message
+        /// keeps the conversation's language, and no LLM is needed to say so.
+        #[tokio::test]
+        async fn a_short_message_lingua_barely_calls_keeps_the_conversation_language() {
+            let would_switch = super::answering(Some("en"));
+            for text in ["Synchro complete?", "C'est complete?", "Mon FTP est ok?"] {
+                assert_eq!(
+                    resolve_turn_locale(Some(super::unrecorded(&would_switch)), text, "fr").await,
+                    "fr",
+                    "{text}"
+                );
+            }
+        }
+
+        /// Lingua calls "Recovery ride demain?" English at 0.91; the LLM reads
+        /// the French it is, and its verdict is the one that counts.
+        #[tokio::test]
+        async fn a_confident_switch_on_a_short_message_is_confirmed_by_the_llm() {
+            let reads_french = super::answering(Some("fr"));
+            assert_eq!(
+                resolve_turn_locale(
+                    Some(super::unrecorded(&reads_french)),
+                    "Recovery ride demain?",
+                    "fr"
+                )
+                .await,
+                "fr",
+                "bug: the LLM's reading must overrule lingua's on a short message"
+            );
+            let reads_english = super::answering(Some("en"));
+            assert_eq!(
+                resolve_turn_locale(
+                    Some(super::unrecorded(&reads_english)),
+                    "What about tomorrow?",
+                    "fr"
+                )
+                .await,
+                "en",
+                "bug: an LLM-confirmed switch on a short message must be taken"
+            );
+            // An LLM naming a third language confirms nothing.
+            let reads_german = super::answering(Some("de"));
+            assert_eq!(
+                resolve_turn_locale(
+                    Some(super::unrecorded(&reads_german)),
+                    "What about tomorrow?",
+                    "fr"
+                )
+                .await,
+                "fr",
+                "bug: a switch lingua and the LLM disagree on must keep the conversation's language"
+            );
+            // With no LLM to confirm, the conversation's language holds.
+            assert_eq!(
+                resolve_turn_locale(None, "What about tomorrow?", "fr").await,
+                "fr",
+                "bug: an unconfirmed switch on a short message must keep the conversation's language"
+            );
+        }
+
+        /// A short message in the conversation's own language, and a long one
+        /// in another, are both settled locally.
+        #[tokio::test]
+        async fn agreement_and_long_messages_never_ask_the_llm() {
+            // Asked, this provider would answer German.
+            let never_asked = super::answering(Some("de"));
+            assert_eq!(
+                resolve_turn_locale(
+                    Some(super::unrecorded(&never_asked)),
+                    "Donc pour cette semaine?",
+                    "fr"
+                )
+                .await,
+                "fr",
+                "bug: lingua agreeing with the conversation must settle it without the LLM"
+            );
+            assert_eq!(
+                resolve_turn_locale(
+                    Some(super::unrecorded(&never_asked)),
+                    "Are my latest workouts making me on track for the race on May 29?",
+                    "fr"
+                )
+                .await,
+                "en",
+                "bug: a long message must be settled by lingua without the LLM"
+            );
         }
 
         #[test]

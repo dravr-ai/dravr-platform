@@ -14,7 +14,7 @@ use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
     AuthMethod, CONVERSATION_ID, CONVERSATION_TENANT, GRANTED_SCOPES, GUARDIAN_TURN_TOKEN,
-    TURN_AGENT_ID,
+    TURN_AGENT_ID, TURN_LOCALE,
 };
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
 use crate::protocol::data_source::athlete_has_data_source;
@@ -89,6 +89,10 @@ pub struct UniversalExecutor {
     /// [`crate::context::TURN_AGENT_ID`] alongside the conversation. `None`
     /// outside a chat turn and on a turn that answers as no agent.
     turn_agent_id: Option<String>,
+    /// The locale the turn is conducted in, read from
+    /// [`crate::context::TURN_LOCALE`] when the executor is built inside a
+    /// turn and scoped back around each tool body. `None` outside a chat turn.
+    turn_locale: Option<String>,
     /// Per-**utterance** token used solely as the Guardian's turn key so taint
     /// and per-turn budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -149,6 +153,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("conversation_id", &self.conversation_id)
             .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("turn_agent_id", &self.turn_agent_id)
+            .field("turn_locale", &self.turn_locale)
             .field("turn_token", &self.turn_token)
             .field("scopes", &self.scopes)
             .field("seat", &self.seat)
@@ -172,6 +177,9 @@ impl UniversalExecutor {
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             // A nested dispatch writes on behalf of the same agent as its caller.
             turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
+            // The turn service scopes the turn's locale around the whole turn,
+            // and a nested dispatch inherits its caller's.
+            turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested UNTRUSTED_OUTPUT read
             // taints the SAME turn as its caller. Absent outside any tool scope
@@ -623,14 +631,17 @@ impl UniversalExecutor {
                 self.conversation_tenant_id,
                 TURN_AGENT_ID.scope(
                     self.turn_agent_id.clone(),
-                    GUARDIAN_TURN_TOKEN.scope(
-                        Some(resolved_turn_token.clone()),
-                        // The grant travels with the turn token for the same
-                        // reason: a nested dispatch must run under exactly
-                        // what authorized this call, never wider.
-                        GRANTED_SCOPES.scope(
-                            self.scopes.clone(),
-                            tool.execute(&self.resources, &ctx, args),
+                    TURN_LOCALE.scope(
+                        self.turn_locale.clone(),
+                        GUARDIAN_TURN_TOKEN.scope(
+                            Some(resolved_turn_token.clone()),
+                            // The grant travels with the turn token for the
+                            // same reason: a nested dispatch must run under
+                            // exactly what authorized this call, never wider.
+                            GRANTED_SCOPES.scope(
+                                self.scopes.clone(),
+                                tool.execute(&self.resources, &ctx, args),
+                            ),
                         ),
                     ),
                 ),

@@ -36,6 +36,7 @@
 mod reply_scaffolding_strip {
     use crate::common::create_test_server_resources_with_llm_and_tools;
     use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::language_classification::language_classification_reply;
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
@@ -173,21 +174,24 @@ mod reply_scaffolding_strip {
             &[]
         }
 
-        async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
-            let n = self.calls.fetch_add(1, Ordering::SeqCst);
-            let content = if n == 0 {
-                // First call: request the stub tool via a <tool_call> block.
-                format!(r#"<tool_call>{{"name":"{STUB_TOOL_NAME}","arguments":{{}}}}</tool_call>"#)
-            } else {
-                // Final call: a real answer that ALSO parrots raw tool-result
-                // scaffolding — the production c0ce04e34 failure shape. The
-                // pipeline's write-side strip must reduce this to the grounded
-                // sentence only.
-                format!(
-                    "Voici ton résumé: {GROUNDED_MARKER} — tu as complété 3 courses cette semaine. \
-                     <tool_result>{{\"stub\":true,\"runs_this_week\":3}}</tool_result>"
-                )
-            };
+        async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+            // The locale check a short message triggers is answered first,
+            // so the scripted replies below stay the turn's.
+            let content = language_classification_reply(request).unwrap_or_else(|| {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    // First call: request the stub tool via a <tool_call> block.
+                    format!(r#"<tool_call>{{"name":"{STUB_TOOL_NAME}","arguments":{{}}}}</tool_call>"#)
+                } else {
+                    // Final call: a real answer that ALSO parrots raw tool-result
+                    // scaffolding — the production c0ce04e34 failure shape. The
+                    // pipeline's write-side strip must reduce this to the grounded
+                    // sentence only.
+                    format!(
+                        "Voici ton résumé: {GROUNDED_MARKER} — tu as complété 3 courses cette semaine. \
+                         <tool_result>{{\"stub\":true,\"runs_this_week\":3}}</tool_result>"
+                    )
+                }
+            });
             Ok(ChatResponse {
                 content,
                 model: "mock-model".to_owned(),

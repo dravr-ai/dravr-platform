@@ -32,6 +32,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::backends::factory::Database;
 use pierre_providers::ProviderRegistry;
+use pierre_services::locale::resolve_user_locale;
 
 tokio::task_local! {
     /// Originating Pierre conversation id for the in-flight tool call.
@@ -70,6 +71,18 @@ tokio::task_local! {
     /// not the conversation's default. Absent for MCP-direct / A2A / SSE
     /// calls, and for a chat turn that answers as no agent.
     pub static TURN_AGENT_ID: Option<String>;
+
+    /// The locale the in-flight tool call's turn is conducted in.
+    ///
+    /// Resolved from the athlete's message, which can differ from the
+    /// profile's stored locale: a tool that renders athlete-visible text (the
+    /// activity list the messaging envelope ships as its own block) must
+    /// match the reply around it, whatever the profile says. The turn service
+    /// scopes it around the whole turn;
+    /// [`crate::protocol::executor::UniversalExecutor::new`] reads it and
+    /// re-scopes it around each tool body, which may run on another task. Absent for MCP-direct / A2A / SSE calls, which fall back to the
+    /// stored locale.
+    pub static TURN_LOCALE: Option<String>;
 
     /// Guardian turn token for the in-flight tool call.
     ///
@@ -201,6 +214,9 @@ pub struct ToolExecutionContext {
     /// The agent the originating chat turn answers as, when the call was
     /// surfaced from one that answers as an agent; see [`TURN_AGENT_ID`].
     pub turn_agent_id: Option<String>,
+    /// The locale the originating chat turn is conducted in; see
+    /// [`TURN_LOCALE`].
+    pub turn_locale: Option<String>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -230,6 +246,7 @@ impl ToolExecutionContext {
             conversation_id: None,
             conversation_tenant_id: None,
             turn_agent_id: None,
+            turn_locale: None,
             is_admin: None,
         }
     }
@@ -271,6 +288,7 @@ impl ToolExecutionContext {
             conversation_id: scoped_conversation_id(),
             conversation_tenant_id: CONVERSATION_TENANT.try_with(Clone::clone).ok().flatten(),
             turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
+            turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -329,6 +347,16 @@ impl ToolExecutionContext {
                 "Tenant context required for this operation",
             )
         })
+    }
+
+    /// The locale text this call renders for the reader is written in: the
+    /// turn's, when the call comes from a chat turn, so it matches the reply
+    /// around it; otherwise `user_id`'s stored locale.
+    pub async fn render_locale(&self, user_id: Uuid) -> String {
+        match &self.turn_locale {
+            Some(locale) => locale.clone(),
+            None => resolve_user_locale(self.resources.repos().users.as_ref(), user_id).await,
+        }
     }
 
     /// Check if the user has admin privileges
@@ -428,6 +456,7 @@ impl ToolExecutionContext {
             conversation_id: self.conversation_id.clone(),
             conversation_tenant_id: self.conversation_tenant_id,
             turn_agent_id: self.turn_agent_id.clone(),
+            turn_locale: self.turn_locale.clone(),
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -443,6 +472,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("conversation_id", &self.conversation_id)
             .field("conversation_tenant_id", &self.conversation_tenant_id)
             .field("turn_agent_id", &self.turn_agent_id)
+            .field("turn_locale", &self.turn_locale)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

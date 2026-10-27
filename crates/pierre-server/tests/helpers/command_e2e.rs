@@ -54,6 +54,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use super::axum_test::AxumTestRequest;
+use super::language_classification::language_classification_reply;
 
 /// Numeric bot id encoded in the fixture bot token's prefix.
 pub(crate) const BOT_ID: i64 = 54_321;
@@ -140,6 +141,10 @@ impl RouterLlm {
     }
 
     fn reply_for(&self, request: &ChatRequest) -> String {
+        if let Some(locale) = language_classification_reply(request) {
+            self.background_calls.fetch_add(1, Ordering::SeqCst);
+            return locale;
+        }
         let text = serde_json::to_string(&request.messages).unwrap_or_default();
         if text.contains(EXTRACTION_MARKER) {
             self.extraction_calls.fetch_add(1, Ordering::SeqCst);

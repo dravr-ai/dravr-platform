@@ -18,7 +18,7 @@ use pierre_chat_pipeline::stages::turn_clock::{
 };
 use pierre_core::models::refresh::{DataFreshness, ProviderFreshness};
 use pierre_llm::{ChatMessage, MessageRole};
-use pierre_services::provider_refresh::RefreshService;
+use pierre_services::provider_refresh::{RefreshService, UNREAD_PROVIDER_DIRECTIVE};
 
 fn stale_hint(hours_ago: i64) -> String {
     let last_sync = Utc::now() - Duration::hours(hours_ago);
@@ -72,4 +72,14 @@ fn the_hint_changes_with_age_so_it_cannot_live_in_the_cached_prefix() {
 fn without_a_hint_the_clock_is_unchanged() {
     let clock = "2026-10-19 lun 14:30 (America/Toronto)".to_owned();
     assert_eq!(with_freshness(clock.clone(), None), clock);
+}
+
+/// A sync a few hours old is routine. The hint makes the agent re-fetch, and
+/// tells it the sync state is not the athlete's to hear about: "la synchro a
+/// quelques heures de retard" was the hint read back to the athlete.
+#[test]
+fn the_hint_keeps_the_sync_state_from_the_athlete() {
+    let hint = stale_hint(3);
+    assert!(hint.contains("get_activities"), "{hint}");
+    assert!(hint.ends_with(UNREAD_PROVIDER_DIRECTIVE), "{hint}");
 }

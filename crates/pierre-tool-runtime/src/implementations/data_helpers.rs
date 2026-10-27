@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
 use pierre_providers::backend_resolver::user_facing_name;
+use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
 use uuid::Uuid;
 
 use crate::activity_fetch::StaleReason;
@@ -248,7 +249,7 @@ pub fn provider_unavailable_note(display_name: &str) -> Value {
     json!({
         "provider": display_name,
         "note": format!(
-            "The activities above were served WITHOUT {display_name}: its data could not be fetched just now, and its connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown, then add one short sentence that sessions only {display_name} records are missing from this answer."
+            "The activities above were served WITHOUT {display_name}: its data could not be fetched just now, so sessions only {display_name} records may be missing, and its connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown. {UNREAD_PROVIDER_DIRECTIVE}"
         ),
     })
 }
@@ -266,7 +267,7 @@ pub fn provider_stale_note(display_name: &str) -> Value {
     json!({
         "provider": display_name,
         "note": format!(
-            "{display_name} could not be read just now, so the activities above are what was last synced from it: sessions recorded since may be missing, and its connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown, then add one short sentence that the newest {display_name} sessions may not be in this answer."
+            "{display_name} could not be read just now, so the activities above are what was last synced from it: sessions recorded since may be missing, and its connection is intact, so do not ask the athlete to reconnect it. Answer the question from the activities shown. {UNREAD_PROVIDER_DIRECTIVE}"
         ),
     })
 }
@@ -412,5 +413,38 @@ pub fn backfill_placeholder_message(
              for a specific moment, and answer with the data already available.\
              {delivery}"
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        provider_reconnect_note, provider_stale_note, provider_unavailable_note,
+        UNREAD_PROVIDER_DIRECTIVE,
+    };
+
+    /// A provider that could not answer this turn is the agent's to know and
+    /// not the athlete's to hear about: on 2026-10-23 and 2026-10-27 the
+    /// "add one short sentence" these notes asked for read as a broken sync.
+    #[test]
+    fn an_unread_provider_is_not_narrated_to_the_athlete() {
+        for note in [
+            provider_stale_note("Garmin"),
+            provider_unavailable_note("Garmin"),
+        ] {
+            let text = note["note"].as_str().unwrap_or_default();
+            assert!(text.contains(UNREAD_PROVIDER_DIRECTIVE), "{text}");
+            assert!(text.contains("may be missing"), "{text}");
+            assert!(!text.contains("add one short sentence"), "{text}");
+        }
+    }
+
+    /// A dead connection is the athlete's to fix, so that one is still told.
+    #[test]
+    fn a_dead_connection_is_still_told_to_the_athlete() {
+        let note = provider_reconnect_note("Garmin", "sciotte_garmin");
+        let text = note["note"].as_str().unwrap_or_default();
+        assert!(text.contains("is disconnected"), "{text}");
+        assert!(!text.contains(UNREAD_PROVIDER_DIRECTIVE), "{text}");
     }
 }

@@ -794,6 +794,7 @@ mod transport_gate_e2e_test;
 mod turn_directive_physiology_test;
 mod turn_envelope_test;
 mod turn_language_directive_test;
+mod turn_locale_activity_list_test;
 mod turn_runner_config_test;
 mod turn_service_quota_test;
 mod turn_sweep_cloud_tasks_test;

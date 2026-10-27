@@ -28,6 +28,9 @@ pub(crate) mod google_oidc;
 pub(crate) mod google_token;
 /// Identity Toolkit and the metadata token endpoint, for the account-deletion suites.
 pub(crate) mod identity_toolkit_stub;
+/// Answers the turn's language-classification call so a scripted mock keeps
+/// its script for the turn.
+pub(crate) mod language_classification;
 pub(crate) mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod messaging_webhooks;
