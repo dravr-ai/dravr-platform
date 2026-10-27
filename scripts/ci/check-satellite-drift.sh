@@ -23,9 +23,9 @@
 # is an ancestor of that repo's default branch. Checking either alone has already
 # misfired in this fleet.
 #
-# Diamonds. Three of the pins here are not this repo's to move. dravr-enforme
-# v0.1.56 pins dravr-equilibre v0.2.8, dravr-riviere v0.2.4 and dravr-sciotte
-# v0.12.0, and the platform pins all three at those same versions on purpose:
+# Diamonds. Two of the pins here are not this repo's to move. dravr-enforme pins
+# dravr-equilibre and dravr-sciotte (v0.1.56 pinned v0.2.8 and v0.12.0), and the
+# platform pins both at those same versions on purpose:
 # moving one alone puts two copies of that crate in Cargo.lock and hard-fails the
 # duplicate gate. carnet#323 was that exact failure with dravr-equilibre at 0.2.4
 # beside 0.2.5, found twenty minutes into a gate as E0053 in health_sync.rs. So a

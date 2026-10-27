@@ -58,10 +58,10 @@ crates = "embacle embacle-tool-host"
 [dravr-enforme]
 repo       = "dravr-enforme"
 source     = "git-tag+version"
-# `version` and `tag` sit on one line and must agree. The three companions are
+# `version` and `tag` sit on one line and must agree. The two companions are
 # enforme's own pins: moving one alone puts two copies in Cargo.lock and hard-fails
 # the duplicate gate — carnet#323, found twenty minutes into a gate as E0053.
-companions = "dravr-sciotte:from-manifest dravr-equilibre:from-manifest dravr-riviere:from-manifest"
+companions = "dravr-sciotte:from-manifest dravr-equilibre:from-manifest"
 
 [photograveur]
 repo          = "dravr-photograveur"
@@ -100,6 +100,16 @@ release_evidence = "tag"
 repo = "dravr-stripe"
 source = "git-tag"
 
+# The platform's own pin since enforme dropped its unused riviere dependency
+# (carnet#1227): pierre-database implements riviere's TimeSeriesStore, and no
+# other dravr dependency pins riviere, so it moves alone on bump-riviere.yml.
+[dravr-riviere]
+repo     = "dravr-riviere"
+source   = "git-tag"
+# Some tags are hand-cut with no GitHub release (v0.2.4 was), so a tag is
+# evidence enough.
+release_evidence = "tag"
+
 # ---------------------------------------------------------------------------
 # Diamond pins — owned by dravr-enforme's manifest, never moved alone
 # ---------------------------------------------------------------------------
@@ -112,14 +122,6 @@ upstream = "dravr-enforme"
 [dravr-equilibre]
 repo     = "dravr-equilibre"
 source   = "git-tag"
-upstream = "dravr-enforme"
-
-[dravr-riviere]
-repo     = "dravr-riviere"
-source   = "git-tag"
-# Some tags are hand-cut with no GitHub release (v0.2.4 was), so a tag is
-# evidence enough.
-release_evidence = "tag"
 upstream = "dravr-enforme"
 
 # ---------------------------------------------------------------------------

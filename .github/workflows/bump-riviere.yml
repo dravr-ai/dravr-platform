@@ -1,0 +1,98 @@
+# ABOUTME: The riviere lane — the shared bump spine, then a platform rebuild so the crate actually ships
+# ABOUTME: Everything version-shaped is in satellite-bump.yml and satellites.toml; this file is triggers and shipping
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# dravr-riviere is the time-series store trait and series catalogue; pierre-database
+# implements its TimeSeriesStore over data_point_series. Compiled into the platform
+# binary, no service of its own.
+#
+# It is not a diamond: dravr-enforme does not depend on riviere (carnet#1227), and no
+# other dravr dependency does, so this lane moves the pin alone.
+#
+# riviere has no notify-platform-release.yml of its own, so no release dispatches
+# here; the weekly cron below is how a riviere release is integrated, and
+# workflow_dispatch integrates one at once. Some of its tags are hand-cut with no
+# GitHub release, hence `release_evidence = "tag"` in satellites.toml.
+#
+# Shipping is not optional and not automatic. publish-images.yml deploys the platform
+# on `workflow_run` of "CI: Backend (Rust)" against main, and the spine's squash merge
+# is pushed with GITHUB_TOKEN, which by design triggers nothing downstream. A bump
+# landing on a quiet main would report every job green and ship nothing — carnet#94,
+# twice in one day on photograveur's chain. The dispatch below is the whole delivery.
+
+name: "Riviere: Release Integration"
+
+on:
+  repository_dispatch:
+    types: [riviere-released]
+  schedule:
+    # Weekly safety net: a missed or failed dispatch still gets the release
+    # integrated rather than silently dropped. Off the top of the hour deliberately —
+    # :00 is the most contended slot on GitHub's scheduler and a firing there has
+    # landed 6h20m late — and staggered against every other lane.
+    - cron: "47 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "dravr-riviere tag to integrate (defaults to the latest release)"
+        required: false
+        type: string
+      dry_run:
+        description: "Rehearse: resolve and rewrite, push nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write # push the bump branch and the squash merge
+  actions: write # dispatch the CI gates onto that branch
+
+concurrency:
+  # Never overlap. Two releases integrating at once would race on main, and the
+  # second would push a lockfile resolved against the first one's manifests.
+  group: riviere-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    uses: ./.github/workflows/satellite-bump.yml
+    with:
+      satellite: dravr-riviere
+      version: ${{ github.event.client_payload.version || inputs.version || '' }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      DRAVR_PRIVATE_DEPS_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+      DRAVR_CARNET_TOKEN: ${{ secrets.DRAVR_CARNET_TOKEN }}
+
+  ship:
+    name: Ship the platform binary carrying the new crate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5  # dispatches publish-images.yml, ~15 s
+    needs: bump
+    if: ${{ !cancelled() && needs.bump.outputs.merged == 'true' }}
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Dispatch the platform image build and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bump.outputs.version }}
+          PINNED: ${{ needs.bump.outputs.pinned }}
+        run: |
+          set -euo pipefail
+          gh workflow run publish-images.yml --ref main
+          echo "dispatched publish-images.yml on main so the binary picks up dravr-riviere ${VERSION}"
+          {
+            echo "### Platform deploy dispatched"
+            echo ""
+            echo "dravr-riviere **${PINNED} -> ${VERSION}** is merged to main, and the binary that"
+            echo "compiles it is now rebuilding. dravr-riviere has no service of its own — this"
+            echo "dispatch is the whole delivery."
+          } >> "$GITHUB_STEP_SUMMARY"

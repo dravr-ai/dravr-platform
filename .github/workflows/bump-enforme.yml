@@ -23,9 +23,9 @@
 #   every arm of the diamond in one commit — taking each companion version from what
 #   the released enforme pins, so they converge by construction rather than by two
 #   workflows happening to agree. The diamond is wider than sciotte:
-#   satellites.toml declares dravr-equilibre and dravr-riviere as companions too,
-#   because carnet#323 was dravr-equilibre at 0.2.4 beside 0.2.5, in a run whose
-#   sciotte and enforme counts both read one.
+#   satellites.toml declares dravr-equilibre as a companion too, because
+#   carnet#323 was dravr-equilibre at 0.2.4 beside 0.2.5, in a run whose sciotte
+#   and enforme counts both read one.
 #
 # * Ordering is the other safety property: the sciotte image is built and :latest
 #   advanced only after main has merged. Building earlier would leave :latest pointing
