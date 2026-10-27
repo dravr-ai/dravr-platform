@@ -142,7 +142,7 @@ describe('MessageItem claim verdict chip', () => {
     // The tooltip's words come from the corpus — 'contradicted' and 'none'
     // happen to be the English words too, so pin the shape instead: the
     // status and strength are rendered as words, not left as enum tokens.
-    expect(chip).toHaveAttribute('title', '2 claim verdicts — worst: contradicted, none');
+    expect(chip).toHaveAttribute('title', '2 claim verdicts — overall: contradicted, none');
   });
 
   it('opens the drawer with no rows when only the turn\'s chips have landed', () => {
