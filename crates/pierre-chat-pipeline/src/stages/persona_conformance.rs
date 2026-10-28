@@ -12,7 +12,8 @@
 //! word budget. This stage checks the LLM reply against the active
 //! [`PersonaContract`] (loaded from contremaitre via
 //! [`pierre_contremaitre::persona_contracts::PersonaContractRegistry`]) and emits a
-//! `warn!` (or `error!` in `strict_mode`) per violation.
+//! `warn!` per violation (`error!` for a tenant-isolation violation in
+//! `strict_mode`; see "Soft vs strict").
 //!
 //! ## Why a runtime check instead of "trust the prompt"
 //!
@@ -32,10 +33,14 @@
 //! (its own `strict_mode: false` cannot clear it); `casual` and `enthusiast`
 //! remain shadow-mode.
 //!
-//! `strict_mode: true` raises the log to `error!` **and** runs the re-prompt
-//! recovery in [`enforce_conformance`], which asks the model to rewrite the
-//! reply against the violated *style* rules while preserving every fact, and
-//! fails open on any error.
+//! `strict_mode: true` runs the re-prompt recovery in [`enforce_conformance`],
+//! which asks the model to rewrite the reply against the violated *style*
+//! rules while preserving every fact, and fails open on any error. A style
+//! violation detected under strict mode logs at `warn!`; `error!` (which
+//! tronc forwards to Slack) is reserved for the athlete actually receiving a
+//! non-conforming reply — no provider to re-prompt, a failed or empty
+//! rewrite, or a rewrite that still breaks a rule. Paging on the detection
+//! alerted on turns the rewrite had already repaired.
 //!
 //! Tenant isolation is the exception to both regimes: a
 //! `require_tenant_isolation` violation is repaired by deterministic
@@ -326,10 +331,11 @@ pub async fn enforce_conformance(
         return content;
     };
     let Some(provider) = editor.provider else {
-        warn!(
+        error!(
             persona = persona.as_str(),
             violations = to_repair.len(),
-            "strict persona conformance active but no chat provider to re-prompt; keeping original reply"
+            rules = %rule_list(&to_repair),
+            "strict persona conformance active but no chat provider to re-prompt; non-conforming reply shipped"
         );
         return content;
     };
@@ -345,6 +351,12 @@ pub async fn enforce_conformance(
     )
     .await
     else {
+        error!(
+            persona = persona.as_str(),
+            violations = to_repair.len(),
+            rules = %rule_list(&to_repair),
+            "strict persona conformance rewrite failed or came back empty; non-conforming reply shipped"
+        );
         return content;
     };
     let residual = style_violations(&rewrite, contract, &snapshot.glossary, roster_data_read);
@@ -356,24 +368,49 @@ pub async fn enforce_conformance(
 /// over the rewrite. Without it the log said only that a rewrite happened, so
 /// whether the re-prompt earned its latency was unknowable per rule.
 ///
-/// Info, not warn: the turn's violations already alerted once; a residual is
-/// a measurement of the editor, not a second incident.
+/// A clean rewrite is info: the detection already logged at warn, and the
+/// athlete got a conforming reply. A residual is the strict-mode alert — the
+/// one point where a rule-breaking reply actually reaches the athlete.
 fn log_rewrite_outcome(
     persona: CoachingPersona,
     repaired: &[ContractViolation],
     residual: &[ContractViolation],
 ) {
-    let rules = |vs: &[ContractViolation]| vs.iter().map(|v| v.rule).collect::<Vec<_>>().join(",");
-    info!(
-        persona = persona.as_str(),
-        violations = repaired.len(),
-        residual = residual.len(),
-        rules = %rules(repaired),
-        residual_rules = %rules(residual),
-        "persona conformance enforced: reply rewritten, {} of {} violation(s) remain",
-        residual.len(),
-        repaired.len(),
-    );
+    if residual.is_empty() {
+        info!(
+            persona = persona.as_str(),
+            violations = repaired.len(),
+            residual = 0,
+            rules = %rule_list(repaired),
+            "persona conformance enforced: reply rewritten, 0 of {} violation(s) remain",
+            repaired.len(),
+        );
+        return;
+    }
+    let persona_name = persona.as_str();
+    for v in residual {
+        error!(
+            persona = persona_name,
+            rule = v.rule,
+            detail = %v.detail,
+            violations = repaired.len(),
+            residual = residual.len(),
+            rules = %rule_list(repaired),
+            residual_rules = %rule_list(residual),
+            "{persona_name} persona reply still breaks output-style rule '{}' after the strict-mode rewrite: {}",
+            v.rule,
+            v.detail,
+        );
+    }
+}
+
+/// Comma-joined rule names, for the structured log fields.
+fn rule_list(violations: &[ContractViolation]) -> String {
+    violations
+        .iter()
+        .map(|v| v.rule)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// The leak-repair half of enforcement: when a `require_tenant_isolation`
@@ -515,12 +552,15 @@ async fn rewrite_to_satisfy_contract(
     }
 }
 
-/// Emit one structured log per violation. Strict-mode violations escalate
-/// to `error!` so tronc forwards them to Slack alongside infra incidents.
+/// Emit one structured log per violation, at `warn!`. A strict-mode style
+/// violation is about to be rewritten, so its alert waits for the outcome
+/// ([`enforce_conformance`]). A strict-mode tenant-isolation violation stays
+/// `error!` (forwarded to Slack): it is redacted, but a reply that tried to
+/// cite another tenant's athlete is a security event worth a page on its own.
 fn log_violations(persona: CoachingPersona, strict: bool, violations: &[ContractViolation]) {
     for v in violations {
         let persona_name = persona.as_str();
-        if strict {
+        if strict && v.rule == "require_tenant_isolation" {
             error!(
                 persona = persona_name,
                 rule = v.rule,

@@ -1,4 +1,4 @@
-// ABOUTME: Verifies the strict persona rewrite is re-checked against the contract it was asked to meet
+// ABOUTME: Verifies the strict persona rewrite is re-checked, and that only a shipped non-conforming reply pages
 // ABOUTME: Captures logs through one global subscriber writing to a per-thread buffer, so a parallel test cannot hide them
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,7 @@ use std::sync::{Arc, Once};
 
 use async_trait::async_trait;
 use pierre_chat_pipeline::stages::persona_conformance::{
-    enforce_conformance, ContractViolation, StyleEditor,
+    check_reply_conformance, enforce_conformance, ContractViolation, RosterScope, StyleEditor,
 };
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_contremaitre::PromptRegistry;
@@ -219,12 +219,7 @@ async fn the_rewrite_is_rechecked_against_the_contract() {
                       whole way, then drink plenty of water afterwards and eat a \
                       proper meal within the hour.";
     let residual = repair_log(still_long).await;
-    assert!(
-        residual.contains("1 of 1 violation(s) remain")
-            && residual.contains("residual_rules=max_words"),
-        "a rewrite still over the cap must report the residual rule, got: {residual}"
-    );
-    assert_no_second_alert(&residual);
+    assert_residual_alert(&residual, "max_words");
 }
 
 /// A strict coach, armed through the Power-athlete overlay as in production.
@@ -297,19 +292,140 @@ async fn an_uncited_block_after_a_roster_read_remains_a_residual() {
         roster_data_read: true,
     })
     .await;
-    assert!(
-        log.contains("1 of 1 violation(s) remain")
-            && log.contains("residual_rules=require_athlete_id_prefix"),
-        "an athlete report without a citation must be measured, got: {log}"
-    );
-    assert_no_second_alert(&log);
+    assert_residual_alert(&log, "require_athlete_id_prefix");
 }
 
-/// WARN and ERROR are forwarded to Slack; the turn's violations already
-/// alerted once, so the re-check's measurement must stay below both.
+/// Strict mode pages only when the athlete receives a non-conforming reply.
+/// Live 2026-10-28: a French `power_athlete` reply's "environ" paged at
+/// detection, though the rewrite repaired it 13 s later. The detection is a
+/// warning; the alert waits for the outcome.
+#[tokio::test]
+async fn a_strict_detection_warns_without_paging() {
+    capture_logs();
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
+    let violations = check_reply_conformance(
+        &strict_registry(),
+        CoachingPersona::Casual,
+        "Run five kilometres easy today and keep it conversational the whole way, \
+         then drink plenty of water afterwards and eat a proper meal within the hour.",
+        None,
+        false,
+    );
+    assert_eq!(violations.len(), 1, "the reply is over the 20-word cap");
+    let log = CAPTURED.with(|captured| String::from_utf8(captured.borrow().clone()).unwrap());
+    assert!(
+        log.contains("WARN") && log.contains("max_words") && !log.contains("ERROR"),
+        "a strict detection is repaired next, so it must warn, not page, got: {log}"
+    );
+}
+
+/// A rewrite that fails ships the original, rule-breaking reply: that pages.
+#[tokio::test]
+async fn an_empty_rewrite_pages() {
+    capture_logs();
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
+    let provider = Arc::new(ChatProvider::Custom(Arc::new(ScriptedEditor::new(""))));
+    let editor = StyleEditor {
+        provider: Some(&provider),
+        prompts: &PromptRegistry::new(),
+        model: "claude-sonnet-5",
+        recorder: None,
+    };
+    let original = "Run 5k easy today, and remember to hydrate well afterwards.";
+    let out = enforce_conformance(
+        editor,
+        &strict_registry(),
+        CoachingPersona::Casual,
+        original.to_owned(),
+        &[a_violation()],
+        false,
+    )
+    .await;
+    assert_eq!(out, original, "a failed rewrite fails open");
+    let log = CAPTURED.with(|captured| String::from_utf8(captured.borrow().clone()).unwrap());
+    assert!(
+        log.contains("ERROR") && log.contains("non-conforming reply shipped"),
+        "a failed rewrite must page, got: {log}"
+    );
+}
+
+/// With no provider to re-prompt, the original rule-breaking reply ships: that
+/// pages.
+#[tokio::test]
+async fn a_strict_repair_without_a_provider_pages() {
+    capture_logs();
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
+    let editor = StyleEditor {
+        provider: None,
+        prompts: &PromptRegistry::new(),
+        model: "claude-sonnet-5",
+        recorder: None,
+    };
+    let original = "Run 5k easy today, and remember to hydrate well afterwards.";
+    let out = enforce_conformance(
+        editor,
+        &strict_registry(),
+        CoachingPersona::Casual,
+        original.to_owned(),
+        &[a_violation()],
+        false,
+    )
+    .await;
+    assert_eq!(out, original, "no provider fails open");
+    let log = CAPTURED.with(|captured| String::from_utf8(captured.borrow().clone()).unwrap());
+    assert!(
+        log.contains("ERROR")
+            && log.contains("no chat provider to re-prompt")
+            && log.contains("rules=max_words"),
+        "a repair with no provider must page with its rule, got: {log}"
+    );
+}
+
+/// Tenant isolation is the deliberate exception: under strict mode a reply
+/// citing an athlete outside the coach's roster pages on detection, since the
+/// attempt is a security event even though redaction repairs it.
+#[tokio::test]
+async fn a_strict_isolation_detection_pages() {
+    capture_logs();
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
+    let scope = RosterScope::from_athlete_ids(["11111111-2222-3333-4444-555566667a1b"]);
+    let violations = check_reply_conformance(
+        &strict_coach_registry(),
+        CoachingPersona::Coach,
+        "Mallory · dead\nDistance: 42 km\nTime: 3h30",
+        Some(&scope),
+        true,
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "require_tenant_isolation"),
+        "the reply cites an athlete outside the roster, got: {violations:?}"
+    );
+    let log = CAPTURED.with(|captured| String::from_utf8(captured.borrow().clone()).unwrap());
+    assert!(
+        log.lines()
+            .any(|l| l.contains("ERROR") && l.contains("rule=\"require_tenant_isolation\"")),
+        "a strict isolation violation must page on detection, got: {log}"
+    );
+}
+
+/// A clean rewrite repaired the turn: info only, since WARN and ERROR are
+/// forwarded to Slack.
 fn assert_no_second_alert(log: &str) {
     assert!(
         !log.contains("WARN") && !log.contains("ERROR"),
-        "the re-check must not raise a second alert, got: {log}"
+        "a repaired turn must not alert, got: {log}"
+    );
+}
+
+/// A rewrite that still breaks `rule` ships a non-conforming reply: the one
+/// strict-mode outcome that pages.
+fn assert_residual_alert(log: &str, rule: &str) {
+    assert!(
+        log.contains("ERROR")
+            && log.contains(&format!("still breaks output-style rule '{rule}'"))
+            && log.contains(&format!("residual_rules={rule}")),
+        "a residual must page with its rule, got: {log}"
     );
 }
