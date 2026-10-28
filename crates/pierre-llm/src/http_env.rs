@@ -67,6 +67,8 @@ pub(crate) fn build(
 /// Anthropic on `ANTHROPIC_API_KEY` and the `ANTHROPIC_*` settings embacle
 /// reads, on `model_override` else `ANTHROPIC_DEFAULT_MODEL` else embacle's
 /// default (`claude-haiku-5-5`).
+///
+/// LIMITATION(registre#1234): `anthropic_from_env` and `anthropic_pooled_accounts` authenticate every organization with a static `ANTHROPIC_API_KEY[_N]`, never a Workload Identity Federation token.
 fn anthropic_from_env(model_override: Option<&str>) -> Result<EmbacleProvider, AppError> {
     let config = anthropic_config(AnthropicConfig::from_env()?, model_override);
     info!(model = %config.model, "Creating Anthropic provider");
