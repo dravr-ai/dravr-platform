@@ -9,7 +9,9 @@
 //! `docker/images/frontend/security-headers.conf` carries the whole set and
 //! `nginx.conf` includes it at server level and again inside every location
 //! that declares an `add_header` of its own (nginx drops inherited
-//! `add_header` directives the moment a location declares one). The API
+//! `add_header` directives the moment a location declares one), unless that
+//! location sets every edge header itself (Firebase's `/__/` pages, framed by
+//! the SPA, carry their own framing values). The API
 //! service runs behind that nginx with internal-only ingress.
 //!
 //! These tests guard both halves of that arrangement: the edge really sets the
@@ -101,8 +103,21 @@ fn edge_snippet_sets_every_security_header() {
     }
 }
 
+/// Whether `location` sets every edge header itself: a location serving
+/// pages that are not the SPA's (Firebase's `/__/auth`) sets its own values
+/// for the whole set rather than the snippet's.
+fn sets_every_edge_header(location: &str) -> bool {
+    EDGE_HEADERS.iter().all(|header| {
+        location.lines().any(|line| {
+            line.trim_start()
+                .strip_prefix("add_header ")
+                .is_some_and(|rest| rest.starts_with(&format!("{header} ")))
+        })
+    })
+}
+
 #[test]
-fn every_nginx_location_with_its_own_add_header_reincludes_the_snippet() {
+fn every_nginx_location_with_its_own_add_header_keeps_every_edge_header() {
     let conf = read("docker/images/frontend/nginx.conf");
     let include = "include /etc/nginx/security-headers.conf;";
 
@@ -129,10 +144,10 @@ fn every_nginx_location_with_its_own_add_header_reincludes_the_snippet() {
         if declares_own_header {
             checked += 1;
             assert!(
-                chunk.contains(include),
+                chunk.contains(include) || sets_every_edge_header(chunk),
                 "location `{name}` declares its own add_header, so it must \
-                 re-include the security header snippet or nginx drops the \
-                 inherited ones"
+                 re-include the security header snippet or set every edge \
+                 header itself, or nginx drops the inherited ones"
             );
         }
     }
