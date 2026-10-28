@@ -34,12 +34,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use dravr_barrage::parse::fit::FitActivityFile;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::ActivityWithoutStreams;
 use pierre_database::RepositoryRegistry;
-use pierre_providers::fit_file::{decode_bounded, FitActivityFile};
+use pierre_providers::fit_decode::decode_bounded;
 use pierre_providers::upload_provider::{
     parse_upload_activity_id, store_upload_series, upload_session_series,
 };

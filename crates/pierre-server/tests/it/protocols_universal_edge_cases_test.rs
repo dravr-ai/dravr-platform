@@ -143,6 +143,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -176,6 +177,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

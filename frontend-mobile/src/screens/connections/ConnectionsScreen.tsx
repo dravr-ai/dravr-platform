@@ -41,6 +41,7 @@ import {
 import type { SciotteTarget } from '@pierre/shared-types';
 import { presentProviderMenu } from './presentProviderMenu';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
+import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
 import { CONNECTED_APPS_ROUTE } from '../../navigation/routes';
 import { describeApiError, importTombstoneFromReturn } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -516,6 +517,8 @@ export function ConnectionsScreen() {
               </View>
             )}
             <Text className="text-xs text-text-tertiary px-4 pt-2.5">{t('app.privacyNoteBlurb')}</Text>
+            {/* Import your own data: below the providers, never one of them */}
+            <ImportOwnDataRow />
           </Section>
 
           <Section title={t('tokens.connectedApps')} testID="connections-apps-section">

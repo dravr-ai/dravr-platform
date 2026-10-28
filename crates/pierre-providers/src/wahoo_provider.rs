@@ -36,7 +36,8 @@ use super::errors::provider::ProviderError;
 use crate::activity_paging::{max_activity_pages, MAX_ACTIVITY_PAGES_ENV};
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
-use crate::fit_file::decode_bounded;
+use crate::fit_decode::decode_bounded;
+use crate::http_client;
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
 use crate::models::StatsCoverage;
@@ -603,24 +604,20 @@ impl WahooProvider {
                 format!("workout file download answered {}", response.status()),
             ));
         }
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_FIT_BYTES as u64)
-        {
+        let Some(bytes) = http_client::read_capped(response, MAX_FIT_BYTES)
+            .await
+            .map_err(|e| {
+                AppError::external_service(
+                    oauth_providers::WAHOO,
+                    format!("workout file: {}", e.without_url()),
+                )
+            })?
+        else {
             return Err(AppError::external_service(
                 oauth_providers::WAHOO,
                 "workout file is larger than any activity file".to_owned(),
             ));
-        }
-        let bytes = response.bytes().await.map_err(|e| {
-            AppError::external_service(oauth_providers::WAHOO, format!("workout file: {e}"))
-        })?;
-        if bytes.len() > MAX_FIT_BYTES {
-            return Err(AppError::external_service(
-                oauth_providers::WAHOO,
-                "workout file is larger than any activity file".to_owned(),
-            ));
-        }
+        };
         decode_bounded(move || time_series_from_fit(&bytes))
             .await?
             .map(Some)

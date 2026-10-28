@@ -40,6 +40,8 @@ pub mod analytics;
 pub mod api_keys;
 /// Repository trait and shared body for iOS App Attest keys.
 pub mod app_attest_keys;
+/// The outbox of deleted accounts whose imported history dravr-barrage still holds.
+pub mod archive_erasures;
 /// Repository trait, statements and shared body for the athlete's gear ledger (carnet#711).
 pub mod athlete_gear;
 /// Repository traits for chat conversation persistence.
@@ -258,6 +260,7 @@ pub use agent_artefacts::*;
 pub use agents::*;
 pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
+pub use archive_erasures::{ArchiveErasureRepository, PendingArchiveErasure};
 pub use athlete_gear::{AthleteGearRepository, GearDeletion};
 pub use chat::*;
 pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};

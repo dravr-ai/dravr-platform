@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+// ABOUTME: Proves both clients say the same thing about an import: its state line, its screen's phase, each code's copy
+// ABOUTME: Every key the copy names exists in every shipped locale, so no state renders as a raw key
+
+import { describe, it, expect } from 'vitest';
+import de from '../../i18n/src/locales/de/translation.json';
+import en from '../../i18n/src/locales/en/translation.json';
+import es from '../../i18n/src/locales/es/translation.json';
+import fr from '../../i18n/src/locales/fr/translation.json';
+import pt from '../../i18n/src/locales/pt/translation.json';
+import type { ArchiveImport, ImportStatus } from '@pierre/shared-types';
+import {
+  AWAITING_LINK_LATE_MS,
+  importFailureKey,
+  importOutcomeKey,
+  importPhase,
+  importSize,
+  importStateCopy,
+  linkRefusalKey,
+  startErrorKey,
+} from '../src/archiveImport';
+
+const LOCALES: Record<string, unknown> = { de, en, es, fr, pt };
+
+function lookup(catalogue: unknown, key: string): unknown {
+  return key.split('.').reduce<unknown>(
+    (node, part) => (typeof node === 'object' && node !== null ? (node as Record<string, unknown>)[part] : undefined),
+    catalogue,
+  );
+}
+
+function entry(status: ImportStatus, overrides: Partial<ArchiveImport> = {}): ArchiveImport {
+  return {
+    id: 'job-1',
+    source: 'strava_archive',
+    status,
+    total_rows: 3105,
+    processed_rows: 1240,
+    imported: 1240,
+    skipped: 0,
+    failed: 0,
+    error_code: null,
+    earliest_start: '2009-03-01T08:00:00Z',
+    latest_start: '2026-03-01T08:00:00Z',
+    created_at: '2026-10-27T08:00:00Z',
+    updated_at: '2026-10-27T08:00:00Z',
+    finished_at: '2026-10-27T09:00:00Z',
+    expires_at: null,
+    history_held: true,
+    ...overrides,
+  };
+}
+
+describe('an import, as both clients say it', () => {
+  it('gives each state its line, and a late link its own', () => {
+    const created = Date.parse('2026-10-27T08:00:00Z');
+    expect(importStateCopy(entry('awaiting_link'), 'en', created + 1000).key).toBe('providers.import.state.awaitingLink');
+    expect(importStateCopy(entry('awaiting_link'), 'en', created + AWAITING_LINK_LATE_MS + 1).key).toBe(
+      'providers.import.state.awaitingLinkLate',
+    );
+    expect(importStateCopy(entry('importing'), 'en')).toEqual({
+      key: 'providers.import.state.importing',
+      values: { processed: 1240, total: 3105 },
+    });
+    expect(importStateCopy(entry('completed'), 'en').values?.count).toBe(1240);
+    expect(importStateCopy(entry('failed'), 'en').key).toBe('providers.import.state.stopped');
+    expect(importStateCopy(entry('cancelled'), 'en').key).toBe('providers.import.state.stopped');
+  });
+
+  it('puts the screen in the phase the latest import calls for', () => {
+    expect(importPhase(null)).toBe('request');
+    expect(importPhase(entry('awaiting_link'))).toBe('awaiting_link');
+    expect(importPhase(entry('queued'))).toBe('running');
+    expect(importPhase(entry('downloading'))).toBe('running');
+    expect(importPhase(entry('importing'))).toBe('running');
+    expect(importPhase(entry('completed'))).toBe('completed');
+    expect(importPhase(entry('failed')), 'a failed import asks for the link again').toBe('request');
+    expect(
+      importPhase(entry('completed', { history_held: false })),
+      'a completed import whose history was deleted asks for an export again',
+    ).toBe('request');
+    expect(importStateCopy(entry('completed', { history_held: false }), 'en').key).toBe(
+      'providers.import.strava.deleted',
+    );
+  });
+
+  it('reads a refused start by the code the server names, and a second import as in progress', () => {
+    expect(startErrorKey(400, 'link_host_not_allowed: the export link was refused')).toBe(
+      'providers.import.strava.refusal.link_host_not_allowed',
+    );
+    expect(startErrorKey(409, 'an import of strava_archive in progress')).toBe('providers.import.strava.inProgress');
+    expect(startErrorKey(500, 'boom')).toBe('providers.import.strava.genericError');
+  });
+
+  it('reads an unknown failure or outcome as the generic copy rather than a raw key', () => {
+    expect(importFailureKey('spool_missing')).toBe('providers.import.strava.failure.spool_missing');
+    expect(importFailureKey('something_new')).toBe('providers.import.strava.genericError');
+    expect(importOutcomeKey('something_new')).toBe('providers.import.strava.outcome.unreadable_file');
+  });
+
+  it('states a size the way an athlete reads one', () => {
+    expect(importSize(512)).toBe('512 B');
+    expect(importSize(1_200_000_000)).toBe('1.2 GB');
+  });
+
+  it('names only keys every shipped locale carries', () => {
+    const keys = [
+      ...(['awaiting_link', 'queued', 'downloading', 'importing', 'completed', 'failed'] as ImportStatus[]).map(
+        (status) => importStateCopy(entry(status), 'en').key,
+      ),
+      'providers.import.state.awaitingLinkLate',
+      ...(['link_invalid', 'link_host_not_allowed', 'link_expired', 'link_unreachable'] as const).map(linkRefusalKey),
+      ...[
+        'download_failed',
+        'link_expired',
+        'archive_too_large',
+        'archive_unreadable',
+        'archive_limit',
+        'missing_activities_csv',
+        'unknown_locale',
+        'spool_missing',
+        'not_an_export',
+        null,
+      ].map(importFailureKey),
+      ...['strava_export_error', 'missing_file', 'unreadable_file', 'file_too_large', 'invalid_row', 'zero_elapsed'].map(
+        importOutcomeKey,
+      ),
+      'providers.import.strava.inProgress',
+    ];
+    for (const [locale, catalogue] of Object.entries(LOCALES)) {
+      for (const key of keys) {
+        expect(typeof lookup(catalogue, key), `${locale}: ${key}`).toBe('string');
+      }
+    }
+  });
+});

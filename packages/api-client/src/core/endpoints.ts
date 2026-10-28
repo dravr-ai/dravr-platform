@@ -371,6 +371,26 @@ export const ENDPOINTS = {
     ACTIVITY: (provider: string, activityId: string) =>
       `/api/me/activities/${encodeURIComponent(provider)}/${encodeURIComponent(activityId)}/gear`,
   },
+  // ==================== IMPORTS ====================
+  /** Importing the athlete's own history from a service's export (carnet#1218); session only */
+  IMPORTS: {
+    /** Whether imports run here, the sources, each source's running or latest import (`GET`) */
+    LIST: '/api/imports',
+    /** Start an import, from a link or waiting for one (`POST`, body `{ url? }`) */
+    START: (source: string) => `/api/imports/${encodeURIComponent(source)}`,
+    /** Whether an import can start from a link (`POST`, body `{ url }`) */
+    CHECK: (source: string) => `/api/imports/${encodeURIComponent(source)}/check`,
+    /** The source's running or latest import (`GET`) */
+    CURRENT: (source: string) => `/api/imports/${encodeURIComponent(source)}/current`,
+    /** Everything imported from the source (`DELETE`) */
+    DATA: (source: string) => `/api/imports/${encodeURIComponent(source)}/data`,
+    /** A page of the rows an import did not import (`GET`, `?offset=&limit=`) */
+    REPORT: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/report`,
+    /** Cancel an import (`POST`) */
+    CANCEL: (source: string, importId: string) =>
+      `/api/imports/${encodeURIComponent(source)}/${encodeURIComponent(importId)}/cancel`,
+  },
   // ==================== PERSONAS ====================
   PERSONAS: {
     /** The « Style de coaching » cards, rendered from the live contract registry */

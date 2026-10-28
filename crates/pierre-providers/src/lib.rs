@@ -22,6 +22,8 @@ pub mod activity_paging;
 pub mod activity_source;
 /// When a read is for a model, the typed AI-policy filters, and the governed provider
 pub mod ai_scope;
+/// The terms descriptor of an imported archive (`strava_archive`)
+pub mod archive_descriptor;
 /// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends
 pub mod backend_resolver;
 /// Activity reads answered from the activity cache, for providers read from Dravr's own stores
@@ -36,8 +38,8 @@ pub mod core;
 pub mod deduplication;
 /// Reads on behalf of a coached athlete through a coach's own provider credential
 pub mod delegation;
-/// Activity FIT files: each session's summary, laps and per-sample series
-pub mod fit_file;
+/// The process-wide bound on concurrent FIT decodes (the decoder is dravr-barrage's)
+pub mod fit_decode;
 /// Shared HTTP client for provider API calls
 pub mod http_client;
 /// The provider-side owner id behind an access token, for providers whose token response leaves it out

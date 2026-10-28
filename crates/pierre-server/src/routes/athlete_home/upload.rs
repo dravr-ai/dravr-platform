@@ -14,9 +14,9 @@
 //! [`crate::services::activity_upload`] for what is kept.
 //!
 //! `DELETE /api/me/activities/{provider}/{id}`, on the route the activity
-//! view reads, deletes one uploaded activity of the caller's (`204`). Only an
-//! upload can be deleted here: a provider's activity is deleted on the
-//! provider, and its sync removes it. Any other provider, or an id the caller
+//! view reads, deletes one uploaded or imported activity of the caller's
+//! (`204`). Only those can be deleted here: a provider's activity is deleted
+//! on the provider, and its sync removes it. Any other provider, or an id the caller
 //! did not upload in this tenant (another athlete's), answers `404`.
 
 use std::sync::Arc;
@@ -26,7 +26,7 @@ use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Json, Router};
-use pierre_core::constants::oauth_providers::UPLOAD;
+use pierre_core::constants::oauth_providers::{STRAVA_ARCHIVE, UPLOAD};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::CachedActivityRow;
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -37,6 +37,7 @@ use crate::mcp::resources::ServerContext;
 use crate::services::activity_upload::{
     delete_uploaded_activity, upload_activity_file, HeldCopy, MAX_UPLOAD_BYTES,
 };
+use crate::services::archive_import::ops;
 use crate::tools::runtime_adapter::into_runtime;
 
 /// A copy of one of the file's sessions the athlete already held.
@@ -77,18 +78,30 @@ pub(super) fn upload_routes() -> Router<Arc<ServerContext>> {
 }
 
 /// `DELETE /api/me/activities/{provider}/{activity_id}`: delete one of the
-/// caller's uploaded activities. Any provider but [`UPLOAD`] is not found.
+/// caller's own activities — an uploaded one ([`UPLOAD`]) or one imported
+/// from an export (`strava_archive`, with its samples and, once no other
+/// activity keeps it, its original). Any other provider is not found.
 pub(super) async fn delete_activity(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path((provider, activity_id)): Path<(String, String)>,
 ) -> AppResult<StatusCode> {
+    let tenant_id = active_tenant(&auth)?;
+    if provider == STRAVA_ARCHIVE {
+        let scope = ops::scope_of(tenant_id, auth.user_id);
+        let source = ops::offered_source(&provider)?;
+        if !ops::delete_activity(&resources, &scope, source, &activity_id).await? {
+            return Err(AppError::not_found(format!(
+                "imported activity {provider}/{activity_id}"
+            )));
+        }
+        return Ok(StatusCode::NO_CONTENT);
+    }
     if provider != UPLOAD {
         return Err(AppError::not_found(format!(
             "uploaded activity {provider}/{activity_id}"
         )));
     }
-    let tenant_id = active_tenant(&auth)?;
     delete_uploaded_activity(
         &into_runtime(&resources),
         tenant_id,

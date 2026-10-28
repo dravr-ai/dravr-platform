@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use crate::archive_descriptor::StravaArchiveDescriptor;
 use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
 use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
@@ -156,6 +157,11 @@ impl ProviderRegistry {
         Self::register_sciotte_factories(&mut registry);
         Self::register_intervals_icu(&mut registry);
         Self::register_wahoo(&mut registry);
+        // Terms only: an imported archive is read, never connected.
+        registry.register_descriptor(
+            oauth_providers::STRAVA_ARCHIVE,
+            Box::new(StravaArchiveDescriptor),
+        );
 
         // Log registered providers at startup
         let providers = registry.supported_providers().join(", ");

@@ -104,6 +104,7 @@ impl McpTestSetup {
                     extra_tools: Vec::new(),
                     billing_provider: None,
                     turn_runner: None,
+                    archive_imports: None,
                 },
             )
             .await
@@ -1010,6 +1011,7 @@ async fn setup_with_admin_flag(
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

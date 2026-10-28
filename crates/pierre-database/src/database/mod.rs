@@ -32,6 +32,8 @@ pub mod analytics;
 pub mod api_keys;
 /// iOS App Attest keys of the app installs Apple attested (`SQLite`)
 pub mod app_attest_keys;
+/// Archive erasure outbox (`SQLite`) backing `ArchiveErasureRepository`.
+pub mod archive_erasures;
 /// The athlete's gear ledger (`SQLite`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
 /// Chat conversation and message storage

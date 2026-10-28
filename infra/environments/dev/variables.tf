@@ -446,3 +446,15 @@ variable "backend_sciotte_iam" {
   type        = bool
   default     = false
 }
+
+variable "archive_fetch_hosts" {
+  description = <<-EOT
+    The exact hosts an athlete's export link may be fetched from (carnet#1218),
+    matched without wildcards. Empty refuses every link: the Strava export spike
+    (carnet#1215) has not yet recorded the host Strava serves exports from, so
+    nothing is fetched until it does and this lists it.
+  EOT
+  type        = list(string)
+  default     = []
+}
+

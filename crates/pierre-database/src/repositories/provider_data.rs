@@ -638,6 +638,8 @@ pub enum PurgeReason {
     Termination,
     /// The provider's cache TTL passed for those copies.
     CacheExpired,
+    /// The athlete deleted a history they imported from their own export.
+    AthleteDeletedImport,
 }
 
 impl PurgeReason {
@@ -654,6 +656,7 @@ impl PurgeReason {
             Self::PermissionWithdrawn => "permission_withdrawn",
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
+            Self::AthleteDeletedImport => "athlete_deleted_import",
         }
     }
 }

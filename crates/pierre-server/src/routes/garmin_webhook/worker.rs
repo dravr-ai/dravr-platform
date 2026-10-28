@@ -33,6 +33,7 @@ use pierre_core::http_client::{api_client, SharedHttpError};
 use pierre_database::repositories::{
     GarminPushInboxRepository, GarminPushInboxRow, InboxClaim, JobLease, PushedDataRepository,
 };
+use pierre_providers::http_client::read_capped;
 use pierre_providers::request_budget::GARMIN_ACTIVITY_FILES;
 use pierre_services::garmin_push::{
     ingest_batch, parse_envelope, ActivityFile, BatchOutcome, GarminOwner, GarminPushHost, Retry,
@@ -309,30 +310,6 @@ fn file_error(what: &str, e: impl Into<SharedHttpError>) -> AppError {
     )
 }
 
-/// A response body read whole, unless it is larger than `cap` bytes: `None`
-/// then, read no further than the cap. A declared length past the cap is
-/// refused before any of the body is read; a body that does not declare one is
-/// read a chunk at a time and dropped once it passes the cap.
-async fn read_capped(
-    mut response: reqwest::Response,
-    cap: usize,
-) -> Result<Option<Vec<u8>>, reqwest::Error> {
-    if response
-        .content_length()
-        .is_some_and(|declared| usize::try_from(declared).map_or(true, |len| len > cap))
-    {
-        return Ok(None);
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await? {
-        if body.len().saturating_add(chunk.len()) > cap {
-            return Ok(None);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(Some(body))
-}
-
 /// The server side of the ingest.
 struct ServerHost {
     resources: Arc<ServerContext>,
@@ -496,58 +473,6 @@ mod tests {
             !error.to_string().contains("activityFile"),
             "the callback URL never reaches the error"
         );
-    }
-
-    /// Serve `body` on a loopback port, declaring its length or streaming it
-    /// in chunks with none, and hand back its URL. Served as the router's
-    /// fallback, not a declared route, so the backend route-surface scan
-    /// (`scripts/ci/backend-routes.py`) never reads it as a served path.
-    async fn serve(body: Vec<u8>, declare_length: bool) -> String {
-        use axum::body::Body;
-        use axum::routing::get;
-        use axum::Router;
-        use futures_util::stream;
-        use std::io;
-        use tokio::net::TcpListener;
-        let app = Router::new().fallback(get(move || {
-            let body = body.clone();
-            async move {
-                if declare_length {
-                    Body::from(body)
-                } else {
-                    let chunks: Vec<Result<Vec<u8>, io::Error>> =
-                        body.chunks(512).map(|c| Ok(c.to_vec())).collect();
-                    Body::from_stream(stream::iter(chunks))
-                }
-            }
-        }));
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("serve");
-        });
-        format!("http://{addr}/file")
-    }
-
-    /// An activity file past the cap is refused, whether it declares its
-    /// length or streams without one; one inside it is read whole.
-    #[tokio::test]
-    async fn an_oversized_activity_file_is_refused() {
-        let file = vec![7_u8; 4_096];
-        for declare_length in [true, false] {
-            let url = serve(file.clone(), declare_length).await;
-            let fetch = || async { api_client().get(&url).send().await.expect("response") };
-            assert_eq!(
-                read_capped(fetch().await, 1_024).await.expect("read"),
-                None,
-                "a body past the cap is refused (declared length: {declare_length})"
-            );
-            assert_eq!(
-                read_capped(fetch().await, 8_192).await.expect("read"),
-                Some(file.clone()),
-                "a body inside the cap is read whole (declared length: {declare_length})"
-            );
-        }
     }
 
     #[test]

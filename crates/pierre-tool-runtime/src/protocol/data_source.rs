@@ -37,8 +37,9 @@ fn proceed_after(tool_name: &str, lookup: &str, error: &dyn Display) {
 ///
 /// Three kinds of evidence, any one sufficient: a connection row, a provider
 /// token (the two are written by different paths and are known to drift), and
-/// a `.fit` file the athlete uploaded in `tenant` (carnet#818) — an athlete
-/// who never connected a provider still has those workouts to answer from.
+/// an activity the athlete brought in themselves in `tenant` — an uploaded
+/// `.fit` file (carnet#818) or an imported archive (carnet#1218) — since an
+/// athlete who never connected a provider still has those to answer from.
 pub(super) async fn athlete_has_data_source(
     resources: &Arc<dyn ToolRuntime>,
     tool_name: &str,
@@ -68,11 +69,14 @@ pub(super) async fn athlete_has_data_source(
         return false;
     };
     repos
-        .uploaded_activity_files
-        .has_uploaded_files(&tenant, user_uuid)
+        .activity_cache
+        .held_user_provided(user_uuid, &tenant)
         .await
-        .unwrap_or_else(|e| {
-            proceed_after(tool_name, "uploaded_activity_files", &e);
-            true
-        })
+        .map_or_else(
+            |e| {
+                proceed_after(tool_name, "cached_activities", &e);
+                true
+            },
+            |held| !held.is_empty(),
+        )
 }

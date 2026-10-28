@@ -142,3 +142,9 @@ export const CONNECTIONS_ROUTE = paneRouteOf('connections');
  * An activity's screen sends an athlete with no pair here to add one.
  */
 export const GEAR_ROUTE = paneRouteOf('gear');
+
+/** The import-your-own-data screen, presented as a modal over the app (carnet#1218). */
+export const IMPORT_ROUTE = '/(app)/import' as const;
+
+/** The same screen during onboarding's connect step, which it belongs to. */
+export const ONBOARDING_IMPORT_ROUTE = '/(onboarding)/import' as const;

@@ -52,6 +52,15 @@ export default function AppLayout() {
           options={{ presentation: 'modal', gestureEnabled: true, title: '', headerLeft: closeButton }}
         />
         <Stack.Screen
+          name="import"
+          options={{
+            presentation: 'modal',
+            gestureEnabled: true,
+            title: t('providers.import.title'),
+            headerLeft: () => <HeaderCloseButton testID="import-back" />,
+          }}
+        />
+        <Stack.Screen
           name="billing"
           options={{
             presentation: 'modal',

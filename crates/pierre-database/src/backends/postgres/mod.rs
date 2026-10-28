@@ -36,6 +36,8 @@ pub mod analytics;
 pub mod api_key;
 /// iOS App Attest keys of the app installs Apple attested (Postgres)
 pub mod app_attest_keys;
+/// Archive erasure outbox (`Postgres`) backing `ArchiveErasureRepository`.
+pub mod archive_erasures;
 /// The athlete's gear ledger (`Postgres`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
 /// Chat repository implementation

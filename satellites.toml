@@ -73,10 +73,6 @@ after_rewrite = "scripts/ci/regen-scene-types.sh"
 # Satellites this issue adds a lane for
 # ---------------------------------------------------------------------------
 
-[dravr-cageux]
-repo = "dravr-cageux"
-source = "git-tag"
-
 [dravr-canot]
 repo = "dravr-canot"
 source = "git-tag"
@@ -100,15 +96,36 @@ release_evidence = "tag"
 repo = "dravr-stripe"
 source = "git-tag"
 
-# The platform's own pin since enforme dropped its unused riviere dependency
-# (carnet#1227): pierre-database implements riviere's TimeSeriesStore, and no
-# other dravr dependency pins riviere, so it moves alone on bump-riviere.yml.
+# The athlete's activity history and archive importer, compiled into the
+# platform (carnet#1218). Its own manifest pins dravr-cageux and dravr-riviere,
+# the platform pins both too, and libsqlite's `links` key plus the duplicate gate
+# allow one copy of each: the three move in one commit, at the tags barrage's
+# manifest names. barrage also pins dravr-equilibre, whose diamond is owned by
+# dravr-enforme below; a barrage release has to pin the same equilibre tag as the
+# enforme the platform pins, or the duplicate gate refuses the bump.
+[dravr-barrage]
+repo       = "dravr-barrage"
+source     = "git-tag"
+companions = "dravr-cageux:from-manifest dravr-riviere:from-manifest"
+
+# ---------------------------------------------------------------------------
+# Diamond pins — owned by dravr-barrage's manifest, never moved alone
+# ---------------------------------------------------------------------------
+
+# A cageux release reaches the platform through barrage: barrage's cageux-bump
+# lane releases a barrage patch on the new tag, and bump-barrage.yml moves both
+# pins together. Moving cageux alone would put two copies in Cargo.lock.
+[dravr-cageux]
+repo     = "dravr-cageux"
+source   = "git-tag"
+upstream = "dravr-barrage"
+
+# pierre-database implements riviere's TimeSeriesStore and barrage hands its
+# wellness series over in riviere's types, so the two pins are one.
 [dravr-riviere]
 repo     = "dravr-riviere"
 source   = "git-tag"
-# Some tags are hand-cut with no GitHub release (v0.2.4 was), so a tag is
-# evidence enough.
-release_evidence = "tag"
+upstream = "dravr-barrage"
 
 # ---------------------------------------------------------------------------
 # Diamond pins — owned by dravr-enforme's manifest, never moved alone

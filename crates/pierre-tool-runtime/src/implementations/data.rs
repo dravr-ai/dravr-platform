@@ -43,7 +43,7 @@ use crate::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
-use crate::activity_fetch::uploads::{holds_uploads, uploaded_window};
+use crate::activity_fetch::uploads::{resolve_with_own_copies, user_provided_rows};
 use crate::activity_fetch::{
     activity_date_span, activity_window_totals, maybe_merge_other_connections, read_cached_window,
     read_live_window, serve_historical_window, serve_stale_activities, serve_without_primary,
@@ -74,7 +74,6 @@ use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use crate::implementations::stored_data::{
     GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
 };
-use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
@@ -88,7 +87,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::fitness::{
     activity_detail_threshold, auto_promotes_to_detail, EXPENSIVE_DETAIL_PROMOTION_BUDGET,
 };
-use pierre_core::constants::oauth_providers::UPLOAD;
+use pierre_core::constants::oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
@@ -245,10 +244,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Provider arg is optional — when omitted, fall back to the user's
             // configured default. Use the resolved name for both span and log
             // rather than the raw arg string.
-            // With nothing connected, the athlete's uploaded files answer alone.
-            let provider_name = match resolve_provider_for_tool(&args, &context).await {
+            let provider_name = match resolve_with_own_copies(&args, &context).await {
                 Ok(p) => p,
-                Err(_) if holds_uploads(&context).await => UPLOAD.to_owned(),
                 Err(result) => return Ok(result),
             };
 
@@ -612,9 +609,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .get("provider")
                 .and_then(Value::as_str)
                 .is_some_and(|s| !s.is_empty());
-            // Uploaded files are read locally: no sync, no write-through.
-            let (activities, provider) = if provider_name == UPLOAD {
-                (uploaded_window(&context, &query_params).await, None)
+            // What the athlete brought in is read locally: no sync, no write-through.
+            let (activities, provider) = if oauth_providers::is_user_provided(&provider_name) {
+                let pinned_key = provider_pinned.then_some(provider_name.as_str());
+                (user_provided_rows(&context, pinned_key, &query_params).await, None)
             } else if route_to_backfill {
                 // Is the requested historical window actually cached, or only recent
                 // rows that fall inside it? Read the durable window ONCE and derive

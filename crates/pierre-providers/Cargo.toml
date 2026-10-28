@@ -54,9 +54,9 @@ hex = "0.4"
 base64 = { version = "0.22", optional = true }
 # Power-zone bounds the Wahoo plan file states as fractions of FTP.
 dravr-cageux = { workspace = true, optional = true }
-# Activity FIT files: an athlete's uploaded workout, and the samples Wahoo
-# serves only as a FIT file — both decoded by fit_file.rs.
-fitparser = "0.11"
+# The one activity FIT decoder (an athlete's uploaded workout, the samples Wahoo
+# serves only as a FIT file, a Garmin push file), lib only: no store backends.
+dravr-barrage = { workspace = true }
 # The intervals.icu auth rule and the credential kind it keys on, owned by
 # dravr-enforme so its wellness path and this provider's activity path share
 # one rule (carnet#997).
@@ -64,8 +64,6 @@ dravr-enforme = { workspace = true, features = ["provider-intervals-icu"] }
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
 
 [dev-dependencies]
-# Property tests for the FIT upload decoder (carnet#1143).
-proptest = { version = "1", default-features = false, features = ["std"] }
 # `net` + `io-util` back the loopback HTTP stub in tests/it/intervals_icu_provider_test.rs,
 # which pins the bytes we put on the wire (the HTTP Basic username in particular).
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util"] }

@@ -91,6 +91,22 @@ export {
   describeAccountDeletionBlocker,
   describeAccountDeletionFailure,
 } from './accountDeletion';
+// What both clients say about an import of the athlete's own data
+export type { CopyLine, ImportPhase } from './archiveImport';
+export {
+  AWAITING_LINK_LATE_MS,
+  IMPORT_POLL_INTERVAL_MS,
+  IMPORT_RESULT_STORAGE_KEY,
+  importDate,
+  importFailureKey,
+  importOutcomeKey,
+  importPhase,
+  importSize,
+  importStateCopy,
+  linkRefusalKey,
+  startErrorKey,
+} from './archiveImport';
+
 export type { ImportTombstoneRefusal } from './importTombstone';
 export { describeRegistration } from './registration';
 export {

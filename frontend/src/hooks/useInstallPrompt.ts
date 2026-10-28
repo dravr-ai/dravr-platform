@@ -27,7 +27,7 @@ const DISMISSED_KEY = 'dravr.installPromptDismissed';
  * `navigator.standalone` is the iOS-only one Safari still uses for a
  * home-screen launch.
  */
-function isInstalled(): boolean {
+export function isInstalled(): boolean {
   if (typeof window === 'undefined') return false;
   const standaloneDisplay = window.matchMedia?.('(display-mode: standalone)').matches ?? false;
   const iosStandalone = (window.navigator as { standalone?: boolean }).standalone === true;

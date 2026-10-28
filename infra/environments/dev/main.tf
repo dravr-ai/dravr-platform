@@ -371,6 +371,18 @@ module "backend" {
       PIERRE_TURN_TARGET_URL           = local.backend_run_url
       PIERRE_TURN_OIDC_SERVICE_ACCOUNT = module.service_accounts.app_service_account_email
 
+      # Import your own data (carnet#1218, archive_imports.tf): barrage keeps
+      # its blobs in its own bucket, and each import step is a Cloud Tasks
+      # request to the backend's own run.app URL, one at a time. Hosts an
+      # export link may be fetched from are an exact allowlist; empty, every
+      # link is refused and nothing is imported.
+      BARRAGE_GCS_BUCKET                 = google_storage_bucket.barrage.name
+      PIERRE_IMPORT_RUNNER               = "cloud_tasks"
+      PIERRE_IMPORT_QUEUE                = google_cloud_tasks_queue.archive_import.id
+      PIERRE_IMPORT_TARGET_URL           = local.backend_run_url
+      PIERRE_IMPORT_OIDC_SERVICE_ACCOUNT = module.service_accounts.app_service_account_email
+      ARCHIVE_FETCH_HOSTS                = join(",", var.archive_fetch_hosts)
+
       # Firebase project for Google Sign-In token validation
       FIREBASE_PROJECT_ID = var.firebase_project_id
 

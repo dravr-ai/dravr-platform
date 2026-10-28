@@ -13,6 +13,7 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
+use crate::services::archive_import::ArchiveImports;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::ServerBackfillNotifier;
 use crate::services::photograveur_client::PhotograveurClient;
@@ -213,6 +214,13 @@ impl ServerContext {
                 .map(|p| Arc::new(ChatProvider::Custom(Arc::clone(p))))
         });
 
+        // The binary wires archive imports from its database and environment
+        // before building the context (`ArchiveImports::from_env`); a context
+        // built without them answers every import request that they are not
+        // available.
+        let archive_imports = options.archive_imports.unwrap_or_else(|| {
+            ArchiveImports::disabled("this server was started without archive imports")
+        });
         let database_arc = Arc::new(database);
         let repos = Arc::clone(database_arc.repositories());
 
@@ -572,6 +580,7 @@ impl ServerContext {
             turn_runner: options
                 .turn_runner
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
+            archive_imports,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
             config,

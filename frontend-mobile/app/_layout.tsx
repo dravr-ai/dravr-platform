@@ -194,7 +194,11 @@ function RootLayoutNav() {
     if (step) {
       const route = routeForStep(step.id);
       const sub = route.split('/').pop();
-      if (!(inOnboardingGroup && (segments as readonly string[])[1] === sub)) {
+      const at = (segments as readonly string[])[1];
+      // Importing your own data belongs to the connect step: its screen is
+      // where an athlete with no connection brings their history in.
+      const withinStep = at === sub || (sub === 'connect' && at === 'import');
+      if (!(inOnboardingGroup && withinStep)) {
         router.replace(route);
       }
       return;

@@ -14,6 +14,10 @@
 //! resources (Discord/Slack gateways, messaging ingress, endurance
 //! training history compute, chat verdict materialization).
 
+/// Importing an athlete's own export through dravr-barrage: stores, link custody, steps, sweeps.
+pub mod archive_import;
+/// Work this service delivers to itself through Cloud Tasks: task creation and delivery tokens.
+pub mod cloud_tasks;
 /// One lock per conversation that every chat turn holds while it runs.
 pub mod conversation_turn_lock;
 /// Tracks the detached turns a webhook starts, so shutdown can drain them.

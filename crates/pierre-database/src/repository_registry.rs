@@ -15,10 +15,10 @@ use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
     ActivityRouteTrackRepository, ActivityStreamRepository, AdminRepository, AgentsRepository,
-    ApiKeyRepository, AppAttestKeyRepository, AthleteGearRepository, ChatRepository,
-    CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
-    CoachReplyReviewRepository, CoachingGroupRepository, CommitmentRepository,
-    DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
+    ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository, AthleteGearRepository,
+    ChatRepository, CheckInPreferenceRepository, ClaimVerdictRepository,
+    CoachAccessRequestRepository, CoachReplyReviewRepository, CoachingGroupRepository,
+    CommitmentRepository, DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
     EmailVerificationRepository, FeatureFlagsRepository, FederatedIdentityRepository,
     FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
     GarminPushInboxRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
@@ -228,6 +228,9 @@ pub struct RepositoryRegistry {
     /// Runtime feature-flag storage. Backs `/api/me/features` and the admin
     /// per-tenant/per-user toggle endpoints.
     pub feature_flags: Arc<dyn FeatureFlagsRepository>,
+    /// Deleted accounts whose imported history dravr-barrage still holds:
+    /// written by the account delete, drained by the erasure sweep.
+    pub archive_erasures: Arc<dyn ArchiveErasureRepository>,
     /// Firebase identities still to delete at Google after their account
     /// went: written by the account delete, drained by its post-commit call
     /// and the retry sweep.
@@ -371,6 +374,7 @@ impl RepositoryRegistry {
             uploaded_activity_files: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
+            archive_erasures: db.clone(),
             firebase_identity_deletions: db.clone(),
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),
@@ -473,6 +477,7 @@ impl RepositoryRegistry {
             uploaded_activity_files: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
+            archive_erasures: db.clone(),
             firebase_identity_deletions: db.clone(),
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),

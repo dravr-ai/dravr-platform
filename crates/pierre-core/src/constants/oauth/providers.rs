@@ -444,6 +444,42 @@ pub fn provider_terms_version(backend: &str) -> Option<&'static str> {
 /// freshness both leave this key out (`activity_cache/sql.rs`).
 pub const UPLOAD: &str = "upload";
 
+/// The source key of a Strava history the athlete imported from their own
+/// Strava bulk export (carnet#1218), held by dravr-barrage and served from
+/// the activity cache like an upload.
+///
+/// Its own key, never `strava`'s: the copy is the athlete's own, under its own
+/// terms (readable by AI, MCP, A2A and API keys alike), so it neither inherits
+/// Strava's first-party-only rule nor goes when Strava is disconnected. Like
+/// [`UPLOAD`] it is no connection: nothing fetches, refreshes or revokes it,
+/// and the cache's retention prune and sync freshness leave it out.
+pub const STRAVA_ARCHIVE: &str = "strava_archive";
+
+/// Every key whose cached activities the athlete brought in themselves, rather
+/// than a connection fetched: each is read locally, never pruned by a provider
+/// sync, and survives every provider disconnect.
+///
+/// Every SQL statement that names user-provided keys lists exactly these, a
+/// rule `activity_cache::sql`'s tests hold the literals to.
+pub const USER_PROVIDED_PROVIDERS: &[&str] = &[UPLOAD, STRAVA_ARCHIVE];
+
+/// Whether `provider` is a key the athlete brought data in under
+/// ([`USER_PROVIDED_PROVIDERS`]).
+#[must_use]
+pub fn is_user_provided(provider: &str) -> bool {
+    USER_PROVIDED_PROVIDERS.contains(&provider)
+}
+
+/// The keys an athlete's own copies of `provider`'s activities are held under:
+/// asking for `strava` also reads the Strava history they imported.
+#[must_use]
+pub fn companion_keys(provider: &str) -> &'static [&'static str] {
+    match provider {
+        STRAVA => &[STRAVA_ARCHIVE],
+        _ => &[],
+    }
+}
+
 /// Synthetic fitness provider identifier (for testing)
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-synthetic` feature.

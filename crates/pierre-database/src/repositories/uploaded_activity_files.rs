@@ -53,12 +53,6 @@ pub trait UploadedActivityFileRepository: Send + Sync {
         file_sha256: &str,
     ) -> AppResult<Option<Vec<u8>>>;
 
-    /// Whether the user holds any uploaded file in this tenant.
-    ///
-    /// # Errors
-    /// Returns a database error when the read fails.
-    async fn has_uploaded_files(&self, tenant_id: &TenantId, user_id: Uuid) -> AppResult<bool>;
-
     /// Whether any activity the file `file_sha256` became is still cached for
     /// the user in this tenant: an `upload` row whose id is the hash followed
     /// by a session index (`<sha>-<index>`).
@@ -104,13 +98,6 @@ pub(crate) const GET_UPLOADED_FILE_SQL: &str = r"
     SELECT file_bytes
     FROM uploaded_activity_files
     WHERE tenant_id = $1 AND user_id = $2 AND file_sha256 = $3";
-
-/// Whether the owner holds any file.
-pub(crate) const HAS_UPLOADED_FILES_SQL: &str = r"
-    SELECT 1 AS held
-    FROM uploaded_activity_files
-    WHERE tenant_id = $1 AND user_id = $2
-    LIMIT 1";
 
 /// Whether any cached `upload` activity of the owner's carries an id
 /// starting with `$3`, a LIKE prefix whose wildcards are escaped. `SQLite`'s
@@ -188,20 +175,6 @@ macro_rules! impl_uploaded_activity_file_repository {
                         .map_err(|e| AppError::database(format!("uploaded file bytes: {e}")))
                 })
                 .transpose()
-            }
-
-            async fn has_uploaded_files(
-                &self,
-                tenant_id: &TenantId,
-                user_id: Uuid,
-            ) -> AppResult<bool> {
-                let row = sqlx::query(HAS_UPLOADED_FILES_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(user_id.to_string())
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("has_uploaded_files: {e}")))?;
-                Ok(row.is_some())
             }
 
             async fn file_backs_cached_activity(

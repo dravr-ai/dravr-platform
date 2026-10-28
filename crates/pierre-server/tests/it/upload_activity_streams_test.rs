@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
+use dravr_barrage::parse::fit::{FitActivityFile, Position};
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::models::{TenantId, TimeSeriesData};
 use pierre_database::backends::factory::DatabaseBackend;
@@ -33,8 +34,7 @@ use pierre_mcp_server::services::upload_streams_backfill::{
     run_upload_streams_backfill_pass, UploadStreamsBackfillReport,
 };
 use pierre_providers::core::{FitnessProvider, OwnerStores};
-use pierre_providers::fit_file::{FitActivityFile, Position};
-use pierre_providers::upload_provider::{file_sha256, UploadProvider};
+use pierre_providers::upload_provider::{file_sha256, UserProvidedProvider};
 use pierre_test_support::fit::FitWorkout;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use uuid::Uuid;
@@ -94,9 +94,9 @@ async fn upload(resources: &Arc<ServerContext>, athlete: &Athlete, file: &[u8]) 
 }
 
 /// The reader the authentication chokepoint hands out for the `upload` key.
-fn reader(resources: &Arc<ServerContext>, athlete: &Athlete) -> UploadProvider {
+fn reader(resources: &Arc<ServerContext>, athlete: &Athlete) -> UserProvidedProvider {
     let repos = &resources.common.repos;
-    UploadProvider::new(
+    UserProvidedProvider::upload(
         OwnerStores::from_repos(repos, athlete.user_id, athlete.tenant),
         Arc::clone(&repos.uploaded_activity_files),
     )

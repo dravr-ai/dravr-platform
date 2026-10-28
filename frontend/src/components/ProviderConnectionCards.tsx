@@ -25,6 +25,7 @@ import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 import { ProviderNoticeDialog } from './ProviderNotice';
+import ImportOwnDataLink from './import/ImportOwnDataLink';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../hooks/useTheme';
 
@@ -399,6 +400,9 @@ export default function ProviderConnectionCards({
           </button>
         );
       })}
+
+      {/* Import your own data: below the providers, never one of them */}
+      <ImportOwnDataLink />
 
       {/* Skip and start chatting - last row */}
       {onSkip && (

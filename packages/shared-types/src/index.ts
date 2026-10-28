@@ -249,6 +249,26 @@ export {
 // A completed workout's .fit file uploaded by the athlete: the Home rows it became
 export type { ActivityUploadResponse, HeldActivity } from './activity-upload.js';
 export { ACTIVITY_UPLOAD_MAX_BYTES, UPLOAD_PROVIDER, parseActivityUploadResponse } from './activity-upload.js';
+export type {
+  ArchiveImport,
+  ImportFailureCode,
+  ImportIssue,
+  ImportLinkCheck,
+  ImportLinkRefusal,
+  ImportReportPage,
+  ImportStatus,
+  ImportsOverview,
+} from './imports.js';
+export {
+  STRAVA_ARCHIVE_SOURCE,
+  isFinalImportStatus,
+  linkRefusalOf,
+  parseArchiveImport,
+  parseCurrentImport,
+  parseImportLinkCheck,
+  parseImportReportPage,
+  parseImportsOverview,
+} from './imports.js';
 
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
 export type {

@@ -58,6 +58,8 @@ export const featureFlagsApi = api.featureFlags;
 export const athleteApi = api.athlete;
 // The athlete's shoes, their distance, and the pair each activity was run in.
 export const gearApi = api.gear;
+// Importing the athlete's own history from a service's export.
+export const importsApi = api.imports;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const personasApi = api.personas;
 export const i18nApi = api.i18n;

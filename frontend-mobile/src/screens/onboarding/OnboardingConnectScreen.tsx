@@ -22,6 +22,7 @@ import { useThemeColors } from '../../constants/theme';
 import { Button } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
+import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthAppSetupModal } from '../../components/OAuthAppSetupModal';
@@ -375,6 +376,7 @@ export function OnboardingConnectScreen() {
             {visibleProviders.map((provider, index) =>
               renderProvider(provider, index === visibleProviders.length - 1),
             )}
+            {!coachOnly && <ImportOwnDataRow onboarding />}
           </View>
         )}
 

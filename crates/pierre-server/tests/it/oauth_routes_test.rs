@@ -158,6 +158,7 @@ async fn test_email_validation() {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -351,6 +352,7 @@ async fn test_password_validation() {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -516,6 +518,7 @@ async fn test_duplicate_user_registration() {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -672,6 +675,7 @@ async fn test_login_with_correct_credentials() {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -884,6 +888,7 @@ async fn test_login_with_wrong_password() {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -1048,6 +1053,7 @@ async fn test_login_with_non_existent_user() {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

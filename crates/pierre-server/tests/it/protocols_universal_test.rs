@@ -197,6 +197,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -587,6 +588,7 @@ async fn test_set_goal_tool() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -1484,6 +1486,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

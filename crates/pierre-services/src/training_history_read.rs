@@ -43,7 +43,7 @@ use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::constants::oauth_providers::{
-    garmin_contribution, garmin_recorded, GarminContribution, UPLOAD,
+    garmin_contribution, garmin_recorded, GarminContribution,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, DailyTrainingState, TenantId};
@@ -438,9 +438,12 @@ pub struct ComputeBackend {
 /// capped so a long connection list cannot unbound the read.
 const MAX_COPIES_PER_WORKOUT: usize = 4;
 
-/// Every connection whose history a compute stands on, healthy ones first,
-/// then the athlete's uploads when they hold any; empty when the athlete has
-/// neither a provider connected nor an upload.
+/// Every source whose history a compute stands on: connections first.
+///
+/// Healthy connections come first, then each key the athlete brought
+/// activities in under (uploads, imported archives) when they hold any;
+/// empty when the athlete has neither a provider connected nor anything they
+/// brought in.
 ///
 /// Every connection that serves activities counts: the series is the
 /// athlete's, read from every provider's cached rows and merged, so no
@@ -448,9 +451,10 @@ const MAX_COPIES_PER_WORKOUT: usize = 4;
 /// serves no activities has none to read or capture.
 /// `PIERRE_DEFAULT_PROVIDER` still pins a deployment to one backend.
 ///
-/// Uploads are the athlete's own records, not a connection (carnet#818): they
-/// count under any election or pin, as one more backend the capture rail
-/// never pages ([`ComputeBackend::capturable`]).
+/// What the athlete brought in is their own record, not a connection
+/// (carnet#818, carnet#1218): each such key counts under any election or pin,
+/// as one more backend the capture rail never pages
+/// ([`ComputeBackend::capturable`]).
 ///
 /// Each slug is canonicalised through [`backend_resolver::resolve_backend`]
 /// because that is what the write side keys on: a Garmin athlete's rows are
@@ -498,13 +502,13 @@ pub async fn resolve_compute_backends(
             });
         }
     }
-    if repos
-        .uploaded_activity_files
-        .has_uploaded_files(&tenant_id, user_id)
-        .await?
-    {
+    let held = repos
+        .activity_cache
+        .held_user_provided(user_id, &tenant_id)
+        .await?;
+    for slug in held {
         backends.push(ComputeBackend {
-            slug: UPLOAD.to_owned(),
+            slug,
             requires_reauth: false,
             capturable: false,
         });

@@ -61,11 +61,9 @@ pub const GAP_FILLED_FORMAT_VERSION: i16 = 1;
 
 /// How a stored sample set reached Dravr: the `origin` column.
 ///
-/// The column admits `push`, `upload` and `archive` (the migration's CHECK);
-/// a variant exists for each origin that has a writer. Imported archives are
-/// not written yet, and their change adds `Archive` here with no schema
-/// change. Rows of every origin but `push` are never touched by a provider
-/// purge, which deletes `origin = 'push'` rows only.
+/// The column admits `push`, `upload` and `archive` (the migration's CHECK),
+/// one variant each. Rows of every origin but `push` are never touched by a
+/// provider purge, which deletes `origin = 'push'` rows only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamOrigin {
     /// A provider pushed it; a purge of that provider deletes it.
@@ -73,6 +71,10 @@ pub enum StreamOrigin {
     /// Decoded from a file the athlete uploaded, whose SHA-256 is the row's
     /// `source_ref`; deleted with the activity, the athlete or the account.
     Upload,
+    /// Decoded from an original kept by an archive import (dravr-barrage),
+    /// whose SHA-256 is the row's `source_ref`; deleted with the activity,
+    /// the imported source or the account.
+    Archive,
 }
 
 impl StreamOrigin {
@@ -82,6 +84,7 @@ impl StreamOrigin {
         match self {
             Self::Push => "push",
             Self::Upload => "upload",
+            Self::Archive => "archive",
         }
     }
 }
@@ -163,6 +166,19 @@ pub trait ActivityStreamRepository: Send + Sync {
         activity_id: &str,
     ) -> AppResult<bool>;
 
+    /// Delete every stored sample set of one provider key for one user,
+    /// whatever their origin: the athlete deleted a source they brought in
+    /// (an imported archive). Returns how many rows went.
+    ///
+    /// # Errors
+    /// Returns a database error when the delete fails.
+    async fn delete_provider_activity_streams(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        provider: &str,
+    ) -> AppResult<u64>;
+
     /// Up to `limit` activities cached under `provider`, in every tenant,
     /// that hold no sample row at [`STREAMS_FORMAT_VERSION`] (none at all, or
     /// one at an earlier version), in a stable order: what a backfill still
@@ -222,6 +238,18 @@ macro_rules! delete_activity_streams_sql {
     };
 }
 
+/// Delete one provider key's samples for one user. `$uuid` as in
+/// [`get_activity_streams_sql`].
+macro_rules! delete_provider_activity_streams_sql {
+    ($uuid:literal) => {
+        concat!(
+            "DELETE FROM activity_streams WHERE tenant_id = $1 AND user_id = $2",
+            $uuid,
+            " AND provider = $3"
+        )
+    };
+}
+
 /// The cached activities of one provider, across tenants, with no sample row
 /// at the format version `$3`. `$user` is how the stored row's `user_id` is
 /// compared with the cache's `TEXT` one: as it is on `SQLite`, cast down to
@@ -249,6 +277,10 @@ pub(crate) const UPSERT_ACTIVITY_STREAMS_SQL: &str = upsert_activity_streams_sql
 /// [`delete_activity_streams_sql`] on `SQLite`.
 pub(crate) const DELETE_ACTIVITY_STREAMS_SQL: &str = delete_activity_streams_sql!("");
 
+/// [`delete_provider_activity_streams_sql`] on `SQLite`.
+pub(crate) const DELETE_PROVIDER_ACTIVITY_STREAMS_SQL: &str =
+    delete_provider_activity_streams_sql!("");
+
 /// [`list_activities_without_current_streams_sql`] on `SQLite`.
 pub(crate) const LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_SQL: &str =
     list_activities_without_current_streams_sql!("s.user_id");
@@ -264,6 +296,11 @@ pub(crate) const UPSERT_ACTIVITY_STREAMS_PG_SQL: &str = upsert_activity_streams_
 /// [`delete_activity_streams_sql`] on Postgres.
 #[cfg(feature = "postgresql")]
 pub(crate) const DELETE_ACTIVITY_STREAMS_PG_SQL: &str = delete_activity_streams_sql!("::uuid");
+
+/// [`delete_provider_activity_streams_sql`] on Postgres.
+#[cfg(feature = "postgresql")]
+pub(crate) const DELETE_PROVIDER_ACTIVITY_STREAMS_PG_SQL: &str =
+    delete_provider_activity_streams_sql!("::uuid");
 
 /// [`list_activities_without_current_streams_sql`] on Postgres.
 #[cfg(feature = "postgresql")]
@@ -326,11 +363,12 @@ pub(crate) fn streams_to_json(streams: &TimeSeriesData) -> AppResult<String> {
 /// type. The body is written once here; each backend's shell invokes it with
 /// its own type and its backend's statements (`GET_ACTIVITY_STREAMS_SQL`,
 /// `UPSERT_ACTIVITY_STREAMS_SQL`, `DELETE_ACTIVITY_STREAMS_SQL`,
+/// `DELETE_PROVIDER_ACTIVITY_STREAMS_SQL`,
 /// `LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_SQL`, or their `_PG_` forms), and sqlx resolves
 /// the driver from `self.pool()` per expansion. The body names its helpers
 /// and types unqualified, so the invoking shell must `use` every one of them.
 macro_rules! impl_activity_stream_repository {
-    ($ty:ty, $get:expr, $upsert:expr, $delete:expr, $unstreamed:expr) => {
+    ($ty:ty, $get:expr, $upsert:expr, $delete:expr, $delete_provider:expr, $unstreamed:expr) => {
         #[async_trait::async_trait]
         impl ActivityStreamRepository for $ty {
             async fn get_activity_streams(
@@ -395,6 +433,25 @@ macro_rules! impl_activity_stream_repository {
                     .map_err(|e| AppError::database(format!("delete_activity_streams: {e}")))?
                     .rows_affected();
                 Ok(removed > 0)
+            }
+
+            async fn delete_provider_activity_streams(
+                &self,
+                tenant_id: &TenantId,
+                user_id: Uuid,
+                provider: &str,
+            ) -> AppResult<u64> {
+                let removed = sqlx::query($delete_provider)
+                    .bind(tenant_id.to_string())
+                    .bind(user_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("delete_provider_activity_streams: {e}"))
+                    })?
+                    .rows_affected();
+                Ok(removed)
             }
 
             async fn list_activities_without_current_streams(

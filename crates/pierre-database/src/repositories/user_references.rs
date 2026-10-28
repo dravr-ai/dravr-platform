@@ -265,7 +265,7 @@ user_owned_tables!(
 /// Clear a user completely on an already open `TransactionGuard` (`$guard`),
 /// which the account deletion (`super::account_deletion`) commits: the user's
 /// rows in every table the engine's [`UserPurge`] (`$purge`) names, the
-/// queued Firebase identity, the account row (whose foreign keys cascade to
+/// queued erasure of their imported history, the queued Firebase identity, the account row (whose foreign keys cascade to
 /// the rest), then the survivor read that refuses while a listed table still
 /// holds a row. A foreign-key violation anywhere is the conflict
 /// [`delete_user_error`] builds. Evaluates to
@@ -289,6 +289,14 @@ macro_rules! clear_user_in_transaction {
                 rows_removed.insert((*table).to_owned(), removed);
             }
         }
+        // Barrage's records and originals are outside this transaction's
+        // reach; the erasure sweep removes them once this commits.
+        sqlx::query(QUEUE_ARCHIVE_ERASURE_SQL)
+            .bind(&owner)
+            .bind(Utc::now())
+            .execute(guard.executor()?)
+            .await
+            .map_err(|e| delete_user_error(user_id, &e))?;
         if let Some(project) = firebase_project {
             sqlx::query(QUEUE_FIREBASE_DELETION_SQL)
                 .bind($ids::bind(user_id))

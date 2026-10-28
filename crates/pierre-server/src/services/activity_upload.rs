@@ -39,13 +39,14 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use chrono::{Duration, Utc};
+use dravr_barrage::parse::fit::FitActivityFile;
 use pierre_cache::CacheKey;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
-use pierre_providers::fit_file::{decode_bounded, FitActivityFile};
+use pierre_providers::fit_decode::decode_bounded;
 use pierre_providers::upload_provider::{
     file_sha256, parse_upload_activity_id, store_upload_series, upload_activity_id,
     upload_session_series,
@@ -316,7 +317,7 @@ fn paired_copy(
 /// cached lists are dropped and the training-load rollup is recomputed, both
 /// best effort — the rows are already written, and a rollup that fails to
 /// warm is recomputed on the next capture or ask.
-async fn after_stored_activities_changed(
+pub(crate) async fn after_stored_activities_changed(
     runtime: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,

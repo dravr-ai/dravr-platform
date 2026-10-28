@@ -59,6 +59,7 @@ use secrecy::ExposeSecret;
 type Result<T> = AppResult<T>;
 use std::{env, sync::Arc};
 
+use pierre_mcp_server::services::archive_import::ArchiveImports;
 #[cfg(feature = "client-messaging")]
 use pierre_mcp_server::services::turn_runner::TurnRunner;
 use tokio::runtime::{Builder, Runtime};
@@ -508,6 +509,10 @@ async fn create_server(
     #[cfg(not(feature = "client-messaging"))]
     let turn_runner = None;
 
+    // After the platform's own migrations (the database is open) and before
+    // any request: on Postgres the barrage schema migrates here.
+    let archive_imports = ArchiveImports::from_env(&database, &config.database.url).await;
+
     let resources_instance = ServerContext::new(
         database,
         auth_manager,
@@ -524,6 +529,7 @@ async fn create_server(
             extra_tools: Vec::new(),
             billing_provider,
             turn_runner,
+            archive_imports: Some(archive_imports),
         },
     )
     .await?;
@@ -731,6 +737,14 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     {
         use pierre_mcp_server::start_upload_streams_backfill;
         start_upload_streams_backfill(&resources);
+    }
+
+    // Start the archive import sweeps (carnet#1218): imports never given their
+    // link expire, and a deleted account's imported history is erased from
+    // dravr-barrage. Nothing starts where imports do not run.
+    {
+        use pierre_mcp_server::start_archive_import_sweeps;
+        start_archive_import_sweeps(&resources);
     }
 
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The

@@ -508,3 +508,45 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 });
+
+// JF, 2026-10-27: "We will not drop scrape at all, this is major." Importing
+// your own data arrives beside the connections, never in place of one: the
+// Strava and Garmin credential logins stay offered on the same cards, and
+// the import link is one more row under them.
+describe('ProviderConnectionCards — importing your own data sits beside the credential login', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+  });
+
+  it('keeps the Strava and Garmin credential logins when the seats are gone, with the import link below them', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror'), garminCard('mirror')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    const strava = await screen.findByLabelText('Connect to Strava');
+    const link = screen.getByTestId('import-own-data-link');
+    expect(
+      strava.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the import link comes after the provider rows',
+    ).toBeTruthy();
+
+    await user.click(strava);
+    expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+
+    await user.click(screen.getByLabelText('Connect to Garmin'));
+    expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+  });
+
+  it('opens the import window from the link, not a connection', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByTestId('import-own-data-link'));
+
+    expect(window.open).toHaveBeenCalledWith('/import', '_blank');
+    expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+  });
+});

@@ -18,6 +18,8 @@ import OfflineBanner from './components/OfflineBanner';
 import InstallAppBanner from './components/InstallAppBanner';
 import ServiceWorkerUpdatePrompt from './components/ServiceWorkerUpdatePrompt';
 import OAuthCallback from './components/OAuthCallback';
+import ImportWindow from './components/import/ImportWindow';
+import { IMPORT_PATH } from './components/import/openImportWindow';
 import ErrorBoundary from './components/ErrorBoundary';
 import UnitsProvider from './components/UnitsProvider';
 import { AuthProvider } from './contexts/AuthContext';
@@ -398,6 +400,25 @@ function AppContent() {
             </p>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // The import window (carnet#1218): opened from the provider list in a
+  // window of its own, or in place in the installed app. It comes before
+  // onboarding, so an athlete can import while still at the connect step.
+  if (window.location.pathname === IMPORT_PATH) {
+    return (
+      <div className="min-h-dvh bg-surface">
+        <OfflineBanner />
+        <ImpersonationBanner />
+        <ImportWindow
+          onClose={() => {
+            // A window the app opened closes; one reached in place returns.
+            window.close();
+            window.location.assign('/');
+          }}
+        />
       </div>
     );
   }

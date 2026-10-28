@@ -96,17 +96,25 @@ pub(crate) const LATEST_PROVIDER_SYNC_SQL: &str = r"
 
 /// Latest `synced_at` any provider's cached row carries for a user.
 ///
-/// An uploaded file's rows (`provider = 'upload'`,
-/// `pierre_core::constants::oauth_providers::UPLOAD`) are left out: their
-/// `synced_at` is when the athlete uploaded, which says nothing about how
-/// current any provider's copy is, and counting it would show a stale cache
-/// as just synced.
+/// The rows the athlete brought in themselves (an uploaded file's, an
+/// imported archive's: `pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS`)
+/// are left out: their `synced_at` is when the athlete uploaded or imported,
+/// which says nothing about how current any provider's copy is, and counting
+/// it would show a stale cache as just synced.
 pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
     SELECT synced_at
     FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND provider <> 'upload'
+    WHERE user_id = $1 AND tenant_id = $2 AND provider NOT IN ('upload', 'strava_archive')
     ORDER BY synced_at DESC
     LIMIT 1";
+
+/// The user-provided keys (`USER_PROVIDED_PROVIDERS`) under which a user holds
+/// at least one cached activity: the sources an athlete with no connection
+/// still has to answer from.
+pub(crate) const HELD_USER_PROVIDED_SQL: &str = r"
+    SELECT DISTINCT provider
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider IN ('upload', 'strava_archive')";
 
 /// Delete one cached activity, by the table's uniqueness key.
 pub(crate) const DELETE_CACHED_ACTIVITY_SQL: &str = r"
@@ -132,14 +140,14 @@ pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
 /// Scoped to the provider whose write-through runs it, so a sync of one
 /// provider never deletes another's rows. A push-only provider's rows (the
 /// Garmin API's) are the only copy Dravr will ever get, since the provider
-/// pushes each activity once, and no write-through ever runs for it; an
-/// uploaded file's rows (`provider = 'upload'`,
-/// `pierre_core::constants::oauth_providers::UPLOAD`) are the record itself
-/// and are refused here even when named.
+/// pushes each activity once, and no write-through ever runs for it; the
+/// rows the athlete brought in themselves (an uploaded file's, an imported
+/// archive's: `pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS`)
+/// are the record itself and are refused here even when named.
 pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider = $4
-      AND provider <> 'upload'";
+      AND provider NOT IN ('upload', 'strava_archive')";
 
 /// The most recent fetch mark for a user, optionally scoped to one provider.
 ///
@@ -312,3 +320,41 @@ macro_rules! capture_freshness_snapshot_sql {
     };
 }
 pub(crate) use capture_freshness_snapshot_sql;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::constants::oauth_providers::USER_PROVIDED_PROVIDERS;
+
+    /// The quoted keys inside the one `IN (...)` list `sql` carries.
+    fn listed_keys(sql: &str) -> Vec<&str> {
+        let start = sql.find("IN (").map(|at| at + 4);
+        let list =
+            start.and_then(|start| sql[start..].find(')').map(|end| &sql[start..start + end]));
+        list.map(|list| {
+            list.split(',')
+                .map(|key| key.trim().trim_matches('\''))
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// Every statement that names the user-provided keys names exactly
+    /// `USER_PROVIDED_PROVIDERS`: a key added there (the Garmin archive's
+    /// next) cannot be missed by one statement and pruned or counted as a
+    /// sync by it.
+    #[test]
+    fn every_statement_naming_user_provided_keys_lists_exactly_the_set() {
+        for (name, sql) in [
+            ("LATEST_ANY_SYNC_SQL", LATEST_ANY_SYNC_SQL),
+            ("HELD_USER_PROVIDED_SQL", HELD_USER_PROVIDED_SQL),
+            ("PRUNE_ACTIVITIES_SQL", PRUNE_ACTIVITIES_SQL),
+        ] {
+            assert_eq!(
+                listed_keys(sql),
+                USER_PROVIDED_PROVIDERS,
+                "{name} must list exactly the user-provided keys"
+            );
+        }
+    }
+}

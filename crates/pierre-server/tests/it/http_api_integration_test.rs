@@ -289,6 +289,7 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

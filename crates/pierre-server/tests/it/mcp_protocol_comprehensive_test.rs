@@ -74,6 +74,7 @@ async fn test_mcp_initialize_request() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -115,6 +116,7 @@ async fn test_mcp_ping_request() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -153,6 +155,7 @@ async fn test_mcp_tools_list_request() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -195,6 +198,7 @@ async fn test_mcp_tools_call_without_auth() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -241,6 +245,7 @@ async fn test_mcp_tools_call_with_expired_token() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -293,6 +298,7 @@ async fn test_mcp_tools_call_malformed_token() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -345,6 +351,7 @@ async fn test_mcp_unknown_method() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -383,6 +390,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -470,6 +478,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -545,6 +554,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -631,6 +641,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -691,6 +702,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -751,6 +763,7 @@ async fn test_mcp_request_id_variations() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -798,6 +811,7 @@ async fn test_mcp_error_scenarios() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -856,6 +870,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

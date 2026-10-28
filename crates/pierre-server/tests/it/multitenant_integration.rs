@@ -343,6 +343,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -840,6 +841,7 @@ async fn test_input_validation() -> Result<()> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

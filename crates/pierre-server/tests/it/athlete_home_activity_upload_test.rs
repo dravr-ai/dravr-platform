@@ -27,6 +27,7 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use chrono::{DateTime, Duration, Utc};
+use dravr_barrage::parse::fit::FitFileError;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::models::{ActivityBuilder, SportType, Tenant, TenantId, User};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -34,7 +35,7 @@ use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
-use pierre_providers::fit_file::FitFileError;
+use pierre_providers::upload_provider::file_sha256;
 use pierre_test_support::fit::{bloated_file, course_file, FitWorkout};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -302,17 +303,13 @@ async fn a_file_that_is_not_a_completed_activity_is_refused_and_nothing_is_kept(
         ("a course", course_file(yesterday_morning())),
         ("a broken checksum", corrupted),
     ] {
-        let (status, body) = upload(&resources, &athlete.token, file).await;
+        let (status, body) = upload(&resources, &athlete.token, file.clone()).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{label}: {body}");
+        assert!(
+            !kept_file(&resources, &athlete, &file).await,
+            "{label}: a refused upload keeps nothing"
+        );
     }
-    let held = resources
-        .common
-        .repos
-        .uploaded_activity_files
-        .has_uploaded_files(&athlete.tenant, athlete.user_id)
-        .await
-        .unwrap();
-    assert!(!held, "a refused upload keeps nothing");
 }
 
 #[tokio::test]
@@ -551,14 +548,15 @@ async fn deleting_an_upload_removes_it_from_every_read_and_drops_the_file() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
-    let held = resources
+    let (sha, _) = id.rsplit_once('-').unwrap();
+    let kept = resources
         .common
         .repos
         .uploaded_activity_files
-        .has_uploaded_files(&athlete.tenant, athlete.user_id)
+        .get_uploaded_file(&athlete.tenant, athlete.user_id, sha)
         .await
         .unwrap();
-    assert!(!held, "the file goes with its last activity");
+    assert!(kept.is_none(), "the file goes with its last activity");
 
     let (again, _) = delete(&resources, &athlete.token, id).await;
     assert_eq!(again, StatusCode::NOT_FOUND, "a deleted upload is gone");
@@ -635,7 +633,7 @@ async fn a_file_declaring_more_fields_than_a_workout_is_refused_and_nothing_is_k
     let file = bloated_file(yesterday_morning(), 8 * 1024 * 1024);
     assert!(file.len() < MAX_UPLOAD_BYTES, "under the body limit");
 
-    let (status, body) = upload(&resources, &athlete.token, file).await;
+    let (status, body) = upload(&resources, &athlete.token, file.clone()).await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     let message = body.to_string();
@@ -643,14 +641,22 @@ async fn a_file_declaring_more_fields_than_a_workout_is_refused_and_nothing_is_k
         message.contains(&FitFileError::TooLarge.to_string()),
         "the refusal names the limit: {body}"
     );
-    let held = resources
+    assert!(
+        !kept_file(&resources, &athlete, &file).await,
+        "a refused upload keeps nothing"
+    );
+}
+
+/// Whether the athlete's upload of `file` is kept.
+async fn kept_file(resources: &Arc<ServerContext>, athlete: &Athlete, file: &[u8]) -> bool {
+    resources
         .common
         .repos
         .uploaded_activity_files
-        .has_uploaded_files(&athlete.tenant, athlete.user_id)
+        .get_uploaded_file(&athlete.tenant, athlete.user_id, &file_sha256(file))
         .await
-        .unwrap();
-    assert!(!held, "a refused upload keeps nothing");
+        .unwrap()
+        .is_some()
 }
 
 #[tokio::test]

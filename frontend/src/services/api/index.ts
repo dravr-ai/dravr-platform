@@ -40,6 +40,9 @@ export const athleteApi = pierreApi.athlete;
 // The athlete's shoes, their distance, and the pair each activity was run in.
 export const gearApi = pierreApi.gear;
 
+// Importing the athlete's own history from a service's export.
+export const importsApi = pierreApi.imports;
+
 // Providers API delegates to shared oauth module
 export const providersApi = {
   getProvidersStatus: pierreApi.oauth.getProvidersStatus.bind(pierreApi.oauth),

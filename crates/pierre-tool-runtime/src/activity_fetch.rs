@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::civil_time::resolve_zone;
-use pierre_core::constants::oauth_providers::UPLOAD;
+use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, ConnectionStatus, RefreshConfig, TenantId};
@@ -134,10 +134,13 @@ pub fn activity_cache_retention_days() -> i64 {
 /// skipped (the helper already logs it) — the primary path alone decides
 /// auth errors and reconnect handoffs.
 ///
-/// The athlete's uploaded `.fit` activities ([`uploads`]) join every read that
-/// is not pinned to one provider, the historical branch included: they are a
-/// local read with no connection to fold, and the merge pairs an upload with
-/// a provider's copy of the same workout.
+/// The activities the athlete brought in themselves ([`uploads`]: uploaded
+/// `.fit` files, imported archives) join every read that is not pinned to one
+/// provider, the historical branch included: they are a local read with no
+/// connection to fold, and the merge pairs one with a provider's copy of the
+/// same workout. A read pinned to a provider also serves the athlete's own
+/// copies of that provider's history (an imported Strava export for
+/// `strava`), merged with the live rows.
 pub async fn maybe_merge_other_connections(
     context: &ToolExecutionContext,
     args: &Value,
@@ -153,8 +156,11 @@ pub async fn maybe_merge_other_connections(
     if !explicit_provider_arg && !is_historical {
         fold_other_connections(context, primary_backend, params, &mut activities).await;
     }
-    if !explicit_provider_arg && primary_backend != UPLOAD {
-        activities.extend(uploads::uploaded_window(context, params).await);
+    if explicit_provider_arg {
+        let provider = backend_resolver::user_facing_name(primary_backend);
+        activities.extend(uploads::companion_window(context, provider, params).await);
+    } else if !oauth_providers::is_user_provided(primary_backend) {
+        activities.extend(uploads::every_user_provided_window(context, params).await);
     }
     merge_duplicates(activities, &DedupConfig::from_env())
 }
@@ -316,10 +322,13 @@ pub async fn serve_without_primary(
             }
         }
     }
-    let uploaded = uploads::uploaded_window(context, params).await;
-    if !uploaded.is_empty() {
-        served_by.push(UPLOAD.to_owned());
-        served.extend(uploaded);
+    let held = uploads::held_user_provided(context).await;
+    for key in held {
+        let rows = uploads::user_provided_window(context, &[key], params).await;
+        if !rows.is_empty() {
+            served_by.push(key.to_owned());
+            served.extend(rows);
+        }
     }
 
     if served.is_empty() {

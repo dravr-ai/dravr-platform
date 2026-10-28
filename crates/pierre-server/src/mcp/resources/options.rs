@@ -12,6 +12,7 @@ use pierre_tool_runtime::RuntimeTool;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::services::archive_import::ArchiveImports;
 use crate::services::turn_runner::TurnRunner;
 
 /// Optional initialization parameters for `ServerContext`
@@ -63,6 +64,10 @@ pub struct ServerContextOptions {
     /// and passes it here. Unset, turns run in-process through the in-flight
     /// tracker, which is what local stacks and tests want.
     pub turn_runner: Option<Arc<TurnRunner>>,
+    /// Archive imports (carnet#1218): the binary passes the ones its
+    /// database and environment select, a test its own stores and fetcher.
+    /// Unset, imports are not available.
+    pub archive_imports: Option<ArchiveImports>,
 }
 
 impl fmt::Debug for ServerContextOptions {
@@ -87,6 +92,7 @@ impl ServerContextOptions {
             extra_tools: Vec::new(),
             billing_provider: None,
             turn_runner: None,
+            archive_imports: None,
         }
     }
 
@@ -101,6 +107,7 @@ impl ServerContextOptions {
             extra_tools: Vec::new(),
             billing_provider: None,
             turn_runner: None,
+            archive_imports: None,
         }
     }
 

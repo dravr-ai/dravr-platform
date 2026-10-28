@@ -170,3 +170,18 @@ output "turn_queue_id" {
   description = "Cloud Tasks queue that delivers messaging turns to the backend (PIERRE_TURN_QUEUE)"
   value       = google_cloud_tasks_queue.turns.id
 }
+
+# -----------------------------------------------------------------------------
+# Archive imports
+# -----------------------------------------------------------------------------
+
+output "barrage_bucket" {
+  description = "GCS bucket dravr-barrage keeps import spools and kept originals in (BARRAGE_GCS_BUCKET)"
+  value       = google_storage_bucket.barrage.name
+}
+
+output "archive_import_queue_id" {
+  description = "Cloud Tasks queue that delivers archive import steps to the backend (PIERRE_IMPORT_QUEUE)"
+  value       = google_cloud_tasks_queue.archive_import.id
+}
+

@@ -78,6 +78,7 @@ crates/pierre-routes-web-admin/src/lib.rs:Super-admin privileges required to exp
 crates/pierre-server/src/routes/chat/common.rs:Cannot attach conversation to a group you don't belong to
 crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's owner can delete it
 crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is not a member of this conversation's tenant
+crates/pierre-server/src/routes/imports.rs:Imports are started and managed only from Dravr's own apps
 crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active super-admin
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active super-admin

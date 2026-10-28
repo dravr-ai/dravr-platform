@@ -57,6 +57,7 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::config::admin::AdminConfigService;
+use crate::services::archive_import::ArchiveImports;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
@@ -143,6 +144,10 @@ pub struct CommonSlice {
     /// Tasks request this service receives, so an instance mid-turn is one
     /// Cloud Run waits for (registre#126). Chosen once at boot.
     pub turn_runner: Arc<TurnRunner>,
+    /// Importing an athlete's own export (carnet#1218): dravr-barrage's
+    /// stores, the guarded fetcher and the step runner, or the reason imports
+    /// are not available on this deployment. Chosen once at boot.
+    pub archive_imports: ArchiveImports,
     /// Client for the photograveur press service.
     ///
     /// Disabled when `PHOTOGRAVEUR_URL` is unset, so a stack without the
@@ -196,6 +201,7 @@ impl fmt::Debug for CommonSlice {
         let mut d = f.debug_struct("CommonSlice");
         d.field("turns", &self.turns)
             .field("turn_runner", &self.turn_runner)
+            .field("archive_imports", &self.archive_imports)
             .field("photograveur", &self.photograveur)
             .field("config", &self.config)
             .field("redaction_config", &self.redaction_config)

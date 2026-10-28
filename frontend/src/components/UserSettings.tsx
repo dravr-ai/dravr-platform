@@ -9,9 +9,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { useTranslation } from '@pierre/i18n';
-import { userApi, pierreApi, oauthApi } from '../services/api';
+import { userApi, pierreApi, oauthApi, importsApi } from '../services/api';
+import ImportOwnDataLink from './import/ImportOwnDataLink';
+import { openImportWindow } from './import/openImportWindow';
 import type { ProviderStatus } from '../services/api';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
+import { STRAVA_ARCHIVE_SOURCE } from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
   AI_CONSENT_KEYS,
@@ -217,6 +220,18 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The cards render as the server serves them: it withholds the raw rows a
   // mirror card covers and coalesces both backends onto that card.
   const fitnessProviders: ProviderStatus[] = providersResponse?.providers ?? [];
+
+  // The Strava history the athlete imported, shown on the Strava card.
+  const { data: importsOverview } = useQuery({
+    queryKey: QUERY_KEYS.imports.overview(),
+    queryFn: () => importsApi.getImports(),
+    enabled: activeTab === 'connections',
+  });
+  const importedStravaCount =
+    importsOverview?.imports.find(
+      (entry) =>
+        entry.source === STRAVA_ARCHIVE_SOURCE && entry.status === 'completed' && entry.history_held,
+    )?.imported ?? 0;
 
   // Fetch OAuth apps
   const { data: oauthAppsResponse, isLoading: isLoadingApps } = useQuery({
@@ -857,6 +872,17 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                               )}
                             </div>
                             <p className="text-xs text-on-surface-variant truncate">{description}</p>
+                            {provider.provider === 'sciotte' && importedStravaCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => openImportWindow('#strava')}
+                                className="text-xs font-medium text-primary hover:text-primary-hover mt-0.5"
+                                data-testid="provider-imported-history-sciotte"
+                              >
+                                {t('providers.import.historyOnCard', { count: importedStravaCount })}{' '}
+                                <span aria-hidden="true">›</span>
+                              </button>
+                            )}
                             {delegation?.status === 'proposed' && (
                               <p
                                 className="text-xs text-on-surface-variant mt-0.5"
@@ -991,6 +1017,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
               {/* Privacy note */}
               <p className="mt-4 text-xs text-outline">{t('providers.privacyNote')}</p>
+
+              {/* Import your own data: below the providers, never one of them */}
+              <div className="mt-4">
+                <ImportOwnDataLink hairline={false} />
+              </div>
             </Section>
 
             {/* OAuth App Credentials (Advanced) */}

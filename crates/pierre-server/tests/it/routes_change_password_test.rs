@@ -76,6 +76,7 @@ impl ChangePasswordTestSetup {
                     extra_tools: Vec::new(),
                     billing_provider: None,
                     turn_runner: None,
+                    archive_imports: None,
                 },
             )
             .await

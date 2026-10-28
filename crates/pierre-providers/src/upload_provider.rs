@@ -1,4 +1,4 @@
-// ABOUTME: The athlete's uploaded .fit files read as a provider: the cached activities, and the series from the sample store
+// ABOUTME: Activities the athlete brought in (uploaded .fit files, imported archives) read as a provider
 // ABOUTME: No connection, token or network — every read is the owner's own rows in their own tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use dravr_barrage::parse::fit::{FitActivityFile, Position};
 use pierre_database::repositories::{
     ActivityStreamRepository, ActivityStreamsWrite, StreamOrigin, UploadedActivityFileRepository,
 };
@@ -44,13 +45,16 @@ use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
 };
 use crate::errors::{AppError, AppResult};
-use crate::fit_file::{decode_bounded, FitActivityFile, Position};
+use crate::fit_decode::decode_bounded;
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
 use crate::pagination::{CursorPage, PaginationParams};
 
 /// What a not-found error calls an uploaded activity.
 const UPLOADED_ACTIVITY: &str = "uploaded activity";
+
+/// What a not-found error calls an activity from an imported archive.
+const IMPORTED_ACTIVITY: &str = "imported activity";
 
 /// The hex SHA-256 of an uploaded file's bytes: the key the file is kept
 /// under.
@@ -127,31 +131,74 @@ pub async fn store_upload_series(
     Ok(())
 }
 
-/// One athlete's uploaded activities, in one tenant, read as a provider.
-pub struct UploadProvider {
+/// One athlete's activities under a key they brought in themselves — their
+/// uploaded files ([`UPLOAD`]) or an imported archive (`strava_archive`) — in
+/// one tenant, read as a provider.
+///
+/// Lists, single reads and stats answer from the cached rows filed under the
+/// key; samples from the one per-activity sample store. An uploaded activity
+/// whose samples the store does not hold at its current version is decoded
+/// again from its kept file. An archive's samples were projected into the
+/// store when it was imported, so one the store does not hold has none Dravr
+/// could decode (a manual entry, a recording format not read yet), and the
+/// read says it did not reach any (`None`).
+pub struct UserProvidedProvider {
+    key: &'static str,
     config: ProviderConfig,
     stores: OwnerStores,
-    files: Arc<dyn UploadedActivityFileRepository>,
+    files: Option<Arc<dyn UploadedActivityFileRepository>>,
 }
 
-impl fmt::Debug for UploadProvider {
+impl fmt::Debug for UserProvidedProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("UploadProvider")
+        f.debug_struct("UserProvidedProvider")
+            .field("key", &self.key)
             .field("config", &self.config)
             .field("stores", &self.stores)
             .finish_non_exhaustive()
     }
 }
 
-impl UploadProvider {
+impl UserProvidedProvider {
     /// The reader of the uploads of the owner `stores` are bound to, in
     /// their tenant.
     #[must_use]
-    pub fn new(stores: OwnerStores, files: Arc<dyn UploadedActivityFileRepository>) -> Self {
+    pub fn upload(stores: OwnerStores, files: Arc<dyn UploadedActivityFileRepository>) -> Self {
+        Self::with(UPLOAD, stores, Some(files))
+    }
+
+    /// The reader of the owner's imported archive `key`
+    /// (`USER_PROVIDED_PROVIDERS` other than [`UPLOAD`]), in their tenant.
+    #[must_use]
+    pub fn archive(key: &'static str, stores: OwnerStores) -> Self {
+        Self::with(key, stores, None)
+    }
+
+    /// The reader of the user-provided `key`: the uploads' with their kept
+    /// files, any other key's without.
+    #[must_use]
+    pub fn for_key(
+        key: &'static str,
+        stores: OwnerStores,
+        files: Arc<dyn UploadedActivityFileRepository>,
+    ) -> Self {
+        if key == UPLOAD {
+            Self::upload(stores, files)
+        } else {
+            Self::archive(key, stores)
+        }
+    }
+
+    fn with(
+        key: &'static str,
+        stores: OwnerStores,
+        files: Option<Arc<dyn UploadedActivityFileRepository>>,
+    ) -> Self {
         Self {
+            key,
             // Nothing is fetched: there is no endpoint, scope or token.
             config: ProviderConfig {
-                name: UPLOAD.to_owned(),
+                name: key.to_owned(),
                 auth_url: String::new(),
                 token_url: String::new(),
                 api_base_url: String::new(),
@@ -163,25 +210,27 @@ impl UploadProvider {
         }
     }
 
-    /// The uploads' cached rows, which every list and single read answers
-    /// from.
+    /// The key's cached rows, which every list and single read answers from.
     fn cached(&self) -> CachedActivities<'_> {
         CachedActivities {
             cache: self.stores.activity_cache.as_ref(),
             user_id: self.stores.user_id,
             tenant_id: &self.stores.tenant_id,
-            provider: UPLOAD,
+            provider: self.key,
         }
     }
 
     /// The stored file behind an uploaded activity, decoded, with the index
     /// of the activity's session in it: the read of an activity whose
-    /// samples the store does not hold yet.
-    async fn file_of(&self, id: &str) -> AppResult<(FitActivityFile, usize)> {
+    /// samples the store does not hold yet. `None` for a key that keeps no
+    /// files here (an archive's originals are barrage's).
+    async fn file_of(&self, id: &str) -> AppResult<Option<(FitActivityFile, usize)>> {
+        let Some(files) = &self.files else {
+            return Ok(None);
+        };
         let not_found = || AppError::not_found(format!("{UPLOADED_ACTIVITY} {id}"));
         let (sha, index) = parse_upload_activity_id(id).ok_or_else(not_found)?;
-        let bytes = self
-            .files
+        let bytes = files
             .get_uploaded_file(&self.stores.tenant_id, self.stores.user_id, sha)
             .await?
             .ok_or_else(not_found)?;
@@ -193,14 +242,23 @@ impl UploadProvider {
             .map_err(|e| {
                 AppError::internal(format!("stored upload {sha} no longer decodes: {e}"))
             })?;
-        Ok((file, index))
+        Ok(Some((file, index)))
+    }
+
+    /// What a not-found error calls one of this key's activities.
+    const fn what(&self) -> &'static str {
+        if self.files.is_some() {
+            UPLOADED_ACTIVITY
+        } else {
+            IMPORTED_ACTIVITY
+        }
     }
 }
 
 #[async_trait]
-impl FitnessProvider for UploadProvider {
+impl FitnessProvider for UserProvidedProvider {
     fn name(&self) -> &'static str {
-        UPLOAD
+        self.key
     }
 
     fn config(&self) -> &ProviderConfig {
@@ -209,7 +267,7 @@ impl FitnessProvider for UploadProvider {
 
     async fn set_credentials(&self, _credentials: OAuth2Credentials) -> AppResult<()> {
         Err(AppError::invalid_input(
-            "uploaded activities are read without credentials",
+            "activities the athlete brought in are read without credentials",
         ))
     }
 
@@ -223,7 +281,7 @@ impl FitnessProvider for UploadProvider {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Err(AppError::not_found(
-            "an athlete profile (an uploaded file carries none)",
+            "an athlete profile (an uploaded file or an imported archive carries none)",
         ))
     }
 
@@ -251,7 +309,7 @@ impl FitnessProvider for UploadProvider {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        self.cached().one(id, UPLOADED_ACTIVITY).await
+        self.cached().one(id, self.what()).await
     }
 
     fn serves_activity_streams(&self) -> bool {
@@ -259,21 +317,26 @@ impl FitnessProvider for UploadProvider {
     }
 
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
-        if let Some(streams) = self.stores.stored_activity_streams(UPLOAD, id).await? {
-            let activity = self.cached().one(id, UPLOADED_ACTIVITY).await?;
+        if let Some(streams) = self.stores.stored_activity_streams(self.key, id).await? {
+            let activity = self.cached().one(id, self.what()).await?;
             return with_streams(&activity, &streams);
         }
-        let (file, index) = self.file_of(id).await?;
-        file.activity_with_series(index, id.to_owned(), UPLOAD, Position::Read)
-            .ok_or_else(|| AppError::not_found(format!("{UPLOADED_ACTIVITY} {id}")))
+        match self.file_of(id).await? {
+            Some((file, index)) => file
+                .activity_with_series(index, id.to_owned(), self.key, Position::Read)
+                .ok_or_else(|| AppError::not_found(format!("{} {id}", self.what()))),
+            None => self.cached().one(id, self.what()).await,
+        }
     }
 
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
-        if let Some(streams) = self.stores.stored_activity_streams(UPLOAD, id).await? {
+        if let Some(streams) = self.stores.stored_activity_streams(self.key, id).await? {
             return Ok(Some(streams));
         }
-        let (file, index) = self.file_of(id).await?;
-        Ok(file.session_series(index, Position::Read))
+        Ok(self
+            .file_of(id)
+            .await?
+            .and_then(|(file, index)| file.session_series(index, Position::Read)))
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

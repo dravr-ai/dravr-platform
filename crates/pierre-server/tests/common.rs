@@ -41,6 +41,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
 use pierre_llm::config::LlmChain;
 use pierre_llm::ChatProvider;
+use pierre_mcp_server::services::archive_import::ArchiveImports;
 use pierre_mcp_server::services::turn_runner::TurnRunner;
 use pierre_mcp_server::{
     constants,
@@ -898,8 +899,7 @@ async fn create_test_server_resources_inner_typed(
         extra_tools,
         config_override,
         chat_provider,
-        None,
-        None,
+        ContextParts::default(),
     ))
     .await
 }
@@ -948,8 +948,10 @@ pub(crate) async fn create_sibling_server_resources_with_chat_provider_and_runne
         Vec::new(),
         None,
         Some(Arc::new(ChatProvider::Custom(chat_provider))),
-        turn_runner,
-        None,
+        ContextParts {
+            turn_runner,
+            ..ContextParts::default()
+        },
     ))
     .await
 }
@@ -973,8 +975,10 @@ pub(crate) async fn create_test_server_resources_with_chat_provider_and_runner(
         Vec::new(),
         None,
         Some(Arc::new(ChatProvider::Custom(provider))),
-        Some(turn_runner),
-        None,
+        ContextParts {
+            turn_runner: Some(turn_runner),
+            ..ContextParts::default()
+        },
     ))
     .await
 }
@@ -992,10 +996,48 @@ pub(crate) async fn create_test_server_resources_with_billing_provider(
         Vec::new(),
         None,
         None,
-        None,
-        Some(billing_provider),
+        ContextParts {
+            billing_provider: Some(billing_provider),
+            ..ContextParts::default()
+        },
     ))
     .await
+}
+
+/// A test context whose archive imports run on `archive_imports` (a test's
+/// stores and export fetcher) rather than the ones its database selects.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_archive_imports(
+    archive_imports: ArchiveImports,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        ContextParts {
+            archive_imports: Some(archive_imports),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
+/// The pieces a test context takes in place of the ones its database and
+/// the environment would select; `None` keeps the default.
+#[derive(Default)]
+struct ContextParts {
+    /// Where messaging turns are started.
+    turn_runner: Option<Arc<TurnRunner>>,
+    /// The billing provider in place of the in-tree `DummyProvider`.
+    billing_provider: Option<Arc<dyn BillingProvider>>,
+    /// The archive imports the context runs.
+    archive_imports: Option<ArchiveImports>,
 }
 
 async fn create_test_server_resources_over(
@@ -1004,9 +1046,13 @@ async fn create_test_server_resources_over(
     extra_tools: Vec<Arc<dyn RuntimeTool>>,
     config_override: Option<ServerConfig>,
     chat_provider: Option<Arc<ChatProvider>>,
-    turn_runner: Option<Arc<TurnRunner>>,
-    billing_provider: Option<Arc<dyn BillingProvider>>,
+    parts: ContextParts,
 ) -> Result<Arc<ServerContext>> {
+    let ContextParts {
+        turn_runner,
+        billing_provider,
+        archive_imports,
+    } = parts;
     init_test_logging();
     init_test_http_clients();
     init_server_config();
@@ -1044,6 +1090,7 @@ async fn create_test_server_resources_over(
                 extra_tools,
                 billing_provider,
                 turn_runner,
+                archive_imports,
             },
         )
         .await

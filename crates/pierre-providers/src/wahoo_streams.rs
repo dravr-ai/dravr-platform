@@ -21,8 +21,8 @@ use reqwest::Url;
 
 use crate::constants::oauth_providers;
 use crate::errors::{AppError, AppResult};
-use crate::fit_file::{FitActivityFile, Position};
 use crate::models::TimeSeriesData;
+use dravr_barrage::parse::fit::{FitActivityFile, Position};
 
 /// The largest activity file read: a multi-hour ride recorded every second
 /// is a few megabytes, so anything past this is not a workout file.

@@ -32,6 +32,7 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::chat::welcome_onboarding_lead;
 #[cfg(feature = "client-chat")]
 use crate::routes::getting_started::get_getting_started;
+use crate::services::archive_import::ops as archive_ops;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_middleware::extract_auth_from_headers;
@@ -157,7 +158,8 @@ pub async fn handle_self_get(
         &resources.common.repos.provider_connections,
         auth.user_id,
     )
-    .await?;
+    .await?
+        || imports_own_history(&resources, auth.active_tenant_id, auth.user_id).await;
 
     // Best-effort pillar coverage (D8: onboarding-status reflects coverage-map
     // state). Reads as zero when there is no active tenant or the dossier can't
@@ -658,4 +660,34 @@ impl OnboardingRoutes {
         let router = router.route("/api/me/getting-started", get(get_getting_started));
         router.with_state(resources)
     }
+}
+
+/// Whether the athlete is bringing their own history in, in their active
+/// tenant: an import that started (queued, downloading, importing) or
+/// completed answers the connect step as a connection does (carnet#1218). One
+/// still waiting for its link does not, until the product owner settles whether it
+/// should (design Q6). Best effort: imports not running here, or a read that
+/// fails, count as none.
+async fn imports_own_history(
+    resources: &ServerContext,
+    tenant: Option<uuid::Uuid>,
+    user_id: uuid::Uuid,
+) -> bool {
+    let Some(tenant) = tenant else {
+        return false;
+    };
+    if !resources.common.archive_imports.is_enabled() {
+        return false;
+    }
+    let scope = archive_ops::scope_of(TenantId::from_uuid(tenant), user_id);
+    archive_ops::latest_per_source(resources, &scope)
+        .await
+        .is_ok_and(|imports| {
+            imports.iter().any(|import| {
+                matches!(
+                    import.status,
+                    "queued" | "downloading" | "importing" | "completed"
+                )
+            })
+        })
 }

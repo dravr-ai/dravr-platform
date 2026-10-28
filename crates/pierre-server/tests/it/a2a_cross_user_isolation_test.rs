@@ -87,6 +87,7 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

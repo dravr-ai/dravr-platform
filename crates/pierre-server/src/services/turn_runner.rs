@@ -28,15 +28,17 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::engine::general_purpose::STANDARD as Base64Standard;
-use base64::Engine as _;
-use dravr_tronc::iam::{GoogleIdTokenVerifier, GoogleKeySet, IamError, GOOGLE_OIDC_JWKS_URL};
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use dravr_tronc::iam::GOOGLE_OIDC_JWKS_URL;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::gcp_token::{MetadataTokenProvider, TokenProvider};
-use pierre_core::http_client::{api_client, api_inner_client};
 use pierre_core::models::TenantId;
 use serde_json::json;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
+
+use crate::services::cloud_tasks::{
+    create_http_task, DeliveryVerifier, HttpTask, TaskCreated, CLOUD_TASKS_API_BASE,
+    CLOUD_TASKS_MAX_DISPATCH_DEADLINE,
+};
 
 /// Selects the runner: `in_process` (the default when absent) or `cloud_tasks`.
 pub const ENV_TURN_RUNNER: &str = "PIERRE_TURN_RUNNER";
@@ -50,9 +52,6 @@ pub const ENV_TURN_OIDC_SERVICE_ACCOUNT: &str = "PIERRE_TURN_OIDC_SERVICE_ACCOUN
 /// How long the run route waits, inside the request, for a blocked claim.
 pub const ENV_TURN_CLAIM_WAIT_SECS: &str = "PIERRE_TURN_CLAIM_WAIT_SECS";
 
-/// The Cloud Tasks REST API.
-pub const CLOUD_TASKS_API_BASE: &str = "https://cloudtasks.googleapis.com/v2";
-
 /// Default for [`ENV_TURN_CLAIM_WAIT_SECS`]: long enough for a predecessor
 /// turn in the same conversation to finish an ordinary answer, short enough
 /// that a task never sits in a request for the whole dispatch deadline.
@@ -62,9 +61,6 @@ const DEFAULT_CLAIM_WAIT: Duration = Duration::from_mins(4);
 /// dispatch deadline, so the deadline never cuts a delivery that is still
 /// inside every bound it runs under.
 const DISPATCH_DEADLINE_MARGIN: Duration = Duration::from_mins(1);
-
-/// Cloud Tasks caps an HTTP task's dispatch deadline at thirty minutes.
-const CLOUD_TASKS_MAX_DISPATCH_DEADLINE: Duration = Duration::from_mins(30);
 
 /// Everything the Cloud Tasks runner needs to know.
 #[derive(Debug, Clone)]
@@ -188,23 +184,6 @@ impl TurnRunner {
     }
 }
 
-/// The answer a delivery whose token did not verify gets.
-fn refuse_delivery(error: IamError) -> AppError {
-    match error {
-        IamError::Rejected(why) => {
-            // The reason can name the caller's email, which is PII at WARN;
-            // the refusal itself is what operators alert on.
-            warn!("turn delivery token refused");
-            debug!(reason = %why, "turn delivery token refusal reason");
-            AppError::auth_invalid("Invalid identity token")
-        }
-        other => {
-            warn!(error = %other, "turn delivery token could not be checked");
-            AppError::internal("Google signing keys are unavailable")
-        }
-    }
-}
-
 impl fmt::Debug for TurnRunner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -226,7 +205,7 @@ pub struct CloudTasksRunner {
     /// Bearer token source for the Cloud Tasks API — the metadata server in
     /// production, a stub in tests.
     token_provider: Arc<dyn TokenProvider>,
-    verifier: GoogleIdTokenVerifier,
+    verifier: DeliveryVerifier,
     dispatch_deadline: Duration,
 }
 
@@ -271,11 +250,11 @@ impl CloudTasksRunner {
         // allowed is the service account the tasks are minted on behalf of:
         // a token for another service, or from any other identity, is
         // refused before anything is read from the database.
-        let verifier = GoogleIdTokenVerifier::with_key_set(
+        let verifier = DeliveryVerifier::new(
             &config.target_url,
-            GoogleKeySet::new(&config.jwks_url, api_inner_client().clone()),
-        )
-        .allowing([config.service_account.clone()]);
+            &config.service_account,
+            &config.jwks_url,
+        );
         Ok(Self {
             config,
             token_provider,
@@ -308,9 +287,7 @@ impl CloudTasksRunner {
     /// keys could not be fetched, so an outage is not recorded as somebody
     /// presenting a bad token.
     pub async fn verify_delivery(&self, token: &str) -> AppResult<()> {
-        let claims = self.verifier.verify(token).await.map_err(refuse_delivery)?;
-        debug!(sub = %claims.sub, aud = %claims.aud, "turn delivery token verified");
-        Ok(())
+        self.verifier.verify(token).await
     }
 
     /// How long the run route waits, inside the request, for a blocked claim.
@@ -362,54 +339,31 @@ impl CloudTasksRunner {
     /// Returns an error when the bearer token cannot be minted, the API is
     /// unreachable, or it answers anything but success or `ALREADY_EXISTS`.
     pub async fn enqueue(&self, tenant_id: TenantId, turn_id: &str, seq: i64) -> AppResult<()> {
-        let token = self.token_provider.access_token().await?;
-        let body = json!({ "tenant_id": tenant_id.to_string() });
-        let task = json!({
-            "task": {
-                "name": self.task_name(turn_id, seq),
-                "dispatchDeadline": format!("{}s", self.dispatch_deadline.as_secs()),
-                "httpRequest": {
-                    "url": self.run_url(turn_id),
-                    "httpMethod": "POST",
-                    "headers": { "Content-Type": "application/json" },
-                    "body": Base64Standard.encode(body.to_string()),
-                    "oidcToken": {
-                        "serviceAccountEmail": self.config.service_account,
-                        "audience": self.config.target_url,
-                    }
-                }
+        let task = HttpTask {
+            queue: &self.config.queue,
+            name: self.task_name(turn_id, seq),
+            url: self.run_url(turn_id),
+            body: json!({ "tenant_id": tenant_id.to_string() }),
+            service_account: &self.config.service_account,
+            audience: &self.config.target_url,
+            dispatch_deadline: self.dispatch_deadline,
+        };
+        match create_http_task(self.token_provider.as_ref(), &self.config.api_base, &task).await {
+            Ok(TaskCreated::Created) => {
+                info!(turn_id, seq, "turn enqueued on Cloud Tasks");
+                Ok(())
             }
-        });
-        let url = format!("{}/{}/tasks", self.config.api_base, self.config.queue);
-        let response = api_client()
-            .post(&url)
-            .bearer_auth(token)
-            .json(&task)
-            .send()
-            .await
-            .map_err(|e| {
-                AppError::new(
-                    ErrorCode::ExternalServiceUnavailable,
-                    format!("Cloud Tasks unreachable: {e}"),
-                )
-            })?;
-        let status = response.status();
-        if status.is_success() {
-            info!(turn_id, seq, "turn enqueued on Cloud Tasks");
-            return Ok(());
+            Ok(TaskCreated::AlreadyQueued) => {
+                info!(
+                    turn_id,
+                    seq, "turn already enqueued on Cloud Tasks under this sequence"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                warn!(turn_id, seq, error = %e, "Cloud Tasks refused the turn");
+                Err(e)
+            }
         }
-        if status.as_u16() == 409 {
-            info!(
-                turn_id,
-                seq, "turn already enqueued on Cloud Tasks under this sequence"
-            );
-            return Ok(());
-        }
-        let detail = response.text().await.unwrap_or_default();
-        warn!(turn_id, seq, status = status.as_u16(), detail = %detail, "Cloud Tasks refused the turn");
-        Err(AppError::new(
-            ErrorCode::ExternalServiceError,
-            format!("Cloud Tasks answered HTTP {status} for turn {turn_id}"),
-        ))
     }
 }

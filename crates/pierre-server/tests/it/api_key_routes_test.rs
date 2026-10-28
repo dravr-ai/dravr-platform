@@ -230,6 +230,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await

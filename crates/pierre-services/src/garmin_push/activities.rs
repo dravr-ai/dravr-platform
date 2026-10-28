@@ -28,9 +28,10 @@
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::AppResult;
 
+use dravr_barrage::parse::fit::{FitActivityFile, Position};
 use pierre_core::models::{Activity, Lap, TimeSeriesData};
 use pierre_database::repositories::{ActivityDetail, ActivityStreamsWrite, StreamOrigin};
-use pierre_providers::fit_file::{decode_bounded, FitActivityFile, Position};
+use pierre_providers::fit_decode::decode_bounded;
 use pierre_providers::upload_provider::file_sha256;
 use serde_json::Value;
 use tracing::{debug, info, warn};

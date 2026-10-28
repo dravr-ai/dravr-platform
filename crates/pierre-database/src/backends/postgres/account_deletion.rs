@@ -19,6 +19,7 @@ use crate::repositories::account_deletion::{
     INSERT_RECEIPT_SQL, LIST_RECEIPTS_SQL, PROVIDER_IDENTITIES_SQL, RECEIPT_HEAD_SQL,
     SUBJECT_EMAIL_SQL,
 };
+use crate::repositories::archive_erasures::QUEUE_ARCHIVE_ERASURE_SQL;
 use crate::repositories::firebase_identity_deletions::QUEUE_FIREBASE_DELETION_SQL;
 use crate::repositories::import_tombstones::{
     email_identity_hash, ensure_tombstone_in_transaction, provider_identity_hash, subject_hash,

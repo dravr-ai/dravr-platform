@@ -117,6 +117,17 @@ export const QUERY_KEYS = {
     activity: (provider: string, activityId: string) => ['gear', 'activity', provider, activityId] as const,
   },
 
+  // ==================== IMPORTS ====================
+  imports: {
+    all: ['imports'] as const,
+    /** Whether imports run here, and each source's running or latest import. */
+    overview: () => ['imports', 'overview'] as const,
+    /** One source's running or latest import, polled while it runs. */
+    current: (source: string) => ['imports', 'current', source] as const,
+    /** A page of the rows one import did not import. */
+    report: (source: string, importId: string) => ['imports', 'report', source, importId] as const,
+  },
+
   // ==================== CHAT ====================
   chat: {
     all: ['chat'] as const,

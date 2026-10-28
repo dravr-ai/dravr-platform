@@ -425,6 +425,7 @@ async fn create_test_executor_with(
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
@@ -463,6 +464,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
                 extra_tools: Vec::new(),
                 billing_provider: None,
                 turn_runner: None,
+                archive_imports: None,
             },
         )
         .await
