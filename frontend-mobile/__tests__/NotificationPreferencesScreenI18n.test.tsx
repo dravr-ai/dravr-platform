@@ -19,6 +19,7 @@ jest.mock('../src/hooks/useNotifications', () => ({
 
 import { NotificationPreferencesScreen } from '../src/screens/settings/NotificationPreferencesScreen';
 import { i18n } from '@pierre/i18n';
+import { NOTIFICATION_CATEGORY_BLURB_KEYS } from '@pierre/shared-constants';
 
 /** One enabled row, expanded far enough to reach the cap and quiet-hour labels. */
 const trainingRow = {
@@ -96,21 +97,12 @@ describe('NotificationPreferencesScreen in French', () => {
   });
 
   it('every locale carries the seven category blurbs the screen maps', async () => {
-    // The screen maps category -> key; a key missing from a locale renders the
+    // The screen reads NOTIFICATION_CATEGORY_BLURB_KEYS; a key missing from a locale renders the
     // raw key string to the athlete. i18next returns the key itself on a miss,
     // so comparing against it catches exactly that.
     for (const locale of ['fr', 'en', 'es', 'de', 'pt']) {
       await i18n.changeLanguage(locale);
-      for (const category of [
-        'Training',
-        'Recovery',
-        'Agent',
-        'Achievement',
-        'System',
-        'Ai',
-        'Reminders',
-      ]) {
-        const key = `notifPrefs.blurb${category}`;
+      for (const key of Object.values(NOTIFICATION_CATEGORY_BLURB_KEYS)) {
         expect(i18n.t(key)).not.toEqual(key);
       }
     }
