@@ -369,7 +369,7 @@ test.describe('Settings Page - User Mode', () => {
     // key while changing nothing about the coaching that followed.
     await expect(page.getByRole('button', { name: 'AI Settings' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'About' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Account' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Account', exact: true })).toBeVisible();
   });
 
   test('profile tab shows user info and stats', async ({ page }) => {
@@ -512,7 +512,7 @@ test.describe('Settings Page - User Mode', () => {
     await loginAndNavigateToSettings(page);
 
     // Click Account tab button
-    await page.getByRole('button', { name: 'Account' }).click();
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
     await page.waitForTimeout(300);
 
     // Member since should show formatted date
@@ -530,7 +530,7 @@ test.describe('Settings Page - User Mode', () => {
     await loginAndNavigateToSettings(page);
 
     // Go to Account tab
-    await page.getByRole('button', { name: 'Account' }).click();
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
     await page.waitForTimeout(300);
 
     // Open change password modal - the button in Account tab's Security section
@@ -861,7 +861,7 @@ test.describe('Settings Page - User Mode', () => {
   test('account tab displays usage quota values with progress bars', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    await page.getByRole('button', { name: 'Account' }).click();
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
     await page.waitForTimeout(300);
 
     // Should show usage quota labels and values
@@ -875,7 +875,7 @@ test.describe('Settings Page - User Mode', () => {
   test('account tab displays daily reset time', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    await page.getByRole('button', { name: 'Account' }).click();
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
     await page.waitForTimeout(300);
 
     // Should show daily reset time
@@ -885,7 +885,7 @@ test.describe('Settings Page - User Mode', () => {
   test('account tab displays resource counters for agents and conversations', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    await page.getByRole('button', { name: 'Account' }).click();
+    await page.getByRole('button', { name: 'Account', exact: true }).click();
     await page.waitForTimeout(300);
 
     // Should show resource counters (scope to main to avoid matching sidebar nav elements)

@@ -325,6 +325,38 @@ describe('MessageItem', () => {
       expect(onSubmitReason).toHaveBeenCalledWith('too generic');
       expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument();
     });
+
+    it('links to the feedback thread about this reply', () => {
+      render(
+        <MessageItem
+          conversationId="conv 1"
+          message={mockAssistantMessage}
+          feedback="down"
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onSubmitReason={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole('link', { name: 'Tell the Dravr team more' })).toHaveAttribute(
+        'href',
+        '#feedback/reply/conv%201/msg-1',
+      );
+    });
+
+    it('offers no feedback-thread link outside a conversation', () => {
+      render(
+        <MessageItem
+          message={mockAssistantMessage}
+          feedback="down"
+          onThumbsUp={vi.fn()}
+          onThumbsDown={vi.fn()}
+          onSubmitReason={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByRole('link', { name: 'Tell the Dravr team more' })).not.toBeInTheDocument();
+    });
   });
 
   describe('tool scaffolding stripping', () => {

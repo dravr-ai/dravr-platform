@@ -14,6 +14,7 @@ use axum::{
 };
 
 use crate::mcp::resources::ServerContext;
+use crate::services::feedback_events::{self, FeedbackRecorded, FeedbackSource};
 use pierre_core::errors::AppError;
 use pierre_core::models::UpsertMessageFeedbackParams;
 use pierre_middleware::AuthenticatedUser;
@@ -27,6 +28,9 @@ use super::dto::{MessageFeedbackEntry, UpsertFeedbackRequest};
 /// refreshes the optional reason. Ownership is enforced in the repository — the
 /// write only lands when the message belongs to a conversation the caller owns
 /// in this tenant, otherwise a 404 is returned.
+///
+/// Every write emits `feedback.recorded`, so a thumbs-down followed by its
+/// reason reaches the team twice: once as the rating, once with the text.
 pub(super) async fn upsert_feedback(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -57,6 +61,21 @@ pub(super) async fn upsert_feedback(
             comment,
         })
         .await?;
+
+    let agent_id =
+        feedback_events::conversation_agent(&resources, &conversation_id, &user_id, tenant_id)
+            .await;
+    feedback_events::emit_feedback_recorded(&FeedbackRecorded {
+        tenant_id,
+        user_id: &user_id,
+        source: FeedbackSource::Thumbs,
+        surface: "app",
+        rating: Some(&record.rating),
+        conversation_id: Some(&conversation_id),
+        message_id: Some(&record.message_id),
+        agent_id: agent_id.as_deref(),
+        comment: record.comment.as_deref(),
+    });
 
     let entry = MessageFeedbackEntry {
         message_id: record.message_id,

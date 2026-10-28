@@ -77,6 +77,8 @@ pub mod email_verification_tokens;
 pub mod feature_flags;
 /// Repository trait, statements and body for the external sign-in identities each account is reached by.
 pub mod federated_identities;
+/// Repository trait for the in-app feedback thread with the Dravr team (carnet#1235).
+pub mod feedback_messages;
 /// The outbox of Firebase identities still to delete at Google after their account went.
 pub mod firebase_identity_deletions;
 /// Repository trait for the days each athlete met a first-run flow's done rule (carnet#1099).
@@ -273,6 +275,9 @@ pub use data_source::*;
 pub use delegated_connections::*;
 pub use feature_flags::*;
 pub use federated_identities::FederatedIdentityRepository;
+pub use feedback_messages::{
+    FeedbackAbout, FeedbackMessage, FeedbackMessageRepository, NewFeedbackMessage,
+};
 pub use firebase_identity_deletions::{
     FirebaseIdentityDeletionRepository, PendingFirebaseDeletion,
 };

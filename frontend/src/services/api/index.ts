@@ -66,6 +66,8 @@ export { messagingApi } from './messaging';
 export { topicsApi } from './topics';
 // Home's Getting started, web-only until native Home has it (registre#1102).
 export { gettingStartedApi } from './gettingStarted';
+// The feedback thread with the Dravr team, web-only until the phone has it (registre#1241).
+export { feedbackApi } from './feedback';
 export type { ThreadTopic } from './topics';
 export type { FeatureFlagMap, KnownFeatureFlag, MeFeaturesResponse } from '@pierre/api-client';
 

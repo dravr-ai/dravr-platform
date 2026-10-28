@@ -7,7 +7,7 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, Shield, ShieldAlert } from 'lucide-react';
+import { ArrowRight, Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, Shield, ShieldAlert } from 'lucide-react';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import {
   parseWorkoutPlan,
@@ -42,6 +42,7 @@ import WorkoutPlanCard from './WorkoutPlanCard';
 import PlanDraftControls from './PlanDraftControls';
 import MessageBubble from './MessageBubble';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
+import { feedbackReplyRoute } from '../feedback/feedbackRoute';
 import { useTranslation } from '@pierre/i18n';
 
 interface MessageItemProps {
@@ -581,6 +582,18 @@ const MessageItem = memo(function MessageItem({
       {!isError && feedback === 'down' && onSubmitReason && (
         <div className="ml-10">
           <FeedbackReasonForm initialComment={feedbackComment} onSubmit={onSubmitReason} />
+          {/* More than a reason fits: the feedback thread, with this reply
+              attached, is a hash link the shell's router opens. */}
+          {conversationId !== null ? (
+            <a
+              href={`#${feedbackReplyRoute(conversationId, message.id)}`}
+              data-testid="feedback-tell-team-more"
+              className="mt-1.5 inline-flex items-center gap-1 rounded text-xs font-medium text-primary hover:underline focus-ring"
+            >
+              {t('feedback.tellTeamMore')}
+              <ArrowRight className="h-3 w-3" aria-hidden="true" />
+            </a>
+          ) : null}
         </div>
       )}
     </>

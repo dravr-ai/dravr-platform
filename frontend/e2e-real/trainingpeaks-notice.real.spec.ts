@@ -63,7 +63,7 @@ test.describe('TrainingPeaks exposure notice — real backend (no mocks)', () =>
   test('Settings → TrainingPeaks shows the notice before the credentials and holds Log In', async ({ page }) => {
     await signInThroughUi(page, FRONTEND_URL, EMAIL, PASSWORD);
 
-    const openSettings = page.getByRole('button', { name: /open settings/i }).first();
+    const openSettings = page.getByRole('button', { name: 'Settings', exact: true }).first();
     await openSettings.waitFor({ state: 'visible', timeout: 15_000 });
     await openSettings.click();
     await page.getByRole('button', { name: /data providers/i }).first().click();

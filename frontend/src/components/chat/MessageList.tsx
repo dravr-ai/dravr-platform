@@ -233,19 +233,7 @@ export default function MessageList({
     for (const msg of visibleMessages) {
       const day = localDayKey(msg.created_at);
       if (day && day !== previousDay) {
-        const label = dayLabelFor(msg.created_at, language);
-        out.push(
-          <DaySeparator
-            key={`day-${day}`}
-            label={
-              label.kind === 'today'
-                ? t('chat.dayToday')
-                : label.kind === 'yesterday'
-                  ? t('chat.dayYesterday')
-                  : label.label
-            }
-          />,
-        );
+        out.push(<DaySeparator key={`day-${day}`} day={dayLabelFor(msg.created_at, language)} />);
         previousDay = day;
       }
       // A new topic in the personal thread: a rule, and the next row starts

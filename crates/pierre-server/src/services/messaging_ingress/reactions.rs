@@ -50,6 +50,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use crate::mcp::resources::ServerContext;
+use crate::services::feedback_events::{self, FeedbackRecorded, FeedbackSource};
 
 /// Emoji and channel-native reaction names that read as approval.
 ///
@@ -292,14 +293,29 @@ async fn record_rating(
         .await;
 
     match result {
-        // Deliberately not a `notify` event: the web and mobile thumbs write
-        // the same row without emitting one, and a reaction is the same act on
-        // a third surface.
-        Ok(_) => info!(
-            channel = %reaction.channel_type,
-            rating = %rating,
-            "message feedback recorded from a channel reaction"
-        ),
+        // The same event the web and mobile thumbs emit: a reaction is the
+        // same act on a third surface, and the team reads all three in one
+        // place.
+        Ok(_) => {
+            let agent_id = feedback_events::conversation_agent(
+                resources,
+                &target.conversation_id,
+                &target.user_id,
+                target.tenant_id,
+            )
+            .await;
+            feedback_events::emit_feedback_recorded(&FeedbackRecorded {
+                tenant_id: target.tenant_id,
+                user_id: &target.user_id,
+                source: FeedbackSource::Reaction,
+                surface: &reaction.channel_type.to_string(),
+                rating: Some(rating),
+                conversation_id: Some(&target.conversation_id),
+                message_id: Some(&target.chat_message_id),
+                agent_id: agent_id.as_deref(),
+                comment: None,
+            });
+        }
         Err(e) => warn!(error = %e, "reaction feedback write failed"),
     }
 }

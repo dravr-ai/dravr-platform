@@ -89,10 +89,10 @@ test.describe('coaching persona — real backend (no mocks)', () => {
 
   test('Settings → Coaching style tab updates the user via the live UI', async ({ page }) => {
     // 1. Sign in through the hosted login page, then wait for the dashboard
-    //    "Open Settings" button to confirm we crossed over.
+    //    Settings gear to confirm we crossed over.
     await signInThroughUi(page, FRONTEND_URL, TEST_EMAIL, TEST_PASSWORD);
 
-    const openSettings = page.getByRole('button', { name: /open settings/i }).first();
+    const openSettings = page.getByRole('button', { name: 'Settings', exact: true }).first();
     await openSettings.waitFor({ state: 'visible', timeout: 15_000 });
     await openSettings.click();
 
@@ -121,7 +121,7 @@ test.describe('coaching persona — real backend (no mocks)', () => {
     //    PowerAthlete — proves the GET path also hydrates the new column.
     await page.reload();
     const openSettingsAgain = page
-      .getByRole('button', { name: /open settings/i })
+      .getByRole('button', { name: 'Settings', exact: true })
       .first();
     await openSettingsAgain.waitFor({ state: 'visible', timeout: 15_000 });
     await openSettingsAgain.click();

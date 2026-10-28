@@ -39,6 +39,8 @@ export const QUERY_KEYS = {
     units: () => ['user-units'] as const,
     /** How often the coach checks in on its own (carnet#831). */
     checkIn: () => ['user-check-in'] as const,
+    /** The athlete's feedback thread with the Dravr team (carnet#1235). */
+    feedbackThread: () => ['user-feedback-thread'] as const,
   },
 
   // ==================== SIGN-UP ====================

@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for inbound emoji reactions writing the shared per-message feedback
-// ABOUTME: Covers the write, the clear, the unmapped no-op, the Meta gate, the group-room trap, and the Discord Gateway stream
+// ABOUTME: Covers the write and its feedback.recorded event, the clear, the unmapped no-op, the Meta gate, the group-room trap, and the Discord Gateway stream
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,6 +11,7 @@
 //! and assert the row the web and mobile thumbs would have written.
 
 use crate::common;
+use crate::helpers::notify_capture::{capture_notify, named, only};
 
 use pierre_core::transport::TransportPolicy;
 use std::sync::Arc;
@@ -213,6 +214,60 @@ async fn thumbs_up_reaction_records_an_up_rating_on_the_assistant_message() {
         (delivered.assistant_message_id.clone(), "up".to_owned()),
         "the reaction rates the assistant message the channel message delivered"
     );
+}
+
+/// A reaction tells the team with the same event the app thumbs emit,
+/// naming the channel it came from; an emoji that is not a rating tells no
+/// one.
+#[tokio::test]
+async fn a_rating_reaction_tells_the_team_and_any_other_emoji_does_not() {
+    let delivered = deliver_a_reply("-100790", "athlete-60").await;
+
+    let (events, guard) = capture_notify();
+    apply_reactions(
+        &delivered.resources,
+        &[reaction(
+            &delivered,
+            &delivered.channel_user_id,
+            "🤔",
+            ReactionAction::Added,
+        )],
+    )
+    .await;
+    assert!(
+        named(&events, "feedback.recorded").is_empty(),
+        "bug: an emoji that is not a rating must not reach the team"
+    );
+
+    apply_reactions(
+        &delivered.resources,
+        &[reaction(
+            &delivered,
+            &delivered.channel_user_id,
+            "👎",
+            ReactionAction::Added,
+        )],
+    )
+    .await;
+    drop(guard);
+
+    let event = only(&events, "feedback.recorded");
+    for (field, expected) in [
+        ("user_id", delivered.user_id.clone()),
+        ("tenant_id", delivered.tenant_id.to_string()),
+        ("source", "reaction".to_owned()),
+        ("surface", "telegram".to_owned()),
+        ("rating", "down".to_owned()),
+        ("conversation_id", delivered.conversation_id.clone()),
+        ("message_id", delivered.assistant_message_id.clone()),
+        ("comment_len", "0".to_owned()),
+    ] {
+        assert_eq!(
+            event.field(field),
+            expected,
+            "bug: feedback.recorded carries the wrong {field}"
+        );
+    }
 }
 
 #[tokio::test]

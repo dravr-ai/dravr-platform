@@ -298,6 +298,7 @@ mod executed_tools_evidence_test;
 mod feature_flags_admin_authz_test;
 mod feature_flags_repository_test;
 mod features_test;
+mod feedback_thread_api_test;
 mod firebase_auth_test;
 mod firebase_email_verified_test;
 mod first_party_sign_in_test;

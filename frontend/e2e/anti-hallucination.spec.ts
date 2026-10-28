@@ -77,7 +77,7 @@ test.describe('Anti-Hallucination Tests - User Mode', () => {
 
     test('Account tab should show real user status', async ({ page }) => {
       // Click Account tab
-      const accountTab = page.getByRole('button', { name: 'Account' });
+      const accountTab = page.getByRole('button', { name: 'Account', exact: true });
       await accountTab.click();
       await page.waitForTimeout(300);
 

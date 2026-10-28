@@ -64,6 +64,8 @@ pub mod encryption;
 pub mod feature_flags;
 /// The external sign-in identities (a Google account id) each account is reached by (Postgres)
 pub mod federated_identities;
+/// The in-app feedback thread with the Dravr team (`PostgreSQL`)
+pub mod feedback_messages;
 /// Firebase identity deletion outbox (`Postgres`) backing `FirebaseIdentityDeletionRepository`.
 pub mod firebase_identity_deletions;
 /// The days each athlete met a first-run flow's done rule (`PostgreSQL`)

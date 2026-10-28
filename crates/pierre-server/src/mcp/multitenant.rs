@@ -336,7 +336,7 @@ impl ProviderToolRouter {
         #[cfg(feature = "client-mcp-tokens")]
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
         #[cfg(feature = "client-chat")]
-        use crate::routes::{chat::ChatRoutes, usage::UsageRoutes};
+        use crate::routes::{chat::ChatRoutes, feedback::FeedbackRoutes, usage::UsageRoutes};
         use crate::routes::{i18n::I18nRoutes, memory::MemoryRoutes, personas::PersonasRoutes};
         #[cfg(feature = "protocol-a2a")]
         use pierre_routes_a2a::{A2ARoutes, A2ARoutesState};
@@ -609,7 +609,9 @@ impl ProviderToolRouter {
         let app = app
             .merge(ChatRoutes::routes(Arc::clone(resources)))
             .merge(UsageRoutes::routes(Arc::clone(resources)))
-            .merge(LlmConsumptionRoutes::routes(Arc::clone(resources)));
+            .merge(LlmConsumptionRoutes::routes(Arc::clone(resources)))
+            // The athlete's feedback thread with the Dravr team; no LLM.
+            .merge(FeedbackRoutes::routes(Arc::clone(resources)));
 
         // The surface-capability catalogue the shared-constants generator
         // reads. Public and stateless: compiled-in product capabilities, the

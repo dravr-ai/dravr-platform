@@ -6,6 +6,7 @@
 
 import React, { useEffect } from 'react';
 import { clsx } from 'clsx';
+import { MessageSquareText } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import { badgeLabel } from '@pierre/shared-constants';
 
@@ -106,6 +107,8 @@ interface MobileDrawerProps {
   userInitial: string;
   userRole?: string;
   onOpenSettings: () => void;
+  /** The way into the feedback thread with the Dravr team, beside Settings. */
+  onSendFeedback: () => void;
   onSignOut: () => void;
 }
 
@@ -119,6 +122,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   userInitial,
   userRole,
   onOpenSettings,
+  onSendFeedback,
   onSignOut,
 }) => {
   const { t } = useTranslation();
@@ -297,6 +301,17 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
             <span>{t('nav.settings')}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onSendFeedback();
+              onClose();
+            }}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface min-h-[48px]"
+          >
+            <MessageSquareText className="w-5 h-5" aria-hidden="true" />
+            <span>{t('feedback.navSendFeedback')}</span>
           </button>
           <button
             type="button"

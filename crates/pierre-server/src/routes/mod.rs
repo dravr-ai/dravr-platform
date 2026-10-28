@@ -87,6 +87,9 @@ pub mod check_in;
 pub mod coach_access;
 /// A coach's after-the-fact review of the agent's group replies (carnet#847)
 pub mod coach_replies;
+/// The athlete's in-app feedback thread with the Dravr team (carnet#1235)
+#[cfg(feature = "client-chat")]
+pub mod feedback;
 /// Home's Getting started list: connect, then the first-run flows (carnet#1099)
 #[cfg(feature = "client-chat")]
 pub mod getting_started;

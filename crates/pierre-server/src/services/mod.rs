@@ -69,6 +69,10 @@ pub mod slack_socket;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_ingress;
 
+/// `feedback.recorded`: the one notify event thumbs, reactions and the feedback thread emit (carnet#1235).
+#[cfg(any(feature = "client-chat", feature = "client-messaging"))]
+pub(crate) mod feedback_events;
+
 /// Account-approved notifier: email + localized message on each linked channel
 #[cfg(feature = "client-messaging")]
 pub(crate) mod user_approval_notifier;

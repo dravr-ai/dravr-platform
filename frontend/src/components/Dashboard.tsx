@@ -92,6 +92,7 @@ const ApiKeyList = lazy(() => import('./ApiKeyList'));
 const ApiKeyDetails = lazy(() => import('./ApiKeyDetails'));
 const ChatTab = lazy(() => import('./ChatTab'));
 const PersonalChat = lazy(() => import('./home/PersonalChat'));
+const FeedbackThread = lazy(() => import('./feedback/FeedbackThread'));
 // Home's Today, drawn beside the athlete's conversation: its sections for the
 // panel, the drawer or the sheet, and the one line that stands for them above
 // the thread on a narrow screen.
@@ -143,6 +144,8 @@ import { markCurrentSessionRoute, writeSessionRoute } from '../utils/sessionRout
 import { activityViewRoute, parseActivitySubview, type ActivityRef } from './activity/activityRoute';
 import { homeConversationRoute, parseHomeConversation } from './home/homeRoute';
 import { parseChatSubview } from './chat/chatRoute';
+import { FEEDBACK_TAB, feedbackReplyRoute, parseFeedbackAbout } from './feedback/feedbackRoute';
+import type { FeedbackAbout } from '@pierre/shared-types';
 
 /** The settings section a `#settings/<section>` hash names, or `null` for none it knows. */
 function parseSettingsTab(segment: string): SettingsTab | null {
@@ -309,6 +312,16 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     initialTabSeg === 'settings' ? parseSettingsTab(initialSubSeg) : null,
   );
 
+  // The agent reply the feedback thread is about, from
+  // `#feedback/reply/<conversation>/<message>` — the link under a thumbs-down.
+  const [feedbackAbout, setFeedbackAbout] = useState<FeedbackAbout | null>(
+    initialTabSeg === FEEDBACK_TAB ? parseFeedbackAbout(initialSubSeg) : null,
+  );
+  // The last route outside the feedback thread: the screen each feedback
+  // message says it was sent from. Read when a message goes out, never while
+  // rendering.
+  const feedbackScreen = useRef(initialTabSeg === FEEDBACK_TAB ? '' : initialRoute);
+
   // The activity whose own view is open over Home, from
   // `#home/activity/<provider>/<id>`. The thread about it is the view's own,
   // remembered per activity so a return visit reopens it.
@@ -342,6 +355,9 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     if (activeTab === 'home' && openActivity) return activityViewRoute(openActivity.provider, openActivity.id);
     if (activeTab === 'home' && homeConversation) return homeConversationRoute(homeConversation);
     if (activeTab === 'settings' && settingsTab) return `settings/${settingsTab}`;
+    if (activeTab === FEEDBACK_TAB && feedbackAbout) {
+      return feedbackReplyRoute(feedbackAbout.conversation_id, feedbackAbout.message_id);
+    }
     return activeTab;
   })();
 
@@ -364,6 +380,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       markCurrentSessionRoute();
     }
     hashSyncedOnce.current = true;
+    if (!route.startsWith(FEEDBACK_TAB)) feedbackScreen.current = route;
     track({ name: 'page_view', props: { path: `/${route}` } });
   }, [route]);
 
@@ -412,6 +429,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         : activity,
     );
     setSettingsTab(tab === 'settings' ? parseSettingsTab(sub) : null);
+    setFeedbackAbout(tab === FEEDBACK_TAB ? parseFeedbackAbout(sub) : null);
   }, [isAdminUser, isSuperAdmin]);
 
   // React to back/forward and external hash edits.
@@ -744,9 +762,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             if (id === 'chat') setSelectedConversation(null);
           }}
           onOpenSettings={() => setActiveTab('settings')}
+          onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
+          onSignOut={logout}
           onHome={() => applyRoute('home')}
           settingsActive={activeTab === 'settings'}
           userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
+          userLabel={user?.display_name || user?.email || ''}
         />
       )}
       {/* Vertical Sidebar - Dark.
@@ -1182,6 +1203,15 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             onBack={() => setSettingsTab(null)}
           />
         )}
+        {activeTab === FEEDBACK_TAB && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <FeedbackThread
+              about={feedbackAbout}
+              openedFrom={() => feedbackScreen.current}
+              onClearAbout={() => setFeedbackAbout(null)}
+            />
+          </Suspense>
+        )}
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <NotificationsPanel onNavigate={applyRoute} />
@@ -1240,6 +1270,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             userInitial={(user?.display_name || user?.email)?.charAt(0).toUpperCase() ?? '?'}
             userRole={operatorRoleBadge ?? undefined}
             onOpenSettings={() => setActiveTab('settings')}
+            onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
             onSignOut={logout}
           />
           {!composing && (
