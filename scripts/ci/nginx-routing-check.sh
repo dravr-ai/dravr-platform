@@ -227,6 +227,20 @@ else
     failures=$((failures + 1))
 fi
 
+# The SPA frames /__/auth/iframe to read a Google sign-in result back, so the
+# Firebase proxy must allow same-origin framing. The upstream does not resolve
+# here; `always` headers ride on the error response all the same.
+echo "-- Firebase auth pages are frameable by this origin --"
+curl -s -D "$WORK/firebase-iframe.headers" -o /dev/null "http://localhost:$PORT/__/auth/iframe" --max-time 15 || true
+if grep -qi '^x-frame-options: SAMEORIGIN' "$WORK/firebase-iframe.headers" \
+    && grep -qi "^content-security-policy: frame-ancestors 'self'" "$WORK/firebase-iframe.headers" \
+    && ! grep -qi "frame-ancestors 'none'" "$WORK/firebase-iframe.headers"; then
+    printf '  ok   %-6s %-45s -> framing SAMEORIGIN\n' GET /__/auth/iframe
+else
+    printf '  FAIL %-6s %-45s -> framing headers wrong (expected SAMEORIGIN and frame-ancestors '"'"'self'"'"' only)\n' GET /__/auth/iframe
+    failures=$((failures + 1))
+fi
+
 # A Garmin activityDetails push is far past nginx's 1 MB default body cap; the
 # Garmin block raises it, so a 4 MB push must still reach the backend.
 echo "-- large Garmin push --"

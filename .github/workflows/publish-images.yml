@@ -783,7 +783,16 @@ jobs:
         env:
           PACKAGE: ${{ steps.tags.outputs.registry }}/frontend
           DIST_DIR: ${{ steps.dist.outputs.dir }}
-        run: ./scripts/ci/carry-forward-frontend-assets.sh --package "${PACKAGE}" --tag deployed-dev --dist "${DIST_DIR}"
+        # This file runs from main's tip, but the checkout is the newest GREEN
+        # commit, which can predate the script (3cfaded18 did, 2026-10-28, and
+        # the deploy died with exit 127). That tree has nothing to carry with,
+        # so it builds as it always did; any other failure still fails.
+        run: |
+          if [ ! -f scripts/ci/carry-forward-frontend-assets.sh ]; then
+            echo "::notice::the built commit predates carry-forward-frontend-assets.sh; nothing carried"
+            exit 0
+          fi
+          ./scripts/ci/carry-forward-frontend-assets.sh --package "${PACKAGE}" --tag deployed-dev --dist "${DIST_DIR}"
 
       - name: Build and push frontend image
         id: build
