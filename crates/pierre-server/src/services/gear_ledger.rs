@@ -33,14 +33,21 @@
 //! that is gone and can be deleted once nothing else is attributed to it.
 //! The cache's retention window letting an activity go is not a deletion: the
 //! pair keeps that distance until the athlete deletes the activity itself.
+//!
+//! **An imported history brings its gear.** A Strava export names the gear
+//! each activity was done in; that name is the athlete's own choice, made on
+//! Strava, so an import attributes each run, walk or hike to the pair of that
+//! name — declared for it when the ledger holds none — unless its workout
+//! already holds an attribution ([`attribute_imported_gear`]).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    default_pair, Activity, ActivityGearKey, AthleteGear, AttributionSource, GearAttribution,
-    TenantId,
+    default_pair, shoe_sport_slug, Activity, ActivityGearKey, AthleteGear, AttributionSource,
+    GearAttribution, GearDeclaration, GearKind, SportType, TenantId,
+    DEFAULT_SHOE_WARN_DISTANCE_METERS, MAX_GEAR_PER_ATHLETE,
 };
 use pierre_database::repositories::CachedActivityRow;
 use pierre_database::RepositoryRegistry;
@@ -48,6 +55,7 @@ use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::backend_pair_for;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -385,6 +393,202 @@ pub async fn declare_activity_gear(
         gear_id,
         source: Some(AttributionSource::Declared),
     })
+}
+
+/// An imported activity and the gear its source named for it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ImportedGear<'row> {
+    /// The activity, as it is cached.
+    pub activity: &'row Activity,
+    /// The source's name for the gear (a Strava export's `Activity Gear`).
+    pub gear_name: &'row str,
+}
+
+/// The pair each name an import used was matched to or declared as.
+struct NamedPair {
+    /// The name as the source spelled it, trimmed.
+    name: String,
+    /// The start of the earliest activity naming it.
+    first_start: DateTime<Utc>,
+    /// The sport of that activity: a pair declared for the name is worn for it.
+    sport: SportType,
+}
+
+/// The ledger's key for a name: the same pair whatever its case.
+fn name_key(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+/// The pair the ledger holds under `key`, or one declared for `named`, added
+/// at its first start; `None` when the ledger refuses the name or the athlete
+/// holds every pair they may.
+async fn pair_for_name(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    ledger: &mut Vec<AthleteGear>,
+    key: &str,
+    named: &NamedPair,
+) -> AppResult<Option<Uuid>> {
+    // A retired pair is matched too: an imported workout is history, and a
+    // retired pair keeps its history.
+    if let Some(pair) = ledger
+        .iter()
+        .find(|pair| name_key(&pair.declaration.name) == key)
+    {
+        return Ok(Some(pair.id));
+    }
+    if ledger.len() >= usize::try_from(MAX_GEAR_PER_ATHLETE).unwrap_or(usize::MAX) {
+        warn!(%user_id, "imported gear left unattributed: the athlete holds every pair they may");
+        return Ok(None);
+    }
+    let declaration = GearDeclaration {
+        kind: GearKind::Shoe,
+        name: named.name.clone(),
+        sport: named.sport.clone(),
+        initial_distance_meters: 0.0,
+        warn_distance_meters: DEFAULT_SHOE_WARN_DISTANCE_METERS,
+        pinned: false,
+    };
+    let declaration = match declaration.validated() {
+        Ok(declaration) => declaration,
+        Err(e) => {
+            warn!(%user_id, error = %e, "imported gear left unattributed: the ledger refuses its name");
+            return Ok(None);
+        }
+    };
+    let id = repos
+        .athlete_gear
+        .create_gear(user_id, &declaration, named.first_start)
+        .await?;
+    ledger.push(AthleteGear {
+        id,
+        declaration,
+        added_at: named.first_start,
+        retired_at: None,
+        attributed_distance_meters: 0.0,
+        activity_count: 0,
+        last_used_at: None,
+    });
+    Ok(Some(id))
+}
+
+/// Attribute the activities an import cached under `provider` to the pairs
+/// their source named, each workout once; how many were attributed.
+///
+/// Only shoe sports are attributed: the ledger holds shoes, so a ride's bike
+/// names no pair and is left. A name is matched to the athlete's pair of that
+/// name whatever its case, else declared as a pair worn for the sport of the
+/// earliest activity naming it, in use from that activity's start. A name the
+/// ledger refuses, or an athlete holding every pair they may, leaves its
+/// activities unattributed rather than failing the import.
+///
+/// A workout any of whose copies is already attributed — the athlete's
+/// choice, a default, an earlier import — keeps what it holds, so one workout
+/// counts once and an athlete's choice is never replaced. Attributions are
+/// recorded as declared on the imported copy and only where that copy holds
+/// none, so projecting the same chunk again changes nothing.
+///
+/// # Errors
+///
+/// A database error when the ledger, the attributions or the activity cache
+/// cannot be read, or a pair or an attribution cannot be stored.
+pub(crate) async fn attribute_imported_gear(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: &TenantId,
+    provider: &str,
+    imported: &[ImportedGear<'_>],
+) -> AppResult<u64> {
+    let window = Duration::hours(WORKOUT_WINDOW_HOURS);
+    let mut claimed: HashSet<ActivityGearKey> = HashSet::new();
+    let mut unattributed = Vec::new();
+    for item in imported {
+        if shoe_sport_slug(item.activity.sport_type()).is_none() || item.gear_name.trim().is_empty()
+        {
+            continue;
+        }
+        let start = item.activity.start_date();
+        let copy = ActivityGearKey {
+            provider: provider.to_owned(),
+            activity_id: item.activity.id().to_owned(),
+        };
+        let rows = repos
+            .activity_cache
+            .get_cached_activity_rows(
+                user_id,
+                tenant_id,
+                start - window,
+                start + window,
+                WORKOUT_ROW_LIMIT,
+            )
+            .await?;
+        let copies = ledger_workouts(&rows)
+            .into_iter()
+            .find(|workout| workout.copies.contains(&copy))
+            .map_or_else(|| vec![copy.clone()], |workout| workout.copies);
+        if copies.iter().any(|key| claimed.contains(key)) {
+            continue;
+        }
+        let held = repos
+            .athlete_gear
+            .list_gear_attributions(user_id, start - window, start + window)
+            .await?
+            .iter()
+            .any(|attribution| copies.contains(&attribution.key));
+        claimed.extend(copies);
+        if !held {
+            unattributed.push((item, copy));
+        }
+    }
+    if unattributed.is_empty() {
+        return Ok(0);
+    }
+
+    // Only a name some unattributed workout uses is matched or declared, so
+    // an import whose every workout already holds a pair adds none.
+    let mut names: BTreeMap<String, NamedPair> = BTreeMap::new();
+    for (item, _) in &unattributed {
+        let start = item.activity.start_date();
+        let pair = names
+            .entry(name_key(item.gear_name))
+            .or_insert_with(|| NamedPair {
+                name: item.gear_name.trim().to_owned(),
+                first_start: start,
+                sport: item.activity.sport_type().clone(),
+            });
+        if start < pair.first_start {
+            pair.first_start = start;
+            pair.sport = item.activity.sport_type().clone();
+        }
+    }
+    let mut ledger = repos.athlete_gear.list_gear(user_id).await?;
+    let mut pairs = BTreeMap::new();
+    for (key, named) in &names {
+        let pair = pair_for_name(repos, user_id, &mut ledger, key, named).await?;
+        pairs.insert(key.as_str(), pair);
+    }
+
+    let attributions: Vec<GearAttribution> = unattributed
+        .into_iter()
+        .filter_map(|(item, copy)| {
+            let gear_id = (*pairs.get(name_key(item.gear_name).as_str())?)?;
+            Some(GearAttribution {
+                key: copy,
+                gear_id: Some(gear_id),
+                source: AttributionSource::Declared,
+                start_date: item.activity.start_date(),
+                distance_meters: workout_distance(item.activity),
+            })
+        })
+        .collect();
+    let recorded = repos
+        .athlete_gear
+        .record_default_attributions(user_id, &attributions)
+        .await?;
+    if recorded > 0 {
+        info!(%user_id, provider, recorded, "imported activities attributed to their gear");
+    }
+    Ok(recorded)
 }
 
 /// The copy of `released`'s workout that takes its attribution over once

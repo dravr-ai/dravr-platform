@@ -27,6 +27,7 @@ use dravr_barrage::{
 use futures_util::stream;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_providers::fit_decode::ImportDecodeGate;
 use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -175,12 +176,14 @@ fn wiring(resources: &ServerContext) -> AppResult<&Arc<ImportWiring>> {
     resources.common.archive_imports.wiring()
 }
 
-/// An importer over the wiring's stores, projecting into `resources`.
-fn importer(resources: &Arc<ServerContext>, wiring: &ImportWiring) -> Importer {
+/// An importer over the wiring's stores, projecting into `resources`, each
+/// recording it decodes admitted by the process's FIT decode permits.
+pub(super) fn importer(resources: &Arc<ServerContext>, wiring: &ImportWiring) -> Importer {
     Importer::new(
         wiring.stores.clone(),
         Arc::new(CachedActivitiesSink::new(Arc::clone(resources))),
     )
+    .with_decode_gate(Arc::new(ImportDecodeGate))
 }
 
 /// Barrage's error as the platform's.

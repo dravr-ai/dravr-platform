@@ -236,7 +236,7 @@ pub(crate) async fn call(
 }
 
 /// Start an import of the athlete's export and wait for it to finish.
-async fn import_export(resources: &Arc<ServerContext>, athlete: &Athlete) -> Value {
+pub(crate) async fn import_export(resources: &Arc<ServerContext>, athlete: &Athlete) -> Value {
     let (status, started) = call(
         resources,
         "POST",

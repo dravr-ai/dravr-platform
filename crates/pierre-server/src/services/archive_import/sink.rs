@@ -21,7 +21,10 @@
 //!    (`strava_archive`), which no provider sync prunes;
 //! 3. the best efforts each run with samples sets, recorded without an
 //!    announcement (an import is history, not news);
-//! 4. once per chunk, the agent's cached lists dropped and the training-load
+//! 4. the gear the export named for each run, walk or hike, attributed in the
+//!    athlete's gear ledger unless the workout already holds a pair
+//!    ([`attribute_imported_gear`]);
+//! 5. once per chunk, the agent's cached lists dropped and the training-load
 //!    rollup recomputed.
 //!
 //! A wellness series an export holds (the Garmin archive's) goes to riviere's
@@ -46,7 +49,7 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::activity_upload::after_stored_activities_changed;
-use crate::services::gear_ledger::release_activity_gear;
+use crate::services::gear_ledger::{attribute_imported_gear, release_activity_gear, ImportedGear};
 
 /// The `source` a data source carries for series an archive import wrote.
 const ARCHIVE_SOURCE_MARKER: &str = "archive";
@@ -137,6 +140,21 @@ impl ProjectionSink for CachedActivitiesSink {
         #[cfg(feature = "health-sync")]
         self.record_bests(tenant_id, user_id, &activities, series)
             .await?;
+        let gear: Vec<ImportedGear<'_>> = rows
+            .iter()
+            .filter_map(|row| {
+                row.provenance
+                    .source_gear
+                    .as_deref()
+                    .map(|gear_name| ImportedGear {
+                        activity: &row.activity,
+                        gear_name,
+                    })
+            })
+            .collect();
+        attribute_imported_gear(repos, user_id, &tenant_id, source.as_str(), &gear)
+            .await
+            .map_err(|e| projection(&e))?;
         after_stored_activities_changed(&self.runtime(), tenant_id, user_id).await;
         Ok(())
     }

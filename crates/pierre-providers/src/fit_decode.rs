@@ -11,8 +11,12 @@
 //! (`dravr_barrage::parse::fit::MAX_DECODED_FIELDS`) bounds one decode at about
 //! 260 MiB; how many run together is a property of this process, so the
 //! bound on that stays here and wraps every call into the decoder: uploads,
-//! the upload streams backfill, Wahoo's samples and Garmin push files.
+//! the upload streams backfill, Wahoo's samples and Garmin push files, and —
+//! through [`ImportDecodeGate`], the gate barrage's importer is handed — every
+//! recording an archive import or its reprojection decodes.
 
+use async_trait::async_trait;
+use dravr_barrage::{BarrageError, DecodeGate, DecodePermit};
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
 
@@ -48,6 +52,33 @@ where
     T: Send + 'static,
 {
     run_admitted(&DECODE_PERMITS, decode).await
+}
+
+/// The [`DecodeGate`] barrage's importer runs under in this process.
+///
+/// Each recording it decodes waits for one of the same [`DECODE_PERMITS`] an
+/// upload or a push file does, and its decode holds the permit until it ends.
+///
+/// An import's own queue dispatches one task at a time, but that bounds only
+/// imports against each other, and only where the queue runs them: a local
+/// runner, a redelivered task or the uploads beside it are bounded here.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ImportDecodeGate;
+
+#[async_trait]
+impl DecodeGate for ImportDecodeGate {
+    async fn admit(&self) -> Result<DecodePermit, BarrageError> {
+        admit_from(&DECODE_PERMITS).await
+    }
+}
+
+/// [`ImportDecodeGate::admit`] against `permits`.
+async fn admit_from(permits: &'static Semaphore) -> Result<DecodePermit, BarrageError> {
+    let permit = permits
+        .acquire()
+        .await
+        .map_err(|e| BarrageError::Task(format!("FIT decode permits closed: {e}")))?;
+    Ok(DecodePermit::holding(permit))
 }
 
 /// [`decode_bounded`] against `permits`.
@@ -134,5 +165,31 @@ mod tests {
         })
         .await
         .expect("the permit comes back when the decode ends");
+    }
+
+    #[tokio::test]
+    async fn an_import_decode_takes_a_permit_from_the_same_pool_and_gives_it_back() {
+        let permits = permits();
+        let held = permits
+            .acquire_many(u32::try_from(MAX_CONCURRENT_DECODES).unwrap())
+            .await
+            .unwrap();
+
+        let waiting = tokio::spawn(admit_from(permits));
+        time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            !waiting.is_finished(),
+            "with every permit held by uploads, an import decode is not admitted"
+        );
+
+        drop(held);
+        let permit = waiting.await.unwrap().unwrap();
+        assert_eq!(
+            permits.available_permits(),
+            MAX_CONCURRENT_DECODES - 1,
+            "the admitted import decode holds one permit"
+        );
+        drop(permit);
+        assert_eq!(permits.available_permits(), MAX_CONCURRENT_DECODES);
     }
 }

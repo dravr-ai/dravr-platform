@@ -99,9 +99,10 @@ pub trait AthleteGearRepository: Send + Sync {
         to: DateTime<Utc>,
     ) -> AppResult<Vec<GearAttribution>>;
 
-    /// Record the default pair for each activity copy that holds no
-    /// attribution yet, in one transaction; a copy already attributed keeps
-    /// what it holds. Returns how many were recorded.
+    /// Record each attribution on an activity copy that holds none yet, in
+    /// one transaction; a copy already attributed keeps what it holds.
+    /// Defaults are recorded this way, and an import's gear, so neither
+    /// replaces the athlete's choice. Returns how many were recorded.
     async fn record_default_attributions(
         &self,
         user_id: Uuid,

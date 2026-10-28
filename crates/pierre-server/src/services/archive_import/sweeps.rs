@@ -28,7 +28,7 @@ use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::sink::CachedActivitiesSink;
+use super::ops;
 use crate::mcp::resources::ServerContext;
 
 /// The name the expiry sweep's ledger row and log lines carry.
@@ -104,10 +104,7 @@ pub async fn expire_awaiting_links(resources: &Arc<ServerContext>) -> AppResult<
 pub async fn erase_deleted_accounts(resources: &Arc<ServerContext>) -> AppResult<usize> {
     let wiring = resources.common.archive_imports.wiring()?;
     let outbox = resources.common.repos.archive_erasures.as_ref();
-    let importer = Importer::new(
-        wiring.stores.clone(),
-        Arc::new(CachedActivitiesSink::new(Arc::clone(resources))),
-    );
+    let importer = ops::importer(resources, wiring);
     let now = Utc::now();
     let mut erased = 0;
     let due = outbox.due(now, ERASURES_PER_PASS).await?;
