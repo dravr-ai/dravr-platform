@@ -1519,7 +1519,7 @@
     "plan": {
       "phase_line": "Fase: {0}{1}",
       "day_line": "{0}: {1}",
-      "description": "Mostrar o teu plano de treino — contagem decrescente para o objetivo mais hoje e amanhã, a semana completa, ou só hoje",
+      "description": "Mostrar o teu plano de treino — contagem decrescente para o objetivo mais hoje e amanhã, a semana completa, ou só hoje. Um coach humano acrescenta o nome de um atleta para ver o dele",
       "empty": "Ainda não há plano guardado — pede ao teu agente para construir um até ao teu objetivo.",
       "goal_line": "Objetivo: {0} — {1} ({2} dias)",
       "no_coverage": "não coberto pelo plano",
@@ -1530,7 +1530,14 @@
       "stale_goal": "\n\n⚠️ O teu objetivo mudou desde este plano — pede ao teu agente para o atualizar.",
       "today": "Hoje",
       "tomorrow": "Amanhã",
-      "week_header": "Semana de {0}{1}"
+      "week_header": "Semana de {0}{1}",
+      "athlete_header": "📋 Plano de **{0}**",
+      "athlete_empty": "{0} ainda não tem um plano publicado.",
+      "athlete_no_match": "Nenhum atleta corresponde a «{0}» num grupo de que és o coach humano.",
+      "athlete_ambiguous": "«{0}» corresponde a vários dos teus atletas: {1}. Usa um nome mais preciso.",
+      "athlete_not_sharing": "{0} deixou de partilhar os dados contigo, por isso o plano não é mostrado. Pode voltar a partilhá-los com `/group consent coach yes`.",
+      "athlete_several_tenants": "{0} pertence a vários espaços de trabalho, por isso o plano não pode ser mostrado de forma fiável.",
+      "athlete_plans_disabled": "Os planos de treino estão desativados no espaço de trabalho de {0}."
     },
     "plan-share": {
       "description": "Publicar o teu plano de treino na sala onde o escreves — contagem decrescente para o objetivo mais hoje e amanhã, a semana completa, ou só hoje"
@@ -2508,6 +2515,14 @@
       "conflictSeason": "A época de {{name}} foi refeita depois de este rascunho começar, por isso as semanas do rascunho podem já não encaixar.",
       "overwrite": "Publicar mesmo assim",
       "consentRevoked": "{{name}} deixou de partilhar os dados contigo, por isso o plano já não pode ser alterado."
+    },
+    "planView": {
+      "open": "Ver o plano de {{name}}",
+      "title": "Plano de {{name}}",
+      "readOnly": "Só leitura: o plano que {{name}} vê.",
+      "empty": "{{name}} ainda não tem um plano publicado.",
+      "consentRevoked": "{{name}} deixou de partilhar os dados contigo, por isso o plano não é mostrado.",
+      "loadError": "Não conseguimos carregar este plano. Tenta de novo."
     },
     "shareTraining": "Partilhar o meu treino com o meu coach",
     "shareTrainingHint": "O teu coach vê o teu treino, o teu plano e as tuas mensagens no chat deste grupo. Aplica-se apenas a este grupo.",

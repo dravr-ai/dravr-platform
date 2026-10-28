@@ -1519,7 +1519,7 @@
     "plan": {
       "phase_line": "Phase : {0}{1}",
       "day_line": "{0} : {1}",
-      "description": "Afficher ton plan d'entraînement — compte à rebours vers l'objectif plus aujourd'hui et demain, la semaine complète, ou aujourd'hui seulement",
+      "description": "Afficher ton plan d'entraînement — compte à rebours vers l'objectif plus aujourd'hui et demain, la semaine complète, ou aujourd'hui seulement. Un coach humain ajoute le nom d'un athlète pour voir le sien",
       "empty": "Aucun plan enregistré pour l'instant — demande à ton agent d'en construire un vers ton objectif.",
       "goal_line": "Objectif : {0} — {1} ({2} jours)",
       "no_coverage": "pas couvert par le plan",
@@ -1530,7 +1530,14 @@
       "stale_goal": "\n\n⚠️ Ton objectif a changé depuis — demande à ton agent de mettre le plan à jour.",
       "today": "Aujourd'hui",
       "tomorrow": "Demain",
-      "week_header": "Semaine du {0}{1}"
+      "week_header": "Semaine du {0}{1}",
+      "athlete_header": "📋 Plan de **{0}**",
+      "athlete_empty": "{0} n’a pas encore de plan publié.",
+      "athlete_no_match": "Aucun athlète ne correspond à « {0} » dans un groupe dont tu es le coach humain.",
+      "athlete_ambiguous": "« {0} » correspond à plusieurs de tes athlètes : {1}. Précise le nom.",
+      "athlete_not_sharing": "{0} ne partage plus ses données avec toi, donc son plan n’est pas affiché. Le partage se réactive avec `/group consent coach yes`.",
+      "athlete_several_tenants": "{0} appartient à plusieurs espaces de travail : son plan ne peut pas être affiché de façon fiable.",
+      "athlete_plans_disabled": "Les plans d’entraînement sont désactivés dans l’espace de travail de {0}."
     },
     "plan-share": {
       "description": "Publier ton plan d'entraînement dans la salle où tu l'écris — compte à rebours vers l'objectif plus aujourd'hui et demain, la semaine complète, ou aujourd'hui seulement"
@@ -2508,6 +2515,14 @@
       "conflictSeason": "La saison de {{name}} a été reconstruite après le début de ce brouillon : les semaines du brouillon risquent de ne plus s’y ajuster.",
       "overwrite": "Publier quand même",
       "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan ne peut plus être modifié."
+    },
+    "planView": {
+      "open": "Voir le plan de {{name}}",
+      "title": "Plan de {{name}}",
+      "readOnly": "Lecture seule : le plan que voit {{name}}.",
+      "empty": "{{name}} n’a pas encore de plan publié.",
+      "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan n’est pas affiché.",
+      "loadError": "Impossible de charger ce plan. Réessaie."
     },
     "shareTraining": "Partager mon entraînement avec mon coach",
     "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Ne s’applique qu’à ce groupe.",

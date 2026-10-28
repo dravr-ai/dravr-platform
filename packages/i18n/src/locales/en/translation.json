@@ -1519,7 +1519,7 @@
     "plan": {
       "phase_line": "Phase: {0}{1}",
       "day_line": "{0}: {1}",
-      "description": "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone",
+      "description": "Show your training plan — goal countdown plus today and tomorrow, the full week, or today alone. A human coach adds an athlete's name to see theirs",
       "empty": "No plan saved yet — ask your agent to build one toward your goal.",
       "goal_line": "Goal: {0} — {1} ({2} days out)",
       "no_coverage": "not covered by the plan",
@@ -1530,7 +1530,14 @@
       "stale_goal": "\n\n⚠️ Your goal has changed since this plan — ask your agent to refresh it.",
       "today": "Today",
       "tomorrow": "Tomorrow",
-      "week_header": "Week of {0}{1}"
+      "week_header": "Week of {0}{1}",
+      "athlete_header": "📋 **{0}**'s plan",
+      "athlete_empty": "{0} has no published plan yet.",
+      "athlete_no_match": "No athlete matching “{0}” in a group where you're the human coach.",
+      "athlete_ambiguous": "“{0}” matches several of your athletes: {1}. Use a more specific name.",
+      "athlete_not_sharing": "{0} stopped sharing their data with you, so their plan isn't shown. They can share it again with `/group consent coach yes`.",
+      "athlete_several_tenants": "{0} belongs to several workspaces, so their plan can't be shown reliably.",
+      "athlete_plans_disabled": "Training plans are turned off in {0}'s workspace."
     },
     "plan-share": {
       "description": "Post your training plan into the room you type it in — goal countdown plus today and tomorrow, the full week, or today alone"
@@ -2508,6 +2515,14 @@
       "conflictSeason": "{{name}}'s season was rebuilt after this draft began, so the draft's weeks may no longer fit it.",
       "overwrite": "Publish anyway",
       "consentRevoked": "{{name}} stopped sharing with you, so their plan can't be changed."
+    },
+    "planView": {
+      "open": "View {{name}}'s plan",
+      "title": "{{name}}'s plan",
+      "readOnly": "Read-only: the plan {{name}} sees.",
+      "empty": "{{name}} has no published plan yet.",
+      "consentRevoked": "{{name}} stopped sharing with you, so their plan isn't shown.",
+      "loadError": "We couldn't load this plan. Please try again."
     },
     "shareTraining": "Share my training with my coach",
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",

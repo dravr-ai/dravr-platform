@@ -1519,7 +1519,7 @@
     "plan": {
       "phase_line": "Phase: {0}{1}",
       "day_line": "{0}: {1}",
-      "description": "Deinen Trainingsplan anzeigen — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute",
+      "description": "Deinen Trainingsplan anzeigen — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute. Ein menschlicher Coach fügt den Namen eines Athleten hinzu, um dessen Plan zu sehen",
       "empty": "Noch kein Plan gespeichert — bitte deinen Agenten, einen auf dein Ziel hin zu bauen.",
       "goal_line": "Ziel: {0} — {1} ({2} Tage)",
       "no_coverage": "nicht vom Plan abgedeckt",
@@ -1530,7 +1530,14 @@
       "stale_goal": "\n\n⚠️ Dein Ziel hat sich seitdem geändert — bitte deinen Agenten, den Plan zu aktualisieren.",
       "today": "Heute",
       "tomorrow": "Morgen",
-      "week_header": "Woche ab {0}{1}"
+      "week_header": "Woche ab {0}{1}",
+      "athlete_header": "📋 Plan von **{0}**",
+      "athlete_empty": "{0} hat noch keinen veröffentlichten Plan.",
+      "athlete_no_match": "Kein Athlet passend zu „{0}“ in einer Gruppe, in der du der menschliche Coach bist.",
+      "athlete_ambiguous": "„{0}“ passt auf mehrere deiner Athleten: {1}. Bitte gib einen genaueren Namen an.",
+      "athlete_not_sharing": "{0} teilt keine Daten mehr mit dir, daher wird der Plan nicht angezeigt. Mit `/group consent coach yes` lässt sich das Teilen wieder einschalten.",
+      "athlete_several_tenants": "{0} gehört zu mehreren Arbeitsbereichen, daher kann der Plan nicht zuverlässig angezeigt werden.",
+      "athlete_plans_disabled": "Trainingspläne sind im Arbeitsbereich von {0} ausgeschaltet."
     },
     "plan-share": {
       "description": "Deinen Trainingsplan in den Raum posten, in dem du tippst — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute"
@@ -2508,6 +2515,14 @@
       "conflictSeason": "Die Saison von {{name}} wurde nach Beginn dieses Entwurfs neu aufgebaut, daher passen die Wochen des Entwurfs womöglich nicht mehr dazu.",
       "overwrite": "Trotzdem veröffentlichen",
       "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher kann der Plan nicht mehr geändert werden."
+    },
+    "planView": {
+      "open": "Plan von {{name}} ansehen",
+      "title": "Plan von {{name}}",
+      "readOnly": "Nur lesen: der Plan, den {{name}} sieht.",
+      "empty": "{{name}} hat noch keinen veröffentlichten Plan.",
+      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher wird der Plan nicht angezeigt.",
+      "loadError": "Dieser Plan konnte nicht geladen werden. Bitte versuche es erneut."
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. Gilt nur für diese Gruppe.",
