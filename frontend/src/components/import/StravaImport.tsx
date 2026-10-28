@@ -289,6 +289,7 @@ export default function StravaImport({ enabled }: StravaImportProps) {
               <Input
                 label={t('providers.import.strava.linkLabel')}
                 placeholder={t('providers.import.strava.linkPlaceholder')}
+                helpText={t('providers.import.strava.linkHint')}
                 value={link}
                 onChange={(event) => {
                   setLink(event.target.value);

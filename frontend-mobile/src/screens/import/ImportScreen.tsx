@@ -324,6 +324,9 @@ function StravaImportView({ enabled }: { enabled: boolean }) {
               keyboardType="url"
               testID="import-link-input"
             />
+            <Text className="text-xs text-text-secondary mt-1" testID="import-link-hint">
+              {t('providers.import.strava.linkHint')}
+            </Text>
             {check?.accepted && (
               <Text className="text-sm text-text-primary mt-2" testID="import-link-found">
                 {check.size_bytes !== null

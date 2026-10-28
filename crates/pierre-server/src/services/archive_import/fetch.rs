@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use dravr_barrage::import::archive::ArchiveLimits;
 use dravr_barrage::{BarrageError, FailureCode};
 use dravr_tronc::http_client::guard::{
     FetchLimits, FetchPolicy, GuardError, GuardedClient, GuardedResponse, HostAllowlist,
@@ -37,6 +38,13 @@ use reqwest::{Method, StatusCode};
 /// The hosts an export link may be fetched from, comma-separated and matched
 /// exactly. Unset or empty, no link is fetched.
 pub const ENV_ARCHIVE_FETCH_HOSTS: &str = "ARCHIVE_FETCH_HOSTS";
+
+/// The largest export downloaded: the archive barrage spools, never less. A
+/// real Strava export of ten years of recordings and photos is 6.3 GB
+/// (carnet#1215), past the guard's default of 1 GiB for an archive fetch.
+fn max_download_bytes() -> u64 {
+    ArchiveLimits::default().max_archive_bytes
+}
 
 /// The longest a whole download may take: inside the step delivery that runs
 /// it (`runner::STEP_DISPATCH_DEADLINE`, twenty minutes), so a stalled export
@@ -152,6 +160,7 @@ impl GuardedExportFetcher {
     pub fn try_new(hosts: HostAllowlist) -> Result<Self, GuardError> {
         let policy = FetchPolicy::archive_fetch(hosts);
         let limits = FetchLimits {
+            max_body_bytes: max_download_bytes(),
             total_timeout: DOWNLOAD_TIMEOUT,
             ..policy.default_limits()
         };
@@ -285,6 +294,23 @@ mod tests {
                 .await,
             Err(LinkRefusal::Invalid),
             "credentials in the URL are refused"
+        );
+    }
+
+    #[test]
+    fn an_export_as_large_as_barrage_spools_is_downloaded_whole() {
+        let fetcher = GuardedExportFetcher::try_new(HostAllowlist::new(["export.example.com"]))
+            .expect("client");
+        // Both sides are read, not a literal: the download cap and the spool
+        // cap are two artefacts nothing else keeps equal.
+        assert_eq!(
+            fetcher.client.limits().max_body_bytes,
+            ArchiveLimits::default().max_archive_bytes,
+            "bug: the download stops short of an export barrage would import"
+        );
+        assert!(
+            fetcher.client.limits().max_body_bytes > 6_303_666_727,
+            "bug: a real 6.3 GB Strava export would be cut off"
         );
     }
 
