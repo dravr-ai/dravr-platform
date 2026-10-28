@@ -1,4 +1,4 @@
-// ABOUTME: The athlete's uploaded .fit files read as a provider: the cached activities, and the series from the stored file
+// ABOUTME: The athlete's uploaded .fit files read as a provider: the cached activities, and the series from the sample store
 // ABOUTME: No connection, token or network — every read is the owner's own rows in their own tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,14 @@
 //! agent's per-activity tools — resolves a provider by that key through the
 //! authentication chokepoint, which answers [`UPLOAD`] with this reader
 //! instead of a connection: the summary and laps come from the cached row,
-//! the per-sample series and the route from the stored file.
+//! the per-sample series and the route from the one per-activity sample store
+//! (`activity_streams`), where the upload wrote them once, decoded, with
+//! `origin = 'upload'` and the file's SHA-256 as `source_ref` (carnet#1219).
+//!
+//! An uploaded activity whose samples are not in the store yet — one uploaded
+//! before the store held uploads, until the backfill reaches it — is read
+//! from the stored file, decoded again on the blocking pool: the store is
+//! the fast path, the file stays the source both are decoded from.
 //!
 //! An uploaded activity's id is the SHA-256 of its file followed by the
 //! session's index in it ([`upload_activity_id`]), so the same file uploaded
@@ -23,18 +30,26 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pierre_database::repositories::{ActivityCacheRepository, UploadedActivityFileRepository};
+use chrono::{DateTime, Utc};
+use pierre_database::repositories::{
+    ActivityStreamRepository, ActivityStreamsWrite, StreamOrigin, UploadedActivityFileRepository,
+};
 use ring::digest::{digest, SHA256};
 use uuid::Uuid;
 
-use crate::cached_activity_reads::CachedActivities;
+use crate::cached_activity_reads::{with_streams, CachedActivities};
 use crate::constants::oauth_providers::UPLOAD;
-use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
+use crate::core::{
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
+};
 use crate::errors::{AppError, AppResult};
 use crate::fit_file::{decode_bounded, FitActivityFile, Position};
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
 use crate::pagination::{CursorPage, PaginationParams};
+
+/// What a not-found error calls an uploaded activity.
+const UPLOADED_ACTIVITY: &str = "uploaded activity";
 
 /// The hex SHA-256 of an uploaded file's bytes: the key the file is kept
 /// under.
@@ -59,34 +74,79 @@ pub fn parse_upload_activity_id(id: &str) -> Option<(&str, usize)> {
     Some((sha, index.parse().ok()?))
 }
 
+/// The series of each session of `file` named in `indices`, with its index.
+///
+/// What an upload stores for the sessions it keeps. A session the file does
+/// not hold is left out. CPU-bound, so it runs where the file was decoded, on
+/// the blocking pool.
+#[must_use]
+pub fn upload_session_series(
+    file: &FitActivityFile,
+    indices: impl IntoIterator<Item = usize>,
+) -> Vec<(usize, TimeSeriesData)> {
+    indices
+        .into_iter()
+        .filter_map(|index| Some((index, file.session_series(index, Position::Read)?)))
+        .collect()
+}
+
+/// Store each session series of the uploaded file `file_sha256`.
+///
+/// Each goes to the one per-activity sample store, under the activity id
+/// that session became, with `origin = 'upload'` and the file's hash as
+/// `source_ref`.
+///
+/// Idempotent: the same series written again replaces the row with itself.
+///
+/// # Errors
+/// Returns a database error when a write fails.
+pub async fn store_upload_series(
+    streams: &dyn ActivityStreamRepository,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    file_sha256: &str,
+    series: &[(usize, TimeSeriesData)],
+    synced_at: DateTime<Utc>,
+) -> AppResult<()> {
+    for (index, samples) in series {
+        let activity_id = upload_activity_id(file_sha256, *index);
+        streams
+            .upsert_activity_streams(&ActivityStreamsWrite {
+                tenant_id,
+                user_id,
+                provider: UPLOAD,
+                activity_id: &activity_id,
+                origin: StreamOrigin::Upload,
+                source_ref: Some(file_sha256),
+                streams: samples,
+                synced_at,
+            })
+            .await?;
+    }
+    Ok(())
+}
+
 /// One athlete's uploaded activities, in one tenant, read as a provider.
 pub struct UploadProvider {
     config: ProviderConfig,
-    cache: Arc<dyn ActivityCacheRepository>,
+    stores: OwnerStores,
     files: Arc<dyn UploadedActivityFileRepository>,
-    user_id: Uuid,
-    tenant_id: TenantId,
 }
 
 impl fmt::Debug for UploadProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UploadProvider")
             .field("config", &self.config)
-            .field("user_id", &self.user_id)
-            .field("tenant_id", &self.tenant_id)
+            .field("stores", &self.stores)
             .finish_non_exhaustive()
     }
 }
 
 impl UploadProvider {
-    /// The reader of `user_id`'s uploads in `tenant_id`.
+    /// The reader of the uploads of the owner `stores` are bound to, in
+    /// their tenant.
     #[must_use]
-    pub fn new(
-        cache: Arc<dyn ActivityCacheRepository>,
-        files: Arc<dyn UploadedActivityFileRepository>,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> Self {
+    pub fn new(stores: OwnerStores, files: Arc<dyn UploadedActivityFileRepository>) -> Self {
         Self {
             // Nothing is fetched: there is no endpoint, scope or token.
             config: ProviderConfig {
@@ -97,10 +157,8 @@ impl UploadProvider {
                 revoke_url: None,
                 default_scopes: Vec::new(),
             },
-            cache,
+            stores,
             files,
-            user_id,
-            tenant_id,
         }
     }
 
@@ -108,21 +166,22 @@ impl UploadProvider {
     /// from.
     fn cached(&self) -> CachedActivities<'_> {
         CachedActivities {
-            cache: self.cache.as_ref(),
-            user_id: self.user_id,
-            tenant_id: &self.tenant_id,
+            cache: self.stores.activity_cache.as_ref(),
+            user_id: self.stores.user_id,
+            tenant_id: &self.stores.tenant_id,
             provider: UPLOAD,
         }
     }
 
     /// The stored file behind an uploaded activity, decoded, with the index
-    /// of the activity's session in it.
+    /// of the activity's session in it: the read of an activity whose
+    /// samples the store does not hold yet.
     async fn file_of(&self, id: &str) -> AppResult<(FitActivityFile, usize)> {
-        let not_found = || AppError::not_found(format!("uploaded activity {id}"));
+        let not_found = || AppError::not_found(format!("{UPLOADED_ACTIVITY} {id}"));
         let (sha, index) = parse_upload_activity_id(id).ok_or_else(not_found)?;
         let bytes = self
             .files
-            .get_uploaded_file(&self.tenant_id, self.user_id, sha)
+            .get_uploaded_file(&self.stores.tenant_id, self.stores.user_id, sha)
             .await?
             .ok_or_else(not_found)?;
         // The decode is CPU-bound and memory-heavy: it runs on the blocking
@@ -191,7 +250,7 @@ impl FitnessProvider for UploadProvider {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        self.cached().one(id, "uploaded activity").await
+        self.cached().one(id, UPLOADED_ACTIVITY).await
     }
 
     fn serves_activity_streams(&self) -> bool {
@@ -199,12 +258,19 @@ impl FitnessProvider for UploadProvider {
     }
 
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        if let Some(streams) = self.stores.stored_activity_streams(UPLOAD, id).await? {
+            let activity = self.cached().one(id, UPLOADED_ACTIVITY).await?;
+            return with_streams(&activity, &streams);
+        }
         let (file, index) = self.file_of(id).await?;
         file.activity_with_series(index, id.to_owned(), UPLOAD, Position::Read)
-            .ok_or_else(|| AppError::not_found(format!("uploaded activity {id}")))
+            .ok_or_else(|| AppError::not_found(format!("{UPLOADED_ACTIVITY} {id}")))
     }
 
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        if let Some(streams) = self.stores.stored_activity_streams(UPLOAD, id).await? {
+            return Ok(Some(streams));
+        }
         let (file, index) = self.file_of(id).await?;
         Ok(file.session_series(index, Position::Read))
     }

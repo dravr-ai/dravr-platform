@@ -802,6 +802,7 @@ mod turn_runner_config_test;
 mod turn_service_quota_test;
 mod turn_sweep_cloud_tasks_test;
 mod unbound_thread_welcome_test;
+mod upload_activity_streams_test;
 mod usage_counters_test;
 mod usage_status_tier_test;
 mod use_case_catalogue_test;

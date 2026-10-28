@@ -228,7 +228,7 @@ async fn home_the_calendar_and_the_volume_all_read_the_upload() {
 }
 
 #[tokio::test]
-async fn the_activity_view_reads_the_laps_and_the_route_from_the_file() {
+async fn the_activity_view_reads_the_uploads_laps_and_route() {
     let resources = common::create_test_server_resources().await.unwrap();
     let athlete = seed_athlete(&resources, "upload-view").await;
     let row = uploaded_ride(&resources, &athlete).await;

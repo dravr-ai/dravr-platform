@@ -133,6 +133,7 @@ use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_database::repositories::{ActivityCacheRepository, ActivityStreamRepository};
+use pierre_database::RepositoryRegistry;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -165,6 +166,19 @@ pub struct OwnerStores {
     pub user_id: Uuid,
     /// The tenant the connection lives in.
     pub tenant_id: TenantId,
+}
+
+impl OwnerStores {
+    /// The stores `repos` holds, bound to `user_id` in `tenant_id`.
+    #[must_use]
+    pub fn from_repos(repos: &RepositoryRegistry, user_id: Uuid, tenant_id: TenantId) -> Self {
+        Self {
+            activity_cache: Arc::clone(&repos.activity_cache),
+            activity_streams: Arc::clone(&repos.activity_streams),
+            user_id,
+            tenant_id,
+        }
+    }
 }
 
 impl fmt::Debug for OwnerStores {

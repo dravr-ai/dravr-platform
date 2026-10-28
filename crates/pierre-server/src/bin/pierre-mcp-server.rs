@@ -725,6 +725,14 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_personal_best_seed(&resources);
     }
 
+    // Start the upload samples backfill (carnet#1219): writes the samples of
+    // activities uploaded before uploads were decoded into the one sample
+    // store, a bounded pass at a time, so their reads stop decoding the file.
+    {
+        use pierre_mcp_server::start_upload_streams_backfill;
+        start_upload_streams_backfill(&resources);
+    }
+
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The
     // tasks extension stamps every handle with `expires_at_ms` and advertises
     // the same budget to the client as `ttlMs`; reads filter on it, but until

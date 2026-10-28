@@ -572,10 +572,11 @@ async fn seed_archive_row(db: &Database, data_source_id: &str) {
     }
 }
 
-/// One `activity_streams` row of an origin no repository writes yet
-/// (`upload`, `archive`: the column admits them, `StreamOrigin` has only
-/// `Push`), so the fixture writes it in SQL. It is older than any cache cap,
-/// so a cache expiry would reach it were it a pushed row.
+/// One `activity_streams` row of an origin other than `push`, written in SQL
+/// so that the fixture can file it under the provider being purged and
+/// write `archive`, which no repository writes yet (the column admits it,
+/// `StreamOrigin` does not name it). It is older than any cache cap, so a
+/// cache expiry would reach it were it a pushed row.
 async fn seed_unpushed_streams(
     db: &Database,
     tenant: &TenantId,

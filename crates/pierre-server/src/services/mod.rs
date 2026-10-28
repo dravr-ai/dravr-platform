@@ -41,6 +41,9 @@ pub mod activity_route;
 /// A completed workout's `.fit` file uploaded by the athlete: decoded, deduplicated, kept
 pub mod activity_upload;
 
+/// The periodic backfill that stores the samples of activities uploaded before the sample store held uploads
+pub mod upload_streams_backfill;
+
 /// The athlete's training status for Home: form and its band, the form trend, load against baseline
 pub mod training_status;
 

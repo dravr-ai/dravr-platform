@@ -18,7 +18,7 @@
 
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::models::{Activity, TenantId};
-use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::core::{ActivityQueryParams, OwnerStores};
 use pierre_providers::upload_provider::UploadProvider;
 use pierre_providers::CoreFitnessProvider;
 use std::sync::Arc;
@@ -32,10 +32,8 @@ fn reader(context: &ToolExecutionContext) -> Option<UploadProvider> {
     let tenant = TenantId::from_uuid(context.tenant_id?);
     let repos = context.resources.repos();
     Some(UploadProvider::new(
-        Arc::clone(&repos.activity_cache),
+        OwnerStores::from_repos(repos, context.user_id, tenant),
         Arc::clone(&repos.uploaded_activity_files),
-        context.user_id,
-        tenant,
     ))
 }
 

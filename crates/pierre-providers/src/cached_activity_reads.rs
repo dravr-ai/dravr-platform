@@ -204,7 +204,7 @@ impl OwnerStores {
 /// A built [`Activity`] takes no samples, and the cached copy is read back
 /// built, so they are attached through its serialized form, under the field
 /// the model serializes them as.
-fn with_streams(activity: &Activity, streams: &TimeSeriesData) -> AppResult<Activity> {
+pub(crate) fn with_streams(activity: &Activity, streams: &TimeSeriesData) -> AppResult<Activity> {
     let mut value = serde_json::to_value(activity)
         .map_err(|e| AppError::internal(format!("serialize cached activity: {e}")))?;
     let streams = serde_json::to_value(streams)

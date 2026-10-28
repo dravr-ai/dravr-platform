@@ -340,10 +340,8 @@ impl AuthService {
         };
         let repos = self.resources.repos();
         Ok(Box::new(UploadProvider::new(
-            Arc::clone(&repos.activity_cache),
+            OwnerStores::from_repos(repos, user_id, tenant),
             Arc::clone(&repos.uploaded_activity_files),
-            user_id,
-            tenant,
         )))
     }
 
@@ -583,12 +581,8 @@ impl AuthService {
                         // none, and a push-only provider then refuses it.
                         if let Some(tenant) = tenant_id.and_then(|t| TenantId::parse_str(t).ok()) {
                             let repos = self.resources.repos();
-                            provider.bind_owner_stores(OwnerStores {
-                                activity_cache: Arc::clone(&repos.activity_cache),
-                                activity_streams: Arc::clone(&repos.activity_streams),
-                                user_id,
-                                tenant_id: tenant,
-                            });
+                            provider
+                                .bind_owner_stores(OwnerStores::from_repos(repos, user_id, tenant));
                         }
                         // Wire up callback so provider-level token refresh persists to DB,
                         // over the row these credentials were read from

@@ -1,5 +1,5 @@
 // ABOUTME: An uploaded .fit of a completed workout becomes one cached activity per session, filed under 'upload'
-// ABOUTME: Decoded, checked against the copies the athlete already holds, the file kept; nothing the file lacks is made up
+// ABOUTME: Decoded once, checked against the copies the athlete already holds, file and samples kept; nothing is made up
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,9 +10,14 @@
 //! it becomes an activity read like a provider's: it is written to the
 //! activity cache under the [`UPLOAD`] key, so Home's recent list, the week
 //! strip and calendar, the weekly volume and the agent's activity reads all
-//! see it, and the file is kept (`uploaded_activity_files`) so the series,
-//! laps and route are read from it on demand
-//! (`pierre_providers::upload_provider`).
+//! see it. Each kept session's per-sample series is decoded once, here, and
+//! written to the one per-activity sample store (`activity_streams`,
+//! `origin = 'upload'`, the file's SHA-256 as `source_ref`, carnet#1219), which
+//! the series and route reads answer from
+//! (`pierre_providers::upload_provider`). The file is kept
+//! (`uploaded_activity_files`) as the source both were decoded from: an
+//! activity uploaded before the store held uploads is read from it until the
+//! backfill ([`crate::services::upload_streams_backfill`]) writes its row.
 //!
 //! A session the athlete already holds is not written twice: the same file
 //! uploaded again names the same activity ids, and a workout a provider has
@@ -24,9 +29,9 @@
 //! copies, which every reader merges into one session.
 //!
 //! The athlete can delete an uploaded activity, as Strava and intervals.icu
-//! let them ([`delete_uploaded_activity`]): its cached row goes, its shoe
-//! attribution goes or moves to another copy of the workout, and the file
-//! goes with the last of its sessions. An upload or a deletion is a moment the
+//! let them ([`delete_uploaded_activity`]): its cached row and its samples go,
+//! its shoe attribution goes or moves to another copy of the workout, and the
+//! file goes with the last of its sessions. An upload or a deletion is a moment the
 //! stored activities change, so either one drops the agent's cached lists and
 //! recomputes the training-load rollup the way a provider capture does.
 
@@ -42,7 +47,8 @@ use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::fit_file::{decode_bounded, FitActivityFile};
 use pierre_providers::upload_provider::{
-    file_sha256, parse_upload_activity_id, upload_activity_id,
+    file_sha256, parse_upload_activity_id, store_upload_series, upload_activity_id,
+    upload_session_series,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::rewarm_default_window;
@@ -84,9 +90,13 @@ pub struct UploadOutcome {
 /// Decode `bytes` as a completed workout's `.fit` file and keep every session
 /// the athlete does not already hold.
 ///
-/// The file is decoded and hashed once, together, on the blocking pool: both
-/// are CPU-bound, and a 16 MiB upload would otherwise hold a runtime worker,
-/// and every request scheduled on it, for the length of the decode.
+/// The file is decoded, hashed and its sessions' series read once, together,
+/// on the blocking pool: all three are CPU-bound, and a 16 MiB upload would
+/// otherwise hold a runtime worker, and every request scheduled on it, for
+/// the length of the decode. The series of every session kept is written to
+/// the sample store before its activity is cached, so a cached upload is
+/// never read without its samples stored, save one uploaded before the
+/// store held uploads.
 ///
 /// # Errors
 ///
@@ -112,12 +122,16 @@ pub async fn upload_activity_file(
         )));
     }
     let decoding = bytes.clone(); // Safe: a refcount bump, not a copy of the file
-    let (file, sha) = decode_bounded(move || {
-        FitActivityFile::parse(&decoding).map(|file| (file, file_sha256(&decoding)))
+    let (sessions, series, sha) = decode_bounded(move || {
+        FitActivityFile::parse(&decoding).map(|file| {
+            let sha = file_sha256(&decoding);
+            let sessions = file.activities(|index| upload_activity_id(&sha, index), UPLOAD);
+            let series = upload_session_series(&file, 0..file.session_count());
+            (sessions, series, sha)
+        })
     })
     .await?
     .map_err(|e| AppError::invalid_input(format!("the file is not a completed activity: {e}")))?;
-    let sessions = file.activities(|index| upload_activity_id(&sha, index), UPLOAD);
 
     let mut stored = Vec::with_capacity(sessions.len());
     let mut already_held = Vec::new();
@@ -136,14 +150,32 @@ pub async fn upload_activity_file(
         )));
     }
 
+    let kept: Vec<String> = stored
+        .iter()
+        .map(|session| session.id().to_owned())
+        .collect();
+    let kept_series: Vec<_> = series
+        .into_iter()
+        .filter(|(index, _)| kept.contains(&upload_activity_id(&sha, *index)))
+        .collect();
     let repos = runtime.repos();
+    let synced_at = Utc::now();
     repos
         .uploaded_activity_files
         .store_uploaded_file(&tenant_id, user_id, &sha, &bytes)
         .await?;
+    store_upload_series(
+        repos.activity_streams.as_ref(),
+        &tenant_id,
+        user_id,
+        &sha,
+        &kept_series,
+        synced_at,
+    )
+    .await?;
     repos
         .activity_cache
-        .upsert_activities_synced_at(user_id, &tenant_id, UPLOAD, &stored, Utc::now())
+        .upsert_activities_synced_at(user_id, &tenant_id, UPLOAD, &stored, synced_at)
         .await?;
     after_stored_activities_changed(runtime, tenant_id, user_id).await;
     info!(
@@ -191,6 +223,10 @@ pub async fn delete_uploaded_activity(
     if removed == 0 {
         return Err(not_found());
     }
+    repos
+        .activity_streams
+        .delete_activity_streams(&tenant_id, user_id, UPLOAD, activity_id)
+        .await?;
     let file_deleted = if repos
         .uploaded_activity_files
         .file_backs_cached_activity(&tenant_id, user_id, sha)
