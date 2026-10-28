@@ -3330,6 +3330,7 @@
         "step2Title": "Paso 2 de 3 · Pega el enlace del correo de Strava",
         "linkLabel": "Enlace del correo de Strava",
         "linkPlaceholder": "https://…",
+        "linkHint": "En el correo de Strava, copia el enlace del botón de descarga y pégalo completo. Es válido durante 7 días.",
         "check": "Comprobar enlace",
         "checking": "Comprobando…",
         "found": "Exportación encontrada · unos {{size}}",
@@ -3385,7 +3386,7 @@
           "archive_unreadable": "La exportación no es un archivo ZIP legible.",
           "archive_limit": "La exportación supera un límite de seguridad, así que no se leyó.",
           "missing_activities_csv": "La exportación no tiene lista de actividades.",
-          "unknown_locale": "La lista de actividades de la exportación está en un idioma que Dravr aún no sabe leer.",
+          "unknown_locale": "La lista de actividades de la exportación está en un idioma que Dravr aún no sabe leer. Pon Strava en inglés o francés y solicita una nueva exportación.",
           "spool_missing": "La importación perdió su copia de la exportación.",
           "not_an_export": "Ese archivo no es una exportación de Strava."
         }
