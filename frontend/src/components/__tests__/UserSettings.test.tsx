@@ -969,6 +969,60 @@ describe('UserSettings Component', () => {
       expect(window.open).not.toHaveBeenCalled();
     });
 
+    const garminCard = (recommended_backend: 'oauth' | 'mirror', needs_reauth = false) => ({
+      provider: 'sciotte_garmin',
+      display_name: 'Garmin',
+      requires_oauth: false,
+      connected: needs_reauth,
+      needs_reauth,
+      capabilities: ['activities'],
+      recommended_backend,
+      seats_left: recommended_backend === 'oauth' ? 999 : 0,
+    });
+
+    it('launches Garmin OAuth (not the credential login) while Garmin seats remain', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+
+      await waitFor(() =>
+        expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'),
+      );
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('reconnects a dead Garmin usr/pwd session through Garmin OAuth while seats remain', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth', true)] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+      await waitFor(() =>
+        expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'),
+      );
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Connect' }));
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(window.open).not.toHaveBeenCalled();
+    });
+
     it('renders a connected-but-dead session as "Reconnect needed", not "Connected"', async () => {
       // A connected provider whose scrape session died (needs_reauth) must show
       // the warning badge + a "Reconnect" affordance instead of a healthy pill.

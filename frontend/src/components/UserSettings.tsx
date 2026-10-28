@@ -521,12 +521,12 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               // The account belonged to a deleted Dravr account: the OAuth
               // tab words it and offers to start fresh. Another way in to the
               // same account would only be refused the same way.
-            } else if (providerId === 'strava') {
-              // Strava OAuth failed (shared-app athlete cap actually exceeded
+            } else if (providerId === 'strava' || providerId === 'garmin') {
+              // Strava or Garmin OAuth failed (athlete cap actually exceeded
               // in a seat-count race, or the provider rejected the grant).
-              // Fall back to the Sciotte credential login — same Strava data —
-              // instead of leaving the user on an error message.
-              setSciotteModalTarget('strava');
+              // Fall back to the credential login — same data — instead of
+              // leaving the user on an error message.
+              setSciotteModalTarget(providerId);
             } else {
               setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: connectedProviderName(providerId) }) });
             }
@@ -962,23 +962,23 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  // The `sciotte` card is the user-facing Strava card. OAuth is
-                                  // the default while shared-app seats remain (server recommends
-                                  // `oauth`); once the athlete cap is reached it recommends `mirror`
-                                  // and we open the Sciotte credential login. If the OAuth attempt
-                                  // itself fails, handleConnectProvider falls back to Sciotte.
-                                  // Garmin and TrainingPeaks are always the credential flow,
-                                  // TrainingPeaks after its notice while the account has not
-                                  // accepted it.
+                                  // The Strava and Garmin cards connect through the provider's own
+                                  // OAuth (named by the card's target) while seats remain (server
+                                  // recommends `oauth`); once the athlete cap is reached it
+                                  // recommends `mirror` and we open the credential login. If the
+                                  // OAuth attempt itself fails, handleConnectProvider falls back to
+                                  // it. TrainingPeaks is always the credential flow, after its
+                                  // notice while the account has not accepted it.
+                                  const target = sciotteTargetForBackend(provider.provider);
                                   const backend =
-                                    provider.provider === 'sciotte' && provider.recommended_backend === 'oauth'
-                                      ? 'strava'
+                                    target && provider.recommended_backend === 'oauth'
+                                      ? target
                                       : provider.provider;
                                   // Guard on the resolved backend so re-authing the backend that
                                   // already holds the grant isn't mistaken for a provider switch.
                                   if (checkProviderConflict(backend)) return;
-                                  if (backend === 'strava') {
-                                    void handleConnectProvider('strava');
+                                  if (backend !== provider.provider) {
+                                    void handleConnectProvider(backend);
                                   } else {
                                     setSciotteConsentRequired(provider.consent_required);
                                     setSciotteModalTarget(sciotteTargetForBackend(provider.provider));
