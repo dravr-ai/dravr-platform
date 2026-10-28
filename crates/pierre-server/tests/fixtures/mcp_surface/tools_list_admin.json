@@ -8806,7 +8806,7 @@
       "outputSchema": {
         "$defs": {
           "TimeSeriesData": {
-            "description": "Time-series data for detailed activity analysis\n\nEvery sampled channel is index-aligned with `timestamps`: entry `i` of a\nchannel is the reading at `timestamps[i]`. A channel that was recorded but\nmissed a sample (a sensor dropout, a strap that lost contact) carries\n`None` at that index — a gap. A gap is not a reading: every consumer in\nthis crate skips it, so it never enters an average, a zone's time, a\nnormalized-power window or a decoupling pair, and no provider has to\ninvent a value (a `0` reads as a real 0 bpm or a real coast) or drop the\nwhole channel to say a sample is missing. On the wire a gap is `null`; a\nchannel written before gaps existed (plain numbers) reads unchanged.",
+            "description": "Time-series data for detailed activity analysis\n\nEvery sampled channel is index-aligned with `timestamps`: entry `i` of a\nchannel is the reading at `timestamps[i]`. A channel that was recorded but\nmissed a sample (a sensor dropout, a strap that lost contact) carries\n`None` at that index — a gap. A gap is not a reading: every consumer in\nthis crate skips it, so it never enters an average, a zone's time, a\nnormalized-power window or a decoupling pair, and no provider has to\ninvent a value (a `0` reads as a real 0 bpm or a real coast, a copied GPS\nfix as a stop) or drop the sample to say it is missing, which would shift\nevery later index. GPS and distance follow the same rule: a sample without\na fix keeps its slot as `None`. On the wire a gap is `null`; a channel\nwritten before gaps existed (plain values) reads unchanged.",
             "properties": {
               "altitude": {
                 "description": "Altitude measurements (meters); `None` entries are gaps",
@@ -8838,10 +8838,13 @@
                 ]
               },
               "distance": {
-                "description": "Cumulative distance from activity start (meters), one value per entry\nof `timestamps` (e.g. Strava's `distance` stream). Read by [`crate::best_efforts::best_efforts`].",
+                "description": "Cumulative distance from activity start (meters), one value per entry\nof `timestamps` (e.g. Strava's `distance` stream); `None` entries are\nsamples the distance channel missed. Read by\n[`crate::best_efforts::best_efforts`].",
                 "items": {
                   "format": "double",
-                  "type": "number"
+                  "type": [
+                    "number",
+                    "null"
+                  ]
                 },
                 "type": [
                   "array",
@@ -8849,7 +8852,7 @@
                 ]
               },
               "gps_coordinates": {
-                "description": "GPS coordinates (lat, lon pairs)",
+                "description": "GPS fixes (lat, lon pairs); `None` entries are samples without a fix\n(before the first fix, a dropout under trees or in a tunnel), never a\ncopied neighbouring fix",
                 "items": {
                   "maxItems": 2,
                   "minItems": 2,
@@ -8863,7 +8866,10 @@
                       "type": "number"
                     }
                   ],
-                  "type": "array"
+                  "type": [
+                    "array",
+                    "null"
+                  ]
                 },
                 "type": [
                   "array",

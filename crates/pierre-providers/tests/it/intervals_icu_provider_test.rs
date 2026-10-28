@@ -822,10 +822,10 @@ async fn get_activity_with_streams_folds_the_streams_response() {
     assert_eq!(
         gps.as_slice(),
         &[
-            (45.5, -73.6),
-            (45.501, -73.601),
-            (45.502, -73.602),
-            (45.503, -73.603)
+            Some((45.5, -73.6)),
+            Some((45.501, -73.601)),
+            Some((45.502, -73.602)),
+            Some((45.503, -73.603))
         ],
         "latitudes in data and longitudes in data2 pair by index"
     );
@@ -887,9 +887,9 @@ async fn latlng_pairs_latitudes_from_data_with_longitudes_from_data2() {
 
     let gps = stream.gps_coordinates.as_ref().expect("the run has GPS");
     assert_eq!(gps.len(), 5, "one coordinate per latitude sample");
-    let expected: Vec<(f64, f64)> = lats.iter().copied().zip(lngs).collect();
-    assert_eq!(gps, &expected);
-    for (lat, lng) in gps {
+    let expected: Vec<Option<(f64, f64)>> = lats.iter().copied().zip(lngs).map(Some).collect();
+    assert_eq!(gps, &expected, "every sample holds its own fix");
+    for (lat, lng) in gps.iter().flatten() {
         assert!(
             (45.30..45.31).contains(lat) && (-72.66..-72.64).contains(lng),
             "({lat}, {lng}) is not in Bromont"
@@ -925,10 +925,10 @@ async fn latlng_without_data2_is_no_gps() {
 }
 
 /// A `latlng` sample without a fix arrives as `null` on either side. The read
-/// succeeds and the track holds only the fixed points, never a zero or a
-/// half-pair.
+/// succeeds and the sample keeps its slot without a fix, never a zero, a
+/// half-pair or a neighbour's fix, so every fix stays on its own sample.
 #[tokio::test]
-async fn latlng_samples_without_a_fix_are_left_out_of_the_track() {
+async fn latlng_samples_without_a_fix_keep_their_slot_as_a_gap() {
     let stream = streams_through_provider(serde_json::json!([
         { "type": "time", "data": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0] },
         { "type": "latlng",
@@ -940,11 +940,14 @@ async fn latlng_samples_without_a_fix_are_left_out_of_the_track() {
     assert_eq!(
         stream.gps_coordinates,
         Some(vec![
-            (45.3051, -72.6512),
-            (45.3061, -72.6496),
-            (45.3065, -72.6490)
+            Some((45.3051, -72.6512)),
+            None,
+            None,
+            Some((45.3061, -72.6496)),
+            Some((45.3065, -72.6490)),
+            None
         ]),
-        "only the samples with both a latitude and a longitude are points"
+        "only the samples with both a latitude and a longitude hold a fix"
     );
     assert_eq!(
         stream.timestamps.len(),
@@ -1045,9 +1048,9 @@ async fn an_untimed_sample_is_dropped_from_every_channel() {
     assert_eq!(
         stream.gps_coordinates,
         Some(vec![
-            (45.3051, -72.6512),
-            (45.3054, -72.6507),
-            (45.3061, -72.6496)
+            Some((45.3051, -72.6512)),
+            Some((45.3054, -72.6507)),
+            Some((45.3061, -72.6496))
         ]),
         "the untimed position is dropped with its sample"
     );

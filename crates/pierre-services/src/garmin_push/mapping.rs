@@ -24,7 +24,6 @@ use pierre_core::models::{
     Activity, ActivityBuilder, Lap, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession, StoredSleepStage, StoredSleepStageType, TimeSeriesData,
 };
-use pierre_providers::fit_file::aligned_track;
 use pierre_providers::sciotte_provider::convert_sport_type;
 
 use super::wire::{
@@ -161,16 +160,6 @@ fn channel<T>(
     values.iter().any(Option::is_some).then_some(values)
 }
 
-/// One channel that admits no gap (cumulative distance): kept only when
-/// every sample carries it. Positions fill their gaps instead
-/// ([`aligned_track`]), shared with the FIT decode.
-fn gapless<T>(
-    samples: &[&ActivitySample],
-    read: impl Fn(&ActivitySample) -> Option<T>,
-) -> Option<Vec<T>> {
-    samples.iter().map(|s| read(s)).collect()
-}
-
 /// A reading as `f32`.
 #[allow(clippy::cast_possible_truncation)]
 fn narrow(value: Option<f64>) -> Option<f32> {
@@ -214,12 +203,10 @@ pub(crate) fn streams_from_samples(
         speed: channel(&samples, |s| narrow(s.speed_meters_per_second)),
         altitude: channel(&samples, |s| narrow(s.elevation_in_meters)),
         temperature: channel(&samples, |s| narrow(s.air_temperature_celsius)),
-        gps_coordinates: aligned_track(
-            samples
-                .iter()
-                .map(|s| Some((s.latitude_in_degree?, s.longitude_in_degree?))),
-        ),
-        distance: gapless(&samples, |s| s.total_distance_in_meters),
+        gps_coordinates: channel(&samples, |s| {
+            Some((s.latitude_in_degree?, s.longitude_in_degree?))
+        }),
+        distance: channel(&samples, |s| s.total_distance_in_meters),
     })
 }
 
@@ -715,7 +702,7 @@ mod tests {
         );
         assert_eq!(
             streams.distance,
-            Some(vec![0.0, 10.0, 20.0]),
+            Some(vec![Some(0.0), Some(10.0), Some(20.0)]),
             "distance follows the samples"
         );
         assert_eq!(
@@ -727,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn a_sample_without_a_fix_takes_the_nearest_fix() {
+    fn a_sample_without_a_fix_keeps_its_slot_without_one() {
         let at = |offset: i64, lat: Option<f64>| ActivitySample {
             latitude_in_degree: lat,
             ..sample(offset, 120.0, Some(0.0))
@@ -739,16 +726,16 @@ mod tests {
             at(3, Some(46.0)),
         ];
         let streams = streams_from_samples(START, &samples).unwrap();
-        let lats: Vec<f64> = streams
+        let lats: Vec<Option<f64>> = streams
             .gps_coordinates
             .expect("the route is kept")
             .iter()
-            .map(|p| p.0)
+            .map(|p| p.map(|fix| fix.0))
             .collect();
         assert_eq!(
             lats,
-            vec![45.0, 45.0, 45.0, 46.0],
-            "index-aligned, gaps filled"
+            vec![None, Some(45.0), None, Some(46.0)],
+            "index-aligned, a missing fix is a gap, never a copied one"
         );
 
         let none = [at(0, None), at(1, None)];

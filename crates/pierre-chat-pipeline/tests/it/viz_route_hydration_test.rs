@@ -54,7 +54,7 @@ fn hill_streams() -> TimeSeriesData {
     let mut gps_coordinates = Vec::with_capacity(POINTS);
     for step in 0..POINTS {
         altitude.push(Some(ALTITUDE_STEP.mul_add(step as f32, 100.0)));
-        gps_coordinates.push((latitude_at(step), LONGITUDE));
+        gps_coordinates.push(Some((latitude_at(step), LONGITUDE)));
     }
     TimeSeriesData {
         timestamps: (0..POINTS as u32).collect(),
@@ -419,8 +419,8 @@ fn unusable_points_are_dropped_and_the_series_stay_aligned() {
         .gps_coordinates
         .as_mut()
         .expect("the fixture records GPS");
-    coordinates[5] = (f64::NAN, LONGITUDE);
-    coordinates[9] = (91.0, LONGITUDE);
+    coordinates[5] = Some((f64::NAN, LONGITUDE));
+    coordinates[9] = Some((91.0, LONGITUDE));
 
     let track = RouteTrack::from_streams(&streams).expect("the rest of the track still draws");
 
@@ -461,7 +461,7 @@ fn a_ride_that_never_leaves_its_own_doorstep_is_refused() {
     let mut streams = hill_streams();
     streams.gps_coordinates = Some(
         (0..5)
-            .map(|step| (0.000_1_f64.mul_add(f64::from(step), 45.5), LONGITUDE))
+            .map(|step| Some((0.000_1_f64.mul_add(f64::from(step), 45.5), LONGITUDE)))
             .collect(),
     );
     streams.altitude = Some(vec![Some(100.0); 5]);
@@ -480,7 +480,7 @@ fn a_ride_that_never_leaves_its_own_doorstep_is_refused() {
 #[test]
 fn a_single_point_is_not_a_route() {
     let mut streams = hill_streams();
-    streams.gps_coordinates = Some(vec![(45.5, LONGITUDE)]);
+    streams.gps_coordinates = Some(vec![Some((45.5, LONGITUDE))]);
     streams.altitude = Some(vec![Some(100.0)]);
 
     let reason = RouteTrack::from_streams(&streams).expect_err("one point is a pin, not a route");

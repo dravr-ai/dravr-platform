@@ -203,8 +203,10 @@ pub fn build_route_summary(gpx_bytes: &[u8]) -> Option<RouteSummary> {
 /// per second instead of exposing a downloadable GPX file.
 ///
 /// `gps_coordinates` and `altitudes` must be aligned (same length); when
-/// they are not, the shorter slice's length wins. A point whose altitude is a
-/// gap (`None`) is not paired. Returns `None` when:
+/// they are not, the shorter slice's length wins. A sample without a fix, or
+/// whose altitude is a gap (`None`), is not paired, so the line runs straight
+/// from the last fix before a dropout to the first after it. Returns `None`
+/// when:
 /// - fewer than two paired points are available,
 /// - every paired point fails the validity check (NaN / infinity, lat
 ///   outside `[-90, 90]`, lon outside `[-180, 180]`), or
@@ -212,7 +214,7 @@ pub fn build_route_summary(gpx_bytes: &[u8]) -> Option<RouteSummary> {
 ///   `route_summaries` cache from being poisoned with malformed data.
 #[must_use]
 pub fn build_route_summary_from_streams(
-    gps_coordinates: &[(f64, f64)],
+    gps_coordinates: &[Option<(f64, f64)>],
     altitudes: &[Option<f32>],
 ) -> Option<RouteSummary> {
     let points = stream_points(gps_coordinates, altitudes);
@@ -243,7 +245,7 @@ pub fn build_route_summary_from_streams(
 /// `[-90, 90]`, lon outside `[-180, 180]`).
 #[must_use]
 pub fn stream_route_identity(
-    gps_coordinates: &[(f64, f64)],
+    gps_coordinates: &[Option<(f64, f64)>],
     altitudes: &[Option<f32>],
 ) -> Option<(String, usize)> {
     let points = stream_points(gps_coordinates, altitudes);
@@ -282,13 +284,20 @@ pub fn route_summary_from_cache(
 /// Pair the GPS and altitude streams and keep only the valid points.
 ///
 /// The slices must be aligned (same length); when they are not, the shorter
-/// slice's length wins. Points whose altitude is a gap, and points failing
-/// [`valid_point`], are dropped.
-fn stream_points(gps_coordinates: &[(f64, f64)], altitudes: &[Option<f32>]) -> Vec<TrackPoint> {
+/// slice's length wins. A sample without a fix takes its altitude with it,
+/// and points whose altitude is a gap, or failing [`valid_point`], are
+/// dropped.
+fn stream_points(
+    gps_coordinates: &[Option<(f64, f64)>],
+    altitudes: &[Option<f32>],
+) -> Vec<TrackPoint> {
     gps_coordinates
         .iter()
         .zip(altitudes)
-        .filter_map(|(&(lat, lon), altitude)| valid_point(lat, lon, f64::from((*altitude)?)))
+        .filter_map(|(fix, altitude)| {
+            let (lat, lon) = (*fix)?;
+            valid_point(lat, lon, f64::from((*altitude)?))
+        })
         .collect()
 }
 

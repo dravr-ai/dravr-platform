@@ -205,9 +205,14 @@ async fn with_streams_attaches_real_samples_and_handles_dropouts() {
         "every channel stays index-aligned with the time stream"
     );
     let gps = stream.gps_coordinates.as_ref().expect("gps track");
-    assert_eq!(gps.len(), 4, "the GPS dropout is dropped, never (0,0)");
-    assert_eq!(gps[0], (45.5, -73.6));
-    assert_eq!(gps[2], (45.503, -73.603));
+    assert_eq!(
+        gps.len(),
+        5,
+        "the GPS dropout keeps its slot, so every later fix stays on its sample"
+    );
+    assert_eq!(gps[0], Some((45.5, -73.6)));
+    assert_eq!(gps[2], None, "a lost fix is a gap, never (0,0) or a copy");
+    assert_eq!(gps[3], Some((45.503, -73.603)), "the fix after the dropout");
 }
 
 /// Strava's `404` on the streams route is its answer for an activity with no
@@ -288,8 +293,8 @@ async fn the_detail_tier_never_pays_for_streams() {
 }
 
 /// A run's cumulative distance reaches the series sample for sample with its
-/// time axis, which is what best-effort detection reads; a dropout repeats
-/// the last reading instead of falling back to zero.
+/// time axis, which is what best-effort detection reads; a dropout is a gap,
+/// never a zero or a repeated reading.
 #[tokio::test]
 async fn a_run_stream_fills_the_cumulative_distance_channel() {
     ensure_http_clients_initialized();
@@ -313,8 +318,17 @@ async fn a_run_stream_fills_the_cumulative_distance_channel() {
     assert_eq!(stream.timestamps, vec![0, 1, 2, 3, 4, 5]);
     assert_eq!(
         stream.distance.as_deref(),
-        Some(&[0.0, 3.2, 6.5, 6.5, 13.1, 16.4][..]),
-        "metres from the start, aligned with the time axis; the dropout keeps 6.5"
+        Some(
+            &[
+                Some(0.0),
+                Some(3.2),
+                Some(6.5),
+                None,
+                Some(13.1),
+                Some(16.4)
+            ][..]
+        ),
+        "metres from the start, aligned with the time axis; the dropout is a gap"
     );
 }
 
@@ -382,17 +396,17 @@ async fn an_untimed_sample_is_dropped_from_every_channel() {
     assert_eq!(
         stream.gps_coordinates,
         Some(vec![
-            (45.5, -73.6),
-            (45.501, -73.601),
-            (45.503, -73.603),
-            (45.504, -73.604)
+            Some((45.5, -73.6)),
+            Some((45.501, -73.601)),
+            Some((45.503, -73.603)),
+            Some((45.504, -73.604))
         ]),
         "the untimed position is dropped with its sample"
     );
     assert_eq!(
         stream.distance.as_deref(),
-        Some(&[0.0, 5.0, 10.0, 20.0][..]),
-        "the reading taken at the untimed sample still carries over the next dropout"
+        Some(&[Some(0.0), Some(5.0), None, Some(20.0)][..]),
+        "the untimed reading goes with its sample, the next dropout stays a gap"
     );
 }
 

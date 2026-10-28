@@ -93,7 +93,7 @@ pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeri
     let mut cadence: Option<Vec<Option<u32>>> = None;
     let mut speed: Option<Vec<Option<f32>>> = None;
     let mut altitude: Option<Vec<Option<f32>>> = None;
-    let mut latlng: Vec<(f64, f64)> = Vec::new();
+    let mut latlng: Vec<Option<(f64, f64)>> = Vec::new();
     let mut sample_count = 0_usize;
     for stream in streams {
         sample_count = sample_count.max(stream.data.len());
@@ -111,8 +111,8 @@ pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeri
                 // A latlng stream without `data2` carries no longitude at all:
                 // it is read as no GPS, since no pairing of latitudes with each
                 // other places a single point on the map. A sample without a
-                // fix (either side `null`) is left out of the track, which is
-                // a line through the recorded points and not indexed by time.
+                // fix (either side `null`) keeps its slot as `None`, so every
+                // fix after it stays on its own sample's time.
                 if let Some(longitudes) = stream.data2.as_deref() {
                     let pairs: Vec<(Option<f64>, Option<f64>)> = stream
                         .data
@@ -122,7 +122,7 @@ pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeri
                         .collect();
                     latlng = keep_timed(pairs, &timed)
                         .into_iter()
-                        .filter_map(|(lat, lng)| Some((lat?, lng?)))
+                        .map(|(lat, lng)| Some((lat?, lng?)))
                         .collect();
                 }
             }
@@ -143,11 +143,7 @@ pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeri
         speed,
         altitude,
         temperature: None,
-        gps_coordinates: if latlng.is_empty() {
-            None
-        } else {
-            Some(latlng)
-        },
+        gps_coordinates: latlng.iter().any(Option::is_some).then_some(latlng),
         distance: None,
     }
 }

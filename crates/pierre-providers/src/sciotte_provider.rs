@@ -705,7 +705,7 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
         speed: None,
         altitude,
         temperature: None,
-        gps_coordinates: Some(route.coordinates.clone()),
+        gps_coordinates: Some(route.coordinates.iter().copied().map(Some).collect()),
         distance: None,
     }
 }

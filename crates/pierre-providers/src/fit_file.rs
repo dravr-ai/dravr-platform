@@ -288,28 +288,24 @@ fn fractional(value: Option<f64>) -> Option<f32> {
 
 /// The series of `samples`, timed from the first one.
 ///
-/// Distance is cumulative, one value per sample: a sample without it has not
-/// moved since the last one that had it. Positions are one per sample, index
-/// for index with the timestamps ([`aligned_track`]): a sample without a fix
-/// takes the nearest one, so the route survives a late fix or a dropout.
+/// Every channel is one entry per sample, index for index with the
+/// timestamps, and a sample the file recorded no value for keeps its slot as
+/// a gap: cumulative distance and position included. A sample without a fix
+/// (before the device's first one, a dropout under trees or in a tunnel) is
+/// `None`, never a copied neighbouring fix, which would read as a stop.
 fn series(samples: &[Sample], position: Position) -> TimeSeriesData {
     let Some(start) = samples.first().and_then(|sample| sample.timestamp) else {
         return no_recorded_samples();
     };
-    let mut timestamps = Vec::with_capacity(samples.len());
-    let mut distance = Vec::with_capacity(samples.len());
-    let mut last_distance = 0.0;
-    for sample in samples {
-        let offset = sample.timestamp.unwrap_or(start).saturating_sub(start);
-        timestamps.push(u32::try_from(offset).unwrap_or(u32::MAX));
-        if let Some(meters) = sample.distance {
-            last_distance = meters;
-        }
-        distance.push(last_distance);
-    }
-    let has_distance = samples.iter().any(|sample| sample.distance.is_some());
+    let timestamps = samples
+        .iter()
+        .map(|sample| {
+            let offset = sample.timestamp.unwrap_or(start).saturating_sub(start);
+            u32::try_from(offset).unwrap_or(u32::MAX)
+        })
+        .collect();
     let track = match position {
-        Position::Read => aligned_track(samples.iter().map(|s| s.position)),
+        Position::Read => channel(samples.iter().map(|s| s.position).collect()),
         Position::Withheld => None,
     };
     TimeSeriesData {
@@ -321,37 +317,8 @@ fn series(samples: &[Sample], position: Position) -> TimeSeriesData {
         altitude: channel(samples.iter().map(|s| fractional(s.altitude)).collect()),
         temperature: channel(samples.iter().map(|s| fractional(s.temperature)).collect()),
         gps_coordinates: track,
-        distance: has_distance.then_some(distance),
+        distance: channel(samples.iter().map(|s| s.distance).collect()),
     }
-}
-
-/// One position per sample, index for index with the samples, from each
-/// sample's fix or its absence.
-///
-/// Every reader slices the channels by index, so a sample without a fix keeps
-/// its slot: one recorded before the device's first fix takes that first fix,
-/// and one in a later gap (a dropout under trees, in a tunnel) takes the last
-/// fix before it. `None` only when no sample has a fix at all. Shared by the
-/// FIT decode and the Garmin push mapping, so one activity reads the same
-/// route whichever path brought its samples.
-#[must_use]
-pub fn aligned_track(
-    positions: impl IntoIterator<Item = Option<(f64, f64)>>,
-) -> Option<Vec<(f64, f64)>> {
-    let positions: Vec<Option<(f64, f64)>> = positions.into_iter().collect();
-    let first = positions.iter().flatten().copied().next()?;
-    let mut last = first;
-    Some(
-        positions
-            .into_iter()
-            .map(|fix| {
-                if let Some(fix) = fix {
-                    last = fix;
-                }
-                last
-            })
-            .collect(),
-    )
 }
 
 /// The sport a FIT `sport` / `sub_sport` pair names, and the detail string
@@ -872,12 +839,18 @@ mod tests {
         assert_eq!(heart_rate[0], Some(77));
         assert_eq!(heart_rate[1], Some(83));
         let distance = series.distance.unwrap_or_default();
-        assert!((distance[1] - 16.15).abs() < 1e-9);
+        assert!(
+            distance[1].is_some_and(|meters| (meters - 16.15).abs() < 1e-9),
+            "{distance:?}"
+        );
         assert!(series.temperature.is_some());
         assert_eq!(series.power, None);
         let track = series.gps_coordinates.unwrap_or_default();
         assert_eq!(track.len(), series.timestamps.len());
-        assert!((track[0].0 - 37.410_7).abs() < 0.001);
+        assert!(
+            track[0].is_some_and(|fix| (fix.0 - 37.410_7).abs() < 0.001),
+            "{track:?}"
+        );
     }
 
     #[test]
@@ -906,24 +879,27 @@ mod tests {
         (file, series)
     }
 
-    /// Samples recorded before the first fix take that fix: the route is kept
-    /// and stays one position per sample.
+    /// Samples recorded before the first fix keep their slots without a fix:
+    /// the route starts at the first real fix, and stays one entry per sample.
     #[test]
-    fn samples_before_the_first_fix_take_the_first_fix() {
+    fn samples_before_the_first_fix_have_none() {
         let (_, series) = ride_losing_fix((0, 10));
         let track = series
             .gps_coordinates
             .unwrap_or_else(|| panic!("bug: a late fix must not lose the route"));
         assert_eq!(track.len(), series.timestamps.len(), "index-aligned");
         assert_eq!(series.timestamps.len(), 60, "bug: every sample is kept");
-        assert!(track[..10].iter().all(|p| *p == track[10]), "{track:?}");
-        assert!(track[11].0 > track[10].0, "the recorded fixes follow");
+        assert!(
+            track[..10].iter().all(Option::is_none),
+            "bug: a sample without a fix is never given one: {track:?}"
+        );
+        assert!(track[10..].iter().all(Option::is_some), "{track:?}");
     }
 
-    /// A dropout mid-ride holds the last fix before it, so every fix after
-    /// the gap stays against its own sample.
+    /// A dropout mid-ride leaves its samples without a fix, so every fix
+    /// after the gap stays against its own sample and nothing reads as a stop.
     #[test]
-    fn a_mid_ride_dropout_holds_the_last_fix_and_keeps_alignment() {
+    fn a_mid_ride_dropout_keeps_its_gap_and_the_alignment() {
         let (file, series) = ride_losing_fix((20, 30));
         let whole = FitActivityFile::parse(
             &FitWorkout::ride(Utc::now() - chrono::Duration::days(1), 60).encode(),
@@ -936,7 +912,10 @@ mod tests {
             .gps_coordinates
             .unwrap_or_else(|| panic!("bug: a dropout must not lose the route"));
         assert_eq!(track.len(), 60, "index-aligned with the 60 samples");
-        assert!(track[20..30].iter().all(|p| *p == track[19]), "{track:?}");
+        assert!(
+            track[20..30].iter().all(Option::is_none),
+            "bug: the dropout is a gap, not a copied fix: {track:?}"
+        );
         assert_eq!(
             track[..20],
             whole[..20],
@@ -966,7 +945,6 @@ mod tests {
         let (_, series) = ride_losing_fix((0, 60));
         assert_eq!(series.timestamps.len(), 60, "every sample is kept");
         assert_eq!(series.gps_coordinates, None, "bug: no fix, no route");
-        assert_eq!(aligned_track([None, None]), None, "bug: no fix, no route");
     }
 
     #[test]

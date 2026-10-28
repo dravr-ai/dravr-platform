@@ -1,4 +1,4 @@
-// ABOUTME: The backfill that writes the samples of activities uploaded before the sample store held uploads
+// ABOUTME: The backfill that writes current sample rows for uploads that lack one or hold an earlier format version
 // ABOUTME: A bounded, idempotent pass on the worker ledger: decode each owed file once, store its sessions' series
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,8 +8,10 @@
 //!
 //! An upload writes each kept session's series to the one per-activity sample
 //! store as it is decoded ([`crate::services::activity_upload`]). Activities
-//! uploaded before that have only their file, and are read from it, decoded
-//! again on every read. This worker writes their rows.
+//! uploaded before that have only their file, and those whose row is at an
+//! earlier format version (written before GPS and distance kept their gaps,
+//! carnet#1226) are replayed from it: both are read from the file, decoded
+//! again on every read. This worker writes their current rows.
 //!
 //! Why a periodic worker rather than a migration or a one-shot at boot: SQL
 //! cannot decode a FIT file, so no migration can write the series; a one-shot
@@ -18,9 +20,9 @@
 //! worker ledger), reads at most [`ACTIVITIES_PER_PASS`] owed activities,
 //! decodes each owed file once on the blocking pool under the process-wide
 //! decode bound, and writes its sessions' rows. It is idempotent — an
-//! activity whose row exists is no longer listed, and a row written twice is
-//! the same row — and once nothing is owed, a pass is one indexed read that
-//! returns nothing.
+//! activity whose row is at the current version is no longer listed, and a
+//! row written twice is the same row — and once nothing is owed, a pass is
+//! one indexed read that returns nothing.
 //!
 //! Every file a pass reads was decoded by the same decoder when it was
 //! uploaded, so a file that no longer decodes is a fault worth a warning,
@@ -112,7 +114,7 @@ pub async fn run_upload_streams_backfill_pass(
 ) -> AppResult<UploadStreamsBackfillReport> {
     let owed = repos
         .activity_streams
-        .list_activities_without_streams(UPLOAD, ACTIVITIES_PER_PASS)
+        .list_activities_without_current_streams(UPLOAD, ACTIVITIES_PER_PASS)
         .await?;
     let mut report = UploadStreamsBackfillReport::default();
     for ((tenant, user, sha), indices) in by_file(owed, &mut report) {

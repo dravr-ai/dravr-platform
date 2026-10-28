@@ -17,10 +17,11 @@
 //! (`activity_streams`), where the upload wrote them once, decoded, with
 //! `origin = 'upload'` and the file's SHA-256 as `source_ref` (carnet#1219).
 //!
-//! An uploaded activity whose samples are not in the store yet — one uploaded
-//! before the store held uploads, until the backfill reaches it — is read
-//! from the stored file, decoded again on the blocking pool: the store is
-//! the fast path, the file stays the source both are decoded from.
+//! An uploaded activity whose samples the store does not hold at its current
+//! format version — one uploaded before the store held uploads, or stored
+//! before GPS and distance kept their gaps, until the backfill reaches it —
+//! is read from the stored file, decoded again on the blocking pool: the
+//! store is the fast path, the file stays the source both are decoded from.
 //!
 //! An uploaded activity's id is the SHA-256 of its file followed by the
 //! session's index in it ([`upload_activity_id`]), so the same file uploaded

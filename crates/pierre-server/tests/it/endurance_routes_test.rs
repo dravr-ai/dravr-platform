@@ -164,8 +164,8 @@ async fn cached_row_serves_the_summary_the_builder_produced() {
     let user_id = Uuid::new_v4();
     let activity_id = "act-warm";
 
-    let coords: Vec<(f64, f64)> = (0..8)
-        .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
+    let coords: Vec<Option<(f64, f64)>> = (0..8)
+        .map(|i| Some((f64::from(i).mul_add(0.001, 46.0), -73.0)))
         .collect();
     let altitudes: Vec<Option<f32>> = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0]
         .into_iter()

@@ -24,6 +24,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::models::{TenantId, TimeSeriesData};
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::{GAP_FILLED_FORMAT_VERSION, STREAMS_FORMAT_VERSION};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::activity_upload::{
     delete_uploaded_activity, upload_activity_file,
@@ -115,13 +116,13 @@ async fn stored(
         .unwrap()
 }
 
-/// The `origin` and `source_ref` columns of one stored row.
+/// The `origin`, `source_ref` and `format_version` columns of one stored row.
 async fn provenance(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
     id: &str,
-) -> (String, Option<String>) {
-    let sql = "SELECT origin, source_ref FROM activity_streams \
+) -> (String, Option<String>, i16) {
+    let sql = "SELECT origin, source_ref, format_version FROM activity_streams \
                WHERE tenant_id = $1 AND CAST(user_id AS TEXT) = $2 \
                AND provider = $3 AND activity_id = $4";
     match resources.agent.database.backend() {
@@ -142,6 +143,72 @@ async fn provenance(
             .fetch_one(postgres.pool())
             .await
             .unwrap(),
+    }
+}
+
+/// The row a gap-filled seed writes, replacing the one the upload wrote.
+/// `$uuid` is the cast Postgres needs on the bound user id.
+macro_rules! seed_gap_filled_sql {
+    ($uuid:literal) => {
+        concat!(
+            "INSERT INTO activity_streams (tenant_id, user_id, provider, activity_id, origin, \
+             source_ref, format_version, streams_json, synced_at) VALUES ($1, $2",
+            $uuid,
+            ", $3, $4, $5, $6, $7, $8, $9) \
+             ON CONFLICT (tenant_id, user_id, provider, activity_id) DO UPDATE SET \
+             origin = EXCLUDED.origin, source_ref = EXCLUDED.source_ref, \
+             format_version = EXCLUDED.format_version, streams_json = EXCLUDED.streams_json, \
+             synced_at = EXCLUDED.synced_at"
+        )
+    };
+}
+
+/// Write one row at the gap-filled format version, as a build before
+/// carnet#1226 wrote it: plain fixes, one copied into the sample without one.
+async fn seed_gap_filled_row(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    provider: &str,
+    id: &str,
+    origin: &str,
+    source_ref: Option<&str>,
+) {
+    let json = r#"{"timestamps":[0,1,2],"heart_rate":[120,null,122],
+        "gps_coordinates":[[45.5,-73.6],[45.5,-73.6],[45.5002,-73.6]],
+        "distance":[0.0,0.0,22.2]}"#;
+    let synced_at = Utc::now() - Duration::days(1);
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(seed_gap_filled_sql!(""))
+                .bind(athlete.tenant.to_string())
+                .bind(athlete.user_id.to_string())
+                .bind(provider)
+                .bind(id)
+                .bind(origin)
+                .bind(source_ref)
+                .bind(GAP_FILLED_FORMAT_VERSION)
+                .bind(json)
+                .bind(synced_at)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(seed_gap_filled_sql!("::uuid"))
+                .bind(athlete.tenant.to_string())
+                .bind(athlete.user_id.to_string())
+                .bind(provider)
+                .bind(id)
+                .bind(origin)
+                .bind(source_ref)
+                .bind(GAP_FILLED_FORMAT_VERSION)
+                .bind(json)
+                .bind(synced_at)
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
     }
 }
 
@@ -191,7 +258,11 @@ async fn an_upload_stores_its_decoded_samples_once_naming_the_file() {
     );
     assert_eq!(
         provenance(&resources, &athlete, &id).await,
-        ("upload".to_owned(), Some(file_sha256(&file))),
+        (
+            "upload".to_owned(),
+            Some(file_sha256(&file)),
+            STREAMS_FORMAT_VERSION
+        ),
         "the row says it came from an upload and names the file"
     );
 }
@@ -276,7 +347,11 @@ async fn the_backfill_stores_an_earlier_uploads_samples_once() {
     );
     assert_eq!(
         provenance(&resources, &athlete, &id).await,
-        ("upload".to_owned(), Some(file_sha256(&file))),
+        (
+            "upload".to_owned(),
+            Some(file_sha256(&file)),
+            STREAMS_FORMAT_VERSION
+        ),
         "the backfilled row says it came from an upload and names the file"
     );
     let second = run_upload_streams_backfill_pass(&resources.common.repos)
@@ -350,5 +425,84 @@ async fn another_athletes_samples_are_never_read() {
             .await
             .is_err(),
         "another athlete's reader finds neither the row nor the file"
+    );
+}
+
+#[tokio::test]
+async fn a_gap_filled_upload_row_is_replayed_from_its_file() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources).await;
+    let file = ride_file();
+    let id = upload(&resources, &athlete, &file).await;
+    let sha = file_sha256(&file);
+    seed_gap_filled_row(&resources, &athlete, UPLOAD, &id, "upload", Some(&sha)).await;
+
+    assert_eq!(
+        reader(&resources, &athlete)
+            .get_activity_streams(&id)
+            .await
+            .unwrap(),
+        Some(decoded_series(&file)),
+        "a gap-filled row is never read: the file is decoded again"
+    );
+
+    let report = run_upload_streams_backfill_pass(&resources.common.repos)
+        .await
+        .unwrap();
+    assert_eq!(
+        report,
+        UploadStreamsBackfillReport {
+            files: 1,
+            activities: 1,
+            unreadable: 0,
+        },
+        "the backfill replays the gap-filled row from its file"
+    );
+    assert_eq!(
+        provenance(&resources, &athlete, &id).await,
+        ("upload".to_owned(), Some(sha), STREAMS_FORMAT_VERSION),
+        "the replayed row is at the current version"
+    );
+    assert_eq!(
+        stored(&resources, &athlete, &id).await,
+        Some(decoded_series(&file)),
+        "the replayed row is the file's decoded series"
+    );
+    assert_eq!(
+        run_upload_streams_backfill_pass(&resources.common.repos)
+            .await
+            .unwrap(),
+        UploadStreamsBackfillReport::default(),
+        "a replayed row is not owed again"
+    );
+}
+
+#[tokio::test]
+async fn a_gap_filled_pushed_row_is_read_without_its_track_and_distance() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources).await;
+    seed_gap_filled_row(&resources, &athlete, "garmin", "pushed-1", "push", None).await;
+
+    let streams = resources
+        .common
+        .repos
+        .activity_streams
+        .get_activity_streams(&athlete.tenant, athlete.user_id, "garmin", "pushed-1")
+        .await
+        .unwrap()
+        .expect("a pushed row has no source to replay, so it is still read");
+
+    assert_eq!(
+        streams.gps_coordinates, None,
+        "a copied fix cannot be told from a recorded one"
+    );
+    assert_eq!(
+        streams.distance, None,
+        "a repeated distance cannot be told from a recorded one"
+    );
+    assert_eq!(
+        streams.heart_rate,
+        Some(vec![Some(120), None, Some(122)]),
+        "the channels that kept their gaps are read as stored"
     );
 }

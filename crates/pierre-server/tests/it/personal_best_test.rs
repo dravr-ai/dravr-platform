@@ -113,9 +113,9 @@ fn run(id: &str, start: DateTime<Utc>, seconds_per_km: u32, km: u32) -> (Activit
     let duration = seconds_per_km * km;
     let timestamps: Vec<u32> = (0..=duration).collect();
     let metres_per_second = 1000.0 / f64::from(seconds_per_km);
-    let distance: Vec<f64> = timestamps
+    let distance: Vec<Option<f64>> = timestamps
         .iter()
-        .map(|t| f64::from(*t) * metres_per_second)
+        .map(|t| Some(f64::from(*t) * metres_per_second))
         .collect();
     let activity = ActivityBuilder::new(
         id.to_owned(),

@@ -53,7 +53,7 @@ fn climbing_streams(points: &[(f64, f64)]) -> TimeSeriesData {
         speed: None,
         altitude: Some(altitude),
         temperature: None,
-        gps_coordinates: Some(points.to_vec()),
+        gps_coordinates: Some(points.iter().copied().map(Some).collect()),
         distance: None,
     }
 }
@@ -98,6 +98,56 @@ fn an_empty_gps_channel_is_no_gps() {
     assert_eq!(
         RouteTrack::from_streams(&streams).unwrap_err(),
         RouteTrackError::NoGps
+    );
+}
+
+#[test]
+fn a_gps_channel_holding_no_fix_is_no_gps() {
+    let mut streams = climbing_streams(&weaving(50));
+    streams.gps_coordinates = Some(vec![None; 50]);
+    assert_eq!(
+        RouteTrack::from_streams(&streams).unwrap_err(),
+        RouteTrackError::NoGps,
+        "a channel of samples without a fix places nothing on the map"
+    );
+}
+
+#[test]
+fn a_dropout_is_skipped_and_never_drawn_as_a_copied_fix() {
+    let recorded = weaving(600);
+    let mut streams = climbing_streams(&recorded);
+    let lost = 300..340;
+    if let Some(track) = streams.gps_coordinates.as_mut() {
+        for fix in &mut track[lost.clone()] {
+            *fix = None;
+        }
+    }
+
+    let track = RouteTrack::from_streams(&streams).unwrap();
+
+    for point in &recorded[lost] {
+        assert!(
+            !track.coordinates.contains(point),
+            "a sample without a fix places no point on the map"
+        );
+    }
+    assert!(
+        track
+            .coordinates
+            .iter()
+            .all(|point| recorded.contains(point)),
+        "every drawn point is a recorded fix, none is copied or invented"
+    );
+    let distances = track.distances_meters.as_ref().unwrap();
+    assert_eq!(
+        distances.len(),
+        track.coordinates.len(),
+        "the distance series stays aligned with the drawn points"
+    );
+    assert_eq!(
+        track.elevation_meters.as_ref().map(Vec::len),
+        Some(track.coordinates.len()),
+        "each kept fix keeps its own altitude"
     );
 }
 

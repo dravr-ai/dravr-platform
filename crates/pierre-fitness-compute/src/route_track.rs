@@ -183,8 +183,8 @@ impl RouteTrack {
     ///
     /// # Errors
     ///
-    /// [`RouteTrackError::NoGps`] when the activity has no GPS channel, or an
-    /// empty one; [`RouteTrackError::TooShort`] when fewer than two of its
+    /// [`RouteTrackError::NoGps`] when the activity has no GPS channel, or
+    /// one holding no fix; [`RouteTrackError::TooShort`] when fewer than two of its
     /// points survive the validity gate — a single point is a pin, not a
     /// route — or when the whole ride sits inside the privacy radius, where
     /// the only honest map is none.
@@ -192,7 +192,7 @@ impl RouteTrack {
         let Some(recorded) = streams
             .gps_coordinates
             .as_deref()
-            .filter(|recorded| !recorded.is_empty())
+            .filter(|recorded| recorded.iter().any(Option::is_some))
         else {
             return Err(RouteTrackError::NoGps);
         };
@@ -203,7 +203,8 @@ impl RouteTrack {
             .altitude
             .as_deref()
             .filter(|series| series.iter().any(Option::is_some));
-        let (recorded_points, altitudes) = paired_points(recorded, recorded_altitudes);
+        let (recorded_points, altitudes) =
+            paired_points(recorded.iter().copied(), recorded_altitudes);
         // The vertical rides on the pairing above: with an altitude channel
         // present a point is kept only when both halves are usable, so equal
         // lengths hold by construction and are what the index alignment means.
@@ -239,7 +240,7 @@ impl RouteTrack {
         if points.is_empty() {
             return Err(RouteTrackError::NoGps);
         }
-        let (valid_points, _) = paired_points(points, None);
+        let (valid_points, _) = paired_points(points.iter().copied().map(Some), None);
         Self::trimmed(&valid_points, None, None)
     }
 
@@ -266,7 +267,7 @@ impl RouteTrack {
         if points.is_empty() {
             return Err(RouteTrackError::NoGps);
         }
-        let (coordinates, _) = paired_points(points, None);
+        let (coordinates, _) = paired_points(points.iter().copied().map(Some), None);
         if coordinates.len() < 2 {
             return Err(RouteTrackError::TooShort);
         }
@@ -382,16 +383,21 @@ pub fn trimmed_overview_polyline(encoded: &str) -> Option<String> {
 ///
 /// Mirrors the gate the terrain analysis applies to the same two streams — the
 /// shorter channel ends the track, and a point with a non-finite or
-/// out-of-Earth value, or a gap in its altitude, is dropped rather than
-/// carried into a haversine. The returned altitudes are empty when the
-/// provider recorded none.
+/// out-of-Earth value, a sample without a fix, or a gap in its altitude, is
+/// dropped rather than carried into a haversine. The returned altitudes are
+/// empty when the provider recorded none.
 fn paired_points(
-    recorded: &[(f64, f64)],
+    recorded: impl ExactSizeIterator<Item = Option<(f64, f64)>>,
     altitudes: Option<&[Option<f32>]>,
 ) -> (Vec<(f64, f64)>, Vec<f32>) {
     let mut coordinates = Vec::with_capacity(recorded.len());
     let mut kept_altitudes = Vec::new();
-    for (index, &(latitude, longitude)) in recorded.iter().enumerate() {
+    for (index, fix) in recorded.enumerate() {
+        // A sample without a fix places nothing on the map; its altitude
+        // goes with it, so the two halves stay paired.
+        let Some((latitude, longitude)) = fix else {
+            continue;
+        };
         let elevation = match altitudes.map(|series| series.get(index)) {
             // The altitude channel ran out first, so the track ends here.
             Some(None) => break,
@@ -471,7 +477,8 @@ fn detect_climbs(coordinates: &[(f64, f64)], elevations: &[f64]) -> Vec<RouteCli
         .iter()
         .map(|&metres| Some(metres as f32))
         .collect();
-    let Some(summary) = build_route_summary_from_streams(coordinates, &altitudes) else {
+    let fixes: Vec<Option<(f64, f64)>> = coordinates.iter().copied().map(Some).collect();
+    let Some(summary) = build_route_summary_from_streams(&fixes, &altitudes) else {
         return Vec::new();
     };
     if summary.point_count != coordinates.len() {

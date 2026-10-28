@@ -21,7 +21,8 @@
 //! The samples are stored as the [`TimeSeriesData`] JSON the activity model
 //! carries, at [`STREAMS_FORMAT_VERSION`], so a read hands them back in the
 //! shape every streams consumer already reads; a row at a version this build
-//! does not know is refused rather than misread. `$n` placeholders
+//! does not know is refused rather than misread. How a row at an earlier
+//! version is read is [`streams_from_row`]'s to say. `$n` placeholders
 //! throughout: sqlx accepts them on `SQLite` as well as Postgres. `user_id`
 //! is `uuid` on Postgres (a foreign key to `users`) and `TEXT` on `SQLite`;
 //! it binds the hyphenated string on both, cast on Postgres. `synced_at`
@@ -34,7 +35,7 @@
 //! deletes, never with a provider connection.
 //!
 //! Every statement is scoped to a tenant and a user except
-//! [`ActivityStreamRepository::list_activities_without_streams`], which the
+//! [`ActivityStreamRepository::list_activities_without_current_streams`], which the
 //! backfill worker runs across tenants to find the activities still owed a
 //! row, and which returns each one with the tenant and user it is held for.
 
@@ -44,9 +45,19 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TimeSeriesData};
 use uuid::Uuid;
 
-/// The version of the sample JSON this build writes and reads: the
-/// [`TimeSeriesData`] serialization, timestamps in seconds from the start.
-pub const STREAMS_FORMAT_VERSION: i16 = 1;
+/// The version of the sample JSON this build writes.
+///
+/// The [`TimeSeriesData`] serialization, timestamps in seconds from the
+/// start, every channel one entry per sample with `None` for a sample it
+/// missed, GPS and cumulative distance included (carnet#1226).
+pub const STREAMS_FORMAT_VERSION: i16 = 2;
+
+/// The version written before GPS and distance carried gaps.
+///
+/// The same JSON shape, but a sample without a fix held a copied
+/// neighbouring fix, and a FIT file's sample without a distance repeated the
+/// last one.
+pub const GAP_FILLED_FORMAT_VERSION: i16 = 1;
 
 /// How a stored sample set reached Dravr: the `origin` column.
 ///
@@ -75,8 +86,9 @@ impl StreamOrigin {
     }
 }
 
-/// A cached activity no sample row is stored for yet, as
-/// [`ActivityStreamRepository::list_activities_without_streams`] finds it.
+/// A cached activity no current sample row is stored for yet, as
+/// [`ActivityStreamRepository::list_activities_without_current_streams`]
+/// finds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivityWithoutStreams {
     /// The tenant the activity is held in, as the cache stores it.
@@ -112,7 +124,9 @@ pub struct ActivityStreamsWrite<'a> {
 /// The one per-activity sample store.
 #[async_trait]
 pub trait ActivityStreamRepository: Send + Sync {
-    /// The stored samples of one activity, or `None` when none were stored.
+    /// The stored samples of one activity, or `None` when none were stored,
+    /// or the stored ones are to be decoded again from their source
+    /// ([`streams_from_row`]).
     ///
     /// # Errors
     /// Returns a database error when the read fails, the row is at a format
@@ -150,13 +164,14 @@ pub trait ActivityStreamRepository: Send + Sync {
     ) -> AppResult<bool>;
 
     /// Up to `limit` activities cached under `provider`, in every tenant,
-    /// that no sample row is stored for, in a stable order: what a backfill
-    /// still owes a row. The one statement here that is not scoped to a
+    /// that hold no sample row at [`STREAMS_FORMAT_VERSION`] (none at all, or
+    /// one at an earlier version), in a stable order: what a backfill still
+    /// owes a current row. The one statement here that is not scoped to a
     /// tenant, since the worker that runs it serves them all.
     ///
     /// # Errors
     /// Returns a database error when the read fails.
-    async fn list_activities_without_streams(
+    async fn list_activities_without_current_streams(
         &self,
         provider: &str,
         limit: i64,
@@ -169,7 +184,7 @@ pub trait ActivityStreamRepository: Send + Sync {
 macro_rules! get_activity_streams_sql {
     ($uuid:literal) => {
         concat!(
-            "SELECT streams_json, format_version FROM activity_streams \
+            "SELECT streams_json, format_version, source_ref FROM activity_streams \
              WHERE tenant_id = $1 AND user_id = $2",
             $uuid,
             " AND provider = $3 AND activity_id = $4"
@@ -207,18 +222,19 @@ macro_rules! delete_activity_streams_sql {
     };
 }
 
-/// The cached activities of one provider, across tenants, with no sample row.
-/// `$user` is how the stored row's `user_id` is compared with the cache's
-/// `TEXT` one: as it is on `SQLite`, cast down to text on Postgres, where it
-/// is `uuid`.
-macro_rules! list_activities_without_streams_sql {
+/// The cached activities of one provider, across tenants, with no sample row
+/// at the format version `$3`. `$user` is how the stored row's `user_id` is
+/// compared with the cache's `TEXT` one: as it is on `SQLite`, cast down to
+/// text on Postgres, where it is `uuid`.
+macro_rules! list_activities_without_current_streams_sql {
     ($user:literal) => {
         concat!(
             "SELECT c.tenant_id, c.user_id, c.activity_id FROM cached_activities c \
              WHERE c.provider = $1 AND NOT EXISTS (SELECT 1 FROM activity_streams s \
              WHERE s.tenant_id = c.tenant_id AND ",
             $user,
-            " = c.user_id AND s.provider = c.provider AND s.activity_id = c.activity_id) \
+            " = c.user_id AND s.provider = c.provider AND s.activity_id = c.activity_id \
+             AND s.format_version = $3) \
              ORDER BY c.tenant_id, c.user_id, c.activity_id LIMIT $2"
         )
     };
@@ -233,9 +249,9 @@ pub(crate) const UPSERT_ACTIVITY_STREAMS_SQL: &str = upsert_activity_streams_sql
 /// [`delete_activity_streams_sql`] on `SQLite`.
 pub(crate) const DELETE_ACTIVITY_STREAMS_SQL: &str = delete_activity_streams_sql!("");
 
-/// [`list_activities_without_streams_sql`] on `SQLite`.
-pub(crate) const LIST_ACTIVITIES_WITHOUT_STREAMS_SQL: &str =
-    list_activities_without_streams_sql!("s.user_id");
+/// [`list_activities_without_current_streams_sql`] on `SQLite`.
+pub(crate) const LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_SQL: &str =
+    list_activities_without_current_streams_sql!("s.user_id");
 
 /// [`get_activity_streams_sql`] on Postgres, where `user_id` is `uuid`.
 #[cfg(feature = "postgresql")]
@@ -249,25 +265,52 @@ pub(crate) const UPSERT_ACTIVITY_STREAMS_PG_SQL: &str = upsert_activity_streams_
 #[cfg(feature = "postgresql")]
 pub(crate) const DELETE_ACTIVITY_STREAMS_PG_SQL: &str = delete_activity_streams_sql!("::uuid");
 
-/// [`list_activities_without_streams_sql`] on Postgres.
+/// [`list_activities_without_current_streams_sql`] on Postgres.
 #[cfg(feature = "postgresql")]
-pub(crate) const LIST_ACTIVITIES_WITHOUT_STREAMS_PG_SQL: &str =
-    list_activities_without_streams_sql!("CAST(s.user_id AS TEXT)");
+pub(crate) const LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_PG_SQL: &str =
+    list_activities_without_current_streams_sql!("CAST(s.user_id AS TEXT)");
 
-/// The samples one stored row holds, at `format_version`.
+/// The samples one stored row holds, at `format_version`, decoded from
+/// `source_ref` when it names one.
+///
+/// A row at [`STREAMS_FORMAT_VERSION`] is read as it is. A row at
+/// [`GAP_FILLED_FORMAT_VERSION`] holds GPS fixes copied into the samples
+/// that had none, and in the FIT path distances repeated into the samples
+/// that had none, which nothing in the stored row tells apart from recorded
+/// ones; such rows were written between the sample store's landing and
+/// carnet#1226. One that names its source (an upload's file) is not read at
+/// all, `None`: its reader decodes the source again, and the backfill
+/// rewrites the row at the current version. One without a source (samples a
+/// provider pushed as JSON or as a file it did not keep) cannot be decoded
+/// again, so it is read without its GPS and distance channels, and every
+/// other channel, which already kept its gaps, as stored.
 ///
 /// # Errors
 /// Returns a database error when the version is not one this build reads or
 /// the stored JSON is not a sample set.
-pub(crate) fn streams_from_row(json: &str, format_version: i16) -> AppResult<TimeSeriesData> {
-    if format_version != STREAMS_FORMAT_VERSION {
-        return Err(AppError::database(format!(
+pub(crate) fn streams_from_row(
+    json: &str,
+    format_version: i16,
+    source_ref: Option<&str>,
+) -> AppResult<Option<TimeSeriesData>> {
+    let parse = || -> AppResult<TimeSeriesData> {
+        serde_json::from_str(json)
+            .map_err(|e| AppError::database(format!("stored activity streams do not parse: {e}")))
+    };
+    match (format_version, source_ref) {
+        (STREAMS_FORMAT_VERSION, _) => parse().map(Some),
+        (GAP_FILLED_FORMAT_VERSION, Some(_)) => Ok(None),
+        (GAP_FILLED_FORMAT_VERSION, None) => {
+            let mut streams = parse()?;
+            streams.gps_coordinates = None;
+            streams.distance = None;
+            Ok(Some(streams))
+        }
+        _ => Err(AppError::database(format!(
             "stored activity streams are at format version {format_version}, this build \
-             reads {STREAMS_FORMAT_VERSION}"
-        )));
+             reads {GAP_FILLED_FORMAT_VERSION} and {STREAMS_FORMAT_VERSION}"
+        ))),
     }
-    serde_json::from_str(json)
-        .map_err(|e| AppError::database(format!("stored activity streams do not parse: {e}")))
 }
 
 /// The JSON one row stores for `streams`.
@@ -283,7 +326,7 @@ pub(crate) fn streams_to_json(streams: &TimeSeriesData) -> AppResult<String> {
 /// type. The body is written once here; each backend's shell invokes it with
 /// its own type and its backend's statements (`GET_ACTIVITY_STREAMS_SQL`,
 /// `UPSERT_ACTIVITY_STREAMS_SQL`, `DELETE_ACTIVITY_STREAMS_SQL`,
-/// `LIST_ACTIVITIES_WITHOUT_STREAMS_SQL`, or their `_PG_` forms), and sqlx resolves
+/// `LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_SQL`, or their `_PG_` forms), and sqlx resolves
 /// the driver from `self.pool()` per expansion. The body names its helpers
 /// and types unqualified, so the invoking shell must `use` every one of them.
 macro_rules! impl_activity_stream_repository {
@@ -297,7 +340,7 @@ macro_rules! impl_activity_stream_repository {
                 provider: &str,
                 activity_id: &str,
             ) -> AppResult<Option<TimeSeriesData>> {
-                let row: Option<(String, i16)> = sqlx::query_as($get)
+                let row: Option<(String, i16, Option<String>)> = sqlx::query_as($get)
                     .bind(tenant_id.to_string())
                     .bind(user_id.to_string())
                     .bind(provider)
@@ -305,8 +348,12 @@ macro_rules! impl_activity_stream_repository {
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("get_activity_streams: {e}")))?;
-                row.map(|(json, version)| streams_from_row(&json, version))
-                    .transpose()
+                match row {
+                    Some((json, version, source_ref)) => {
+                        streams_from_row(&json, version, source_ref.as_deref())
+                    }
+                    None => Ok(None),
+                }
             }
 
             async fn upsert_activity_streams(
@@ -350,7 +397,7 @@ macro_rules! impl_activity_stream_repository {
                 Ok(removed > 0)
             }
 
-            async fn list_activities_without_streams(
+            async fn list_activities_without_current_streams(
                 &self,
                 provider: &str,
                 limit: i64,
@@ -358,10 +405,11 @@ macro_rules! impl_activity_stream_repository {
                 let rows: Vec<(String, String, String)> = sqlx::query_as($unstreamed)
                     .bind(provider)
                     .bind(limit)
+                    .bind(STREAMS_FORMAT_VERSION)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
-                        AppError::database(format!("list_activities_without_streams: {e}"))
+                        AppError::database(format!("list_activities_without_current_streams: {e}"))
                     })?;
                 Ok(rows
                     .into_iter()
@@ -376,3 +424,77 @@ macro_rules! impl_activity_stream_repository {
     };
 }
 pub(crate) use impl_activity_stream_repository;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A sample set as a gap-filled row stores it: plain fixes and distances.
+    const GAP_FILLED_JSON: &str = r#"{
+        "timestamps": [0, 1, 2],
+        "heart_rate": [120, null, 122],
+        "gps_coordinates": [[45.5, -73.6], [45.5, -73.6], [45.5002, -73.6]],
+        "distance": [0.0, 0.0, 22.2]
+    }"#;
+
+    #[test]
+    fn a_current_row_reads_as_stored_gaps_included() {
+        let json = r#"{
+            "timestamps": [0, 1, 2],
+            "gps_coordinates": [[45.5, -73.6], null, [45.5002, -73.6]],
+            "distance": [0.0, null, 22.2]
+        }"#;
+        let streams = streams_from_row(json, STREAMS_FORMAT_VERSION, None)
+            .unwrap_or_else(|e| panic!("a current row parses: {e}"))
+            .unwrap_or_else(|| panic!("a current row is read"));
+        assert_eq!(
+            streams.gps_coordinates,
+            Some(vec![Some((45.5, -73.6)), None, Some((45.5002, -73.6))]),
+            "a missing fix stays a gap"
+        );
+        assert_eq!(
+            streams.distance,
+            Some(vec![Some(0.0), None, Some(22.2)]),
+            "a missing distance stays a gap"
+        );
+    }
+
+    #[test]
+    fn a_gap_filled_row_with_a_source_is_decoded_again_from_it() {
+        let read = streams_from_row(GAP_FILLED_JSON, GAP_FILLED_FORMAT_VERSION, Some("ab12"))
+            .unwrap_or_else(|e| panic!("a gap-filled row is a known version: {e}"));
+        assert_eq!(read, None, "its reader decodes the source instead");
+    }
+
+    #[test]
+    fn a_gap_filled_row_without_a_source_drops_only_its_filled_channels() {
+        let streams = streams_from_row(GAP_FILLED_JSON, GAP_FILLED_FORMAT_VERSION, None)
+            .unwrap_or_else(|e| panic!("a gap-filled row parses: {e}"))
+            .unwrap_or_else(|| panic!("a row without a source is still read"));
+        assert_eq!(
+            streams.gps_coordinates, None,
+            "a copied fix cannot be told from a recorded one"
+        );
+        assert_eq!(
+            streams.distance, None,
+            "a repeated distance cannot be told from a recorded one"
+        );
+        assert_eq!(
+            streams.heart_rate,
+            Some(vec![Some(120), None, Some(122)]),
+            "the channels that already kept their gaps are read as stored"
+        );
+        assert_eq!(streams.timestamps, vec![0, 1, 2], "the time axis is kept");
+    }
+
+    #[test]
+    fn a_version_this_build_does_not_know_is_refused() {
+        let refused = streams_from_row(GAP_FILLED_JSON, STREAMS_FORMAT_VERSION + 1, None);
+        assert!(refused.is_err(), "a later version is never misread");
+        let refused = streams_from_row(GAP_FILLED_JSON, 0, Some("ab12"));
+        assert!(
+            refused.is_err(),
+            "an unknown earlier version is never misread"
+        );
+    }
+}

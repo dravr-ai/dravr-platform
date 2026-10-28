@@ -47,7 +47,11 @@ async fn a_streams_bearing_activity_is_cached_without_its_samples() {
         speed: None,
         altitude: Some(vec![Some(50.0), Some(51.0), Some(52.0)]),
         temperature: None,
-        gps_coordinates: Some(vec![(45.5, -73.5), (45.6, -73.6), (45.7, -73.7)]),
+        gps_coordinates: Some(vec![
+            Some((45.5, -73.5)),
+            Some((45.6, -73.6)),
+            Some((45.7, -73.7)),
+        ]),
         distance: None,
     })
     .build();

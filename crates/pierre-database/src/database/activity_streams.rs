@@ -12,7 +12,7 @@ use crate::database::Database;
 use crate::repositories::activity_streams::{
     impl_activity_stream_repository, streams_from_row, streams_to_json, ActivityStreamRepository,
     ActivityStreamsWrite, ActivityWithoutStreams, DELETE_ACTIVITY_STREAMS_SQL,
-    GET_ACTIVITY_STREAMS_SQL, LIST_ACTIVITIES_WITHOUT_STREAMS_SQL, STREAMS_FORMAT_VERSION,
+    GET_ACTIVITY_STREAMS_SQL, LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_SQL, STREAMS_FORMAT_VERSION,
     UPSERT_ACTIVITY_STREAMS_SQL,
 };
 
@@ -21,5 +21,5 @@ impl_activity_stream_repository!(
     GET_ACTIVITY_STREAMS_SQL,
     UPSERT_ACTIVITY_STREAMS_SQL,
     DELETE_ACTIVITY_STREAMS_SQL,
-    LIST_ACTIVITIES_WITHOUT_STREAMS_SQL
+    LIST_ACTIVITIES_WITHOUT_CURRENT_STREAMS_SQL
 );

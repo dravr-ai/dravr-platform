@@ -68,7 +68,11 @@ mod tests {
             speed: None,
             altitude: None,
             temperature: None,
-            gps_coordinates: Some(vec![(45.5, -73.5), (45.6, -73.6), (45.7, -73.7)]),
+            gps_coordinates: Some(vec![
+                Some((45.5, -73.5)),
+                Some((45.6, -73.6)),
+                Some((45.7, -73.7)),
+            ]),
             distance: None,
         }
     }

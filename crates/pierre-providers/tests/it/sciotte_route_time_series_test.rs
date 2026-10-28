@@ -170,7 +170,12 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
     assert_eq!(coordinates.len(), 4, "every scraped point must survive");
     assert_eq!(
         coordinates.as_slice(),
-        TRACK.as_slice(),
+        TRACK
+            .iter()
+            .copied()
+            .map(Some)
+            .collect::<Vec<_>>()
+            .as_slice(),
         "coordinates travel verbatim, in order, as (lat, lon) degrees"
     );
 

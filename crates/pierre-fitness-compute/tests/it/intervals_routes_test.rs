@@ -49,6 +49,11 @@ fn lap(index: u32, distance: f64, seconds: u64, hr: u32, power: u32) -> Lap {
     }
 }
 
+/// A track of `points` with a fix at every sample, as a stream carries it.
+fn fixes(points: &[(f64, f64)]) -> Vec<Option<(f64, f64)>> {
+    points.iter().copied().map(Some).collect()
+}
+
 #[test]
 fn intervals_returns_one_row_per_lap() {
     let laps = vec![
@@ -296,15 +301,15 @@ fn build_route_summary_from_streams_matches_gpx_terrain() {
         .into_iter()
         .map(Some)
         .collect();
-    let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
+    let summary = build_route_summary_from_streams(&fixes(&coords), &altitudes).expect("summary");
     assert!(summary.point_count >= 8);
     assert!(summary.terrain.elevation_gain_meters >= 150.0);
 }
 
 #[test]
 fn build_route_summary_from_streams_returns_none_for_short_input() {
-    assert!(build_route_summary_from_streams(&[], &[]).is_none());
-    assert!(build_route_summary_from_streams(&[(46.0, -73.0)], &[Some(100.0)]).is_none());
+    assert!(build_route_summary_from_streams(&fixes(&[]), &[]).is_none());
+    assert!(build_route_summary_from_streams(&fixes(&[(46.0, -73.0)]), &[Some(100.0)]).is_none());
 }
 
 #[test]
@@ -325,13 +330,54 @@ fn build_route_summary_from_streams_drops_points_whose_altitude_is_a_gap() {
     let kept_coords: Vec<(f64, f64)> = kept.iter().map(|&i| coords[i]).collect();
     let kept_altitudes: Vec<Option<f32>> = kept.iter().map(|&i| Some(altitudes[i])).collect();
 
-    let with_gaps = build_route_summary_from_streams(&coords, &gapped).expect("summary");
-    let without = build_route_summary_from_streams(&kept_coords, &kept_altitudes).expect("summary");
+    let with_gaps = build_route_summary_from_streams(&fixes(&coords), &gapped).expect("summary");
+    let without =
+        build_route_summary_from_streams(&fixes(&kept_coords), &kept_altitudes).expect("summary");
     assert_eq!(with_gaps.point_count, 6);
     assert_eq!(with_gaps.gpx_hash, without.gpx_hash);
     assert_eq!(
-        stream_route_identity(&coords, &gapped).map(|(_, count)| count),
+        stream_route_identity(&fixes(&coords), &gapped).map(|(_, count)| count),
         Some(6)
+    );
+}
+
+#[test]
+fn a_sample_without_a_fix_is_not_paired_and_takes_its_altitude_with_it() {
+    // A GPS dropout at two samples: those samples are skipped together with
+    // their altitude, so the summary is the one built from the six samples
+    // holding both, and every later fix keeps its own altitude.
+    let coords: Vec<(f64, f64)> = (0..8)
+        .map(|i| (f64::from(i).mul_add(0.001, 46.0), -73.0))
+        .collect();
+    let altitudes: Vec<Option<f32>> = [100.0, 110.0, 140.0, 180.0, 220.0, 250.0, 240.0, 200.0]
+        .into_iter()
+        .map(Some)
+        .collect();
+    let dropout: Vec<Option<(f64, f64)>> = coords
+        .iter()
+        .enumerate()
+        .map(|(i, &fix)| (i != 2 && i != 3).then_some(fix))
+        .collect();
+    let kept: Vec<usize> = (0..8).filter(|i| *i != 2 && *i != 3).collect();
+    let kept_coords: Vec<(f64, f64)> = kept.iter().map(|&i| coords[i]).collect();
+    let kept_altitudes: Vec<Option<f32>> = kept.iter().map(|&i| altitudes[i]).collect();
+
+    let with_dropout = build_route_summary_from_streams(&dropout, &altitudes).expect("summary");
+    let without =
+        build_route_summary_from_streams(&fixes(&kept_coords), &kept_altitudes).expect("summary");
+
+    assert_eq!(
+        with_dropout.point_count, 6,
+        "the two samples without a fix are skipped"
+    );
+    assert_eq!(
+        with_dropout.gpx_hash, without.gpx_hash,
+        "each fix keeps its own altitude across the dropout"
+    );
+    assert_eq!(
+        stream_route_identity(&dropout, &altitudes).map(|(_, count)| count),
+        Some(6),
+        "the cache identity skips the same samples"
     );
 }
 
@@ -346,14 +392,14 @@ fn build_route_summary_drops_nonfinite_lat_lon_alt() {
     let coords = vec![(f64::NAN, -73.0), (46.001, f64::INFINITY)];
     let altitudes = vec![Some(100.0_f32), Some(110.0)];
     assert!(
-        build_route_summary_from_streams(&coords, &altitudes).is_none(),
+        build_route_summary_from_streams(&fixes(&coords), &altitudes).is_none(),
         "non-finite coordinates must be dropped, leaving fewer than 2 valid points"
     );
 
     let alt_nan = vec![Some(f32::NAN), Some(110.0)];
     let coords_ok = vec![(46.000, -73.0), (46.001, -73.0)];
     // One altitude NaN drops one point; the survivor is alone → None.
-    assert!(build_route_summary_from_streams(&coords_ok, &alt_nan).is_none());
+    assert!(build_route_summary_from_streams(&fixes(&coords_ok), &alt_nan).is_none());
 }
 
 #[test]
@@ -361,13 +407,13 @@ fn build_route_summary_drops_out_of_range_lat_lon() {
     let bad_lat = vec![(91.0, 0.0), (-91.0, 0.0)];
     let altitudes = vec![Some(100.0_f32), Some(110.0)];
     assert!(
-        build_route_summary_from_streams(&bad_lat, &altitudes).is_none(),
+        build_route_summary_from_streams(&fixes(&bad_lat), &altitudes).is_none(),
         "lat outside [-90, 90] must be filtered"
     );
 
     let bad_lon = vec![(0.0, 181.0), (0.0, -181.0)];
     assert!(
-        build_route_summary_from_streams(&bad_lon, &altitudes).is_none(),
+        build_route_summary_from_streams(&fixes(&bad_lon), &altitudes).is_none(),
         "lon outside [-180, 180] must be filtered"
     );
 }
@@ -389,8 +435,8 @@ fn build_route_summary_handles_duplicate_consecutive_points() {
         .into_iter()
         .map(Some)
         .collect();
-    let summary =
-        build_route_summary_from_streams(&coords, &altitudes).expect("summary should be produced");
+    let summary = build_route_summary_from_streams(&fixes(&coords), &altitudes)
+        .expect("summary should be produced");
     let t = &summary.terrain;
     assert!(
         t.total_distance_meters.is_finite() && t.total_distance_meters > 0.0,
@@ -439,8 +485,8 @@ fn route_summary_serializes_without_nan_or_infinity_literals() {
         .into_iter()
         .map(Some)
         .collect();
-    let summary =
-        build_route_summary_from_streams(&coords, &altitudes).expect("summary should produce");
+    let summary = build_route_summary_from_streams(&fixes(&coords), &altitudes)
+        .expect("summary should produce");
     let json =
         serde_json::to_string(&summary).expect("RouteSummary must serialize cleanly to JSON");
     assert!(
@@ -467,8 +513,8 @@ fn stream_route_identity_matches_full_build() {
         .map(Some)
         .collect();
     let (gpx_hash, point_count) =
-        stream_route_identity(&coords, &altitudes).expect("identity for a valid stream");
-    let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
+        stream_route_identity(&fixes(&coords), &altitudes).expect("identity for a valid stream");
+    let summary = build_route_summary_from_streams(&fixes(&coords), &altitudes).expect("summary");
     assert_eq!(
         gpx_hash, summary.gpx_hash,
         "the identity hash must be the exact hash the full builder stamps — a divergence \
@@ -482,14 +528,14 @@ fn stream_route_identity_matches_full_build() {
 fn stream_route_identity_applies_the_builder_validity_gate() {
     // Same gates as build_route_summary_from_streams: <2 paired points,
     // or every point filtered out by the finite/range checks.
-    assert!(stream_route_identity(&[], &[]).is_none());
-    assert!(stream_route_identity(&[(46.0, -73.0)], &[Some(100.0)]).is_none());
+    assert!(stream_route_identity(&fixes(&[]), &[]).is_none());
+    assert!(stream_route_identity(&fixes(&[(46.0, -73.0)]), &[Some(100.0)]).is_none());
     let bad_lat = vec![(91.0, 0.0), (-91.0, 0.0)];
     let altitudes = vec![Some(100.0_f32), Some(110.0)];
-    assert!(stream_route_identity(&bad_lat, &altitudes).is_none());
+    assert!(stream_route_identity(&fixes(&bad_lat), &altitudes).is_none());
     let coords_ok = vec![(46.000, -73.0), (46.001, -73.0)];
     let alt_nan = vec![Some(f32::NAN), Some(110.0)];
-    assert!(stream_route_identity(&coords_ok, &alt_nan).is_none());
+    assert!(stream_route_identity(&fixes(&coords_ok), &alt_nan).is_none());
 }
 
 #[test]
@@ -501,7 +547,7 @@ fn route_summary_from_cache_round_trips_the_stored_blobs() {
         .into_iter()
         .map(Some)
         .collect();
-    let summary = build_route_summary_from_streams(&coords, &altitudes).expect("summary");
+    let summary = build_route_summary_from_streams(&fixes(&coords), &altitudes).expect("summary");
     // The cache stores these two blobs; identity supplies hash + count.
     let terrain_json = serde_json::to_string(&summary.terrain).expect("terrain json");
     let climbs_json = serde_json::to_string(&summary.climbs).expect("climbs json");
