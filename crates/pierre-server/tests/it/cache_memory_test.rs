@@ -168,7 +168,7 @@ async fn test_cache_invalidate_pattern() -> Result<()> {
         tenant_id,
         user_id,
         "strava".to_owned(),
-        CacheResource::Activity { activity_id: 123 },
+        CacheResource::LastKnownStats,
     );
     let key3 = CacheKey::new(
         tenant_id,
@@ -260,7 +260,7 @@ async fn test_cache_capacity_eviction() -> Result<()> {
 
     // Fill cache beyond capacity
     for i in 0..20 {
-        let key = test_cache_key(CacheResource::Activity { activity_id: i });
+        let key = test_cache_key(CacheResource::Stats { athlete_id: i });
         cache.set(&key, &data, Duration::from_mins(1)).await?;
     }
 
@@ -269,7 +269,7 @@ async fn test_cache_capacity_eviction() -> Result<()> {
     // but it should be less than 20
     let mut count = 0;
     for i in 0..20 {
-        let key = test_cache_key(CacheResource::Activity { activity_id: i });
+        let key = test_cache_key(CacheResource::Stats { athlete_id: i });
         if cache.exists(&key).await? {
             count += 1;
         }
@@ -302,7 +302,7 @@ async fn test_cache_background_cleanup() -> Result<()> {
                 tenant_id,
                 user_id,
                 "strava".to_owned(),
-                CacheResource::Activity { activity_id: i },
+                CacheResource::Stats { athlete_id: i },
             )
         })
         .collect();
@@ -346,7 +346,7 @@ async fn test_cache_clear_all() -> Result<()> {
                 tenant_id,
                 user_id,
                 "strava".to_owned(),
-                CacheResource::Activity { activity_id: i },
+                CacheResource::Stats { athlete_id: i },
             )
         })
         .collect();
@@ -403,9 +403,7 @@ async fn test_cache_different_resource_types() -> Result<()> {
             after: None,
             sport_type: None,
         },
-        CacheResource::Activity { activity_id: 123 },
         CacheResource::Stats { athlete_id: 456 },
-        CacheResource::DetailedActivity { activity_id: 789 },
     ];
 
     for resource in &resources {

@@ -184,10 +184,10 @@ async fn a_scraped_gps_track_becomes_index_aligned_time_series_data() {
         "elevations narrow to f32 exactly at these magnitudes"
     );
 
-    assert_eq!(
-        series.timestamps,
-        vec![0_u32, 1, 2, 3],
-        "a scraped track has no time axis, so timestamps are sample indices"
+    assert!(
+        series.timestamps.is_empty(),
+        "a scraped track has no time axis; a sample index is never served as seconds: {:?}",
+        series.timestamps
     );
     assert!(
         series.heart_rate.is_none()

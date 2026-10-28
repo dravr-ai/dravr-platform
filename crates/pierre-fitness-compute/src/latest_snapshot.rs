@@ -336,7 +336,9 @@ fn compute_decoupling(activity: &Activity) -> Option<f64> {
 /// timestamp. A gap in the heart-rate channel is credited to no zone: its
 /// interval is time with no reading, never a reading of 0 bpm (which would
 /// fall in no zone or the lowest one) and never folded into the next
-/// sample's interval.
+/// sample's interval. A sample with no instant on the time axis (a stream set
+/// served without one leaves `timestamps` empty) is credited nowhere: its
+/// index is not a second.
 fn compute_zone_distribution(activity: &Activity, zones: &HrZones) -> Option<ZoneDistribution> {
     let stream = activity.time_series_data()?;
     let hr_samples = stream.heart_rate.as_ref()?;
@@ -345,7 +347,7 @@ fn compute_zone_distribution(activity: &Activity, zones: &HrZones) -> Option<Zon
     }
     let timestamps = &stream.timestamps;
     let mut zd = ZoneDistribution::default();
-    for (idx, bpm) in hr_samples.iter().enumerate() {
+    for (idx, bpm) in hr_samples.iter().take(timestamps.len()).enumerate() {
         let Some(bpm) = *bpm else {
             continue;
         };

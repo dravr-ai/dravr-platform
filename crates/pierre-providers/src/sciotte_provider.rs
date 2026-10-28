@@ -636,10 +636,12 @@ fn convert_comment(comment: &SciotteComment) -> ActivityComment {
 /// route endpoint hydrate their geometry from `gps_coordinates` + `altitude`.
 ///
 /// A track is the only stream a scrape carries, so the numeric channels the
-/// API providers fill from device streams stay absent here. `timestamps` hold
-/// sample indices: the scraped track has no time axis, and indices are the
-/// same fallback the Strava and intervals.icu conversions use for a stream set
-/// whose provider omits one.
+/// API providers fill from device streams stay absent here. `timestamps` is
+/// empty: sciotte's `RouteTrack` carries coordinates, elevations, distances
+/// and bounds but no time, and its coordinate list may be downsampled, so a
+/// sample index is not a second and no time axis can be read from it. The
+/// route consumers read `gps_coordinates` and `altitude` alone, and a stream
+/// set without a time axis gives every time-based consumer nothing to time.
 ///
 /// The two ways a detail answer can lack a route mean different things, and
 /// the conversion keeps them apart. No `route` at all is the scraper not
@@ -679,9 +681,7 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
     };
 
     TimeSeriesData {
-        timestamps: (0..route.coordinates.len())
-            .map(|i| u32::try_from(i).unwrap_or(u32::MAX))
-            .collect(),
+        timestamps: Vec::new(),
         heart_rate: None,
         power: None,
         cadence: None,

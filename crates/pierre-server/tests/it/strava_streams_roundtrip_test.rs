@@ -18,7 +18,9 @@ use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::{routing::get, Json, Router};
 use chrono::Utc;
-use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
+use pierre_providers::core::{
+    stream_sample_count, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
+};
 use pierre_providers::strava_provider::StravaProvider;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -391,5 +393,47 @@ async fn an_untimed_sample_is_dropped_from_every_channel() {
         stream.distance.as_deref(),
         Some(&[0.0, 5.0, 10.0, 20.0][..]),
         "the reading taken at the untimed sample still carries over the next dropout"
+    );
+}
+
+/// A stream set Strava sent without its `time` stream has no time axis:
+/// `timestamps` stays empty rather than counting sample indices as seconds,
+/// and the channels keep every sample as served (carnet#1220).
+#[tokio::test]
+async fn a_stream_set_without_a_time_stream_has_no_time_axis() {
+    ensure_http_clients_initialized();
+    let (provider, _hits) = provider_serving(Ok(json!({
+        "heartrate": { "data": [120, 121, 122] },
+        "latlng": { "data": [[45.5, -73.6], [45.501, -73.601], [45.502, -73.602]] }
+    })))
+    .await;
+
+    let activity = provider
+        .get_activity_with_streams("4242")
+        .await
+        .expect("activity with streams");
+    let stream = activity
+        .time_series_data()
+        .expect("streams must be attached");
+
+    assert!(
+        stream.timestamps.is_empty(),
+        "no index stands in for seconds: {:?}",
+        stream.timestamps
+    );
+    assert_eq!(
+        stream.heart_rate,
+        Some(vec![Some(120), Some(121), Some(122)]),
+        "the channel keeps every sample as served"
+    );
+    assert_eq!(
+        stream.gps_coordinates.as_ref().map(Vec::len),
+        Some(3),
+        "the track keeps every point"
+    );
+    assert_eq!(
+        stream_sample_count(stream),
+        3,
+        "the length is read from the channels"
     );
 }

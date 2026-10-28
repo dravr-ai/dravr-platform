@@ -24,8 +24,9 @@ use crate::repositories::activity_cache::sql::{
 use crate::repositories::activity_cache::{
     activity_from_row, backfill_coverage_from_row, cached_activity_row_from_row,
     capture_freshness_from_row, fetch_failure_from_row, impl_activity_cache_repository, later,
-    sport_type_string, timestamp_column, ActivityCacheRepository, ActivityDetail,
-    ActivityFetchFailureRecord, BackfillCoverage, CachedActivityRow, CaptureFreshness,
+    sport_type_string, stored_json::stored_activity_json, timestamp_column,
+    ActivityCacheRepository, ActivityDetail, ActivityFetchFailureRecord, BackfillCoverage,
+    CachedActivityRow, CaptureFreshness,
 };
 
 impl_activity_cache_repository!(Database, "", "");

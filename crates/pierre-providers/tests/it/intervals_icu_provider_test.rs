@@ -15,7 +15,7 @@ use std::time::Duration as StdDuration;
 use chrono::{Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
 use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_providers::core::{
-    ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
+    stream_sample_count, ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials,
 };
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::intervals_icu_provider::{default_config, IntervalsIcuProvider};
@@ -761,6 +761,7 @@ async fn get_activity_with_streams_folds_the_streams_response() {
     })
     .to_string();
     let streams_body = serde_json::json!([
+        { "type": "time", "data": [0.0, 2.0, 4.0, 6.0] },
         { "type": "heartrate", "data": [130.0, 131.0, 132.0, 133.0] },
         { "type": "watts", "data": [210.0, 212.0, 214.0, 216.0] },
         { "type": "latlng", "data": [45.5, 45.501, 45.502, 45.503],
@@ -829,9 +830,9 @@ async fn get_activity_with_streams_folds_the_streams_response() {
         "latitudes in data and longitudes in data2 pair by index"
     );
     assert_eq!(
-        stream.timestamps.len(),
-        4,
-        "timestamps synthesised per sample"
+        stream.timestamps,
+        vec![0, 2, 4, 6],
+        "timestamps are intervals.icu's time stream, seconds from the start"
     );
 }
 
@@ -906,6 +907,7 @@ async fn latlng_pairs_latitudes_from_data_with_longitudes_from_data2() {
 #[tokio::test]
 async fn latlng_without_data2_is_no_gps() {
     let stream = streams_through_provider(serde_json::json!([
+        { "type": "time", "data": [0.0, 1.0, 2.0, 3.0] },
         { "type": "heartrate", "data": [140.0, 141.0, 142.0, 143.0] },
         { "type": "latlng", "data": [45.3051, 45.3054, 45.3058, 45.3061] }
     ]))
@@ -928,6 +930,7 @@ async fn latlng_without_data2_is_no_gps() {
 #[tokio::test]
 async fn latlng_samples_without_a_fix_are_left_out_of_the_track() {
     let stream = streams_through_provider(serde_json::json!([
+        { "type": "time", "data": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0] },
         { "type": "latlng",
           "data":  [45.3051, null, 45.3058, 45.3061, 45.3065, null],
           "data2": [-72.6512, -72.6507, null, -72.6496, -72.6490, null] }
@@ -956,6 +959,7 @@ async fn latlng_samples_without_a_fix_are_left_out_of_the_track() {
 #[tokio::test]
 async fn a_scalar_stream_with_a_dropout_keeps_its_samples_and_its_gaps() {
     let stream = streams_through_provider(serde_json::json!([
+        { "type": "time", "data": [0.0, 1.0, 2.0, 3.0] },
         { "type": "heartrate", "data": [140.0, null, null, 143.0] },
         { "type": "watts", "data": [200.0, 0.0, 210.0, 215.0] },
         { "type": "altitude", "data": [150.0, 151.0, null, 152.0] },
@@ -979,6 +983,74 @@ async fn a_scalar_stream_with_a_dropout_keeps_its_samples_and_its_gaps() {
         "a recorded zero is a real reading and stays"
     );
     assert_eq!(stream.timestamps.len(), 4);
+}
+
+/// An answer without a `time` stream has no time axis: `timestamps` stays
+/// empty rather than counting sample indices as seconds, and the channels
+/// keep every sample as served (carnet#1220).
+#[tokio::test]
+async fn a_streams_answer_without_a_time_stream_has_no_time_axis() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "heartrate", "data": [140.0, 141.0, 142.0] },
+        { "type": "latlng", "data": [45.3051, 45.3054, 45.3058],
+          "data2": [-72.6512, -72.6507, -72.6501] }
+    ]))
+    .await;
+
+    assert!(
+        stream.timestamps.is_empty(),
+        "no index stands in for seconds: {:?}",
+        stream.timestamps
+    );
+    assert_eq!(
+        stream.heart_rate.as_deref(),
+        Some(&[Some(140), Some(141), Some(142)][..]),
+        "the channel keeps every sample as served"
+    );
+    assert_eq!(
+        stream.gps_coordinates.as_ref().map(Vec::len),
+        Some(3),
+        "the track keeps every point"
+    );
+    assert_eq!(
+        stream_sample_count(&stream),
+        3,
+        "the length is read from the channels"
+    );
+}
+
+/// A sample intervals.icu sent with no time offset has no instant to stand
+/// at: it is dropped from every channel, so they shrink together and stay
+/// aligned, and no `0 s` is invented for it.
+#[tokio::test]
+async fn an_untimed_sample_is_dropped_from_every_channel() {
+    let stream = streams_through_provider(serde_json::json!([
+        { "type": "time", "data": [0.0, 1.0, null, 3.0] },
+        { "type": "heartrate", "data": [140.0, 141.0, 142.0, 143.0] },
+        { "type": "latlng", "data": [45.3051, 45.3054, 45.3058, 45.3061],
+          "data2": [-72.6512, -72.6507, -72.6501, -72.6496] }
+    ]))
+    .await;
+
+    assert_eq!(
+        stream.timestamps,
+        vec![0, 1, 3],
+        "the untimed sample is dropped, never read as 0 s"
+    );
+    assert_eq!(
+        stream.heart_rate,
+        Some(vec![Some(140), Some(141), Some(143)]),
+        "the untimed reading is dropped with its sample"
+    );
+    assert_eq!(
+        stream.gps_coordinates,
+        Some(vec![
+            (45.3051, -72.6512),
+            (45.3054, -72.6507),
+            (45.3061, -72.6496)
+        ]),
+        "the untimed position is dropped with its sample"
+    );
 }
 
 /// A stream flagged `allNull` recorded nothing: it is absent, whatever its

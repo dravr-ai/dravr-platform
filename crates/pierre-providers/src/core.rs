@@ -706,6 +706,49 @@ pub const fn no_recorded_samples() -> TimeSeriesData {
     }
 }
 
+/// `values` without the samples `timed` marks as having no instant on the
+/// time axis; an index past the end of `timed` is kept.
+///
+/// A provider's time stream carries no gap marker of its own, so a sample
+/// whose offset is `null` has nowhere to stand. Dropping that index from
+/// every channel keeps the channels aligned with `timestamps` without
+/// inventing an instant for it.
+pub(crate) fn keep_timed<T>(values: Vec<T>, timed: &[bool]) -> Vec<T> {
+    values
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| timed.get(*index).copied().unwrap_or(true))
+        .map(|(_, value)| value)
+        .collect()
+}
+
+/// How many samples a stream set carries: the longest of its time axis and
+/// its channels.
+///
+/// `timestamps` holds seconds from the activity start, never sample
+/// indices. A stream set whose provider served no time axis (a scraped route
+/// track, a streams answer without its `time` stream) leaves `timestamps`
+/// empty and keeps its channels as served, so its length is read from the
+/// channels and every time-based consumer finds nothing to time.
+#[must_use]
+pub fn stream_sample_count(series: &TimeSeriesData) -> usize {
+    [
+        Some(series.timestamps.len()),
+        series.heart_rate.as_ref().map(Vec::len),
+        series.power.as_ref().map(Vec::len),
+        series.cadence.as_ref().map(Vec::len),
+        series.speed.as_ref().map(Vec::len),
+        series.altitude.as_ref().map(Vec::len),
+        series.temperature.as_ref().map(Vec::len),
+        series.gps_coordinates.as_ref().map(Vec::len),
+        series.distance.as_ref().map(Vec::len),
+    ]
+    .into_iter()
+    .flatten()
+    .max()
+    .unwrap_or(0)
+}
+
 /// Provider factory for creating instances
 pub trait ProviderFactory: Send + Sync {
     /// Create a new provider instance with the given configuration.

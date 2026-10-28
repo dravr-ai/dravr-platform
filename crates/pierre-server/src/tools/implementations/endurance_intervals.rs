@@ -6,6 +6,7 @@
 
 use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
+use pierre_providers::core::stream_sample_count;
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -350,7 +351,7 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
                 "extract_activity_streams",
                 ActivityStreamsResult {
                     activity_id: activity_id.clone(),
-                    sample_count: stream.timestamps.len(),
+                    sample_count: stream_sample_count(stream),
                     streams: stream.clone(),
                 },
             )

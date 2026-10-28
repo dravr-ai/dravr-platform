@@ -531,6 +531,8 @@ pub trait ActivityCacheRepository: Send + Sync {
 
 /// The statements both backends run, shared or cast per engine
 pub(crate) mod sql;
+/// The `data_json` a row stores: the activity without its samples
+pub(crate) mod stored_json;
 
 /// String form of an activity's sport type for the indexed column.
 ///
@@ -809,9 +811,7 @@ macro_rules! impl_activity_cache_repository {
                 for activity in activities {
                     let id = Uuid::new_v4().to_string();
                     let sport = sport_type_string(activity);
-                    let data_json = serde_json::to_string(activity).map_err(|e| {
-                        AppError::database(format!("Failed to serialize activity: {e}"))
-                    })?;
+                    let data_json = stored_activity_json(activity)?;
 
                     sqlx::query(UPSERT_CACHED_ACTIVITY_SQL)
                         .bind(&id)

@@ -9,8 +9,8 @@
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
-    no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
-    TokenRefreshCallback,
+    keep_timed, no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
+    ProviderConfig, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
@@ -381,23 +381,15 @@ impl StravaProvider {
     /// zero would be a coordinate off the coast of Africa rather than an
     /// absence. The distance channel is cumulative, so a `null` there repeats
     /// the last reading: no metres were recorded, none were lost.
-    /// Timestamps prefer Strava's own `time` stream and fall back to sample
-    /// indices when it is missing. The time axis carries no gap marker, so a
-    /// sample whose `time` offset is `null` has no instant to stand at: that
-    /// index is dropped from every channel (time, GPS, distance and the
-    /// gapped channels alike), keeping them aligned without inventing one.
+    /// Timestamps are Strava's own `time` stream, seconds from the start.
+    /// The request always asks for it; an answer without it has no time
+    /// axis, and `timestamps` stays empty rather than counting sample indices
+    /// as seconds ([`crate::core::stream_sample_count`] still reads the channels' length).
+    /// The time axis carries no gap marker, so a sample whose `time` offset
+    /// is `null` has no instant to stand at: that index is dropped from every
+    /// channel (time, GPS, distance and the gapped channels alike), keeping
+    /// them aligned without inventing one.
     fn streams_to_time_series(set: StravaStreamSet) -> Option<TimeSeriesData> {
-        /// `values` without the samples `recorded` marks as untimed; an
-        /// index past the end of the time stream is kept.
-        fn keep_timed<T>(values: Vec<T>, recorded: &[bool]) -> Vec<T> {
-            values
-                .into_iter()
-                .enumerate()
-                .filter(|(index, _)| recorded.get(*index).copied().unwrap_or(true))
-                .map(|(_, value)| value)
-                .collect()
-        }
-
         // `recorded[i]` is false where Strava sent no time offset for sample `i`.
         let recorded: Vec<bool> = set
             .time
@@ -451,7 +443,15 @@ impl StravaProvider {
         .max()
         .unwrap_or(0);
         let timestamps: Vec<u32> = set.time.map_or_else(
-            || (0..u32::try_from(sample_count).unwrap_or(u32::MAX)).collect(),
+            || {
+                if sample_count > 0 {
+                    warn!(
+                        sample_count,
+                        "strava streams answer carries no time stream; serving it without a time axis"
+                    );
+                }
+                Vec::new()
+            },
             |stream| stream.data.into_iter().flatten().collect(),
         );
         if timestamps.is_empty() && sample_count == 0 {

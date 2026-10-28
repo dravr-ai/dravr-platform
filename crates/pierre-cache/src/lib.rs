@@ -42,8 +42,7 @@ pub use cache::Cache;
 
 use constants::cache::{
     DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CLEANUP_INTERVAL_SECS, TTL_ACTIVITY_LIST_SECS,
-    TTL_ACTIVITY_SECS, TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS, TTL_STATS_SECS,
-    TTL_TRAINING_HISTORY_SECS,
+    TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS, TTL_STATS_SECS, TTL_TRAINING_HISTORY_SECS,
 };
 use errors::AppResult;
 use models::TenantId;
@@ -324,20 +323,10 @@ pub enum CacheResource {
         /// Optional sport type filter (e.g., "run", "ride") for server-side filtering
         sport_type: Option<String>,
     },
-    /// Single activity summary (1h TTL)
-    Activity {
-        /// Activity ID
-        activity_id: u64,
-    },
     /// Athlete statistics (6h TTL)
     Stats {
         /// Athlete ID
         athlete_id: u64,
-    },
-    /// Detailed activity with streams (1h TTL)
-    DetailedActivity {
-        /// Activity ID
-        activity_id: u64,
     },
     /// Endurance daily training-history rollup result (`get_training_history`).
     /// Per-(tenant,user) and per-date-range; invalidated whenever the
@@ -393,9 +382,6 @@ impl CacheResource {
         match self {
             Self::AthleteProfile => Duration::from_secs(TTL_PROFILE_SECS),
             Self::ActivityList { .. } => Duration::from_secs(TTL_ACTIVITY_LIST_SECS),
-            Self::Activity { .. } | Self::DetailedActivity { .. } => {
-                Duration::from_secs(TTL_ACTIVITY_SECS)
-            }
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
             Self::TrainingHistory { .. } => Duration::from_secs(TTL_TRAINING_HISTORY_SECS),
             Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
@@ -429,11 +415,7 @@ impl fmt::Display for CacheResource {
                     "activity_list:page:{page}:per_page:{per_page}{before_str}{after_str}{sport_str}"
                 )
             }
-            Self::Activity { activity_id } => write!(f, "activity:{activity_id}"),
             Self::Stats { athlete_id } => write!(f, "stats:{athlete_id}"),
-            Self::DetailedActivity { activity_id } => {
-                write!(f, "detailed_activity:{activity_id}")
-            }
             Self::TrainingHistory { from, to } => {
                 write!(f, "training_history:{from}:{to}")
             }

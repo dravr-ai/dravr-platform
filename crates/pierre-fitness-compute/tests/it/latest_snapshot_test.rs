@@ -342,6 +342,32 @@ fn zone_distribution_credits_no_zone_for_a_heart_rate_gap() {
     assert_eq!(zd.total_seconds(), 270);
 }
 
+/// A stream set served without a time axis (`timestamps` empty, as a scraped
+/// route or a streams answer without its `time` stream) has no seconds to
+/// credit: its sample indices are never read as one second each
+/// (carnet#1220).
+#[test]
+fn a_stream_without_a_time_axis_has_no_zone_distribution() {
+    let zones = intermediate_zones();
+    let mut streams = flat_hr_stream(300, bpm_in_zone(&zones, 2));
+    streams.timestamps.clear();
+    let activity = synthetic_activity(SyntheticActivity {
+        id: "zone-no-time-axis",
+        days_ago: 0,
+        duration_seconds: 300,
+        distance_meters: 2_000.0,
+        avg_hr: None,
+        avg_power: None,
+        normalized_power: None,
+        streams: Some(streams),
+    });
+    let snap = build_latest_snapshot(&[activity], 7, None, Ok(&zones));
+    assert!(
+        snap.activities[0].zone_distribution.is_none(),
+        "sample indices must never be credited as seconds of zone time"
+    );
+}
+
 #[test]
 fn a_stream_of_only_gaps_has_no_zone_distribution() {
     let zones = intermediate_zones();

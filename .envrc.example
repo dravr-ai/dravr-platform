@@ -449,7 +449,6 @@ export ACTIVITY_DETAIL_THRESHOLD="20"
 # Cache TTL Configuration (seconds)
 export CACHE_TTL_PROFILE_SECS="86400"         # 24 hours - athlete profiles change infrequently
 export CACHE_TTL_ACTIVITY_LIST_SECS="900"     # 15 minutes - needs to be fresh for new activities
-export CACHE_TTL_ACTIVITY_SECS="3600"         # 1 hour - activity details rarely change
 export CACHE_TTL_STATS_SECS="21600"           # 6 hours - stats aggregate over time windows
 
 # Cache General Settings
