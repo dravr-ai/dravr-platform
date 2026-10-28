@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import type { ProvidersStatusResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import type { OAuthNotification } from './types';
 
@@ -59,7 +60,14 @@ export function useOAuthCompletion(onSelectConversation: (id: string | null) => 
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.status() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.profile() });
 
-      const providerDisplay = data.result.provider.charAt(0).toUpperCase() + data.result.provider.slice(1);
+      // The brand the provider's card shows, from the status the thread already
+      // holds (as OAuthCallback reads it); the capitalised id until it answers.
+      const { provider } = data.result;
+      const providerDisplay =
+        queryClient
+          .getQueryData<ProvidersStatusResponse>(QUERY_KEYS.providers.status())
+          ?.providers?.find((p) => p.provider === provider)?.display_name ??
+        provider.charAt(0).toUpperCase() + provider.slice(1);
       setNotification({ provider: providerDisplay, timestamp: Date.now() });
 
       if (data.savedConversation) {

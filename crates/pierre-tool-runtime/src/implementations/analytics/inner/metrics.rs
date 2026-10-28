@@ -22,6 +22,7 @@ use pierre_formatters::OutputFormat;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use tracing::warn;
 
 /// Activity parameters extracted from request
 struct ActivityParameters {
@@ -296,7 +297,11 @@ async fn fetch_and_calculate_metrics(
 
     // Fetch activity from provider
     let activity = provider.get_activity(activity_id).await.map_err(|e| {
-        ProtocolError::ExecutionFailed(format!("Failed to fetch activity {activity_id}: {e}"))
+        warn!(error = %e, %activity_id, "activity read for activity metrics failed");
+        ProtocolError::ExecutionFailed(format!(
+            "Failed to fetch activity {activity_id}: {}",
+            e.tool_message()
+        ))
     })?;
 
     // Convert Activity model to parameters format

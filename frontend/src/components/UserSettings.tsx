@@ -83,6 +83,11 @@ const PROVIDERS = [{ id: 'whoop', name: 'WHOOP' }];
 
 const MIN_PASSWORD_LENGTH = 8;
 
+// The two backends behind the Strava card, which hold one connection at a
+// time: native OAuth (`strava`) and the credential login (`sciotte`).
+type StravaBackend = 'strava' | 'sciotte';
+const isStravaBackend = (id: string): id is StravaBackend => id === 'strava' || id === 'sciotte';
+
 // Query key for the caller's connected OAuth apps (external MCP clients they
 // approved on the consent screen). Kept local rather than in the shared
 // QUERY_KEYS catalogue since this surface is web-only.
@@ -168,7 +173,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
   // Fitness provider connection state
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  const [providerToDisconnect, setProviderToDisconnect] = useState<string | null>(null);
+  // The id goes to the API; the card's display name is what the user reads.
+  const [providerToDisconnect, setProviderToDisconnect] = useState<{ id: string; name: string } | null>(null);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [sciotteModalTarget, setSciotteModalTarget] = useState<SciotteTarget | null>(null);
   // Whether the chosen card still needs its exposure notice accepted.
@@ -182,7 +188,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // The Intervals.icu dialog, and whether it leads with the authorization
   // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
   const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
-  const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
+  const [providerConflict, setProviderConflict] = useState<{
+    connecting: StravaBackend;
+    disconnecting: StravaBackend;
+  } | null>(null);
 
   // Connected OAuth apps (external MCP clients) revoke-confirmation target
   const [appToRevoke, setAppToRevoke] = useState<OAuthGrant | null>(null);
@@ -401,21 +410,30 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   // backend the connection will actually use, not the card that was clicked:
   // the `sciotte` card connects through native `strava` OAuth while shared
   // seats remain, and re-authing that same backend is not a conflict.
-  const EXCLUSIVE_PROVIDERS = ['strava', 'sciotte'];
   const checkProviderConflict = (backendId: string): boolean => {
-    if (!EXCLUSIVE_PROVIDERS.includes(backendId)) return false;
-    const otherProvider = backendId === 'strava' ? 'sciotte' : 'strava';
+    if (!isStravaBackend(backendId)) return false;
+    const otherProvider: StravaBackend = backendId === 'strava' ? 'sciotte' : 'strava';
     // The Strava card names the backend whose row serves it.
     const stravaCard = fitnessProviders.find(p => p.provider === 'sciotte');
     if (stravaCard?.connected && stravaCard.connected_backend === otherProvider) {
-      setProviderConflict({
-        connecting: backendId === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava'),
-        disconnecting: otherProvider === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava'),
-      });
+      setProviderConflict({ connecting: backendId, disconnecting: otherProvider });
       return true;
     }
     return false;
   };
+
+  // What the switch dialog calls each Strava backend: the OAuth connection is
+  // plain "Strava", the credential one says it signs in through Dravr.
+  const stravaBackendLabel = (backend: StravaBackend): string =>
+    backend === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava');
+
+  // The name a connect result shows for the backend it launched: the card's
+  // display name, with native `strava` (whose row the server withholds) read
+  // as the Strava card's.
+  const connectedProviderName = (providerId: string): string =>
+    providerId === 'strava'
+      ? t('shell.sciotteTargetStrava')
+      : (fitnessProviders.find(p => p.provider === providerId)?.display_name ?? providerId);
 
   // The Connect button's start: an app of the athlete's own first when no app
   // of the server's can authorize the provider for them, then the provider's
@@ -482,7 +500,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             setConnectingProvider(null);
 
             if (result.success) {
-              setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: providerId }) });
+              setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: connectedProviderName(providerId) }) });
               refetchProviders();
             } else if (result.tombstoned) {
               // The account belonged to a deleted Dravr account: the OAuth
@@ -495,7 +513,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               // instead of leaving the user on an error message.
               setSciotteModalTarget('strava');
             } else {
-              setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: providerId }) });
+              setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: connectedProviderName(providerId) }) });
             }
           }
         }
@@ -512,7 +530,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   // Disconnect a fitness provider
-  const handleDisconnectProvider = async (providerId: string) => {
+  const handleDisconnectProvider = async (providerId: string, displayName: string) => {
     try {
       setProviderMessage(null);
       // Intervals.icu has its own disconnect endpoint, which withdraws an
@@ -523,7 +541,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
         await oauthApi.disconnectProvider(providerId);
       }
       setProviderToDisconnect(null);
-      setProviderMessage({ type: 'success', text: `${providerId} disconnected` });
+      setProviderMessage({ type: 'success', text: t('app.providerDisconnected', { provider: displayName }) });
       refetchProviders();
     } catch (error) {
       setProviderToDisconnect(null);
@@ -894,7 +912,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   <Button
                                     variant="tertiary"
                                     size="sm"
-                                    onClick={() => setProviderToDisconnect(provider.provider)}
+                                    onClick={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
                                     className="text-error"
                                     data-testid={`provider-disconnect-${provider.provider}`}
                                   >
@@ -1122,7 +1140,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
 
                 {selectedProvider && (
                   <div className="text-xs text-outline space-y-1">
-                    <p>{t('settingsUi.providerAppSettingsSet', { provider: selectedProvider })}</p>
+                    <p>{t('settingsUi.providerAppSettingsSet', { provider: getProviderInfo(selectedProvider).name })}</p>
                     <p>
                       {t('app.redirectUriHint')}{' '}
                       <code className="text-on-surface-variant break-all">
@@ -1775,9 +1793,9 @@ Authorization: Bearer <your-token-here>`}
       <ConfirmDialog
         isOpen={providerToDisconnect !== null}
         onClose={() => setProviderToDisconnect(null)}
-        onConfirm={() => providerToDisconnect && handleDisconnectProvider(providerToDisconnect)}
+        onConfirm={() => providerToDisconnect && handleDisconnectProvider(providerToDisconnect.id, providerToDisconnect.name)}
         title={t('providers.disconnectProvider')}
-        message={t('app.confirmDisconnect', { provider: providerToDisconnect })}
+        message={t('app.confirmDisconnect', { provider: providerToDisconnect?.name ?? '' })}
         confirmLabel={t('app.disconnect')}
         variant="danger"
       />
@@ -1788,8 +1806,7 @@ Authorization: Bearer <your-token-here>`}
         onClose={() => setProviderConflict(null)}
         onConfirm={async () => {
           if (!providerConflict) return;
-          const disconnecting = providerConflict.disconnecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
-          const connecting = providerConflict.connecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
+          const { connecting, disconnecting } = providerConflict;
           // The disconnect await consumes the click's user gesture, so open the
           // launch window BEFORE it. It goes straight to the server's redirect
           // route, so there is no blank window to hold open across the await
@@ -1797,7 +1814,7 @@ Authorization: Bearer <your-token-here>`}
           // modal rather than an OAuth window, so it opens nothing here.
           const launch =
             connecting === 'sciotte' ? null : window.open(oauthApi.authorizeUrl(connecting), '_blank');
-          await handleDisconnectProvider(disconnecting);
+          await handleDisconnectProvider(disconnecting, stravaBackendLabel(disconnecting));
           setProviderConflict(null);
           if (connecting === 'sciotte') {
             setSciotteModalTarget('strava');
@@ -1806,7 +1823,14 @@ Authorization: Bearer <your-token-here>`}
           }
         }}
         title={t('providers.switchProvider')}
-        message={t('app.providerConflictWarning', { connecting: providerConflict?.connecting ?? '', disconnecting: providerConflict?.disconnecting ?? '' })}
+        message={
+          providerConflict
+            ? t('app.providerConflictWarning', {
+                connecting: stravaBackendLabel(providerConflict.connecting),
+                disconnecting: stravaBackendLabel(providerConflict.disconnecting),
+              })
+            : ''
+        }
         confirmLabel={t('app.switch')}
         variant="danger"
       />

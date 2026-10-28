@@ -57,6 +57,8 @@ use pierre_tool_runtime::tool_results;
 use serde_json::Value;
 use tracing::{info, warn};
 
+use crate::mcp::tool_handlers;
+
 use pierre_database::RepositoryRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 
@@ -317,7 +319,12 @@ impl ToolSurface for TurnToolSurface {
                     error = %e,
                     "tool dispatch failed for the agent"
                 );
-                ToolOutcome::refused(e.to_string())
+                // A reconnect names the provider the athlete knows, the same
+                // words `/mcp` answers with; never the backend.
+                ToolOutcome::refused(
+                    e.provider_auth_required_provider()
+                        .map_or_else(|| e.to_string(), tool_handlers::provider_auth_required_text),
+                )
             }
             Err(_) => {
                 warn!(

@@ -184,6 +184,28 @@ pub fn backend_pair_for(provider: &str) -> Vec<String> {
     pair
 }
 
+/// The provider an activity reads as to an athlete or a model.
+///
+/// A mirror backend stamps every row it reads with its own backend name —
+/// the bare `sciotte`, whichever service it signed in to — and records that
+/// service (`garmin`, `strava`, `trainingpeaks`, `coros`) as the row's
+/// `source`. So a mirror row reads as its source, falling back to the
+/// mirror's user-facing name. Any other row reads as its own provider:
+/// there `source` names the device or app that recorded it, not the
+/// connection it came through.
+///
+/// [`user_facing_name`] of the row's provider alone is wrong here: the bare
+/// stamp maps to `strava`, which would name every scraped Garmin, COROS and
+/// TrainingPeaks row Strava.
+#[must_use]
+pub fn activity_origin<'a>(provider: &'a str, source: Option<&'a str>) -> &'a str {
+    if is_mirror_backend(provider) {
+        source.unwrap_or_else(|| user_facing_name(provider))
+    } else {
+        provider
+    }
+}
+
 /// Is this provider name an internal mirror-backend that must never
 /// surface to end users?
 #[must_use]

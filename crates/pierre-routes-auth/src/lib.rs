@@ -21,8 +21,9 @@
 //!   initiation, callback redirect to web/mobile, and explicit sync triggers.
 //! - Sciotte (Strava-mirror) credential-login endpoints
 //!   (`/api/providers/sciotte/*`) and the channel-initiated hosted-login UI
-//!   (`/providers/sciotte/{login,success,error}`), whose link-tokens are
-//!   minted in-process.
+//!   (`/providers/signin`, `/providers/signin/{success,error}`; the earlier
+//!   `/providers/sciotte/{login,success,error}` paths serve the same pages),
+//!   whose link-tokens are minted in-process.
 //!
 //! Everything is wired through [`AuthRoutesContext`] — a concrete state
 //! struct collecting the Arc handles every auth handler needs (auth manager,
@@ -441,9 +442,27 @@ impl AuthRoutes {
                 "/api/providers/sciotte/submit-otp",
                 post(sciotte::handle_sciotte_submit_otp),
             )
-            // Channel-initiated hosted Sciotte login pages. Their link-tokens
-            // are minted in-process by the messaging pipeline and the backfill
-            // notifier; no HTTP route mints one.
+            // Channel-initiated hosted credential sign-in pages. Their
+            // link-tokens are minted in-process by the messaging pipeline and
+            // the backfill notifier; no HTTP route mints one. The paths name no
+            // backend: the athlete reads them in the address bar. The first is
+            // `provider_link_token::HOSTED_SIGNIN_PATH`, spelled out because
+            // scripts/ci/backend-routes.py reads route paths as literals.
+            .route(
+                "/providers/signin",
+                get(sciotte_hosted::handle_sciotte_hosted_login_page),
+            )
+            .route(
+                "/providers/signin/success",
+                get(sciotte_hosted::handle_sciotte_hosted_success_page),
+            )
+            .route(
+                "/providers/signin/error",
+                get(sciotte_hosted::handle_sciotte_hosted_error_page),
+            )
+            // The same pages at the paths links were minted with before
+            // carnet#1207: messages and short links already sent still carry
+            // them, so they keep opening.
             .route(
                 "/providers/sciotte/login",
                 get(sciotte_hosted::handle_sciotte_hosted_login_page),

@@ -506,10 +506,12 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
             })));
         };
 
+        // The refusal never echoes a mirror backend back: the model would
+        // read it as a provider name and the athlete never chose it.
         if backend_resolver::is_mirror_backend(provider) {
             return Ok(ToolResult::error(json!({
                 "error": format!(
-                    "Unknown provider '{provider}'. Use '{}' instead.",
+                    "Unknown provider. Use '{}' instead.",
                     backend_resolver::user_facing_name(provider)
                 )
             })));

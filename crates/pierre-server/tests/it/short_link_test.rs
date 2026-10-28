@@ -18,8 +18,7 @@ use crate::db_fixtures;
 use db_fixtures::create_test_db;
 
 /// The dotty hosted-login URL a chat surface would otherwise hand to `WhatsApp`.
-const DOTTY_TARGET: &str =
-    "https://app.test/providers/sciotte/login?token=header.payload.signature";
+const DOTTY_TARGET: &str = "https://app.test/providers/signin?token=header.payload.signature";
 
 #[tokio::test]
 async fn shorten_url_persists_and_round_trips() {

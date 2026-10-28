@@ -186,7 +186,9 @@ pub enum ProtocolError {
     /// from `AppError::ProviderAuthRequired` so the chat pipeline can detect
     /// this across the protocol boundary and short-circuit the turn with a
     /// minted hosted-login URL instead of letting the LLM rephrase the failure.
-    #[error("Provider {provider} requires authentication")]
+    /// The text names no provider: `provider` is a backend key the athlete
+    /// never chose, so a reader that names it maps it first.
+    #[error("A connected provider needs to be reconnected")]
     ProviderAuthRequired {
         /// Provider slug (e.g. `sciotte`, `sciotte_garmin`, `sciotte_trainingpeaks`).
         provider: String,

@@ -32,6 +32,7 @@ use pierre_core::models::{
 };
 use pierre_core::narration::scrub_replayed_narration;
 use pierre_llm::ChatMessage;
+use pierre_providers::backend_resolver;
 use pierre_runtime_context::DataContext;
 use pierre_services::conversation_compaction::REPLAYED_SUMMARY_PREFIX;
 use pierre_tool_runtime::tool_execution::strip_simulation_artifacts;
@@ -463,14 +464,23 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 
     let mut context = String::from("\n\n## Connected Fitness Data Providers\n\n");
     context.push_str("The user has the following data sources available:\n");
+    // Each row is named as the athlete knows it: a row stored under a mirror
+    // backend (`sciotte_garmin`) is their Garmin, signed in with the username
+    // and password they gave Dravr, so both halves of a pair read as one line.
+    let mut listed: Vec<Cow<'_, str>> = Vec::with_capacity(connections.len());
     for conn in &connections {
+        let name = backend_resolver::user_facing_name(&conn.provider);
         let label = if conn.connection_type == ConnectionType::Synthetic {
-            Cow::Owned(format!("{} (test data)", conn.provider))
+            Cow::Owned(format!("{name} (test data)"))
         } else {
-            Cow::Borrowed(conn.provider.as_str())
+            Cow::Borrowed(name)
         };
+        if listed.contains(&label) {
+            continue;
+        }
         // Write trait used to avoid format_push_string lint
         let _ = writeln!(context, "- ✓ {label}");
+        listed.push(label);
     }
     context.push_str("\nUse the connected providers to fetch activity data. ");
     context.push_str("Do NOT ask the user to connect providers that are already connected above.");

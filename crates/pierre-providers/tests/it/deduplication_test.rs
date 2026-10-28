@@ -679,3 +679,37 @@ fn a_report_scoped_to_a_page_keeps_only_that_page_s_groups_and_counts() {
     assert_eq!(scoped.groups.len(), 1);
     assert_eq!(scoped.groups[0].fragment_ids, vec!["g-2", "s-2"]);
 }
+
+#[test]
+fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
+    // A Garmin connection signed in with the athlete's username and password
+    // from Dravr stamps its rows with the mirror backend; the merge line and
+    // `fragment_dedup` name the service, never the backend.
+    let t = base_time();
+    let activities = vec![
+        provider_activity("strava-1", "strava", SportType::Ride, t, 11_520)
+            .distance_meters(84_800.0)
+            .build(),
+        provider_activity(
+            "garmin-1",
+            "sciotte",
+            SportType::Ride,
+            t + Duration::minutes(2),
+            11_520,
+        )
+        .source("garmin")
+        .distance_meters(84_750.0)
+        .average_heart_rate(141)
+        .build(),
+    ];
+    let (_, report) = merge_duplicates(activities, &DedupConfig::default());
+    let group = &report.groups[0];
+    assert_eq!(group.providers, vec!["strava", "garmin"]);
+    assert!(
+        !group.filled_fields.is_empty(),
+        "the scraped row donates its heart rate"
+    );
+    assert!(group.filled_fields.iter().all(|f| f.provider == "garmin"));
+    let said = serde_json::to_string(&report).unwrap();
+    assert!(!said.to_lowercase().contains("sciotte"), "{said}");
+}

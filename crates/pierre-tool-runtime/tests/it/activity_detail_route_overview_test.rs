@@ -74,3 +74,28 @@ fn detail_mode_keeps_every_other_field_of_the_activity() {
     assert_eq!(row["start_latitude"], 38.5);
     assert_eq!(row["start_longitude"], -120.2);
 }
+
+#[test]
+fn detail_mode_names_the_service_a_scraped_row_was_read_from() {
+    // A Garmin connection signed in with the athlete's username and password
+    // from Dravr stamps its rows with the mirror backend; the model reads the
+    // service instead.
+    let scraped = ActivityBuilder::new(
+        "g1",
+        "Hill loop",
+        SportType::Run,
+        Utc.with_ymd_and_hms(2026, 9, 20, 7, 0, 0).unwrap(),
+        3_000,
+        "sciotte",
+    )
+    .source("garmin")
+    .build();
+    let value = detail_json(&[scraped, outdoor_run()]).unwrap();
+    let rows = value.as_array().unwrap();
+    assert_eq!(rows[0]["provider"], "garmin");
+    assert_eq!(rows[1]["provider"], "strava");
+    assert!(
+        !value.to_string().to_lowercase().contains("sciotte"),
+        "the backend reached the model: {value}"
+    );
+}

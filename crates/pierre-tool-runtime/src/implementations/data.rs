@@ -30,7 +30,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use pierre_core::models::{RefreshConfig, TenantId};
 use serde_json::{json, Value};
-use tracing::{debug, error, field, info, Span};
+use tracing::{debug, error, field, info, warn, Span};
 
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
@@ -898,13 +898,16 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 "{display_provider} answered with no activities for a window \
                                  the platform holds {cached} of its activities in"
                             )),
-                            Err(e) if e.provider_auth_required_provider().is_none() => {
-                                Err(e.to_string())
-                            }
+                            // The model reads the provider's name; the log keeps the whole error.
                             Err(e) => {
-                                return Ok(ToolResult::error(json!({
-                                    "error": format!("Failed to fetch activities: {e}"),
-                                })));
+                                warn!(provider = %provider_name, error = %e, "live activity read failed");
+                                if e.provider_auth_required_provider().is_some() {
+                                    let error = format!(
+                                        "Failed to fetch activities: {display_provider} needs to be reconnected"
+                                    );
+                                    return Ok(ToolResult::error(json!({ "error": error })));
+                                }
+                                Err(e.tool_message())
                             }
                         };
                         match live {

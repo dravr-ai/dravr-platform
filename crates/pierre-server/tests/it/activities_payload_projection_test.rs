@@ -24,7 +24,9 @@ use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::data_helpers::provider_reconnect_note;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::tool_execution::add_function_responses_to_messages;
-use pierre_tool_runtime::tool_results::{format_tool_results_as_text, project_activities_payload};
+use pierre_tool_runtime::tool_results::{
+    format_tool_results_as_text, project_activities_payload, reconnect_offer_in_responses,
+};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -166,6 +168,35 @@ fn the_projection_carries_the_reconnect_sidecar_to_the_model() {
     assert!(
         text.contains("reconnect_required") && text.contains("served WITHOUT Garmin"),
         "the text tool loop's rendering must name the dead source: {text}"
+    );
+}
+
+/// The dead connection's backend is the reconnect mint's, read off the
+/// unprojected payload; the model never reads it.
+#[test]
+fn the_projection_keeps_the_backend_from_the_model() {
+    let mut envelope = activities_envelope(3);
+    envelope["reconnect_required"] = provider_reconnect_note("Garmin", "sciotte_garmin");
+
+    let projected = project_activities_payload("get_activities", &envelope).unwrap();
+    assert!(projected["reconnect_required"]
+        .get("provider_slug")
+        .is_none());
+    let text = format_tool_results_as_text(&[FunctionResponse {
+        name: "get_activities".to_owned(),
+        response: envelope.clone(),
+    }]);
+    for said in [projected.to_string(), text] {
+        assert!(!said.to_lowercase().contains("sciotte"), "{said}");
+    }
+    // The unprojected payload still carries it for the reconnect mint.
+    assert_eq!(
+        reconnect_offer_in_responses(&[FunctionResponse {
+            name: "get_activities".to_owned(),
+            response: envelope,
+        }])
+        .as_deref(),
+        Some("sciotte_garmin")
     );
 }
 

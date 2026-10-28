@@ -501,12 +501,17 @@ impl AppError {
     /// hosted-login URL (which needs channel/chat-thread context the provider
     /// layer doesn't hold) and short-circuit a reply with the actionable link
     /// instead of letting the LLM rephrase a generic refusal.
+    ///
+    /// The message names no provider: the slug is a backend key
+    /// (`sciotte_garmin`) the athlete never chose and must never read, and
+    /// this crate cannot map it to the name they know. A reader that names
+    /// the provider maps `details.provider` itself.
     #[must_use]
     pub fn provider_auth_required(provider: impl Into<String>) -> Self {
         let provider_str = provider.into();
         let mut err = Self::new(
             ErrorCode::ProviderAuthRequired,
-            format!("Provider {provider_str} requires authentication"),
+            "A connected provider needs to be reconnected",
         );
         err.details = Some(Box::new(serde_json::json!({
             "provider": provider_str,

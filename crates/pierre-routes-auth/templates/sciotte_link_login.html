@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ABOUTME: Hosted Sciotte login a chat link opens: credentials, two-step verification and the TrainingPeaks notice -->
+<!-- ABOUTME: Hosted credential sign-in (usr/pwd from Dravr) a chat link opens: credentials, two-step verification and the TrainingPeaks notice -->
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; the script runs the login state machine -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
@@ -125,7 +125,7 @@
                 // The account must accept the provider's exposure notice before
                 // its credentials are sent (TrainingPeaks, until accepted).
                 consentRequired: {{CONSENT_REQUIRED}},
-                // 20-minute timeout (matches SCIOTTE_TIMEOUT_MS in frontend)
+                // 20-minute timeout (matches the web credential login's timeout)
                 timeoutMs: 1200000,
                 // `details.reason` of the refusal a lapsed sign-in gets.
                 flowExpiredReason: "{{FLOW_EXPIRED_REASON}}",
@@ -216,7 +216,7 @@
                         setTimeout(() => {
                             const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target)
                                 + '&token=' + encodeURIComponent(CONFIG.token);
-                            window.location.assign('/providers/sciotte/success?' + qs);
+                            window.location.assign('/providers/signin/success?' + qs);
                         }, 1200);
                         break;
                     case 'two_factor_choice':

@@ -206,9 +206,14 @@ pub(super) fn failed_read(error: &ProtocolError) -> UniversalResponse {
 /// A provider read's failure, `context` first. A refused credential keeps its
 /// provider under [`META_AUTH_REQUIRED_PROVIDER`], so [`read_within_budget`]
 /// answers [`LiveRead::AuthRequired`] rather than letting a copy stand in.
+///
+/// The model reads the error's tool-facing message ([`AppError::tool_message`]),
+/// which names the provider the athlete knows and never a backend, a service
+/// or a request id; an operator reads the whole error in the log line.
 pub(super) fn provider_failure(context: &str, error: &AppError) -> UniversalResponse {
+    warn!(context, error = %error, "provider read failed");
     tagged(
-        failure(&format!("{context}: {error}")),
+        failure(&format!("{context}: {}", error.tool_message())),
         error.provider_auth_required_provider().as_deref(),
     )
 }
@@ -310,6 +315,7 @@ mod tests {
     use super::*;
     #[cfg(feature = "tools-data")]
     use pierre_cache::{CacheConfig, CacheResource};
+    use pierre_core::errors::ErrorCode;
     #[cfg(feature = "tools-data")]
     use pierre_core::models::TenantId;
     #[cfg(feature = "tools-data")]
@@ -321,6 +327,38 @@ mod tests {
 
     /// The detached-read cap the tests run under.
     const TEST_CAP: Duration = Duration::from_secs(2);
+
+    #[test]
+    fn a_failed_read_names_no_backend_and_keeps_the_reconnect_tag() {
+        let refused = provider_failure(
+            "Failed to fetch athlete profile",
+            &AppError::provider_auth_required("sciotte_garmin"),
+        );
+        assert_eq!(
+            auth_required_provider(&refused).as_deref(),
+            Some("sciotte_garmin")
+        );
+        let timed_out = provider_failure(
+            "Failed to fetch stats",
+            &AppError::new(
+                ErrorCode::ExternalServiceUnavailable,
+                "Garmin did not answer in time; try again in a moment",
+            ),
+        );
+        let internal = provider_failure(
+            "Failed to fetch stats",
+            &AppError::internal("sciotte athlete request (x-request-id 42) failed"),
+        );
+        for response in [&refused, &timed_out, &internal] {
+            let said = response.error.as_deref().unwrap_or_default();
+            assert!(!said.to_lowercase().contains("sciotte"), "{said}");
+            assert!(!said.contains("x-request-id"), "{said}");
+        }
+        assert!(timed_out
+            .error
+            .as_deref()
+            .is_some_and(|e| e.ends_with("Garmin did not answer in time; try again in a moment")));
+    }
 
     fn ok() -> UniversalResponse {
         UniversalResponse {

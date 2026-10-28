@@ -261,7 +261,13 @@ impl AuthService {
             .provider_registry()
             .create_delegated_provider(&link.provider, &link.provider_athlete_id, credentials)
             .await
-            .map_err(|e| Box::new(refusal(format!("Failed to create provider: {e}"))))?;
+            .map_err(|e| {
+                warn!(provider = %link.provider, error = %e, "delegated provider could not be created");
+                Box::new(refusal(format!(
+                    "Failed to create provider: {}",
+                    e.tool_message()
+                )))
+            })?;
         info!(
             link_id = %link.id,
             user_id = %link.member_user_id,

@@ -122,9 +122,12 @@ async fn sciotte_with_no_cache_is_reported_stale_not_fresh() {
     );
 
     let hint = RefreshService::build_agent_hint(&status.details);
+    // The hint names the service the credential login serves, never the
+    // backend (carnet#1207): the model reads it in its system prompt.
     assert!(
-        hint.as_deref().is_some_and(|h| h.contains("sciotte")),
-        "the coach hint must warn that sciotte data is stale; got {hint:?}"
+        hint.as_deref()
+            .is_some_and(|h| h.contains("- strava: ") && !h.contains("sciotte")),
+        "the coach hint must warn that the Strava data is stale, naming no backend; got {hint:?}"
     );
     // Regression (2026-07-24): the freshness fetch must NOT ask the model to
     // compute `before=<unix-now>` — an agent passed a year-old epoch and served
@@ -199,7 +202,7 @@ async fn sciotte_with_fresh_cache_is_reported_fresh() {
 
     let hint = RefreshService::build_agent_hint(&status.details);
     assert!(
-        hint.as_deref().is_none_or(|h| !h.contains("sciotte")),
-        "a fresh sciotte must not appear in the staleness hint; got {hint:?}"
+        hint.as_deref().is_none_or(|h| !h.contains("- strava: ")),
+        "a fresh credential login must not appear in the staleness hint; got {hint:?}"
     );
 }

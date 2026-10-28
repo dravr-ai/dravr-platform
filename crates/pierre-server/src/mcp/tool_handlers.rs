@@ -23,6 +23,7 @@ use pierre_core::transport::Transport;
 use pierre_database::backends::NotificationRepository;
 use pierre_mcp_schema::{McpError, McpResponse};
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
+use pierre_providers::backend_resolver;
 use pierre_runtime_context::{default_admin_config, AdminConfigLookup};
 use pierre_services::quota_policy::{check_quotas, QuotaPolicyInputs, QuotaSurface};
 use pierre_services::usage_counter::UsageCounterService;
@@ -688,18 +689,19 @@ impl ToolHandlers {
     /// MCP client can trigger a reconnect rather than string-parse a prose
     /// failure. The client reads that `data` as the JSON text block after the
     /// message ([`ProtocolConverter::error_result`]), not as `structuredContent`.
-    fn provider_auth_required_mcp(provider: &str, request_id: Value) -> McpResponse {
+    ///
+    /// Both name the provider as the athlete knows it — the id
+    /// `connect_provider` takes — never the backend `backend` names.
+    fn provider_auth_required_mcp(backend: &str, request_id: Value) -> McpResponse {
         McpResponse {
             jsonrpc: JSONRPC_VERSION.to_owned(),
             result: None,
             error: Some(McpError {
                 code: ERROR_INTERNAL_ERROR,
-                message: format!(
-                    "Provider authentication required for '{provider}'. Reconnect the provider and retry."
-                ),
+                message: provider_auth_required_text(backend),
                 data: Some(json!({
                     "error_code": "provider_auth_required",
-                    "provider": provider,
+                    "provider": backend_resolver::user_facing_name(backend),
                 })),
             }),
             id: Some(request_id),
@@ -876,6 +878,16 @@ impl ToolHandlers {
     }
 }
 
+/// What a caller reads when a tool needs the provider behind `backend`
+/// reconnected: the provider the athlete knows ("garmin"), never a mirror
+/// backend (`sciotte_garmin`) they never chose. One text for `/mcp` and the
+/// agent's loopback, so the two cannot name it differently.
+#[must_use]
+pub(crate) fn provider_auth_required_text(backend: &str) -> String {
+    let provider = backend_resolver::user_facing_name(backend);
+    format!("Provider authentication required for '{provider}'. Reconnect the provider and retry.")
+}
+
 /// What an MCP client reads when a tool call fails before it produced a
 /// result. A failure the caller can act on (bad or missing parameters, an
 /// unknown tool, a refusal, a limit) keeps its message; anything else is the
@@ -894,6 +906,35 @@ fn client_failure_text(error: &ProtocolError) -> String {
         _ => {
             warn!(error = %error, "tool call failed");
             "Tool execution failed".to_owned()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reconnect_names_the_provider_never_the_backend() {
+        for (backend, provider) in [
+            ("sciotte_garmin", "garmin"),
+            ("sciotte", "strava"),
+            ("sciotte_trainingpeaks", "trainingpeaks"),
+            ("sciotte_coros", "coros"),
+            ("whoop", "whoop"),
+        ] {
+            let response = ToolHandlers::provider_auth_required_mcp(backend, json!(1));
+            let error = response.error.expect("a reconnect is an error");
+            assert!(
+                error.message.contains(&format!("'{provider}'")),
+                "{}",
+                error.message
+            );
+            let data = error.data.expect("the reconnect carries its code");
+            assert_eq!(data["error_code"], "provider_auth_required");
+            assert_eq!(data["provider"], provider);
+            let said = format!("{} {data}", error.message);
+            assert!(!said.to_lowercase().contains("sciotte"), "{said}");
         }
     }
 }

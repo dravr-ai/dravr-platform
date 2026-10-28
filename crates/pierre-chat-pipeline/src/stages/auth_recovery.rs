@@ -60,7 +60,7 @@ use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::ConnectionType;
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
+    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
 use pierre_providers::backend_resolver;
 use pierre_tool_runtime::implementations::connection::{
@@ -488,7 +488,7 @@ async fn mint_reconnect_url(
             }
         };
         let full_url = format!(
-            "{}/providers/sciotte/login?token={}",
+            "{}{HOSTED_SIGNIN_PATH}?token={}",
             deps.base_url,
             urlencoding::encode(&token)
         );

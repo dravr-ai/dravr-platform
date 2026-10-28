@@ -42,7 +42,8 @@ use crate::models::{
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_error::{
-    athlete_not_accessible, is_coach_account_refusal, own_read_error, require_client, to_app_error,
+    athlete_not_accessible, is_coach_account_refusal, own_read_error, require_client,
+    to_app_error_as,
 };
 use crate::sciotte_self_report::self_report;
 use crate::spi::{
@@ -226,7 +227,11 @@ impl SciotteTarget {
 const NAME_FENCE_MAX_CHARS: usize = 80;
 
 /// The username an athlete reads as when the provider gave no name at all.
-const UNNAMED_ATHLETE: &str = "Sciotte User";
+///
+/// A model reads it as the athlete's name, so it is a plain word: never the
+/// backend, which the athlete knows only as the provider they signed in to
+/// with the username and password they gave Dravr.
+const UNNAMED_ATHLETE: &str = "Athlete";
 
 /// Sciotte provider — a thin session-holder over the dedicated scraper service.
 ///
@@ -346,8 +351,9 @@ impl SciotteProvider {
     /// [`own_read_error`], never as the coach-roster refusal; a delegated
     /// provider, which names its athlete on every read, keeps that refusal.
     fn remote_error(&self, error: ClientError) -> AppError {
+        let brand = SciotteTarget::from_backend_name(self.provider_name).brand();
         let mapped = if self.subject.is_some() {
-            to_app_error(error)
+            to_app_error_as(error, brand)
         } else {
             // The agent-facing words leave out the service and request id;
             // an operator reads them here.
@@ -357,10 +363,7 @@ impl SciotteProvider {
             ) {
                 warn!(error = %error, "sciotte refused or failed a read of the signed-in account's own data");
             }
-            own_read_error(
-                error,
-                SciotteTarget::from_backend_name(self.provider_name).brand(),
-            )
+            own_read_error(error, brand)
         };
         self.tag_remote_auth(mapped)
     }
@@ -445,15 +448,21 @@ fn profile_name(raw: Option<String>, target: SciotteTarget) -> Option<String> {
 }
 
 /// The signed-in account's own profile as an [`Athlete`].
+///
+/// `provider` and `id` are what a model reads the profile as coming from, so
+/// both name the provider the athlete signed in to (`garmin`, `strava`, ...),
+/// never the backend. The id stays a name, not the account's numeric id: the
+/// stats cache keys on an id that parses as a number, and this profile has
+/// never offered one.
 fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
     Athlete {
-        id: "sciotte".to_owned(),
+        id: target.scraper_provider_name().to_owned(),
         username: profile_name(profile.display_name, target)
             .unwrap_or_else(|| UNNAMED_ATHLETE.to_owned()),
         firstname: profile_name(profile.firstname, target),
         lastname: profile_name(profile.lastname, target),
         profile_picture: profile.profile_picture_url,
-        provider: "sciotte".to_owned(),
+        provider: target.scraper_provider_name().to_owned(),
         sex: None,
     }
 }
@@ -496,7 +505,9 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
         firstname: None,
         lastname: None,
         profile_picture: None,
-        provider: "sciotte".to_owned(),
+        provider: SciotteTarget::TrainingPeaks
+            .scraper_provider_name()
+            .to_owned(),
         sex: None,
     })
 }
@@ -739,19 +750,26 @@ impl FitnessProvider for SciotteProvider {
     }
 
     /// Restore a session from stored cookies (passed as serialized JSON in `access_token`)
+    ///
+    /// The refusals name the brand the athlete signed in to, never the
+    /// backend: a tool that fails here quotes the message to the model.
     async fn set_credentials(&self, credentials: OAuth2Credentials) -> AppResult<()> {
-        let session_json = credentials
-            .access_token
-            .ok_or_else(|| AppError::invalid_input("Missing session data for sciotte provider"))?;
+        let brand = SciotteTarget::from_backend_name(self.provider_name).brand();
+        let session_json = credentials.access_token.ok_or_else(|| {
+            AppError::invalid_input(format!(
+                "No saved {brand} sign-in (username and password from Dravr) was found"
+            ))
+        })?;
         if session_json.expose_secret().is_empty() {
-            return Err(AppError::invalid_input(
-                "Empty session data for sciotte provider",
-            ));
+            return Err(AppError::invalid_input(format!(
+                "The saved {brand} sign-in (username and password from Dravr) is empty"
+            )));
         }
 
         let session: AuthSession =
             serde_json::from_str(session_json.expose_secret()).map_err(|e| {
-                AppError::internal(format!("Failed to deserialize sciotte session: {e}"))
+                warn!(provider = self.provider_name, error = %e, "stored sciotte session failed to deserialize");
+                AppError::internal(format!("The saved {brand} sign-in could not be read"))
             })?;
 
         *self.session.write().await = Some(session);
@@ -1116,6 +1134,27 @@ mod tests {
             let activity = convert_activity(&scraped, target);
             assert_eq!(activity.provider(), "sciotte");
             assert_eq!(activity.source(), Some(origin));
+        }
+    }
+
+    #[test]
+    fn an_unnamed_own_profile_never_reads_as_the_backend() {
+        for target in [
+            SciotteTarget::Strava,
+            SciotteTarget::Garmin,
+            SciotteTarget::TrainingPeaks,
+            SciotteTarget::Coros,
+        ] {
+            let unnamed: AthleteProfile =
+                serde_json::from_value(serde_json::json!({})).expect("a profile with no fields");
+            let athlete = own_athlete(unnamed, target);
+            assert_eq!(athlete.username, UNNAMED_ATHLETE);
+            assert_eq!(athlete.provider, target.scraper_provider_name());
+            let said = serde_json::to_string(&athlete).expect("an athlete serialises");
+            assert!(
+                !said.to_lowercase().contains("sciotte"),
+                "{target:?}: {said}"
+            );
         }
     }
 

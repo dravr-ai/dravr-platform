@@ -60,6 +60,7 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::athlete_display_name::fetch_user_display_name;
 
@@ -297,7 +298,7 @@ fn project_activity(a: &Activity) -> GroupMemberActivity {
         average_power: a.average_power(),
         max_power: a.max_power(),
         calories: a.calories(),
-        provider: a.provider().to_owned(),
+        provider: backend_resolver::activity_origin(a.provider(), a.source()).to_owned(),
     }
 }
 
@@ -620,5 +621,28 @@ mod tests {
             .distance_meters(6_100.0)
             .build();
         assert_eq!(project_activity(&run).duration_seconds, 3_239);
+    }
+
+    #[test]
+    fn a_scraped_peer_activity_names_the_service_not_the_backend() {
+        let start = Utc.with_ymd_and_hms(2026, 10, 13, 17, 0, 0).unwrap();
+        for origin in ["garmin", "strava", "coros", "trainingpeaks"] {
+            let ride =
+                ActivityBuilder::new("g1", "Sortie", SportType::Ride, start, 3_600, "sciotte")
+                    .source(origin)
+                    .build();
+            let projected = project_activity(&ride);
+            assert_eq!(projected.provider, origin);
+            let said = serde_json::to_string(&projected).unwrap();
+            assert!(!said.to_lowercase().contains("sciotte"), "{said}");
+        }
+        let oauth = ActivityBuilder::new("s1", "Ride", SportType::Ride, start, 3_600, "strava")
+            .source("garmin")
+            .build();
+        assert_eq!(
+            project_activity(&oauth).provider,
+            "strava",
+            "a device is no connection"
+        );
     }
 }

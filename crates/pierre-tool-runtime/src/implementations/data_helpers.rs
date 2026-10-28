@@ -221,6 +221,8 @@ pub fn activity_coverage_note(
 /// lifts out for the chat pipeline to mint a reconnect URL from —
 /// `sciotte_garmin` takes the Dravr-hosted login page and `garmin` takes an
 /// OAuth authorization round-trip, so the display name cannot stand in for it.
+/// The projection drops it before the model reads the sidecar
+/// (`reconnect::RECONNECT_BACKEND_KEY`): the backend is never the athlete's word.
 #[must_use]
 pub fn provider_reconnect_note(display_name: &str, backend: &str) -> Value {
     json!({

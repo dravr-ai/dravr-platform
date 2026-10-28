@@ -189,6 +189,40 @@ mod snapshot_tenant_tests {
         );
     }
 
+    /// A dead connection stored under a mirror backend is named as the
+    /// provider the athlete signed in to, once per provider: the group agent
+    /// reads this list and names it to the members.
+    #[tokio::test]
+    async fn needs_reauth_names_the_provider_never_the_backend() {
+        let resources = create_test_server_resources().await.unwrap();
+        let member = seed_user(&resources, "mirrorsnap").await;
+        let tenant_a = create_tenant_owned_by(&resources, member).await;
+
+        let connections = &resources.common.repos.provider_connections;
+        for provider in ["sciotte_garmin", "garmin", "sciotte", "strava"] {
+            connections
+                .register_connection(member, tenant_a, provider, &ConnectionType::OAuth, None)
+                .await
+                .unwrap();
+            connections
+                .mark_needs_reauth(
+                    member,
+                    tenant_a,
+                    provider,
+                    Some("invalid_grant"),
+                    Utc::now(),
+                )
+                .await
+                .unwrap();
+        }
+
+        let runtime: Arc<dyn ToolRuntime> = resources.clone();
+        let snapshots = fetch_member_snapshots(&runtime, &[member], TenantId::generate()).await;
+
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].needs_reauth_providers, ["garmin", "strava"]);
+    }
+
     /// A warm-but-stale cache whose bounded refresh cannot freshen anything
     /// (here: a second connected provider with no rows and no credentials)
     /// must serve the cached rows AND mark the snapshot `served_stale` — the

@@ -102,6 +102,12 @@ pub(crate) struct ConnectSuccessQuery {
     pub token: Option<SecretString>,
 }
 
+/// The card kind whose click opens the credential form. The page script
+/// branches only on `"oauth"` and `"api_key"` and runs the credential form for
+/// any other kind, so the value is free to name no backend: it ships to the
+/// athlete's browser in the page source.
+const CREDENTIALS_KIND: &str = "credentials";
+
 /// One selectable card on the hosted picker. Serialized into the page so its JS
 /// can route a click to the OAuth or Sciotte sub-flow, or to the card's own
 /// hosted form.
@@ -116,7 +122,8 @@ struct ConnectProviderCard {
     description: String,
     /// Already connected — the card is shown disabled.
     connected: bool,
-    /// "oauth" (full-page redirect to consent), "sciotte" (credential form) or
+    /// "oauth" (full-page redirect to consent), [`CREDENTIALS_KIND`] (the
+    /// credential form: the athlete's own username and password) or
     /// "`api_key`" (the hosted Intervals.icu API-key form). The Intervals.icu
     /// card is "oauth" while its authorization is offered, and opens its
     /// hosted page either way.
@@ -193,7 +200,11 @@ async fn build_connect_providers(
                     display_name: p.display_name,
                     description: p.description,
                     connected: p.connected,
-                    kind: if oauth_first { "oauth" } else { "sciotte" },
+                    kind: if oauth_first {
+                        "oauth"
+                    } else {
+                        CREDENTIALS_KIND
+                    },
                     target: "strava".to_owned(),
                     consent_required: p.consent_required,
                     notice: exposure_notice(strings, "strava"),
@@ -210,7 +221,7 @@ async fn build_connect_providers(
                         display_name: p.display_name,
                         description: p.description,
                         connected: p.connected,
-                        kind: "sciotte",
+                        kind: CREDENTIALS_KIND,
                         target: target.to_owned(),
                         consent_required: p.consent_required,
                         notice: exposure_notice(strings, target),

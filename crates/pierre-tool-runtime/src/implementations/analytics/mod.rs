@@ -49,7 +49,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -82,6 +82,7 @@ use pierre_fitness_compute::weather::analyze_weather_impact;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::activity_source::resolve_activity_source;
+use pierre_providers::backend_resolver;
 use pierre_providers::core::FitnessProvider;
 use pierre_tools_core::ToolResult;
 
@@ -103,7 +104,7 @@ async fn create_provider(
         .map_err(|response| {
             ToolResult::error(json!({
                 "error": response.error.unwrap_or_else(|| "Authentication failed".to_owned()),
-                "provider": provider_name
+                "provider": backend_resolver::user_facing_name(provider_name)
             }))
         })
 }
@@ -442,10 +443,11 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
         let activity = match provider.get_activity(activity_id).await {
             Ok(a) => a,
             Err(e) => {
+                warn!(provider = %provider_name, error = %e, "activity read failed");
                 return Ok(ToolResult::error(json!({
-                    "error": format!("Failed to fetch activity: {e}"),
+                    "error": format!("Failed to fetch activity: {}", e.tool_message()),
                     "activity_id": activity_id,
-                    "provider": provider_name
+                    "provider": backend_resolver::user_facing_name(&provider_name)
                 })));
             }
         };
@@ -478,7 +480,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
                 return Ok(ToolResult::error(json!({
                     "error": format!("Weather is misconfigured on this server: {e}"),
                     "activity_id": activity_id,
-                    "provider": provider_name
+                    "provider": backend_resolver::user_facing_name(&provider_name)
                 })));
             }
         };

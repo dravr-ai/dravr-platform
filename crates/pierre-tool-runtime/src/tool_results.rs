@@ -24,7 +24,7 @@ use tracing::info;
 
 use crate::guardian::StepOutput;
 use crate::prompt_projection;
-use crate::reconnect::offer_in_payload;
+use crate::reconnect::{offer_in_payload, RECONNECT_BACKEND_KEY};
 use crate::reply_budget::REPLY_BUDGET_KEY;
 
 /// Serialize one tool response for injection into the prompt.
@@ -170,6 +170,11 @@ pub fn project_activities_payload(tool_name: &str, response: &Value) -> Option<V
         if let Some(value) = obj.get(key) {
             projected.insert(key.to_owned(), value.clone());
         }
+    }
+    // The dead connection's backend is the reconnect mint's, read off the
+    // unprojected payload; the model reads the sidecar's `provider` instead.
+    if let Some(Value::Object(sidecar)) = projected.get_mut(SERVED_WITHOUT_SIDECARS[0]) {
+        sidecar.remove(RECONNECT_BACKEND_KEY);
     }
 
     if let Some(activities) = obj.get("activities").and_then(Value::as_array) {

@@ -21,6 +21,7 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use tracing::warn;
 
 /// Fetch activities and analyze performance trends
 ///
@@ -74,12 +75,15 @@ async fn fetch_and_analyze_trends(
                 output_format,
             )
         }
-        Err(e) => Ok(UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Failed to fetch activities: {e}")),
-            metadata: None,
-        }),
+        Err(e) => {
+            warn!(error = %e, "activity read for trends failed");
+            Ok(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!("Failed to fetch activities: {}", e.tool_message())),
+                metadata: None,
+            })
+        }
     }
 }
 

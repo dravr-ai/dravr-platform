@@ -60,7 +60,7 @@ use pierre_core::models::{TenantId, SUPPORTED_LOCALES};
 use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
+    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
 use pierre_routes_auth::{
     AuthRoutes, CODE_REJECTED_REASON, LOGIN_CHALLENGE_REASON, LOGIN_FLOW_EXPIRED_REASON,
@@ -68,6 +68,10 @@ use pierre_routes_auth::{
 use pierre_services::locale::resolve_channel_locale;
 use serde_json::{json, Value};
 use uuid::Uuid;
+
+/// Where the hosted sign-in lands once the account is connected: a wire path
+/// the sign-in page's script navigates to.
+const HOSTED_SIGNIN_SUCCESS_PATH: &str = "/providers/signin/success";
 
 /// One sentence per locale that only that locale's catalogue carries: the
 /// picker's heading. A registry that answered every locale in one language
@@ -516,16 +520,19 @@ async fn the_success_page_follows_the_token_then_the_browser() {
             );
         }
 
-        // The hosted login's own success page reads its narrower token.
+        // The hosted login's own success page reads its narrower token, at
+        // the path the sign-in lands on and at the earlier one links carry.
         let login = fixture.login_token("strava");
-        let body = fixture
-            .get(
-                &format!("/providers/sciotte/success?channel=telegram&target=strava&token={login}"),
-                Some("pt-BR"),
-            )
-            .await;
-        assert_lang(&body, locale, "the hosted-login success page");
-        assert!(body.contains(&catalogue.html(KEY_HOSTED_SUCCESS_HEADING, &["Strava"])));
+        for path in [HOSTED_SIGNIN_SUCCESS_PATH, "/providers/sciotte/success"] {
+            let body = fixture
+                .get(
+                    &format!("{path}?channel=telegram&target=strava&token={login}"),
+                    Some("pt-BR"),
+                )
+                .await;
+            assert_lang(&body, locale, path);
+            assert!(body.contains(&catalogue.html(KEY_HOSTED_SUCCESS_HEADING, &["Strava"])));
+        }
     }
 
     // Without a token there is no athlete to ask: the browser's language,
@@ -558,6 +565,7 @@ async fn the_success_page_follows_the_token_then_the_browser() {
 #[tokio::test]
 async fn a_refused_link_is_explained_in_the_browsers_language() {
     let fixture = athlete("en").await;
+    let invalid_signin = format!("{HOSTED_SIGNIN_PATH}?token=not-a-jwt");
     for (accept_language, locale) in [
         ("fr-CA,fr;q=0.9", "fr"),
         ("en-US", "en"),
@@ -580,6 +588,8 @@ async fn a_refused_link_is_explained_in_the_browsers_language() {
                 "/providers/connect/intervals_icu?token=not-a-jwt",
                 KEY_HOSTED_ERROR_INVALID_LINK,
             ),
+            (HOSTED_SIGNIN_PATH, KEY_HOSTED_ERROR_MISSING_TOKEN),
+            (invalid_signin.as_str(), KEY_HOSTED_ERROR_INVALID_LINK),
             ("/providers/sciotte/login", KEY_HOSTED_ERROR_MISSING_TOKEN),
             (
                 "/providers/sciotte/login?token=not-a-jwt",

@@ -25,6 +25,7 @@ use pierre_database::repositories::ActivityCacheRepository;
 #[cfg(feature = "health-sync")]
 use pierre_database::repositories::{CoachingGroupRepository, ProviderConnectionRepository};
 use pierre_database::AuthRepos;
+use pierre_providers::backend_resolver;
 #[cfg(feature = "health-sync")]
 use pierre_providers::backend_resolver::sync_backend;
 #[cfg(feature = "health-sync")]
@@ -472,7 +473,8 @@ impl RefreshService {
             return None;
         }
 
-        let stale_providers: Vec<&ProviderFreshness> = freshness
+        let named = user_facing_freshness(freshness);
+        let stale_providers: Vec<&ProviderFreshness> = named
             .iter()
             .filter(|pf| !matches!(pf.freshness, DataFreshness::Fresh))
             .collect();
@@ -891,6 +893,51 @@ fn is_activity_only_provider(provider: &str) -> bool {
     })
 }
 
+/// Each provider's freshness under the name the athlete and the model know it
+/// by, one entry per provider.
+///
+/// A connection that signs in with the athlete's username and password keeps
+/// its token row under its backend's name (`sciotte_garmin`), which must never
+/// reach a model or a person (carnet#1207); it reads as the service it serves
+/// ([`backend_resolver::user_facing_name`]). When two rows serve one provider (Strava's OAuth row
+/// beside its credential login), the stalest stands for both, so every warning
+/// the rows raised on their own is still raised once.
+#[must_use]
+pub fn user_facing_freshness(freshness: &[ProviderFreshness]) -> Vec<ProviderFreshness> {
+    let mut named: Vec<ProviderFreshness> = Vec::with_capacity(freshness.len());
+    for pf in freshness {
+        let name = backend_resolver::user_facing_name(&pf.provider);
+        match named.iter_mut().find(|seen| seen.provider == name) {
+            Some(seen) => {
+                if pf.last_sync_at < seen.last_sync_at {
+                    seen.last_sync_at = pf.last_sync_at;
+                    seen.freshness = pf.freshness;
+                }
+            }
+            None => named.push(ProviderFreshness {
+                provider: name.to_owned(),
+                last_sync_at: pf.last_sync_at,
+                freshness: pf.freshness,
+            }),
+        }
+    }
+    named
+}
+
+/// Provider names as the athlete and the model know them, each once, in first
+/// appearance order ([`user_facing_freshness`] says why).
+#[must_use]
+pub fn user_facing_providers(providers: &[String]) -> Vec<String> {
+    let mut named: Vec<String> = Vec::with_capacity(providers.len());
+    for provider in providers {
+        let name = backend_resolver::user_facing_name(provider);
+        if !named.iter().any(|seen| seen == name) {
+            named.push(name.to_owned());
+        }
+    }
+    named
+}
+
 /// Format a chrono Duration as a human-readable age string.
 fn format_age(duration: chrono::Duration) -> String {
     let total_secs = duration.num_seconds();
@@ -1021,5 +1068,46 @@ impl SyncMetrics {
             avg_latency_ms,
             max_latency_ms: max_latency,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration as ChronoDuration;
+
+    fn row(provider: &str, days_ago: Option<i64>) -> ProviderFreshness {
+        let last_sync_at = days_ago.map(|days| Utc::now() - ChronoDuration::days(days));
+        ProviderFreshness {
+            provider: provider.to_owned(),
+            last_sync_at,
+            freshness: DataFreshness::from_last_sync(last_sync_at),
+        }
+    }
+
+    /// The freshness hint is part of the model's system prompt: a credential
+    /// login's row reads as the service it serves (carnet#1207).
+    #[test]
+    fn the_freshness_hint_names_the_service_not_the_backend() {
+        let hint = RefreshService::build_agent_hint(&[row("sciotte_garmin", Some(3))])
+            .expect("a three-day-old sync is stale");
+
+        assert!(hint.contains("- garmin: "), "{hint}");
+        assert!(!hint.to_lowercase().contains("sciotte"), "{hint}");
+    }
+
+    /// Two rows that serve one provider read as one entry, the stalest, so a
+    /// fresh OAuth row never hides its stale credential login's warning.
+    #[test]
+    fn two_rows_of_one_provider_read_as_the_stalest() {
+        let named = user_facing_freshness(&[row("strava", Some(0)), row("sciotte", None)]);
+
+        assert_eq!(named.len(), 1);
+        assert_eq!(named[0].provider, "strava");
+        assert_eq!(named[0].last_sync_at, None);
+        assert_eq!(
+            user_facing_providers(&["sciotte".to_owned(), "strava".to_owned()]),
+            ["strava"]
+        );
     }
 }

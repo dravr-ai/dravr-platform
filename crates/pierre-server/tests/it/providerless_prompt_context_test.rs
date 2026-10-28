@@ -98,6 +98,51 @@ async fn a_connected_user_never_sees_the_providerless_wording() {
     );
 }
 
+/// A connection stored under a mirror backend is listed as the provider the
+/// athlete signed in to, once per provider, and the backend never reaches the
+/// prompt.
+#[tokio::test]
+async fn a_mirror_connection_is_listed_by_the_name_the_athlete_knows() {
+    use pierre_core::models::ConnectionType;
+
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user, _token) = common::create_test_tenant(&resources, "mirror@test.local")
+        .await
+        .unwrap();
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap()
+        .first()
+        .map(|t| t.id)
+        .expect("the fixture user owns a tenant");
+    for provider in ["sciotte_garmin", "sciotte", "strava"] {
+        resources
+            .common
+            .repos
+            .provider_connections
+            .register_connection(user.id, tenant, provider, &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+    }
+
+    let context = build_provider_context(&resources.data(), user.id).await;
+
+    assert!(context.contains("- ✓ garmin\n"), "got: {context}");
+    assert_eq!(
+        context.matches("- ✓ strava\n").count(),
+        1,
+        "strava and its mirror read as one line, got: {context}"
+    );
+    assert!(
+        !context.to_lowercase().contains("sciotte"),
+        "the backend reached the prompt: {context}"
+    );
+}
+
 /// The two blocks say different things on purpose.
 ///
 /// A failed lookup is not evidence of absence. Reusing the providerless wording

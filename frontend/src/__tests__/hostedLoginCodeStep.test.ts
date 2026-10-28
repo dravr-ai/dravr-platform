@@ -90,7 +90,7 @@ function renderPage(page: Page): string {
         display_name: PROVIDER,
         description: '',
         connected: false,
-        kind: 'sciotte',
+        kind: 'credentials',
         target: 'coros',
         consent_required: false,
         login_identifier: 'email',

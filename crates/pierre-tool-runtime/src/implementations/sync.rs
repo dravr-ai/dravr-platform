@@ -14,7 +14,7 @@ use pierre_core::models::{ProviderFreshness, RefreshConfig, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 #[cfg(feature = "health-sync")]
 use pierre_services::provider_refresh::SyncNotifier;
-use pierre_services::provider_refresh::{RefreshService, SyncMetrics};
+use pierre_services::provider_refresh::{self, RefreshService, SyncMetrics};
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
 use serde_json::Value;
@@ -207,13 +207,20 @@ impl McpTool<dyn ToolRuntime> for RefreshProviderDataTool {
                     .check_and_refresh(context.user_id, tenant_id, &config)
                     .await;
 
+                // The status is keyed by token row, and a credential login's
+                // row bears its backend's name: the model reads the service.
+                let refreshing = provider_refresh::user_facing_providers(&status.refreshing);
+                let already_fresh = provider_refresh::user_facing_providers(&status.fresh)
+                    .into_iter()
+                    .filter(|name| !refreshing.contains(name))
+                    .collect();
                 ok_typed(
                     "refresh_provider_data",
                     RefreshProviderDataResult::All(AllProvidersRefresh {
                         status: "refresh_triggered".to_owned(),
-                        refreshing: status.refreshing,
-                        already_fresh: status.fresh,
-                        details: status.details,
+                        refreshing,
+                        already_fresh,
+                        details: provider_refresh::user_facing_freshness(&status.details),
                     }),
                 )
             } else {
@@ -295,7 +302,7 @@ impl McpTool<dyn ToolRuntime> for GetDataFreshnessTool {
             ok_typed(
                 "get_data_freshness",
                 DataFreshnessResult {
-                    providers: freshness,
+                    providers: provider_refresh::user_facing_freshness(&freshness),
                     sync_metrics: metrics,
                 },
             )

@@ -37,6 +37,7 @@ use pierre_evals::athlete_data::{
 use pierre_evals::{AthleteMetrics, PersonalizedConfig, ToleranceStrategy};
 use pierre_memory::training_plans::PlanPhase;
 use pierre_providers::ai_scope;
+use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use tracing::warn;
 use uuid::Uuid;
@@ -309,6 +310,11 @@ fn period_history<Z: TimeZone>(
 ///
 /// A tool that reads one provider adds up that provider's week, so its total
 /// is a reading of a period figure as much as the merged one is.
+///
+/// A source is named as the athlete knows it ([`backend_resolver::activity_origin`]): a row
+/// the credential-login backend read is stamped with the backend's name
+/// whichever service it signed in to, and the source becomes the label of a
+/// reading the verdict explanation quotes to the model (carnet#1207).
 fn sessions_by_source(
     activities: &[Activity],
     recorded: impl Fn(&Activity) -> RecordedActivity,
@@ -318,7 +324,10 @@ fn sessions_by_source(
     // still merges the whole list across sources afterwards.
     for activity in activities {
         grouped
-            .entry(activity.provider())
+            .entry(backend_resolver::activity_origin(
+                activity.provider(),
+                activity.source(),
+            ))
             .or_default()
             .push(activity.clone());
     }
@@ -497,5 +506,34 @@ mod tests {
     #[test]
     fn a_failed_coverage_read_vouches_for_no_period() {
         assert!(period_history(Some(read()), None, no_sessions).is_none());
+    }
+
+    /// A credential-login row is stamped with the backend's name; its source
+    /// is named by the service it signed in to, since the source becomes the
+    /// label of a reading the verdict explanation quotes (carnet#1207).
+    #[test]
+    fn a_source_is_named_by_the_service_not_the_backend() {
+        use pierre_core::models::{ActivityBuilder, SportType};
+
+        let scraped = ActivityBuilder::new("g1", "Run", SportType::Run, now(), 3_600, "sciotte")
+            .source("garmin")
+            .build();
+        let whoop =
+            ActivityBuilder::new("w1", "Run", SportType::Run, now(), 1_800, "whoop").build();
+        let recorded = |a: &Activity| RecordedActivity {
+            date: a.start_date().date_naive(),
+            sport: a.sport_type().clone(),
+            name: a.name().to_owned(),
+            distance_km: None,
+            duration_min: 0.0,
+            elevation_m: None,
+        };
+
+        let sources: Vec<String> = sessions_by_source(&[scraped, whoop], recorded)
+            .into_iter()
+            .map(|own| own.source)
+            .collect();
+
+        assert_eq!(sources, ["garmin", "whoop"]);
     }
 }

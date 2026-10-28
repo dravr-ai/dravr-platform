@@ -20,6 +20,7 @@ use pierre_core::models::{Activity, SportType};
 use serde::Serialize;
 
 use super::config::DedupConfig;
+use crate::backend_resolver;
 
 /// Minimum fraction of the shorter activity's duration that must overlap
 /// with the longer one for records of DIFFERENT sports to be one workout.
@@ -170,6 +171,13 @@ pub fn merge_duplicates(
     (merged, report)
 }
 
+/// The provider a merged recording is named by in the group's description,
+/// which reaches the model as the activity list's merge line and as
+/// `fragment_dedup`: the service the athlete connected, never a backend.
+fn origin_name(activity: &Activity) -> String {
+    backend_resolver::activity_origin(activity.provider(), activity.source()).to_owned()
+}
+
 /// Fold one group (members ranked canonical-first) into its canonical slot,
 /// emptying every other member's slot, and describe what was merged. Groups
 /// are disjoint, so every slot a group names is still occupied.
@@ -178,15 +186,16 @@ fn fold_group(slots: &mut [Option<Activity>], members: &[usize]) -> Option<Fragm
     let mut canonical = slots[canonical_index].take()?;
 
     let mut fragment_ids = vec![canonical.id().to_owned()];
-    let mut providers = vec![canonical.provider().to_owned()];
+    let mut providers = vec![origin_name(&canonical)];
     let mut window_start = canonical.start_date();
     let mut window_end = activity_end(&canonical);
     let mut filled_fields = Vec::new();
 
     for peer in peers.iter().filter_map(|&index| slots[index].take()) {
         fragment_ids.push(peer.id().to_owned());
-        if !providers.iter().any(|p| p == peer.provider()) {
-            providers.push(peer.provider().to_owned());
+        let peer_origin = origin_name(&peer);
+        if !providers.contains(&peer_origin) {
+            providers.push(peer_origin);
         }
         window_start = window_start.min(peer.start_date());
         window_end = window_end.max(activity_end(&peer));
@@ -194,7 +203,7 @@ fn fold_group(slots: &mut [Option<Activity>], members: &[usize]) -> Option<Fragm
             filled_fields.extend(canonical.fill_missing_from(&peer).into_iter().map(|field| {
                 FilledField {
                     field,
-                    provider: peer.provider().to_owned(),
+                    provider: origin_name(&peer),
                 }
             }));
         }

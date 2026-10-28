@@ -38,7 +38,7 @@ use pierre_database::backends::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::adapter_resolver::AdapterResolver;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_middleware::provider_link_token::verify_link_token;
+use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PATH};
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::messaging_outbound::{process_pending_batch, OutboundRetryContext};
@@ -549,7 +549,7 @@ async fn a_refused_linked_chat_is_delivered_once_on_retry_with_a_valid_link() {
         .unwrap()
         .expect("the short link still resolves");
     let token = target
-        .split_once("/providers/sciotte/login?token=")
+        .split_once(&format!("{HOSTED_SIGNIN_PATH}?token="))
         .map_or_else(
             || panic!("the link opens the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),

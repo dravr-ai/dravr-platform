@@ -601,20 +601,32 @@ impl AuthService {
                         ));
                         Ok(provider)
                     }
-                    Err(e) => Err(Box::new(UniversalResponse {
-                        success: false,
-                        result: None,
-                        error: Some(format!("Failed to set provider credentials: {e}")),
-                        metadata: None,
-                    })),
+                    // The model reads the tool-facing message, which names the
+                    // provider the athlete knows and never the backend; the
+                    // whole error is the operator's.
+                    Err(e) => {
+                        warn!(provider = provider_name, error = %e, "provider credentials were refused");
+                        Err(Box::new(UniversalResponse {
+                            success: false,
+                            result: None,
+                            error: Some(format!(
+                                "Failed to set provider credentials: {}",
+                                e.tool_message()
+                            )),
+                            metadata: None,
+                        }))
+                    }
                 }
             }
-            Err(e) => Err(Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Failed to create provider: {e}")),
-                metadata: None,
-            })),
+            Err(e) => {
+                warn!(provider = provider_name, error = %e, "provider could not be created");
+                Err(Box::new(UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(format!("Failed to create provider: {}", e.tool_message())),
+                    metadata: None,
+                }))
+            }
         }
     }
 

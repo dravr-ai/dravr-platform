@@ -24,7 +24,7 @@ use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_middleware::provider_link_token::verify_link_token;
+use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PATH};
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_tool_runtime::activity_backfill::backfill_session_expired;
 use pierre_tool_runtime::capture_sweep::{
@@ -306,7 +306,7 @@ async fn a_scrape_session_notice_links_each_chat_to_its_hosted_login() {
         .unwrap()
         .expect("the short code resolves");
     let token = target
-        .split_once("/providers/sciotte/login?token=")
+        .split_once(&format!("{HOSTED_SIGNIN_PATH}?token="))
         .map_or_else(
             || panic!("the link opens the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),

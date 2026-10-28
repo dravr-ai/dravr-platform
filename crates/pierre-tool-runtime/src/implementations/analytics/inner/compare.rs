@@ -24,6 +24,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use tracing::warn;
 
 /// The fields a comparison mode does not fill.
 ///
@@ -101,7 +102,11 @@ async fn execute_activity_comparison(
                     "Activity '{activity_id}' not found. Please use get_activities to retrieve your activity IDs first, then use compare_activities with a valid ID from the list."
                 )
             } else {
-                format!("Failed to fetch activity {activity_id}: {e}")
+                warn!(error = %e, %activity_id, "activity read for compare_activities failed");
+                format!(
+                    "Failed to fetch activity {activity_id}: {}",
+                    e.tool_message()
+                )
             };
 
             Ok(UniversalResponse {

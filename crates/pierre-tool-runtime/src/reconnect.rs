@@ -36,6 +36,14 @@ use crate::guardian::TurnKey;
 /// dropped offer costs the clickable control, not the answer.
 const OFFER_CAP: usize = 10_000;
 
+/// The `reconnect_required` key holding the dead connection's backend.
+///
+/// It is the chat pipeline's to mint a reconnect link from, never the
+/// model's to read: a mirror backend (`sciotte_garmin`) is a name the athlete
+/// never chose. [`crate::tool_results::project_activities_payload`] drops it
+/// from what the model reads; the sidecar's `provider` names the connection.
+pub(crate) const RECONNECT_BACKEND_KEY: &str = "provider_slug";
+
 /// Backend key of a provider one tool payload was served WITHOUT, if any.
 ///
 /// `get_activities` stamps `reconnect_required` into its own RESULT when the
@@ -57,7 +65,7 @@ pub fn offer_in_payload(tool_name: &str, payload: &Value) -> Option<String> {
     }
     payload
         .get("reconnect_required")?
-        .get("provider_slug")?
+        .get(RECONNECT_BACKEND_KEY)?
         .as_str()
         .filter(|slug| !slug.is_empty())
         .map(str::to_owned)

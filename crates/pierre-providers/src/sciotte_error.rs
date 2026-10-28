@@ -36,7 +36,12 @@
 //!   password nor a session to renew, and no operator can answer it;
 //! - everything else is an internal fault.
 //!
-//! Nothing here logs, and no message carries a response body.
+//! No message carries a response body. A message under a code a tool reply
+//! passes through ([`AppError::tool_message`]: the external-service codes)
+//! names only the provider the athlete signed in to, never the service or a
+//! request id, since the model reads it and can repeat it; [`to_app_error_as`]
+//! takes that brand. Those arms log the service's own words at WARN, the only
+//! place an operator reads them.
 
 use dravr_sciotte::client::{
     ClientError, Operation, SciotteClient, ServiceError, TransportFailure,
@@ -44,6 +49,7 @@ use dravr_sciotte::client::{
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED, LOGIN_CHALLENGE};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
+use tracing::warn;
 
 /// The provider slug an auth-shaped sciotte error names. The provider layer
 /// replaces it with the backend that owns the session.
@@ -62,12 +68,24 @@ const NO_MARKER: &str = "none";
 /// What a refusal that gave no words of its own is reported as saying.
 const NO_SERVICE_WORDS: &str = "no detail";
 
-/// The platform error for a failed call to the sciotte scraper service.
+/// What a message names the provider as when its caller knows no brand.
+const UNNAMED_BRAND: &str = "The provider";
+
+/// The platform error for a failed call to the sciotte scraper service, its
+/// words naming no provider. A caller that knows which provider the session
+/// signed in to uses [`to_app_error_as`].
+#[must_use]
+pub fn to_app_error(error: ClientError) -> AppError {
+    to_app_error_as(error, UNNAMED_BRAND)
+}
+
+/// The platform error for a failed call to the sciotte scraper service,
+/// worded about `brand`, the provider the athlete signed in to ("Garmin").
 ///
 /// Both matches are exhaustive on purpose: a variant added to the client
 /// fails this build until it is given a code here.
 #[must_use]
-pub fn to_app_error(error: ClientError) -> AppError {
+pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
     let operation = error.operation();
     match error {
         ClientError::NotConfigured => AppError::internal(
@@ -76,12 +94,19 @@ pub fn to_app_error(error: ClientError) -> AppError {
              was removed in the ADR-021 Phase 4 cutover",
         ),
         ClientError::Config(config) => AppError::internal(config.to_string()),
-        ClientError::Service(service) => service_error(service, operation),
+        ClientError::Service(service) => service_error(service, operation, brand),
         ClientError::SessionNotFound { .. } | ClientError::SessionExpired { .. } => {
             AppError::provider_auth_required(AUTH_PROVIDER)
         }
         lost @ ClientError::SessionLostOnResend { .. } => {
-            AppError::new(ErrorCode::ExternalServiceUnavailable, lost.to_string())
+            warn!(error = %lost, "sciotte lost the session when the read was re-sent");
+            AppError::new(
+                ErrorCode::ExternalServiceUnavailable,
+                format!(
+                    "{brand} dropped the sign-in (username and password from Dravr) while the \
+                     read was retried; try again in a moment"
+                ),
+            )
         }
         ClientError::AthleteRequired { .. } => with_refusal_marker(
             AppError::invalid_input(
@@ -92,10 +117,19 @@ pub fn to_app_error(error: ClientError) -> AppError {
             ATHLETE_REQUIRED,
         ),
         ClientError::AthleteNotAccessible { .. } => athlete_not_accessible(),
-        challenge @ ClientError::LoginChallenge { .. } => with_refusal_marker(
-            AppError::new(ErrorCode::ExternalAuthFailed, challenge.to_string()),
-            LOGIN_CHALLENGE,
-        ),
+        challenge @ ClientError::LoginChallenge { .. } => {
+            warn!(error = %challenge, "sciotte login stopped at a provider challenge");
+            with_refusal_marker(
+                AppError::new(
+                    ErrorCode::ExternalAuthFailed,
+                    format!(
+                        "{brand} stopped the sign-in (username and password from Dravr) at a \
+                         security check, such as a captcha"
+                    ),
+                ),
+                LOGIN_CHALLENGE,
+            )
+        }
         refused @ ClientError::QueryRefused { .. } => AppError::internal(refused.to_string()),
         mismatch @ ClientError::CountMismatch { .. } => AppError::internal(mismatch.to_string()),
         // LIMITATION(registre#746): the login-step `ClientError::Unexpected` arm also receives a
@@ -121,16 +155,22 @@ pub fn to_app_error(error: ClientError) -> AppError {
 /// export that follows a login and the import that precedes a read are the
 /// platform's own steps, and a caller that waited and retried would repeat the
 /// login or the read around them, not the transfer.
-fn service_error(error: ServiceError, operation: Option<Operation>) -> AppError {
+fn service_error(error: ServiceError, operation: Option<Operation>, brand: &str) -> AppError {
     let said = error.to_string();
     match error {
-        ServiceError::Identity { .. } => AppError::new(ErrorCode::ExternalServiceError, said),
+        ServiceError::Identity { .. } => reworded(
+            ErrorCode::ExternalServiceError,
+            &said,
+            format!("{brand} could not be reached just now; try again in a moment"),
+        ),
         ServiceError::Transport { failure, .. } => match failure {
             TransportFailure::TimedOut
             | TransportFailure::Unreachable
-            | TransportFailure::ClosedBeforeResponse => {
-                AppError::new(ErrorCode::ExternalServiceUnavailable, said)
-            }
+            | TransportFailure::ClosedBeforeResponse => reworded(
+                ErrorCode::ExternalServiceUnavailable,
+                &said,
+                format!("{brand} did not answer in time; try again in a moment"),
+            ),
             TransportFailure::Other => AppError::internal(said),
         },
         ServiceError::Shed {
@@ -143,16 +183,29 @@ fn service_error(error: ServiceError, operation: Option<Operation>) -> AppError 
             retry_after_secs,
             reason,
             ..
-        } => AppError::resource_unavailable(format!(
-            "sciotte shed the request ({}); retry after {retry_after_secs}s",
-            reason.as_deref().unwrap_or(UNNAMED_SHED_REASON)
-        ))
+        } => reworded(
+            ErrorCode::ResourceUnavailable,
+            &format!(
+                "sciotte shed the request ({})",
+                reason.as_deref().unwrap_or(UNNAMED_SHED_REASON)
+            ),
+            format!("{brand} is busy right now; retry after {retry_after_secs}s"),
+        )
         .with_retry_after(retry_after_secs),
-        ServiceError::Unfinished { .. } => {
-            AppError::new(ErrorCode::ExternalServiceUnavailable, said)
-        }
+        ServiceError::Unfinished { .. } => reworded(
+            ErrorCode::ExternalServiceUnavailable,
+            &said,
+            format!("{brand} did not finish the read; try again in a moment"),
+        ),
         ServiceError::Body { .. } | ServiceError::Decode { .. } => AppError::internal(said),
     }
+}
+
+/// An error under `code` worded for the athlete, the service's own words
+/// (`said`, naming the service and the request id) logged for an operator.
+fn reworded(code: ErrorCode, said: &str, message: String) -> AppError {
+    warn!(error = %said, "sciotte call failed; reported under the provider's name");
+    AppError::new(code, message)
 }
 
 /// Whether `operation` is one of the three steps of an interactive login.
@@ -226,7 +279,7 @@ pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
         error.operation(),
         Some(Operation::Activities | Operation::PlannedWorkouts)
     ) {
-        return to_app_error(error);
+        return to_app_error_as(error, brand);
     }
     match error {
         ClientError::Unexpected {
@@ -251,7 +304,7 @@ pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
                 message.as_deref().unwrap_or(NO_SERVICE_WORDS)
             ),
         ),
-        other => to_app_error(other),
+        other => to_app_error_as(other, brand),
     }
 }
 
@@ -429,9 +482,10 @@ mod tests {
             ErrorCode::ExternalServiceError,
             None,
         );
-        assert!(error
-            .message
-            .starts_with("could not mint an identity token for sciotte: "));
+        assert_eq!(
+            error.message,
+            "The provider could not be reached just now; try again in a moment"
+        );
     }
 
     #[test]
@@ -446,7 +500,10 @@ mod tests {
                 ErrorCode::ExternalServiceUnavailable,
                 None,
             );
-            assert!(error.message.contains("after 42 ms: connection reset"));
+            assert_eq!(
+                error.message,
+                "The provider did not answer in time; try again in a moment"
+            );
             assert_eq!(error.provider_auth_required_provider(), None);
         }
         let error = mapped(
@@ -477,7 +534,7 @@ mod tests {
             assert_eq!(shed_retry_after_secs(&error), Some(17));
             assert_eq!(
                 error.message,
-                "sciotte shed the request (chrome_budget); retry after 17s"
+                "The provider is busy right now; retry after 17s"
             );
         }
     }
@@ -492,7 +549,7 @@ mod tests {
         assert_eq!(shed_retry_after_secs(&error), Some(1));
         assert_eq!(
             error.message,
-            "sciotte shed the request (scraper_busy); retry after 0s"
+            "The provider is busy right now; retry after 0s"
         );
     }
 
@@ -532,8 +589,10 @@ mod tests {
                 ErrorCode::ExternalServiceUnavailable,
                 None,
             );
-            assert!(error.message.contains(kind.describe()));
-            assert!(error.message.ends_with("no detail"));
+            assert_eq!(
+                error.message,
+                "The provider did not finish the read; try again in a moment"
+            );
             assert_eq!(error.provider_auth_required_provider(), None);
         }
     }
@@ -575,7 +634,10 @@ mod tests {
             Some(&auth_details),
         );
         for error in [not_found, expired] {
-            assert_eq!(error.message, "Provider sciotte requires authentication");
+            assert_eq!(
+                error.message,
+                "A connected provider needs to be reconnected"
+            );
             assert_eq!(
                 error.provider_auth_required_provider().as_deref(),
                 Some("sciotte")
@@ -594,7 +656,7 @@ mod tests {
         );
         assert!(error
             .message
-            .starts_with("sciotte no longer held the session when the read was re-sent"));
+            .starts_with("The provider dropped the sign-in (username and password from Dravr)"));
         assert_eq!(error.provider_auth_required_provider(), None);
     }
 
@@ -778,13 +840,16 @@ mod tests {
                 exchange: exchange(operation).into(),
                 message: Some("captcha frame on the sign-in page".to_owned()),
             };
-            let said = client_error.to_string();
             let error = mapped(
                 client_error,
                 ErrorCode::ExternalAuthFailed,
                 Some(&json!({"sciotte_refusal": "login_challenge"})),
             );
-            assert_eq!(error.message, said);
+            assert_eq!(
+                error.message,
+                "The provider stopped the sign-in (username and password from Dravr) at a \
+                 security check, such as a captcha"
+            );
             assert!(is_login_challenge(&error));
             assert_eq!(sciotte_refusal(&error), Some(LOGIN_CHALLENGE));
             assert_eq!(shed_retry_after_secs(&error), None);
@@ -910,5 +975,48 @@ mod tests {
         // A wait on another code is that code's, not a shed's.
         let limited = AppError::new(ErrorCode::RateLimitExceeded, "slow down").with_retry_after(9);
         assert_eq!(shed_retry_after_secs(&limited), None);
+    }
+
+    #[test]
+    fn every_message_a_tool_passes_through_names_the_brand_never_the_service() {
+        let lost = ClientError::SessionLostOnResend {
+            exchange: exchange(Operation::Activities).into(),
+        };
+        let challenge = ClientError::LoginChallenge {
+            exchange: exchange(Operation::Login).into(),
+            message: Some("sciotte saw a captcha".to_owned()),
+        };
+        let identity = ClientError::Service(ServiceError::Identity {
+            service: "sciotte".to_owned(),
+            operation: Operation::Activities.as_str().to_owned(),
+            source: IamError::MetadataUnavailable("no route".to_owned()),
+        });
+        let unfinished = ClientError::Service(ServiceError::Unfinished {
+            exchange: exchange(Operation::Activity).into(),
+            status: StatusCode::GATEWAY_TIMEOUT,
+            kind: Unfinished::ServiceDeadline,
+            detail: None,
+        });
+        let cases = [
+            lost,
+            challenge,
+            identity,
+            unfinished,
+            transport(TransportFailure::TimedOut),
+            shed(Operation::Athlete, 17, Some("chrome_budget")),
+        ];
+        for client_error in cases {
+            let label = format!("{client_error:?}");
+            let error = to_app_error_as(client_error, "Garmin");
+            assert!(
+                error.message.starts_with("Garmin "),
+                "{label}: {}",
+                error.message
+            );
+            for text in [error.to_string(), error.tool_message()] {
+                assert!(!text.to_lowercase().contains("sciotte"), "{label}: {text}");
+                assert!(!text.contains("x-request-id"), "{label}: {text}");
+            }
+        }
     }
 }

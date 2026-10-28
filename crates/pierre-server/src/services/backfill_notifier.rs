@@ -66,7 +66,7 @@ use pierre_database::repositories::shorten_url;
 use pierre_database::repositories::OutboundReauthGuard;
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::provider_link_token::{
-    mint_link_token, MintProviderLinkTokenArgs, PROVIDER_LINK_TOKEN_TTL_MINUTES,
+    mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH, PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
@@ -313,7 +313,7 @@ impl ServerBackfillNotifier {
             }
         };
         let full_url = format!(
-            "{}/providers/sciotte/login?token={}",
+            "{}{HOSTED_SIGNIN_PATH}?token={}",
             self.base_url,
             urlencoding::encode(&token)
         );

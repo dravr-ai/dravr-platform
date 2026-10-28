@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ABOUTME: Hosted connect picker a chat link opens: pick a provider, then OAuth or the Sciotte credential flow -->
+<!-- ABOUTME: Hosted connect picker a chat link opens: pick a provider, then OAuth or the credential sign-in (usr/pwd from Dravr) -->
 <!-- ABOUTME: Styled by the shared Boreal sheet the renderer injects; cards and strings arrive in the athlete's locale -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 <!-- Copyright (c) 2026 dravr.ai -->
@@ -8,8 +8,8 @@
   Mirrors the web onboarding decision tree: the user picks a provider, then
   connects via OAuth (full-page redirect to the link-token-authed oauth-init),
   the hosted Intervals.icu API-key form (full-page, same link-token),
-  or the Sciotte credential state machine (same /api/providers/sciotte/* API the
-  web/mobile SciotteLoginModal uses). The signed connect link-token is embedded
+  or the credential sign-in state machine (the same credential API the
+  web/mobile credential login uses). The signed connect link-token is embedded
   and sent as `Authorization: Bearer` on every API call. Passwords never leave
   this TLS page — they are not typed into the chat transcript.
 -->
@@ -41,7 +41,7 @@
             <p class="fineprint">{{t:hosted.picker.securityNote}}</p>
         </section>
 
-        <!-- Phase: credentials (Sciotte) -->
+        <!-- Phase: credentials (usr/pwd from Dravr) -->
         <section id="phase-credentials" hidden>
             <button type="button" class="btn btn-tertiary back-link" id="cred-back">&larr; {{t:hosted.common.back}}</button>
             <h1 id="cred-title"></h1>
@@ -153,8 +153,8 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, kind: 'oauth'|'sciotte'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
-                // `notice` is shown before the credentials (sciotte) or before the
+                // [{ provider, display_name, description, connected, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username' }]
+                // `notice` is shown before the credential form (credentials) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
                 // `details.reason` of the refusal a lapsed sign-in gets.
@@ -176,10 +176,10 @@
                 return template.split('{0}').join(value);
             }
 
-            // The Sciotte sub-flow target chosen from the picker
+            // The credential sub-flow target chosen from the picker
             // ('strava'|'garmin'|'trainingpeaks'|'coros').
-            let sciotteTarget = 'strava';
-            let sciotteLabel = 'Strava';
+            let credTarget = 'strava';
+            let credLabel = 'Strava';
             // Whether the chosen provider's exposure notice must be accepted
             // before its credentials are sent (TrainingPeaks and COROS, until
             // accepted).
@@ -333,32 +333,32 @@
                     startOAuth(p.provider, false);
                     return;
                 }
-                // Sciotte credential flow.
-                sciotteTarget = p.target || 'strava';
-                sciotteLabel = p.display_name;
-                document.getElementById('cred-title').textContent = fmt(S.accountTitle, sciotteLabel);
+                // Credential sign-in flow.
+                credTarget = p.target || 'strava';
+                credLabel = p.display_name;
+                document.getElementById('cred-title').textContent = fmt(S.accountTitle, credLabel);
                 document.getElementById('cred-notice').textContent =
-                    fmt(S.credentialsNote, sciotteLabel);
+                    fmt(S.credentialsNote, credLabel);
                 setConsent(Boolean(p.consent_required), p.notice);
                 setIdentifier(p.login_identifier);
                 showPhase('credentials');
                 document.getElementById('email').focus();
             }
 
-            // ---- Sciotte state machine (same /api/providers/sciotte/* contract
-            //      the web/mobile SciotteLoginModal uses) -----------------------
+            // ---- Credential sign-in state machine (the same credential API
+            //      contract the web/mobile credential login uses) -------------
             // What a failed sign-in step tells the athlete. The server's own
             // messages are English and a provider's refusal is in the
             // provider's words, so the page prints neither: it words every
             // failure from the strings of the athlete's locale.
             function failureText(failure) {
-                if (failure.rejected) return fmt(S.signInRejected, sciotteLabel);
+                if (failure.rejected) return fmt(S.signInRejected, credLabel);
                 if (failure.status === 401) return S.linkExpired;
                 if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
                 if (failure.reason === CONFIG.loginChallengeReason) {
-                    return fmt(S.signInChallenged, sciotteLabel);
+                    return fmt(S.signInChallenged, credLabel);
                 }
-                return fmt(S.signInUnavailable, sciotteLabel);
+                return fmt(S.signInUnavailable, credLabel);
             }
             function showFailure(failure) {
                 document.getElementById('error-message').textContent = failureText(failure || {});
@@ -403,7 +403,7 @@
                     case 'connected':
                         showPhase('success');
                         setTimeout(() => {
-                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(sciotteTarget)
+                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(credTarget)
                                 + '&token=' + encodeURIComponent(CONFIG.token);
                             window.location.assign('/providers/connect/success?' + qs);
                         }, 1200);
@@ -444,7 +444,7 @@
                 } else {
                     hideOtpError();
                 }
-                document.getElementById('otp-label').textContent = fmt(S.otpLabel, sciotteLabel);
+                document.getElementById('otp-label').textContent = fmt(S.otpLabel, credLabel);
                 showPhase('otp');
                 input.focus();
             }
@@ -479,10 +479,10 @@
                 if (consentRequired && !consent.checked) return;
                 clearError();
                 showPhase('logging-in');
-                setLoggingInStatus(fmt(S.connectingTo, sciotteLabel));
+                setLoggingInStatus(fmt(S.connectingTo, credLabel));
                 try {
                     const data = await callApi('/api/providers/sciotte/login', {
-                        email: email, password: password, method: 'email', target: sciotteTarget,
+                        email: email, password: password, method: 'email', target: credTarget,
                         tos_consent: consentRequired && consent.checked,
                     });
                     handleLoginResponse(data);
@@ -530,11 +530,11 @@
                 showPhase('picker');
             }
 
-            // Open the Sciotte credential form (same setup as picking a Sciotte
+            // Open the credential form (same setup as picking a credential
             // card) — used both by the picker and as the OAuth-failure fallback.
-            function openSciotteFallback(target, label, noticeOverride) {
-                sciotteTarget = target;
-                sciotteLabel = label;
+            function openCredentialFallback(target, label, noticeOverride) {
+                credTarget = target;
+                credLabel = label;
                 document.getElementById('cred-title').textContent = fmt(S.accountTitle, label);
                 document.getElementById('cred-notice').textContent =
                     fmt(S.credentialsNote, label);
@@ -549,7 +549,7 @@
             // Handle the return from a full-page OAuth attempt. The session-less
             // callback bounces us back here with ?provider&success[&error]. On
             // success we go to the shared success page; on failure we open the
-            // Sciotte credential fallback for Strava so a channel user is never
+            // credential sign-in fallback for Strava so a channel user is never
             // stranded on the SPA error page. Returns true when it took over the
             // initial view (so the default picker render is skipped).
             function handleOAuthReturn() {
@@ -558,7 +558,7 @@
                 const provider = params.get('provider') || '';
                 const ok = params.get('success') === 'true';
                 // Strip the OAuth result params so a reload doesn't re-trigger
-                // this; keep the connect token so a Sciotte submit stays authed.
+                // this; keep the connect token so a credential submit stays authed.
                 const clean = new URL(window.location.href);
                 ['provider', 'success', 'error'].forEach((k) => clean.searchParams.delete(k));
                 window.history.replaceState({}, document.title, clean.pathname + clean.search);
@@ -572,7 +572,7 @@
                 }
                 // Strava is the only OAuth card with a credential-login fallback.
                 if (provider === 'strava' || provider === 'sciotte') {
-                    openSciotteFallback('strava', 'Strava', S.stravaFallback);
+                    openCredentialFallback('strava', 'Strava', S.stravaFallback);
                     return true;
                 }
                 showPhase('picker');

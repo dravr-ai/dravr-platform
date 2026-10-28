@@ -7,6 +7,7 @@
 use pierre_core::errors::{AppError, AppResult};
 
 use super::ProviderRegistry;
+use crate::backend_resolver;
 use crate::core::{FitnessProvider, OAuth2Credentials, ProviderConfig};
 use crate::delegation::DelegatedReads;
 #[cfg(doc)]
@@ -163,8 +164,11 @@ impl ProviderRegistry {
             .get_capabilities(provider_name)
             .is_some_and(|caps| caps.supports_coach_roster());
         if !declared {
+            // A tool quotes this refusal to the model: name the provider as
+            // the athlete knows it, never a mirror backend.
             return Err(AppError::invalid_input(format!(
-                "{provider_name} cannot be read on behalf of a coached athlete"
+                "{} cannot be read on behalf of a coached athlete",
+                backend_resolver::user_facing_name(provider_name)
             )));
         }
         self.factories

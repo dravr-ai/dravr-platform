@@ -68,7 +68,9 @@ use pierre_llm::{
     LlmCapabilities, LlmProvider, ObservedToolCall, StreamChunk, Tool,
 };
 use pierre_mcp_server::context::ServerContext;
-use pierre_middleware::provider_link_token::{verify_link_token, CONNECT_PROVIDER};
+use pierre_middleware::provider_link_token::{
+    verify_link_token, CONNECT_PROVIDER, HOSTED_SIGNIN_PATH,
+};
 use pierre_providers::ai_scope;
 use pierre_services::chat_stream::{
     TurnEvent, TurnEventSink, TOOL_STATUS_COMPLETED, TOOL_STATUS_IN_PROGRESS,
@@ -526,7 +528,7 @@ async fn a_trainingpeaks_reconnect_names_it_and_opens_its_login() {
         .expect("resolve query succeeds")
         .expect("the short code resolves");
     let token = target
-        .split_once("/providers/sciotte/login?token=")
+        .split_once(&format!("{HOSTED_SIGNIN_PATH}?token="))
         .map_or_else(
             || panic!("the short link opens the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
@@ -850,8 +852,12 @@ async fn a_served_turn_carries_its_reconnect_control_out_of_the_public_entry() {
         .unwrap()
         .expect("the minted code must resolve");
     assert!(
-        target.contains("/providers/sciotte/login?token="),
+        target.contains(&format!("{HOSTED_SIGNIN_PATH}?token=")),
         "the short link must resolve to the hosted-login mint, got: {target}"
+    );
+    assert!(
+        !target.to_lowercase().contains("sciotte"),
+        "the hosted-login link names no backend: {target}"
     );
 
     // And the answer underneath it is the agent's own, post-processed rather

@@ -37,6 +37,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use tracing::warn;
 
 /// The modes `generate_recommendations` answers in, the default first.
 const RECOMMENDATION_TYPES: [&str; 6] = [
@@ -975,12 +976,18 @@ pub(crate) fn handle_generate_recommendations(
 
                         apply_format_typed(result, analysis, output_format)
                     }
-                    Err(e) => Ok(UniversalResponse {
-                        success: false,
-                        result: None,
-                        error: Some(format!("Failed to fetch activities: {e}")),
-                        metadata: None,
-                    }),
+                    Err(e) => {
+                        warn!(error = %e, "activity read for recommendations failed");
+                        Ok(UniversalResponse {
+                            success: false,
+                            result: None,
+                            error: Some(format!(
+                                "Failed to fetch activities: {}",
+                                e.tool_message()
+                            )),
+                            metadata: None,
+                        })
+                    }
                 }
             }
             Err(response) => Ok(*response),

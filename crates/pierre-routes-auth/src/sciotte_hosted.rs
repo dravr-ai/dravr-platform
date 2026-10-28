@@ -9,14 +9,19 @@
 //! This module implements the three public-facing pages the user sees when a
 //! chat channel (Slack, Discord, Telegram, ...) hands them a login URL:
 //!
-//! - `GET /providers/sciotte/login?token=...` — renders the login page. The token
+//! - `GET /providers/signin?token=...` — renders the login page. The token
 //!   query parameter is a provider link-token the messaging pipeline or the
 //!   backfill notifier minted in-process. The page embeds the token
 //!   so its client-side JS can call the existing `/api/providers/sciotte/*` API
 //!   with `Authorization: Bearer <token>`.
-//! - `GET /providers/sciotte/success` — confirmation page, auto-closes and can
+//! - `GET /providers/signin/success` — confirmation page, auto-closes and can
 //!   deep-link back to the originating channel.
-//! - `GET /providers/sciotte/error?message=...` — renders a user-facing error page.
+//! - `GET /providers/signin/error?message=...` — renders a user-facing error page.
+//!
+//! The paths name no backend, since the athlete reads them in the address bar
+//! (see [`pierre_middleware::provider_link_token::HOSTED_SIGNIN_PATH`]). The
+//! earlier `/providers/sciotte/{login,success,error}` paths are routed to the
+//! same handlers so links already sent keep opening.
 
 use axum::extract::{Query, State};
 use axum::http::HeaderMap;
@@ -122,7 +127,7 @@ async fn validate_and_burn_link_token(
     Ok(claims)
 }
 
-/// GET `/providers/sciotte/login?token=...`
+/// GET `/providers/signin?token=...` (and the earlier `/providers/sciotte/login`)
 ///
 /// Renders the hosted Sciotte login page in the locale of the athlete the
 /// link-token names. Validates the link-token up-front so a user with an
@@ -182,7 +187,7 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
     .into_response()
 }
 
-/// GET `/providers/sciotte/success`
+/// GET `/providers/signin/success` (and the earlier `/providers/sciotte/success`)
 pub(crate) async fn handle_sciotte_hosted_success_page(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
@@ -204,7 +209,7 @@ pub(crate) async fn handle_sciotte_hosted_success_page(
     .into_response()
 }
 
-/// GET `/providers/sciotte/error?message=...`
+/// GET `/providers/signin/error?message=...` (and the earlier `/providers/sciotte/error`)
 ///
 /// The message is the caller's own text and is shown as given; without one
 /// the page words the failure itself, in the browser's language.

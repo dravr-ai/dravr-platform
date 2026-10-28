@@ -36,6 +36,7 @@ use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
+use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 
 /// Lookback (days) for the `recent_activities` roster list rendered into
@@ -607,11 +608,17 @@ async fn fetch_single_member_snapshot(
     // merely quiet. Drawn from the same cross-tenant connection set so a dead provider is
     // named regardless of which tenant it lives in (a tenant-scoped re-query here was the
     // bug: it read nothing when the member's connection lived in a non-host tenant).
-    snapshot.needs_reauth_providers = connections
+    // Named as the athlete knows it: a row stored under a mirror backend
+    // (`sciotte_garmin`) is their Garmin, signed in with the username and
+    // password they gave Dravr, so both halves of a pair name it once.
+    let mut needs_reauth: Vec<String> = connections
         .iter()
         .filter(|c| c.status.requires_reauth())
-        .map(|c| c.provider.clone())
+        .map(|c| backend_resolver::user_facing_name(&c.provider).to_owned())
         .collect();
+    needs_reauth.sort_unstable();
+    needs_reauth.dedup();
+    snapshot.needs_reauth_providers = needs_reauth;
     snapshot.served_stale = served_stale;
     snapshot
 }
@@ -713,11 +720,13 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
 /// Gives the LLM a per-source freshness signal so it can say "Strava
 /// stale 33 days, WHOOP current today" instead of pasting a single
 /// `days_since_last_activity` over a multi-provider member and inventing
-/// "your Strava is not synced" defenses.
+/// "your Strava is not synced" defenses. Keyed by the service the athlete
+/// connected ([`backend_resolver::activity_origin`]), never a backend.
 fn compute_last_activity_per_provider(activities: &[Activity]) -> HashMap<String, DateTime<Utc>> {
     let mut latest: HashMap<String, DateTime<Utc>> = HashMap::new();
     for activity in activities {
-        let provider = activity.provider().to_owned();
+        let provider =
+            backend_resolver::activity_origin(activity.provider(), activity.source()).to_owned();
         let start = activity.start_date();
         latest
             .entry(provider)
@@ -837,5 +846,24 @@ mod tests {
 
         let weekly = compute_weekly_metrics(&activities, now);
         assert_eq!(weekly.duration_seconds, 5_040);
+    }
+
+    #[test]
+    fn freshness_is_keyed_by_the_service_never_the_backend() {
+        let now = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
+        let scraped = ActivityBuilder::new(
+            "g",
+            "Ride",
+            SportType::Ride,
+            now - Duration::days(3),
+            3_600,
+            "sciotte",
+        )
+        .source("garmin")
+        .build();
+        let latest = compute_last_activity_per_provider(&[run("a", now, 1, 1_800), scraped]);
+        let mut keys: Vec<&str> = latest.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["garmin", "strava"]);
     }
 }

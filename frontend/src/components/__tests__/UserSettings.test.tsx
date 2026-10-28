@@ -1304,6 +1304,131 @@ describe('UserSettings Component', () => {
       expect(screen.queryByText('Switch Provider')).not.toBeInTheDocument();
       expect(window.open).toHaveBeenCalledTimes(1);
     });
+
+    // carnet#1207: the switch dialog names the two Strava connections by their
+    // user-facing labels, decided from the backend ids it holds — never the
+    // internal `sciotte`/`strava` ids, and never by comparing translated text.
+    // Drives the switch to the credential login and returns what the dialog read.
+    async function switchToCredentialLogin(): Promise<string> {
+      // Shared seats are gone (`mirror`), so the Reconnect goes through the
+      // credential login while the native OAuth row holds the grant.
+      getProvidersStatus.mockResolvedValue({
+        providers: [stravaCard({ needs_reauth: true, recommended_backend: 'mirror', seats_left: 0 })],
+      });
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('Switch Provider')).toBeInTheDocument();
+      const message = i18n.t('app.providerConflictWarning', {
+        connecting: i18n.t('providers.stravaSciotte'),
+        disconnecting: i18n.t('shell.sciotteTargetStrava'),
+      });
+      expect(within(dialog).getByText(message)).toBeInTheDocument();
+      const dialogText = dialog.textContent ?? '';
+      expect(dialogText).not.toMatch(/\bsciotte\b/);
+      expect(window.open).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: i18n.t('app.switch') }));
+
+      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('strava'));
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(window.open).not.toHaveBeenCalled();
+      expect(
+        await screen.findByText(i18n.t('app.providerDisconnected', { provider: i18n.t('shell.sciotteTargetStrava') })),
+      ).toBeInTheDocument();
+      return dialogText;
+    }
+
+    it('words the switch to the credential login by label and swaps the right backends', async () => {
+      await switchToCredentialLogin();
+    });
+
+    describe('with the credential label reworded', () => {
+      // The label is free text the contremaitre bump lane moves: the swap must
+      // hold whatever it reads, so this runs it under a wording the catalogue
+      // does not carry. A swap decided by comparing translated text would
+      // pick the wrong backends here.
+      let pinnedLabel = '';
+      beforeEach(() => {
+        pinnedLabel = i18n.t('providers.stravaSciotte');
+        i18n.addResource('en', 'translation', 'providers.stravaSciotte', 'Strava, signed in with a password');
+        expect(i18n.t('providers.stravaSciotte')).not.toBe(pinnedLabel);
+      });
+      afterEach(() => {
+        i18n.addResource('en', 'translation', 'providers.stravaSciotte', pinnedLabel);
+      });
+
+      it('still swaps to the credential login and names no internal service', async () => {
+        expect(await switchToCredentialLogin()).not.toMatch(/sciotte/i);
+      });
+    });
+
+    it('words the switch back to Strava OAuth by label and opens its authorization', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [stravaCard({ connected_backend: 'sciotte', needs_reauth: true })],
+      });
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+
+      const dialog = await screen.findByRole('dialog');
+      const message = i18n.t('app.providerConflictWarning', {
+        connecting: i18n.t('shell.sciotteTargetStrava'),
+        disconnecting: i18n.t('providers.stravaSciotte'),
+      });
+      expect(within(dialog).getByText(message)).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('button', { name: i18n.t('app.switch') }));
+
+      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('sciotte'));
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank');
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Data Providers — disconnect messages name the provider, not its id', () => {
+    it('names Garmin, never sciotte_garmin, in the confirm and the success banner', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            provider: 'sciotte_garmin',
+            display_name: 'Garmin',
+            requires_oauth: false,
+            connected: true,
+            needs_reauth: false,
+            capabilities: ['activities'],
+            consent_required: false,
+          },
+        ],
+      });
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-disconnect-sciotte_garmin'));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(i18n.t('app.confirmDisconnect', { provider: 'Garmin' }))).toBeInTheDocument();
+      expect(dialog.textContent).not.toMatch(/sciotte/i);
+
+      await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }));
+
+      await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('sciotte_garmin'));
+      expect(await screen.findByText(i18n.t('app.providerDisconnected', { provider: 'Garmin' }))).toBeInTheDocument();
+      expect(screen.queryByText(/sciotte_garmin/)).not.toBeInTheDocument();
+    });
   });
 
   describe('API Tokens Tab', () => {

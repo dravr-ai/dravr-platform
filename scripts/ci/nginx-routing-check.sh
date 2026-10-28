@@ -75,6 +75,9 @@ BACKEND_PATHS=(
     "GET /admin/x"
     "GET /a2a/x"
     "GET /providers/x"
+    "GET /providers/signin?token=t"                   # hosted credential sign-in a reconnect link opens (carnet#1207)
+    "GET /providers/signin/success"
+    "GET /providers/sciotte/login?token=t"            # the same page at the path links sent before carnet#1207 carry
     "GET /r/abc"
     "GET /fitness/config"
     "GET /tenants"                                    # bare path: list

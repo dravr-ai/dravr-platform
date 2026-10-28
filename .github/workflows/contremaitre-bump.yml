@@ -172,6 +172,16 @@ jobs:
         if: steps.bump.outputs.changed == 'true'
         run: scripts/ci/check-agent-vocabulary.sh --catalogue-only
 
+      - name: Refuse to push a string copy that names the scraping backend
+        # carnet#1207: the backend's name must never reach an athlete or coach.
+        # The string copy moves only in this lane (Check 8), so a contremaitre
+        # value that names it would otherwise land on main and fail every
+        # session's pre-push gate on a file none of them may touch. Failing
+        # HERE, for the same reason as the two steps above, keeps main green
+        # until the string is fixed upstream and the next poll retries.
+        if: steps.bump.outputs.changed == 'true'
+        run: scripts/ci/check-backend-name-exposure.sh
+
       - name: Commit and push bump
         if: steps.bump.outputs.changed == 'true'
         run: |

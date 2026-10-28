@@ -308,12 +308,18 @@ pub(crate) fn handle_predict_performance(
                             output_format,
                         )
                     }
-                    Err(e) => Ok(UniversalResponse {
-                        success: false,
-                        result: None,
-                        error: Some(format!("Failed to fetch activities: {e}")),
-                        metadata: None,
-                    }),
+                    Err(e) => {
+                        warn!(error = %e, "activity read for predictions failed");
+                        Ok(UniversalResponse {
+                            success: false,
+                            result: None,
+                            error: Some(format!(
+                                "Failed to fetch activities: {}",
+                                e.tool_message()
+                            )),
+                            metadata: None,
+                        })
+                    }
                 }
             }
             Err(response) => Ok(*response),

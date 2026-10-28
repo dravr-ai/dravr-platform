@@ -21,10 +21,17 @@ use pierre_core::models::messaging::{channel_label, ChannelType};
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
+    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
 use pierre_routes_auth::AuthRoutes;
 use uuid::Uuid;
+
+/// Where the hosted sign-in lands once the account is connected: a wire path
+/// the sign-in page's script navigates to.
+const HOSTED_SIGNIN_SUCCESS_PATH: &str = "/providers/signin/success";
+
+/// The hosted sign-in's error page (`?message=...`): a wire path the router serves.
+const HOSTED_SIGNIN_ERROR_PATH: &str = "/providers/signin/error";
 
 /// The backend TrainingPeaks' exposure notice guards.
 const TP_NOTICE_BACKEND: &str = "sciotte_trainingpeaks";
@@ -221,6 +228,22 @@ async fn connect_page_renders_picker_for_valid_connect_token() {
     assert!(
         !body.contains("\"connected\":true"),
         "no card may show connected without a seeded connection"
+    );
+    // The credential cards are routed by a kind that names no backend, and
+    // the page's own comments and script name none either; only the provider
+    // ids (and the shared stylesheet's glyph selectors keyed on them) and the
+    // credential API the script calls still carry it.
+    assert!(
+        body.contains("\"kind\":\"credentials\""),
+        "the Garmin-path card opens the credential form: {body}"
+    );
+    let shown = without_stylesheet(&body)
+        .replace("/api/providers/sciotte/", "")
+        .replace("\"provider\":\"sciotte", "")
+        .replace("provider === 'sciotte'", "");
+    assert!(
+        !shown.to_lowercase().contains("sciotte"),
+        "the picker page names the backend: {shown}"
     );
 }
 
@@ -487,7 +510,7 @@ async fn hosted_login_page(
     )
     .expect("mint hosted-login token");
     let resp = AxumTestRequest::get(&format!(
-        "/providers/sciotte/login?token={}",
+        "{HOSTED_SIGNIN_PATH}?token={}",
         urlencoding::encode(&token)
     ))
     .send(AuthRoutes::routes(resources.auth_routes_context()))
@@ -883,7 +906,11 @@ async fn every_hosted_page_names_the_channel_by_its_canot_display_name() {
             .display_name();
         assert_eq!(channel_label(&slug), name, "{slug} is labelled by canot");
 
-        for success in ["/providers/connect/success", "/providers/sciotte/success"] {
+        for success in [
+            "/providers/connect/success",
+            HOSTED_SIGNIN_SUCCESS_PATH,
+            "/providers/sciotte/success",
+        ] {
             let body = page(
                 &resources,
                 &format!("{success}?channel={slug}&target=strava"),
@@ -962,5 +989,103 @@ async fn a_surface_that_is_not_a_channel_reads_as_your_chat_app() {
             !body.contains("Web_chat") && !body.contains("Mobile_chat"),
             "no slug is capitalized into a name: {body}"
         );
+    }
+}
+
+/// A freshly minted hosted sign-in token for `user_id`, read from `channel`.
+fn signin_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
+    mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: tenant_id.as_uuid(),
+            provider: "sciotte",
+            target: "garmin",
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &resources.auth.admin_jwt_secret,
+    )
+    .expect("mint hosted-login token")
+}
+
+/// The hosted sign-in, success and error pages are served at paths that name
+/// no backend, and serve exactly what the earlier `/providers/sciotte/*`
+/// paths serve — which still answer, since links already sent carry them.
+#[tokio::test]
+async fn the_signin_paths_serve_the_pages_the_earlier_paths_still_serve() {
+    let (resources, user_id, tenant_id) = test_setup().await;
+
+    // Each login render burns its token, so each path gets its own; the
+    // pages are compared with the token itself masked out.
+    let mut logins = Vec::new();
+    for path in [HOSTED_SIGNIN_PATH, "/providers/sciotte/login"] {
+        let token = signin_token(&resources, user_id, tenant_id);
+        let body = page(
+            &resources,
+            &format!("{path}?token={}", urlencoding::encode(&token)),
+        )
+        .await;
+        assert!(
+            body.contains("id=\"phase-credentials\""),
+            "{path} renders the sign-in form: {body}"
+        );
+        logins.push(body.replace(&token, "<token>"));
+    }
+    assert_eq!(logins[0], logins[1], "both login paths render one page");
+
+    // Once connected, the page goes on to the success page at the new path.
+    let login = &logins[0];
+    assert!(
+        login.contains(&format!(
+            "window.location.assign('{HOSTED_SIGNIN_SUCCESS_PATH}?'"
+        )),
+        "the sign-in lands on the new success path: {login}"
+    );
+    // Only the credential API the script calls, and the shared stylesheet's
+    // glyph selectors keyed on the provider ids, still carry the backend.
+    assert!(
+        !without_stylesheet(login)
+            .replace("/api/providers/sciotte/", "")
+            .to_lowercase()
+            .contains("sciotte"),
+        "the sign-in page names the backend: {login}"
+    );
+
+    let query = "?channel=telegram&target=garmin";
+    let success = page(&resources, &format!("{HOSTED_SIGNIN_SUCCESS_PATH}{query}")).await;
+    assert!(success.contains("Garmin"), "{success}");
+    assert_eq!(
+        success,
+        page(&resources, &format!("/providers/sciotte/success{query}")).await,
+        "both success paths render one page"
+    );
+
+    let error = page(
+        &resources,
+        &format!("{HOSTED_SIGNIN_ERROR_PATH}?message=Try%20again"),
+    )
+    .await;
+    assert!(error.contains("Try again"), "{error}");
+    assert_eq!(
+        error,
+        page(&resources, "/providers/sciotte/error?message=Try%20again").await,
+        "both error paths render one page"
+    );
+    for body in [&success, &error] {
+        assert!(
+            !without_stylesheet(body).to_lowercase().contains("sciotte"),
+            "{body}"
+        );
+    }
+}
+
+/// `body` without its embedded `<style>` sheet: the shared Boreal sheet keys
+/// each provider's glyph colour on the provider id, which stays as it is.
+fn without_stylesheet(body: &str) -> String {
+    match (body.find("<style"), body.find("</style>")) {
+        (Some(start), Some(end)) if start < end => {
+            format!("{}{}", &body[..start], &body[end + "</style>".len()..])
+        }
+        _ => body.to_owned(),
     }
 }

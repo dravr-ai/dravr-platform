@@ -29,7 +29,7 @@ use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::platform_post::{
     PlatformPost, PlatformPostRequest, PostSurface, PostedReply,
 };
-use pierre_middleware::provider_link_token::verify_link_token;
+use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PATH};
 use pierre_tool_runtime::runtime::BackfillNotifier;
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
@@ -236,8 +236,12 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
             "carries the short reconnect link: {body}"
         );
         assert!(
-            !body.contains("/providers/sciotte/login?token="),
+            !body.contains(&format!("{HOSTED_SIGNIN_PATH}?token=")),
             "the dotty hosted-login URL must be hidden behind the short link: {body}"
+        );
+        assert!(
+            !body.to_lowercase().contains("sciotte"),
+            "the nudge names no backend: {body}"
         );
         body.split_whitespace()
             .find(|t| t.contains("/r/"))
@@ -255,8 +259,12 @@ async fn push_provider_reauth_nudges_dm_and_resends_until_reconnect() {
         .expect("resolve query succeeds")
         .expect("short code resolves to a stored target");
     assert!(
-        target.contains("/providers/sciotte/login?token="),
+        target.contains(&format!("{HOSTED_SIGNIN_PATH}?token=")),
         "short link resolves to the hosted reconnect URL: {target}"
+    );
+    assert!(
+        !target.to_lowercase().contains("sciotte"),
+        "the address bar the link opens names no backend: {target}"
     );
 
     // Second call while still expired → RESENDS (no dedup). A user whose first
@@ -349,7 +357,7 @@ async fn push_provider_reauth_for_trainingpeaks_links_the_trainingpeaks_login() 
         .expect("resolve query succeeds")
         .expect("short code resolves to a stored target");
     let token = target
-        .split_once("/providers/sciotte/login?token=")
+        .split_once(&format!("{HOSTED_SIGNIN_PATH}?token="))
         .map_or_else(
             || panic!("short link resolves to the hosted login: {target}"),
             |(_, token)| urlencoding::decode(token).unwrap().into_owned(),

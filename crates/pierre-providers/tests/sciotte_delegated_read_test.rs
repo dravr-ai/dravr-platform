@@ -37,6 +37,7 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
+use pierre_providers::backend_resolver;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
@@ -45,7 +46,7 @@ use pierre_providers::errors::{AppError, ErrorCode};
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
-    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
+    SciotteGarminProviderFactory, SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -483,7 +484,13 @@ async fn the_athlete_is_read_off_the_coach_roster_as_data(registry: &ProviderReg
         .await
         .expect("the roster lists the unnamed athlete"); // Safe: 900002 is on the stand-in roster
     assert_eq!(unnamed.id, UNNAMED_ATHLETE);
-    assert_eq!(unnamed.username, "Sciotte User");
+    assert_eq!(unnamed.username, "Athlete");
+    assert_eq!(unnamed.provider, "trainingpeaks");
+    let said = serde_json::to_string(&unnamed).expect("an athlete serialises"); // Safe: plain struct
+    assert!(
+        !said.to_lowercase().contains("sciotte"),
+        "the profile a model reads names the backend: {said}"
+    );
 
     let error = delegated(registry, OFF_ROSTER_ATHLETE, COACH_SESSION)
         .await
@@ -590,6 +597,15 @@ async fn an_own_trainingpeaks_profile_is_fenced_and_strava_is_not(registry: &Pro
     .expect("the Strava mirror's own profile is read"); // Safe: the stand-in serves it
     assert_eq!(strava.username, "Sam Strava");
     assert_eq!(strava.firstname.as_deref(), Some("Sam"));
+    assert_eq!(strava.provider, "strava");
+    assert_eq!(strava.id, "strava");
+    for profile in [&trainingpeaks, &strava] {
+        let said = serde_json::to_string(profile).expect("an athlete serialises"); // Safe: plain struct
+        assert!(
+            !said.to_lowercase().contains("sciotte"),
+            "the profile a model reads names the backend: {said}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -635,8 +651,12 @@ async fn a_provider_with_no_coach_reads_refuses_to_read_for_a_coached_athlete() 
         assert_eq!(error.code, ErrorCode::InvalidInput, "{other}");
         assert_eq!(
             error.sanitized_message(),
-            format!("{other} cannot be read on behalf of a coached athlete")
+            format!(
+                "{} cannot be read on behalf of a coached athlete",
+                backend_resolver::user_facing_name(other)
+            )
         );
+        assert!(!error.message.contains("sciotte"), "{}", error.message);
     }
 }
 
@@ -660,4 +680,37 @@ fn only_a_delegated_dead_session_reads_as_one() {
         ErrorCode::ExternalAuthFailed,
         "a different external auth failure"
     )));
+}
+
+#[tokio::test]
+async fn a_saved_sign_in_that_cannot_be_used_names_the_brand_never_the_backend() {
+    let provider = SciotteGarminProviderFactory::new(None)
+        .create(ProviderConfig {
+            name: "sciotte_garmin".to_owned(),
+            auth_url: String::new(),
+            token_url: String::new(),
+            api_base_url: String::new(),
+            revoke_url: None,
+            default_scopes: vec![],
+        })
+        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+    for stored in [None, Some(""), Some("not a session")] {
+        let mut stored_credentials = credentials(COACH_SESSION);
+        stored_credentials.access_token = stored.map(SecretString::from);
+        let error = provider
+            .set_credentials(stored_credentials)
+            .await
+            .expect_err("an unusable saved sign-in is refused"); // Safe: none of these is a session
+        for said in [error.to_string(), error.tool_message()] {
+            assert!(
+                !said.to_lowercase().contains("sciotte"),
+                "{stored:?}: {said}"
+            );
+        }
+        assert!(
+            error.message.contains("Garmin"),
+            "{stored:?}: {}",
+            error.message
+        );
+    }
 }

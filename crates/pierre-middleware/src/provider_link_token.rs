@@ -38,7 +38,7 @@
 //! - **Signed with `admin_jwt_secret`**: the same server-wide HMAC secret used for
 //!   admin-token hashing, so no new secret material is introduced.
 //! - **One-time page load**: each token's `jti` is burned on the first
-//!   `GET /providers/sciotte/login?token=...` request (see [`NonceStore`]);
+//!   `GET` of the hosted sign-in page ([`HOSTED_SIGNIN_PATH`]) (see [`NonceStore`]);
 //!   subsequent page loads receive an error. The token remains valid for the
 //!   login, 2FA and OTP POST endpoints within its TTL so the multi-step Sciotte flow
 //!   (credentials -> 2FA -> OTP) can complete.
@@ -96,6 +96,16 @@ const PROVIDER_LINK_TOKEN_AUDIENCE: &str = "pierre-hosted-login";
 
 /// Scope prefix for provider link-token scope claims (e.g. `provider:sciotte:login`)
 const PROVIDER_LINK_TOKEN_SCOPE_PREFIX: &str = "provider:";
+
+/// Path of the hosted credential sign-in page a provider link-token opens
+/// (`?token=...`): the athlete's own username and password, through Dravr.
+///
+/// The path names no backend, because the athlete reads it in the browser's
+/// address bar and, when a short link cannot be stored, in the chat message
+/// itself. Every link this platform mints uses it; the earlier
+/// `/providers/sciotte/*` paths stay routed to the same pages so links
+/// already sent keep opening.
+pub const HOSTED_SIGNIN_PATH: &str = "/providers/signin";
 
 /// Sentinel provider name for a *generic connect* link-token.
 ///

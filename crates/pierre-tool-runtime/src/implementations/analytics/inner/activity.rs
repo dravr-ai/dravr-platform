@@ -31,6 +31,7 @@ use pierre_formatters::OutputFormat;
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::{ai_scope, backend_resolver};
 use serde_json::{json, Value};
+use tracing::warn;
 use uuid::Uuid;
 
 use std::collections::HashMap;
@@ -284,10 +285,14 @@ async fn fetch_and_analyze_activity(
                         });
                     }
                     Err(fetch_err) => {
+                        warn!(error = %fetch_err, "listing activities after a missed id failed");
                         return Ok(UniversalResponse {
                             success: false,
                             result: None,
-                            error: Some(format!("Activity '{activity_id}' not found. Failed to fetch available activities: {fetch_err}")),
+                            error: Some(format!(
+                                "Activity '{activity_id}' not found. Failed to fetch available activities: {}",
+                                fetch_err.tool_message()
+                            )),
                             metadata: None,
                         });
                     }

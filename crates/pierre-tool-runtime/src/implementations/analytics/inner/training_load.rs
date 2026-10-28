@@ -477,12 +477,18 @@ pub(crate) fn handle_analyze_training_load(
 
                         apply_format_typed(result, analysis, output_format)
                     }
-                    Err(e) => Ok(UniversalResponse {
-                        success: false,
-                        result: None,
-                        error: Some(format!("Failed to fetch activities: {e}")),
-                        metadata: None,
-                    }),
+                    Err(e) => {
+                        warn!(error = %e, "activity read for training load failed");
+                        Ok(UniversalResponse {
+                            success: false,
+                            result: None,
+                            error: Some(format!(
+                                "Failed to fetch activities: {}",
+                                e.tool_message()
+                            )),
+                            metadata: None,
+                        })
+                    }
                 }
             }
             Err(response) => Ok(*response),

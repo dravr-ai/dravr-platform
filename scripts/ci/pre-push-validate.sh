@@ -319,6 +319,27 @@ if [[ -f "$PROJECT_ROOT/scripts/ci/check-agent-vocabulary.sh" ]]; then
 fi
 
 # ============================================================================
+# TIER 1b-name: Backend name exposure (compile-free, ~1s)
+# ============================================================================
+# carnet#1207: "SCIOTTE must not be visible to the user/athlete/coach". The
+# provider ids are spelled sciotte_* all through the code, so the name kept
+# reaching athletes through edits that had no reason to think about it — a
+# Settings dialog label, the hosted sign-in page's comments. This fails when a
+# translation value or a served template names the backend. Every push, like
+# the vocabulary fence: the catalogue copy moves only in the bump lane, so a
+# diff-scoped run would never see the commit that brings the name back.
+if [[ -x "$PROJECT_ROOT/scripts/ci/check-backend-name-exposure.sh" ]]; then
+    echo "Tier 1b-name: Backend name exposure"
+    echo "-----------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-backend-name-exposure.sh"; then
+        echo ""
+        echo "FAIL: the scraping backend's name reaches an athlete or coach!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# ============================================================================
 # TIER 1c: Phantom Surface Detection (compile-free)
 # ============================================================================
 # The dual rule says a capability nothing implements or calls is a phantom

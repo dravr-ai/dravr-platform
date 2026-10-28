@@ -13,6 +13,7 @@
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::{Activity, Feel, SportType, ZoneDistribution};
 use pierre_core::untrusted::{display_line, fence_athlete_text, ACTIVITY_NAME_MAX_CHARS};
+use pierre_providers::backend_resolver;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -32,6 +33,9 @@ const MAX_AUTHOR_CHARS: usize = 60;
 /// The serialized [`Activity`] key holding the provider's encoded route
 /// overview, which [`detail_json`] never hands the model.
 const ROUTE_OVERVIEW_KEY: &str = "summary_polyline";
+
+/// The serialized [`Activity`] key naming the provider a row came from.
+const PROVIDER_KEY: &str = "provider";
 
 /// Activity summary with scalar sensor fields for efficient list queries.
 ///
@@ -200,15 +204,29 @@ pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> 
 /// door. Geometry leaves the server only through the privacy-trimmed route
 /// track, never as the provider sent it.
 ///
+/// Each row's `provider` names the service the athlete connected
+/// ([`backend_resolver::activity_origin`]): a row a mirror backend read carries the backend's
+/// own stamp, which the athlete never chose and the model must not repeat.
+///
 /// # Errors
 ///
 /// Returns the serialization error when an activity cannot be encoded.
 pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
     let mut value = to_value_as_written(activities)?;
     if let Some(rows) = value.as_array_mut() {
-        for row in rows.iter_mut().filter_map(Value::as_object_mut) {
+        for (row, activity) in rows.iter_mut().zip(activities) {
+            let Some(row) = row.as_object_mut() else {
+                continue;
+            };
             fence_self_report(row);
             row.remove(ROUTE_OVERVIEW_KEY);
+            row.insert(
+                PROVIDER_KEY.to_owned(),
+                Value::String(
+                    backend_resolver::activity_origin(activity.provider(), activity.source())
+                        .to_owned(),
+                ),
+            );
         }
     }
     Ok(value)

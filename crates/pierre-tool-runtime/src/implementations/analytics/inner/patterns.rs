@@ -30,6 +30,7 @@ use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use tracing::warn;
 
 /// The patterns `detect_patterns` answers for, the default first.
 const PATTERN_TYPES: [&str; 4] = [
@@ -92,12 +93,15 @@ async fn fetch_and_detect_patterns(
                 output_format,
             )
         }
-        Err(e) => Ok(UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Failed to fetch activities: {e}")),
-            metadata: None,
-        }),
+        Err(e) => {
+            warn!(error = %e, "activity read for patterns failed");
+            Ok(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!("Failed to fetch activities: {}", e.tool_message())),
+                metadata: None,
+            })
+        }
     }
 }
 

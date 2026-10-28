@@ -361,6 +361,15 @@ jobs:
       - name: Boreal Generated Stylesheets
         run: ./scripts/ci/check-hosted-css.sh
 
+      # carnet#1207: the scraping backend's name must never reach an athlete or
+      # coach. Fails when a translation value or a served hosted-page template
+      # names it (provider ids, i18n keys and the /api/providers/<id>/ routes
+      # are identifiers and stay). Python and grep only, like the rest of this
+      # job. The pre-push Tier 1b-name runs the same script, but a worktree
+      # without core.hooksPath skips it.
+      - name: Backend Name Exposure
+        run: ./scripts/ci/check-backend-name-exposure.sh
+
       # pierre-database implements each repository trait twice, once per backend,
       # and every local gate runs SQLite — so an edit that lands on one side and
       # not the other is first seen here. Fails a newly duplicated pair; reports
@@ -428,7 +437,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -472,6 +481,7 @@ jobs:
           ./scripts/setup/config-edit.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
+          ./scripts/ci/check-backend-name-exposure.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
           ./scripts/ci/check-secret-fields.test.sh
           ./scripts/ci/check-merge-risk.test.sh

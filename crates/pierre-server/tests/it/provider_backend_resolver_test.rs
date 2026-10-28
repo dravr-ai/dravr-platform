@@ -948,19 +948,25 @@ async fn connect_provider_rejects_explicit_sciotte_name() {
     let tool = ConnectProviderTool;
     let state = tool_state(&resources);
     let ctx = tool_context(user_id, tenant_id);
-    let result = tool
-        .execute(&state, &ctx, json!({ "provider": "sciotte" }))
-        .await;
+    for (mirror, user_facing) in [("sciotte", "strava"), ("sciotte_garmin", "garmin")] {
+        let result = tool
+            .execute(&state, &ctx, json!({ "provider": mirror }))
+            .await;
 
-    assert!(result.is_error);
-    let err_text = structured(&result)
-        .get("error")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    assert!(
-        err_text.to_lowercase().contains("unknown") || err_text.contains("strava"),
-        "error should steer caller to the user-facing provider: {err_text}"
-    );
+        assert!(result.is_error);
+        let err_text = structured(&result)
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            err_text.contains(&format!("Use '{user_facing}' instead")),
+            "error should steer caller to the user-facing provider: {err_text}"
+        );
+        assert!(
+            !err_text.to_lowercase().contains("sciotte"),
+            "the refusal must not echo the backend back to the model: {err_text}"
+        );
+    }
 }
 
 // ============================================================================

@@ -22,7 +22,7 @@ use pierre_contremaitre::messaging_strings::{
 // A host that does NOT resolve, on purpose: this asserts on rendered locale strings
 // and must never reach the network, so an unresolvable fixture makes an accidental
 // request fail loudly rather than quietly succeed. Do not 'fix' it to a live URL.
-const TEST_URL: &str = "https://api.dev.dravr.ai/providers/sciotte/login?token=stub.jwt.signature";
+const TEST_URL: &str = "https://api.dev.dravr.ai/providers/signin?token=stub.jwt.signature";
 
 #[test]
 fn provider_reauth_required_renders_fr_with_provider_and_url() {

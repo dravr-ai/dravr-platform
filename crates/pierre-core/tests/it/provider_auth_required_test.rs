@@ -94,3 +94,32 @@ fn provider_auth_required_returns_403_forbidden() {
     use pierre_core::constants::http_status::FORBIDDEN;
     assert_eq!(ErrorCode::ProviderAuthRequired.http_status(), FORBIDDEN);
 }
+
+#[test]
+fn provider_auth_required_text_never_names_the_backend() {
+    // The slug is a backend key the athlete never chose; the text a tool
+    // error, a JSON-RPC message or the model reads must not carry it.
+    for slug in [
+        "sciotte",
+        "sciotte_garmin",
+        "sciotte_trainingpeaks",
+        "sciotte_coros",
+    ] {
+        let app = AppError::provider_auth_required(slug);
+        let protocol = PE::ProviderAuthRequired {
+            provider: slug.to_owned(),
+        };
+        for text in [
+            app.to_string(),
+            app.message.clone(),
+            app.tool_message(),
+            protocol.to_string(),
+        ] {
+            assert!(
+                !text.to_lowercase().contains("sciotte"),
+                "{slug} leaked into {text:?}"
+            );
+        }
+        assert_eq!(app.provider_auth_required_provider().as_deref(), Some(slug));
+    }
+}
