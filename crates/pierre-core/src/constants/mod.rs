@@ -387,6 +387,9 @@ pub mod rate_limits {
     pub const STRAVA_RATE_LIMIT_DAILY: u32 = 1000;
     /// Garmin default daily rate limit
     pub const GARMIN_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
+    /// Activity files a Garmin Connect Developer Program client may fetch per
+    /// minute at the Starter tier.
+    pub const GARMIN_ACTIVITY_FILES_PER_MINUTE: u32 = 50;
     /// WHOOP default daily rate limit
     pub const WHOOP_DEFAULT_DAILY_RATE_LIMIT: u32 = 1000;
     /// Terra default daily rate limit
@@ -451,6 +454,13 @@ pub mod provider_seats {
     /// developer can self-upgrade to with no review. Overridable via
     /// `STRAVA_OAUTH_SEAT_CAP`.
     pub const STRAVA_OAUTH_SEAT_CAP_DEFAULT: u32 = 10;
+
+    /// Default athlete capacity of Dravr's Garmin Connect Developer Program
+    /// client.
+    ///
+    /// The Starter tier connects at most 1,000 users per client id.
+    /// Overridable via `GARMIN_SEAT_CAPACITY` once the program raises it.
+    pub const GARMIN_SEAT_CAPACITY_DEFAULT: u32 = 1_000;
 }
 
 /// Capture versions: which generation of a provider's capture wrote its history.

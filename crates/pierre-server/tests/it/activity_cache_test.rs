@@ -121,7 +121,7 @@ async fn activity_cache_upsert_read_filter_prune_round_trip() {
     // 7. Retention prune removes rows older than the cutoff (drops s2 @3d).
     let cutoff = Utc::now() - Duration::days(2) - Duration::hours(12);
     let removed = repo
-        .prune_activities_before(user_id, &tenant_id, cutoff)
+        .prune_activities_before(user_id, &tenant_id, "strava", cutoff)
         .await
         .unwrap();
     assert_eq!(removed, 1);

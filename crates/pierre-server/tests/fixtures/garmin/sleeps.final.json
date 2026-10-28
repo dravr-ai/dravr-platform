@@ -1,0 +1,26 @@
+{
+  "sleeps": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-sleep-1",
+      "calendarDate": "$DAY-1",
+      "startTimeInSeconds": "$T-93600",
+      "startTimeOffsetInSeconds": -14400,
+      "durationInSeconds": 26100,
+      "deepSleepDurationInSeconds": 5400,
+      "lightSleepDurationInSeconds": 14400,
+      "remSleepInSeconds": 6300,
+      "awakeDurationInSeconds": 1200,
+      "validation": "ENHANCED_FINAL",
+      "overallSleepScore": { "value": 83 },
+      "sleepLevelsMap": {
+        "deep": [{ "startTimeInSeconds": "$T-91800", "endTimeInSeconds": "$T-86400" }],
+        "light": [{ "startTimeInSeconds": "$T-86400", "endTimeInSeconds": "$T-72000" }],
+        "rem": [{ "startTimeInSeconds": "$T-72000", "endTimeInSeconds": "$T-65700" }],
+        "awake": [{ "startTimeInSeconds": "$T-93600", "endTimeInSeconds": "$T-92400" }]
+      },
+      "timeOffsetSleepSpo2": { "0": 95, "3600": 94, "7200": 96 },
+      "timeOffsetSleepRespiration": { "0": 14.0, "3600": 13.5, "7200": 13.0 }
+    }
+  ]
+}

@@ -126,15 +126,20 @@ pub(crate) const DELETE_PROVIDER_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
 
-/// Delete a user's cached provider activities that started before a cutoff.
+/// Delete one provider's cached activities for a user that started before a
+/// cutoff: `$1` user id, `$2` tenant id, `$3` cutoff, `$4` provider.
 ///
-/// An uploaded file's rows (`provider = 'upload'`,
-/// `pierre_core::constants::oauth_providers::UPLOAD`) are kept: a provider's
-/// row is a copy the next fetch can bring back, an upload's is the record
-/// itself, and pruning it would lose the athlete's workout for good.
+/// Scoped to the provider whose write-through runs it, so a sync of one
+/// provider never deletes another's rows. A push-only provider's rows (the
+/// Garmin API's) are the only copy Dravr will ever get, since the provider
+/// pushes each activity once, and no write-through ever runs for it; an
+/// uploaded file's rows (`provider = 'upload'`,
+/// `pierre_core::constants::oauth_providers::UPLOAD`) are the record itself
+/// and are refused here even when named.
 pub(crate) const PRUNE_ACTIVITIES_SQL: &str = r"
     DELETE FROM cached_activities
-    WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider <> 'upload'";
+    WHERE user_id = $1 AND tenant_id = $2 AND start_date < $3 AND provider = $4
+      AND provider <> 'upload'";
 
 /// The most recent fetch mark for a user, optionally scoped to one provider.
 ///
@@ -213,7 +218,8 @@ macro_rules! latest_fetch_failure_sql {
 }
 pub(crate) use latest_fetch_failure_sql;
 
-/// Raise every coverage floor below a cutoff and clear its feed-end flag.
+/// Raise one provider's coverage floor below a cutoff and clear its feed-end
+/// flag: the prune that falsified it is scoped to that provider.
 /// `hit_feed_end` is BOOLEAN on Postgres and an INTEGER 0/1 on `SQLite`,
 /// which reads the `FALSE` keyword as 0.
 macro_rules! clamp_backfill_coverage_sql {
@@ -225,7 +231,7 @@ macro_rules! clamp_backfill_coverage_sql {
             $uuid,
             " AND tenant_id = $4",
             $uuid,
-            " AND oldest_reached_ts < $1"
+            " AND provider = $5 AND oldest_reached_ts < $1"
         )
     };
 }

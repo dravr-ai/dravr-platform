@@ -1,0 +1,14 @@
+{
+  "stressDetails": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-stress-1",
+      "calendarDate": "$DAY-1",
+      "startTimeInSeconds": "$T-86400",
+      "startTimeOffsetInSeconds": -14400,
+      "durationInSeconds": 86400,
+      "timeOffsetStressLevelValues": { "0": 18, "180": 22, "360": -1, "540": 35 },
+      "timeOffsetBodyBatteryValues": { "0": 41, "180": 77, "360": 74 }
+    }
+  ]
+}

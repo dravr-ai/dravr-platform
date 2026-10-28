@@ -28,7 +28,9 @@ output "secret_ids" {
     wahoo_webhook_token              = google_secret_manager_secret.wahoo_webhook_token.secret_id
     intervals_icu_client_id          = google_secret_manager_secret.intervals_icu_client_id.secret_id
     intervals_icu_client_secret      = google_secret_manager_secret.intervals_icu_client_secret.secret_id
+    garmin_client_id                 = google_secret_manager_secret.garmin_client_id.secret_id
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.secret_id
+    garmin_webhook_token             = google_secret_manager_secret.garmin_webhook_token.secret_id
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.secret_id
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.secret_id
     cohere_api_key                   = google_secret_manager_secret.cohere_api_key.secret_id
@@ -74,7 +76,9 @@ output "secret_names" {
     wahoo_webhook_token              = google_secret_manager_secret.wahoo_webhook_token.name
     intervals_icu_client_id          = google_secret_manager_secret.intervals_icu_client_id.name
     intervals_icu_client_secret      = google_secret_manager_secret.intervals_icu_client_secret.name
+    garmin_client_id                 = google_secret_manager_secret.garmin_client_id.name
     garmin_client_secret             = google_secret_manager_secret.garmin_client_secret.name
+    garmin_webhook_token             = google_secret_manager_secret.garmin_webhook_token.name
     openweather_api_key              = google_secret_manager_secret.openweather_api_key.name
     gemini_api_key                   = google_secret_manager_secret.gemini_api_key.name
     cohere_api_key                   = google_secret_manager_secret.cohere_api_key.name

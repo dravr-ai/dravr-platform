@@ -101,8 +101,17 @@ pub(crate) async fn write_through_activity_cache(
             return None;
         }
     };
-    let cutoff = Utc::now() - Duration::days(write.retention_days);
-    prune_and_realign_coverage(cache.as_ref(), user_id, tenant_id, provider, cutoff).await;
+    // A push-only provider's rows are the only copy there will ever be: the
+    // provider pushes each activity once. Its reads never write through, and
+    // retention must not reach them if one ever did.
+    if !auth_service
+        .runtime()
+        .provider_registry()
+        .is_push_only(provider)
+    {
+        let cutoff = Utc::now() - Duration::days(write.retention_days);
+        prune_and_realign_coverage(cache.as_ref(), user_id, tenant_id, provider, cutoff).await;
+    }
     if stamp.is_sync {
         stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
     }
@@ -158,7 +167,8 @@ async fn head_sync_stamp(
     }
 }
 
-/// Prune below `cutoff`, then raise any coverage floor the prune just falsified.
+/// Prune `provider`'s rows below `cutoff`, then raise any coverage floor the
+/// prune just falsified.
 ///
 /// The two writes belong together: a prune that removed rows has deleted
 /// exactly what a deeper coverage record vouches for, and a claim left standing
@@ -174,7 +184,7 @@ async fn prune_and_realign_coverage(
     cutoff: DateTime<Utc>,
 ) {
     match cache
-        .prune_activities_before(user_id, &tenant_id, cutoff)
+        .prune_activities_before(user_id, &tenant_id, provider, cutoff)
         .await
     {
         Ok(0) => {}
@@ -198,7 +208,7 @@ async fn realign_coverage_floor(
     pruned: u64,
 ) {
     match cache
-        .clamp_backfill_coverage(user_id, &tenant_id, cutoff)
+        .clamp_backfill_coverage(user_id, &tenant_id, provider, cutoff)
         .await
     {
         Ok(0) => {}

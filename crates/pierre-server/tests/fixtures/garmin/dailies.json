@@ -1,0 +1,16 @@
+{
+  "dailies": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-daily-1",
+      "calendarDate": "$DAY-1",
+      "startTimeInSeconds": "$T-86400",
+      "startTimeOffsetInSeconds": -14400,
+      "durationInSeconds": 86400,
+      "steps": 11240,
+      "restingHeartRateInBeatsPerMinute": 46,
+      "averageStressLevel": 27,
+      "timeOffsetHeartRateSamples": { "0": 52, "900": 50, "1800": 49, "3600": 48 }
+    }
+  ]
+}

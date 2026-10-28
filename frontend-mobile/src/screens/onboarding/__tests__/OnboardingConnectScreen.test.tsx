@@ -134,6 +134,48 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
   });
 });
 
+describe('OnboardingConnectScreen — Garmin follows the seat recommendation', () => {
+  // The user-facing Garmin row (carnet#1155).
+  const garminCard = (recommended_backend: 'oauth' | 'mirror') => ({
+    provider: 'sciotte_garmin',
+    display_name: 'Garmin',
+    description: 'Activities, sleep and recovery from Garmin',
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities', 'sleep'],
+    recommended_backend,
+    seats_left: recommended_backend === 'oauth' ? 999 : 0,
+    consent_required: false,
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    initMobileOAuth.mockResolvedValue({ authorization_url: 'https://connect.garmin.com/oauth2Confirm' });
+  });
+
+  it('launches Garmin OAuth (not the credential login) while Garmin seats remain', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', expect.any(String), expect.anything()));
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+  });
+
+  it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+
+    renderScreen();
+    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
+
+    expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+});
+
 describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
   beforeEach(() => {
     jest.clearAllMocks();

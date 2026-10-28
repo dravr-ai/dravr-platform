@@ -1,4 +1,4 @@
-// ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava, Wahoo) — validate, resolve the owner, sync
+// ABOUTME: Webhook endpoints for provider push events (WHOOP, Strava, Wahoo, Garmin) — validate, resolve the owner, sync
 // ABOUTME: Strava: a write fetches and scans new runs, a delete evicts the row, a deauthorization disconnects; WHOOP syncs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -37,6 +37,8 @@ use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
+#[cfg(feature = "provider-garmin")]
+use crate::routes::garmin_webhook;
 use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
 #[cfg(feature = "provider-wahoo")]
 use crate::routes::wahoo_webhook::wahoo_event;
@@ -121,6 +123,10 @@ impl WebhookRoutes {
                 ready(wahoo_event(&resources, &body))
             }),
         );
+        // Garmin posts every summary type to its own sub-path, under the
+        // path token its developer portal is configured with.
+        #[cfg(feature = "provider-garmin")]
+        let router = router.merge(garmin_webhook::routes());
         router.with_state(resources)
     }
 

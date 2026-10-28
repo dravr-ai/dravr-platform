@@ -1,5 +1,5 @@
 // ABOUTME: The secrets inbound provider and messaging webhooks are verified against, read once at startup
-// ABOUTME: Strava's verify token and subscription ids, Wahoo's webhook token and Slack's signing secret
+// ABOUTME: Strava's verify token and subscription ids, Wahoo's and Garmin's webhook tokens and Slack's signing secret
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -30,6 +30,12 @@ pub struct WebhookSecrets {
     /// `WAHOO_WEBHOOK_TOKEN`: the token a Wahoo workout summary carries.
     #[serde(skip)]
     pub wahoo_token: Option<SecretString>,
+    /// `GARMIN_WEBHOOK_TOKEN`: the unguessable path segment every Garmin push
+    /// URL configured in Garmin's developer portal carries. Garmin signs
+    /// nothing, so this, the `garmin-client-id` header and a known `userId`
+    /// are all a genuine push has that a forger must guess.
+    #[serde(skip)]
+    pub garmin_token: Option<SecretString>,
     /// `SLACK_SIGNING_SECRET`: the key Slack signs interactive actions with.
     #[serde(skip)]
     pub slack_signing_secret: Option<SecretString>,
@@ -46,6 +52,7 @@ impl WebhookSecrets {
                 .map(|raw| parse_subscription_ids(&raw))
                 .unwrap_or_default(),
             wahoo_token: configured_secret("WAHOO_WEBHOOK_TOKEN").map(SecretString::from),
+            garmin_token: configured_secret("GARMIN_WEBHOOK_TOKEN").map(SecretString::from),
             slack_signing_secret: configured_secret("SLACK_SIGNING_SECRET").map(SecretString::from),
         }
     }

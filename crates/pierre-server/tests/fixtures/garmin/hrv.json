@@ -1,0 +1,14 @@
+{
+  "hrv": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-hrv-1",
+      "calendarDate": "$DAY-1",
+      "startTimeInSeconds": "$T-93600",
+      "durationInSeconds": 26100,
+      "lastNightAvg": 61,
+      "lastNight5MinHigh": 79,
+      "hrvValues": { "300": 58, "600": 63, "900": 66 }
+    }
+  ]
+}

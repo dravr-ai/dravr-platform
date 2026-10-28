@@ -734,6 +734,13 @@ module "backend" {
     # values are added to Secret Manager.
     WAHOO_CLIENT_ID     = module.secrets.secret_ids["wahoo_client_id"]
     WAHOO_CLIENT_SECRET = module.secrets.secret_ids["wahoo_client_secret"]
+    # Garmin Connect Developer Program OAuth app (carnet#1155). Placeholder
+    # until the portal's values are added to Secret Manager; until then the
+    # server reads Garmin's app as unset and Garmin connects through the
+    # credential connection only. The redirect URI derives from BASE_URL
+    # ({BASE_URL}/api/oauth/callback/garmin), so no GARMIN_REDIRECT_URI.
+    GARMIN_CLIENT_ID     = module.secrets.secret_ids["garmin_client_id"]
+    GARMIN_CLIENT_SECRET = module.secrets.secret_ids["garmin_client_secret"]
     # Intervals.icu OAuth app (carnet#47). Placeholder until the app is
     # approved; the API-key link needs neither.
     INTERVALS_ICU_CLIENT_ID     = module.secrets.secret_ids["intervals_icu_client_id"]
@@ -768,6 +775,9 @@ module "backend" {
     # Wahoo sends its portal's webhook_token in the body of every workout
     # event; the generated value is copied into the portal.
     WAHOO_WEBHOOK_TOKEN = module.secrets.secret_ids["wahoo_webhook_token"]
+    # Garmin pushes carry no signature; the generated path token in the
+    # endpoint URLs registered in Garmin's portal is checked instead.
+    GARMIN_WEBHOOK_TOKEN = module.secrets.secret_ids["garmin_webhook_token"]
 
     # Messaging channel credentials (seeded into DB on startup)
     SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]

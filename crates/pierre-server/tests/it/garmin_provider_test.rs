@@ -209,47 +209,25 @@ async fn test_garmin_provider_get_athlete_requires_auth() {
         .contains("No credentials available"));
 }
 
+/// Garmin serves no data read: the provider reads only what Garmin pushed to
+/// Dravr, through the stores the auth layer binds for the connection's tenant.
+/// Without them, a data read is refused, never sent to Garmin.
 #[tokio::test]
-async fn test_garmin_provider_get_activities_requires_auth() {
+async fn test_garmin_provider_data_reads_without_stores_are_refused() {
     ensure_http_clients_initialized();
     let provider = GarminProvider::new();
 
-    // Attempt to get activities without authentication
-    let result = provider.get_activities(Some(10), None).await;
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("No credentials available"));
+    let refusals = [
+        provider.get_activities(Some(10), None).await.err(),
+        provider.get_activity("12345").await.err(),
+        provider.get_stats().await.err(),
+    ];
+    for refusal in refusals {
+        let refusal = refusal.expect("a data read without stores is refused");
+        assert!(refusal.to_string().contains("pushed to Dravr"), "{refusal}");
+    }
 }
 
-#[tokio::test]
-async fn test_garmin_provider_get_activity_requires_auth() {
-    ensure_http_clients_initialized();
-    let provider = GarminProvider::new();
-
-    // Attempt to get specific activity without authentication
-    let result = provider.get_activity("12345").await;
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("No credentials available"));
-}
-
-#[tokio::test]
-async fn test_garmin_provider_get_stats_requires_auth() {
-    ensure_http_clients_initialized();
-    let provider = GarminProvider::new();
-
-    // Attempt to get stats without authentication
-    let result = provider.get_stats().await;
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("No credentials available"));
-}
 #[tokio::test]
 async fn test_garmin_provider_refresh_token_no_credentials() {
     ensure_http_clients_initialized();

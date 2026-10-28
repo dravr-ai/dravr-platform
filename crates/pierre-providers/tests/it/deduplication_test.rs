@@ -713,3 +713,117 @@ fn a_scraped_recording_is_named_by_the_service_it_was_read_from() {
     let said = serde_json::to_string(&report).unwrap();
     assert!(!said.to_lowercase().contains("sciotte"), "{said}");
 }
+
+// ============================================================================
+// Garmin activity id across the API and the usr/pwd connection (carnet#1155)
+// ============================================================================
+
+/// A row the Garmin API pushed: provider `garmin`, keyed by Garmin's id.
+fn garmin_api_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+    ActivityBuilder::new(
+        id,
+        "Pushed Ride",
+        SportType::Ride,
+        start,
+        duration_secs,
+        "garmin",
+    )
+    .source("garmin")
+    .distance_meters(40_000.0)
+    .build()
+}
+
+/// A row the connection using usr/pwd from Dravr captured: provider
+/// `sciotte`, source `garmin`, keyed by the same Garmin id.
+fn garmin_credential_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+    ActivityBuilder::new(
+        id,
+        "Captured Ride",
+        SportType::Ride,
+        start,
+        duration_secs,
+        "sciotte",
+    )
+    .source("garmin")
+    .distance_meters(40_000.0)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .average_heart_rate(142)
+    .build()
+}
+
+#[test]
+fn one_garmin_activity_id_is_one_workout_and_the_api_row_wins() {
+    let t = base_time();
+    // The usr/pwd row carries a route the API summary lacks, so the ranking
+    // alone would pick it; the API row must stand for its own activity.
+    let activities = vec![
+        garmin_credential_row("19876543210", t, 3600),
+        garmin_api_row("19876543210", t, 3600),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(merged[0].provider(), "garmin");
+    assert_eq!(merged[0].name(), "Pushed Ride");
+    // The API row takes what it lacks from its usr/pwd twin.
+    assert!(merged[0].summary_polyline().is_some());
+    assert_eq!(merged[0].average_heart_rate(), Some(142));
+    assert_eq!(report.groups.len(), 1);
+    assert_eq!(report.groups[0].canonical_id, "19876543210");
+    // Both rows name the same service: the report names it, never the
+    // backend that captured one of them.
+    assert_eq!(report.groups[0].providers, vec!["garmin"]);
+}
+
+#[test]
+fn a_date_only_capture_still_folds_into_the_api_row_of_its_id() {
+    // A usr/pwd row scraped without its time sits at midnight UTC; the API
+    // row starts the evening before in UTC. Only the id ties them.
+    let api_start = Utc.with_ymd_and_hms(2026, 5, 21, 23, 30, 0).unwrap();
+    let midnight = Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).unwrap();
+    let activities = vec![
+        garmin_api_row("555", api_start, 1800),
+        make_activity("other", SportType::Run, base_time(), 1800, 5000.0),
+        garmin_credential_row("555", midnight, 0),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 2, "{merged:?}");
+    assert!(merged
+        .iter()
+        .any(|a| a.id() == "555" && a.provider() == "garmin"));
+    assert!(!merged.iter().any(|a| a.provider() == "sciotte"));
+}
+
+#[test]
+fn equal_ids_from_other_services_are_not_one_workout() {
+    // Ids are only comparable within Garmin: a Strava capture with the same
+    // id string a day apart is another activity.
+    let t = base_time();
+    let strava_capture = ActivityBuilder::new(
+        "777",
+        "Strava Ride",
+        SportType::Ride,
+        t + Duration::days(1),
+        3600,
+        "sciotte",
+    )
+    .source("strava")
+    .build();
+    let activities = vec![garmin_api_row("777", t, 3600), strava_capture];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 2, "{merged:?}");
+    assert!(report.groups.is_empty());
+}
+
+#[test]
+fn distinct_garmin_ids_stay_distinct_activities() {
+    let t = base_time();
+    let activities = vec![
+        garmin_api_row("1001", t, 1800),
+        garmin_credential_row("1002", t + Duration::days(2), 1800),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(ids(&merged).len(), 2);
+}

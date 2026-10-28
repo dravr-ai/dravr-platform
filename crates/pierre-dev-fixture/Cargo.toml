@@ -10,6 +10,10 @@ description = "Dev/test fixture API serving seeded activities as Strava/Garmin A
 repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
+[lib]
+name = "pierre_dev_fixture"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pierre-dev-fixture"
 path = "src/main.rs"
@@ -17,13 +21,17 @@ path = "src/main.rs"
 [dependencies]
 secrecy = { workspace = true }
 axum = "0.8"
-tokio = { version = "1.54", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tokio = { version = "1.54", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono"], default-features = false }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
+# The Garmin stand-in posts its pushes to the local webhook route and builds
+# the consent redirect; both versions are the ones the workspace already locks.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+url = "2.5"
 
 [dev-dependencies]
 # The unit tests point the real Strava provider at this fixture, so a shape the

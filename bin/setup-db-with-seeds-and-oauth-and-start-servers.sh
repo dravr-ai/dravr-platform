@@ -315,27 +315,43 @@ echo "    Seeding LLM usage data (30 days)..."
 echo "    All seeders complete"
 
 # Step 4b: Start the dev fixture API (serves seeded Strava/Garmin activities).
+# Dummy Garmin OAuth creds and webhook path token (dev only). The provider
+# requires client creds to be constructed and to register as "enabled" (it
+# keys on GARMIN_CLIENT_ID); the fixture ignores credential validity, so
+# placeholders exercise the real Garmin code path. The fixture stands in for
+# Garmin's consent page, token exchange and pushes: a Garmin connect made in
+# the local app completes against it, and a few seconds later it pushes that
+# user's synthetic data to this server's /webhooks/garmin route under the
+# path token and client id below. Strava creds already come from .envrc.
+export GARMIN_CLIENT_ID="${GARMIN_CLIENT_ID:-dev-fixture-garmin-client}"
+export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
+export GARMIN_WEBHOOK_TOKEN="${GARMIN_WEBHOOK_TOKEN:-dev-fixture-garmin-webhook-token}"
 FIXTURE_LOG="$LOG_DIR/fixture.log"
 echo "    Starting dev fixture API (port $FIXTURE_PORT)..."
 dev_stop fixture "Dev Fixture API"
-dev_spawn fixture "$FIXTURE_LOG" env FIXTURE_PORT="$FIXTURE_PORT" "./target/$TARGET_DIR/pierre-dev-fixture"
+dev_spawn fixture "$FIXTURE_LOG" env FIXTURE_PORT="$FIXTURE_PORT" \
+    FIXTURE_GARMIN_PUSH_URL="http://127.0.0.1:$SERVER_PORT/webhooks/garmin/$GARMIN_WEBHOOK_TOKEN" \
+    FIXTURE_GARMIN_CLIENT_ID="$GARMIN_CLIENT_ID" \
+    "./target/$TARGET_DIR/pierre-dev-fixture"
 FIXTURE_PID=$DEV_SPAWNED_PID
 if dev_wait_healthy "$FIXTURE_PORT" "$FIXTURE_PID" /health 15; then
     echo "    Fixture ready (PID: $FIXTURE_PID)"
 else
     echo -e "${YELLOW}    Fixture did not become healthy; activities may not load. Check: tail -f $FIXTURE_LOG${NC}"
 fi
-# Point the real Strava/Garmin providers at the local fixture (dev only).
-# Production never sets these, so it always hits the real provider APIs.
-export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-# Dummy Garmin OAuth creds (dev only). The provider requires client creds to
-# be constructed and to register as "enabled" (it keys on GARMIN_CLIENT_ID);
-# the seeded long-lived token means refresh never fires, and the fixture
-# ignores credential validity — so placeholders are sufficient to exercise
-# the real Garmin code path. Strava creds already come from .envrc.
-export GARMIN_CLIENT_ID="${GARMIN_CLIENT_ID:-dev-fixture-garmin-client}"
-export GARMIN_CLIENT_SECRET="${GARMIN_CLIENT_SECRET:-dev-fixture-garmin-secret}"
+# Point the real Strava/Garmin providers at the local fixture (dev only):
+# Strava's API, and Garmin's consent page, token exchange, API, deregistration
+# and activity-file origin. Production never sets these, so it always hits
+# the real provider APIs.
+point_providers_at_fixture() {
+    export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+    export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+    export PIERRE_GARMIN_AUTH_URL="http://127.0.0.1:$FIXTURE_PORT/oauth2Confirm"
+    export PIERRE_GARMIN_TOKEN_URL="http://127.0.0.1:$FIXTURE_PORT/di-oauth2-service/oauth/token"
+    export PIERRE_GARMIN_REVOKE_URL="http://127.0.0.1:$FIXTURE_PORT/user/registration"
+    export GARMIN_API_BASE="http://127.0.0.1:$FIXTURE_PORT/wellness-api/rest"
+}
+point_providers_at_fixture
 
 # Step 4c: Start the dedicated sciotte scraper service (ADR-021), but ONLY when
 # the platform is pointed at it. DRAVR_SCIOTTE_REMOTE_URL set => the server
@@ -467,8 +483,7 @@ if [ "$START_TUNNEL" = "true" ]; then
             # Re-assert the dev fixture overrides — re-sourcing .envrc must not
             # send the providers back to the real Strava/Garmin APIs — and the
             # port, which .envrc pins and the caller may have overridden.
-            export PIERRE_STRAVA_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
-            export PIERRE_GARMIN_API_BASE_URL="http://127.0.0.1:$FIXTURE_PORT"
+            point_providers_at_fixture
             export HTTP_PORT="$SERVER_PORT"
             dev_spawn pierre-server "$SERVER_LOG" env RUST_LOG=info "./target/$TARGET_DIR/pierre-mcp-server"
             SERVER_PID=$DEV_SPAWNED_PID

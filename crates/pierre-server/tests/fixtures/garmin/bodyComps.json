@@ -1,0 +1,16 @@
+{
+  "bodyComps": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-body-1",
+      "measurementTimeInSeconds": "$T-64800",
+      "measurementTimeOffsetInSeconds": -14400,
+      "weightInGrams": 71200,
+      "bodyFatInPercent": 13.1,
+      "bodyMassIndex": 22.3,
+      "muscleMassInGrams": 33400,
+      "boneMassInGrams": 3200,
+      "bodyWaterInPercent": 58.4
+    }
+  ]
+}

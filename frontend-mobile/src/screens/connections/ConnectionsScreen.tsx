@@ -294,8 +294,11 @@ export function ConnectionsScreen() {
     const target = sciotteTargetForBackend(provider.provider);
     const devPortalUrl = ownAppDevPortal(provider.provider);
     if (target) {
-      if (target === 'strava' && provider.recommended_backend === 'oauth') {
-        handleConnect('strava', provider.display_name);
+      // The Strava and Garmin rows connect through the provider's own OAuth
+      // (named by the row's target) while the server recommends it, and fall
+      // back to the credential login once its seats are gone.
+      if (provider.recommended_backend === 'oauth') {
+        handleConnect(target, provider.display_name);
       } else {
         setSciotteConsentRequired(provider.consent_required);
         setSciotteTarget(target);

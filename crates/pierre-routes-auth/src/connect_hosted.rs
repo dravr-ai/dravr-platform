@@ -16,8 +16,8 @@
 //!    `CONNECT_LINK_TOKEN_TTL_MINUTES`, not by a burn).
 //! 2. Renders the provider cards, computed from the SAME
 //!    [`crate::oauth::compute_providers_status`] the web/mobile onboarding uses,
-//!    so Strava is OAuth-first while shared-app seats remain and falls back to
-//!    the Sciotte credential flow once the cap is reached.
+//!    so Strava and Garmin are OAuth-first while their seats remain and fall
+//!    back to the credential flow once the cap is reached.
 //! 3. Routes the user's choice to the Sciotte credential state machine
 //!    (`/api/providers/sciotte/*`), the link-token-authed OAuth init
 //!    (`/api/providers/connect/oauth-init/{provider}`), or — for Intervals.icu,
@@ -60,6 +60,7 @@ use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use uuid::Uuid;
 
+use crate::card_seats::require_garmin_seat;
 use crate::connect_hosted_templates;
 use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
 use crate::oauth::{compute_providers_status, require_oauth_start_notice};
@@ -212,16 +213,29 @@ async fn build_connect_providers(
                     login_identifier: "email",
                 });
             }
-            // Garmin, TrainingPeaks and COROS: always the credential/scraper
-            // flow — none has an OAuth backend Pierre can call.
+            // Garmin: OAuth-first while the Developer Program client has a
+            // seat, else the connection using usr/pwd from Dravr — the Strava
+            // card's decision (carnet#1155). TrainingPeaks and COROS: always
+            // the credential flow — neither has an OAuth backend Pierre can
+            // call. The login identifier stays the credential form's, which
+            // the page opens for the same target when the OAuth start fails.
             "sciotte_garmin" | "sciotte_trainingpeaks" | "sciotte_coros" => {
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
+                    let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
                     cards.push(ConnectProviderCard {
-                        provider: provider_name.clone(),
+                        provider: if oauth_first {
+                            target.to_owned()
+                        } else {
+                            provider_name.clone()
+                        },
                         display_name: p.display_name,
                         description: p.description,
                         connected: p.connected,
-                        kind: CREDENTIALS_KIND,
+                        kind: if oauth_first {
+                            "oauth"
+                        } else {
+                            CREDENTIALS_KIND
+                        },
                         target: target.to_owned(),
                         consent_required: p.consent_required,
                         notice: exposure_notice(strings, target),
@@ -391,8 +405,6 @@ pub(crate) async fn handle_connect_oauth_init(
         return error_page(&resources, &locale, KEY_HOSTED_ERROR_NOTICE_REQUIRED);
     }
 
-    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
-
     // On return from the provider's consent screen, bounce back to THIS hosted
     // picker (carrying the same connect token) rather than the SPA: on success
     // the picker shows its success page, and on failure it opens the Sciotte
@@ -405,6 +417,15 @@ pub(crate) async fn handle_connect_oauth_init(
         resources.config.base_url.trim_end_matches('/'),
         encode(token)
     );
+
+    if let Some(back) =
+        back_to_picker_without_garmin_seat(&resources, user_id, tenant_id, &provider, &return_url)
+            .await
+    {
+        return back;
+    }
+
+    let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
 
     match oauth_service
         .get_auth_url(
@@ -432,6 +453,32 @@ pub(crate) async fn handle_connect_oauth_init(
             error_page(&resources, &locale, KEY_HOSTED_ERROR_OAUTH_START_FAILED)
         }
     }
+}
+
+/// The redirect back to the picker at `picker_url` when Garmin's client has
+/// no seat left for this athlete, else `None`.
+///
+/// The client may have filled since the picker drew its card. Going back to
+/// the picker, which now offers the usr/pwd connection on the same card,
+/// replaces an OAuth flow Garmin would refuse.
+async fn back_to_picker_without_garmin_seat(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    picker_url: &str,
+) -> Option<Response> {
+    let refused = require_garmin_seat(resources, user_id, tenant_id, provider)
+        .await
+        .err()?;
+    info!(provider = %provider, user_id = %user_id, error = %refused, "Hosted connect: no Garmin seat, back to the picker");
+    Some(
+        (
+            StatusCode::FOUND,
+            [(header::LOCATION, picker_url.to_owned())],
+        )
+            .into_response(),
+    )
 }
 
 /// Log a hosted-connect OAuth start that failed, at the level its cause

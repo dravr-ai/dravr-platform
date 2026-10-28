@@ -14,21 +14,22 @@ use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
-    ActivityRouteTrackRepository, AdminRepository, AgentsRepository, ApiKeyRepository,
-    AppAttestKeyRepository, AthleteGearRepository, ChatRepository, CheckInPreferenceRepository,
-    ClaimVerdictRepository, CoachAccessRequestRepository, CoachReplyReviewRepository,
-    CoachingGroupRepository, CommitmentRepository, DataSourceRepository,
-    DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
-    FeatureFlagsRepository, FederatedIdentityRepository, FirebaseIdentityDeletionRepository,
-    FirstRunProgressRepository, FitnessConfigRepository, GuardianPendingActionsRepository,
-    HarnessMemoryRepository, HealthSnapshotRepository, HomePreferencesRepository,
-    ImpersonationRepository, ImportTombstoneRepository, LlmCredentialRepository,
-    LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository, MessagingRepository,
-    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, PersonaDigestReturnRepository,
-    PersonalBestRepository, PlatformPostClaimRepository, PlaybookRepository,
-    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, RecipeRepository, RecoveryRepository,
+    ActivityRouteTrackRepository, ActivityStreamRepository, AdminRepository, AgentsRepository,
+    ApiKeyRepository, AppAttestKeyRepository, AthleteGearRepository, ChatRepository,
+    CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
+    CoachReplyReviewRepository, CoachingGroupRepository, CommitmentRepository,
+    DataSourceRepository, DelegatedConnectionRepository, DossierRepository,
+    EmailVerificationRepository, FeatureFlagsRepository, FederatedIdentityRepository,
+    FirebaseIdentityDeletionRepository, FirstRunProgressRepository, FitnessConfigRepository,
+    GarminPushInboxRepository, GuardianPendingActionsRepository, HarnessMemoryRepository,
+    HealthSnapshotRepository, HomePreferencesRepository, ImpersonationRepository,
+    ImportTombstoneRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
+    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
     ResumableTurnRepository, RouteSummaryRepository, SecurityRepository, SeederRepository,
     SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository, SleepRepository,
     StoreListingsRepository, StravaSeatReclaimWarningRepository, SubscriptionsRepository,
@@ -231,6 +232,13 @@ pub struct RepositoryRegistry {
     /// went: written by the account delete, drained by its post-commit call
     /// and the retry sweep.
     pub firebase_identity_deletions: Arc<dyn FirebaseIdentityDeletionRepository>,
+    /// Every batch Garmin pushes, written before the route answers and
+    /// worked through under a lease, so a push outlives the instance that
+    /// received it.
+    pub garmin_push_inbox: Arc<dyn GarminPushInboxRepository>,
+    /// Writes for data a provider pushes out of order: newest receipt wins,
+    /// day rows merge, one-shot files are kept until their samples land.
+    pub pushed_data: Arc<dyn PushedDataRepository>,
     /// An account deletion in one transaction with its hash-chained receipt,
     /// and the receipt chain an operator verifies.
     pub account_deletion: Arc<dyn AccountDeletionRepository>,
@@ -247,6 +255,9 @@ pub struct RepositoryRegistry {
     /// One stored route read per activity, so each activity's geometry costs
     /// at most one provider read.
     pub activity_route_tracks: Arc<dyn ActivityRouteTrackRepository>,
+    /// The one per-activity sample store (pushed, uploaded or imported
+    /// samples), kept apart from the cached row every list read deserializes.
+    pub activity_streams: Arc<dyn ActivityStreamRepository>,
     /// The thread each activity's view opened, so reopening the activity on
     /// any device resumes it.
     pub activity_conversations: Arc<dyn ActivityConversationRepository>,
@@ -355,11 +366,14 @@ impl RepositoryRegistry {
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
+            activity_streams: db.clone(),
             activity_conversations: db.clone(),
             uploaded_activity_files: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             firebase_identity_deletions: db.clone(),
+            garmin_push_inbox: db.clone(),
+            pushed_data: db.clone(),
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
             guardian_actions: db,
@@ -454,11 +468,14 @@ impl RepositoryRegistry {
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
+            activity_streams: db.clone(),
             activity_conversations: db.clone(),
             uploaded_activity_files: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             firebase_identity_deletions: db.clone(),
+            garmin_push_inbox: db.clone(),
+            pushed_data: db.clone(),
             account_deletion: db.clone(),
             import_tombstones: db.clone(),
             guardian_actions: db,

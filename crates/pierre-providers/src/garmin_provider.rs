@@ -1,16 +1,54 @@
-// ABOUTME: Garmin Connect API provider implementation using unified provider architecture
-// ABOUTME: Handles OAuth2 PKCE authentication and fitness data fetching with proper error handling
+// ABOUTME: Garmin Connect Developer Program provider: OAuth2 PKCE identity and refresh, data read from what Garmin pushed
+// ABOUTME: Activities, laps and samples come from Dravr's own stores; only `user/id` and the token endpoint are called
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+//! # Garmin, read from what Garmin pushed
+//!
+//! The Garmin Health and Activity APIs at the Starter tier deliver data only
+//! by pushing it: every summary is POSTed to Dravr as it is recorded, and no
+//! list, detail or backfill read exists (carnet#1155). The descriptor declares
+//! [`PUSH_ONLY`](crate::spi::ProviderCapabilities::PUSH_ONLY), and this
+//! provider serves every data read from the stores the push ingest writes,
+//! bound per connection through [`FitnessProvider::bind_owner_stores`]. The
+//! only calls it makes to Garmin are `GET user/id` ([`FitnessProvider::get_athlete`])
+//! and the token refresh; deregistration is the descriptor's revoke URL.
+//!
+//! ## Where the push ingest writes, and so where this reads
+//!
+//! - **An activity summary** (`activities`) is one row of `cached_activities`
+//!   under the provider key `garmin`, its id the decimal Garmin `activityId`,
+//!   its `source` `garmin` (the attribution keys on it, carnet#1154), written
+//!   with `synced_at` = the push's receipt time. A re-sent summary upserts the
+//!   same row. Freshness is the last push: `latest_activity_sync` reads the
+//!   later of the rows' `synced_at` and the fetch mark, so a push that carried
+//!   no new activity records `record_activity_fetch` at its receipt time.
+//! - **Laps** from an activity's details (`activityDetails`) go beside that row
+//!   through `store_activity_detail`, as the laps of a detail read do for
+//!   every provider; every read of the row fills them in. The row must exist
+//!   first, so the details' own summary is upserted before them when the
+//!   activity summary has not arrived yet.
+//! - **Samples** from the same details go to `activity_streams`
+//!   (`upsert_activity_streams`, origin `push`), as the [`TimeSeriesData`]
+//!   the activity model carries, keyed like the cached row, and are read back
+//!   through the one store-backed sample read on [`OwnerStores`] every
+//!   provider read from Dravr's stores shares. Not inside the row's `data_json`:
+//!   every list read deserializes that column, and a later summary push
+//!   rewrites it whole. An activity longer than 24 h, which the details leave
+//!   out, has its samples written there from its FIT file.
+//!
+//! A read before the stores are bound — no tenant to read in — is refused,
+//! never answered from Garmin.
+
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
+    TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use super::utils::{self, RetryConfig};
-use crate::activity_paging::pages_for;
+use crate::cached_activity_reads::CachedActivities;
 use crate::constants::oauth::{
     GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
 };
@@ -18,15 +56,11 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
-use crate::models::{
-    activity::{Lap, Split},
-    Activity, ActivityBuilder, Athlete, SportType, Stats,
-};
+use crate::models::{Activity, Athlete, Stats, StatsCoverage, TimeSeriesData};
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
@@ -37,18 +71,19 @@ use tracing::{debug, info, instrument};
 
 mod wire;
 
-use wire::{
-    GarminActivityResponse, GarminLap, GarminLapsResponse, GarminListRow, GarminSplit,
-    GarminSplitsResponse, GarminStatsResponse, GarminUserIdResponse,
-};
+use wire::GarminUserIdResponse;
 
-/// Garmin Connect provider implementation
+/// What an activity is called in a read's errors.
+const ACTIVITY: &str = "Garmin activity";
+
+/// Garmin Connect Developer Program provider implementation
 pub struct GarminProvider {
     config: ProviderConfig,
     credentials: RwLock<Option<OAuth2Credentials>>,
     client: SharedHttpClient,
     circuit_breaker: CircuitBreaker,
     token_refresh_callback: OnceLock<TokenRefreshCallback>,
+    stores: OnceLock<OwnerStores>,
 }
 
 impl fmt::Debug for GarminProvider {
@@ -58,6 +93,7 @@ impl fmt::Debug for GarminProvider {
             .field("credentials", &self.credentials)
             .field("client", &self.client)
             .field("circuit_breaker", &self.circuit_breaker)
+            .field("stores", &self.stores.get())
             .finish_non_exhaustive()
     }
 }
@@ -66,7 +102,7 @@ impl GarminProvider {
     /// Create a new Garmin provider with default configuration
     #[must_use]
     pub fn new() -> Self {
-        let config = ProviderConfig {
+        Self::with_config(ProviderConfig {
             name: oauth_providers::GARMIN.to_owned(),
             auth_url: GARMIN_AUTH_URL.to_owned(),
             token_url: GARMIN_TOKEN_URL.to_owned(),
@@ -74,16 +110,7 @@ impl GarminProvider {
             revoke_url: Some(GARMIN_DEREGISTRATION_URL.to_owned()),
             // Garmin's scope is fixed server-side; its authorization takes none.
             default_scopes: Vec::new(),
-        };
-
-        Self {
-            circuit_breaker: CircuitBreaker::new(oauth_providers::GARMIN),
-            config,
-            credentials: RwLock::new(None),
-            // Clone Arc<Client> from shared singleton - cheap reference counting operation
-            client: shared_client().clone(),
-            token_refresh_callback: OnceLock::new(),
-        }
+        })
     }
 
     /// Create provider with custom configuration
@@ -97,24 +124,30 @@ impl GarminProvider {
             // Clone Arc<Client> from shared singleton - cheap reference counting operation
             client: shared_client().clone(),
             token_refresh_callback: OnceLock::new(),
+            stores: OnceLock::new(),
         }
     }
 
-    /// Variant of [`api_request`] that returns `None` on any error instead of
-    /// propagating. Used by detail-mode fanout where a missing sibling
-    /// endpoint (e.g. `/laps` for swim activities) shouldn't fail the whole
-    /// operation — we just lose enrichment for that one slice of data.
-    async fn api_request_optional<T>(&self, endpoint: &str) -> Option<T>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        match self.api_request::<T>(endpoint).await {
-            Ok(value) => Some(value),
-            Err(e) => {
-                debug!(endpoint, error = %e, "Optional Garmin API call failed; continuing without it");
-                None
-            }
-        }
+    /// The bound stores, or the refusal a read without them gets: Garmin
+    /// serves no read to fall back on.
+    fn stores(&self) -> AppResult<&OwnerStores> {
+        self.stores.get().ok_or_else(|| {
+            AppError::invalid_input(
+                "Garmin data is read from what Garmin pushed to Dravr, within the tenant \
+                 the connection lives in",
+            )
+        })
+    }
+
+    /// The connection's cached Garmin activities.
+    fn cached(&self) -> AppResult<CachedActivities<'_>> {
+        let stores = self.stores()?;
+        Ok(CachedActivities {
+            cache: stores.activity_cache.as_ref(),
+            user_id: stores.user_id,
+            tenant_id: &stores.tenant_id,
+            provider: oauth_providers::GARMIN,
+        })
     }
 
     /// Make authenticated API request with rate limit handling and circuit breaker protection
@@ -184,268 +217,6 @@ impl GarminProvider {
 
         result
     }
-
-    /// Convert Garmin activity type to our `SportType` enum
-    /// Based on Garmin Connect activity types from `activity_types.properties`
-    /// Source: <https://connect.garmin.com/modern/main/js/properties/activity_types/activity_types.properties>
-    fn parse_sport_type(garmin_type: &str) -> SportType {
-        match garmin_type.to_lowercase().as_str() {
-            // Running variants
-            "running" | "run" | "track" | "track_running" => SportType::Run,
-            "trail_running" | "trail_run" => SportType::TrailRunning,
-            "treadmill" | "treadmill_running" => SportType::VirtualRun,
-
-            // Cycling variants
-            "cycling" | "bike" | "biking" | "road_cycling" | "road" | "cyclocross" | "cx" => {
-                SportType::Ride
-            }
-            "mountain_biking" | "mountain_bike_ride" | "mountain" => SportType::MountainBike,
-            "indoor_cycling" | "spin" | "virtual_ride" => SportType::VirtualRide,
-            "gravel_cycling" | "gravel_ride" => SportType::GravelRide,
-            "ebike" | "e_bike_ride" | "e_bike" => SportType::EbikeRide,
-
-            // Swimming variants
-            "swimming"
-            | "swim"
-            | "open_water_swimming"
-            | "open_water"
-            | "pool_swimming"
-            | "lap_swimming" => SportType::Swim,
-
-            // Walking and hiking
-            "walking" | "walk" | "casual_walking" => SportType::Walk,
-            "hiking" | "hike" => SportType::Hike,
-
-            // Winter sports
-            "resort_skiing" | "alpine_skiing" | "downhill_skiing" => SportType::AlpineSkiing,
-            "backcountry_skiing_snowboarding" | "backcountry_skiing" => {
-                SportType::BackcountrySkiing
-            }
-            "cross_country_skiing" | "xc_skiing" | "nordic_skiing" => SportType::CrossCountrySkiing,
-            "snowboarding" | "snowboard" => SportType::Snowboarding,
-            "snowshoeing" | "snowshoe" => SportType::Snowshoe,
-            "ice_skating" | "skating" => SportType::IceSkating,
-
-            // Water sports
-            "kayaking" | "kayak" => SportType::Kayaking,
-            "canoeing" | "canoe" => SportType::Canoeing,
-            "rowing" | "row" | "indoor_rowing" => SportType::Rowing,
-            "stand_up_paddleboarding" | "sup" | "paddleboarding" => SportType::Paddleboarding,
-            "surfing" | "surf" => SportType::Surfing,
-            "kitesurfing" | "kiteboarding" => SportType::Kitesurfing,
-
-            // Strength and fitness
-            "strength_training" | "weight_training" | "weights" => SportType::StrengthTraining,
-            "crossfit" | "cross_fit" => SportType::Crossfit,
-            "pilates" => SportType::Pilates,
-            "yoga" => SportType::Yoga,
-
-            // Climbing and adventure
-            "rock_climbing" | "climbing" | "bouldering" => SportType::RockClimbing,
-
-            // Team sports
-            "soccer" | "football" => SportType::Soccer,
-            "basketball" => SportType::Basketball,
-            "tennis" => SportType::Tennis,
-            "golf" => SportType::Golf,
-
-            // Alternative transport
-            "skateboarding" | "skateboard" => SportType::Skateboarding,
-            "inline_skating" | "roller_skating" => SportType::InlineSkating,
-
-            // Generic/other - combined cardio, fitness equipment, and generic workout types
-            "cardio" | "cardio_training" | "elliptical" | "fitness_equipment"
-            | "stair_climbing" | "stepper" | "other" | "generic" | "workout" | "training" => {
-                SportType::Workout
-            }
-
-            // Unmapped types fall through to Other variant
-            _ => SportType::Other(garmin_type.to_owned()),
-        }
-    }
-
-    /// Convert Garmin activity response to internal Activity model
-    /// Build an `ActivityBuilder` from a Garmin response without finalizing it.
-    /// Shared by the summary-path conversion and the detailed-path conversion —
-    /// the detailed path layers laps/splits before [`ActivityBuilder::build`].
-    fn garmin_activity_builder(activity: GarminActivityResponse) -> AppResult<ActivityBuilder> {
-        let summary = activity.summary_dto;
-        let activity_type_key = activity
-            .activity_type_dto
-            .type_key
-            .as_deref()
-            .unwrap_or("unknown");
-
-        let start_date =
-            garmin_start_date(summary.start_time_gmt.as_deref(), "summaryDTO.startTimeGMT")?;
-
-        Ok(ActivityBuilder::new(
-            activity.activity_id.to_string(),
-            activity
-                .activity_name
-                .unwrap_or_else(|| "Untitled".to_owned()),
-            Self::parse_sport_type(activity_type_key),
-            start_date,
-            summary.duration.map_or(0, utils::conversions::f64_to_u64),
-            oauth_providers::GARMIN,
-        )
-        // Garmin's brand guidelines owe an attribution on everything this
-        // provider serves, and every attribution path keys on `source`
-        // (carnet#1154); a source equal to the provider changes no terms.
-        .source(oauth_providers::GARMIN)
-        .distance_meters_opt(summary.distance)
-        .elevation_gain_opt(summary.elevation_gain)
-        .average_speed_opt(summary.average_speed)
-        .max_speed_opt(summary.max_speed)
-        .average_heart_rate_opt(summary.average_hr.map(utils::conversions::f32_to_u32))
-        .max_heart_rate_opt(summary.max_hr.map(utils::conversions::f32_to_u32))
-        .average_cadence_opt(
-            summary
-                .average_run_cadence
-                .or(summary.average_biking_cadence)
-                .map(utils::conversions::f32_to_u32),
-        )
-        .average_power_opt(summary.average_power.map(utils::conversions::f32_to_u32))
-        .max_power_opt(summary.max_power.map(utils::conversions::f32_to_u32))
-        .normalized_power_opt(summary.normalized_power.map(utils::conversions::f32_to_u32))
-        .calories_opt(summary.calories.map(utils::conversions::f64_to_u32))
-        .temperature_opt(
-            summary
-                .average_temperature
-                .map(utils::conversions::f64_to_f32),
-        ))
-    }
-
-    fn convert_garmin_activity(activity: GarminActivityResponse) -> AppResult<Activity> {
-        Ok(Self::garmin_activity_builder(activity)?.build())
-    }
-
-    /// Convert one flat list row into the canonical `Activity`.
-    fn convert_garmin_list_row(row: GarminListRow) -> AppResult<Activity> {
-        let type_key = row
-            .activity_type
-            .type_key
-            .as_deref()
-            .or(row.activity_type.parent_type_key.as_deref())
-            .unwrap_or("unknown");
-        let start_date = garmin_start_date(row.start_time_gmt.as_deref(), "startTimeGMT")?;
-
-        Ok(ActivityBuilder::new(
-            row.activity_id.to_string(),
-            row.activity_name.unwrap_or_else(|| "Untitled".to_owned()),
-            Self::parse_sport_type(type_key),
-            start_date,
-            row.duration.map_or(0, utils::conversions::f64_to_u64),
-            oauth_providers::GARMIN,
-        )
-        // As on the detail path: the attribution keys on `source`.
-        .source(oauth_providers::GARMIN)
-        .distance_meters_opt(row.distance)
-        .elevation_gain_opt(row.elevation_gain)
-        .average_speed_opt(row.average_speed)
-        .max_speed_opt(row.max_speed)
-        .average_heart_rate_opt(row.average_hr.map(utils::conversions::f32_to_u32))
-        .max_heart_rate_opt(row.max_hr.map(utils::conversions::f32_to_u32))
-        .average_cadence_opt(
-            row.average_running_cadence_in_steps_per_minute
-                .or(row.average_biking_cadence_in_rev_per_minute)
-                .map(utils::conversions::f32_to_u32),
-        )
-        .average_power_opt(
-            row.avg_power
-                .or(row.average_power)
-                .map(utils::conversions::f32_to_u32),
-        )
-        .max_power_opt(row.max_power.map(utils::conversions::f32_to_u32))
-        .normalized_power_opt(row.norm_power.map(utils::conversions::f32_to_u32))
-        .calories_opt(row.calories.map(utils::conversions::f64_to_u32))
-        .build())
-    }
-}
-
-/// The activity start from Garmin's `startTimeGMT`, which arrives as SQL-style
-/// "YYYY-MM-DD HH:MM:SS.f" or RFC3339 depending on the surface. `field` names
-/// the key in the error so a response missing it is diagnosable.
-fn garmin_start_date(raw: Option<&str>, field: &str) -> AppResult<DateTime<Utc>> {
-    let raw = raw.ok_or_else(|| AppError::internal(format!("Garmin activity missing {field}")))?;
-    parse_garmin_timestamp(raw)
-        .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))
-}
-
-/// Parse a Garmin timestamp string. Garmin emits two formats across their
-/// API surface:
-/// - SQL datetime: `"2026-04-27 16:25:47.0"` (assumed UTC, no offset suffix)
-/// - RFC3339: `"2026-04-27T16:25:47.0Z"`
-///
-/// Returns a UTC `DateTime`. Returns an error string if neither shape parses.
-fn parse_garmin_timestamp(s: &str) -> Result<DateTime<Utc>, String> {
-    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-        return Ok(dt.with_timezone(&Utc));
-    }
-    let trimmed = s.trim_end_matches(".0");
-    let formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M:%S%.f",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S%.f",
-    ];
-    for fmt in &formats {
-        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(trimmed, fmt) {
-            return Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
-        }
-    }
-    Err(format!("Unrecognized Garmin timestamp format: {s}"))
-}
-
-/// Translate Garmin's camelCase `lapDTO` into cageux's `snake_case` [`Lap`].
-/// Falls back to the slot index when Garmin omits `lapIndex`. Garmin's
-/// running cadence is in steps/min; biking cadence in revs/min — we surface
-/// whichever is present. Returns `None` when distance or duration are absent
-/// — a lap without those two anchors cannot be located on the timeline and
-/// would only add noise to agent reasoning.
-fn convert_garmin_lap(slot: usize, l: &GarminLap) -> Option<Lap> {
-    let distance_meters = l.distance?;
-    let elapsed_time_seconds = utils::conversions::f64_to_u64(l.duration?);
-    Some(Lap {
-        id: None,
-        index: l
-            .lap_index
-            .unwrap_or_else(|| u32::try_from(slot + 1).unwrap_or(u32::MAX)),
-        distance_meters,
-        elapsed_time_seconds,
-        moving_time_seconds: l.moving_duration.map(utils::conversions::f64_to_u64),
-        elevation_gain_meters: l.elevation_gain,
-        average_speed_mps: l.average_speed,
-        max_speed_mps: l.max_speed,
-        average_heart_rate: l.average_hr.map(utils::conversions::f32_to_u32),
-        max_heart_rate: l.max_hr.map(utils::conversions::f32_to_u32),
-        average_cadence: l
-            .average_running_cadence_in_steps_per_minute
-            .or(l.average_biking_cadence_in_rev_per_minute)
-            .map(utils::conversions::f32_to_u32),
-        average_power: l.average_power.map(utils::conversions::f32_to_u32),
-    })
-}
-
-/// Translate Garmin's camelCase split shape into cageux's [`Split`]. Garmin
-/// emits per-km/per-mile splits via the `/splits` endpoint (which uses the
-/// `lapDTOs` JSON key — sic — for the array). Returns `None` for splits
-/// missing distance or duration.
-fn convert_garmin_split(slot: usize, s: &GarminSplit) -> Option<Split> {
-    let distance_meters = s.distance?;
-    let elapsed_time_seconds = utils::conversions::f64_to_u64(s.duration?);
-    Some(Split {
-        index: s
-            .message_index
-            .unwrap_or_else(|| u32::try_from(slot + 1).unwrap_or(u32::MAX)),
-        distance_meters,
-        elapsed_time_seconds,
-        moving_time_seconds: s.moving_duration.map(utils::conversions::f64_to_u64),
-        elevation_difference_meters: s.elevation_gain,
-        average_speed_mps: s.average_speed,
-        average_heart_rate: s.average_hr.map(utils::conversions::f32_to_u32),
-        pace_zone: None,
-    })
 }
 
 impl Default for GarminProvider {
@@ -473,6 +244,12 @@ impl FitnessProvider for GarminProvider {
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
         if self.token_refresh_callback.set(callback).is_err() {
             debug!("Garmin token refresh callback already set; keeping the first");
+        }
+    }
+
+    fn bind_owner_stores(&self, stores: OwnerStores) {
+        if self.stores.set(stores).is_err() {
+            debug!("Garmin owner stores already bound; keeping the first");
         }
     }
 
@@ -568,304 +345,62 @@ impl FitnessProvider for GarminProvider {
         })
     }
 
-    #[instrument(
-        skip(self, params),
-        fields(
-            provider = "garmin",
-            api_call = "get_activities",
-            limit = ?params.limit,
-            offset = ?params.offset,
-        )
-    )]
     async fn get_activities_with_params(
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let requested_limit = params
-            .limit
-            .unwrap_or(api_provider_limits::garmin::DEFAULT_ACTIVITIES_PER_PAGE);
-        let start_offset = params.offset.unwrap_or(0);
-
-        info!(
-            "Starting get_activities - requested_limit: {}, offset: {}, before: {:?}, after: {:?}",
-            requested_limit, start_offset, params.before, params.after
-        );
-
-        // Garmin API doesn't support before/after params directly, they're for client-side filtering
-        if requested_limit <= api_provider_limits::garmin::MAX_ACTIVITIES_PER_REQUEST {
-            return self
-                .get_activities_single_page(requested_limit, start_offset)
-                .await;
-        }
-
-        self.get_activities_multi_page(requested_limit, start_offset)
-            .await
+        self.cached()?.window(params).await
     }
 
     async fn get_activities_cursor(
         &self,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
-        // Garmin API uses numeric pagination - delegate to offset-based approach
-        let query_params = ActivityQueryParams::with_pagination(Some(params.limit), None);
-        let activities = self.get_activities_with_params(&query_params).await?;
-        Ok(CursorPage::new(activities, None, None, false))
+        self.cached()?.cursor_page(params).await
     }
 
-    #[instrument(
-        skip(self),
-        fields(provider = "garmin", api_call = "get_activity", activity_id = %id)
-    )]
+    /// The pushed summary, with the laps its details carried filled in by
+    /// the cache read; there is no richer read to make, so this also answers
+    /// [`FitnessProvider::get_activity_detailed`].
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        // Source: https://github.com/cyberjunky/python-garminconnect
-        // Endpoint: /activity-service/activity/{activity_id}
-        let endpoint = format!("activity-service/activity/{id}");
-        let garmin_activity: GarminActivityResponse = self.api_request(&endpoint).await?;
-        Self::convert_garmin_activity(garmin_activity)
+        self.cached()?.one(id, ACTIVITY).await
     }
 
-    /// Detail-mode fetch: main activity + sibling `/laps` and `/splits`
-    /// endpoints folded into the resulting `Activity`.
-    ///
-    /// Garmin Connect splits the per-activity surface across three endpoints
-    /// in the `/app/` redesign. The list endpoint and the bare detail endpoint
-    /// give summary metrics; per-lap and per-split arrays live on the sibling
-    /// paths. We fan out 3 GETs, tolerating per-endpoint failures so a missing
-    /// laps response (e.g. swim activities) doesn't kill the whole fetch.
-    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
-        let main_endpoint = format!("activity-service/activity/{id}");
-        let laps_endpoint = format!("activity-service/activity/{id}/laps");
-        let splits_endpoint = format!("activity-service/activity/{id}/splits");
-
-        let main: GarminActivityResponse = self.api_request(&main_endpoint).await?;
-        let laps_result: Option<GarminLapsResponse> =
-            self.api_request_optional(&laps_endpoint).await;
-        let splits_result: Option<GarminSplitsResponse> =
-            self.api_request_optional(&splits_endpoint).await;
-
-        let laps = laps_result.and_then(|laps| {
-            let converted: Vec<Lap> = laps
-                .lap_dtos
-                .iter()
-                .enumerate()
-                .filter_map(|(i, l)| convert_garmin_lap(i, l))
-                .collect();
-            (!converted.is_empty()).then_some(converted)
-        });
-
-        let splits = splits_result.and_then(|splits| {
-            let converted: Vec<Split> = splits
-                .splits
-                .iter()
-                .enumerate()
-                .filter_map(|(i, s)| convert_garmin_split(i, s))
-                .collect();
-            (!converted.is_empty()).then_some(converted)
-        });
-
-        Ok(Self::garmin_activity_builder(main)?
-            .laps_opt(laps)
-            .splits_opt(splits)
-            .build())
+    fn serves_activity_streams(&self) -> bool {
+        true
     }
 
-    #[instrument(skip(self), fields(provider = "garmin", api_call = "get_stats"))]
+    /// The pushed summary with the samples its details carried. An activity
+    /// whose details have not arrived is served without samples, which says
+    /// nothing about whether it recorded any.
+    async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        self.stores()?
+            .stored_activity_with_streams(self.name(), id, ACTIVITY)
+            .await
+    }
+
+    async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        self.stores()?
+            .stored_activity_streams(self.name(), id)
+            .await
+    }
+
+    /// Totals over the pushed activities Dravr holds. Garmin pushes from the
+    /// connection onward and serves no aggregate, so these cover what was
+    /// pushed, never a lifetime.
     async fn get_stats(&self) -> AppResult<Stats> {
-        // Source: https://github.com/cyberjunky/python-garminconnect
-        // Using aggregate stats endpoint which provides all-time totals
-        // Alternative endpoint /usersummary-service/usersummary/daily/{display_name}?calendarDate={date}
-        // provides daily summaries but requires display_name and specific date parameters
-        let stats: GarminStatsResponse = self
-            .api_request("usersummary-service/stats/aggregate")
-            .await?;
-
-        let total_activities = stats.activities_count.unwrap_or_else(|| {
-            debug!("Garmin API returned None for activities_count - defaulting to 0");
-            0
-        });
-
-        let total_distance = stats.distance.unwrap_or_else(|| {
-            debug!("Garmin API returned None for distance - defaulting to 0.0");
-            0.0
-        });
-
-        let total_duration = stats.duration.map_or_else(
-            || {
-                debug!("Garmin API returned None for duration - defaulting to 0");
-                0
-            },
-            utils::conversions::f64_to_u64,
-        );
-
-        let total_elevation_gain = stats.elevation_gain.unwrap_or_else(|| {
-            debug!("Garmin API returned None for elevation_gain - defaulting to 0.0");
-            0.0
-        });
-
+        let activities = self.cached()?.all().await?;
         Ok(Stats {
-            total_activities,
-            total_distance,
-            total_duration,
-            total_elevation_gain,
-            coverage: StatsCoverage::Lifetime,
+            total_activities: u64::try_from(activities.len()).unwrap_or(u64::MAX),
+            total_distance: activities
+                .iter()
+                .filter_map(Activity::distance_meters)
+                .sum(),
+            total_duration: activities.iter().map(Activity::duration_seconds).sum(),
+            total_elevation_gain: activities.iter().filter_map(Activity::elevation_gain).sum(),
+            coverage: StatsCoverage::recent(&activities),
             year_to_date: None,
         })
-    }
-}
-
-impl GarminProvider {
-    /// Fetch activities using single API call
-    async fn get_activities_single_page(
-        &self,
-        limit: usize,
-        offset: usize,
-    ) -> AppResult<Vec<Activity>> {
-        // Source: https://github.com/cyberjunky/python-garminconnect
-        // Endpoint: /activitylist-service/activities/search/activities?start={offset}&limit={limit}
-        let endpoint = format!(
-            "activitylist-service/activities/search/activities?start={offset}&limit={limit}"
-        );
-
-        info!("Single page request - endpoint: {}", endpoint);
-
-        let garmin_activities: Vec<GarminListRow> = self.api_request(&endpoint).await?;
-        info!(
-            "Received {} activities from single page",
-            garmin_activities.len()
-        );
-
-        let mut activities = Vec::new();
-        for activity in garmin_activities {
-            activities.push(Self::convert_garmin_list_row(activity)?);
-        }
-
-        Ok(activities)
-    }
-
-    /// Fetch activities using multiple API calls
-    /// Build the endpoint URL for a page of activities
-    fn build_activities_endpoint(offset: usize, limit: usize) -> String {
-        format!("activitylist-service/activities/search/activities?start={offset}&limit={limit}")
-    }
-
-    /// Convert and add Garmin activities to the collection
-    fn add_converted_activities(
-        activities: &mut Vec<Activity>,
-        garmin_activities: Vec<GarminListRow>,
-        limit: usize,
-    ) -> AppResult<()> {
-        for activity in garmin_activities {
-            if activities.len() >= limit {
-                break;
-            }
-            activities.push(Self::convert_garmin_list_row(activity)?);
-        }
-        Ok(())
-    }
-
-    /// Check if pagination should stop based on current state
-    fn should_stop_pagination(
-        activities_count: usize,
-        page_index: usize,
-        activities_per_page: usize,
-        total_limit: usize,
-    ) -> bool {
-        if activities_count >= total_limit {
-            return true;
-        }
-
-        let expected_count = (page_index + 1) * activities_per_page.min(total_limit);
-        if activities_count < expected_count {
-            info!(
-                "Reached end of activities - got {} total, breaking early",
-                activities_count
-            );
-            return true;
-        }
-
-        false
-    }
-
-    /// Fetch a single page of activities and add to collection
-    async fn fetch_activities_page(
-        &self,
-        all_activities: &mut Vec<Activity>,
-        page_index: usize,
-        pages_needed: usize,
-        start_offset: usize,
-        activities_per_page: usize,
-        total_limit: usize,
-    ) -> AppResult<bool> {
-        let remaining = total_limit - all_activities.len();
-        let current_page_limit = remaining.min(activities_per_page);
-        let current_offset = start_offset + (page_index * activities_per_page);
-
-        let endpoint = Self::build_activities_endpoint(current_offset, current_page_limit);
-        info!(
-            "Fetching page {} of {} - endpoint: {}",
-            page_index + 1,
-            pages_needed,
-            endpoint
-        );
-
-        let garmin_activities = self.api_request::<Vec<GarminListRow>>(&endpoint).await?;
-
-        info!(
-            "Page {} returned {} activities",
-            page_index + 1,
-            garmin_activities.len()
-        );
-
-        Self::add_converted_activities(all_activities, garmin_activities, total_limit)?;
-
-        Ok(Self::should_stop_pagination(
-            all_activities.len(),
-            page_index,
-            activities_per_page,
-            total_limit,
-        ))
-    }
-
-    async fn get_activities_multi_page(
-        &self,
-        total_limit: usize,
-        start_offset: usize,
-    ) -> AppResult<Vec<Activity>> {
-        let mut all_activities = Vec::with_capacity(total_limit);
-        let activities_per_page = api_provider_limits::garmin::MAX_ACTIVITIES_PER_REQUEST;
-        // Clamped to the ceiling every provider shares; previously this walk was
-        // bounded only by whatever limit the caller passed in.
-        let pages_needed = pages_for(total_limit, activities_per_page);
-
-        info!(
-            "Multi-page request - total_limit: {}, pages_needed: {}, start_offset: {}",
-            total_limit, pages_needed, start_offset
-        );
-
-        for page_index in 0..pages_needed {
-            let should_stop = self
-                .fetch_activities_page(
-                    &mut all_activities,
-                    page_index,
-                    pages_needed,
-                    start_offset,
-                    activities_per_page,
-                    total_limit,
-                )
-                .await?;
-
-            if should_stop {
-                break;
-            }
-        }
-
-        info!(
-            "Multi-page fetch completed - requested: {}, retrieved: {}",
-            total_limit,
-            all_activities.len()
-        );
-
-        Ok(all_activities)
     }
 }
 
@@ -892,156 +427,346 @@ impl ProviderFactory for GarminProviderFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use crate::models::{ActivityBuilder, SportType, TenantId};
+    use crate::spi::{GarminDescriptor, ProviderCapabilities, ProviderDescriptor};
+    use chrono::{DateTime, Duration};
+    use pierre_database::repositories::{ActivityStreamsWrite, StreamOrigin};
+    use pierre_test_support::db::create_test_db;
+    use pierre_test_support::server::create_test_user;
+    use std::sync::Arc;
+    use uuid::Uuid;
 
-    /// A list row in the flat shape Garmin Connect serves and dravr-sciotte's
-    /// `providers/garmin.toml` list extractor reads from live traffic: the type
-    /// under `activityType`, the metrics at the top level, `startTimeGMT` in
-    /// Garmin's SQL-style spelling, and the average power as `avgPower`.
-    /// `maxPower` and `normPower` are the names public Garmin Connect clients
-    /// read, not ones live traffic was seen to carry (LIMITATION on
-    /// `GarminSummary::normalized_power`).
-    fn list_row() -> serde_json::Value {
-        json!({
-            "activityId": 20_260_427_001_u64,
-            "activityName": "Tempo ride",
-            "activityType": { "typeKey": "cycling", "parentTypeKey": "cycling" },
-            "startTimeGMT": "2026-04-27 14:25:46.0",
-            "startTimeLocal": "2026-04-27 10:25:46",
-            "distance": 42_000.0,
-            "duration": 5_400.0,
-            "elevationGain": 310.0,
-            "averageSpeed": 7.8,
-            "maxSpeed": 14.2,
-            "averageHR": 148.0,
-            "maxHR": 176.0,
-            "calories": 980.0,
-            "averageBikingCadenceInRevPerMinute": 88.0,
-            "avgPower": 214.0,
-            "maxPower": 640.0,
-            "normPower": 231.0
-        })
+    /// One athlete's stores, with a Garmin ride and run pushed, a Strava ride
+    /// of their own, and another athlete's Garmin ride beside them.
+    struct Seeded {
+        stores: OwnerStores,
+        ride_start: DateTime<Utc>,
     }
 
-    #[test]
-    fn a_flat_list_row_converts_with_its_type_start_and_power() {
-        let row: GarminListRow = serde_json::from_value(list_row()).unwrap();
-        let activity = GarminProvider::convert_garmin_list_row(row).unwrap();
-
-        assert_eq!(activity.id(), "20260427001");
-        assert_eq!(activity.name(), "Tempo ride");
-        assert_eq!(*activity.sport_type(), SportType::Ride);
-        assert_eq!(
-            activity.start_date().to_rfc3339(),
-            "2026-04-27T14:25:46+00:00"
-        );
-        assert_eq!(activity.duration_seconds(), 5_400);
-        assert_eq!(activity.average_heart_rate(), Some(148));
-        assert_eq!(activity.average_cadence(), Some(88));
-        assert_eq!(activity.average_power(), Some(214));
-        assert_eq!(activity.max_power(), Some(640));
-        assert_eq!(activity.normalized_power(), Some(231));
+    fn activity(id: &str, sport: SportType, start: DateTime<Utc>, provider: &str) -> Activity {
+        ActivityBuilder::new(id, "Pushed", sport, start, 3_600, provider)
+            .source(provider)
+            .distance_meters(30_000.0)
+            .elevation_gain(250.0)
+            .build()
     }
 
-    #[test]
-    fn a_list_row_without_a_power_meter_states_no_power() {
-        let mut value = list_row();
-        let row_map = value.as_object_mut().unwrap();
-        for key in ["avgPower", "maxPower", "normPower"] {
-            row_map.remove(key);
+    async fn seeded() -> Seeded {
+        let db = create_test_db().await.expect("test db");
+        let repos = db.repositories();
+        let tenant = TenantId::from_uuid(Uuid::new_v4());
+        let athlete = create_test_user(&format!("{}@garmin.test", Uuid::new_v4()), None);
+        let stranger = create_test_user(&format!("{}@garmin.test", Uuid::new_v4()), None);
+        repos.users.create(&athlete).await.expect("athlete");
+        repos.users.create(&stranger).await.expect("stranger");
+
+        let ride_start = Utc::now() - Duration::days(2);
+        let run_start = Utc::now() - Duration::days(1);
+        repos
+            .activity_cache
+            .upsert_activities(
+                athlete.id,
+                &tenant,
+                oauth_providers::GARMIN,
+                &[
+                    activity("1001", SportType::Ride, ride_start, oauth_providers::GARMIN),
+                    activity("1002", SportType::Run, run_start, oauth_providers::GARMIN),
+                ],
+            )
+            .await
+            .expect("seed garmin");
+        repos
+            .activity_cache
+            .upsert_activities(
+                athlete.id,
+                &tenant,
+                oauth_providers::STRAVA,
+                &[activity(
+                    "9",
+                    SportType::Ride,
+                    run_start,
+                    oauth_providers::STRAVA,
+                )],
+            )
+            .await
+            .expect("seed strava");
+        repos
+            .activity_cache
+            .upsert_activities(
+                stranger.id,
+                &tenant,
+                oauth_providers::GARMIN,
+                &[activity(
+                    "2001",
+                    SportType::Ride,
+                    ride_start,
+                    oauth_providers::GARMIN,
+                )],
+            )
+            .await
+            .expect("seed stranger");
+
+        Seeded {
+            stores: OwnerStores {
+                activity_cache: Arc::clone(&repos.activity_cache),
+                activity_streams: Arc::clone(&repos.activity_streams),
+                user_id: athlete.id,
+                tenant_id: tenant,
+            },
+            ride_start,
         }
-        let row: GarminListRow = serde_json::from_value(value).unwrap();
-        let activity = GarminProvider::convert_garmin_list_row(row).unwrap();
+    }
 
-        assert_eq!(activity.average_power(), None);
-        assert_eq!(activity.max_power(), None);
-        assert_eq!(activity.normalized_power(), None);
+    fn bound(stores: OwnerStores) -> GarminProvider {
+        let provider = GarminProvider::new();
+        provider.bind_owner_stores(stores);
+        provider
     }
 
     #[test]
-    fn a_list_row_falls_back_to_the_parent_type_and_the_averagepower_spelling() {
-        let mut value = list_row();
-        value["activityType"] = json!({ "parentTypeKey": "running" });
-        value["avgPower"] = serde_json::Value::Null;
-        value["averagePower"] = json!(230.0);
-        let row: GarminListRow = serde_json::from_value(value).unwrap();
-        let activity = GarminProvider::convert_garmin_list_row(row).unwrap();
-
-        assert_eq!(*activity.sport_type(), SportType::Run);
-        assert_eq!(activity.average_power(), Some(230));
-    }
-
-    #[test]
-    fn a_list_row_without_a_start_time_is_refused_naming_the_key() {
-        let mut value = list_row();
-        value.as_object_mut().unwrap().remove("startTimeGMT");
-        let row: GarminListRow = serde_json::from_value(value).unwrap();
-        let err = GarminProvider::convert_garmin_list_row(row).unwrap_err();
-        assert!(err.to_string().contains("startTimeGMT"), "{err}");
-    }
-
-    /// The detail response nests the type as `activityTypeDTO` and the metrics
-    /// under `summaryDTO`, where `startTimeGMT` is spelled with a capital GMT:
-    /// `rename_all = "camelCase"` alone expects `startTimeGmt`, which Garmin
-    /// never sends, so every detail conversion used to fail.
-    ///
-    /// `normalizedPower` is the key public Garmin Connect clients read; no live
-    /// capture confirms it (see the LIMITATION on the field).
-    fn detail() -> serde_json::Value {
-        json!({
-            "activityId": 20_260_427_001_u64,
-            "activityName": "Tempo ride",
-            "activityTypeDTO": { "typeKey": "cycling" },
-            "summaryDTO": {
-                "startTimeGMT": "2026-04-27 14:25:46.0",
-                "duration": 5_400.0,
-                "averageHR": 148.0,
-                "averagePower": 214.0,
-                "maxPower": 640.0,
-                "normalizedPower": 231.0
-            }
-        })
-    }
-
-    #[test]
-    fn a_detail_response_reads_its_start_time_and_keeps_every_power_figure() {
-        let response: GarminActivityResponse = serde_json::from_value(detail()).unwrap();
-        let activity = GarminProvider::convert_garmin_activity(response).unwrap();
-
-        assert_eq!(
-            activity.start_date().to_rfc3339(),
-            "2026-04-27T14:25:46+00:00"
+    fn the_garmin_descriptor_is_push_only() {
+        assert!(
+            GarminDescriptor.capabilities().is_push_only(),
+            "bug: the Garmin descriptor must declare PUSH_ONLY"
         );
-        assert_eq!(activity.average_power(), Some(214));
-        assert_eq!(activity.max_power(), Some(640));
-        assert_eq!(activity.normalized_power(), Some(231));
+        assert!(
+            !ProviderCapabilities::full_health().is_push_only(),
+            "bug: full_health must not imply PUSH_ONLY"
+        );
+        assert!(
+            !ProviderCapabilities::activity_only().is_push_only(),
+            "bug: activity_only must not imply PUSH_ONLY"
+        );
     }
 
-    #[test]
-    fn a_detail_without_normalized_power_leaves_it_unset() {
-        let mut value = detail();
-        value["summaryDTO"]
-            .as_object_mut()
-            .unwrap()
-            .remove("normalizedPower");
-        let response: GarminActivityResponse = serde_json::from_value(value).unwrap();
-        let activity = GarminProvider::convert_garmin_activity(response).unwrap();
-
-        assert_eq!(activity.normalized_power(), None);
-        assert_eq!(activity.average_power(), Some(214));
+    #[tokio::test]
+    async fn an_unbound_provider_refuses_every_data_read() {
+        let provider = GarminProvider::new();
+        for result in [
+            provider.get_activities(Some(10), None).await.map(|_| ()),
+            provider.get_activity("1001").await.map(|_| ()),
+            provider.get_stats().await.map(|_| ()),
+            provider.get_activity_streams("1001").await.map(|_| ()),
+        ] {
+            let err = result.expect_err("no stores, no read");
+            assert!(err.to_string().contains("pushed"), "{err}");
+        }
     }
 
-    /// Both conversion paths stamp the source the Garmin attribution keys on,
-    /// so a direct read shows "Garmin" like a relayed one (carnet#1154).
-    #[test]
-    fn every_converted_activity_carries_the_garmin_attribution() {
-        let row: GarminListRow = serde_json::from_value(list_row()).unwrap();
-        let listed = GarminProvider::convert_garmin_list_row(row).unwrap();
-        let response: GarminActivityResponse = serde_json::from_value(detail()).unwrap();
-        let detailed = GarminProvider::convert_garmin_activity(response).unwrap();
+    #[tokio::test]
+    async fn the_list_is_the_athletes_own_pushed_garmin_activities_newest_first() {
+        let seeded = seeded().await;
+        let provider = bound(seeded.stores);
 
-        for activity in [listed, detailed] {
-            assert_eq!(activity.source(), Some(oauth_providers::GARMIN));
+        let listed = provider.get_activities(None, None).await.expect("list");
+        let ids: Vec<&str> = listed.iter().map(Activity::id).collect();
+        assert_eq!(ids, ["1002", "1001"], "own Garmin rows only, newest first");
+        assert!(
+            listed
+                .iter()
+                .all(|a| a.source() == Some(oauth_providers::GARMIN)),
+            "bug: every listed row must carry the Garmin source"
+        );
+
+        let older = provider
+            .get_activities_with_params(&ActivityQueryParams::with_time_range(
+                Some((seeded.ride_start + Duration::hours(1)).timestamp()),
+                None,
+            ))
+            .await
+            .expect("bounded list");
+        assert_eq!(
+            older.iter().map(Activity::id).collect::<Vec<_>>(),
+            ["1001"],
+            "bug: the time window must bound the list"
+        );
+
+        let page = provider
+            .get_activities_cursor(&PaginationParams::forward(None, 1))
+            .await
+            .expect("cursor page");
+        assert_eq!(page.items.len(), 1, "bug: the page must honour its size");
+        assert!(page.has_more, "bug: a second row must be announced");
+    }
+
+    #[tokio::test]
+    async fn one_activity_is_read_from_the_cache_and_an_unknown_id_is_not_found() {
+        let provider = bound(seeded().await.stores);
+
+        let ride = provider.get_activity("1001").await.expect("cached ride");
+        assert_eq!(*ride.sport_type(), SportType::Ride, "bug: the cached sport");
+        let detailed = provider
+            .get_activity_detailed("1001")
+            .await
+            .expect("detail");
+        assert_eq!(
+            detailed.id(),
+            "1001",
+            "bug: the detail read is the cached row"
+        );
+
+        let err = provider
+            .get_activity("2001")
+            .await
+            .expect_err("a stranger's");
+        assert!(err.to_string().contains("2001"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn stored_samples_are_served_with_the_activity_and_absent_ones_are_none() {
+        let seeded = seeded().await;
+        let stores = seeded.stores.clone();
+        let samples = TimeSeriesData {
+            timestamps: vec![0, 1, 2],
+            heart_rate: Some(vec![Some(120), None, Some(124)]),
+            power: Some(vec![Some(210), Some(215), Some(220)]),
+            cadence: None,
+            speed: None,
+            altitude: None,
+            temperature: None,
+            gps_coordinates: Some(vec![(45.5, -73.6), (45.5001, -73.6), (45.5002, -73.6)]),
+            distance: None,
+        };
+        stores
+            .activity_streams
+            .upsert_activity_streams(&ActivityStreamsWrite {
+                tenant_id: &stores.tenant_id,
+                user_id: stores.user_id,
+                provider: oauth_providers::GARMIN,
+                activity_id: "1001",
+                origin: StreamOrigin::Push,
+                source_ref: None,
+                streams: &samples,
+                synced_at: Utc::now(),
+            })
+            .await
+            .expect("store samples");
+        let provider = bound(seeded.stores);
+
+        assert!(
+            provider.serves_activity_streams(),
+            "bug: pushed samples are a sample source"
+        );
+        let ride = provider
+            .get_activity_with_streams("1001")
+            .await
+            .expect("ride with samples");
+        assert_eq!(
+            ride.time_series_data(),
+            Some(&samples),
+            "bug: the stored samples ride with the activity"
+        );
+        assert_eq!(ride.distance_meters(), Some(30_000.0), "the summary stands");
+        assert_eq!(
+            provider
+                .get_activity_streams("1001")
+                .await
+                .expect("samples"),
+            Some(samples),
+            "bug: the stored samples are read back"
+        );
+
+        let run = provider
+            .get_activity_with_streams("1002")
+            .await
+            .expect("run without samples");
+        assert!(
+            run.time_series_data().is_none(),
+            "bug: no stored samples, none served"
+        );
+        assert_eq!(
+            provider.get_activity_streams("1002").await.expect("read"),
+            None,
+            "bug: no stored samples, none served"
+        );
+    }
+
+    /// The store-backed read is keyed by the provider slug the activity is
+    /// read under: samples another provider key holds for the same id are
+    /// never served as Garmin's.
+    #[tokio::test]
+    async fn samples_stored_under_another_provider_key_are_not_garmins() {
+        let seeded = seeded().await;
+        let stores = seeded.stores.clone();
+        let samples = TimeSeriesData {
+            timestamps: vec![0, 1],
+            heart_rate: Some(vec![Some(120), Some(121)]),
+            power: None,
+            cadence: None,
+            speed: None,
+            altitude: None,
+            temperature: None,
+            gps_coordinates: None,
+            distance: None,
+        };
+        let written = stores
+            .activity_streams
+            .upsert_activity_streams(&ActivityStreamsWrite {
+                tenant_id: &stores.tenant_id,
+                user_id: stores.user_id,
+                provider: oauth_providers::UPLOAD,
+                activity_id: "1001",
+                origin: StreamOrigin::Push,
+                source_ref: Some("sha"),
+                streams: &samples,
+                synced_at: Utc::now(),
+            })
+            .await
+            .expect("store samples");
+        assert!(written, "bug: the first write of a row lands");
+        let provider = bound(seeded.stores);
+        assert_eq!(
+            provider.get_activity_streams("1001").await.expect("read"),
+            None,
+            "bug: another provider key's samples are not Garmin's"
+        );
+        assert_eq!(
+            stores
+                .stored_activity_streams(oauth_providers::UPLOAD, "1001")
+                .await
+                .expect("read"),
+            Some(samples),
+            "bug: the upload's samples stay under its own key"
+        );
+    }
+
+    #[tokio::test]
+    async fn stats_sum_the_pushed_activities_and_say_so() {
+        let seeded = seeded().await;
+        let provider = bound(seeded.stores);
+        let stats = provider.get_stats().await.expect("stats");
+
+        assert_eq!(stats.total_activities, 2, "bug: both pushed activities");
+        assert!(
+            (stats.total_distance - 60_000.0).abs() < f64::EPSILON,
+            "bug: distance sum {}",
+            stats.total_distance
+        );
+        assert_eq!(stats.total_duration, 7_200, "bug: duration sum");
+        assert!(
+            (stats.total_elevation_gain - 500.0).abs() < f64::EPSILON,
+            "bug: elevation sum {}",
+            stats.total_elevation_gain
+        );
+        match stats.coverage {
+            StatsCoverage::RecentActivities { count, oldest } => {
+                assert_eq!(count, 2, "bug: coverage counts the pushed rows");
+                assert_eq!(
+                    oldest.map(|at| at.timestamp()),
+                    Some(seeded.ride_start.timestamp()),
+                    "bug: coverage starts at the oldest pushed row"
+                );
+            }
+            other => panic!("pushed totals are not a lifetime: {other:?}"),
+        }
+    }
+
+    /// Every activity this provider serves carries the source the Garmin
+    /// attribution keys on (carnet#1154), as the ingest writes it.
+    #[tokio::test]
+    async fn every_served_activity_carries_the_garmin_attribution() {
+        let provider = bound(seeded().await.stores);
+        for activity in provider.get_activities(None, None).await.expect("list") {
             assert_eq!(
                 oauth_providers::activity_attribution(activity.source(), activity.device_name())
                     .as_deref(),

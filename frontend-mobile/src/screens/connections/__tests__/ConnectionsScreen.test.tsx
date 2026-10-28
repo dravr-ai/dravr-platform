@@ -75,6 +75,21 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
   };
 }
 
+/** The user-facing Garmin row, which follows the server's recommendation like Strava's (carnet#1155). */
+function garminCard(recommended_backend: 'oauth' | 'mirror') {
+  return {
+    provider: 'sciotte_garmin',
+    display_name: 'Garmin',
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities', 'sleep'],
+    recommended_backend,
+    seats_left: recommended_backend === 'oauth' ? 999 : 0,
+    consent_required: false,
+  };
+}
+
 /** The screen's consent action is a React Query mutation, so it renders under a client. */
 function queryWrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -134,6 +149,27 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     fireEvent.press(connect);
 
     expect(await screen.findByText('sciotte-modal:strava')).toBeTruthy();
+    expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+
+  it('launches Garmin OAuth (not the credential login) while Garmin seats remain', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    fireEvent.press(await screen.findByText('Connect'));
+
+    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
+    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
+  });
+
+  it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    fireEvent.press(await screen.findByText('Connect'));
+
+    expect(await screen.findByText(/sciotte-modal:garmin/)).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
   });
 

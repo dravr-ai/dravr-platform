@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
+use pierre_core::constants::provider_seats::{
+    GARMIN_SEAT_CAPACITY_DEFAULT, STRAVA_OAUTH_SEAT_CAP_DEFAULT,
+};
 use pierre_core::constants::{oauth2_client_retention, oauth_providers};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::gcp_token::METADATA_TOKEN_URL;
@@ -45,6 +47,10 @@ pub struct OAuthConfig {
     /// (`STRAVA_OAUTH_SEAT_CAP`); `None` is the Standard Tier default
     /// ([`Self::strava_seat_cap`]).
     pub strava_seat_cap: Option<u32>,
+    /// User capacity of the server's own Garmin client
+    /// (`GARMIN_SEAT_CAPACITY`); `None` is the Starter tier default
+    /// ([`Self::garmin_seat_cap`]).
+    pub garmin_seat_cap: Option<u32>,
     /// Endpoint overrides per provider (`PIERRE_<P>_AUTH_URL`, `_TOKEN_URL`,
     /// `_API_BASE_URL`, `_REVOKE_URL`, `_SCOPES`), applied over each
     /// provider's defaults when the provider registry is built.
@@ -86,6 +92,7 @@ impl OAuthConfig {
             intervals_icu: provider_app_from_env(oauth_providers::INTERVALS_ICU),
             wahoo: provider_app_from_env(oauth_providers::WAHOO),
             strava_seat_cap: strava_seat_cap_from_env(),
+            garmin_seat_cap: garmin_seat_cap_from_env(),
             endpoints: ENDPOINT_PROVIDERS
                 .iter()
                 .filter_map(|provider| {
@@ -132,6 +139,19 @@ impl OAuthConfig {
         self.strava_seat_cap
             .filter(|&cap| cap > 0)
             .unwrap_or(STRAVA_OAUTH_SEAT_CAP_DEFAULT)
+    }
+
+    /// User capacity of the server's own Garmin client.
+    ///
+    /// Garmin's Developer Program caps how many users one client id may
+    /// connect (1,000 on the Starter tier). This is the operator-configured
+    /// cap, else [`GARMIN_SEAT_CAPACITY_DEFAULT`]. A zero cap reads as the
+    /// default, as Strava's does.
+    #[must_use]
+    pub fn garmin_seat_cap(&self) -> u32 {
+        self.garmin_seat_cap
+            .filter(|&cap| cap > 0)
+            .unwrap_or(GARMIN_SEAT_CAPACITY_DEFAULT)
     }
 }
 
@@ -827,6 +847,21 @@ pub fn default_provider() -> Option<String> {
 /// ```
 fn strava_seat_cap_from_env() -> Option<u32> {
     env::var("STRAVA_OAUTH_SEAT_CAP")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+}
+
+/// The operator-configured user capacity of the server's own Garmin client
+/// (`GARMIN_SEAT_CAPACITY`), `None` when unset or not a number;
+/// [`OAuthConfig::garmin_seat_cap`] resolves it.
+///
+/// # Examples
+///
+/// ```bash
+/// export GARMIN_SEAT_CAPACITY=1000
+/// ```
+fn garmin_seat_cap_from_env() -> Option<u32> {
+    env::var("GARMIN_SEAT_CAPACITY")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
 }

@@ -51,7 +51,7 @@ use pierre_llm::health::{LlmHealthSnapshot, LlmHealthState, LlmHealthStatus};
 #[cfg(feature = "telemetry")]
 use pierre_middleware::telemetry_middleware;
 use pierre_middleware::{
-    redaction_middleware, request_budget_middleware, request_id_middleware,
+    redacted_path, redaction_middleware, request_budget_middleware, request_id_middleware,
     response_failure_log_middleware, setup_cors, RedactedRequestLine, UsageLedgers,
 };
 #[cfg(feature = "client-admin-api")]
@@ -73,7 +73,7 @@ fn http_request_span(request: &Request<Body>) -> Span {
     let uri = request
         .extensions()
         .get::<RedactedRequestLine>()
-        .map_or_else(|| request.uri().path().to_owned(), ToString::to_string);
+        .map_or_else(|| redacted_path(request.uri().path()), ToString::to_string);
     info_span!(
         "request",
         method = %request.method(),

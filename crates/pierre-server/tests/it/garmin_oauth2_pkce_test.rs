@@ -36,8 +36,10 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use pierre_auth::garmin_seats::garmin_seat_summary;
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::backend_resolver::{self, BackendKind};
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -234,6 +236,49 @@ async fn garmin_connect_is_oauth2_pkce_and_records_the_garmin_user_id() {
         Some(GARMIN_USER_ID),
         "the Garmin user id is stored with the token"
     );
+}
+
+/// The connect lands as a Garmin connection: once the callback stored the
+/// token, the athlete's Garmin reads resolve to the Garmin API backend, the
+/// tool surface reports it as the active OAuth backend, and the token holds
+/// one of the client's seats (carnet#1155).
+#[tokio::test]
+async fn a_completed_garmin_connect_routes_reads_to_the_api_and_takes_a_seat() {
+    let (base, _mock) = mock_garmin().await;
+    let resources = context_pointed_at(&base).await;
+    let (user_id, _user, tenant_id) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        "garmin-pkce-routed@example.com",
+        "starter",
+    )
+    .await
+    .unwrap();
+    let service = OAuthService::new(resources.data(), resources.common.config.clone());
+    let authorization = service
+        .get_auth_url(user_id, tenant_id, "garmin", AuthUrlOptions::default())
+        .await
+        .unwrap();
+    service
+        .handle_callback("garmin-auth-code", &authorization.state, "garmin")
+        .await
+        .expect("the exchange succeeds against the mock token endpoint");
+
+    let auth = resources.common.repos.auth_repos();
+    assert_eq!(
+        backend_resolver::resolve_backend(&auth, user_id, Some(tenant_id), "garmin").await,
+        "garmin"
+    );
+    let status = backend_resolver::coalesced_status(&auth, user_id, tenant_id, "garmin").await;
+    assert!(status.connected);
+    assert_eq!(status.backend_kind, BackendKind::Oauth);
+
+    let seats = garmin_seat_summary(
+        resources.common.repos.provider_connections.as_ref(),
+        &resources.common.config.oauth,
+    )
+    .await
+    .unwrap();
+    assert_eq!(seats.used, 1, "the new grant holds one seat");
 }
 
 /// Omitting an empty scope leaves the providers that request scopes alone:

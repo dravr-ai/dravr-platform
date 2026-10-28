@@ -94,6 +94,33 @@ resource "google_secret_manager_secret_version" "garmin_client_secret_placeholde
   }
 }
 
+# Garmin Connect Developer Program OAuth app (carnet#1155), the pair with
+# garmin_client_secret above. While the version is the placeholder, the server
+# reads it as unset (`credential_env`, crates/pierre-auth/src/config/oauth.rs)
+# and Garmin connects through the credential connection only. When the real
+# value lands (`gcloud secrets versions add`, then a new Cloud Run revision),
+# Garmin connects through OAuth first, like Strava. The app must register
+# https://app.dravr.ai/api/oauth/callback/garmin.
+resource "google_secret_manager_secret" "garmin_client_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-garmin-client-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "garmin_client_id_placeholder" {
+  secret      = google_secret_manager_secret.garmin_client_id.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 resource "google_secret_manager_secret" "openweather_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-openweather-api-key"
@@ -618,6 +645,33 @@ resource "google_secret_manager_secret" "wahoo_webhook_token" {
 resource "google_secret_manager_secret_version" "wahoo_webhook_token" {
   secret      = google_secret_manager_secret.wahoo_webhook_token.id
   secret_data = random_password.wahoo_webhook_token.result
+}
+
+# GARMIN_WEBHOOK_TOKEN — the path token in the push endpoint URLs registered in
+# Garmin's developer portal (carnet#1155). Garmin does not sign its pushes, so
+# the server refuses any push whose path token is not this one. It is ours to
+# choose, so it is generated here and real from the first apply (the server's
+# env references it at "latest"); copy it into the portal's endpoint URLs with
+# `gcloud secrets versions access latest --secret=<id>`.
+resource "random_password" "garmin_webhook_token" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "garmin_webhook_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-garmin-webhook-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "garmin_webhook_token" {
+  secret      = google_secret_manager_secret.garmin_webhook_token.id
+  secret_data = random_password.garmin_webhook_token.result
 }
 
 # STRAVA_WEBHOOK_SUBSCRIPTION_ID — the id Strava returns to `pierre-cli

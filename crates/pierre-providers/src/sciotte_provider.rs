@@ -512,15 +512,21 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
     })
 }
 
-/// Direct sciotte → cageux `SportType` conversion. Both enums share variant
-/// names (sciotte mirrors cageux's canonical set), so a 1:1 match is
-/// bulletproof; the previous round-trip via `display_name()` →
+/// Direct sciotte → cageux `SportType` conversion.
+///
+/// Both enums share variant names (sciotte mirrors cageux's canonical set),
+/// so a 1:1 match is bulletproof; the previous round-trip via `display_name()` →
 /// `from_internal_string()` was lossy because `display_name` returns
 /// human-readable Title-Case-with-spaces ("Cross-Country Skiing") while
 /// `from_internal_string` expects the `snake_case` serde form
 /// ("`cross_country_skiing`"), so every non-trivial variant fell through to
 /// `Other(<display_name>)` and broke filter / serialization.
-pub(crate) fn convert_sport_type(s: &SciotteSportType) -> SportType {
+///
+/// `pub` because it is the one Garmin type-key table: the Garmin API's push
+/// ingest reads Garmin's activity types through it too, so one activity
+/// carries one sport whichever connection captured it.
+#[must_use]
+pub fn convert_sport_type(s: &SciotteSportType) -> SportType {
     match s {
         SciotteSportType::Run => SportType::Run,
         SciotteSportType::Ride => SportType::Ride,

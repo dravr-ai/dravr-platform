@@ -289,6 +289,9 @@ pierre-chat-pipeline = { version = "0.3.0", path = "../pierre-chat-pipeline", fe
 anyhow = "1.0"
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["sse"] }
+# The Garmin API end-to-end suite connects through the dev fixture's Garmin
+# stand-in and receives its pushes, the same code the local stack runs.
+pierre-dev-fixture = { version = "0.3.0", path = "../pierre-dev-fixture" }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
 jsonschema = { version = "0.46.10", default-features = false }

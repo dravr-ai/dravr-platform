@@ -1,0 +1,176 @@
+{
+  "activityDetails": [
+    {
+      "userId": "$USER",
+      "summaryId": "81000000001-detail",
+      "activityId": 81000000001,
+      "summary": {
+        "summaryId": "81000000001",
+        "activityId": 81000000001,
+        "activityName": "Dev fixture ride",
+        "activityType": "ROAD_BIKING",
+        "startTimeInSeconds": "$T-61200",
+        "startTimeOffsetInSeconds": -14400,
+        "durationInSeconds": 3600,
+        "distanceInMeters": 30200.0,
+        "averageHeartRateInBeatsPerMinute": 142,
+        "maxHeartRateInBeatsPerMinute": 171,
+        "deviceName": "Edge 1040"
+      },
+      "samples": [
+        {
+          "startTimeInSeconds": "$T-61200",
+          "latitudeInDegree": 45.5017,
+          "longitudeInDegree": -73.5673,
+          "elevationInMeters": 31.0,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 118,
+          "speedMetersPerSecond": 6.0,
+          "totalDistanceInMeters": 0.0,
+          "powerInWatts": 180,
+          "bikeCadenceInRPM": 82
+        },
+        {
+          "startTimeInSeconds": "$T-61195",
+          "latitudeInDegree": 45.502,
+          "longitudeInDegree": -73.5669,
+          "elevationInMeters": 31.6,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 121,
+          "speedMetersPerSecond": 6.25,
+          "totalDistanceInMeters": 32.5,
+          "powerInWatts": 186,
+          "bikeCadenceInRPM": 83
+        },
+        {
+          "startTimeInSeconds": "$T-61190",
+          "latitudeInDegree": 45.5023,
+          "longitudeInDegree": -73.5665,
+          "elevationInMeters": 32.2,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 124,
+          "speedMetersPerSecond": 6.5,
+          "totalDistanceInMeters": 65.0,
+          "powerInWatts": 192,
+          "bikeCadenceInRPM": 84
+        },
+        {
+          "startTimeInSeconds": "$T-61185",
+          "latitudeInDegree": 45.5026,
+          "longitudeInDegree": -73.5661,
+          "elevationInMeters": 32.8,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 127,
+          "speedMetersPerSecond": 6.75,
+          "totalDistanceInMeters": 97.5,
+          "powerInWatts": 198,
+          "bikeCadenceInRPM": 85
+        },
+        {
+          "startTimeInSeconds": "$T-61180",
+          "latitudeInDegree": 45.5029,
+          "longitudeInDegree": -73.5657,
+          "elevationInMeters": 33.4,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 130,
+          "speedMetersPerSecond": 7.0,
+          "totalDistanceInMeters": 130.0,
+          "powerInWatts": 204,
+          "bikeCadenceInRPM": 86
+        },
+        {
+          "startTimeInSeconds": "$T-61175",
+          "latitudeInDegree": 45.5032,
+          "longitudeInDegree": -73.5653,
+          "elevationInMeters": 34.0,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 133,
+          "speedMetersPerSecond": 7.25,
+          "totalDistanceInMeters": 162.5,
+          "powerInWatts": 210,
+          "bikeCadenceInRPM": 87
+        },
+        {
+          "startTimeInSeconds": "$T-61170",
+          "latitudeInDegree": 45.5035,
+          "longitudeInDegree": -73.5649,
+          "elevationInMeters": 34.6,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 136,
+          "speedMetersPerSecond": 7.5,
+          "totalDistanceInMeters": 195.0,
+          "powerInWatts": 216,
+          "bikeCadenceInRPM": 88
+        },
+        {
+          "startTimeInSeconds": "$T-61165",
+          "latitudeInDegree": 45.5038,
+          "longitudeInDegree": -73.5645,
+          "elevationInMeters": 35.2,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 139,
+          "speedMetersPerSecond": 7.75,
+          "totalDistanceInMeters": 227.5,
+          "powerInWatts": 222,
+          "bikeCadenceInRPM": 89
+        },
+        {
+          "startTimeInSeconds": "$T-61160",
+          "latitudeInDegree": 45.5041,
+          "longitudeInDegree": -73.5641,
+          "elevationInMeters": 35.8,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 142,
+          "speedMetersPerSecond": 8.0,
+          "totalDistanceInMeters": 260.0,
+          "powerInWatts": 228,
+          "bikeCadenceInRPM": 90
+        },
+        {
+          "startTimeInSeconds": "$T-61155",
+          "latitudeInDegree": 45.5044,
+          "longitudeInDegree": -73.5637,
+          "elevationInMeters": 36.4,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 145,
+          "speedMetersPerSecond": 8.25,
+          "totalDistanceInMeters": 292.5,
+          "powerInWatts": 234,
+          "bikeCadenceInRPM": 91
+        },
+        {
+          "startTimeInSeconds": "$T-61150",
+          "latitudeInDegree": 45.5047,
+          "longitudeInDegree": -73.5633,
+          "elevationInMeters": 37.0,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 148,
+          "speedMetersPerSecond": 8.5,
+          "totalDistanceInMeters": 325.0,
+          "powerInWatts": 240,
+          "bikeCadenceInRPM": 92
+        },
+        {
+          "startTimeInSeconds": "$T-61145",
+          "latitudeInDegree": 45.505,
+          "longitudeInDegree": -73.5629,
+          "elevationInMeters": 37.6,
+          "airTemperatureCelcius": 14.0,
+          "heartRate": 151,
+          "speedMetersPerSecond": 8.75,
+          "totalDistanceInMeters": 357.5,
+          "powerInWatts": 246,
+          "bikeCadenceInRPM": 93
+        }
+      ],
+      "laps": [
+        {
+          "startTimeInSeconds": "$T-61200"
+        },
+        {
+          "startTimeInSeconds": "$T-59400"
+        }
+      ]
+    }
+  ]
+}

@@ -459,6 +459,26 @@ pub trait ProviderConnectionRepository: Send + Sync {
         provider: &str,
         role: ProviderAccountRole,
     ) -> AppResult<bool>;
+    /// Record the data-sharing permissions the provider last reported for the
+    /// connection (Garmin's `userPermissionsChange`), replacing any recorded
+    /// before. Returns whether a connection row was updated; `false` when the
+    /// user has no such connection.
+    async fn set_provider_grants(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        grants: &[String],
+    ) -> AppResult<bool>;
+    /// The data-sharing permissions the provider last reported for the
+    /// connection, or `None` when it reported none since the connection was
+    /// made (or there is no connection): read as every permission granted.
+    async fn provider_grants(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<Vec<String>>>;
     /// Get all provider connections for a user
     async fn get_for_user(
         &self,

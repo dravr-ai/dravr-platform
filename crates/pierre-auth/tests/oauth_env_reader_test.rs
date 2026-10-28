@@ -18,7 +18,9 @@
 use std::env;
 
 use pierre_auth::config::{OAuthConfig, ProviderEndpointOverride};
-use pierre_core::constants::provider_seats::STRAVA_OAUTH_SEAT_CAP_DEFAULT;
+use pierre_core::constants::provider_seats::{
+    GARMIN_SEAT_CAPACITY_DEFAULT, STRAVA_OAUTH_SEAT_CAP_DEFAULT,
+};
 use secrecy::ExposeSecret;
 
 #[test]
@@ -38,6 +40,7 @@ fn the_startup_reader_resolves_provider_settings() {
         "PIERRE_WHOOP_SCOPES",
         "WHOOP_SCOPES",
         "STRAVA_OAUTH_SEAT_CAP",
+        "GARMIN_SEAT_CAPACITY",
         "PIERRE_WHOOP_TOKEN_URL",
         "PIERRE_WHOOP_API_BASE_URL",
         "PIERRE_WHOOP_AUTH_URL",
@@ -137,9 +140,12 @@ fn the_startup_reader_resolves_provider_settings() {
         STRAVA_OAUTH_SEAT_CAP_DEFAULT
     );
 
+    assert_garmin_seat_cap_is_read(&server);
+
     for key in [
         "PIERRE_GARMIN_SCOPES",
         "STRAVA_OAUTH_SEAT_CAP",
+        "GARMIN_SEAT_CAPACITY",
         "PIERRE_WHOOP_TOKEN_URL",
         "PIERRE_WHOOP_SCOPES",
         "PIERRE_STRAVA_CLIENT_ID",
@@ -147,4 +153,22 @@ fn the_startup_reader_resolves_provider_settings() {
     ] {
         env::remove_var(key);
     }
+}
+
+/// The Garmin client's user cap: the Starter tier's 1,000 unless the operator
+/// sets one, and a zero reads as the default. `server` was read with
+/// `GARMIN_SEAT_CAPACITY` unset; called from the one test that owns the
+/// environment.
+fn assert_garmin_seat_cap_is_read(server: &OAuthConfig) {
+    assert_eq!(server.garmin_seat_cap, None);
+    assert_eq!(server.garmin_seat_cap(), GARMIN_SEAT_CAPACITY_DEFAULT);
+    assert_eq!(GARMIN_SEAT_CAPACITY_DEFAULT, 1_000);
+    env::set_var("GARMIN_SEAT_CAPACITY", "1500");
+    assert_eq!(OAuthConfig::from_env().garmin_seat_cap(), 1_500);
+    env::set_var("GARMIN_SEAT_CAPACITY", "0");
+    assert_eq!(
+        OAuthConfig::from_env().garmin_seat_cap(),
+        GARMIN_SEAT_CAPACITY_DEFAULT
+    );
+    env::remove_var("GARMIN_SEAT_CAPACITY");
 }

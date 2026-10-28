@@ -58,6 +58,9 @@ pub struct FitWorkout {
     pub sport: FitSport,
     /// Whether its samples carry a position.
     pub with_position: bool,
+    /// Seconds `[from, to)` whose samples recorded no fix: their position
+    /// fields hold FIT's invalid value, as a device that lost its fix writes.
+    pub fix_lost: Option<(u32, u32)>,
 }
 
 impl FitWorkout {
@@ -69,6 +72,7 @@ impl FitWorkout {
             seconds,
             sport: FitSport::Cycling,
             with_position: true,
+            fix_lost: None,
         }
     }
 
@@ -195,6 +199,9 @@ fn scaled_u16(value: f64, scale: f64, offset: f64) -> u16 {
     ((value + offset) * scale).round() as u16
 }
 
+/// FIT's invalid value for a `sint32` field: the field holds no reading.
+const INVALID_SINT32: i32 = 0x7FFF_FFFF;
+
 /// Where the sample at `second` sits: north of Montréal's Mont Royal,
 /// moving north.
 fn position(second: u32) -> (f64, f64) {
@@ -233,9 +240,17 @@ fn records(data: &mut Vec<u8>, workout: &FitWorkout) {
         let at = workout.start + chrono::Duration::seconds(i64::from(second));
         data.extend_from_slice(&fit_time(at).to_le_bytes());
         if workout.with_position {
-            let (lat, long) = position(second);
-            data.extend_from_slice(&semicircles(lat).to_le_bytes());
-            data.extend_from_slice(&semicircles(long).to_le_bytes());
+            let lost = workout
+                .fix_lost
+                .is_some_and(|(from, to)| (from..to).contains(&second));
+            let (lat, long) = if lost {
+                (INVALID_SINT32, INVALID_SINT32)
+            } else {
+                let (lat, long) = position(second);
+                (semicircles(lat), semicircles(long))
+            };
+            data.extend_from_slice(&lat.to_le_bytes());
+            data.extend_from_slice(&long.to_le_bytes());
         }
         // altitude: scale 5, offset 500
         data.extend_from_slice(&scaled_u16(100.0, 5.0, 500.0).to_le_bytes());

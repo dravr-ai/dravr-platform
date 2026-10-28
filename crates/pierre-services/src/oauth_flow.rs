@@ -415,7 +415,7 @@ impl OAuthService {
         let config = OAuth2Config {
             client_id,
             client_secret: SecretString::from(client_secret),
-            auth_url: endpoints.auth_url.to_owned(),
+            auth_url: self.auth_url_for(provider, &endpoints),
             token_url: self.token_url_for(provider, &endpoints),
             redirect_uri,
             scopes: vec![scope],
@@ -768,7 +768,10 @@ impl OAuthService {
         // Build authorization URL with provider-specific parameters
         let mut auth_url = format!(
             "{}?client_id={}&response_type=code&redirect_uri={}&state={}",
-            endpoints.auth_url, client_id, encoded_redirect_uri, encoded_state
+            self.auth_url_for(provider, &endpoints),
+            client_id,
+            encoded_redirect_uri,
+            encoded_state
         );
 
         // A provider with no scope to request (Garmin's is fixed server-side)

@@ -23,7 +23,8 @@ use super::{
     policies_apply, withheld_error,
 };
 use crate::core::{
-    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
+    TokenRefreshCallback,
 };
 
 /// A provider whose reads return only what each provider's terms let the
@@ -92,6 +93,10 @@ impl FitnessProvider for AiGovernedProvider {
 
     fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
         self.inner.set_token_refresh_callback(callback);
+    }
+
+    fn bind_owner_stores(&self, stores: OwnerStores) {
+        self.inner.bind_owner_stores(stores);
     }
 
     async fn get_athlete(&self) -> AppResult<Athlete> {

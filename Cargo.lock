@@ -3929,12 +3929,14 @@ dependencies = [
  "pierre-config",
  "pierre-fitness-compute",
  "pierre-providers",
+ "reqwest 0.12.28",
  "secrecy",
  "serde_json",
  "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -4629,6 +4631,7 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
+ "pierre-dev-fixture",
  "pierre-email",
  "pierre-evals",
  "pierre-external",

@@ -23,26 +23,18 @@ use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use pierre_database::repositories::{ActivityCacheRepository, UploadedActivityFileRepository};
 use ring::digest::{digest, SHA256};
 use uuid::Uuid;
 
+use crate::cached_activity_reads::CachedActivities;
 use crate::constants::oauth_providers::UPLOAD;
 use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use crate::errors::{AppError, AppResult};
 use crate::fit_file::{decode_bounded, FitActivityFile, Position};
 use crate::models::StatsCoverage;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
-use crate::pagination::{Cursor, CursorPage, PaginationParams};
-
-/// Most uploaded activities one list read returns when it names no limit.
-const DEFAULT_LIST_LIMIT: usize = 200;
-
-/// Rows a cursor page reads past its own size, for the activities that share
-/// the cursor's start second: one file's sessions never do, so this only
-/// covers separate uploads started in the same second.
-const SAME_START_SLACK: usize = 16;
+use crate::pagination::{CursorPage, PaginationParams};
 
 /// The hex SHA-256 of an uploaded file's bytes: the key the file is kept
 /// under.
@@ -112,6 +104,17 @@ impl UploadProvider {
         }
     }
 
+    /// The uploads' cached rows, which every list and single read answers
+    /// from.
+    fn cached(&self) -> CachedActivities<'_> {
+        CachedActivities {
+            cache: self.cache.as_ref(),
+            user_id: self.user_id,
+            tenant_id: &self.tenant_id,
+            provider: UPLOAD,
+        }
+    }
+
     /// The stored file behind an uploaded activity, decoded, with the index
     /// of the activity's session in it.
     async fn file_of(&self, id: &str) -> AppResult<(FitActivityFile, usize)> {
@@ -177,89 +180,18 @@ impl FitnessProvider for UploadProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let start = params
-            .after
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
-            .unwrap_or(DateTime::UNIX_EPOCH);
-        let end = params
-            .before
-            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
-            .unwrap_or_else(Utc::now);
-        let offset = params.offset.unwrap_or(0);
-        let limit = params.limit.unwrap_or(DEFAULT_LIST_LIMIT);
-        let read = i64::try_from(offset.saturating_add(limit)).unwrap_or(i64::MAX);
-        let rows = self
-            .cache
-            .get_cached_activities(
-                self.user_id,
-                &self.tenant_id,
-                Some(UPLOAD),
-                start,
-                end,
-                read,
-            )
-            .await?;
-        Ok(rows.into_iter().skip(offset).take(limit).collect())
+        self.cached().window(params).await
     }
 
-    /// Newest first, a page at a time. The cursor names the last activity
-    /// served by its start and id; the next page is what sorts after it in
-    /// (start, id) descending order. Activities that share the cursor's start
-    /// second were read as one batch, so the read reaches
-    /// [`SAME_START_SLACK`] rows past the page to find them.
     async fn get_activities_cursor(
         &self,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
-        let after = params.cursor.as_ref().and_then(Cursor::decode);
-        let end = after.as_ref().map_or_else(Utc::now, |(at, _)| *at);
-        let read = params.limit.saturating_add(1 + SAME_START_SLACK);
-        let mut rows = self
-            .cache
-            .get_cached_activities(
-                self.user_id,
-                &self.tenant_id,
-                Some(UPLOAD),
-                DateTime::UNIX_EPOCH,
-                end,
-                i64::try_from(read).unwrap_or(i64::MAX),
-            )
-            .await?;
-        rows.sort_by(|a, b| {
-            b.start_date()
-                .cmp(&a.start_date())
-                .then_with(|| b.id().cmp(a.id()))
-        });
-        let mut page: Vec<Activity> = rows
-            .into_iter()
-            .filter(|row| {
-                after.as_ref().is_none_or(|(at, id)| {
-                    row.start_date() < *at || (row.start_date() == *at && row.id() < id.as_str())
-                })
-            })
-            .take(params.limit.saturating_add(1))
-            .collect();
-        let has_more = page.len() > params.limit;
-        page.truncate(params.limit);
-        let next_cursor = has_more
-            .then(|| page.last())
-            .flatten()
-            .map(|last| Cursor::new(last.start_date(), last.id()));
-        let count = page.len();
-        Ok(CursorPage {
-            items: page,
-            next_cursor,
-            prev_cursor: None,
-            has_more,
-            count,
-        })
+        self.cached().cursor_page(params).await
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
-        self.cache
-            .get_cached_activity(self.user_id, &self.tenant_id, UPLOAD, id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("uploaded activity {id}")))
+        self.cached().one(id, "uploaded activity").await
     }
 
     fn serves_activity_streams(&self) -> bool {
@@ -278,12 +210,7 @@ impl FitnessProvider for UploadProvider {
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self
-            .get_activities_with_params(&ActivityQueryParams::with_pagination(
-                Some(usize::MAX / 2),
-                None,
-            ))
-            .await?;
+        let activities = self.cached().all().await?;
         Ok(Stats {
             total_activities: u64::try_from(activities.len()).unwrap_or(u64::MAX),
             total_distance: activities

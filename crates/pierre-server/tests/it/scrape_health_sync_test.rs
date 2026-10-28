@@ -502,8 +502,8 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
     connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
-    // A leftover row for Garmin's partner-gated OAuth API, which the Garmin
-    // sync does not read and whose last_sync nothing stamps.
+    // A Garmin API row, which the Garmin sync does not read (Garmin pushes
+    // its data) and whose last_sync nothing stamps.
     connect_oauth(&repos, user_id, tenant, "garmin").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));

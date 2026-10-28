@@ -273,14 +273,11 @@ async fn connect_page_merges_strava_oauth_connection_into_card() {
     );
 }
 
-/// Regression (carnet#352): a `garmin` OAuth row ALONE must not read as
-/// connected. `resolve_backend` routes every Garmin request to `sciotte_garmin`
-/// unconditionally, because the official Garmin API is partner-gated and
-/// uncredentialed — so an athlete holding only the OAuth row saw
-/// `connected: true, needs_reauth: false` on every status surface while each
-/// coach call failed with "Provider `sciotte_garmin` requires authentication".
+/// carnet#352 kept a row that routing never reads from lighting a card. Since
+/// carnet#1155 a `garmin` API row is what every Garmin read of its holder
+/// resolves to, so the hosted picker shows the Garmin card connected on it.
 #[tokio::test]
-async fn connect_page_does_not_show_garmin_connected_on_an_oauth_row_alone() {
+async fn connect_page_shows_garmin_connected_on_an_api_row_alone() {
     let (resources, user_id, tenant_id) = test_setup().await;
     register_connection(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
     let app = AuthRoutes::routes(resources.auth_routes_context());
@@ -296,14 +293,13 @@ async fn connect_page_does_not_show_garmin_connected_on_an_oauth_row_alone() {
     assert_eq!(resp.status(), 200);
     let body = resp.text();
     assert!(
-        !body.contains("\"connected\":true"),
-        "a garmin OAuth row serves no fetch, so no card may render connected: {body}"
+        body.contains("\"connected\":true"),
+        "a garmin API row serves every Garmin read, so the Garmin card must render connected: {body}"
     );
 }
 
-/// The other half of the pair, so the fix above is a correction and not simply
-/// "Garmin is never connected": the mirror row is the one that actually serves,
-/// and it must read as connected.
+/// The other half of the pair: the usr/pwd connection's row serves too, and
+/// must read as connected.
 #[tokio::test]
 async fn connect_page_shows_garmin_connected_on_the_mirror_row() {
     let (resources, user_id, tenant_id) = test_setup().await;

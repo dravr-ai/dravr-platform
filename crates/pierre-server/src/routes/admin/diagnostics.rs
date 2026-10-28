@@ -34,7 +34,9 @@ use tracing::error;
 use uuid::Uuid;
 
 use pierre_core::errors::AppResult;
-use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget, SweepSelection};
+use pierre_tool_runtime::capture_sweep::{
+    capturable, refresh_captures, SweepBudget, SweepSelection,
+};
 use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
 use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -237,7 +239,8 @@ pub struct CaptureStalenessReport {
     pub stale_after_hours: i64,
     /// The activity window actually applied, after clamping.
     pub active_within_hours: i64,
-    /// Active connections in the snapshot, before the activity window.
+    /// Active connections in the snapshot, before the activity window. A
+    /// push-only provider's are left out: they have no capture to freeze.
     pub connections_examined: usize,
     /// Those that served inside the activity window — the judged population.
     pub connections_judged: usize,
@@ -340,12 +343,17 @@ pub async fn handle_capture_staleness(
         .unwrap_or(DEFAULT_ACTIVE_WITHIN_HOURS)
         .clamp(1, MAX_THRESHOLD_HOURS);
 
-    let snapshot = context
-        .runtime
-        .repos()
-        .activity_cache
-        .capture_freshness_snapshot(SNAPSHOT_LIMIT)
-        .await?;
+    // A push-only provider's fetch mark moves only when it pushes, so a quiet
+    // athlete would read as a frozen capture: it is never judged.
+    let (snapshot, _) = capturable(
+        context.runtime.provider_registry(),
+        context
+            .runtime
+            .repos()
+            .activity_cache
+            .capture_freshness_snapshot(SNAPSHOT_LIMIT)
+            .await?,
+    );
 
     let now = Utc::now();
     let (connections_judged, stale) = partition_stale_captures(

@@ -21,6 +21,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
+use crate::card_seats::{require_garmin_seat, CardSeats};
 use crate::first_sync::spawn_on_demand_first_read;
 #[cfg(feature = "health-sync")]
 use crate::first_sync::{
@@ -50,7 +51,6 @@ use pierre_services::provider_refresh::RefreshService;
 use pierre_services::provider_revocation::DisconnectReason;
 
 use pierre_auth::dto::auth::{ProviderDelegation, ProviderStatus, ProvidersStatusResponse};
-use pierre_auth::strava_pool;
 use pierre_auth::tenant::oauth_manager::find_authorizing_client;
 use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_DESCRIPTION_COROS, KEY_PROVIDER_DESCRIPTION_GARMIN,
@@ -149,15 +149,23 @@ pub(crate) async fn handle_oauth_callback(
         .await
     {
         Ok(response) => {
+            // A backend whose provider pushes its data (Garmin's Developer
+            // Program API) has nothing to pull: its data arrives as Garmin
+            // pushes it, and a backfill would read the athlete's usr/pwd
+            // session instead (carnet#1155).
+            let pushed = backend_resolver::pushed_backend_for(&response.provider)
+                == Some(response.provider.as_str());
             #[cfg(feature = "health-sync")]
-            spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
+            if !pushed {
+                spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
+            }
             #[cfg(feature = "health-sync")]
             let read_on_demand = !health_sync_backfills(&resources, &response.provider);
             // Without the health sync no provider is backfilled after a
             // connect, so every one is read on demand.
             #[cfg(not(feature = "health-sync"))]
             let read_on_demand = true;
-            if read_on_demand {
+            if read_on_demand && !pushed {
                 spawn_on_demand_first_read(&resources, &response.user_id, &response.provider);
             }
 
@@ -603,19 +611,7 @@ pub(crate) async fn compute_providers_status(
         .map(|c| c.provider)
         .collect();
 
-    // Seat availability across the shared-app OAuth POOL: the env-default
-    // STRAVA_CLIENT_ID app plus any enabled DB pool apps. Strava enforces a
-    // per-application athlete cap not exposed via any API header, so onboarding a
-    // NEW Strava connection prefers OAuth while ANY pool seat remains and falls
-    // back to the Sciotte mirror once every app is full. A summary failure is
-    // treated as "no seats left" so we degrade to the always-available mirror
-    // rather than pushing the user into an OAuth flow Strava would reject.
-    let strava_seats_left = strava_pool::strava_seat_summary(
-        resources.repos.oauth_tokens.as_ref(),
-        &resources.config.oauth,
-    )
-    .await
-    .map_or(0, |s| s.left());
+    let card_seats = CardSeats::count(resources).await;
 
     // Build provider status list
     let mut provider_statuses = Vec::new();
@@ -624,15 +620,16 @@ pub(crate) async fn compute_providers_status(
         // A provider with a scrape mirror is shown by ONE card, named for the
         // mirror (`sciotte`, `sciotte_garmin`, ...), which already coalesces
         // both backends (`card_is_connected`) and whose disconnect clears the
-        // pair. Its raw card is therefore never served: for Garmin and COROS it
-        // names an OAuth API Pierre cannot call (uncredentialed; carnet#509),
-        // and for Strava it duplicates the one Strava card. The clients render
-        // this list as served (carnet#574) — none of them filters it again.
-        // A build without the mirror keeps Strava's raw card, which then is
-        // the only way in.
+        // pair. Its raw card is therefore never served: for COROS it names an
+        // OAuth API Pierre cannot call (uncredentialed; carnet#509), and for
+        // Strava and Garmin it duplicates the one card, which launches their
+        // OAuth itself while seats remain (`recommended_backend`). The clients
+        // render this list as served (carnet#574) — none of them filters it
+        // again. A build without the mirror keeps Strava's raw card, which
+        // then is the only way in.
         if backend_resolver::mirror_backend_for(provider_name).is_some_and(|mirror| {
             registry.get_descriptor(mirror).is_some()
-                || backend_resolver::serving_backends(provider_name) == [mirror]
+                || backend_resolver::mirror_is_default(provider_name)
         }) {
             continue;
         }
@@ -670,19 +667,7 @@ pub(crate) async fn compute_providers_status(
 
             let capabilities = capability_names(caps);
 
-            // The Sciotte entry is the user-facing "Strava" card. Tell the
-            // frontend which Strava backend a new connection should use:
-            // shared-app OAuth while seats remain, else the Sciotte mirror.
-            let (recommended_backend, seats_left) = if provider_name == oauth_providers::SCIOTTE {
-                let backend = if strava_seats_left > 0 {
-                    "oauth"
-                } else {
-                    "mirror"
-                };
-                (Some(backend.to_owned()), Some(strava_seats_left))
-            } else {
-                (None, None)
-            };
+            let (recommended_backend, seats_left) = card_seats.recommendation(provider_name);
 
             let (own_app_required, oauth_callback_url) =
                 own_app_fields(resources, user_id, tenant_id, provider_name, requires_oauth).await;
@@ -834,6 +819,7 @@ pub(crate) async fn handle_mobile_oauth_init(
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
     let tos_consent = query.get("tos_consent").is_some_and(|v| v == "true");
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, tos_consent).await?;
+    require_garmin_seat(&resources, user_id, tenant_id, &provider).await?;
 
     // The shared authorize builder: the client the exchange will resolve, the
     // provider's descriptor for endpoints, scopes and PKCE, and the state row
@@ -939,6 +925,7 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
         .await?;
+    require_garmin_seat(&resources, user_id, tenant_id, &provider).await?;
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let authorization = oauth_service

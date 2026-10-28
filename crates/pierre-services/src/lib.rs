@@ -163,6 +163,9 @@ pub mod team_rules;
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;
 
+/// Garmin push ingest: each stored batch's records written to Dravr's stores (carnet#1155)
+pub mod garmin_push;
+
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]
 pub mod health_sync;

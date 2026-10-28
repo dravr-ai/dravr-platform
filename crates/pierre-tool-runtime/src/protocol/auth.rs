@@ -16,7 +16,9 @@ use pierre_providers::ai_scope::AiGovernedProvider;
 use pierre_providers::backend_resolver;
 use pierre_providers::request_budget::RequestBudget;
 use pierre_providers::upload_provider::UploadProvider;
-use pierre_providers::{credential_kind, CoreFitnessProvider, CredentialKind, OAuth2Credentials};
+use pierre_providers::{
+    credential_kind, CoreFitnessProvider, CredentialKind, OAuth2Credentials, OwnerStores,
+};
 use secrecy::SecretString;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
@@ -575,6 +577,19 @@ impl AuthService {
                 // Set credentials asynchronously
                 match provider.set_credentials(credentials).await {
                     Ok(()) => {
+                        // A provider that pushes its data is read from the
+                        // stores its owner holds in this tenant; one read on
+                        // request ignores them. A read outside a tenant binds
+                        // none, and a push-only provider then refuses it.
+                        if let Some(tenant) = tenant_id.and_then(|t| TenantId::parse_str(t).ok()) {
+                            let repos = self.resources.repos();
+                            provider.bind_owner_stores(OwnerStores {
+                                activity_cache: Arc::clone(&repos.activity_cache),
+                                activity_streams: Arc::clone(&repos.activity_streams),
+                                user_id,
+                                tenant_id: tenant,
+                            });
+                        }
                         // Wire up callback so provider-level token refresh persists to DB,
                         // over the row these credentials were read from
                         let resources = Arc::clone(&self.resources);

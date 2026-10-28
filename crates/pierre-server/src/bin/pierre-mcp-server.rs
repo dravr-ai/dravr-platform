@@ -706,6 +706,15 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
         start_seat_reclaim_worker(&resources);
     }
 
+    // Start the Garmin push inbox sweep (carnet#1155): runs every pushed
+    // batch an instance stored but did not finish (it died, or a run was
+    // handed back with a backoff), and deletes processed rows after a day.
+    #[cfg(all(feature = "health-sync", feature = "provider-garmin"))]
+    {
+        use pierre_mcp_server::start_garmin_push_worker;
+        start_garmin_push_worker(&resources);
+    }
+
     // Start the personal-best seed (carnet#582): walks each Strava athlete's
     // whole history once, one streams request per past run, paced by the
     // background share of the shared Strava budget, so a personal record is

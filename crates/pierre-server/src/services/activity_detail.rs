@@ -21,9 +21,9 @@
 //! stored read that carried splits or laps settles it, and the view never
 //! asks again. One that carried neither settles nothing: an activity with no
 //! laps reads that way, and so does one whose provider served it without them
-//! because the request carrying them failed — the Garmin API folds `/laps`
-//! and `/splits` into the detail read and serves the activity without either
-//! when its request fails, since a swim has no laps to serve. It is stored
+//! because the request carrying them failed — a provider that reads its laps
+//! on a request of their own serves the activity without them when that
+//! request fails, since a swim has no laps to serve. It is stored
 //! with a recheck instant [`EMPTY_DETAIL_RECHECK_MINUTES`] out: until then
 //! the view answers from it without a provider read, and past it the next
 //! open reads the detail again.

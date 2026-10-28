@@ -92,8 +92,9 @@ async fn backfill_coverage_round_trips_overwrites_and_isolates() {
         .is_none());
 }
 
-/// A prune raises every coverage floor it just falsified, across providers, and
-/// leaves shallower claims and other athletes alone.
+/// A prune of one provider raises that provider's coverage floor it just
+/// falsified, and leaves other providers' claims (whose rows it never
+/// touched), shallower claims and other athletes alone.
 ///
 /// Coverage records what a backfill FETCHED; the prune decides what is still
 /// STORED. Left unclamped, a record goes on naming a depth whose rows are gone
@@ -157,13 +158,34 @@ async fn a_prune_raises_the_coverage_floors_it_falsified() {
         .await
         .unwrap();
 
-    let clamped = cache
-        .clamp_backfill_coverage(user, &tenant, cutoff)
-        .await
-        .unwrap();
+    // A Strava prune raises Strava's claim and only Strava's: Garmin's rows
+    // were never pruned, so its claim is still true.
+    let clamp =
+        |provider: &'static str| cache.clamp_backfill_coverage(user, &tenant, provider, cutoff);
     assert_eq!(
-        clamped, 2,
-        "both 2022 claims are raised, the recent one is not"
+        clamp("strava").await.unwrap(),
+        1,
+        "Strava's 2022 claim is raised"
+    );
+    let garmin = cache
+        .get_backfill_coverage(user, &tenant, "garmin")
+        .await
+        .unwrap()
+        .expect("garmin coverage");
+    assert_eq!(
+        garmin.oldest_reached_ts, deep,
+        "bug: a Strava prune must not move Garmin's claim"
+    );
+    assert!(garmin.hit_feed_end);
+    assert_eq!(
+        clamp("garmin").await.unwrap(),
+        1,
+        "Garmin's own prune raises it"
+    );
+    assert_eq!(
+        clamp("whoop").await.unwrap(),
+        0,
+        "a shallower claim never moves"
     );
 
     for provider in ["strava", "garmin"] {
@@ -242,7 +264,7 @@ async fn the_capture_version_follows_the_backfill_not_the_clamp() {
     let cutoff = Utc::now() - Duration::days(180);
     assert_eq!(
         cache
-            .clamp_backfill_coverage(user, &tenant, cutoff)
+            .clamp_backfill_coverage(user, &tenant, "sciotte", cutoff)
             .await
             .unwrap(),
         1

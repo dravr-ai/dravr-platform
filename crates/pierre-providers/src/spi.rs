@@ -215,6 +215,18 @@ bitflags::bitflags! {
         /// provider declaring this ahead of one that only detects, among
         /// connections equally healthy.
         const RECORDED_ACTIVITIES = 0b0000_1000_0000_0000;
+        /// Provider delivers its data only by pushing it to Dravr: nothing
+        /// can be read from it on request, so its connection is read from
+        /// what Dravr stored when each push arrived.
+        ///
+        /// The Garmin Health and Activity APIs at the Starter tier push
+        /// every summary and serve no list, detail or backfill read
+        /// (carnet#1155). A list read of such a provider is its cached
+        /// window with no live top-up, never written back through the
+        /// cache, and its freshness is the last push
+        /// ([`ProviderCapabilities::is_push_only`]). A delivery mode, not a
+        /// data scope: it names no capability on a provider card.
+        const PUSH_ONLY = 0b0001_0000_0000_0000;
     }
 }
 
@@ -312,6 +324,13 @@ impl ProviderCapabilities {
     #[must_use]
     pub const fn supports_calendar_week_notes(&self) -> bool {
         self.contains(Self::CALENDAR_WEEK_NOTES)
+    }
+
+    /// Check if the provider only pushes its data: a read of it is served
+    /// from what Dravr stored, never from the provider
+    #[must_use]
+    pub const fn is_push_only(&self) -> bool {
+        self.contains(Self::PUSH_ONLY)
     }
 }
 
@@ -622,8 +641,11 @@ impl ProviderDescriptor for GarminDescriptor {
         "Garmin Connect"
     }
 
+    /// Every Garmin summary is pushed to Dravr; the Starter tier serves no
+    /// list, detail or backfill read, so reads come from what each push
+    /// stored ([`ProviderCapabilities::PUSH_ONLY`]).
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::full_health()
+        ProviderCapabilities::full_health().union(ProviderCapabilities::PUSH_ONLY)
     }
 
     /// Garmin's `OAuth2` PKCE flow, per the Garmin Connect Developer Program

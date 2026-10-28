@@ -289,9 +289,9 @@ fn fractional(value: Option<f64>) -> Option<f32> {
 /// The series of `samples`, timed from the first one.
 ///
 /// Distance is cumulative, one value per sample: a sample without it has not
-/// moved since the last one that had it. Positions are the samples' that
-/// recorded one, in order; a sample recorded before the device had a fix
-/// carries none.
+/// moved since the last one that had it. Positions are one per sample, index
+/// for index with the timestamps ([`aligned_track`]): a sample without a fix
+/// takes the nearest one, so the route survives a late fix or a dropout.
 fn series(samples: &[Sample], position: Position) -> TimeSeriesData {
     let Some(start) = samples.first().and_then(|sample| sample.timestamp) else {
         return no_recorded_samples();
@@ -308,9 +308,9 @@ fn series(samples: &[Sample], position: Position) -> TimeSeriesData {
         distance.push(last_distance);
     }
     let has_distance = samples.iter().any(|sample| sample.distance.is_some());
-    let track: Vec<(f64, f64)> = match position {
-        Position::Read => samples.iter().filter_map(|s| s.position).collect(),
-        Position::Withheld => Vec::new(),
+    let track = match position {
+        Position::Read => aligned_track(samples.iter().map(|s| s.position)),
+        Position::Withheld => None,
     };
     TimeSeriesData {
         timestamps,
@@ -320,9 +320,38 @@ fn series(samples: &[Sample], position: Position) -> TimeSeriesData {
         speed: channel(samples.iter().map(|s| fractional(s.speed)).collect()),
         altitude: channel(samples.iter().map(|s| fractional(s.altitude)).collect()),
         temperature: channel(samples.iter().map(|s| fractional(s.temperature)).collect()),
-        gps_coordinates: (!track.is_empty()).then_some(track),
+        gps_coordinates: track,
         distance: has_distance.then_some(distance),
     }
+}
+
+/// One position per sample, index for index with the samples, from each
+/// sample's fix or its absence.
+///
+/// Every reader slices the channels by index, so a sample without a fix keeps
+/// its slot: one recorded before the device's first fix takes that first fix,
+/// and one in a later gap (a dropout under trees, in a tunnel) takes the last
+/// fix before it. `None` only when no sample has a fix at all. Shared by the
+/// FIT decode and the Garmin push mapping, so one activity reads the same
+/// route whichever path brought its samples.
+#[must_use]
+pub fn aligned_track(
+    positions: impl IntoIterator<Item = Option<(f64, f64)>>,
+) -> Option<Vec<(f64, f64)>> {
+    let positions: Vec<Option<(f64, f64)>> = positions.into_iter().collect();
+    let first = positions.iter().flatten().copied().next()?;
+    let mut last = first;
+    Some(
+        positions
+            .into_iter()
+            .map(|fix| {
+                if let Some(fix) = fix {
+                    last = fix;
+                }
+                last
+            })
+            .collect(),
+    )
 }
 
 /// The sport a FIT `sport` / `sub_sport` pair names, and the detail string
@@ -865,6 +894,79 @@ mod tests {
         assert!(ride()
             .activity_with_series(1, "ride-1".to_owned(), "upload", Position::Read)
             .is_none());
+    }
+
+    /// The series of a 60-second ride whose samples in `lost` recorded no fix.
+    fn ride_losing_fix(lost: (u32, u32)) -> (FitActivityFile, TimeSeriesData) {
+        let mut workout = FitWorkout::ride(Utc::now() - chrono::Duration::days(1), 60);
+        workout.fix_lost = Some(lost);
+        let file =
+            FitActivityFile::parse(&workout.encode()).unwrap_or_else(|e| panic!("decode: {e:?}"));
+        let series = file.time_series(Position::Read);
+        (file, series)
+    }
+
+    /// Samples recorded before the first fix take that fix: the route is kept
+    /// and stays one position per sample.
+    #[test]
+    fn samples_before_the_first_fix_take_the_first_fix() {
+        let (_, series) = ride_losing_fix((0, 10));
+        let track = series
+            .gps_coordinates
+            .unwrap_or_else(|| panic!("bug: a late fix must not lose the route"));
+        assert_eq!(track.len(), series.timestamps.len(), "index-aligned");
+        assert_eq!(series.timestamps.len(), 60, "bug: every sample is kept");
+        assert!(track[..10].iter().all(|p| *p == track[10]), "{track:?}");
+        assert!(track[11].0 > track[10].0, "the recorded fixes follow");
+    }
+
+    /// A dropout mid-ride holds the last fix before it, so every fix after
+    /// the gap stays against its own sample.
+    #[test]
+    fn a_mid_ride_dropout_holds_the_last_fix_and_keeps_alignment() {
+        let (file, series) = ride_losing_fix((20, 30));
+        let whole = FitActivityFile::parse(
+            &FitWorkout::ride(Utc::now() - chrono::Duration::days(1), 60).encode(),
+        )
+        .unwrap_or_else(|e| panic!("decode: {e:?}"))
+        .time_series(Position::Read)
+        .gps_coordinates
+        .unwrap_or_else(|| panic!("a full track"));
+        let track = series
+            .gps_coordinates
+            .unwrap_or_else(|| panic!("bug: a dropout must not lose the route"));
+        assert_eq!(track.len(), 60, "index-aligned with the 60 samples");
+        assert!(track[20..30].iter().all(|p| *p == track[19]), "{track:?}");
+        assert_eq!(
+            track[..20],
+            whole[..20],
+            "before the gap: the recorded fixes"
+        );
+        assert_eq!(
+            track[30..],
+            whole[30..],
+            "after the gap: each fix on its own sample"
+        );
+        assert_eq!(
+            series.heart_rate.as_ref().map(Vec::len),
+            Some(60),
+            "bug: other channels keep every sample"
+        );
+        assert!(
+            file.session_series(0, Position::Read)
+                .and_then(|series| series.gps_coordinates)
+                .is_some(),
+            "bug: the session series keeps the route"
+        );
+    }
+
+    /// An activity that never had a fix has no route to draw.
+    #[test]
+    fn an_activity_with_no_fix_has_no_track() {
+        let (_, series) = ride_losing_fix((0, 60));
+        assert_eq!(series.timestamps.len(), 60, "every sample is kept");
+        assert_eq!(series.gps_coordinates, None, "bug: no fix, no route");
+        assert_eq!(aligned_track([None, None]), None, "bug: no fix, no route");
     }
 
     #[test]

@@ -1,0 +1,13 @@
+{
+  "skinTemp": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-skin-1",
+      "calendarDate": "$DAY-1",
+      "avgDeviationCelsius": -0.3,
+      "durationInSeconds": 26100,
+      "startTimeInSeconds": "$T-93600",
+      "startTimeOffsetInSeconds": -14400
+    }
+  ]
+}

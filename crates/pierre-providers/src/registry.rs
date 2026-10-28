@@ -573,6 +573,16 @@ impl ProviderRegistry {
     pub fn get_descriptor(&self, provider_name: &str) -> Option<&dyn ProviderDescriptor> {
         self.descriptors.get(provider_name).map(AsRef::as_ref)
     }
+
+    /// Whether `provider_name` only pushes its data
+    /// ([`ProviderCapabilities::PUSH_ONLY`](crate::spi::ProviderCapabilities::PUSH_ONLY)):
+    /// nothing can be read from it on request, so no live read, top-up or
+    /// history capture may be made of it. An unregistered name is not.
+    #[must_use]
+    pub fn is_push_only(&self, provider_name: &str) -> bool {
+        self.get_descriptor(provider_name)
+            .is_some_and(|descriptor| descriptor.capabilities().is_push_only())
+    }
 }
 
 impl ProviderRegistry {

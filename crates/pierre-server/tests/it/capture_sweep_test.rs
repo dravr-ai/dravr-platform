@@ -125,6 +125,56 @@ async fn an_active_only_sweep_passes_over_a_connection_nobody_used() {
     );
 }
 
+/// A push-only provider has no list to read: the Garmin API delivers by
+/// pushing, so the sweep passes over its connection (counting it) instead of
+/// attempting a fetch, and the usr/pwd connection beside it is still walked.
+#[tokio::test]
+async fn a_push_only_connection_is_passed_over_and_counted() {
+    let f = fixture_with_connection("garmin").await;
+    f.runtime
+        .repos()
+        .provider_connections
+        .register_connection(
+            f.user_id,
+            f.tenant,
+            "sciotte_garmin",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        f.runtime.provider_registry().is_push_only("garmin"),
+        "the fixture needs the push-only Garmin API provider registered"
+    );
+
+    let report = refresh_captures(
+        &f.runtime,
+        SweepBudget::default(),
+        SweepSelection::default(),
+    )
+    .await
+    .expect("refresh report");
+
+    assert_eq!(
+        report.passed_over, 1,
+        "bug: the push-only connection must be counted as passed over"
+    );
+    assert!(
+        report.connections.iter().all(|c| c.provider != "garmin"),
+        "bug: the sweep must not attempt a push-only provider: {:?}",
+        report.connections
+    );
+    assert!(
+        report
+            .connections
+            .iter()
+            .any(|c| c.provider == "sciotte_garmin"),
+        "bug: the usr/pwd connection beside it must still be walked"
+    );
+    assert_eq!(report.attempted, 1);
+}
+
 /// The sweep's whole point: a connection whose credential is gone gets flagged,
 /// and the flag lands in the database.
 ///

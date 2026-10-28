@@ -18,6 +18,8 @@ pub mod activity_cache_persistence;
 pub mod activity_conversations;
 /// One stored route read per activity: a trimmed track or the reason there is none (`SQLite`)
 pub mod activity_route_tracks;
+/// The one per-activity sample store: pushed, uploaded or imported samples (`SQLite`)
+pub mod activity_streams;
 /// Admin token management and authorization
 pub mod admin;
 /// Agent package artefacts — flavour, skeleton, workouts stored per agent (`SQLite`)
@@ -62,6 +64,8 @@ pub mod firebase_identity_deletions;
 pub mod first_run_progress;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
+/// Every batch Garmin pushes, written before the 200 and worked under a lease (`SQLite`)
+pub mod garmin_push_inbox;
 /// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.
 pub mod guardian_actions;
 /// Health persistence: data sources, sleep, recovery, health snapshots
@@ -111,6 +115,8 @@ pub mod prescribed_workouts;
 pub mod provider_connections;
 /// Provider data purge: disconnect and termination deletes (`SQLite`)
 pub mod provider_data;
+/// Newest-receipt-wins writes for data a provider pushes (`SQLite`)
+pub mod pushed_data;
 /// Recipe storage and management for nutrition planning
 pub mod recipes;
 /// Repository trait definitions for focused database access

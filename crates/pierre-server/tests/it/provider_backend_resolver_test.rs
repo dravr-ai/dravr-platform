@@ -158,16 +158,59 @@ fn mirror_backend_for_only_maps_the_scraped_providers() {
 }
 
 #[test]
-fn serving_backends_excludes_the_uncredentialed_garmin_oauth_backend() {
-    // The whole of carnet#352: a `garmin` row existed, so the status surfaces
-    // said connected, while every fetch was routed to `sciotte_garmin` and
-    // failed. Only a backend that can actually serve may count.
-    let garmin = backend_resolver::serving_backends("garmin");
-    assert_eq!(garmin, vec![oauth_providers::SCIOTTE_GARMIN]);
-    assert!(
-        !garmin.iter().any(|b| b == oauth_providers::GARMIN),
-        "the partner-gated Garmin OAuth backend is never routed to, so it must never read as connected"
+fn serving_backends_lists_the_garmin_api_before_its_mirror() {
+    // carnet#352's invariant still holds: only a backend routing reads may
+    // count. Since carnet#1155 the Garmin API backend is routed to whenever a
+    // user holds it, so it serves, ahead of the usr/pwd connection.
+    assert_eq!(
+        backend_resolver::serving_backends("garmin"),
+        vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN]
     );
+    // TrainingPeaks and COROS still have no API Pierre can call.
+    assert_eq!(
+        backend_resolver::serving_backends("coros"),
+        vec![oauth_providers::SCIOTTE_COROS]
+    );
+}
+
+#[test]
+fn the_health_sync_keeps_pulling_garmin_through_its_mirror() {
+    // Garmin's API pushes; the pull sync reads the usr/pwd session only, and
+    // skips a user who holds the pushed backend.
+    assert_eq!(
+        backend_resolver::sync_backend("garmin"),
+        oauth_providers::SCIOTTE_GARMIN
+    );
+    assert_eq!(
+        backend_resolver::pushed_backend_for("garmin"),
+        Some(oauth_providers::GARMIN)
+    );
+    assert_eq!(
+        backend_resolver::pushed_backend_for("sciotte_garmin"),
+        Some(oauth_providers::GARMIN)
+    );
+    assert_eq!(
+        backend_resolver::sync_backend("coros"),
+        oauth_providers::SCIOTTE_COROS
+    );
+    assert_eq!(
+        backend_resolver::sync_backend("strava"),
+        oauth_providers::STRAVA
+    );
+    assert_eq!(backend_resolver::sync_backend("whoop"), "whoop");
+    assert_eq!(backend_resolver::pushed_backend_for("coros"), None);
+    assert_eq!(backend_resolver::pushed_backend_for("strava"), None);
+}
+
+#[test]
+fn only_strava_sends_an_unconnected_user_to_its_api() {
+    assert!(!backend_resolver::mirror_is_default("strava"));
+    assert!(!backend_resolver::mirror_is_default("sciotte"));
+    assert!(backend_resolver::mirror_is_default("garmin"));
+    assert!(backend_resolver::mirror_is_default("sciotte_garmin"));
+    assert!(backend_resolver::mirror_is_default("trainingpeaks"));
+    assert!(backend_resolver::mirror_is_default("coros"));
+    assert!(!backend_resolver::mirror_is_default("whoop"));
 }
 
 #[test]
@@ -280,13 +323,13 @@ async fn resolve_backend_strava_prefers_oauth_when_both_rows_exist() {
 }
 
 #[tokio::test]
-async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
+async fn resolve_backend_garmin_prefers_the_api_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Both rows: for Garmin the mirror still wins — Garmin's official API is
-    // partner-gated, so it stays on the scraper (no OAuth-API migration).
+    // Both rows: a live Garmin API token wins over the usr/pwd connection
+    // (carnet#1155), as Strava's OAuth token wins over its mirror.
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
     seed_token(
         &resources,
@@ -303,16 +346,18 @@ async fn resolve_backend_garmin_prefers_mirror_when_both_rows_exist() {
         oauth_providers::GARMIN,
     )
     .await;
-    assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(resolved, oauth_providers::GARMIN);
 }
 
+/// carnet#352's coupling, restated for carnet#1155: the backend routing picks
+/// for a user whose only Garmin row is the API one is that row's backend, and
+/// status counts it. A row only counts when routing reads it.
 #[tokio::test]
-async fn a_garmin_oauth_row_alone_never_reads_as_connected() {
+async fn a_garmin_api_row_alone_routes_to_the_api_and_reads_as_connected() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Exactly the reported state: the ONLY Garmin row is the OAuth one.
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
 
     let resolved = backend_resolver::resolve_backend(
@@ -322,35 +367,31 @@ async fn a_garmin_oauth_row_alone_never_reads_as_connected() {
         oauth_providers::GARMIN,
     )
     .await;
+    assert_eq!(resolved, oauth_providers::GARMIN);
 
-    // The row the user HAS is not the backend the fetch WILL use.
-    assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
-    assert_ne!(resolved, oauth_providers::GARMIN);
-
-    // The coupling this issue was about: whatever `resolve_backend` picks must
-    // be a backend `serving_backends` counts, and the row that cannot serve
-    // must not be counted. Status and routing answer from the same table.
     let serving = backend_resolver::serving_backends(oauth_providers::GARMIN);
     assert!(
         serving.iter().any(|b| b == &resolved),
         "status must count the backend routing actually picks ({resolved})"
     );
-    assert!(
-        !serving.iter().any(|b| b == oauth_providers::GARMIN),
-        "a garmin OAuth row alone must not read as connected — every fetch it implies fails"
-    );
 }
 
-/// The status half of carnet#352: `coalesced_status` served the tool surface and
-/// still fell through to the OAuth row for a Garmin athlete with no mirror,
-/// reporting `connected: true, backend: oauth` for a backend routing never picks.
+/// The status half: `coalesced_status` reports the Garmin API backend as the
+/// active one, even when the usr/pwd row lingers beside it.
 #[tokio::test]
-async fn coalesced_status_ignores_a_garmin_oauth_row_without_a_mirror() {
+async fn coalesced_status_reports_the_garmin_api_over_a_lingering_mirror() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
     seed_token(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
 
     let status = backend_resolver::coalesced_status(
         &resources.common.repos.auth_repos(),
@@ -363,12 +404,38 @@ async fn coalesced_status_ignores_a_garmin_oauth_row_without_a_mirror() {
         status,
         CoalescedStatus {
             user_facing: oauth_providers::GARMIN,
-            connected: false,
-            backend_kind: BackendKind::None,
+            connected: true,
+            backend_kind: BackendKind::Oauth,
             delegation: None,
-        },
-        "a garmin OAuth row serves no fetch, so it must not read as connected"
+        }
     );
+}
+
+/// A user on the usr/pwd connection alone is reported on the mirror, as
+/// before carnet#1155.
+#[tokio::test]
+async fn coalesced_status_keeps_a_usr_pwd_garmin_user_on_the_mirror() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
+    let tenant_id = user_primary_tenant(&resources, user_id).await;
+
+    seed_token(
+        &resources,
+        user_id,
+        tenant_id,
+        oauth_providers::SCIOTTE_GARMIN,
+    )
+    .await;
+
+    let status = backend_resolver::coalesced_status(
+        &resources.common.repos.auth_repos(),
+        user_id,
+        tenant_id,
+        oauth_providers::GARMIN,
+    )
+    .await;
+    assert_eq!(status.backend_kind, BackendKind::Mirror);
+    assert!(status.connected);
 }
 
 #[tokio::test]
@@ -377,11 +444,11 @@ async fn resolve_backend_garmin_stays_on_mirror_when_no_token() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // No sciotte_garmin token row at all (e.g. after an orphaned-row disconnect).
-    // Garmin must STILL resolve to its mirror — never fall through to the raw
-    // `garmin` OAuth backend, which is uncredentialed and fails the turn with
-    // "No Garmin OAuth credentials". A missing session then surfaces as a
-    // reconnect-Garmin auth error downstream, not an OAuth-credentials error.
+    // No Garmin row of either backend (e.g. after an orphaned-row
+    // disconnect). Garmin must STILL resolve to its mirror — never fall
+    // through to the push-only Garmin API, which holds nothing for a user who
+    // never connected it. A missing session then surfaces as a
+    // reconnect-Garmin auth error downstream.
     let resolved = backend_resolver::resolve_backend(
         &resources.common.repos.auth_repos(),
         user_id,
@@ -655,7 +722,7 @@ async fn multi_provider_status_strava_prefers_oauth_when_both_rows_exist() {
 }
 
 #[tokio::test]
-async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
+async fn multi_provider_status_garmin_prefers_the_api_when_both_rows_exist() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
@@ -681,10 +748,12 @@ async fn multi_provider_status_garmin_prefers_mirror_when_both_rows_exist() {
         .clone();
     let garmin = providers.get(oauth_providers::GARMIN).unwrap();
     assert_eq!(garmin.get("connected").and_then(Value::as_bool), Some(true));
+    // Status must match routing: a live Garmin API token wins over the
+    // usr/pwd connection (carnet#1155), as Strava's OAuth token does.
     assert_eq!(
         garmin.get("backend").and_then(|v| v.as_str()),
-        Some("mirror"),
-        "mirror must win for Garmin when both rows exist"
+        Some("oauth"),
+        "the Garmin API must win when both rows exist"
     );
 }
 
@@ -872,10 +941,13 @@ fn assert_hosted_login_handoff(result: &ToolResponse, provider: &str, mirror: &s
     );
 }
 
-/// Garmin's mirror is its only backend, so asking to connect it hands off to
-/// the hosted login whether or not a session row exists. With no row, this
-/// used to mint an OAuth URL for the uncredentialed Garmin API, which failed
-/// as an `oauth_configuration_error` the agent relayed as "Garmin is broken".
+/// Garmin is routed to its mirror by default, so asking to connect it hands
+/// off to the hosted pages whether or not a session row exists. With no row,
+/// this used to mint an OAuth URL for the then-uncredentialed Garmin API,
+/// which failed as an `oauth_configuration_error` the agent relayed as
+/// "Garmin is broken". Since carnet#1155 the Garmin API takes a seat of a
+/// capped pool, which only the hosted picker weighs, so the chat tool still
+/// mints no Garmin OAuth URL itself.
 #[tokio::test]
 async fn connect_provider_hands_garmin_to_the_hosted_login() {
     let resources = create_test_server_resources().await.unwrap();
@@ -1077,8 +1149,8 @@ async fn create_authenticated_provider_signals_reauth_for_active_but_tokenless_c
 /// (drives `resolve_backend` + the scrape session) and the `provider_connections`
 /// row (drives the "connected" badge + coaching fetch enumeration). Leaving an
 /// orphaned connection row is exactly what made a disconnected Garmin keep
-/// showing "Connected" and routed the next fetch to the uncredentialed OAuth
-/// backend. The chat tool disconnects by the user-facing name "garmin", so it
+/// showing "Connected" and routed the next fetch to the then-uncredentialed
+/// OAuth backend. The chat tool disconnects by the user-facing name "garmin", so it
 /// must resolve to the `sciotte_garmin` backend before deleting.
 #[tokio::test]
 async fn disconnect_provider_tool_removes_both_token_and_connection_for_garmin() {

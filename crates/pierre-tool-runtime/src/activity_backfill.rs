@@ -243,6 +243,21 @@ impl fmt::Debug for ActivityBackfillJob {
 /// sweep. Returns `true` if a new job was started, `false` if one was
 /// already in flight or already owed.
 pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
+    // A push-only provider has no history to page: everything it delivers
+    // was pushed and cached as it arrived, and a run would write its own
+    // cached rows back as a fresh sync and claim a depth no push reached.
+    if job
+        .resources
+        .provider_registry()
+        .is_push_only(&job.provider_name)
+    {
+        info!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            "Activity backfill not started: the provider only pushes its data"
+        );
+        return false;
+    }
     let key = in_flight_key(job.user_id, &job.provider_name);
     if !claim_in_flight(&key) {
         info!(

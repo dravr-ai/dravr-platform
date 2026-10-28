@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-Sciotte-fallback behavior
-// ABOUTME: Covers the seat-gated OAuth default, the mirror path, the failed-OAuth fallback, the own-app setup and Intervals.icu's two paths
+// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin), the mirror path, the failed-OAuth fallback, the own-app setup and Intervals.icu's two paths
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -85,6 +85,22 @@ function stravaCard(recommended_backend: 'oauth' | 'mirror') {
     capabilities: ['activities'],
     recommended_backend,
     seats_left: recommended_backend === 'oauth' ? 3 : 0,
+  };
+}
+
+// The `sciotte_garmin` card is the user-facing "Garmin" card; it follows the
+// server's recommendation like Strava's (carnet#1155).
+function garminCard(recommended_backend: 'oauth' | 'mirror') {
+  return {
+    provider: 'sciotte_garmin',
+    display_name: 'Garmin',
+    requires_oauth: false,
+    connected: false,
+    needs_reauth: false,
+    capabilities: ['activities', 'sleep'],
+    recommended_backend,
+    seats_left: recommended_backend === 'oauth' ? 999 : 0,
+    consent_required: false,
   };
 }
 
@@ -252,6 +268,30 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     await user.click(button);
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('launches Garmin OAuth (not the credential login) while Garmin seats remain', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+
+    await waitFor(() =>
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'),
+    );
+    expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+  });
+
+  it('opens the Garmin credential login once the Garmin pool is exhausted', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('mirror')] });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
+
+    expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
     expect(window.open).not.toHaveBeenCalled();
   });
 

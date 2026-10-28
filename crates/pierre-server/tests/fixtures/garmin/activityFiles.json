@@ -1,0 +1,13 @@
+{
+  "activityFiles": [
+    {
+      "userId": "$USER",
+      "summaryId": "81000000002-file",
+      "activityId": 81000000002,
+      "fileType": "FIT",
+      "callbackURL": "$FILES/activityFile?id=81000000002&token=dev-fixture-one-shot",
+      "startTimeInSeconds": "$T-140400",
+      "manual": false
+    }
+  ]
+}

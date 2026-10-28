@@ -94,6 +94,8 @@ pub use redaction::mask_email;
 pub use redaction::redact_headers;
 /// Redact secret and PII values out of a URL query string
 pub use redaction::redact_query;
+/// A request path with its credential segments redacted, for log sinks
+pub use redaction::redacted_path;
 /// Middleware attaching a log-safe request line to every request
 pub use redaction::redaction_middleware;
 /// Bounded tenant label for tracing

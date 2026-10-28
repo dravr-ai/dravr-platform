@@ -83,6 +83,7 @@ BACKEND_PATHS=(
     "GET /tenants"                                    # bare path: list
     "POST /tenants"                                   # bare path: create
     "GET /ws"                                         # WebSocket proxy block
+    "POST /webhooks/garmin/t/activities"              # Garmin push block (larger body cap)
 )
 
 # Paths that MUST be served by the SPA. Guards against an over-broad
@@ -116,13 +117,16 @@ sed -e 's|${BACKEND_URL}|http://'"$STUB"':80|g' \
 mkdir -p "$WORK/www"
 echo '<!doctype html><html>SPA-INDEX</html>' > "$WORK/www/index.html"
 # The stub answers every path, except one it drops without a response (444),
-# which makes nginx log an upstream error for the log check at the end.
-printf 'server {\n listen 80;\n location = %s { return 444; }\n location / { add_header Content-Type text/plain; return 200 "BACKEND-REACHED $request_method $uri\\n"; }\n}\n' \
+# which makes nginx log an upstream error for the log check at the end. It
+# takes a body of any size, so a body cap the check meets is the proxy's.
+printf 'server {\n listen 80;\n client_max_body_size 0;\n location = %s { return 444; }\n location ~ ^/webhooks/garmin/[^/]+/upstream-fails$ { return 444; }\n location / { add_header Content-Type text/plain; return 200 "BACKEND-REACHED $request_method $uri\\n"; }\n}\n' \
     "$UPSTREAM_FAILS_PATH" > "$WORK/stub.conf"
 # A second address for the stub's name that drops every request, joined at the
 # end so nginx has a first address to abandon (the access-log retry check).
 printf 'server {\n listen 80;\n location / { return 444; }\n}\n' > "$WORK/dead-stub.conf"
 QUERY_SECRET="routing-check-code-5f1e"
+# Garmin's push URL carries the webhook secret as a path segment.
+PATH_SECRET="routing-check-garmin-token-9c2a"
 
 docker network create "$NET" >/dev/null 2>&1 || true
 
@@ -202,6 +206,19 @@ for spec in "${BACKEND_PATHS[@]}"; do check "$spec" backend; done
 echo "-- must be served by the SPA --"
 for spec in "${SPA_PATHS[@]}"; do check "$spec" spa; done
 
+# A Garmin activityDetails push is far past nginx's 1 MB default body cap; the
+# Garmin block raises it, so a 4 MB push must still reach the backend.
+echo "-- large Garmin push --"
+head -c 4194304 /dev/zero | tr '\0' 'x' > "$WORK/large-push.json"
+large_body="$(curl -s -X POST --data-binary "@$WORK/large-push.json" \
+    "http://localhost:$PORT/webhooks/garmin/t/activityDetails" --max-time 20 | head -1)"
+if [[ "$large_body" == BACKEND-REACHED* ]]; then
+    printf '  ok   %-6s %-45s -> backend (4 MB body)\n' POST /webhooks/garmin/t/activityDetails
+else
+    printf '  FAIL %-6s %-45s -> refused (expected backend with a 4 MB body)\n' POST /webhooks/garmin/t/activityDetails
+    failures=$((failures + 1))
+fi
+
 # ---------------------------------------------------------------------------
 # Route-surface snapshot.
 #
@@ -270,6 +287,10 @@ echo ""
 echo "-- access log severity --"
 
 curl -s -o /dev/null "http://localhost:$PORT/oauth2/authorize?code=$QUERY_SECRET&state=$QUERY_SECRET" --max-time 10 || true
+curl -s -o /dev/null -X POST -d '{}' "http://localhost:$PORT/webhooks/garmin/$PATH_SECRET/sleeps" --max-time 10 || true
+# A Garmin push the upstream drops: nginx's error log would write its raw
+# request line, token and all, were the Garmin location not to silence it.
+curl -s -o /dev/null -X POST -d '{}' "http://localhost:$PORT/webhooks/garmin/$PATH_SECRET/upstream-fails" --max-time 10 || true
 
 # Join a dead address under the stub's name, then ask until nginx has dialled
 # it first and moved on. Docker's DNS rotates the two records and the resolver
@@ -321,6 +342,22 @@ else
         else
             echo "  ok   the query string stays out of the log"
         fi
+        # stdout and stderr: the access log is the first, the error log the
+        # second.
+        if ! all_logs="$(docker logs "$PROXY" 2>&1)"; then
+            echo "  FAIL could not read the nginx container's error log"
+            failures=$((failures + 1))
+        elif grep -qF -- "$PATH_SECRET" <<<"$all_logs"; then
+            echo "  FAIL the Garmin push token reached nginx's logs (access or error log):"
+            grep -F -- "$PATH_SECRET" <<<"$all_logs" | head -3 | sed 's/^/    /'
+            failures=$((failures + 1))
+        else
+            echo "  ok   the Garmin push token stays out of the access and error logs"
+        fi
+        expect_line "a Garmin push is logged with its token redacted" '.path == "/webhooks/garmin/[redacted]/sleeps"'
+        # The success marker for the error-log check above: the dropped push
+        # did reach the upstream and fail, so an error line was due.
+        expect_line "a Garmin push the upstream drops is a 502 with its token redacted" '.path == "/webhooks/garmin/[redacted]/upstream-fails" and .status == 502'
     fi
 fi
 

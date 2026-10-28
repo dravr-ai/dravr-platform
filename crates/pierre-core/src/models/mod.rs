@@ -137,7 +137,7 @@ pub use dravr_equilibre::{
 // each metric it lacks taken from the next source that has it.
 pub use dravr_equilibre::{
     merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged,
-    SleepStageType as StoredSleepStageType,
+    SleepStage as StoredSleepStage, SleepStageType as StoredSleepStageType,
 };
 
 // Nutrition domain

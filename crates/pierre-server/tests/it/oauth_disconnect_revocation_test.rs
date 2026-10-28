@@ -729,11 +729,10 @@ async fn disconnect_whoop_deregisters_user_and_survives_upstream_failure() {
 
 /// Garmin Health API has no token-revocation endpoint: consent withdrawal is
 /// `DELETE /wellness-api/rest/user/registration` with the access token as
-/// `Bearer`, refreshed first when expired. The user-facing `garmin` name
-/// resolves to the `sciotte_garmin` mirror at the chokepoint (Garmin's API
-/// is partner-gated), so the `garmin` OAuth backend is exercised through
-/// `revoke_for_disconnect` directly, with the endpoints the `ServerConfig`
-/// carries (`GARMIN_REVOKE_URL` / `GARMIN_TOKEN_URL` in a deployment).
+/// `Bearer`, refreshed first when expired. The `garmin` OAuth backend is
+/// exercised through `revoke_for_disconnect` directly, with the endpoints the
+/// `ServerConfig` carries (`GARMIN_REVOKE_URL` / `GARMIN_TOKEN_URL` in a
+/// deployment); the card's own disconnect is pinned below.
 #[tokio::test]
 async fn garmin_backend_deregisters_user_with_bearer_delete() {
     let mut upstream = ScriptedUpstream::serve(vec![
@@ -812,6 +811,56 @@ async fn garmin_backend_deregisters_user_with_bearer_delete() {
         request.header("authorization"),
         Some("Bearer garmin-access-fresh-do-not-log")
     );
+}
+
+/// Disconnecting the Garmin card (named for `sciotte_garmin`, as the clients
+/// name it) clears whichever backend serves it: a Garmin API connection is
+/// deregistered at Garmin with the bearer `DELETE`, and its token, connection
+/// and cached pushes are deleted locally (carnet#1155).
+#[tokio::test]
+async fn disconnecting_the_garmin_card_deregisters_a_garmin_api_connection() {
+    let mut upstream = ScriptedUpstream::serve(vec![OK_204.to_owned()]).await;
+    let resources = create_test_server_resources_with_config(test_server_config_with_app(
+        "garmin",
+        "garmin-test-client",
+        "garmin-test-secret",
+    ))
+    .await
+    .unwrap();
+    let mut config = (*resources.common.config).clone();
+    config.external_services.garmin_api.revoke_url =
+        format!("{}/wellness-api/rest/user/registration", upstream.base_url);
+    config.external_services.garmin_api.token_url =
+        format!("{}/di-oauth2-service/oauth/token", upstream.base_url);
+    let service = oauth_service(&resources, config);
+
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "garmin",
+        "garmin-access-card-do-not-log",
+        Some("garmin-refresh-card-do-not-log"),
+        Utc::now() + Duration::hours(12),
+    )
+    .await;
+    service
+        .disconnect_provider(
+            user_id,
+            "sciotte_garmin",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("the Garmin card disconnects");
+
+    let request = upstream.next_request("Garmin deregistration").await;
+    assert_eq!(request.method, "DELETE");
+    assert_eq!(request.target, "/wellness-api/rest/user/registration");
+    assert_eq!(
+        request.header("authorization"),
+        Some("Bearer garmin-access-card-do-not-log")
+    );
+    assert_locally_disconnected(&resources, user_id, tenant_id, "garmin").await;
+    assert_locally_disconnected(&resources, user_id, tenant_id, "sciotte_garmin").await;
 }
 
 /// Terra deauthenticates per user: `DELETE /v2/auth/deauthenticateUser` with

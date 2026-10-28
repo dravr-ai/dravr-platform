@@ -232,21 +232,23 @@ export function OnboardingConnectScreen() {
 
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean) => {
-    // The Sciotte card is the user-facing Strava card. While shared-app OAuth
-    // seats remain the server recommends `oauth`, so connect via the official
-    // Strava OAuth flow. Once the athlete cap is reached the server recommends
-    // `mirror`, and we silently fall back to the Sciotte credential login.
-    if (provider.provider === 'sciotte') {
-      if (provider.recommended_backend === 'oauth') {
-        void launchOAuth('strava', provider.display_name);
-      } else {
-        setSciotteTarget('strava');
-      }
+    // The Strava and Garmin cards are named for their mirror backends. While
+    // the provider's OAuth seats remain the server recommends `oauth`, so
+    // connect through the provider's official OAuth flow, named by the card's
+    // target (`strava`, `garmin`). Once the cap is reached the server
+    // recommends `mirror`, and we silently fall back to the credential login.
+    const target = sciotteTargetForBackend(provider.provider);
+    if (target && provider.recommended_backend === 'oauth') {
+      void launchOAuth(target, provider.display_name);
       return;
     }
-    // Every other scrape-mirror row (Garmin, TrainingPeaks) signs in with the
-    // provider's own credentials, after its notice when it has one.
-    const target = sciotteTargetForBackend(provider.provider);
+    if (provider.provider === 'sciotte') {
+      setSciotteTarget('strava');
+      return;
+    }
+    // Every other scrape-mirror row (Garmin past its seats, TrainingPeaks)
+    // signs in with the provider's own credentials, after its notice when it
+    // has one.
     if (target) {
       setSciotteConsentRequired(provider.consent_required);
       setSciotteTarget(target);

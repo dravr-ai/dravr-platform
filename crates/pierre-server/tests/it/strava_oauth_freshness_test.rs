@@ -262,7 +262,8 @@ async fn a_mirror_only_providers_roster_reads_its_session_rows_never_oauth_rows(
     let oauth_tenant = owned_tenant(repos, oauth_user).await;
     let sciotte_tenant = owned_tenant(repos, sciotte_user).await;
 
-    // A leftover row for Garmin's partner-gated OAuth API: nothing reads it.
+    // A Garmin API row: Garmin pushes that athlete's days, so the pull sync
+    // never reads it.
     seed_token(
         repos,
         oauth_user,
@@ -294,7 +295,7 @@ async fn a_mirror_only_providers_roster_reads_its_session_rows_never_oauth_rows(
     );
     assert!(
         !ids.contains(&oauth_user.to_string().as_str()),
-        "a leftover garmin OAuth row serves nothing and must stay off the roster; got {ids:?}"
+        "a Garmin API row is fed by push and must stay off the pull roster; got {ids:?}"
     );
     assert!(roster.iter().all(|u| u.provider == "garmin"));
 }

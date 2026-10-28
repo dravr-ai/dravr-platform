@@ -1,5 +1,5 @@
 // ABOUTME: Resolves user-facing provider names to the actual backend implementation
-// ABOUTME: Routes Strava to OAuth when a token exists, else to the sciotte* mirror
+// ABOUTME: Routes Strava and Garmin to OAuth when a token exists, else to the sciotte* mirror
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -28,9 +28,12 @@
 //! flow.
 //!
 //! Strava is migrating to its OAuth API: when a user holds an OAuth token for
-//! Strava it takes precedence over the sciotte mirror. Garmin and TrainingPeaks
-//! stay on the mirror: Garmin's official API is partner-gated, and
-//! TrainingPeaks has none Pierre can call.
+//! Strava it takes precedence over the sciotte mirror. Garmin works the same
+//! way since Dravr joined the Garmin Connect Developer Program (carnet#1155):
+//! a user holding a `garmin` token is served from what Garmin pushed, and every
+//! other Garmin athlete stays on the connection using usr/pwd from Dravr.
+//! TrainingPeaks and COROS stay on the mirror: neither has an API Pierre can
+//! call.
 //!
 //! This module centralises that decision so handlers do not each re-invent
 //! the alias rules.
@@ -66,6 +69,33 @@ pub fn mirror_backend_for(user_facing: &str) -> Option<&'static str> {
         .iter()
         .find(|(provider, _)| *provider == user_facing)
         .map(|(_, mirror)| *mirror)
+}
+
+/// The mirror-backed providers whose own OAuth backend serves them too: a
+/// token row for that backend wins over the mirror. Strava's API is the
+/// migration target; Garmin's is the Developer Program API, fed by push
+/// (carnet#1155).
+const OAUTH_SERVED: [&str; 2] = [oauth_providers::STRAVA, oauth_providers::GARMIN];
+
+/// Whether `provider`'s own OAuth backend serves it beside its mirror, and so
+/// wins over the mirror when the user holds a token row for it.
+fn oauth_serves(provider: &str) -> bool {
+    OAUTH_SERVED.contains(&provider)
+}
+
+/// Whether a request for `provider` goes to its mirror when the user holds no
+/// row for either backend.
+///
+/// True for every mirror-backed provider but Strava. TrainingPeaks and COROS
+/// have no API Pierre can call. Garmin's API is push-only and holds nothing
+/// until the athlete connects it, so an unconnected Garmin request stays on
+/// the connection using usr/pwd from Dravr, whose missing session surfaces as
+/// a clean reconnect. Strava's API is the one a not-yet-connected user is
+/// sent to connect. Accepts either half of a pair.
+#[must_use]
+pub fn mirror_is_default(provider: &str) -> bool {
+    let user_facing = user_facing_name(provider);
+    mirror_backend_for(user_facing).is_some() && user_facing != oauth_providers::STRAVA
 }
 
 /// The hosted login page's `target` for a mirror backend (`strava`, `garmin`,
@@ -112,22 +142,20 @@ pub fn user_facing_name(backend: &str) -> &str {
     hosted_login_target(backend).unwrap_or(backend)
 }
 
-/// The backends whose token row actually makes a user-facing provider usable.
+/// The backends whose token row actually makes a user-facing provider usable,
+/// in the order [`resolve_backend`] prefers them.
 ///
-/// Connectedness is a ROUTING question, not a row-existence one, and the two
-/// answers differ for Garmin. `resolve_backend` sends every Garmin request to
-/// `sciotte_garmin` unconditionally — the raw `garmin` OAuth API is
-/// partner-gated and uncredentialed, so it is never routed to and a `garmin`
-/// row on its own serves nothing. A status surface that counted that row
-/// reported `connected: true, needs_reauth: false` while every coach data call
-/// failed with "Provider `sciotte_garmin` requires authentication" (carnet#352).
-/// TrainingPeaks is the same shape with no OAuth backend at all: only the
-/// `sciotte_trainingpeaks` row serves it. COROS is Garmin's shape: its partner
-/// API is not approved (carnet#509), so only `sciotte_coros` serves it.
+/// Connectedness is a ROUTING question, not a row-existence one. A status
+/// surface that counted a row routing never reads reported
+/// `connected: true, needs_reauth: false` while every coach data call failed
+/// with "Provider `sciotte_garmin` requires authentication" (carnet#352): at
+/// the time the raw `garmin` OAuth backend was never routed to.
 ///
-/// Strava is the opposite case and genuinely accepts either: its OAuth backend
-/// is real and takes precedence when a token exists, falling back to the
-/// mirror. Providers with no mirror serve themselves.
+/// Strava and Garmin accept either backend: the OAuth one takes precedence
+/// when a token exists, falling back to the mirror. Garmin's OAuth backend
+/// serves since carnet#1155, reading what Garmin pushed. TrainingPeaks and
+/// COROS are served by their mirror alone (COROS's partner API is not
+/// approved, carnet#509). Providers with no mirror serve themselves.
 ///
 /// This lives here, beside `resolve_backend`, so the two cannot drift: a
 /// handler that re-invents the rule is how they drifted in the first place.
@@ -136,35 +164,48 @@ pub fn serving_backends(provider: &str) -> Vec<String> {
     // Accept either half of a coalesced card, as `backend_pair_for` does: a
     // caller naming the mirror must get the same answer as one naming the card.
     let user_facing = user_facing_name(provider);
-    match user_facing {
-        oauth_providers::STRAVA => vec![
-            oauth_providers::STRAVA.to_owned(),
-            oauth_providers::SCIOTTE.to_owned(),
-        ],
-        // Mirror only — see above.
-        oauth_providers::GARMIN => vec![oauth_providers::SCIOTTE_GARMIN.to_owned()],
-        oauth_providers::TRAININGPEAKS => vec![oauth_providers::SCIOTTE_TRAININGPEAKS.to_owned()],
-        oauth_providers::COROS => vec![oauth_providers::SCIOTTE_COROS.to_owned()],
+    match mirror_backend_for(user_facing) {
+        Some(mirror) if oauth_serves(user_facing) => {
+            vec![user_facing.to_owned(), mirror.to_owned()]
+        }
+        Some(mirror) => vec![mirror.to_owned()],
         // No mirror: the provider is its own only backend.
-        other => vec![other.to_owned()],
+        None => vec![user_facing.to_owned()],
     }
 }
 
 /// The backend whose token row the background health sync reads for a
 /// provider, by the name the sync knows it under (`garmin`, `coros`, `whoop`).
 ///
-/// It is the first of the provider's [`serving_backends`], the same precedence
-/// [`resolve_backend`] routes by: a mirror-only provider (Garmin, COROS) is
-/// read through its mirror's browser session, and every other provider through
-/// its own backend. The sync stamps its rows with the provider name, so a
-/// stored night is `coros` whichever backend fed it, while the session lives
-/// on `sciotte_coros`.
+/// A provider routed to its mirror by default ([`mirror_is_default`]: Garmin,
+/// COROS) is pulled through its mirror's browser session, and every other
+/// provider through its own backend. Garmin's OAuth backend is never pulled:
+/// Garmin pushes its data ([`pushed_backend_for`]), so a user who holds it is
+/// skipped by the sync rather than read through it. The sync stamps its rows
+/// with the provider name, so a stored night is `coros` whichever backend fed
+/// it, while the session lives on `sciotte_coros`.
 #[must_use]
 pub fn sync_backend(provider: &str) -> String {
-    serving_backends(provider)
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| provider.to_owned())
+    let user_facing = user_facing_name(provider);
+    match mirror_backend_for(user_facing) {
+        Some(mirror) if mirror_is_default(user_facing) => mirror.to_owned(),
+        _ => serving_backends(provider)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| provider.to_owned()),
+    }
+}
+
+/// The OAuth backend that feeds `provider` by push for a user who holds a
+/// token row for it, or `None` when the provider has none.
+///
+/// Garmin's Developer Program API pushes every summary to Dravr (carnet#1155),
+/// so the background sync, which pulls through [`sync_backend`], must leave a
+/// user who holds this backend alone: reading them through the usr/pwd
+/// session as well would write the same days twice.
+#[must_use]
+pub fn pushed_backend_for(provider: &str) -> Option<&'static str> {
+    (user_facing_name(provider) == oauth_providers::GARMIN).then_some(oauth_providers::GARMIN)
 }
 
 /// Every backend that can serve a user-facing provider, mirror included.
@@ -238,9 +279,11 @@ async fn has_token_row(
 /// serve the request.
 ///
 /// Rules:
-/// - `strava` → `sciotte` when a sciotte token row exists for the user
-/// - `garmin` → `sciotte_garmin` always (the mirror is Garmin's only backend)
-/// - `trainingpeaks` → `sciotte_trainingpeaks` always (same reason)
+/// - `strava` → `strava` when the user holds a Strava OAuth token row, else
+///   `sciotte` when a sciotte token row exists, else `strava`
+/// - `garmin` → `garmin` when the user holds a Garmin API token row, else
+///   `sciotte_garmin`, with or without a session row (carnet#1155)
+/// - `trainingpeaks` → `sciotte_trainingpeaks` always (no API to call)
 /// - `coros` → `sciotte_coros` always (its partner API is not approved)
 /// - any other name (including a mirror backend name passed through
 ///   directly) is returned unchanged
@@ -250,16 +293,12 @@ async fn has_token_row(
 /// that case, which the caller is expected to translate into a
 /// mirror-re-login prompt — never a fallback to OAuth.
 ///
-/// Exceptions:
-/// - A Strava request whose user holds an OAuth token resolves to the OAuth
-///   backend instead of the sciotte mirror (Strava → OAuth-API migration).
-/// - A request for a provider whose mirror is its ONLY backend (Garmin,
-///   TrainingPeaks) always resolves to the mirror, even with no mirror token:
-///   Garmin's OAuth API is partner-gated/uncredentialed and TrainingPeaks has
-///   no API at all, so returning the user-facing name would hit "No Garmin
-///   OAuth credentials" (or an unknown provider) and fail the turn. Staying on
-///   the mirror makes a missing session surface as a clean reconnect auth
-///   error instead.
+/// A provider routed to its mirror by default ([`mirror_is_default`])
+/// resolves to the mirror even with no mirror token: returning the
+/// user-facing name would send an unconnected Garmin athlete to an API that
+/// holds nothing for them (and TrainingPeaks to an unknown provider), where
+/// staying on the mirror makes a missing session surface as a clean reconnect
+/// auth error instead.
 pub async fn resolve_backend(
     repos: &AuthRepos,
     user_id: Uuid,
@@ -272,28 +311,21 @@ pub async fn resolve_backend(
     let Some(tid) = tenant_id else {
         return requested.to_owned();
     };
-    // Strava → OAuth-API migration (ADR: retire sciotte scraping for Strava).
-    // Prefer the OAuth backend over the sciotte mirror whenever the user holds
-    // an OAuth token for Strava. The OAuth-token check is itself the guard:
-    // sciotte-only users have no OAuth token, so they keep the mirror until they
-    // authorize OAuth, at which point their real OAuth connection wins. Garmin
-    // and TrainingPeaks have no such branch and stay on the scraper.
-    if requested == oauth_providers::STRAVA && has_token_row(repos, user_id, tid, requested).await {
+    // Strava → OAuth-API migration, and the Garmin Developer Program API
+    // (carnet#1155): the OAuth backend wins whenever the user holds a token
+    // row for it. Mirror-only users have no such row, so they keep the mirror
+    // until they authorize OAuth.
+    if oauth_serves(requested) && has_token_row(repos, user_id, tid, requested).await {
         return requested.to_owned();
     }
     if has_token_row(repos, user_id, tid, mirror).await {
         return mirror.to_owned();
     }
-    // No mirror token. When the mirror is the provider's ONLY backend (Garmin,
-    // TrainingPeaks), stay on it: the raw `garmin` OAuth API is uncredentialed
-    // and `trainingpeaks` has no backend at all, so a fallthrough fails the turn
-    // with a credentials error instead of the scrape's clean reconnect auth
-    // error. `serving_backends` is the one table that says which providers
-    // those are, so a new mirror-only provider needs no branch here. Strava
-    // keeps returning the OAuth name (a real, connectable backend) so a
-    // not-yet-connected user is routed into the OAuth connect flow rather than
-    // a dead scraper.
-    if serving_backends(requested) == [mirror] {
+    // No row of either backend. Strava keeps returning the OAuth name (a real,
+    // connectable backend) so a not-yet-connected user is routed into the OAuth
+    // connect flow rather than a dead scraper; every other pair stays on its
+    // mirror (see `mirror_is_default`).
+    if mirror_is_default(requested) {
         return mirror.to_owned();
     }
     requested.to_owned()
@@ -349,10 +381,10 @@ impl BackendKind {
 
 /// Probe connection status for a single user-facing provider.
 ///
-/// For Strava an OAuth token wins over the sciotte mirror (Strava → OAuth-API
-/// migration), matching `resolve_backend`. For every other mirror-backed
-/// provider (Garmin, TrainingPeaks) the mirror still wins when present — even
-/// if stale — because the user's stated preference is to keep using it. With
+/// For Strava and Garmin an OAuth token wins over the sciotte mirror, matching
+/// `resolve_backend`. For every other mirror-backed provider (TrainingPeaks,
+/// COROS) the mirror wins when present — even if stale — because the user's
+/// stated preference is to keep using it. With
 /// no credential of the user's own, a confirmed link their group coach reads
 /// one of the provider's backends through ([`BackendKind::Delegated`])
 /// connects it, found the way the read path finds it, so the status and the
@@ -364,11 +396,9 @@ pub async fn coalesced_status(
     tenant_id: TenantId,
     user_facing: &'static str,
 ) -> CoalescedStatus {
-    // Strava prefers its OAuth backend: report it as the active backend when an
-    // OAuth token exists, even if a sciotte mirror row also lingers.
-    if user_facing == oauth_providers::STRAVA
-        && has_token_row(repos, user_id, tenant_id, user_facing).await
-    {
+    // Strava and Garmin prefer their OAuth backend: report it as the active
+    // backend when an OAuth token exists, even if a mirror row also lingers.
+    if oauth_serves(user_facing) && has_token_row(repos, user_id, tenant_id, user_facing).await {
         return CoalescedStatus {
             user_facing,
             connected: true,
@@ -388,10 +418,9 @@ pub async fn coalesced_status(
         }
     }
 
-    // The OAuth row counts only when it is one of the backends that can serve
-    // this provider. Garmin's is not: `resolve_backend` routes every Garmin
-    // request to the mirror, so a bare `garmin` row reported `connected: true`
-    // here while every coach call failed (carnet#352). Same predicate the card
+    // The provider's own row counts only when it is one of the backends that
+    // can serve it: a row routing never reads reported `connected: true` here
+    // while every coach call failed (carnet#352). Same predicate the card
     // uses, so this surface and `/api/providers` cannot disagree.
     if serving_backends(user_facing)
         .iter()

@@ -32,8 +32,9 @@ use crate::repositories::user_oauth_tokens::{live_grant_filter_sql, seat_holder_
 
 /// Register or refresh a connection. A reconnect re-arms the row: `status`
 /// back to `active`, the transition stamped, the last error and the
-/// one-time notification marker cleared. The account role is cleared too: a
-/// new login may be a different account, so its role is read again.
+/// one-time notification marker cleared. The account role and the provider's
+/// last reported grants are cleared too: a new login may be a different
+/// account, granting different permissions, so both are read again.
 pub(crate) const REGISTER_CONNECTION_SQL: &str = r"
             INSERT INTO provider_connections (id, user_id, tenant_id, provider, connection_type, connected_at, metadata)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -45,7 +46,8 @@ pub(crate) const REGISTER_CONNECTION_SQL: &str = r"
                 status_changed_at = EXCLUDED.connected_at,
                 last_error = NULL,
                 notified_at = NULL,
-                account_role = NULL
+                account_role = NULL,
+                provider_grants = NULL
             ";
 
 /// Drop a connection.
@@ -64,6 +66,19 @@ pub(crate) const REMOVE_DELEGATED_CONNECTION_SQL: &str = r"
 pub(crate) const SET_ACCOUNT_ROLE_SQL: &str = r"
             UPDATE provider_connections SET account_role = $1
              WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+            ";
+
+/// Record the data-sharing permissions the provider last reported.
+pub(crate) const SET_PROVIDER_GRANTS_SQL: &str = r"
+            UPDATE provider_connections SET provider_grants = $1
+             WHERE user_id = $2 AND tenant_id = $3 AND provider = $4
+            ";
+
+/// The data-sharing permissions the provider last reported, `NULL` when it
+/// reported none.
+pub(crate) const GET_PROVIDER_GRANTS_SQL: &str = r"
+            SELECT provider_grants FROM provider_connections
+             WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
             ";
 
 /// One read of the connection columns. `$filter` is the `WHERE` clause after
@@ -458,6 +473,48 @@ macro_rules! impl_provider_connection_repository {
                     .await?;
 
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn set_provider_grants(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                grants: &[String],
+            ) -> AppResult<bool> {
+                let encoded = serde_json::to_string(grants)
+                    .map_err(|e| AppError::internal(format!("serialize provider grants: {e}")))?;
+                let result = sqlx::query(SET_PROVIDER_GRANTS_SQL)
+                    .bind(encoded)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .execute(self.pool())
+                    .await?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn provider_grants(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<Option<Vec<String>>> {
+                let stored: Option<Option<String>> = sqlx::query_scalar(GET_PROVIDER_GRANTS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .fetch_optional(self.pool())
+                    .await?;
+                stored
+                    .flatten()
+                    .map(|json| {
+                        serde_json::from_str(&json).map_err(|e| {
+                            AppError::database(format!("stored provider grants do not parse: {e}"))
+                        })
+                    })
+                    .transpose()
             }
 
             async fn get_for_user(

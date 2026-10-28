@@ -99,6 +99,14 @@ pub const FIVE_MINUTES: Duration = Duration::from_mins(5);
 /// Wahoo's hourly window.
 pub const ONE_HOUR: Duration = Duration::from_hours(1);
 
+/// Garmin's activity-file download window.
+const ONE_MINUTE: Duration = Duration::from_mins(1);
+
+/// The budget Garmin's one-shot activity-file downloads are counted in, per
+/// client: separate from the client's API calls, since Garmin limits the
+/// downloads on their own.
+pub const GARMIN_ACTIVITY_FILES: &str = "garmin_activity_files";
+
 /// The share of every window, in percent, that work nobody is waiting on may
 /// spend: the walk of an athlete's whole Strava history for their personal
 /// bests.
@@ -383,6 +391,13 @@ impl ProviderRateLimiter {
         budgets.insert(
             "garmin".to_owned(),
             daily(rate_limits::GARMIN_DEFAULT_DAILY_RATE_LIMIT),
+        );
+        budgets.insert(
+            GARMIN_ACTIVITY_FILES.to_owned(),
+            vec![Budget {
+                max_calls: rate_limits::GARMIN_ACTIVITY_FILES_PER_MINUTE,
+                window: ONE_MINUTE,
+            }],
         );
         budgets.insert(
             "whoop".to_owned(),

@@ -40,6 +40,8 @@ use serde_json::{json, Value};
 
 /// A live list read that answers its turn inside the refresh budget
 pub mod budgeted_read;
+/// A push-only provider's reads: its cached pushes, never a live read
+pub mod pushed;
 /// The session a cache write lands, and the `per_session` persona digest it sends
 #[cfg(feature = "client-notifications")]
 mod session_landing;
@@ -51,6 +53,7 @@ pub mod uploads;
 pub mod write_through;
 
 use budgeted_read::refresh_head_within_budget;
+use pushed::{pushed_head, pushed_window, reads_pushed_store};
 use sync_verdict::{
     judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
     HeadVerdict, LiveRead,
@@ -438,6 +441,11 @@ pub async fn refresh_stale_head(
     if before_bounds_a_closed_window(before, Utc::now().timestamp()) {
         return None;
     }
+    // A push-only provider has no live head to top up from: the window
+    // served is everything it pushed, and its freshness is the last push.
+    if reads_pushed_store(runtime, provider_slug, user_id, Some(tenant_id)).await {
+        return None;
+    }
 
     let last_sync = runtime
         .repos()
@@ -812,6 +820,10 @@ pub async fn read_live_window(
         params,
         ..
     } = live;
+    // A push-only provider has no live list: its window is what it pushed.
+    if runtime.provider_registry().is_push_only(provider.name()) {
+        return pushed_head(runtime, provider.name(), user_id, tenant, params).await;
+    }
     let read = ai_scope::unfiltered(judge_live_read(runtime, live, provider)).await;
     if let Some(tenant) = tenant {
         record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
@@ -841,6 +853,9 @@ async fn fetch_and_persist_head(
     params: &ActivityQueryParams,
 ) -> AppResult<Vec<Activity>> {
     let tenant = TenantId::parse_str(tenant_id).ok();
+    if reads_pushed_store(runtime, provider_slug, user_id, tenant).await {
+        return pushed_window(runtime, provider_slug, user_id, tenant, params).await;
+    }
     let read = read_provider_head(runtime, provider_slug, user_id, tenant_id, params).await;
     if let Some(tenant) = tenant {
         record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;

@@ -146,6 +146,24 @@ impl OAuthService {
         token
     }
 
+    /// The authorization page the athlete is sent to for `provider`.
+    ///
+    /// Resolved like [`Self::token_url_for`]: the registry's endpoint, after
+    /// the `PIERRE_<PROVIDER>_AUTH_URL` override was applied at registration.
+    /// The authorize URL once read the descriptor's constant, so the override
+    /// moved the exchange but not the page, and a local stack that pointed
+    /// Garmin at the dev fixture still sent the browser to Garmin. Production
+    /// leaves the override unset, where the two are equal.
+    pub(crate) fn auth_url_for(&self, provider: &str, endpoints: &OAuthEndpoints) -> String {
+        self.data
+            .provider_registry()
+            .default_config(provider)
+            .map_or_else(
+                || endpoints.auth_url.to_owned(),
+                |config| config.auth_url.clone(),
+            )
+    }
+
     /// The token endpoint a code exchange for `provider` posts to.
     ///
     /// The registry's resolved endpoint: the descriptor's URL after the

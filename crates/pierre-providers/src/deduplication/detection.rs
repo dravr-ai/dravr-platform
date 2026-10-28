@@ -13,9 +13,10 @@
 //! lands in one group whatever order the rows arrived in.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Duration, NaiveTime, Utc};
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Activity, SportType};
 use serde::Serialize;
 
@@ -139,6 +140,12 @@ impl FragmentReport {
 /// Rows with no real start time never match on overlap: every midnight row
 /// "overlaps" every other, which would fold distinct sessions together.
 ///
+/// Whatever their times, the Garmin API's row of an activity and the row the
+/// connection using usr/pwd from Dravr captured of it are one workout when
+/// they carry the same Garmin activity id (carnet#1155), and the API row
+/// stands for it: it outranks its usr/pwd twin whatever the ranking below
+/// says, and takes the fields it lacks from it.
+///
 /// The canonical row is the one carrying a GPS trace ([`carries_gps_trace`]),
 /// then a distance, then the longest, then the farthest, then the lowest id.
 /// Each other member covering at least [`FULL_RECORDING_MIN_PERCENT`] of its
@@ -153,6 +160,7 @@ pub fn merge_duplicates(
     let mut member_sets = group_members(&activities, config);
     for members in &mut member_sets {
         members.sort_by(|&a, &b| canonical_order(&activities[a], &activities[b]));
+        lift_garmin_api_rows(&activities, members);
     }
 
     let mut slots: Vec<Option<Activity>> = activities.into_iter().map(Some).collect();
@@ -232,6 +240,49 @@ fn covers_session(peer: &Activity, canonical: &Activity) -> bool {
             .saturating_mul(FULL_RECORDING_MIN_PERCENT)
 }
 
+/// The Garmin activity id of a Garmin recording, whichever path brought it in:
+/// the Garmin API's row (provider `garmin`) or the row the connection using
+/// usr/pwd from Dravr captured (provider `sciotte`, source `garmin`). Both key
+/// an activity by Garmin's own `activityId`, so the same id is the same
+/// workout. `None` for every other row, whose ids name nothing in common.
+fn garmin_activity_id(activity: &Activity) -> Option<&str> {
+    let from_api = activity.provider() == oauth_providers::GARMIN;
+    let from_credentials = activity.provider() == oauth_providers::SCIOTTE
+        && activity.source() == Some(oauth_providers::GARMIN);
+    (from_api || from_credentials).then(|| activity.id())
+}
+
+/// Whether the row came from the Garmin API.
+fn from_garmin_api(activity: &Activity) -> bool {
+    activity.provider() == oauth_providers::GARMIN
+}
+
+/// Move each Garmin API row of a ranked group ahead of its usr/pwd twin (same
+/// Garmin activity id), keeping every other position: the API row wins its
+/// own activity, while the group's ranking still decides between providers.
+///
+/// Done after the sort rather than inside [`canonical_order`]: a rule that
+/// compares only twins would not be a total order across the group.
+fn lift_garmin_api_rows(activities: &[Activity], members: &mut Vec<usize>) {
+    let mut position = 0;
+    while position < members.len() {
+        let row = &activities[members[position]];
+        let twin = garmin_activity_id(row)
+            .filter(|_| from_garmin_api(row))
+            .and_then(|id| {
+                members[..position].iter().position(|&earlier| {
+                    let other = &activities[earlier];
+                    !from_garmin_api(other) && garmin_activity_id(other) == Some(id)
+                })
+            });
+        if let Some(twin_position) = twin {
+            let api = members.remove(position);
+            members.insert(twin_position, api);
+        }
+        position += 1;
+    }
+}
+
 /// Canonical ranking: carries a GPS trace, then a distance, then longest, then
 /// farthest, then lowest id. A total order, so the pick is deterministic for
 /// any input.
@@ -279,6 +330,20 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
     let slack = Duration::seconds(i64::try_from(config.overlap_tolerance_secs).unwrap_or(0))
         .max(Duration::minutes(config.time_window_minutes));
     let mut sets = DisjointSets::new(activities.len());
+    // One Garmin activity id is one workout, whatever the times say: a usr/pwd
+    // row scraped date-only sits at midnight, beyond the time-sorted reach of
+    // the API row's exact start.
+    let mut by_garmin_id: HashMap<&str, usize> = HashMap::new();
+    for (index, activity) in activities.iter().enumerate() {
+        if let Some(id) = garmin_activity_id(activity) {
+            match by_garmin_id.get(id) {
+                Some(&first) => sets.union(first, index),
+                None => {
+                    by_garmin_id.insert(id, index);
+                }
+            }
+        }
+    }
     for (pos, &i) in order.iter().enumerate() {
         let a = &activities[i];
         let horizon = activity_end(a) + slack;

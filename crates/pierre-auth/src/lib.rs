@@ -80,6 +80,9 @@ pub mod security;
 /// The bot check on the self-serve sign-up form (Cloudflare Turnstile)
 pub mod human_check;
 
+/// Garmin Developer Program client seats: its capped user pool.
+pub mod garmin_seats;
+
 /// Strava shared-app OAuth pool selection + credential resolution.
 pub mod strava_pool;
 

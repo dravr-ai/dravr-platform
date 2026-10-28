@@ -43,6 +43,7 @@ use uuid::Uuid;
 
 use crate::coach_platform::coach_platform;
 use crate::delegated_connections::forget_coach_roster;
+use crate::garmin_push::API_SOURCE_MARKER;
 use crate::oauth_flow::OAuthService;
 use crate::trainingpeaks_accounts::revoke_roster_for_coach_connection;
 
@@ -510,6 +511,13 @@ async fn stored_session_id(
 /// disconnect runs the purge again: clearing a backend the user no longer
 /// holds still purges it. The purge records `reason` on its attestation row.
 ///
+/// The Garmin API (`garmin`) shares its provider key for wellness with the
+/// connection using usr/pwd from Dravr, whose health sync stores Garmin's
+/// sleep, recovery and body rows under `garmin` too. Clearing the API
+/// therefore deletes its activities and only the wellness filed under its
+/// own data source (`garmin_push::API_SOURCE_MARKER`): the
+/// history the usr/pwd connection collected stays with that connection.
+///
 /// # Errors
 /// Returns a database error when the purge fails; nothing was deleted then.
 pub async fn purge_provider_data(
@@ -519,11 +527,22 @@ pub async fn purge_provider_data(
     backend: &str,
     reason: PurgeReason,
 ) -> AppResult<()> {
-    let purge = data
-        .repos()
-        .provider_data
-        .purge_user_provider_data(user_id, &tenant_id, backend, reason)
-        .await?;
+    let provider_data = &data.repos().provider_data;
+    let purge = if backend == oauth_providers::GARMIN {
+        provider_data
+            .purge_user_provider_source_data(
+                user_id,
+                &tenant_id,
+                backend,
+                API_SOURCE_MARKER,
+                reason,
+            )
+            .await?
+    } else {
+        provider_data
+            .purge_user_provider_data(user_id, &tenant_id, backend, reason)
+            .await?
+    };
     info!(
         user_id = %user_id,
         tenant_id = %tenant_id,

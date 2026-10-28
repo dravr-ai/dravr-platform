@@ -27,6 +27,8 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::ConnectionType;
 use pierre_database::repositories::CaptureFreshness;
 use pierre_mcp_server::routes::admin::diagnostics::partition_stale_captures;
+use pierre_tool_runtime::capture_sweep::capturable;
+use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::common::{create_test_server_resources, create_test_user};
 
@@ -328,5 +330,69 @@ async fn a_connection_needing_reauth_is_excluded_from_the_snapshot() {
         after.iter().filter(|c| c.provider == "strava").count(),
         0,
         "a connection needing re-auth must drop out of the snapshot"
+    );
+}
+
+/// A push-only provider's fetch mark moves only when it pushes: an athlete on
+/// the Garmin API who recorded nothing for days, while chatting, is not a
+/// frozen capture. The reader leaves such a connection out before it judges,
+/// and still reports the capture beside it that did stop.
+#[tokio::test]
+async fn a_push_only_connection_is_never_judged_stale() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenants = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .expect("list tenants");
+    let tenant = tenants.first().expect("user has a tenant").id;
+
+    let connections = &resources.common.repos.provider_connections;
+    let cache = &resources.common.repos.activity_cache;
+    for provider in ["garmin", "whoop"] {
+        connections
+            .register_connection(user_id, tenant, provider, &ConnectionType::OAuth, None)
+            .await
+            .unwrap();
+        connections
+            .touch_last_used(user_id, tenant, provider)
+            .await
+            .unwrap();
+        cache
+            .record_activity_fetch(user_id, &tenant, provider, Utc::now() - Duration::hours(72))
+            .await
+            .unwrap();
+    }
+
+    let snapshot = cache.capture_freshness_snapshot(100).await.unwrap();
+    let mine = |c: &CaptureFreshness| c.user_id == user_id.to_string();
+    assert_eq!(snapshot.iter().filter(|c| mine(c)).count(), 2);
+
+    let (judged_rows, left_out) = capturable(resources.provider_registry(), snapshot);
+    assert!(
+        left_out >= 1,
+        "bug: the Garmin API connection must be left out"
+    );
+    let (_, stale) = partition_stale_captures(
+        &judged_rows,
+        Utc::now(),
+        Duration::hours(24),
+        Duration::hours(48),
+    );
+    let stale: Vec<&str> = stale
+        .iter()
+        .filter(|c| c.user_id == user_id.to_string())
+        .map(|c| c.provider.as_str())
+        .collect();
+    assert_eq!(
+        stale,
+        vec!["whoop"],
+        "bug: only the provider read on request can be a frozen capture"
     );
 }

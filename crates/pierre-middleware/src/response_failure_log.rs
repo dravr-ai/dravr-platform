@@ -26,7 +26,7 @@
 //! [`crate::redaction::redaction_middleware`], so an alert for a failing
 //! `OAuth` callback names the route without carrying the authorization code.
 
-use crate::redaction::RedactedRequestLine;
+use crate::redaction::{redacted_path, RedactedRequestLine};
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -50,7 +50,7 @@ pub async fn response_failure_log_middleware(req: Request, next: Next) -> Respon
     let path = req
         .extensions()
         .get::<RedactedRequestLine>()
-        .map_or_else(|| req.uri().path().to_owned(), ToString::to_string);
+        .map_or_else(|| redacted_path(req.uri().path()), ToString::to_string);
     let started = Instant::now();
 
     let response = next.run(req).await;

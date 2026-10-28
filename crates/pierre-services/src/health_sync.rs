@@ -6,7 +6,7 @@
 
 use secrecy::ExposeSecret;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -35,7 +35,7 @@ use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
 use pierre_database::repositories::{SyncCursorRow, WorkerRunRepository};
 use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
-use pierre_providers::backend_resolver::sync_backend;
+use pierre_providers::backend_resolver::{pushed_backend_for, sync_backend};
 use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
 use tracing::{debug, info, warn};
@@ -46,6 +46,7 @@ use crate::delegated_wellness::{
     excluded_from_wellness, health_the_link_files, recovery_the_link_files, sleep_the_link_files,
     DelegatedWellness, PrivateWellness,
 };
+use crate::garmin_push;
 use crate::sciotte_health_reader::SciotteServiceReader;
 use crate::whoop_terms;
 
@@ -68,6 +69,12 @@ use crate::whoop_terms;
 /// (`sciotte_garmin`, `sciotte_coros`). Every lookup here — the roster, the
 /// credentials, the tenant a row is written under — goes through
 /// [`sync_backend`], the one mapping between the two.
+///
+/// A provider that also pushes its data ([`pushed_backend_for`]: Garmin's
+/// Developer Program API) leaves the roster every athlete who holds the
+/// pushed backend in the tenant their usr/pwd session lives in: their reads
+/// resolve to the API, whose pushes already write their days, so pulling them
+/// through the session too would write each day twice.
 ///
 /// Every WHOOP sleep and recovery record passes through
 /// [`whoop_terms`] before it is written, so WHOOP's own scores
@@ -384,7 +391,14 @@ impl PierreSyncStorage {
     }
 
     /// The token row that serves `provider` for this user: the row of its
-    /// [`sync_backend`], or `None` when the user holds none.
+    /// [`sync_backend`], or `None` when the user holds none — or holds, in
+    /// that row's tenant, the backend the provider pushes through
+    /// ([`pushed_backend_for`]) with the permission that lets it push
+    /// wellness ([`Self::wellness_is_pushed`]). Such a user's days arrive by
+    /// push, so every pull of them (scheduled, on request, after a connect)
+    /// finds nothing of their own to read, as the roster already leaves them
+    /// out. A user who withheld that permission is pulled as before: nothing
+    /// else serves their wellness.
     async fn serving_token(
         &self,
         user_uuid: Uuid,
@@ -397,7 +411,44 @@ impl PierreSyncStorage {
             .get_tokens(user_uuid, None)
             .await
             .map_err(|e| EnformeError::store(format!("Failed to look up user tokens: {e}")))?;
-        Ok(tokens.into_iter().find(|t| t.provider == backend))
+        let Some(serving) = tokens.iter().find(|t| t.provider == backend) else {
+            return Ok(None);
+        };
+        let holds_pushed = pushed_backend_for(provider).filter(|pushed| {
+            tokens
+                .iter()
+                .any(|t| t.provider == *pushed && t.tenant_id == serving.tenant_id)
+        });
+        let fed_by_push = match holds_pushed {
+            Some(pushed) => {
+                let tenant = TenantId::parse_str(&serving.tenant_id).map_err(|e| {
+                    EnformeError::store(format!("Stored token has an invalid tenant id: {e}"))
+                })?;
+                self.wellness_is_pushed(user_uuid, tenant, pushed).await?
+            }
+            None => false,
+        };
+        Ok((!fed_by_push).then(|| serving.clone()))
+    }
+
+    /// Whether the `pushed` backend's connection of this user in `tenant`
+    /// pushes their wellness: its last reported permissions (none reported
+    /// reads as all granted) include the health export.
+    async fn wellness_is_pushed(
+        &self,
+        user_uuid: Uuid,
+        tenant: TenantId,
+        pushed: &str,
+    ) -> EnformeResult<bool> {
+        let grants = self
+            .registry
+            .provider_connections
+            .provider_grants(user_uuid, tenant, pushed)
+            .await
+            .map_err(|e| {
+                EnformeError::store(format!("Failed to read the {pushed} permissions: {e}"))
+            })?;
+        Ok(garmin_push::shares_wellness(grants.as_deref()))
     }
 
     /// Resolve the tenant a user's `provider` rows are written under: the
@@ -949,21 +1000,62 @@ impl UserConnectionStore for PierreSyncStorage {
             .list_connected_provider_users(&sync_backend(provider))
             .await
             .map_err(|e| EnformeError::store(format!("Failed to list connected users: {e}")))?;
+        let pushed = self.pushed_holders(provider).await?;
 
         // dravr-enforme's ConnectedUser.user_id is `String` (leaf-dep API).
         // ConnectedUserRow.user_id is the UserId newtype, so we render to the
         // canonical hyphenated form via Display at the boundary. The roster
         // names the provider as the sync knows it, whichever backend row
         // served the user.
-        Ok(rows
+        let roster: Vec<ConnectedUser> = rows
             .into_iter()
+            .filter(|r| !pushed.contains(&(r.user_id.to_string(), r.tenant_id)))
             .map(|r| ConnectedUser {
                 user_id: r.user_id.to_string(),
                 provider: provider.to_owned(),
                 connected_at: Utc::now(),
                 is_active: true,
             })
-            .collect())
+            .collect();
+        if !pushed.is_empty() {
+            debug!(
+                provider,
+                fed_by_push = pushed.len(),
+                "Health sync roster leaves out the athletes the provider pushes to"
+            );
+        }
+        Ok(roster)
+    }
+}
+
+impl PierreSyncStorage {
+    /// Every (user, tenant) holding the backend that pushes `provider`'s data
+    /// ([`pushed_backend_for`]) with the permission that lets it push their
+    /// wellness ([`Self::wellness_is_pushed`]); empty for a provider that
+    /// pushes nothing. A holder who withheld that permission stays on the
+    /// roster: nothing else serves their wellness.
+    async fn pushed_holders(&self, provider: &str) -> EnformeResult<HashSet<(String, TenantId)>> {
+        let Some(pushed) = pushed_backend_for(provider) else {
+            return Ok(HashSet::new());
+        };
+        let rows = self
+            .fitness
+            .sync_cursors
+            .list_connected_provider_users(pushed)
+            .await
+            .map_err(|e| {
+                EnformeError::store(format!("Failed to list the users {pushed} pushes to: {e}"))
+            })?;
+        let mut holders = HashSet::with_capacity(rows.len());
+        for row in rows {
+            if self
+                .wellness_is_pushed(row.user_id.as_uuid(), row.tenant_id, pushed)
+                .await?
+            {
+                holders.insert((row.user_id.to_string(), row.tenant_id));
+            }
+        }
+        Ok(holders)
     }
 }
 

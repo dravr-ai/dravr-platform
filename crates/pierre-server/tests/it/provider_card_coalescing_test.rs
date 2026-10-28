@@ -112,25 +112,31 @@ fn card(cards: &[(String, bool)], name: &str) -> bool {
         .1
 }
 
-/// Coalescing stops at what the fetch path can use (carnet#352). Garmin's OAuth
-/// API is uncredentialed and `resolve_backend` sends every Garmin request to
-/// `sciotte_garmin`, so a bare `garmin` row serves nothing and must leave the
-/// card dark. Counting it read "Garmin connecté" in the chat header above a
-/// coach reply saying the connection had expired.
+/// Coalescing stops at what the fetch path can use (carnet#352): a row counts
+/// only when routing reads it. Since carnet#1155 `resolve_backend` sends a
+/// Garmin request to the Garmin API whenever the athlete holds it, so a bare
+/// `garmin` row serves and lights the one Garmin card — and no other.
 #[tokio::test]
-async fn garmin_oauth_row_alone_leaves_the_garmin_card_dark() {
+async fn garmin_api_row_alone_lights_the_garmin_card() {
     let (resources, user_id, tenant_id, user) = test_setup().await;
     register_connection(&resources, user_id, tenant_id, oauth_providers::GARMIN).await;
 
     let cards = provider_cards(&resources, &user).await;
 
     assert!(
-        !card(&cards, oauth_providers::SCIOTTE_GARMIN),
-        "a garmin OAuth row serves no fetch, so the Garmin card must stay dark: {cards:?}"
+        card(&cards, oauth_providers::SCIOTTE_GARMIN),
+        "a garmin API row serves every Garmin read, so the Garmin card must show connected: {cards:?}"
+    );
+    assert_eq!(
+        cards.iter().filter(|(_, connected)| *connected).count(),
+        1,
+        "only the Garmin card may read as connected: {cards:?}"
     );
     assert!(
-        !cards.iter().any(|(_, connected)| *connected),
-        "nothing can serve this athlete, so nothing may read as connected: {cards:?}"
+        !cards
+            .iter()
+            .any(|(provider, _)| provider == oauth_providers::GARMIN),
+        "the raw garmin card stays withheld: {cards:?}"
     );
 }
 

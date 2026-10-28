@@ -29,8 +29,10 @@ use std::sync::Arc;
 use chrono::{Duration, Utc};
 use dravr_tronc::mcp::tasks::TASKS_EXTENSION_ID;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
-use pierre_core::models::{Activity, ConnectionType, TenantId};
+use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::core::ActivityQueryParams;
+use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -300,5 +302,86 @@ async fn historical_backfill_declines_a_headless_capture_and_persists_a_complete
     assert!(
         coverage.is_some_and(|c| c.oldest_reached_ts <= after),
         "a complete backfill records the requested floor as covered"
+    );
+}
+
+/// One cached run under `provider`, started `age_days` ago.
+fn old_run(id: &str, provider: &str, age_days: i64) -> Activity {
+    ActivityBuilder::new(
+        id.to_owned(),
+        format!("run {id}"),
+        SportType::Run,
+        Utc::now() - Duration::days(age_days),
+        3_600,
+        provider,
+    )
+    .source(provider)
+    .build()
+}
+
+/// The retention prune a write-through runs is the written provider's own: a
+/// Strava (usr/pwd) sync deletes its own rows past retention, never the
+/// Garmin API's. Garmin pushes each activity once, so a Garmin row the prune
+/// took would be gone for good.
+#[tokio::test]
+async fn a_strava_write_through_leaves_an_old_garmin_api_row_alone() {
+    let (_head_complete, scraper_url) = scraper_head_flag().await;
+    let resources = create_test_server_resources_with_sciotte(&scraper_url)
+        .await
+        .unwrap();
+    let (user_id, tenant) = athlete_on_sciotte(&resources).await;
+    let cache = &resources.common.repos.activity_cache;
+    let years_ago = 3 * 365;
+    cache
+        .upsert_activities(
+            user_id,
+            &tenant,
+            "garmin",
+            &[old_run("garmin-old", "garmin", years_ago)],
+        )
+        .await
+        .unwrap();
+    cache
+        .upsert_activities(
+            user_id,
+            &tenant,
+            "sciotte",
+            &[old_run("strava-old", "sciotte", years_ago)],
+        )
+        .await
+        .unwrap();
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let params = ActivityQueryParams {
+        limit: Some(10),
+        offset: None,
+        before: None,
+        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+    };
+    fetch_provider_head(&runtime, "sciotte", user_id, &tenant.to_string(), &params)
+        .await
+        .expect("the Strava head is read and written through");
+
+    let held = |provider: &'static str, id: &'static str| {
+        let cache = Arc::clone(cache);
+        async move {
+            cache
+                .get_cached_activity(user_id, &tenant, provider, id)
+                .await
+                .unwrap()
+                .is_some()
+        }
+    };
+    assert!(
+        held("sciotte", MOCK_SCRAPER_RIDE_ID).await,
+        "the write-through landed"
+    );
+    assert!(
+        !held("sciotte", "strava-old").await,
+        "the written provider's own rows past retention are pruned"
+    );
+    assert!(
+        held("garmin", "garmin-old").await,
+        "bug: a Strava write-through must never prune a Garmin API row"
     );
 }

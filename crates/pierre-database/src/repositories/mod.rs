@@ -20,6 +20,8 @@ pub mod activity_cache;
 pub mod activity_conversations;
 /// `ActivityRouteTrackRepository`: one stored route read per activity.
 pub mod activity_route_tracks;
+/// `ActivityStreamRepository`: the one per-activity sample store (pushed, uploaded or imported samples).
+pub mod activity_streams;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
@@ -79,6 +81,8 @@ pub mod firebase_identity_deletions;
 pub mod first_run_progress;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
+/// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
+pub mod garmin_push_inbox;
 /// Shared statements for group invites, run by the coaching-group repository body.
 pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
@@ -143,6 +147,8 @@ pub mod prescribed_workouts;
 pub mod provider_connections;
 /// Deleting every row one provider contributed, per user on disconnect or platform-wide on termination.
 pub mod provider_data;
+/// `PushedDataRepository`: newest-receipt-wins writes for data a provider pushes.
+pub mod pushed_data;
 /// Repository traits for recipe persistence.
 pub mod recipes;
 /// Repository trait for messaging turns the shutdown drain handed off to another instance.
@@ -246,6 +252,7 @@ pub use activity_backfill_jobs::*;
 pub use activity_cache::*;
 pub use activity_conversations::*;
 pub use activity_route_tracks::*;
+pub use activity_streams::*;
 pub use admin::*;
 pub use agent_artefacts::*;
 pub use agents::*;
@@ -268,6 +275,7 @@ pub use firebase_identity_deletions::{
 };
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
+pub use garmin_push_inbox::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;
 pub use health::*;
@@ -289,6 +297,7 @@ pub use platform_post_claims::PlatformPostClaimRepository;
 pub use playbooks::*;
 pub use prescribed_workouts::*;
 pub use provider_data::*;
+pub use pushed_data::*;
 pub use recipes::*;
 pub use resumable_turns::*;
 pub use route_summaries::*;

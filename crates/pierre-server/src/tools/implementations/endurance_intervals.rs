@@ -222,9 +222,11 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
             // LIMITATION(registre#6): streams arrive via get_activity_with_streams
-            // from Strava, Intervals.icu, Wahoo, uploaded files and sciotte
-            // (except TrainingPeaks); on the direct Garmin, COROS, WHOOP and
-            // Terra integrations this branch always fires — no sample source.
+            // from Strava, Intervals.icu, Wahoo, uploaded files, the Garmin API
+            // (the samples its activity details or FIT file pushed, stored in
+            // activity_streams; an activity whose details have not arrived has
+            // none yet) and sciotte (except TrainingPeaks); on the COROS, WHOOP
+            // and Terra integrations this branch always fires — no sample source.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -341,9 +343,11 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
             // LIMITATION(registre#6): streams arrive via get_activity_with_streams
-            // from Strava, Intervals.icu, Wahoo, uploaded files and sciotte
-            // (except TrainingPeaks); on the direct Garmin, COROS, WHOOP and
-            // Terra integrations this branch always fires — no sample source.
+            // from Strava, Intervals.icu, Wahoo, uploaded files, the Garmin API
+            // (the samples its activity details or FIT file pushed, stored in
+            // activity_streams; an activity whose details have not arrived has
+            // none yet) and sciotte (except TrainingPeaks); on the COROS, WHOOP
+            // and Terra integrations this branch always fires — no sample source.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;

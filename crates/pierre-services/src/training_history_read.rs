@@ -429,7 +429,8 @@ pub struct ComputeBackend {
     pub requires_reauth: bool,
     /// Whether the capture rail can page this backend for deeper history.
     /// `false` for the athlete's uploads: nothing fetches them, they arrive
-    /// only when the athlete uploads a file.
+    /// only when the athlete uploads a file; and for a push-only provider,
+    /// whose history is only what it pushed.
     pub capturable: bool,
 }
 
@@ -483,15 +484,17 @@ pub async fn resolve_compute_backends(
             .collect()
     };
     let auth = repos.auth_repos();
+    let registry = global_registry();
     let mut backends: Vec<ComputeBackend> = Vec::with_capacity(requested.len());
     for (provider, requires_reauth) in requested {
         let slug =
             backend_resolver::resolve_backend(&auth, user_id, Some(tenant_id), &provider).await;
         if !backends.iter().any(|seen| seen.slug == slug) {
+            let capturable = !registry.is_push_only(&slug);
             backends.push(ComputeBackend {
                 slug,
                 requires_reauth,
-                capturable: true,
+                capturable,
             });
         }
     }

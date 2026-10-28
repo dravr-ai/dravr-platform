@@ -455,16 +455,44 @@ fn is_sensitive_query_param(raw_name: &str) -> bool {
     SENSITIVE_QUERY_PARAMS.contains(&name.as_str())
 }
 
+/// Path prefixes whose next segment is a credential, not a route: a caller
+/// that cannot send a header proves itself with a secret in the URL path.
+///
+/// `/webhooks/garmin/{token}/{summaryType}` is Garmin's push URL, whose token
+/// (`GARMIN_WEBHOOK_TOKEN`) is the only secret a forged push must guess.
+const SECRET_PATH_SEGMENT_PREFIXES: [&str; 1] = ["/webhooks/garmin/"];
+
+/// The placeholder a secret path segment is logged as.
+const REDACTED_PATH_SEGMENT: &str = "[redacted]";
+
+/// A request path safe to log.
+///
+/// The segment after each [`SECRET_PATH_SEGMENT_PREFIXES`] prefix is
+/// replaced by a placeholder, everything else kept verbatim. It is redacted
+/// whatever the PII settings say, since it is a credential, not personal
+/// data.
+#[must_use]
+pub fn redacted_path(path: &str) -> String {
+    for prefix in SECRET_PATH_SEGMENT_PREFIXES {
+        if let Some(rest) = path.strip_prefix(prefix) {
+            let after = rest.find('/').map_or("", |at| &rest[at..]);
+            return format!("{prefix}{REDACTED_PATH_SEGMENT}{after}");
+        }
+    }
+    path.to_owned()
+}
+
 /// Build the log-safe request line for a URI: path plus redacted query.
 ///
-/// The path itself is kept verbatim — it is the route, and routes are what an
-/// operator reads an alert for.
+/// The path is the route, and routes are what an operator reads an alert
+/// for, so it is kept verbatim except for a segment that is a credential
+/// ([`redacted_path`]).
 #[must_use]
 pub fn redacted_request_line(uri: &Uri, config: &RedactionConfig) -> String {
-    let path = uri.path();
+    let path = redacted_path(uri.path());
     match uri.query() {
         Some(query) if !query.is_empty() => format!("{path}?{}", redact_query(query, config)),
-        _ => path.to_owned(),
+        _ => path,
     }
 }
 
@@ -516,7 +544,27 @@ mod tests {
     use proptest::prelude::*;
     use proptest::sample::select;
 
-    use super::{mask_email, redact_query, RedactionConfig, SENSITIVE_QUERY_PARAMS};
+    use super::{
+        mask_email, redact_query, redacted_path, redacted_request_line, RedactionConfig,
+        SENSITIVE_QUERY_PARAMS,
+    };
+
+    #[test]
+    fn a_garmin_push_path_never_logs_its_token() {
+        let config = RedactionConfig::new(false, "[REDACTED]".to_owned());
+        let uri: http::Uri = "/webhooks/garmin/s3cr3t-token-value/sleeps"
+            .parse()
+            .unwrap();
+        let line = redacted_request_line(&uri, &config);
+        assert_eq!(line, "/webhooks/garmin/[redacted]/sleeps");
+        assert!(!line.contains("s3cr3t"));
+        assert_eq!(
+            redacted_path("/webhooks/garmin/s3cr3t"),
+            "/webhooks/garmin/[redacted]"
+        );
+        assert_eq!(redacted_path("/webhooks/stripe"), "/webhooks/stripe");
+        assert_eq!(redacted_path("/api/activities"), "/api/activities");
+    }
 
     /// A value no generated name or filler can contain, so finding it in the
     /// output can only mean it leaked.

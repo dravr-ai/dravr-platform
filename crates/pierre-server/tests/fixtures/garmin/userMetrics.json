@@ -1,0 +1,11 @@
+{
+  "userMetrics": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-metrics-1",
+      "calendarDate": "$DAY-1",
+      "vo2Max": 55.0,
+      "vo2MaxCycling": 57.0
+    }
+  ]
+}

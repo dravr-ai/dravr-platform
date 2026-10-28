@@ -126,17 +126,20 @@ use crate::delegation::{CoachRoster, DelegatedReads};
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, Stats, TimeSeriesData, API_KEY_TOKEN_TYPE,
+    SportType, Stats, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
+use pierre_database::repositories::{ActivityCacheRepository, ActivityStreamRepository};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// Callback invoked when a provider refreshes its OAuth tokens internally.
 ///
@@ -144,6 +147,34 @@ use std::sync::Arc;
 /// Returns a future that completes when persistence is done (errors are logged, not propagated).
 pub type TokenRefreshCallback =
     Arc<dyn Fn(OAuth2Credentials) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// The stores one connection's owner holds in one tenant, which a provider
+/// that pushes its data to Dravr reads instead of reading the provider
+/// ([`crate::spi::ProviderCapabilities::PUSH_ONLY`]).
+///
+/// The auth layer binds them through [`FitnessProvider::bind_owner_stores`]
+/// beside the credentials, for the user and tenant the credentials were read
+/// for, so a read can never reach another athlete's rows.
+#[derive(Clone)]
+pub struct OwnerStores {
+    /// The activity cache the provider's pushed activities are written to.
+    pub activity_cache: Arc<dyn ActivityCacheRepository>,
+    /// The samples the provider pushed for each activity.
+    pub activity_streams: Arc<dyn ActivityStreamRepository>,
+    /// The connection's owner.
+    pub user_id: Uuid,
+    /// The tenant the connection lives in.
+    pub tenant_id: TenantId,
+}
+
+impl fmt::Debug for OwnerStores {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OwnerStores")
+            .field("user_id", &self.user_id)
+            .field("tenant_id", &self.tenant_id)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Authentication credentials for `OAuth2` providers (Shared Request Type)
 ///
@@ -341,6 +372,16 @@ pub trait FitnessProvider: Send + Sync {
         // No-op by default — providers that don't do OAuth refresh ignore this
     }
 
+    /// Bind the stores the connection's owner holds in its tenant. Called
+    /// once by the auth layer after provider creation, beside
+    /// [`Self::set_token_refresh_callback`]. A provider that pushes its data
+    /// to Dravr ([`crate::spi::ProviderCapabilities::PUSH_ONLY`]) keeps them
+    /// and serves every data read from them; one read on request ignores
+    /// them.
+    fn bind_owner_stores(&self, _stores: OwnerStores) {
+        // No-op by default — a provider read on request has no use for them
+    }
+
     /// Get user's athlete profile
     ///
     /// # Example
@@ -471,9 +512,8 @@ pub trait FitnessProvider: Send + Sync {
     /// has a sample source behind it.
     ///
     /// `false` by default, and for every integration that inherits the
-    /// streams-less default below: WHOOP, COROS, Terra and the direct Garmin
-    /// API serve an activity without samples, whatever it recorded
-    /// (registre#6 tracks the roster). A caller that needs a track asks this
+    /// streams-less default below: WHOOP, COROS and Terra serve an activity
+    /// without samples, whatever it recorded (registre#6 tracks the roster). A caller that needs a track asks this
     /// before spending a detail read that can never carry one — the Home
     /// route read settles such an activity as having no track to draw instead
     /// of retrying a read that cannot succeed.

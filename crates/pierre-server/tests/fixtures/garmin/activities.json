@@ -1,0 +1,47 @@
+{
+  "activities": [
+    {
+      "userId": "$USER",
+      "summaryId": "81000000001",
+      "activityId": 81000000001,
+      "activityName": "Dev fixture ride",
+      "activityType": "ROAD_BIKING",
+      "startTimeInSeconds": "$T-61200",
+      "startTimeOffsetInSeconds": -14400,
+      "durationInSeconds": 3600,
+      "distanceInMeters": 30200.0,
+      "averageSpeedInMetersPerSecond": 8.39,
+      "maxSpeedInMetersPerSecond": 14.2,
+      "averageHeartRateInBeatsPerMinute": 142,
+      "maxHeartRateInBeatsPerMinute": 171,
+      "averageBikeCadenceInRoundsPerMinute": 88,
+      "maxBikeCadenceInRoundsPerMinute": 112,
+      "activeKilocalories": 810,
+      "totalElevationGainInMeters": 312.0,
+      "startingLatitudeInDegree": 45.5017,
+      "startingLongitudeInDegree": -73.5673,
+      "deviceName": "Edge 1040"
+    },
+    {
+      "userId": "$USER",
+      "summaryId": "81000000002",
+      "activityId": 81000000002,
+      "activityName": "Dev fixture run",
+      "activityType": "RUNNING",
+      "startTimeInSeconds": "$T-140400",
+      "startTimeOffsetInSeconds": -14400,
+      "durationInSeconds": 2700,
+      "distanceInMeters": 9100.0,
+      "averageSpeedInMetersPerSecond": 3.37,
+      "maxSpeedInMetersPerSecond": 4.6,
+      "averageHeartRateInBeatsPerMinute": 151,
+      "maxHeartRateInBeatsPerMinute": 176,
+      "averageRunCadenceInStepsPerMinute": 172,
+      "maxRunCadenceInStepsPerMinute": 188,
+      "activeKilocalories": 610,
+      "steps": 7740,
+      "totalElevationGainInMeters": 64.0,
+      "deviceName": "Forerunner 965"
+    }
+  ]
+}

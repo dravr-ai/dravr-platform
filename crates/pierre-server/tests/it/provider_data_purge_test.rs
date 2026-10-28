@@ -53,13 +53,13 @@ use pierre_core::constants::provider_capture::BASELINE_CAPTURE_VERSION;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
     ActivityBuilder, DataSource, DeviceType, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
-    StoredSleepSession, Tenant, TenantId, User, UserOAuthToken, UserStatus,
+    StoredSleepSession, Tenant, TenantId, TimeSeriesData, User, UserOAuthToken, UserStatus,
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage,
-    PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason, StoredRouteTrack,
-    SyncCursorRow,
+    ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
+    BackfillCoverage, PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason,
+    StoredRouteTrack, StreamOrigin, SyncCursorRow, STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -89,7 +89,7 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 15] = [
+const ONE_ROW_TABLES: [&str; 16] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
@@ -97,6 +97,7 @@ const ONE_ROW_TABLES: [&str; 15] = [
     "data_point_series_archive",
     "cached_activities",
     "activity_route_tracks",
+    "activity_streams",
     "activity_conversations",
     "personal_best_efforts",
     "best_effort_scans",
@@ -165,6 +166,21 @@ async fn world() -> World {
     }
 }
 
+/// Two heart-rate samples, the set every seeded activity carries.
+fn two_samples() -> TimeSeriesData {
+    TimeSeriesData {
+        timestamps: vec![0, 1],
+        heart_rate: Some(vec![Some(140), Some(141)]),
+        power: None,
+        cadence: None,
+        speed: None,
+        altitude: None,
+        temperature: None,
+        gps_coordinates: None,
+        distance: None,
+    }
+}
+
 /// One user and a tenant they own.
 async fn seed_user(repos: &RepositoryRegistry, label: &str) -> (Uuid, TenantId) {
     let mut user = User::new(
@@ -196,6 +212,46 @@ async fn seed_tenant(repos: &RepositoryRegistry, owner: Uuid, label: &str) -> Te
         .await
         .unwrap();
     tenant_id
+}
+
+/// The route the Home page read for one seeded activity, and the samples
+/// its provider pushed for it.
+async fn seed_run_reads(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    user_id: Uuid,
+    provider: &str,
+    activity_id: &str,
+) {
+    repos
+        .activity_route_tracks
+        .upsert_route_track(
+            &tenant,
+            user_id,
+            provider,
+            activity_id,
+            &StoredRouteTrack::Unavailable {
+                source: "streams".to_owned(),
+                reason: "no_gps".to_owned(),
+                expires_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    repos
+        .activity_streams
+        .upsert_activity_streams(&ActivityStreamsWrite {
+            tenant_id: &tenant,
+            user_id,
+            provider,
+            activity_id,
+            origin: StreamOrigin::Push,
+            source_ref: None,
+            streams: &two_samples(),
+            synced_at: Utc::now(),
+        })
+        .await
+        .unwrap();
 }
 
 /// One row in every table `provider` writes to for the scope, two in
@@ -339,22 +395,9 @@ async fn seed_provider_rows(
         .upsert_activities(user_id, &tenant, provider, &[run])
         .await
         .unwrap();
-    // The route the Home page read for that run, filed under the same key.
-    repos
-        .activity_route_tracks
-        .upsert_route_track(
-            &tenant,
-            user_id,
-            provider,
-            &run_id,
-            &StoredRouteTrack::Unavailable {
-                source: "streams".to_owned(),
-                reason: "no_gps".to_owned(),
-                expires_at: None,
-            },
-        )
-        .await
-        .unwrap();
+    // The route the Home page read for that run and the samples the provider
+    // pushed for it, filed under the same key.
+    seed_run_reads(repos, tenant, user_id, provider, &run_id).await;
     // The thread the run's view opened, linked under the same key. The
     // conversation is the athlete's and outlives the purge; the link does not.
     let thread = repos
@@ -525,6 +568,61 @@ async fn seed_archive_row(db: &Database, data_source_id: &str) {
                 .execute(postgres.pool())
                 .await
                 .unwrap();
+        }
+    }
+}
+
+/// One `activity_streams` row of an origin no repository writes yet
+/// (`upload`, `archive`: the column admits them, `StreamOrigin` has only
+/// `Push`), so the fixture writes it in SQL. It is older than any cache cap,
+/// so a cache expiry would reach it were it a pushed row.
+async fn seed_unpushed_streams(
+    db: &Database,
+    tenant: &TenantId,
+    user: Uuid,
+    origin: &str,
+    activity_id: &str,
+) {
+    let json = serde_json::to_string(&two_samples()).unwrap();
+    let synced_at = Utc::now() - Duration::days(30);
+    let sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(
+                "INSERT INTO activity_streams (tenant_id, user_id, provider, activity_id, \
+                 origin, source_ref, format_version, streams_json, synced_at) \
+                 VALUES ($1, $2, 'whoop', $3, $4, $5, $6, $7, $8)",
+            )
+            .bind(tenant.to_string())
+            .bind(user.to_string())
+            .bind(activity_id)
+            .bind(origin)
+            .bind(sha)
+            .bind(STREAMS_FORMAT_VERSION)
+            .bind(&json)
+            .bind(synced_at)
+            .execute(sqlite.pool())
+            .await
+            .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(
+                "INSERT INTO activity_streams (tenant_id, user_id, provider, activity_id, \
+                 origin, source_ref, format_version, streams_json, synced_at) \
+                 VALUES ($1, $2::uuid, 'whoop', $3, $4, $5, $6, $7, $8)",
+            )
+            .bind(tenant.to_string())
+            .bind(user.to_string())
+            .bind(activity_id)
+            .bind(origin)
+            .bind(sha)
+            .bind(STREAMS_FORMAT_VERSION)
+            .bind(&json)
+            .bind(synced_at)
+            .execute(postgres.pool())
+            .await
+            .unwrap();
         }
     }
 }
@@ -812,6 +910,17 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
             .await
             .unwrap();
         assert_eq!(route.is_some(), held == 1, "{provider} stored route");
+        let samples = repos
+            .activity_streams
+            .get_activity_streams(
+                &tenant,
+                athlete,
+                provider,
+                &format!("{provider}-run-{athlete}-{tenant}"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(samples.is_some(), held == 1, "{provider} stored samples");
         let thread = repos
             .activity_conversations
             .get_activity_conversation(
@@ -1081,12 +1190,13 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
 
 /// Tables a cache expiry evicts one row from per seeded scope, the sync state
 /// describing them included. `activity_backfill_jobs` is apart, as above.
-const ONE_ROW_EXPIRED_TABLES: [&str; 9] = [
+const ONE_ROW_EXPIRED_TABLES: [&str; 10] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
     "cached_activities",
     "activity_route_tracks",
+    "activity_streams",
     "sync_state",
     "activity_fetch_freshness",
     "activity_fetch_failures",
@@ -1312,14 +1422,83 @@ async fn every_purge_leaves_an_attestation_row_the_operator_can_read() {
     assert_eq!(purges[0]["reason"], "termination", "{body}");
     assert!(purges[0]["user_id"].is_null(), "{body}");
     assert!(purges[0]["tenant_id"].is_null(), "{body}");
-    assert_eq!(purges[0]["rows_removed"], 3 * 15 + 3 * 2 + 2, "{body}");
+    assert_eq!(purges[0]["rows_removed"], 3 * 16 + 3 * 2 + 2, "{body}");
 
     assert_eq!(purges[1]["reason"], "athlete_disconnect", "{body}");
     assert_eq!(purges[1]["user_id"], athlete.to_string(), "{body}");
     assert_eq!(purges[1]["tenant_id"], tenant.to_string(), "{body}");
-    assert_eq!(purges[1]["rows_removed"], 15 + 2 + 1, "{body}");
+    assert_eq!(purges[1]["rows_removed"], 16 + 2 + 1, "{body}");
     assert!(
         !body.to_string().contains("next-page"),
         "an attestation row carries no provider data: {body}"
+    );
+}
+
+/// `activity_streams` is the one per-activity sample store: an upload or an
+/// archive import is the athlete's own record, so a provider's purges —
+/// disconnect, cache expiry, termination — take only the samples that
+/// provider pushed, and leave every other origin under its key.
+#[tokio::test]
+async fn a_provider_purge_takes_only_the_samples_it_pushed() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+    let db = world.resources.agent.database.clone();
+    seed_unpushed_streams(&db, &tenant, athlete, "upload", "uploaded-1").await;
+    seed_unpushed_streams(&db, &tenant, athlete, "archive", "archived-1").await;
+    let still_held = || async move {
+        let mut held = Vec::new();
+        for id in ["uploaded-1", "archived-1"] {
+            if repos
+                .activity_streams
+                .get_activity_streams(&tenant, athlete, "whoop", id)
+                .await
+                .unwrap()
+                .is_some()
+            {
+                held.push(id);
+            }
+        }
+        held
+    };
+
+    sweep_provider_caches(
+        repos.provider_data.as_ref(),
+        &whoop_under_nolio_cap(),
+        Utc::now() + Duration::days(8),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        still_held().await,
+        ["uploaded-1", "archived-1"],
+        "cache expiry"
+    );
+
+    let purged = repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        purged.rows_removed.get("activity_streams"),
+        None,
+        "{purged:?}"
+    );
+    assert_eq!(
+        still_held().await,
+        ["uploaded-1", "archived-1"],
+        "disconnect"
+    );
+
+    repos
+        .provider_data
+        .purge_provider_data("whoop")
+        .await
+        .unwrap();
+    assert_eq!(
+        still_held().await,
+        ["uploaded-1", "archived-1"],
+        "termination"
     );
 }

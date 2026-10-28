@@ -1,0 +1,10 @@
+{
+  "userPermissionsChange": [
+    {
+      "userId": "$USER",
+      "summaryId": "dev-permissions-1",
+      "permissions": ["ACTIVITY_EXPORT", "WORKOUT_IMPORT"],
+      "changeTimeInSeconds": "$T-3600"
+    }
+  ]
+}

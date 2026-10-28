@@ -243,6 +243,8 @@ user_owned_tables!(
     "cached_activities",
     "uploaded_activity_files",
     "activity_route_tracks",
+    "activity_streams",
+    "pushed_activity_files",
     "activity_backfill_coverage",
     "activity_backfill_jobs",
     "activity_fetch_freshness",

@@ -51,6 +51,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
 use pierre_providers::core::ActivityQueryParams;
+use pierre_providers::registry::ProviderRegistry;
 use serde::Serialize;
 use tokio::time::timeout;
 use tracing::{info, warn};
@@ -152,6 +153,28 @@ impl SweepSelection {
     }
 }
 
+/// The connections of `snapshot` a capture can be made of, and how many
+/// were left out.
+///
+/// A push-only provider ([`ProviderRegistry::is_push_only`]) has no list to
+/// read: its data arrives when the provider pushes it, and its fetch mark
+/// moves only then. The sweep has nothing to refresh for it, and the
+/// staleness reader would read an athlete who simply recorded nothing as a
+/// frozen capture, so both leave such a connection out of what they judge.
+#[must_use]
+pub fn capturable(
+    registry: &ProviderRegistry,
+    snapshot: Vec<CaptureFreshness>,
+) -> (Vec<CaptureFreshness>, usize) {
+    let total = snapshot.len();
+    let kept: Vec<CaptureFreshness> = snapshot
+        .into_iter()
+        .filter(|connection| !registry.is_push_only(&connection.provider))
+        .collect();
+    let left_out = total - kept.len();
+    (kept, left_out)
+}
+
 /// What one connection's refresh attempt did.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -216,8 +239,10 @@ pub struct RefreshReport {
     /// Flagged scrape sessions the sweep retried, each also counted in
     /// `attempted` and in the outcome it reached.
     pub retried: usize,
-    /// Live connections the sweep's [`SweepSelection`] left out: not used
-    /// recently enough, or fetched recently enough already.
+    /// Live connections the sweep left out: a push-only provider's, which
+    /// has nothing to fetch ([`capturable`]), and those its
+    /// [`SweepSelection`] did not pick — not used recently enough, or
+    /// fetched recently enough already.
     pub passed_over: usize,
     /// Whether the sweep reached every connection in the snapshot.
     pub completed: bool,
@@ -226,7 +251,7 @@ pub struct RefreshReport {
 }
 
 /// Refresh the recent head of every live provider connection `selection`
-/// picks, then retry the flagged scrape sessions whose retry is due.
+/// picks, push-only providers' passed over ([`capturable`]), then retry the flagged scrape sessions whose retry is due.
 ///
 /// Walks the same snapshot the staleness reader judges — which already excludes
 /// connections needing re-auth, since a known-dead one has nothing to refresh.
@@ -256,7 +281,8 @@ pub async fn refresh_captures(
         .capture_freshness_snapshot(budget.connection_limit)
         .await?;
     let live_count = live.len();
-    let snapshot: Vec<CaptureFreshness> = live
+    let (fetchable, _) = capturable(runtime.provider_registry(), live);
+    let snapshot: Vec<CaptureFreshness> = fetchable
         .into_iter()
         .filter(|connection| selection.selects(connection, started_at))
         .collect();

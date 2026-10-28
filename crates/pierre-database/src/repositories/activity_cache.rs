@@ -452,12 +452,15 @@ pub trait ActivityCacheRepository: Send + Sync {
         provider: &str,
     ) -> AppResult<Option<ActivityFetchFailureRecord>>;
 
-    /// Delete a user's cached activities whose `start_date` is older than
-    /// `cutoff` (retention pruning). Returns the number of rows removed.
+    /// Delete a user's cached activities under `provider` whose `start_date`
+    /// is older than `cutoff` (retention pruning, run by that provider's
+    /// write-through). Another provider's rows are never touched, and an
+    /// upload's never at all. Returns the number of rows removed.
     async fn prune_activities_before(
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
+        provider: &str,
         cutoff: DateTime<Utc>,
     ) -> AppResult<u64>;
 
@@ -481,10 +484,10 @@ pub trait ActivityCacheRepository: Send + Sync {
     /// below `cutoff`, across all providers. Returns the number of rows moved.
     ///
     /// Coverage records what a backfill FETCHED; the prune decides what is
-    /// still STORED, and the two drift apart because `prune_activities_before`
-    /// is keyed per `(user, tenant)` across every provider. One narrow
-    /// write-through therefore reclaims a deep backfill's rows while the
-    /// coverage row goes on naming the depth it once reached, and the
+    /// still STORED, and the two drift apart: one narrow write-through of
+    /// `provider` prunes a deep backfill's rows ([`Self::prune_activities_before`],
+    /// scoped to that provider) while the coverage row goes on naming the
+    /// depth it once reached, and the
     /// historical gate serves that shallow cache as a complete window without
     /// calling a provider. Clamping at the moment of the prune keeps the claim
     /// true: a floor is only ever raised to what survived.
@@ -496,6 +499,7 @@ pub trait ActivityCacheRepository: Send + Sync {
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
+        provider: &str,
         cutoff: DateTime<Utc>,
     ) -> AppResult<u64>;
 
@@ -1103,12 +1107,14 @@ macro_rules! impl_activity_cache_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
+                provider: &str,
                 cutoff: DateTime<Utc>,
             ) -> AppResult<u64> {
                 let result = sqlx::query(PRUNE_ACTIVITIES_SQL)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
                     .bind(cutoff)
+                    .bind(provider)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -1121,6 +1127,7 @@ macro_rules! impl_activity_cache_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
+                provider: &str,
                 cutoff: DateTime<Utc>,
             ) -> AppResult<u64> {
                 let result = sqlx::query(clamp_backfill_coverage_sql!($uuid))
@@ -1128,6 +1135,7 @@ macro_rules! impl_activity_cache_repository {
                     .bind(Utc::now())
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
+                    .bind(provider)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

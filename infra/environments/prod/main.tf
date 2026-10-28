@@ -189,7 +189,9 @@ module "backend" {
     DB_PASSWORD          = module.secrets.secret_ids["db_password"]
     ENCRYPTION_KEY       = module.secrets.secret_ids["encryption_key"]
     STRAVA_CLIENT_SECRET = module.secrets.secret_ids["strava_client_secret"]
+    GARMIN_CLIENT_ID     = module.secrets.secret_ids["garmin_client_id"]
     GARMIN_CLIENT_SECRET = module.secrets.secret_ids["garmin_client_secret"]
+    GARMIN_WEBHOOK_TOKEN = module.secrets.secret_ids["garmin_webhook_token"]
     OPENWEATHER_API_KEY  = module.secrets.secret_ids["openweather_api_key"]
     POSTHOG_API_KEY      = module.secrets.secret_ids["posthog_api_key"]
 

@@ -394,7 +394,7 @@ async fn the_retention_prune_keeps_an_uploaded_workout() {
         .common
         .repos
         .activity_cache
-        .prune_activities_before(athlete.user_id, &athlete.tenant, Utc::now())
+        .prune_activities_before(athlete.user_id, &athlete.tenant, "upload", Utc::now())
         .await
         .unwrap();
 

@@ -527,20 +527,21 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
 
         let tenant_id = TenantId::from_uuid(ctx.require_tenant()?);
 
-        // A provider whose mirror is its ONLY backend (Garmin, TrainingPeaks)
-        // has no OAuth flow to start: Garmin's API is partner-gated and
-        // uncredentialed, TrainingPeaks has none Pierre can call. Minting an
-        // OAuth URL for either fails with a configuration error the agent then
-        // relays as if the provider were broken. Raise the provider's
-        // auth-required signal instead, whether or not a session row exists —
-        // the chat pipeline answers it with a minted hosted-login link, and an
-        // MCP client gets the structured reconnect code.
+        // A provider routed to its mirror by default (Garmin, TrainingPeaks,
+        // COROS) is connected through the hosted pages, never through an OAuth
+        // URL minted here: TrainingPeaks and COROS have no API Pierre can call,
+        // and Garmin's API takes a seat of a capped pool, which only the hosted
+        // picker weighs before it offers Garmin's OAuth (falling back to the
+        // connection using usr/pwd from Dravr when the pool is full). Raise
+        // the provider's auth-required signal instead, whether or not a
+        // session row exists — the chat pipeline answers it with a minted
+        // hosted link, and an MCP client gets the structured reconnect code.
         //
-        // Strava is not mirror-only: its OAuth backend is real, so a
-        // sciotte-Strava user may still authorize OAuth, after which
-        // `resolve_backend` routes them to the API and the mirror goes dormant.
+        // Strava's OAuth backend is the default one, so a sciotte-Strava user
+        // may still authorize OAuth here, after which `resolve_backend` routes
+        // them to the API and the mirror goes dormant.
         if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
-            if backend_resolver::serving_backends(provider) == [mirror] {
+            if backend_resolver::mirror_is_default(provider) {
                 info!(
                     user_id = %user_uuid,
                     provider = provider,

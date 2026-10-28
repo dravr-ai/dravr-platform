@@ -24,6 +24,8 @@ pub mod activity_source;
 pub mod ai_scope;
 /// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends
 pub mod backend_resolver;
+/// Activity reads answered from the activity cache, for providers read from Dravr's own stores
+mod cached_activity_reads;
 /// Circuit breaker pattern for provider resilience
 pub mod circuit_breaker;
 /// Single-flight for the activity pre-fetch a provider connect starts
@@ -139,7 +141,7 @@ pub mod whoop_provider;
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use core::{
     credential_kind, ActivityQueryParams, CredentialKind, FitnessProvider as CoreFitnessProvider,
-    OAuth2Credentials, ProviderConfig, ProviderFactory, TokenRefreshCallback,
+    OAuth2Credentials, OwnerStores, ProviderConfig, ProviderFactory, TokenRefreshCallback,
 };
 pub use http_client::{initialize_shared_client, shared_client};
 pub use pierre_core::errors::provider::{ProviderError, ProviderResult};

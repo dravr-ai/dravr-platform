@@ -18,7 +18,9 @@
 //!   `data_point_series_archive` rollups, and the `data_sources` rows naming
 //!   the provider's devices;
 //! - its activities: `cached_activities`, the route each one drew in
-//!   `activity_route_tracks`, the link from each to the thread its view
+//!   `activity_route_tracks`, the samples a provider pushed for each in
+//!   `activity_streams` (its `origin = 'push'` rows only: uploaded and
+//!   imported samples stay, deleted with the athlete or their account), the link from each to the thread its view
 //!   opened in `activity_conversations` (the conversation itself is the
 //!   athlete's and stays), the personal bests its runs set in
 //!   `personal_best_efforts`, the record of which runs were measured for one
@@ -45,7 +47,8 @@
 //! reads, stand.
 //!
 //! Every id column compared here is `TEXT` on both engines except in
-//! `activity_gear`, `personal_best_efforts`, `best_effort_scans`, `personal_best_seeds`,
+//! `activity_gear`, `activity_streams` (`user_id`), `personal_best_efforts`,
+//! `best_effort_scans`, `personal_best_seeds`,
 //! `activity_fetch_freshness`, `activity_fetch_failures` and
 //! `activity_backfill_coverage` (both ids) and
 //! `activity_backfill_jobs` (`tenant_id`), which are `uuid` on Postgres. Those
@@ -101,6 +104,15 @@ macro_rules! user_rows_cast {
 macro_rules! person_rows_cast {
     () => {
         "CAST(user_id AS TEXT) = $1 AND provider = $3"
+    };
+}
+
+/// The `activity_streams` rows a provider purge reaches: only those the
+/// provider pushed. Uploaded and imported samples are the athlete's own
+/// record, deleted with the athlete or their account, never with a provider.
+macro_rules! pushed_streams {
+    () => {
+        "origin = 'push'"
     };
 }
 
@@ -167,11 +179,82 @@ pub(crate) const USER_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
     ),
 ];
 
+/// The data sources of one provider a user's source-scoped purge reaches:
+/// those whose `source` marker is `$4`.
+macro_rules! user_marked_sources {
+    () => {
+        concat!(
+            "data_source_id IN (SELECT id FROM data_sources WHERE ",
+            user_rows!(),
+            " AND source = $4)"
+        )
+    };
+}
+
+/// A user's wellness rows for one provider filed under its data sources
+/// marked `$4`, in order, binding `$1` user id, `$2` tenant id, `$3`
+/// provider and `$4` the source marker: [`USER_WELLNESS_ROWS_SQL`] narrowed
+/// to one connection when two connections store wellness under the same
+/// provider key (the Garmin API and the connection using usr/pwd from Dravr
+/// both under `garmin`). The rows the other connection filed under its own
+/// data source, and the health sync's cursors over them, stay.
+pub(crate) const USER_SOURCE_WELLNESS_ROWS_SQL: [(&str, &str); 6] = [
+    (
+        "data_point_series",
+        concat!(
+            "DELETE FROM data_point_series WHERE ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "data_point_series_archive",
+        concat!(
+            "DELETE FROM data_point_series_archive WHERE ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "sleep_sessions",
+        concat!(
+            "DELETE FROM sleep_sessions WHERE ",
+            user_rows!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "recovery_metrics",
+        concat!(
+            "DELETE FROM recovery_metrics WHERE ",
+            user_rows!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "health_snapshots",
+        concat!(
+            "DELETE FROM health_snapshots WHERE ",
+            user_rows!(),
+            " AND ",
+            user_marked_sources!()
+        ),
+    ),
+    (
+        "data_sources",
+        concat!(
+            "DELETE FROM data_sources WHERE ",
+            user_rows!(),
+            " AND source = $4"
+        ),
+    ),
+];
+
 /// A user's activity rows for one provider, which a user's purge deletes
 /// after [`USER_WELLNESS_ROWS_SQL`], in order: `(table, statement)`, each
 /// binding `$1` user id, `$2` tenant id and `$3` provider. The sync state
 /// describing them, [`USER_SYNC_STATE_SQL`], goes after.
-pub(crate) const USER_ACTIVITY_ROWS_SQL: [(&str, &str); 7] = [
+pub(crate) const USER_ACTIVITY_ROWS_SQL: [(&str, &str); 9] = [
     (
         "cached_activities",
         concat!("DELETE FROM cached_activities WHERE ", user_rows!()),
@@ -179,6 +262,19 @@ pub(crate) const USER_ACTIVITY_ROWS_SQL: [(&str, &str); 7] = [
     (
         "activity_route_tracks",
         concat!("DELETE FROM activity_route_tracks WHERE ", user_rows!()),
+    ),
+    (
+        "activity_streams",
+        concat!(
+            "DELETE FROM activity_streams WHERE ",
+            user_rows_cast!(),
+            " AND ",
+            pushed_streams!()
+        ),
+    ),
+    (
+        "pushed_activity_files",
+        concat!("DELETE FROM pushed_activity_files WHERE ", user_rows!()),
     ),
     (
         "activity_conversations",
@@ -252,6 +348,16 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
     ),
 ];
 
+/// The sync state describing a user's provider activities alone: every
+/// [`USER_SYNC_STATE_SQL`] statement but the health sync's cursors, which an
+/// activity purge leaves to the wellness it walks.
+pub(crate) const USER_ACTIVITY_SYNC_STATE_SQL: [(&str, &str); 4] = [
+    USER_SYNC_STATE_SQL[1],
+    USER_SYNC_STATE_SQL[2],
+    USER_SYNC_STATE_SQL[3],
+    USER_SYNC_STATE_SQL[4],
+];
+
 /// A user's copies of a provider's data held past a cache TTL, in order:
 /// `(table, statement)`, each binding `$1` user id, `$2` tenant id, `$3`
 /// provider and `$4` the cutoff instant.
@@ -264,7 +370,7 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 /// it (the daily `data_point_series_archive` rollups, personal bests, the
 /// record of which runs were measured) are derived content, not cached copies,
 /// and stay: a disconnect deletes them, and their provenance is carnet#769's.
-pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 6] = [
+pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 7] = [
     (
         "data_point_series",
         concat!(
@@ -313,6 +419,16 @@ pub(crate) const USER_EXPIRED_ROWS_SQL: [(&str, &str); 6] = [
             " AND created_at < $4"
         ),
     ),
+    (
+        "activity_streams",
+        concat!(
+            "DELETE FROM activity_streams WHERE ",
+            user_rows_cast!(),
+            " AND ",
+            pushed_streams!(),
+            " AND synced_at < $4"
+        ),
+    ),
 ];
 
 /// Every `(user_id, tenant_id)` holding a copy of `$1`'s data written before
@@ -328,6 +444,8 @@ pub(crate) const EXPIRED_SCOPES_SQL: &str = "\
     UNION SELECT user_id, tenant_id FROM health_snapshots WHERE provider = $1 AND synced_at < $2 \
     UNION SELECT user_id, tenant_id FROM cached_activities WHERE provider = $1 AND synced_at < $2 \
     UNION SELECT user_id, tenant_id FROM activity_route_tracks WHERE provider = $1 AND created_at < $2 \
+    UNION SELECT CAST(user_id AS TEXT), tenant_id FROM activity_streams \
+        WHERE provider = $1 AND origin = 'push' AND synced_at < $2 \
     UNION SELECT ds.user_id, ds.tenant_id FROM data_sources ds \
         JOIN data_point_series p ON p.data_source_id = ds.id \
         WHERE ds.provider = $1 AND (p.synced_at IS NULL OR p.synced_at < $2)";
@@ -358,7 +476,7 @@ pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, 
 /// provider's terms can require across the whole platform (WHOOP API Terms
 /// §7), and are reachable only from the super-admin route that audits the
 /// call. No tenant- or user-facing path may run them.
-pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 18] = [
+pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 20] = [
     (
         "data_point_series",
         concat!("DELETE FROM data_point_series WHERE ", provider_sources!()),
@@ -393,6 +511,19 @@ pub(crate) const PROVIDER_PURGE_SQL: [(&str, &str); 18] = [
     (
         "activity_route_tracks",
         concat!("DELETE FROM activity_route_tracks WHERE ", provider_rows!()),
+    ),
+    (
+        "activity_streams",
+        concat!(
+            "DELETE FROM activity_streams WHERE ",
+            provider_rows!(),
+            " AND ",
+            pushed_streams!()
+        ),
+    ),
+    (
+        "pushed_activity_files",
+        concat!("DELETE FROM pushed_activity_files WHERE ", provider_rows!()),
     ),
     (
         "activity_conversations",
@@ -499,6 +630,10 @@ pub enum PurgeReason {
     /// The member withdrew the wellness consent on the coach–athlete link
     /// their wellness was read through; the link itself stands.
     WellnessConsentWithdrawn,
+    /// The athlete stopped sharing that kind of data with Dravr at the
+    /// provider while the connection stands (Garmin's
+    /// `userPermissionsChange`).
+    PermissionWithdrawn,
     /// The operator's whole-provider purge, on termination of access.
     Termination,
     /// The provider's cache TTL passed for those copies.
@@ -516,6 +651,7 @@ impl PurgeReason {
             Self::ProviderRevoked => "provider_revoked",
             Self::LinkEnded => "link_ended",
             Self::WellnessConsentWithdrawn => "wellness_consent_withdrawn",
+            Self::PermissionWithdrawn => "permission_withdrawn",
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
         }
@@ -587,6 +723,65 @@ pub trait ProviderDataRepository: Send + Sync {
         user_id: Uuid,
         tenant_id: &TenantId,
         provider: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge>;
+
+    /// Delete the activities `provider` contributed for `user_id` under
+    /// `tenant_id` (the cached rows and everything kept beside them: routes,
+    /// samples, conversations, best efforts, gear) and the sync state
+    /// describing them, and nothing else, in one transaction that also writes
+    /// the attestation row naming `reason`. The provider's wellness, and the
+    /// health sync's cursors over it, stay.
+    ///
+    /// # Errors
+    /// Returns a database error when any statement fails; nothing is deleted
+    /// and nothing recorded then.
+    async fn purge_user_provider_activities(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge>;
+
+    /// Delete the wellness `provider` contributed for `user_id` under
+    /// `tenant_id` through its data sources marked `source` (their series
+    /// points and rollups, the sleep, recovery and health rows filed under
+    /// them, and the sources themselves), in one transaction that also
+    /// writes the attestation row naming `reason`. Wellness filed under the
+    /// provider's other data sources, the health sync's cursors and the
+    /// provider's activities stay.
+    ///
+    /// # Errors
+    /// Returns a database error when any statement fails; nothing is deleted
+    /// and nothing recorded then.
+    async fn purge_user_provider_source_wellness(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        source: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge>;
+
+    /// Delete what one connection under `provider` contributed for
+    /// `user_id` under `tenant_id` when another connection shares that
+    /// provider key for its wellness: the provider's activities with the
+    /// sync state describing them, as
+    /// [`Self::purge_user_provider_activities`] deletes them, and the
+    /// wellness filed under its data sources marked `source`, as
+    /// [`Self::purge_user_provider_source_wellness`] deletes it, in one
+    /// transaction that also writes the attestation row naming `reason`.
+    ///
+    /// # Errors
+    /// Returns a database error when any statement fails; nothing is deleted
+    /// and nothing recorded then.
+    async fn purge_user_provider_source_data(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        source: &str,
         reason: PurgeReason,
     ) -> AppResult<ProviderDataPurge>;
 
@@ -692,9 +887,11 @@ macro_rules! impl_provider_data_repository {
         impl $ty {
             /// Run each of `statements`, in order, over one user's `provider`
             /// rows under one tenant, in one transaction that also writes the
-            /// attestation row naming `reason`.
+            /// attestation row naming `reason`. `marked` statements run
+            /// first, each also binding the source marker as `$4`.
             async fn purge_user_rows(
                 &self,
+                marked: Option<(&[(&'static str, &'static str)], &str)>,
                 statements: &[&[(&'static str, &'static str)]],
                 user_id: Uuid,
                 tenant_id: &TenantId,
@@ -707,11 +904,22 @@ macro_rules! impl_provider_data_repository {
                     AppError::database(format!("Failed to begin the provider data purge: {e}"))
                 })?;
                 let mut purge = ProviderDataPurge::default();
-                for (table, statement) in statements.iter().flat_map(|set| set.iter()) {
-                    let removed = sqlx::query(statement)
+                let mut ordered: Vec<(&'static str, &'static str, Option<&str>)> = Vec::new();
+                if let Some((set, source)) = marked {
+                    ordered.extend(set.iter().map(|&(table, sql)| (table, sql, Some(source))));
+                }
+                for set in statements {
+                    ordered.extend(set.iter().map(|&(table, sql)| (table, sql, None)));
+                }
+                for (table, statement, source) in ordered {
+                    let mut query = sqlx::query(statement)
                         .bind(&user)
                         .bind(&tenant)
-                        .bind(provider)
+                        .bind(provider);
+                    if let Some(source) = source {
+                        query = query.bind(source);
+                    }
+                    let removed = query
                         .execute(&mut *tx)
                         .await
                         .map_err(|e| {
@@ -747,6 +955,7 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
+                    None,
                     &[
                         &USER_WELLNESS_ROWS_SQL,
                         &USER_ACTIVITY_ROWS_SQL,
@@ -768,7 +977,64 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
+                    None,
                     &[&USER_WELLNESS_ROWS_SQL, &[USER_SYNC_CURSORS_SQL]],
+                    user_id,
+                    tenant_id,
+                    provider,
+                    reason,
+                )
+                .await
+            }
+
+            async fn purge_user_provider_activities(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                reason: PurgeReason,
+            ) -> AppResult<ProviderDataPurge> {
+                self.purge_user_rows(
+                    None,
+                    &[&USER_ACTIVITY_ROWS_SQL, &USER_ACTIVITY_SYNC_STATE_SQL],
+                    user_id,
+                    tenant_id,
+                    provider,
+                    reason,
+                )
+                .await
+            }
+
+            async fn purge_user_provider_source_wellness(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                source: &str,
+                reason: PurgeReason,
+            ) -> AppResult<ProviderDataPurge> {
+                self.purge_user_rows(
+                    Some((&USER_SOURCE_WELLNESS_ROWS_SQL, source)),
+                    &[],
+                    user_id,
+                    tenant_id,
+                    provider,
+                    reason,
+                )
+                .await
+            }
+
+            async fn purge_user_provider_source_data(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                source: &str,
+                reason: PurgeReason,
+            ) -> AppResult<ProviderDataPurge> {
+                self.purge_user_rows(
+                    Some((&USER_SOURCE_WELLNESS_ROWS_SQL, source)),
+                    &[&USER_ACTIVITY_ROWS_SQL, &USER_ACTIVITY_SYNC_STATE_SQL],
                     user_id,
                     tenant_id,
                     provider,
