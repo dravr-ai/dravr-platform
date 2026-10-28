@@ -179,6 +179,20 @@ pub(crate) fn strava_export() -> Vec<u8> {
     ])
 }
 
+/// A Strava export holding one recorded ride, `id`, of `seconds` one-second
+/// samples from `start`.
+pub(crate) fn one_ride_export(id: &str, start: DateTime<Utc>, seconds: u32) -> Vec<u8> {
+    let file = format!("activities/{id}.fit");
+    let csv = format!(
+        "{CSV_HEADER}\n{}\n",
+        csv_row(id, start, "Evening Ride", "Ride", seconds, &file)
+    );
+    zip_of(&[
+        ("activities.csv", csv.as_bytes()),
+        (&file, &FitWorkout::ride(start, seconds).encode()),
+    ])
+}
+
 /// One athlete: the account, the tenant they act in and a session bearer.
 pub(crate) struct Athlete {
     pub(crate) user_id: Uuid,
@@ -322,7 +336,7 @@ async fn an_export_imports_into_the_cache_and_the_sample_store() {
 }
 
 /// `get_activities` as the agent calls it, in the athlete's tenant.
-async fn agent_activities(
+pub(crate) async fn agent_activities(
     resources: &Arc<ServerContext>,
     athlete: &Athlete,
     parameters: Value,

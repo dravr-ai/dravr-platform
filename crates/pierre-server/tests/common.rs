@@ -1013,12 +1013,27 @@ pub(crate) async fn create_test_server_resources_with_billing_provider(
 pub(crate) async fn create_test_server_resources_with_archive_imports(
     archive_imports: ArchiveImports,
 ) -> Result<Arc<ServerContext>> {
+    Box::pin(create_test_server_resources_with_archive_imports_and_config(archive_imports, None))
+        .await
+}
+
+/// [`create_test_server_resources_with_archive_imports`] over `config` when
+/// one is given: imports beside a connection the config stands in, such as
+/// the sciotte scraper of [`test_server_config_with_sciotte`].
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_archive_imports_and_config(
+    archive_imports: ArchiveImports,
+    config: Option<ServerConfig>,
+) -> Result<Arc<ServerContext>> {
     let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
     Box::pin(create_test_server_resources_over(
         database,
         None,
         Vec::new(),
-        None,
+        config,
         None,
         ContextParts {
             archive_imports: Some(archive_imports),

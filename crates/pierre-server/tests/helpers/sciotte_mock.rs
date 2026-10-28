@@ -13,7 +13,7 @@ use chrono::Utc;
 use pierre_core::constants::oauth_providers::TOKEN_TYPE_SESSION;
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
@@ -48,6 +48,30 @@ pub(crate) async fn spawn_mock_scraper_serving(
     head_complete: Arc<AtomicBool>,
     ride_start: String,
 ) -> String {
+    let ride = json!({
+        "id": MOCK_SCRAPER_RIDE_ID,
+        "name": "Sortie vélo matinale",
+        "sport_type": "ride",
+        "start_date": ride_start,
+        "duration_seconds": 2700,
+        "provider": "strava",
+        "distance_meters": 21000.0,
+        "elevation_gain": 250.0
+    });
+    serve_mock_scraper(head_complete, ride).await
+}
+
+/// [`spawn_mock_scraper`] serving `activity`, the scraper's JSON for one
+/// activity, as the whole list, its capture having reached the list head.
+// Shared across test binaries; any single binary may use only part of it.
+#[allow(dead_code)]
+pub(crate) async fn spawn_mock_scraper_with_activity(activity: Value) -> String {
+    serve_mock_scraper(Arc::new(AtomicBool::new(true)), activity).await
+}
+
+/// Serve the scraper's routes on loopback, its activity list holding
+/// `activity` alone; the base URL to reach them at.
+async fn serve_mock_scraper(head_complete: Arc<AtomicBool>, activity: Value) -> String {
     let app = Router::new()
         .route(
             "/auth/import-session",
@@ -62,16 +86,7 @@ pub(crate) async fn spawn_mock_scraper_serving(
             get(move || async move {
                 Json(json!({
                     "count": 1,
-                    "activities": [{
-                        "id": MOCK_SCRAPER_RIDE_ID,
-                        "name": "Sortie vélo matinale",
-                        "sport_type": "ride",
-                        "start_date": ride_start,
-                        "duration_seconds": 2700,
-                        "provider": "strava",
-                        "distance_meters": 21000.0,
-                        "elevation_gain": 250.0
-                    }],
+                    "activities": [activity],
                     "head_complete": head_complete.load(Ordering::SeqCst)
                 }))
             }),

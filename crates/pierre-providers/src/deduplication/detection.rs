@@ -140,11 +140,13 @@ impl FragmentReport {
 /// Rows with no real start time never match on overlap: every midnight row
 /// "overlaps" every other, which would fold distinct sessions together.
 ///
-/// Whatever their times, the Garmin API's row of an activity and the row the
-/// connection using usr/pwd from Dravr captured of it are one workout when
-/// they carry the same Garmin activity id (carnet#1155), and the API row
-/// stands for it: it outranks its usr/pwd twin whatever the ranking below
-/// says, and takes the fields it lacks from it.
+/// Whatever their times and sports, rows that carry one service's own
+/// activity id are one workout ([`native_activity_id`]): the Garmin API's row
+/// and the usr/pwd capture of the same Garmin activity (carnet#1155); the
+/// Strava API's row, the usr/pwd capture and the athlete's imported export of
+/// the same Strava activity (carnet#1242). The API row stands for it, then the
+/// export, then the capture, whatever the ranking below says, and it takes
+/// the fields it lacks from the others.
 ///
 /// The canonical row is the one carrying a GPS trace ([`carries_gps_trace`]),
 /// then a distance, then the longest, then the farthest, then the lowest id.
@@ -160,7 +162,7 @@ pub fn merge_duplicates(
     let mut member_sets = group_members(&activities, config);
     for members in &mut member_sets {
         members.sort_by(|&a, &b| canonical_order(&activities[a], &activities[b]));
-        lift_garmin_api_rows(&activities, members);
+        lift_native_twins(&activities, members);
     }
 
     let mut slots: Vec<Option<Activity>> = activities.into_iter().map(Some).collect();
@@ -240,46 +242,72 @@ fn covers_session(peer: &Activity, canonical: &Activity) -> bool {
             .saturating_mul(FULL_RECORDING_MIN_PERCENT)
 }
 
-/// The Garmin activity id of a Garmin recording, whichever path brought it in:
-/// the Garmin API's row (provider `garmin`) or the row the connection using
-/// usr/pwd from Dravr captured (provider `sciotte`, source `garmin`). Both key
-/// an activity by Garmin's own `activityId`, so the same id is the same
-/// workout. `None` for every other row, whose ids name nothing in common.
-fn garmin_activity_id(activity: &Activity) -> Option<&str> {
-    let from_api = activity.provider() == oauth_providers::GARMIN;
-    let from_credentials = activity.provider() == oauth_providers::SCIOTTE
-        && activity.source() == Some(oauth_providers::GARMIN);
-    (from_api || from_credentials).then(|| activity.id())
+/// How a row of a service's own activity came in, best first: the order in
+/// which twins of one activity stand for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum TwinPath {
+    /// The service's API (`garmin`, `strava`).
+    Api,
+    /// The athlete's export of the service (`strava_archive`): the original
+    /// recording and its real start, but not the edits made since.
+    Archive,
+    /// The connection using usr/pwd from Dravr (`sciotte`), whose list read
+    /// can carry only the day.
+    Credentials,
 }
 
-/// Whether the row came from the Garmin API.
-fn from_garmin_api(activity: &Activity) -> bool {
-    activity.provider() == oauth_providers::GARMIN
+/// The service whose own activity id a row is keyed by, the id, and the path
+/// the row came in by.
+///
+/// Garmin: the Garmin API's row (`garmin`) and the row the connection using
+/// usr/pwd captured (`sciotte`, source `garmin`), both keyed by Garmin's
+/// `activityId` (carnet#1155). Strava: the Strava API's row (`strava`), the
+/// usr/pwd capture (`sciotte`, source `strava`) and the athlete's imported
+/// export (`strava_archive`, keyed by its `Activity ID`), all keyed by
+/// Strava's activity id (carnet#1242). Within one service the same id is the
+/// same workout. `None` for every other row, whose ids name nothing in common.
+fn native_activity_id(activity: &Activity) -> Option<(&'static str, &str, TwinPath)> {
+    let (service, path) = match (activity.provider(), activity.source()) {
+        (oauth_providers::GARMIN, _) => (oauth_providers::GARMIN, TwinPath::Api),
+        (oauth_providers::STRAVA, _) => (oauth_providers::STRAVA, TwinPath::Api),
+        (oauth_providers::STRAVA_ARCHIVE, _) => (oauth_providers::STRAVA, TwinPath::Archive),
+        (oauth_providers::SCIOTTE, Some(oauth_providers::GARMIN)) => {
+            (oauth_providers::GARMIN, TwinPath::Credentials)
+        }
+        (oauth_providers::SCIOTTE, Some(oauth_providers::STRAVA)) => {
+            (oauth_providers::STRAVA, TwinPath::Credentials)
+        }
+        _ => return None,
+    };
+    Some((service, activity.id(), path))
 }
 
-/// Move each Garmin API row of a ranked group ahead of its usr/pwd twin (same
-/// Garmin activity id), keeping every other position: the API row wins its
-/// own activity, while the group's ranking still decides between providers.
+/// Move each row of a ranked group ahead of every twin (same service, same
+/// activity id) that came in by a worse [`TwinPath`], keeping every other
+/// position: the API row wins its own activity, then the export, then the
+/// usr/pwd capture, while the group's ranking still decides between
+/// different activities' rows.
 ///
 /// Done after the sort rather than inside [`canonical_order`]: a rule that
-/// compares only twins would not be a total order across the group.
-fn lift_garmin_api_rows(activities: &[Activity], members: &mut Vec<usize>) {
-    let mut position = 0;
-    while position < members.len() {
-        let row = &activities[members[position]];
-        let twin = garmin_activity_id(row)
-            .filter(|_| from_garmin_api(row))
-            .and_then(|id| {
-                members[..position].iter().position(|&earlier| {
-                    let other = &activities[earlier];
-                    !from_garmin_api(other) && garmin_activity_id(other) == Some(id)
-                })
-            });
-        if let Some(twin_position) = twin {
-            let api = members.remove(position);
-            members.insert(twin_position, api);
+/// compares only twins would not be a total order across the group. Each row
+/// lands before the first earlier twin that ranks below it, so the twins of
+/// one activity end up in path order whatever order they arrived in.
+fn lift_native_twins(activities: &[Activity], members: &mut Vec<usize>) {
+    for position in 0..members.len() {
+        let Some((service, id, path)) = native_activity_id(&activities[members[position]]) else {
+            continue;
+        };
+        let worse_twin = members[..position].iter().position(|&earlier| {
+            native_activity_id(&activities[earlier]).is_some_and(
+                |(other_service, other_id, other_path)| {
+                    other_service == service && other_id == id && other_path > path
+                },
+            )
+        });
+        if let Some(twin_position) = worse_twin {
+            let row = members.remove(position);
+            members.insert(twin_position, row);
         }
-        position += 1;
     }
 }
 
@@ -330,16 +358,17 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
     let slack = Duration::seconds(i64::try_from(config.overlap_tolerance_secs).unwrap_or(0))
         .max(Duration::minutes(config.time_window_minutes));
     let mut sets = DisjointSets::new(activities.len());
-    // One Garmin activity id is one workout, whatever the times say: a usr/pwd
-    // row scraped date-only sits at midnight, beyond the time-sorted reach of
-    // the API row's exact start.
-    let mut by_garmin_id: HashMap<&str, usize> = HashMap::new();
+    // One service's activity id is one workout, whatever the times say: a
+    // usr/pwd row scraped date-only sits at midnight, beyond the time-sorted
+    // reach of the API row's or the export's exact start, and may carry the
+    // sport the athlete relabelled it to.
+    let mut by_native_id: HashMap<(&str, &str), usize> = HashMap::new();
     for (index, activity) in activities.iter().enumerate() {
-        if let Some(id) = garmin_activity_id(activity) {
-            match by_garmin_id.get(id) {
+        if let Some((service, id, _)) = native_activity_id(activity) {
+            match by_native_id.get(&(service, id)) {
                 Some(&first) => sets.union(first, index),
                 None => {
-                    by_garmin_id.insert(id, index);
+                    by_native_id.insert((service, id), index);
                 }
             }
         }

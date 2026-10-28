@@ -827,3 +827,180 @@ fn distinct_garmin_ids_stay_distinct_activities() {
     let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
     assert_eq!(ids(&merged).len(), 2);
 }
+
+// ============================================================================
+// Strava activity id across the API, the usr/pwd capture and the imported
+// archive (carnet#1242)
+// ============================================================================
+
+/// A row the Strava API served: provider `strava`, keyed by Strava's id.
+fn strava_api_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+    ActivityBuilder::new(
+        id,
+        "API Ride",
+        SportType::Ride,
+        start,
+        duration_secs,
+        "strava",
+    )
+    .distance_meters(40_000.0)
+    .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+    .build()
+}
+
+/// A row the athlete's imported Strava export holds: provider
+/// `strava_archive`, keyed by the export's `Activity ID`, which is Strava's.
+fn strava_archive_row(id: &str, start: DateTime<Utc>, duration_secs: u64) -> Activity {
+    ActivityBuilder::new(
+        id,
+        "Archived Ride",
+        SportType::Ride,
+        start,
+        duration_secs,
+        "strava_archive",
+    )
+    .distance_meters(40_000.0)
+    .start_latitude(45.5)
+    .start_longitude(-73.6)
+    .average_heart_rate(138)
+    .build()
+}
+
+/// A row the connection using usr/pwd from Dravr captured of a Strava
+/// activity: provider `sciotte`, source `strava`, scraped date-only (the list
+/// page's day at midnight UTC), the sport the athlete relabelled it to.
+fn strava_capture_row(id: &str, day: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        id,
+        "Captured Ride",
+        SportType::MountainBike,
+        day,
+        3600,
+        "sciotte",
+    )
+    .source("strava")
+    .distance_meters(40_100.0)
+    .build()
+}
+
+#[test]
+fn a_date_only_strava_capture_folds_into_the_archive_row_of_its_id() {
+    // An evening ride in Montreal: the export's start is past midnight UTC,
+    // the capture sits at midnight of the athlete's own day, and the athlete
+    // relabelled the sport on Strava. Only the id ties them.
+    let archived = Utc.with_ymd_and_hms(2026, 5, 22, 1, 30, 0).unwrap();
+    let local_day = Utc.with_ymd_and_hms(2026, 5, 21, 0, 0, 0).unwrap();
+    let activities = vec![
+        strava_capture_row("16012345678", local_day),
+        make_activity("other", SportType::Run, base_time(), 1800, 5000.0),
+        strava_archive_row("16012345678", archived, 3600),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 2, "{merged:?}");
+    let session = merged.iter().find(|a| a.id() == "16012345678").unwrap();
+    assert_eq!(
+        session.provider(),
+        "strava_archive",
+        "the export's recording stands for the workout over a date-only capture"
+    );
+    assert_eq!(session.start_date(), archived, "its real start is kept");
+    assert_eq!(
+        report.groups.len(),
+        1,
+        "one group for the one ride: {report:?}"
+    );
+    assert_eq!(
+        report.groups[0].providers,
+        vec!["strava_archive", "strava"],
+        "the capture is named by the service it was read from, never the backend"
+    );
+}
+
+#[test]
+fn the_strava_api_row_stands_for_its_archive_copy() {
+    let t = base_time();
+    // The archive copy arrives first and ties the API row on every ranked
+    // field but heart rate; the API row must still stand for its activity.
+    let activities = vec![
+        strava_archive_row("16012345679", t, 3600),
+        strava_api_row("16012345679", t, 3600),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(
+        merged[0].provider(),
+        "strava",
+        "the API row stands for its activity whatever order the copies arrive in"
+    );
+    assert_eq!(
+        merged[0].name(),
+        "API Ride",
+        "the API row's own fields are kept"
+    );
+    assert_eq!(
+        merged[0].average_heart_rate(),
+        Some(138),
+        "the API row takes what it lacks from the export"
+    );
+    assert_eq!(
+        report.groups[0].providers,
+        vec!["strava", "strava_archive"],
+        "the API row is named first, as the canonical recording"
+    );
+}
+
+#[test]
+fn an_archive_recording_outranks_a_capture_without_a_route() {
+    // A treadmill run: neither copy has a route, and the capture claims the
+    // longer duration, so the ranking alone would pick it.
+    let t = base_time();
+    let treadmill = ActivityBuilder::new(
+        "16012345680",
+        "Treadmill",
+        SportType::Run,
+        t,
+        1800,
+        "strava_archive",
+    )
+    .distance_meters(5_000.0)
+    .average_heart_rate(150)
+    .build();
+    let capture = ActivityBuilder::new(
+        "16012345680",
+        "Treadmill",
+        SportType::Run,
+        t,
+        1900,
+        "sciotte",
+    )
+    .source("strava")
+    .distance_meters(5_000.0)
+    .build();
+    let (merged, _) = merge_duplicates(vec![capture, treadmill], &DedupConfig::default());
+
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert_eq!(
+        merged[0].provider(),
+        "strava_archive",
+        "the export's recording outranks the capture of the same activity"
+    );
+}
+
+#[test]
+fn an_archive_id_matches_no_other_service() {
+    // A Garmin id that happens to spell a Strava id is another activity.
+    let t = base_time();
+    let activities = vec![
+        garmin_api_row("888", t, 3600),
+        strava_archive_row("888", t + Duration::days(1), 3600),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 2, "{merged:?}");
+    assert!(
+        report.groups.is_empty(),
+        "ids are compared within one service only: {report:?}"
+    );
+}

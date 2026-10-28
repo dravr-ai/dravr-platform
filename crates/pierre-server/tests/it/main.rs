@@ -721,6 +721,7 @@ mod store_routes_test;
 mod store_translations_test;
 mod strava_access_token_validation_test;
 mod strava_app_switch_test;
+mod strava_archive_twin_test;
 mod strava_cache_ttl_sweep_test;
 mod strava_get_activities_roundtrip_test;
 mod strava_oauth_freshness_test;
