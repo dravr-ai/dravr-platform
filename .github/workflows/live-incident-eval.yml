@@ -16,7 +16,7 @@
 #
 # Dev's chain, PIERRE_LLM_CHAIN read from infra/environments/dev/main.tf so the lane
 # follows it: anthropic serving the coaching model on the Messages API and its second
-# organization (anthropic#2), then copilot_sdk on its own model, then claude_code and
+# and third organizations (anthropic#2, anthropic#3), then copilot_sdk on its own model, then claude_code and
 # its second account (claude-code#2), then gemini. Every tier runs on the live dev
 # credential, from the Secret Manager entry the service reads; the two account probes
 # check the Copilot and first Claude ones every morning (copilot-health-probe.yml,
@@ -314,6 +314,7 @@ jobs:
           PROJECT="${GOOGLE_CLOUD_PROJECT:-$CLOUDSDK_CORE_PROJECT}"
           for PAIR in anthropic:dravr-mcp-server-anthropic-api-key \
                       anthropic2:dravr-mcp-server-anthropic-api-key-2 \
+                      anthropic3:dravr-mcp-server-anthropic-api-key-phil \
                       copilot:dravr-mcp-server-copilot-github-token \
                       claude:dravr-mcp-server-claude-code-oauth-token \
                       claude2:dravr-mcp-server-claude-code-oauth-token-2 \
@@ -347,6 +348,7 @@ jobs:
           CARGO_NET_RETRY: "10"
           ANTHROPIC_API_KEY: ${{ steps.tokens.outputs.anthropic }}
           ANTHROPIC_API_KEY_2: ${{ steps.tokens.outputs.anthropic2 }}
+          ANTHROPIC_API_KEY_3: ${{ steps.tokens.outputs.anthropic3 }}
           COPILOT_GITHUB_TOKEN: ${{ steps.tokens.outputs.copilot }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ steps.tokens.outputs.claude }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ steps.tokens.outputs.claude2 }}

@@ -400,7 +400,8 @@ module "backend" {
       # every turn; a provider fault or an empty answer moves the turn to the
       # next one, each tier on its own model. A pooled provider's further
       # accounts sit right behind it wherever it is: anthropic is followed by
-      # anthropic#2 (ANTHROPIC_API_KEY_2) and claude_code by claude-code#2
+      # anthropic#2 (ANTHROPIC_API_KEY_2) and anthropic#3
+      # (ANTHROPIC_API_KEY_3), and claude_code by claude-code#2
       # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a spent account moves
       # the turn to the next account before the chain leaves that provider
       # (carnet#480, carnet#688). An account runs its provider's model unless
@@ -408,12 +409,15 @@ module "backend" {
       # only, never the position. Cohere is out.
       #
       # 1. anthropic = the Anthropic Messages API, over a pool of
-      #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2), each with
-      #    its own prepaid credit under a $199/month Console spend limit. The
-      #    first organization serves the reply on claude-opus-5-5; the second
-      #    (anthropic#2) stays on claude-haiku-5-5. A spent credit answers HTTP
-      #    402, which embacle maps to RateLimit, so it falls through like a
-      #    quota: to anthropic#2, then copilot_sdk. Any quota answer fires
+      #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
+      #    ANTHROPIC_API_KEY_3), each with its own prepaid credit under a
+      #    $199/month Console spend limit. The first organization serves the
+      #    reply on claude-opus-5-5; the second (anthropic#2) stays on
+      #    claude-haiku-5-5; the third (anthropic#3) is pinned to
+      #    claude-haiku-5-5 too, as a last resort. A spent credit
+      #    answers HTTP 402, which embacle maps to RateLimit, so it falls
+      #    through like a quota: to anthropic#2, then anthropic#3, then
+      #    copilot_sdk. Any quota answer fires
       #    dravr-llm-tier-rate-limited and more than three skips in five
       #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
       #    Tool-loop iterations that only pick the next tool stay on
@@ -448,7 +452,7 @@ module "backend" {
       # reads it is the Gemini provider built with no model of its own — a
       # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
       # model (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
+      PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,anthropic#3=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
 
       # Every tool-loop iteration runs on the turn's own model (Opus), not on
@@ -767,9 +771,10 @@ module "backend" {
     CLAUDE_CODE_OAUTH_TOKEN_2 = module.secrets.secret_ids["claude_code_oauth_token_2"]
     # The Anthropic Messages API key pool, the chain's head (carnet#875): one
     # key per organization, each with its own credit. Further organizations
-    # are _3, _4, … — read in order until the first unset one.
+    # are _4, _5, … — read in order until the first unset one.
     ANTHROPIC_API_KEY   = module.secrets.secret_ids["anthropic_api_key"]
     ANTHROPIC_API_KEY_2 = module.secrets.secret_ids["anthropic_api_key_2"]
+    ANTHROPIC_API_KEY_3 = module.secrets.secret_ids["anthropic_api_key_3"]
     OPENWEATHER_API_KEY = module.secrets.secret_ids["openweather_api_key"]
     RESEND_API_KEY      = module.secrets.secret_ids["resend_api_key"]
     POSTHOG_API_KEY     = module.secrets.secret_ids["posthog_api_key"]

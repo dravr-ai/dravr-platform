@@ -519,6 +519,22 @@ resource "google_secret_manager_secret" "anthropic_api_key_2" {
   }
 }
 
+# The third Anthropic organization's API key, pooled as anthropic#3 right
+# behind the second. The secret was created by hand as `-anthropic-api-key-phil`,
+# so it keeps that id (a secret cannot be renamed) and is adopted by the import
+# block in environments/dev/anthropic_accounts.tf. No placeholder version, for
+# the same reason as anthropic_api_key_2: the service binds `latest`.
+resource "google_secret_manager_secret" "anthropic_api_key_3" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-anthropic-api-key-phil"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
 resource "google_secret_manager_secret" "posthog_api_key" {
   project   = var.project_id
   secret_id = "${var.service_name}-posthog-api-key"

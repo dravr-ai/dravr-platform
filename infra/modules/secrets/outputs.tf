@@ -41,6 +41,7 @@ output "secret_ids" {
     claude_code_oauth_token_2        = google_secret_manager_secret.claude_code_oauth_token_2.secret_id
     anthropic_api_key                = google_secret_manager_secret.anthropic_api_key.secret_id
     anthropic_api_key_2              = google_secret_manager_secret.anthropic_api_key_2.secret_id
+    anthropic_api_key_3              = google_secret_manager_secret.anthropic_api_key_3.secret_id
     posthog_api_key                  = google_secret_manager_secret.posthog_api_key.secret_id
     slack_bot_token                  = google_secret_manager_secret.slack_bot_token.secret_id
     slack_signing_secret             = google_secret_manager_secret.slack_signing_secret.secret_id
@@ -89,6 +90,7 @@ output "secret_names" {
     claude_code_oauth_token_2        = google_secret_manager_secret.claude_code_oauth_token_2.name
     anthropic_api_key                = google_secret_manager_secret.anthropic_api_key.name
     anthropic_api_key_2              = google_secret_manager_secret.anthropic_api_key_2.name
+    anthropic_api_key_3              = google_secret_manager_secret.anthropic_api_key_3.name
     posthog_api_key                  = google_secret_manager_secret.posthog_api_key.name
     slack_bot_token                  = google_secret_manager_secret.slack_bot_token.name
     slack_signing_secret             = google_secret_manager_secret.slack_signing_secret.name
