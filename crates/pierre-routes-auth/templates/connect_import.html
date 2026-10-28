@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<!-- ABOUTME: Hosted import page the connect picker opens: request the Strava export, paste its link, follow or cancel the import -->
+<!-- ABOUTME: Its script calls the import routes with an import link-token, which starts, follows and cancels, and nothing else -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Copyright (c) 2026 dravr.ai -->
+<!--
+  Hosted import page, reached from the connect picker a chat link opens.
+  The athlete asks Strava for their export, pastes the link Strava emails,
+  and follows the import here. The page was rendered with an import
+  link-token, narrowed from the picker's connect token: it starts, follows and
+  cancels one source's import for this athlete, and reaches no report, no
+  delete and no provider login. Every string arrives in the athlete's locale
+  and is set as text, never as markup.
+-->
+<html lang="{{LANG}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <meta name="color-scheme" content="light dark">
+    <title>{{t:providers.import.title}}</title>
+    <style>{{HOSTED_PAGE_CSS}}</style>
+</head>
+<body>
+    <main class="card">
+        <div class="lockup" role="img" aria-label="Dravr"></div>
+        <div class="subtitle">
+            <span class="pill">{{LINKED_FROM}}</span>
+        </div>
+
+        <a class="btn btn-tertiary back-link" href="{{BACK_URL}}">&larr; {{t:hosted.common.back}}</a>
+        <h1>{{t:providers.import.title}}</h1>
+        <p class="lead">{{t:providers.import.strava.intro}}</p>
+
+        <div id="error-banner" class="alert alert-error" role="alert" hidden></div>
+
+        <!-- Phase: loading the athlete's import -->
+        <section id="phase-loading">
+            <div class="status">
+                <div class="spinner" role="status" aria-label="{{t:hosted.common.loading}}"></div>
+            </div>
+        </section>
+
+        <!-- Phase: imports do not run on this deployment -->
+        <section id="phase-unavailable" hidden>
+            <p>{{t:providers.import.unavailable}}</p>
+        </section>
+
+        <!-- Phase: request the export from Strava -->
+        <section id="phase-request" hidden>
+            <p id="last-outcome" hidden></p>
+            <p><strong>{{t:providers.import.strava.step1Title}}</strong></p>
+            <p>{{t:providers.import.strava.step1Body}}</p>
+            <div class="actions">
+                <a class="btn btn-secondary btn-block" href="{{STRAVA_EXPORT_PAGE}}" target="_blank" rel="noopener noreferrer">{{t:providers.import.strava.step1Open}}</a>
+                <button type="button" class="btn btn-tertiary btn-block" id="requested">{{t:providers.import.strava.step1Requested}}</button>
+            </div>
+        </section>
+
+        <!-- Phase: paste the link from Strava's email (after a request, while
+             an import waits for its link, or to import a newer export) -->
+        <section id="phase-link" hidden>
+            <p id="awaiting-line" hidden>{{t:providers.import.state.awaitingLink}}</p>
+            <p><strong>{{t:providers.import.strava.step2Title}}</strong></p>
+            <form id="link-form" novalidate>
+                <div class="field">
+                    <label for="export-link">{{t:providers.import.strava.linkLabel}}</label>
+                    <input type="url" id="export-link" name="url" required autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="{{t:providers.import.strava.linkPlaceholder}}">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="start">{{t:providers.import.strava.start}}</button>
+            </form>
+            <button type="button" class="btn btn-tertiary btn-block" id="cancel-waiting" hidden>{{t:providers.import.strava.cancel}}</button>
+        </section>
+
+        <!-- Phase: the import runs -->
+        <section id="phase-running" hidden>
+            <p><strong>{{t:providers.import.strava.step3Title}}</strong></p>
+            <div class="status">
+                <div class="spinner" role="status" aria-label="{{t:hosted.common.loading}}"></div>
+                <div id="running-line"></div>
+                <p>{{t:providers.import.strava.leaveHint}}</p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-block" id="cancel">{{t:providers.import.strava.cancel}}</button>
+        </section>
+
+        <!-- Phase: the last import completed -->
+        <section id="phase-done" hidden>
+            <div class="status">
+                <div class="status-icon status-icon-success" aria-hidden="true">&#10003;</div>
+                <div><strong id="done-title"></strong></div>
+                <p id="not-imported" hidden></p>
+                <p id="details-hint" hidden>{{t:hosted.import.detailsInApp}}</p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-block" id="import-newer">{{t:providers.import.strava.importNewer}}</button>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            'use strict';
+
+            const CONFIG = {
+                // The import link-token: starts, follows and cancels this
+                // athlete's import of `source`, and nothing else.
+                token: "{{IMPORT_TOKEN}}",
+                source: "{{SOURCE}}",
+                enabled: {{ENABLED}},
+                // The strings the script sets, in the athlete's locale. A
+                // `{0}` or `{1}` in one is a slot `fmt` fills.
+                strings: {{STRINGS_JSON}},
+                // Link refusal and import failure copy, by stable code.
+                refusals: {{REFUSALS_JSON}},
+                failures: {{FAILURES_JSON}},
+                pollMs: 5000,
+            };
+            const S = CONFIG.strings;
+            const BASE = '/providers/connect/import/' + encodeURIComponent(CONFIG.source);
+            let pollTimer = null;
+            let current = null;
+
+            function fmt(template) {
+                const values = Array.prototype.slice.call(arguments, 1);
+                return values.reduce((text, value, i) => text.split('{' + i + '}').join(String(value)), template);
+            }
+
+            const phases = ['loading', 'unavailable', 'request', 'link', 'running', 'done'];
+            function show(names) {
+                phases.forEach((p) => {
+                    document.getElementById('phase-' + p).hidden = !names.includes(p);
+                });
+            }
+            function showError(message) {
+                const banner = document.getElementById('error-banner');
+                banner.textContent = message;
+                banner.hidden = false;
+            }
+            function clearError() {
+                const banner = document.getElementById('error-banner');
+                banner.hidden = true;
+                banner.textContent = '';
+            }
+
+            // The link expired or was refused: nothing more this page can do.
+            function linkExpired() {
+                stopPolling();
+                show([]);
+                showError(S.linkExpired);
+            }
+
+            async function call(method, path, body) {
+                const init = {
+                    method: method,
+                    headers: { 'Authorization': 'Bearer ' + CONFIG.token },
+                };
+                if (body !== undefined) {
+                    init.headers['Content-Type'] = 'application/json';
+                    init.body = JSON.stringify(body);
+                }
+                const response = await fetch(BASE + path, init);
+                let payload = null;
+                try {
+                    payload = await response.json();
+                } catch (e) {
+                    payload = null;
+                }
+                return { status: response.status, ok: response.ok, payload: payload };
+            }
+
+            // The copy for a start the server refused: the link refusal its
+            // message leads with, a second import while one runs, or the
+            // generic error.
+            function startError(result) {
+                const message = (result.payload && result.payload.message) || '';
+                const code = Object.keys(CONFIG.refusals).find((c) => message.startsWith(c + ':'));
+                if (code) return CONFIG.refusals[code];
+                if (result.status === 409) return S.inProgress;
+                return S.genericError;
+            }
+
+            function isFinal(status) {
+                return status === 'completed' || status === 'failed' || status === 'cancelled';
+            }
+
+            function runningLine(entry) {
+                if (entry.status === 'queued') return S.queued;
+                if (entry.status === 'downloading') return S.downloading;
+                if (entry.total_rows) return fmt(S.progress, entry.processed_rows, entry.total_rows);
+                return S.progressStarting;
+            }
+
+            function stopPolling() {
+                if (pollTimer) {
+                    clearTimeout(pollTimer);
+                    pollTimer = null;
+                }
+            }
+
+            function render(entry) {
+                current = entry;
+                stopPolling();
+                if (!entry) {
+                    show(['request', 'link']);
+                    return;
+                }
+                const awaiting = entry.status === 'awaiting_link';
+                document.getElementById('awaiting-line').hidden = !awaiting;
+                document.getElementById('cancel-waiting').hidden = !awaiting;
+                document.getElementById('cancel-waiting').disabled = false;
+                if (awaiting) {
+                    show(['link']);
+                    return;
+                }
+                if (!isFinal(entry.status)) {
+                    document.getElementById('running-line').textContent = runningLine(entry);
+                    document.getElementById('cancel').disabled = false;
+                    show(['running']);
+                    pollTimer = setTimeout(refresh, CONFIG.pollMs);
+                    return;
+                }
+                if (entry.status === 'completed' && entry.history_held) {
+                    document.getElementById('done-title').textContent = fmt(S.doneTitle, entry.imported);
+                    const notImported = document.getElementById('not-imported');
+                    notImported.hidden = !(entry.failed > 0);
+                    notImported.textContent = fmt(S.notImported, entry.failed);
+                    document.getElementById('details-hint').hidden = !(entry.failed > 0);
+                    show(['done']);
+                    return;
+                }
+                // A failed or stopped import says why above the request.
+                const outcome = document.getElementById('last-outcome');
+                if (entry.status === 'failed') {
+                    outcome.textContent = CONFIG.failures[entry.error_code] || S.genericError;
+                    outcome.hidden = false;
+                } else if (entry.status === 'cancelled' && entry.processed_rows > 0) {
+                    outcome.textContent = fmt(S.stopped, entry.imported);
+                    outcome.hidden = false;
+                } else {
+                    outcome.hidden = true;
+                }
+                show(['request', 'link']);
+            }
+
+            async function refresh() {
+                try {
+                    const result = await call('GET', '/current');
+                    if (result.status === 401 || result.status === 403) return linkExpired();
+                    if (!result.ok) {
+                        showError(S.genericError);
+                        pollTimer = setTimeout(refresh, CONFIG.pollMs);
+                        return;
+                    }
+                    if (!result.payload.enabled) {
+                        show(['unavailable']);
+                        return;
+                    }
+                    clearError();
+                    render(result.payload.import);
+                } catch (e) {
+                    showError(S.genericError);
+                    pollTimer = setTimeout(refresh, CONFIG.pollMs);
+                }
+            }
+
+            async function start(body, button, busyLabel) {
+                clearError();
+                const label = button.textContent;
+                button.disabled = true;
+                if (busyLabel) button.textContent = busyLabel;
+                try {
+                    const result = await call('POST', '', body);
+                    if (result.status === 401 || result.status === 403) return linkExpired();
+                    if (!result.ok) {
+                        showError(startError(result));
+                        return;
+                    }
+                    document.getElementById('export-link').value = '';
+                    render(result.payload);
+                } catch (e) {
+                    showError(S.genericError);
+                } finally {
+                    button.disabled = false;
+                    button.textContent = label;
+                }
+            }
+
+            document.getElementById('requested').addEventListener('click', (event) => {
+                start({}, event.currentTarget, null);
+            });
+
+            document.getElementById('link-form').addEventListener('submit', (event) => {
+                event.preventDefault();
+                const url = document.getElementById('export-link').value.trim();
+                if (!url) {
+                    showError(CONFIG.refusals.link_invalid || S.genericError);
+                    return;
+                }
+                start({ url: url }, document.getElementById('start'), S.starting);
+            });
+
+            async function cancelCurrent(event) {
+                if (!current) return;
+                const button = event.currentTarget;
+                button.disabled = true;
+                stopPolling();
+                try {
+                    const result = await call('POST', '/' + encodeURIComponent(current.id) + '/cancel');
+                    if (result.status === 401 || result.status === 403) return linkExpired();
+                    if (!result.ok) showError(S.genericError);
+                } catch (e) {
+                    showError(S.genericError);
+                }
+                refresh();
+            }
+            document.getElementById('cancel').addEventListener('click', cancelCurrent);
+            document.getElementById('cancel-waiting').addEventListener('click', cancelCurrent);
+
+            document.getElementById('import-newer').addEventListener('click', () => {
+                clearError();
+                document.getElementById('awaiting-line').hidden = true;
+                document.getElementById('cancel-waiting').hidden = true;
+                show(['link']);
+                document.getElementById('export-link').focus();
+            });
+
+            if (!CONFIG.enabled) {
+                show(['unavailable']);
+            } else {
+                refresh();
+            }
+        })();
+    </script>
+</body>
+</html>

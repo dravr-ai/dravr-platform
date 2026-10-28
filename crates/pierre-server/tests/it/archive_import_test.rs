@@ -52,11 +52,11 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 /// A link the fixture fetcher serves the export behind.
-const LINK: &str = "https://export.example.com/export_1234.zip?signature=abc";
+pub(crate) const LINK: &str = "https://export.example.com/export_1234.zip?signature=abc";
 
 /// A link the fixture fetcher refuses, as tronc's guard refuses a host off
 /// the allowlist.
-const REFUSED_LINK: &str = "https://elsewhere.example.com/export.zip";
+pub(crate) const REFUSED_LINK: &str = "https://elsewhere.example.com/export.zip";
 
 /// Strava's `activities.csv` header row (English), as barrage pins it.
 const CSV_HEADER: &str = "Activity ID,Activity Date,Activity Name,Activity Type,\
@@ -92,7 +92,7 @@ impl ExportFetcher for FixtureFetcher {
 }
 
 /// Imports on fresh memory stores, fetching `export`, steps in this process.
-fn imports_serving(export: Vec<u8>) -> (ArchiveImports, BarrageStores) {
+pub(crate) fn imports_serving(export: Vec<u8>) -> (ArchiveImports, BarrageStores) {
     let stores = BarrageStores {
         blobs: Arc::new(MemoryBlobStore::new()),
         records: Arc::new(MemoryActivityRecordStore::new()),
@@ -144,7 +144,7 @@ fn ten_days_ago() -> DateTime<Utc> {
 
 /// A Strava export holding a recorded ride (`9001`, a FIT file) and a manual
 /// run (`9002`, no file).
-fn strava_export() -> Vec<u8> {
+pub(crate) fn strava_export() -> Vec<u8> {
     let start = ten_days_ago();
     let rows = [
         csv_row(
@@ -180,10 +180,10 @@ fn strava_export() -> Vec<u8> {
 }
 
 /// One athlete: the account, the tenant they act in and a session bearer.
-struct Athlete {
-    user_id: Uuid,
-    tenant: TenantId,
-    token: String,
+pub(crate) struct Athlete {
+    pub(crate) user_id: Uuid,
+    pub(crate) tenant: TenantId,
+    pub(crate) token: String,
 }
 
 impl Athlete {
@@ -192,7 +192,7 @@ impl Athlete {
     }
 }
 
-async fn seed_athlete(resources: &Arc<ServerContext>, label: &str) -> Athlete {
+pub(crate) async fn seed_athlete(resources: &Arc<ServerContext>, label: &str) -> Athlete {
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
     let (user_id, user, tenant) =
         common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
@@ -206,7 +206,7 @@ async fn seed_athlete(resources: &Arc<ServerContext>, label: &str) -> Athlete {
     }
 }
 
-async fn call(
+pub(crate) async fn call(
     resources: &Arc<ServerContext>,
     method: &str,
     uri: &str,

@@ -24,8 +24,8 @@ use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_PICKER_SIGN_IN_INCOMPLETE, KEY_HOSTED_PICKER_STRAVA_FALLBACK,
     KEY_HOSTED_PICKER_TAG_API_KEY, KEY_HOSTED_PICKER_TAG_AUTHORIZE,
     KEY_HOSTED_PICKER_TAG_CONNECTED, KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD,
-    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD,
-    KEY_SCIOTTE_CODE_REJECTED,
+    KEY_HOSTED_PICKER_TAG_EMAIL_PASSWORD, KEY_HOSTED_PICKER_TAG_USERNAME_PASSWORD, KEY_IMPORT_LINK,
+    KEY_IMPORT_LINK_HINT, KEY_SCIOTTE_CODE_REJECTED,
 };
 use pierre_core::html::{escape_html_attribute, with_hosted_page_css};
 use serde_json::{json, Value};
@@ -56,6 +56,7 @@ pub(crate) fn render_connect_page(
     link_token: &str,
     channel: &str,
     providers: &Value,
+    offers_import: bool,
 ) -> String {
     let channel_label = strings.channel(channel);
     // What the page's script writes: the card tags, the labels and notes that
@@ -104,6 +105,10 @@ pub(crate) fn render_connect_page(
         "{{DATA_AVAILABLE}}",
         &strings.html(KEY_HOSTED_PICKER_DATA_AVAILABLE, &[&channel_label]),
     )
+    .replace(
+        "{{IMPORT_ENTRY}}",
+        &import_entry(strings, link_token, offers_import),
+    )
     .replace("{{LINK_TOKEN}}", &escape_html_attribute(link_token))
     .replace("{{CHANNEL}}", &escape_html_attribute(channel))
     .replace("{{FLOW_EXPIRED_REASON}}", LOGIN_FLOW_EXPIRED_REASON)
@@ -113,6 +118,24 @@ pub(crate) fn render_connect_page(
     // script context before it.
     .replace("{{STRINGS_JSON}}", &script_json(&script_strings))
     .replace("{{PROVIDERS_JSON}}", &script_json(providers))
+}
+
+/// The picker's "Import your own data" entry below the provider cards: a
+/// link to the hosted import page carrying the same connect link-token, and
+/// the line saying what it brings in. Nothing where this server imports no
+/// history.
+fn import_entry(strings: &PageStrings<'_>, link_token: &str, offers_import: bool) -> String {
+    if !offers_import {
+        return String::new();
+    }
+    let href = format!("/providers/connect/import?token={}", encode(link_token));
+    format!(
+        r#"<a class="btn btn-secondary btn-block" id="import-own-data" href="{}">{}</a>
+            <p class="fineprint">{}</p>"#,
+        escape_html_attribute(&href),
+        strings.html(KEY_IMPORT_LINK, &[]),
+        strings.html(KEY_IMPORT_LINK_HINT, &[]),
+    )
 }
 
 /// Render the hosted Intervals.icu page for the connect link-token, in the

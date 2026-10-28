@@ -76,6 +76,8 @@ mod card_seats;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;
 #[cfg(feature = "provider-sciotte")]
+mod connect_hosted_import;
+#[cfg(feature = "provider-sciotte")]
 mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
@@ -230,6 +232,10 @@ pub struct AuthRoutesContext {
     /// Admin-token JWT signing secret — also used to verify the Sciotte
     /// hosted-login link-token.
     pub admin_jwt_secret: Arc<str>,
+    /// Whether this server imports an athlete's own history (carnet#1218):
+    /// the connect picker then offers the hosted import page, and the page
+    /// opens on it rather than saying imports are not available here.
+    pub archive_imports_offered: bool,
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
@@ -257,6 +263,7 @@ impl fmt::Debug for AuthRoutesContext {
         debug.field("rate_limiter", &self.rate_limiter);
         debug.field("group_service", &self.group_service);
         debug.field("admin_jwt_secret", &"[REDACTED]");
+        debug.field("archive_imports_offered", &self.archive_imports_offered);
         #[cfg(feature = "provider-sciotte")]
         debug.field("nonce_store", &self.nonce_store);
         debug.finish_non_exhaustive()
@@ -497,6 +504,15 @@ impl AuthRoutes {
             .route(
                 "/api/providers/connect/oauth-init/{provider}",
                 get(connect_hosted::handle_connect_oauth_init),
+            )
+            // The picker's "Import your own data": the hosted import page,
+            // opened with the same connect link-token. Its script calls the
+            // import routes `pierre-server` serves under
+            // `/providers/connect/import/{source}` with the narrower import
+            // link-token the page mints.
+            .route(
+                "/providers/connect/import",
+                get(connect_hosted_import::handle_connect_import_page),
             );
 
         router.with_state(context)

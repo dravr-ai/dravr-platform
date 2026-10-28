@@ -248,6 +248,10 @@ impl ServerContext {
             cache: self.common.cache.clone(),
             messaging_strings: self.mcp.messaging_strings_registry.clone(),
             admin_jwt_secret: self.auth.admin_jwt_secret.clone(),
+            // The import routes the hosted page calls are mounted with the
+            // client settings routes.
+            archive_imports_offered: cfg!(feature = "client-settings")
+                && self.common.archive_imports.is_enabled(),
             rate_limiter: self.auth.oauth2_rate_limiter.clone(),
             play_integrity: self.auth.play_integrity.clone(),
             human_check: self.auth.human_check.clone(),

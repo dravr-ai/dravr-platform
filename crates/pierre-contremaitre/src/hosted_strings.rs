@@ -220,9 +220,153 @@ pub const KEY_INTERVALS_COACH_KEY_ACTION: &str = "shell.intervalsCoachKeyAction"
 /// Key: "That code wasn't accepted. Check it and enter it again." No format placeholders.
 pub const KEY_SCIOTTE_CODE_REJECTED: &str = "shell.sciotteCodeRejected";
 
+// ── The hosted import page (carnet#1221) ──
+//
+// The page the connect picker opens to import the athlete's own history
+// shares its wording with the web and mobile import screens: every
+// placeholder-free `providers.import.*` key it shows is read here, and the
+// lines that carry a count are `hosted.import.*`, with positional slots.
+
+/// Key: "Import your own data" No format placeholders.
+pub const KEY_IMPORT_LINK: &str = "providers.import.link";
+/// Key: "Bring in history you've exported from another service." No format placeholders.
+pub const KEY_IMPORT_LINK_HINT: &str = "providers.import.linkHint";
+/// Key: "Import your own data" No format placeholders.
+pub const KEY_IMPORT_TITLE: &str = "providers.import.title";
+/// Key: "Importing your own data isn't available here yet." No format placeholders.
+pub const KEY_IMPORT_UNAVAILABLE: &str = "providers.import.unavailable";
+/// Key: "Waiting for Strava's email · Paste the link" No format placeholders.
+pub const KEY_IMPORT_STATE_AWAITING_LINK: &str = "providers.import.state.awaitingLink";
+/// Key: "Starting your import" No format placeholders.
+pub const KEY_IMPORT_STATE_QUEUED: &str = "providers.import.state.queued";
+/// Key: "Downloading your export" No format placeholders.
+pub const KEY_IMPORT_STATE_DOWNLOADING: &str = "providers.import.state.downloading";
+/// Key: "History you import from your own Strava export is yours and stays, even if you disconnect Strava." No format placeholders.
+pub const KEY_IMPORT_STRAVA_INTRO: &str = "providers.import.strava.intro";
+/// Key: "Step 1 of 3 · Request your Strava export" No format placeholders.
+pub const KEY_IMPORT_STRAVA_STEP1_TITLE: &str = "providers.import.strava.step1Title";
+/// Key: "On Strava, open Settings, then My Account, … and choose Request Your Archive." No format placeholders.
+pub const KEY_IMPORT_STRAVA_STEP1_BODY: &str = "providers.import.strava.step1Body";
+/// Key: "Open Strava's export page" No format placeholders.
+pub const KEY_IMPORT_STRAVA_STEP1_OPEN: &str = "providers.import.strava.step1Open";
+/// Key: "I've requested it" No format placeholders.
+pub const KEY_IMPORT_STRAVA_STEP1_REQUESTED: &str = "providers.import.strava.step1Requested";
+/// Key: "Step 2 of 3 · Paste the link from Strava's email" No format placeholders.
+pub const KEY_IMPORT_STRAVA_STEP2_TITLE: &str = "providers.import.strava.step2Title";
+/// Key: "Link from Strava's email" No format placeholders.
+pub const KEY_IMPORT_STRAVA_LINK_LABEL: &str = "providers.import.strava.linkLabel";
+/// Key: "https://…" No format placeholders.
+pub const KEY_IMPORT_STRAVA_LINK_PLACEHOLDER: &str = "providers.import.strava.linkPlaceholder";
+/// Key: "Start import" No format placeholders.
+pub const KEY_IMPORT_STRAVA_START: &str = "providers.import.strava.start";
+/// Key: "Starting…" No format placeholders.
+pub const KEY_IMPORT_STRAVA_STARTING: &str = "providers.import.strava.starting";
+/// Key: "Step 3 of 3 · Importing" No format placeholders.
+pub const KEY_IMPORT_STRAVA_STEP3_TITLE: &str = "providers.import.strava.step3Title";
+/// Key: "Getting your export from Strava…" No format placeholders.
+pub const KEY_IMPORT_STRAVA_PROGRESS_STARTING: &str = "providers.import.strava.progressStarting";
+/// Key: "You can close this window: the import keeps going." No format placeholders.
+pub const KEY_IMPORT_STRAVA_LEAVE_HINT: &str = "providers.import.strava.leaveHint";
+/// Key: "Cancel import" No format placeholders.
+pub const KEY_IMPORT_STRAVA_CANCEL: &str = "providers.import.strava.cancel";
+/// Key: "Import a newer export" No format placeholders.
+pub const KEY_IMPORT_STRAVA_IMPORT_NEWER: &str = "providers.import.strava.importNewer";
+/// Key: "An import from Strava is already running." No format placeholders.
+pub const KEY_IMPORT_STRAVA_IN_PROGRESS: &str = "providers.import.strava.inProgress";
+/// Key: "Something went wrong. Try again in a moment." No format placeholders.
+pub const KEY_IMPORT_STRAVA_GENERIC_ERROR: &str = "providers.import.strava.genericError";
+/// Key: "Paste the link again to resume." No format placeholders.
+pub const KEY_IMPORT_STRAVA_RETRY: &str = "providers.import.strava.retry";
+/// Key: "Open Dravr to see which activities were not imported, and why." No format placeholders.
+pub const KEY_HOSTED_IMPORT_DETAILS_IN_APP: &str = "hosted.import.detailsInApp";
+/// Key: "Activities imported: `{0}`"
+pub const KEY_HOSTED_IMPORT_DONE_TITLE: &str = "hosted.import.doneTitle";
+/// Key: "Not imported: `{0}`"
+pub const KEY_HOSTED_IMPORT_NOT_IMPORTED: &str = "hosted.import.notImported";
+/// Key: "`{0}` of `{1}` activities read"
+pub const KEY_HOSTED_IMPORT_PROGRESS: &str = "hosted.import.progress";
+/// Key: "Import stopped · `{0}` imported"
+pub const KEY_HOSTED_IMPORT_STOPPED: &str = "hosted.import.stopped";
+
+/// Key: the refusal of a link, `link_invalid`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_REFUSAL_LINK_INVALID: &str =
+    "providers.import.strava.refusal.link_invalid";
+/// Key: the refusal of a link, `link_host_not_allowed`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_REFUSAL_LINK_HOST_NOT_ALLOWED: &str =
+    "providers.import.strava.refusal.link_host_not_allowed";
+/// Key: the refusal of a link, `link_expired`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_REFUSAL_LINK_EXPIRED: &str =
+    "providers.import.strava.refusal.link_expired";
+/// Key: the refusal of a link, `link_unreachable`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_REFUSAL_LINK_UNREACHABLE: &str =
+    "providers.import.strava.refusal.link_unreachable";
+/// Key: the failure of an import, `download_failed`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_DOWNLOAD_FAILED: &str =
+    "providers.import.strava.failure.download_failed";
+/// Key: the failure of an import, `link_expired`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_LINK_EXPIRED: &str =
+    "providers.import.strava.failure.link_expired";
+/// Key: the failure of an import, `archive_too_large`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_TOO_LARGE: &str =
+    "providers.import.strava.failure.archive_too_large";
+/// Key: the failure of an import, `archive_unreadable`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_UNREADABLE: &str =
+    "providers.import.strava.failure.archive_unreadable";
+/// Key: the failure of an import, `archive_limit`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_LIMIT: &str =
+    "providers.import.strava.failure.archive_limit";
+/// Key: the failure of an import, `missing_activities_csv`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_MISSING_ACTIVITIES_CSV: &str =
+    "providers.import.strava.failure.missing_activities_csv";
+/// Key: the failure of an import, `unknown_locale`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_UNKNOWN_LOCALE: &str =
+    "providers.import.strava.failure.unknown_locale";
+/// Key: the failure of an import, `spool_missing`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_SPOOL_MISSING: &str =
+    "providers.import.strava.failure.spool_missing";
+/// Key: the failure of an import, `not_an_export`. No format placeholders.
+pub const KEY_IMPORT_STRAVA_FAILURE_NOT_AN_EXPORT: &str =
+    "providers.import.strava.failure.not_an_export";
+
+/// The copy of each link refusal, by the code the import routes answer with.
+pub const IMPORT_STRAVA_REFUSALS: [(&str, &str); 4] = [
+    ("link_invalid", KEY_IMPORT_STRAVA_REFUSAL_LINK_INVALID),
+    (
+        "link_host_not_allowed",
+        KEY_IMPORT_STRAVA_REFUSAL_LINK_HOST_NOT_ALLOWED,
+    ),
+    ("link_expired", KEY_IMPORT_STRAVA_REFUSAL_LINK_EXPIRED),
+    (
+        "link_unreachable",
+        KEY_IMPORT_STRAVA_REFUSAL_LINK_UNREACHABLE,
+    ),
+];
+
+/// The copy of each import failure, by its stable failure code.
+pub const IMPORT_STRAVA_FAILURES: [(&str, &str); 9] = [
+    ("download_failed", KEY_IMPORT_STRAVA_FAILURE_DOWNLOAD_FAILED),
+    ("link_expired", KEY_IMPORT_STRAVA_FAILURE_LINK_EXPIRED),
+    (
+        "archive_too_large",
+        KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_TOO_LARGE,
+    ),
+    (
+        "archive_unreadable",
+        KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_UNREADABLE,
+    ),
+    ("archive_limit", KEY_IMPORT_STRAVA_FAILURE_ARCHIVE_LIMIT),
+    (
+        "missing_activities_csv",
+        KEY_IMPORT_STRAVA_FAILURE_MISSING_ACTIVITIES_CSV,
+    ),
+    ("unknown_locale", KEY_IMPORT_STRAVA_FAILURE_UNKNOWN_LOCALE),
+    ("spool_missing", KEY_IMPORT_STRAVA_FAILURE_SPOOL_MISSING),
+    ("not_an_export", KEY_IMPORT_STRAVA_FAILURE_NOT_AN_EXPORT),
+];
+
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 68] = [
+pub const TEMPLATE_KEYS: [&str; 94] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -291,4 +435,30 @@ pub const TEMPLATE_KEYS: [&str; 68] = [
     KEY_INTERVALS_CREDENTIALS_HELP,
     KEY_INTERVALS_AUTHORIZE_ACTION,
     KEY_INTERVALS_COACH_KEY_ACTION,
+    KEY_IMPORT_LINK,
+    KEY_IMPORT_LINK_HINT,
+    KEY_IMPORT_TITLE,
+    KEY_IMPORT_UNAVAILABLE,
+    KEY_IMPORT_STATE_AWAITING_LINK,
+    KEY_IMPORT_STATE_QUEUED,
+    KEY_IMPORT_STATE_DOWNLOADING,
+    KEY_IMPORT_STRAVA_INTRO,
+    KEY_IMPORT_STRAVA_STEP1_TITLE,
+    KEY_IMPORT_STRAVA_STEP1_BODY,
+    KEY_IMPORT_STRAVA_STEP1_OPEN,
+    KEY_IMPORT_STRAVA_STEP1_REQUESTED,
+    KEY_IMPORT_STRAVA_STEP2_TITLE,
+    KEY_IMPORT_STRAVA_LINK_LABEL,
+    KEY_IMPORT_STRAVA_LINK_PLACEHOLDER,
+    KEY_IMPORT_STRAVA_START,
+    KEY_IMPORT_STRAVA_STARTING,
+    KEY_IMPORT_STRAVA_STEP3_TITLE,
+    KEY_IMPORT_STRAVA_PROGRESS_STARTING,
+    KEY_IMPORT_STRAVA_LEAVE_HINT,
+    KEY_IMPORT_STRAVA_CANCEL,
+    KEY_IMPORT_STRAVA_IMPORT_NEWER,
+    KEY_IMPORT_STRAVA_IN_PROGRESS,
+    KEY_IMPORT_STRAVA_GENERIC_ERROR,
+    KEY_IMPORT_STRAVA_RETRY,
+    KEY_HOSTED_IMPORT_DETAILS_IN_APP,
 ];

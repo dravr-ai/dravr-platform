@@ -1,5 +1,5 @@
 // ABOUTME: /api/imports — the athlete imports their own history from a service's export: check, start, follow, cancel, delete
-// ABOUTME: Session only (no API key, MCP token or delegated grant); plus /internal/imports/{id}/step, which Cloud Tasks delivers
+// ABOUTME: Session only (no API key, MCP token or delegated grant); the hosted import page's start/follow/cancel take its import link-token
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,12 +23,30 @@
 //!
 //! `POST /internal/imports/{id}/step` exists only where Cloud Tasks delivers
 //! the steps; its one gate is the delivery's OIDC token.
+//!
+//! ## The hosted import page (carnet#1221)
+//!
+//! The page a chat's connect picker opens (`/providers/connect/import`)
+//! calls three routes of its own, each with the *import link-token* the page
+//! was rendered with (`Authorization: Bearer`, minted by
+//! [`pierre_middleware::provider_link_token::mint_import_link_token`]):
+//!
+//! | Route | Answers |
+//! |---|---|
+//! | `GET /providers/connect/import/{source}/current` | whether imports run here, and the source's running or latest import |
+//! | `POST /providers/connect/import/{source}` `{url?}` | as `POST /api/imports/{source}` |
+//! | `POST /providers/connect/import/{source}/{id}/cancel` | as `POST /api/imports/{source}/{id}/cancel` |
+//!
+//! The token starts, follows and cancels; it never reads an import's report
+//! or deletes the imported history, and every `/api/imports` route refuses
+//! it. It is valid for one source and acts in the tenant and account it
+//! names, which must still be a member of that tenant.
 
 use std::sync::Arc;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use dravr_barrage::store::PageReq;
@@ -37,6 +55,7 @@ use pierre_auth::auth::AuthMethod;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_middleware::extractors::AuthenticatedUser;
+use pierre_middleware::provider_link_token;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
@@ -61,6 +80,18 @@ pub fn import_routes() -> Router<Arc<ServerContext>> {
         .route("/api/imports/{source}/data", delete(delete_history))
         .route("/api/imports/{source}/{id}/report", get(import_report))
         .route("/api/imports/{source}/{id}/cancel", post(cancel_import))
+        .route(
+            "/providers/connect/import/{source}",
+            post(link_start_import),
+        )
+        .route(
+            "/providers/connect/import/{source}/current",
+            get(link_current_import),
+        )
+        .route(
+            "/providers/connect/import/{source}/{id}/cancel",
+            post(link_cancel_import),
+        )
 }
 
 /// The step route, mounted only where Cloud Tasks delivers import steps.
@@ -92,6 +123,101 @@ fn session_scope(auth: &AuthenticatedUser) -> AppResult<Scope> {
         .map(TenantId::from_uuid)
         .ok_or_else(|| AppError::auth_invalid("Imports require an active tenant in the JWT"))?;
     Ok(ops::scope_of(tenant, auth.user_id))
+}
+
+/// The scope and source an import link-token names, for the hosted import
+/// page's routes.
+///
+/// The token must be an import token for `source` itself, and the account it
+/// names must still belong to its tenant: an account removed from the tenant
+/// since the link was sent starts nothing there.
+async fn link_scope(
+    resources: &ServerContext,
+    headers: &HeaderMap,
+    source: &str,
+) -> AppResult<(Scope, SourceKey)> {
+    let source = ops::offered_source(source)?;
+    let token = provider_link_token::extract_bearer_link_token(
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+    )
+    .ok_or_else(AppError::auth_required)?;
+    let claims = provider_link_token::verify_import_link_token(
+        token,
+        &resources.auth.admin_jwt_secret,
+        source.as_str(),
+    )?;
+    let (Ok(user_id), Ok(tenant_id)) = (Uuid::parse_str(&claims.sub), Uuid::parse_str(&claims.tid))
+    else {
+        return Err(AppError::auth_invalid(
+            "Import link-token has malformed identity claims",
+        ));
+    };
+    let tenant_id = TenantId::from_uuid(tenant_id);
+    if resources
+        .common
+        .repos
+        .tenants
+        .get_user_role(user_id, tenant_id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            "The import link names an account outside its tenant",
+        ));
+    }
+    Ok((ops::scope_of(tenant_id, user_id), source))
+}
+
+/// Body of `GET /providers/connect/import/{source}/current`.
+#[derive(Debug, Serialize)]
+struct HostedImportState {
+    /// Whether imports run on this deployment.
+    enabled: bool,
+    /// The source's running or latest import.
+    import: Option<ImportView>,
+}
+
+async fn link_current_import(
+    State(resources): State<Arc<ServerContext>>,
+    headers: HeaderMap,
+    Path(source): Path<String>,
+) -> AppResult<Json<HostedImportState>> {
+    let (scope, source) = link_scope(&resources, &headers, &source).await?;
+    if !resources.common.archive_imports.is_enabled() {
+        return Ok(Json(HostedImportState {
+            enabled: false,
+            import: None,
+        }));
+    }
+    Ok(Json(HostedImportState {
+        enabled: true,
+        import: ops::latest(&resources, &scope, source).await?,
+    }))
+}
+
+async fn link_start_import(
+    State(resources): State<Arc<ServerContext>>,
+    headers: HeaderMap,
+    Path(source): Path<String>,
+    body: Bytes,
+) -> AppResult<(StatusCode, Json<ImportView>)> {
+    let (scope, source) = link_scope(&resources, &headers, &source).await?;
+    let body = start_body(&body)?;
+    let view = ops::start(&resources, &scope, source, body.url.as_deref()).await?;
+    Ok((StatusCode::CREATED, Json(view)))
+}
+
+async fn link_cancel_import(
+    State(resources): State<Arc<ServerContext>>,
+    headers: HeaderMap,
+    Path((source, id)): Path<(String, Uuid)>,
+) -> AppResult<Json<Value>> {
+    let (scope, source) = link_scope(&resources, &headers, &source).await?;
+    let cancelled = ops::cancel(&resources, &scope, source, id).await?;
+    Ok(Json(json!({ "cancelled": cancelled })))
 }
 
 /// Body of `GET /api/imports`.
@@ -152,6 +278,14 @@ struct StartBody {
     url: Option<String>,
 }
 
+/// A start's body; an empty one asks for an import that waits for its link.
+fn start_body(body: &[u8]) -> AppResult<StartBody> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(StartBody::default());
+    }
+    serde_json::from_slice(body).map_err(|e| AppError::invalid_input(format!("import body: {e}")))
+}
+
 async fn start_import(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -160,13 +294,7 @@ async fn start_import(
 ) -> AppResult<(StatusCode, Json<ImportView>)> {
     let scope = session_scope(&auth)?;
     let source = ops::offered_source(&source)?;
-    // An empty body asks for an import that waits for its link.
-    let body: StartBody = if body.iter().all(u8::is_ascii_whitespace) {
-        StartBody::default()
-    } else {
-        serde_json::from_slice(&body)
-            .map_err(|e| AppError::invalid_input(format!("import body: {e}")))?
-    };
+    let body = start_body(&body)?;
     let view = ops::start(&resources, &scope, source, body.url.as_deref()).await?;
     Ok((StatusCode::CREATED, Json(view)))
 }

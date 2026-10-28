@@ -42,8 +42,12 @@
 //!   subsequent page loads receive an error. The token remains valid for the
 //!   login, 2FA and OTP POST endpoints within its TTL so the multi-step Sciotte flow
 //!   (credentials -> 2FA -> OTP) can complete.
-//! - **Minted in-process only**: no HTTP route mints a token, so there is no
-//!   caller to rate-limit; every mint follows a platform decision about the user.
+//! - **Minted in-process only**: no HTTP route mints a provider or connect
+//!   token, so there is no caller to rate-limit; every mint follows a platform
+//!   decision about the user. The one exchange is the hosted import page, which
+//!   narrows a valid connect token into an *import* token
+//!   ([`mint_import_link_token`]) that reaches only the hosted import
+//!   endpoints of one source and never outlives the connect token.
 //! - **Replica-safe**: [`NonceStore`] is backed by
 //!   the server's [`Cache`] layer (in-memory or Redis), so state is shared across
 //!   Cloud Run replicas when Redis is configured.
@@ -289,6 +293,116 @@ pub fn verify_link_token(
     Ok(data.claims)
 }
 
+/// Ceiling on an *import* link-token's lifetime (1 hour).
+///
+/// An import token is minted from a connect token
+/// ([`mint_import_link_token`]) and never outlives it: its expiry is the
+/// earlier of this ceiling and the connect token's own.
+pub const IMPORT_LINK_TOKEN_TTL_MINUTES: i64 = 60;
+
+/// Audience of an import link-token. It differs from the hosted-login
+/// audience, so [`verify_link_token`] refuses an import token before it reads
+/// the scope, and [`verify_import_link_token`] refuses every other token.
+const IMPORT_LINK_TOKEN_AUDIENCE: &str = "pierre-hosted-import";
+
+/// Scope prefix of an import link-token (`import:strava_archive`).
+const IMPORT_LINK_TOKEN_SCOPE_PREFIX: &str = "import:";
+
+/// The scope claim of an import link-token for `source`.
+#[must_use]
+pub fn import_scope(source: &str) -> String {
+    format!("{IMPORT_LINK_TOKEN_SCOPE_PREFIX}{source}")
+}
+
+/// Mint an *import* link-token for the hosted import page, from the verified
+/// claims of the connect token that opened it.
+///
+/// The import token is narrower than the connect token in every way:
+///
+/// - **single purpose**: its scope `import:{source}` and its own audience
+///   reach only the hosted import endpoints for that one source — starting,
+///   following and cancelling an import — and no provider login, OAuth start,
+///   import report or history delete;
+/// - **single user**: it names the connect token's user and tenant, and the
+///   endpoints act in that scope only;
+/// - **short-lived**: it expires after [`IMPORT_LINK_TOKEN_TTL_MINUTES`], or
+///   with the connect token if that comes first, so an exchange never extends
+///   a link's life.
+///
+/// The hosted import page mints it when a valid connect token opens the page:
+/// the one HTTP path that mints a link-token, and only by narrowing one the
+/// platform already minted.
+///
+/// # Errors
+///
+/// [`AppError::auth_invalid`] when `connect` is not a connect token's claims;
+/// an internal error when JWT encoding fails.
+pub fn mint_import_link_token(
+    connect: &ProviderLinkTokenClaims,
+    source: &str,
+    admin_jwt_secret: &str,
+) -> AppResult<String> {
+    if connect.scope != provider_scope(CONNECT_PROVIDER) {
+        return Err(AppError::auth_invalid(
+            "Only a connect link-token opens the hosted import page",
+        ));
+    }
+    let now = Utc::now();
+    let expiry = (now + Duration::minutes(IMPORT_LINK_TOKEN_TTL_MINUTES))
+        .timestamp()
+        .min(connect.exp);
+    let claims = ProviderLinkTokenClaims {
+        sub: connect.sub.clone(),
+        tid: connect.tid.clone(),
+        tgt: source.to_owned(),
+        channel: connect.channel.clone(),
+        channel_thread: connect.channel_thread.clone(),
+        scope: import_scope(source),
+        jti: Uuid::new_v4().to_string(),
+        iss: PROVIDER_LINK_TOKEN_ISSUER.to_owned(),
+        aud: IMPORT_LINK_TOKEN_AUDIENCE.to_owned(),
+        iat: now.timestamp(),
+        exp: expiry,
+    };
+    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    encode(&Header::new(Algorithm::HS256), &claims, &key)
+        .map_err(|e| AppError::internal(format!("Failed to encode import link-token: {e}")))
+}
+
+/// Verify an import link-token for `source`.
+///
+/// Only a token [`mint_import_link_token`] minted for this very source
+/// passes: a connect token, a provider token, or an import token for another
+/// source is refused. Unlike [`verify_link_token`], no wider scope stands in
+/// for this one.
+///
+/// # Errors
+///
+/// [`AppError::auth_invalid`] if the token is malformed, expired,
+/// signature-invalid, or not an import token for `source`.
+pub fn verify_import_link_token(
+    token: &str,
+    admin_jwt_secret: &str,
+    source: &str,
+) -> AppResult<ProviderLinkTokenClaims> {
+    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
+    validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
+    validation.set_audience(&[IMPORT_LINK_TOKEN_AUDIENCE]);
+
+    let data = decode::<ProviderLinkTokenClaims>(token, &key, &validation)
+        .map_err(|e| AppError::auth_invalid(format!("Invalid import link-token: {e}")))?;
+    if data.claims.scope != import_scope(source) {
+        return Err(AppError::auth_invalid(format!(
+            "Import link-token scope '{}' does not match '{}'",
+            data.claims.scope,
+            import_scope(source)
+        )));
+    }
+    Ok(data.claims)
+}
+
 /// Extract a Bearer link-token from an `Authorization` header value, if present
 #[must_use]
 pub fn extract_bearer_link_token(authorization_header: Option<&str>) -> Option<&str> {
@@ -354,5 +468,128 @@ impl<C: CacheProvider> NonceStore<C> {
             NONCE_PROVIDER_KEY.to_owned(),
             CacheResource::Custom(format!("jti:{jti}")),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SECRET: &str = "import-link-token-test-secret";
+    const SOURCE: &str = "strava_archive";
+
+    fn connect_claims() -> ProviderLinkTokenClaims {
+        let token = mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, SECRET)
+            .expect("mint connect token");
+        verify_link_token(&token, SECRET, CONNECT_PROVIDER).expect("verify connect token")
+    }
+
+    #[test]
+    fn an_import_token_names_the_connect_tokens_athlete_and_one_source() {
+        let connect = connect_claims();
+        let token = mint_import_link_token(&connect, SOURCE, SECRET).expect("mint");
+        let claims = verify_import_link_token(&token, SECRET, SOURCE).expect("verify");
+
+        assert_eq!(
+            claims.sub, connect.sub,
+            "the import token names the connect token's user"
+        );
+        assert_eq!(
+            claims.tid, connect.tid,
+            "the import token names the connect token's tenant"
+        );
+        assert_eq!(
+            claims.scope,
+            import_scope(SOURCE),
+            "the import token is scoped to its source"
+        );
+        assert_ne!(
+            claims.jti, connect.jti,
+            "the import token is a token of its own"
+        );
+        assert!(
+            claims.exp <= connect.exp,
+            "never outlives the connect token"
+        );
+    }
+
+    #[test]
+    fn an_import_token_never_outlives_its_connect_token() {
+        let mut connect = connect_claims();
+        let soon = Utc::now().timestamp() + 120;
+        connect.exp = soon;
+        let token = mint_import_link_token(&connect, SOURCE, SECRET).expect("mint");
+        let claims = verify_import_link_token(&token, SECRET, SOURCE).expect("verify");
+        assert_eq!(
+            claims.exp, soon,
+            "the import token expires with its connect token"
+        );
+    }
+
+    #[test]
+    fn an_import_token_reaches_no_provider_or_connect_endpoint() {
+        let token = mint_import_link_token(&connect_claims(), SOURCE, SECRET).expect("mint");
+        for provider in [CONNECT_PROVIDER, "sciotte", "strava", SOURCE] {
+            assert!(
+                verify_link_token(&token, SECRET, provider).is_err(),
+                "an import token passed verify_link_token for {provider}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_an_import_token_for_the_same_source_passes() {
+        let connect = connect_claims();
+        let connect_token =
+            mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, SECRET)
+                .expect("mint connect");
+        let provider_token = mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id: Uuid::new_v4(),
+                tenant_id: Uuid::new_v4(),
+                provider: "sciotte",
+                target: "strava",
+                channel: "slack",
+                channel_thread: None,
+            },
+            SECRET,
+        )
+        .expect("mint provider");
+        let other_source =
+            mint_import_link_token(&connect, "garmin_archive", SECRET).expect("mint other");
+        let forged = mint_import_link_token(&connect, SOURCE, "another-secret").expect("mint");
+
+        for (what, token) in [
+            ("connect", connect_token),
+            ("provider", provider_token),
+            ("other source", other_source),
+            ("other secret", forged),
+        ] {
+            assert!(
+                verify_import_link_token(&token, SECRET, SOURCE).is_err(),
+                "a {what} token passed as an import token"
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_connect_token_is_narrowed_into_an_import_token() {
+        let token = mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id: Uuid::new_v4(),
+                tenant_id: Uuid::new_v4(),
+                provider: "sciotte",
+                target: "strava",
+                channel: "slack",
+                channel_thread: None,
+            },
+            SECRET,
+        )
+        .expect("mint provider");
+        let claims = verify_link_token(&token, SECRET, "sciotte").expect("verify");
+        assert!(
+            mint_import_link_token(&claims, SOURCE, SECRET).is_err(),
+            "a provider token was narrowed into an import token"
+        );
     }
 }

@@ -9,7 +9,9 @@
   connects via OAuth (full-page redirect to the link-token-authed oauth-init),
   the hosted Intervals.icu API-key form (full-page, same link-token),
   or the credential sign-in state machine (the same credential API the
-  web/mobile credential login uses). The signed connect link-token is embedded
+  web/mobile credential login uses). Below the cards, where this server
+  imports an athlete's own history, "Import your own data" opens the hosted
+  import page with the same link-token. The signed connect link-token is embedded
   and sent as `Authorization: Bearer` on every API call. Passwords never leave
   this TLS page — they are not typed into the chat transcript.
 -->
@@ -38,6 +40,7 @@
         <section id="phase-picker">
             <h1>{{t:hosted.picker.heading}}</h1>
             <div id="provider-list"></div>
+            {{IMPORT_ENTRY}}
             <p class="fineprint">{{t:hosted.picker.securityNote}}</p>
         </section>
 

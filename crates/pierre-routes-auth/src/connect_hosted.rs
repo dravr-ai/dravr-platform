@@ -24,6 +24,11 @@
 //!    which an athlete authorizes and a coach links with an API key — the
 //!    hosted Intervals.icu page (`/providers/connect/intervals_icu`,
 //!    [`crate::connect_hosted_intervals`]), which offers both.
+//! 4. Below the cards, where this server imports an athlete's own history,
+//!    offers "Import your own data": the hosted import page
+//!    (`/providers/connect/import`, [`crate::connect_hosted_import`]),
+//!    opened with the same link-token. The credential and OAuth cards stay
+//!    offered beside it.
 //!
 //! Every page is written in the locale of the athlete the link-token names
 //! ([`crate::hosted_page`]), from the dravr-contremaitre catalogue. A page
@@ -360,6 +365,7 @@ pub(crate) async fn handle_connect_hosted_page(
         token,
         &claims.channel,
         &providers,
+        resources.archive_imports_offered,
     ))
     .into_response()
 }
