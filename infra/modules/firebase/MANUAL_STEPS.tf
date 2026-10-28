@@ -30,18 +30,29 @@
 #    and clientauthconfig API were all tested — none support this operation.
 #    This is a known limitation in the Google Cloud platform.
 #
-# 2. CURRENT VALUES (dev environment, as of 2026-09-21)
-#    ───────────────────────────────────────────────────
+# 2. CURRENT VALUES (dev environment, read from the console 2026-10-28)
+#    ───────────────────────────────────────────────────────────────────
+#    The 2026-09-21 version of this list claimed the app.dravr.ai entries were
+#    set; they were not, and Google answered redirect_uri_mismatch until they
+#    were added on 2026-10-28. Verify, do not trust this list: Google redirects
+#    an unauthorized URI to /signin/oauth/error (authError decodes to
+#    redirect_uri_mismatch):
+#      curl -s -o /dev/null -w '%{redirect_url}\n' "https://accounts.google.com/o/oauth2/v2/auth?client_id=<id>&redirect_uri=<uri>&response_type=code&scope=openid"
+#
 #    OAuth Client ID: 629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com
 #    Authorized JS Origins:
-#      - https://app.dravr.ai                                  ← frontend_base_url since 2026-09-21
 #      - https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app
 #      - https://dravr-mcp-server-frontend-865150413606.northamerica-northeast1.run.app
+#      - https://dravr-dev-8d4a3.firebaseapp.com
+#      - https://app.dravr.ai                                  ← added 2026-10-28
 #    Authorized Redirect URIs:
-#      - https://dravr-dev-8d4a3.firebaseapp.com/__/auth/handler  ← popup flow redirect
-#      - https://app.dravr.ai/__/auth/handler
 #      - https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/__/auth/handler
 #      - https://dravr-mcp-server-frontend-865150413606.northamerica-northeast1.run.app/__/auth/handler
+#      - https://dravr-dev-8d4a3.firebaseapp.com/__/auth/handler  ← local dev popup redirect
+#      - https://app.dravr.ai/oauth2/login/google/callback
+#      - https://mcp.dravr.ai/oauth2/login/google/callback
+#      - https://app.dravr.ai/__/auth/handler                  ← added 2026-10-28; the deployed
+#        build's authDomain (repo variable VITE_FIREBASE_AUTH_DOMAIN = app.dravr.ai)
 #
 #    Firebase Authentication → Settings → Authorized domains must also list
 #    app.dravr.ai (with the run.app hosts kept for the dual-origin window);

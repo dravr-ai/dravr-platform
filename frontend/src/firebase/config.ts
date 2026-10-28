@@ -12,12 +12,18 @@
  *   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID,
  *   VITE_FIREBASE_APP_ID
  *
- * authDomain points at Firebase's hosted handler ({projectId}.firebaseapp.com).
- * A same-origin authDomain (window.location.host) was tried to fix mobile
- * redirect sign-in but broke local dev — vite serves http, so Firebase's
- * https://localhost:<port>/__/auth/handler URL fails to load and the popup
- * hangs on "Signing in…". This value is the one that authenticates reliably
- * everywhere.
+ * authDomain defaults to Firebase's hosted handler ({projectId}.firebaseapp.com),
+ * which is what local dev uses: vite serves http, so a same-origin
+ * https://localhost:<port>/__/auth/handler fails to load and the popup hangs on
+ * "Signing in…" — why deriving it from window.location.host was reverted.
+ *
+ * The deployed build sets VITE_FIREBASE_AUTH_DOMAIN to its own host
+ * (app.dravr.ai, the `VITE_FIREBASE_AUTH_DOMAIN` repo variable), served by
+ * nginx's /__/ proxy to firebaseapp.com. A cross-site authDomain hands the popup
+ * result back through a firebaseapp.com iframe, and Chrome's third-party storage
+ * partitioning drops that handoff in some profiles: sign-in then never settles.
+ * The host must be an authorized redirect URI (`<host>/__/auth/handler`) on the
+ * OAuth client — see infra/modules/firebase/MANUAL_STEPS.tf.
  */
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,

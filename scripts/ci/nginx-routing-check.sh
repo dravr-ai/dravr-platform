@@ -116,6 +116,8 @@ sed -e 's|${BACKEND_URL}|http://'"$STUB"':80|g' \
 
 mkdir -p "$WORK/www"
 echo '<!doctype html><html>SPA-INDEX</html>' > "$WORK/www/index.html"
+mkdir -p "$WORK/www/assets"
+echo 'export const ASSET_SERVED = 1;' > "$WORK/www/assets/present-Ab12Cd34.js"
 # The stub answers every path, except one it drops without a response (444),
 # which makes nginx log an upstream error for the log check at the end. It
 # takes a body of any size, so a body cap the check meets is the proxy's.
@@ -205,6 +207,25 @@ echo "-- must reach the backend --"
 for spec in "${BACKEND_PATHS[@]}"; do check "$spec" backend; done
 echo "-- must be served by the SPA --"
 for spec in "${SPA_PATHS[@]}"; do check "$spec" spa; done
+
+# Hashed assets: a chunk the image holds is served as JavaScript, and one it
+# lacks is a 404 — never the SPA shell, which a module import of a chunk from
+# the previous release would otherwise receive as text/html with a 200.
+echo "-- hashed assets --"
+asset_present="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "http://localhost:$PORT/assets/present-Ab12Cd34.js" --max-time 10 || true)"
+if [[ "$asset_present" == "200 application/javascript"* ]]; then
+    printf '  ok   %-6s %-45s -> 200 javascript\n' GET /assets/present-Ab12Cd34.js
+else
+    printf '  FAIL %-6s %-45s -> %s (expected 200 application/javascript)\n' GET /assets/present-Ab12Cd34.js "$asset_present"
+    failures=$((failures + 1))
+fi
+asset_missing_status="$(curl -s -o "$WORK/asset-missing.body" -w '%{http_code}' "http://localhost:$PORT/assets/missing-Zz99Yy88.js" --max-time 10 || true)"
+if [ "$asset_missing_status" = "404" ] && ! grep -qF 'SPA-INDEX' "$WORK/asset-missing.body"; then
+    printf '  ok   %-6s %-45s -> 404\n' GET /assets/missing-Zz99Yy88.js
+else
+    printf '  FAIL %-6s %-45s -> %s (expected 404, not the SPA shell)\n' GET /assets/missing-Zz99Yy88.js "$asset_missing_status"
+    failures=$((failures + 1))
+fi
 
 # A Garmin activityDetails push is far past nginx's 1 MB default body cap; the
 # Garmin block raises it, so a 4 MB push must still reach the backend.

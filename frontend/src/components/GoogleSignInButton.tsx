@@ -4,10 +4,11 @@
 // ABOUTME: "or" and "Continue with Google", shared by the sign-in and create-account forms
 // ABOUTME: A Google sign-in creates the account when none exists, so both forms offer it
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../hooks/useAuth';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { usePopupReturnWatch } from '../hooks/usePopupReturnWatch';
 import { describeGoogleFailure } from '../firebase/googleFailure';
 
 interface GoogleSignInButtonProps {
@@ -28,30 +29,61 @@ export function GoogleSignInButton({ dividerSurface, onStart, onError, busy = fa
   const [isStarting, setIsStarting] = useState(false);
   const isLoading = busy || isStarting;
 
+  const watchPopupReturn = usePopupReturnWatch();
+  // Which click is current, so a stale attempt's late answer cannot reset a newer spinner.
+  const attemptRef = useRef(0);
+
   const handleClick = async () => {
+    const attempt = ++attemptRef.current;
+    // Set when the athlete is back on this tab and no result came: the
+    // attempt is over for the button, as if they had closed the popup.
+    let abandoned = false;
+    const isCurrent = () => !abandoned && attempt === attemptRef.current;
+
     setIsStarting(true);
     onStart();
+    const stopWatching = watchPopupReturn(() => {
+      abandoned = true;
+      if (attempt === attemptRef.current) setIsStarting(false);
+    });
 
+    let idToken: string | null;
     try {
       // Popup flow returns the ID token directly. Where popups are blocked
       // (in-app browsers), signInWithGoogle falls back to a full-page redirect
       // and returns null. The app comes back on '/', where Login's redirect
       // effect picks the result up, so there is nothing more to do here.
       const { signInWithGoogle } = await import('../firebase/firebase');
-      const idToken = await signInWithGoogle();
-      if (idToken) {
-        await loginWithFirebase(idToken);
-        setIsStarting(false);
-      }
-      // idToken === null → redirecting away; keep the spinner up until navigation.
+      idToken = await signInWithGoogle();
     } catch (err: unknown) {
+      stopWatching();
+      // An abandoned attempt has already been put down; a banner arriving
+      // later, about a popup the athlete walked away from, explains nothing.
+      if (!isCurrent()) return;
       const firebaseError = err as { code?: string };
       // Closing the popup is a decision, not a failure — say nothing.
       if (firebaseError.code !== 'auth/popup-closed-by-user') {
         onError(describeGoogleFailure(err, online, t));
       }
       setIsStarting(false);
+      return;
     }
+    stopWatching();
+    // idToken === null → redirecting away; keep the spinner up until navigation.
+    if (!idToken) return;
+
+    // Google completed the sign-in, so it is honoured even after an abandon:
+    // losing it is worse than a spinner that was reset a little early. The
+    // athlete did not walk away from this step, so it spins again and a
+    // failure here is reported — unless a newer click has taken the button.
+    const isLatest = () => attempt === attemptRef.current;
+    if (isLatest()) setIsStarting(true);
+    try {
+      await loginWithFirebase(idToken);
+    } catch (err: unknown) {
+      if (isLatest()) onError(describeGoogleFailure(err, online, t));
+    }
+    if (isLatest()) setIsStarting(false);
   };
 
   return (

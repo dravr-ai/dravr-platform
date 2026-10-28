@@ -769,6 +769,22 @@ jobs:
           echo "frontend_tags=${FRONTEND_TAGS}" >> "$GITHUB_OUTPUT"
           echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
 
+      # A tab opened before this deploy still runs the previous bundle, and its
+      # next lazy import asks for a hashed chunk this build does not contain:
+      # a 404 (503 mid-rollout) and "Failed to fetch dynamically imported
+      # module" (the Google sign-in landing, 2026-10-28). The image dev serves
+      # (deployed-dev) lends its own chunks to this dist, never overwriting a
+      # file this build made and never its index.html. One generation only:
+      # the dist records its own asset list and only that list is carried on,
+      # so an image holds its release's assets plus the previous release's.
+      # A first deploy (no deployed-dev) carries nothing and is not an error;
+      # every other failure fails the build. Rollback runs skip this job.
+      - name: Carry the previous release's assets forward
+        env:
+          PACKAGE: ${{ steps.tags.outputs.registry }}/frontend
+          DIST_DIR: ${{ steps.dist.outputs.dir }}
+        run: ./scripts/ci/carry-forward-frontend-assets.sh --package "${PACKAGE}" --tag deployed-dev --dist "${DIST_DIR}"
+
       - name: Build and push frontend image
         id: build
         uses: docker/build-push-action@v7
