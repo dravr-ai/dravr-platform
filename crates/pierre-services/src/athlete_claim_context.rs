@@ -527,6 +527,7 @@ mod tests {
             distance_km: None,
             duration_min: 0.0,
             elevation_m: None,
+            average_hr_bpm: None,
         };
 
         let sources: Vec<String> = sessions_by_source(&[scraped, whoop], recorded)
