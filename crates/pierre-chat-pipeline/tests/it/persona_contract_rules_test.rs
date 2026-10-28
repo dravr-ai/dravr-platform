@@ -114,6 +114,49 @@ fn committed_number_passes_exact_numbers() {
 }
 
 #[test]
+fn french_hedge_next_to_a_number_violates_exact_numbers() {
+    let found = rules(
+        EXACT,
+        CoachingPersona::PowerAthlete,
+        "Roule à environ 250 watts.",
+        None,
+    );
+    assert!(
+        found.contains(&"require_exact_numbers".to_owned()),
+        "a standalone French hedge beside a digit must fire, got {found:?}"
+    );
+}
+
+#[test]
+fn hedge_inside_a_longer_word_passes_exact_numbers() {
+    for reply in [
+        "Ton environnement 2 fois plus chaud ralentit l'allure.",
+        "Le bloc aboutit à 250 watts au seuil.",
+        "Take the roundabout 3 km in.",
+    ] {
+        let leftover = rules(EXACT, CoachingPersona::PowerAthlete, reply, None);
+        assert!(
+            leftover.is_empty(),
+            "a hedge glued inside another word is not a hedge: {reply:?} gave {leftover:?}"
+        );
+    }
+}
+
+#[test]
+fn symbol_hedge_glued_to_a_number_violates_exact_numbers() {
+    let found = rules(
+        EXACT,
+        CoachingPersona::PowerAthlete,
+        "Ride ~250 watts.",
+        None,
+    );
+    assert!(
+        found.contains(&"require_exact_numbers".to_owned()),
+        "a tilde has no word edge and must still fire, got {found:?}"
+    );
+}
+
+#[test]
 fn hedge_far_from_any_number_passes_exact_numbers() {
     assert!(
         rules(

@@ -220,13 +220,36 @@ pub fn significant_digits(token: &str) -> usize {
 
 /// `true` when `modifier` appears within [`super::VAGUE_MODIFIER_WINDOW`] characters
 /// of an ASCII digit, in either direction. Both texts are expected lowercased.
+///
+/// A word modifier must stand alone: `environ` inside `environnement`, or
+/// `about` inside the French `aboutit`, is not a hedge. A symbol modifier
+/// (`~`, `≈`) has no word edge and matches wherever it sits.
 #[must_use]
 pub fn modifier_adjacent_to_digit(lowered: &str, modifier: &str) -> bool {
+    let starts_alpha = modifier.chars().next().is_some_and(char::is_alphanumeric);
+    let ends_alpha = modifier
+        .chars()
+        .next_back()
+        .is_some_and(char::is_alphanumeric);
     let mut search_from = 0;
     while let Some(rel) = lowered[search_from..].find(modifier) {
         let start = search_from + rel;
         let end = start + modifier.len();
         let before = &lowered[..start];
+        let glued_before = starts_alpha
+            && before
+                .chars()
+                .next_back()
+                .is_some_and(char::is_alphanumeric);
+        let glued_after = ends_alpha
+            && lowered[end..]
+                .chars()
+                .next()
+                .is_some_and(char::is_alphanumeric);
+        if glued_before || glued_after {
+            search_from = end;
+            continue;
+        }
         let lead_start = before
             .char_indices()
             .rev()
