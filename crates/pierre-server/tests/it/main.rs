@@ -380,7 +380,6 @@ mod key_material_alert_test;
 mod lease_token_fence_test;
 mod link_token_consume_test;
 mod live_incident_eval_test;
-mod llm_base_url_allowlist_test;
 mod llm_chain_config_test;
 mod llm_chain_guard_test;
 mod llm_consumption_test;

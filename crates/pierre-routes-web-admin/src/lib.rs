@@ -44,6 +44,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
+use dravr_tronc::http_client::guard::FetchPolicy;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
@@ -51,7 +52,7 @@ use uuid::Uuid;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
-use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
+use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_database::RepositoryRegistry;
@@ -132,8 +133,8 @@ impl pierre_runtime_context::MiddlewareCtx for WebAdminContext {
         self.auth_middleware.authenticate_request(auth_header).await
     }
 
-    fn llm_base_url_allowlist(&self) -> &[String] {
-        config_llm_base_url_allowlist()
+    fn llm_base_url_policy(&self) -> &FetchPolicy {
+        config_llm_base_url_policy()
     }
 
     fn llm_chain(&self) -> &LlmChain {

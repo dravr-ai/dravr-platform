@@ -6,6 +6,7 @@
 
 use crate::network::{parse_origins, TlsConfig};
 use crate::types::Environment;
+use dravr_tronc::http_client::guard::{FetchPolicy, HostAllowlist};
 use pierre_core::constants::system_monitoring;
 use pierre_core::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -172,24 +173,26 @@ fn env_var_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
 }
 
-/// Deny-by-default allowlist of hostnames permitted as a user-supplied LLM `base_url`.
+/// The tronc `allowlist` fetch policy a user-supplied LLM `base_url` must pass.
 ///
-/// An empty allowlist rejects every custom `base_url`, closing the SSRF where a tenant
-/// points the server's outbound LLM call at an internal host (T3MP3ST F2 / CWE-918).
-/// Providers with fixed endpoints (gemini/groq/cohere) send no `base_url` and are
-/// unaffected. Configured via `PIERRE_LLM_BASE_URL_ALLOWLIST` (comma-separated hostnames,
-/// e.g. `localhost,127.0.0.1,llm.internal.example.com`); parsed once per process. Kept as
-/// a process-global rather than a `SecurityConfig` field so it is not part of the widely
-/// literal-constructed config struct.
+/// Deny-by-default: an empty allowlist rejects every custom `base_url`, closing the
+/// SSRF where a tenant points the server's outbound LLM call at an internal host
+/// (T3MP3ST F2 / CWE-918). The host must be one the operator listed, compared exactly
+/// and case-insensitively; http(s) only, no credentials in the URL. The address deny
+/// list is deliberately not applied: the operator's list is the trust decision and
+/// legitimately names `localhost` for a model served beside the server. Providers with
+/// fixed endpoints (gemini/groq/cohere) send no `base_url` and are unaffected.
+/// Configured via `PIERRE_LLM_BASE_URL_ALLOWLIST` (comma-separated hostnames or IPs,
+/// e.g. `localhost,127.0.0.1,llm.internal.example.com`); parsed once per process. Kept
+/// as a process-global rather than a `SecurityConfig` field so it is not part of the
+/// widely literal-constructed config struct.
 #[must_use]
-pub fn llm_base_url_allowlist() -> &'static [String] {
-    static ALLOWLIST: LazyLock<Vec<String>> = LazyLock::new(|| {
-        env_var_or("PIERRE_LLM_BASE_URL_ALLOWLIST", "")
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-            .collect()
+pub fn llm_base_url_policy() -> &'static FetchPolicy {
+    static POLICY: LazyLock<FetchPolicy> = LazyLock::new(|| {
+        FetchPolicy::allowlist(HostAllowlist::from_comma_separated(&env_var_or(
+            "PIERRE_LLM_BASE_URL_ALLOWLIST",
+            "",
+        )))
     });
-    &ALLOWLIST
+    &POLICY
 }

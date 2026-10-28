@@ -47,6 +47,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_tronc::http_client::guard::FetchPolicy;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
@@ -130,13 +131,13 @@ pub trait MiddlewareCtx: Send + Sync + 'static {
     /// checks.
     async fn authenticate_request(&self, auth_header: Option<&str>) -> AppResult<AuthResult>;
 
-    /// Allowlist of hostnames permitted as a user-supplied LLM `base_url` (the
-    /// `local`/OpenAI-compatible provider). An empty slice denies every custom
-    /// `base_url`, closing the SSRF where a tenant points the server's outbound LLM
-    /// call at an internal host (T3MP3ST F2 / CWE-918). Sourced from
-    /// `SecurityConfig::llm_base_url_allowlist`; returned as a primitive slice so this
-    /// crate stays free of a `pierre-config` dependency.
-    fn llm_base_url_allowlist(&self) -> &[String];
+    /// The tronc `allowlist` fetch policy a user-supplied LLM `base_url` (the
+    /// `local`/OpenAI-compatible provider) must pass: the host must be on the
+    /// operator's list, and an empty list denies every custom `base_url`, closing the
+    /// SSRF where a tenant points the server's outbound LLM call at an internal host
+    /// (T3MP3ST F2 / CWE-918). Sourced from `pierre_config::security::llm_base_url_policy`;
+    /// typed by tronc so this crate stays free of a `pierre-config` dependency.
+    fn llm_base_url_policy(&self) -> &FetchPolicy;
 
     /// The LLM provider chain the server read from `PIERRE_LLM_CHAIN` once at
     /// boot — its head is the provider every turn is asked of first.

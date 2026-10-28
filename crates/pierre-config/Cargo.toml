@@ -15,6 +15,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-re
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 dravr-cageux = { workspace = true }
+dravr-tronc = { workspace = true, features = ["http-client"] }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 

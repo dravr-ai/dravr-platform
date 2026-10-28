@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use dravr_tronc::http_client::guard::{FetchPolicy, GuardError};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::llm_manager::{
     CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
@@ -130,41 +131,21 @@ pub struct SaveCredentialsResponse {
     pub message: String,
 }
 
-/// Extract the lowercase host from a URL without a URL-parser dependency.
-/// Strips scheme, userinfo, IPv6 brackets, and port. Returns `None` for a URL with
-/// no usable host.
-#[must_use]
-pub fn base_url_host(base_url: &str) -> Option<String> {
-    let after_scheme = base_url
-        .split_once("://")
-        .map_or(base_url, |(_, rest)| rest);
-    let authority = after_scheme
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default();
-    let host_port = authority.rsplit_once('@').map_or(authority, |(_, hp)| hp);
-    let host = if let Some(rest) = host_port.strip_prefix('[') {
-        // IPv6 literal, e.g. [::1]:11434
-        rest.split_once(']').map(|(h, _)| h)?
-    } else {
-        host_port.split(':').next().unwrap_or_default()
-    };
-    let host = host.trim().to_ascii_lowercase();
-    (!host.is_empty()).then_some(host)
-}
-
-/// Whether a user-supplied LLM `base_url` is permitted by the operator's allowlist.
-///
-/// Deny-by-default (T3MP3ST F2 / CWE-918): an unparseable URL, a URL with no host, or
-/// an empty allowlist all return `false`. Prevents a tenant from pointing the server's
-/// outbound LLM request at an internal host (SSRF). Host comparison is case-insensitive.
-#[must_use]
-pub fn base_url_allowed(base_url: &str, allowlist: &[String]) -> bool {
-    base_url_host(base_url).is_some_and(|host| {
-        allowlist
-            .iter()
-            .any(|allowed| allowed.trim().eq_ignore_ascii_case(&host))
-    })
+/// Refuse a user-supplied LLM `base_url` the operator's tronc `allowlist` policy does
+/// not admit (T3MP3ST F2 / CWE-918): an unparseable URL, a scheme other than http(s),
+/// credentials in the URL, or a host not on `PIERRE_LLM_BASE_URL_ALLOWLIST`. An empty
+/// allowlist admits nothing, so a tenant cannot aim the server's outbound LLM request
+/// at an internal host.
+fn ensure_base_url_permitted(base_url: &str, policy: &FetchPolicy) -> Result<(), AppError> {
+    match policy.check_url(base_url) {
+        Ok(_) => Ok(()),
+        Err(GuardError::HostNotAllowed) => Err(AppError::invalid_input(
+            "LLM base_url host is not permitted; add it to PIERRE_LLM_BASE_URL_ALLOWLIST",
+        )),
+        Err(refusal) => Err(AppError::invalid_input(format!(
+            "LLM base_url is not permitted: {refusal}"
+        ))),
+    }
 }
 
 /// LLM settings routes container
@@ -384,14 +365,10 @@ async fn save_llm_credentials<C: MiddlewareCtx>(
         return Err(AppError::invalid_input("API key cannot be empty"));
     }
 
-    // SSRF guard: a user-supplied base_url must be on the operator's allowlist,
+    // SSRF guard: a user-supplied base_url must pass the operator's allowlist policy,
     // else a tenant could aim the server's outbound LLM request at an internal host.
     if let Some(base_url) = request.base_url.as_deref() {
-        if !base_url_allowed(base_url, resources.llm_base_url_allowlist()) {
-            return Err(AppError::invalid_input(
-                "LLM base_url host is not permitted; add it to PIERRE_LLM_BASE_URL_ALLOWLIST",
-            ));
-        }
+        ensure_base_url_permitted(base_url, resources.llm_base_url_policy())?;
     }
 
     // Determine scope (user-specific or tenant-level)
@@ -480,11 +457,7 @@ async fn validate_llm_credentials<C: MiddlewareCtx>(
     // SSRF guard: a user-supplied base_url must be on the operator's allowlist before
     // we run a health_check() against it (else validation itself becomes an SSRF sink).
     if let Some(base_url) = request.base_url.as_deref() {
-        if !base_url_allowed(base_url, resources.llm_base_url_allowlist()) {
-            return Err(AppError::invalid_input(
-                "LLM base_url host is not permitted; add it to PIERRE_LLM_BASE_URL_ALLOWLIST",
-            ));
-        }
+        ensure_base_url_permitted(base_url, resources.llm_base_url_policy())?;
     }
 
     // Create credentials for validation
@@ -583,5 +556,102 @@ async fn delete_llm_credentials<C: MiddlewareCtx>(
                 "message": format!("No {} credentials found", provider.as_str().to_uppercase())
             })),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dravr_tronc::http_client::guard::HostAllowlist;
+
+    use super::*;
+
+    fn permitted(base_url: &str, hosts: &[&str]) -> bool {
+        ensure_base_url_permitted(base_url, &FetchPolicy::allowlist(HostAllowlist::new(hosts)))
+            .is_ok()
+    }
+
+    #[test]
+    fn an_empty_allowlist_rejects_every_base_url() {
+        assert!(
+            !permitted("http://localhost:11434/v1", &[]),
+            "bug: the allowlist policy must refuse http://localhost:11434/v1"
+        );
+        assert!(
+            !permitted("https://api.example.com/v1", &[]),
+            "bug: the allowlist policy must refuse https://api.example.com/v1"
+        );
+        assert!(
+            !permitted("http://169.254.169.254/", &[]),
+            "bug: the allowlist policy must refuse http://169.254.169.254/"
+        );
+    }
+
+    #[test]
+    fn a_listed_host_is_permitted_on_any_port_case_insensitively() {
+        let hosts = ["localhost", "llm.internal.example.com", "::1"];
+        assert!(
+            permitted("http://localhost:11434/v1", &hosts),
+            "bug: the allowlist policy must admit http://localhost:11434/v1"
+        );
+        assert!(
+            permitted("https://LLM.Internal.Example.COM:8443/v1", &hosts),
+            "bug: the allowlist policy must admit https://LLM.Internal.Example.COM:8443/v1"
+        );
+        assert!(
+            permitted("http://[::1]:11434/v1", &hosts),
+            "bug: the allowlist policy must admit http://[::1]:11434/v1"
+        );
+    }
+
+    #[test]
+    fn unlisted_hosts_metadata_and_userinfo_tricks_are_rejected() {
+        let hosts = ["good.example.com"];
+        assert!(
+            !permitted("http://169.254.169.254/latest/meta-data/", &hosts),
+            "bug: the allowlist policy must refuse http://169.254.169.254/latest/meta-data/"
+        );
+        assert!(
+            !permitted("http://[::ffff:169.254.169.254]/", &hosts),
+            "bug: the allowlist policy must refuse http://[::ffff:169.254.169.254]/"
+        );
+        assert!(
+            !permitted("https://evil.example.org/v1", &hosts),
+            "bug: the allowlist policy must refuse https://evil.example.org/v1"
+        );
+        assert!(
+            !permitted("https://good.example.com@evil.example.org/", &hosts),
+            "bug: the allowlist policy must refuse https://good.example.com@evil.example.org/"
+        );
+        assert!(
+            !permitted("https://user:pass@good.example.com/v1", &hosts),
+            "bug: the allowlist policy must refuse https://user:pass@good.example.com/v1"
+        );
+        assert!(
+            !permitted("http://[::1]:11434/v1", &["localhost"]),
+            "bug: the allowlist policy must refuse http://[::1]:11434/v1"
+        );
+        assert!(
+            !permitted("not-a-url", &["not-a-url"]),
+            "bug: the allowlist policy must refuse not-a-url"
+        );
+        assert!(
+            !permitted("file:///etc/passwd", &hosts),
+            "bug: the allowlist policy must refuse file:///etc/passwd"
+        );
+    }
+
+    #[test]
+    fn an_unlisted_host_names_the_allowlist_to_fix() {
+        let refusal = ensure_base_url_permitted(
+            "https://evil.example.org/v1",
+            &FetchPolicy::allowlist(HostAllowlist::new(["good.example.com"])),
+        )
+        .expect_err("an unlisted host is refused"); // Safe: test assertion
+        assert!(
+            refusal
+                .to_string()
+                .contains("PIERRE_LLM_BASE_URL_ALLOWLIST"),
+            "bug: an unlisted host must name the setting that admits it: {refusal}"
+        );
     }
 }

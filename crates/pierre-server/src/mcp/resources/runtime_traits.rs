@@ -6,12 +6,13 @@
 
 use super::ServerContext;
 use crate::config::admin::AdminConfigService;
+use dravr_tronc::http_client::guard::FetchPolicy;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::csrf::CsrfTokenManager;
 #[cfg(feature = "transport-sse")]
 use pierre_config::environment::SseBufferStrategy;
-use pierre_config::security::llm_base_url_allowlist as config_llm_base_url_allowlist;
+use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
 use pierre_core::billing::BillingProvider;
 use pierre_core::errors::AppResult;
 use pierre_database::backends::factory::Database;
@@ -42,8 +43,8 @@ impl pierre_runtime_context::MiddlewareCtx for ServerContext {
         &self.auth.csrf_manager
     }
 
-    fn llm_base_url_allowlist(&self) -> &[String] {
-        config_llm_base_url_allowlist()
+    fn llm_base_url_policy(&self) -> &FetchPolicy {
+        config_llm_base_url_policy()
     }
 
     fn llm_chain(&self) -> &LlmChain {

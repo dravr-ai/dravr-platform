@@ -366,7 +366,6 @@ key_material_alert_test	2.5
 link_token_consume_test	0.6
 linking_destination_test	2.9
 live_incident_eval_test	9.0
-llm_base_url_allowlist_test	0.0
 llm_chain_guard_test	0.0
 llm_consumption_test	0.9
 llm_credential_provider_check_test	0.7
