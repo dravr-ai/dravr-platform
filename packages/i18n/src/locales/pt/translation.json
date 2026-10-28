@@ -3244,7 +3244,94 @@
       "failed": "Não foi possível atualizar seu consentimento de IA. Tente novamente."
     },
     "connectTombstoned": "Esta conta {{provider}} pertencia a uma conta Dravr eliminada a {{date}}. Os dados continuam eliminados até decidires recomeçar com ela.",
-    "connectTombstonedClear": "Recomeçar e ligar"
+    "connectTombstonedClear": "Recomeçar e ligar",
+    "import": {
+      "link": "Importar seus próprios dados",
+      "linkHint": "Traga o histórico que você exportou de outro serviço.",
+      "title": "Importar seus próprios dados",
+      "intro": "Traga o histórico que você exportou de outro serviço. As atividades importadas são suas: ficam no Dravr se você desconectar esse serviço, e você pode excluí-las quando quiser.",
+      "unavailable": "A importação dos seus próprios dados ainda não está disponível aqui.",
+      "close": "Fechar",
+      "back": "Voltar",
+      "loading": "Carregando suas importações…",
+      "historyOnCard": "Histórico importado: {{count}} atividades",
+      "sources": {
+        "strava": "Strava",
+        "stravaHint": "Todo o seu histórico de atividades, da exportação de dados do Strava"
+      },
+      "state": {
+        "awaitingLink": "Aguardando o e-mail do Strava · Cole o link",
+        "awaitingLinkLate": "Ainda aguardando o Strava?",
+        "queued": "Iniciando sua importação",
+        "downloading": "Baixando sua exportação",
+        "importing": "Importando · {{processed}} de {{total}}",
+        "completed": "{{count}} atividades importadas · {{date}}",
+        "stopped": "Importação interrompida · {{count}} importadas"
+      },
+      "strava": {
+        "intro": "O histórico que você importa da sua própria exportação do Strava é seu e permanece, mesmo que você desconecte o Strava.",
+        "step1Title": "Etapa 1 de 3 · Solicite sua exportação do Strava",
+        "step1Body": "No Strava, abra Configurações, depois Minha conta, depois Baixar ou excluir sua conta, e escolha Solicitar seu arquivo. O Strava envia um link por e-mail quando estiver pronto, geralmente em algumas horas.",
+        "step1Open": "Abrir a página de exportação do Strava",
+        "step1Requested": "Já solicitei",
+        "step2Title": "Etapa 2 de 3 · Cole o link do e-mail do Strava",
+        "linkLabel": "Link do e-mail do Strava",
+        "linkPlaceholder": "https://…",
+        "check": "Verificar link",
+        "checking": "Verificando…",
+        "found": "Exportação encontrada · cerca de {{size}}",
+        "foundNoSize": "Exportação encontrada",
+        "start": "Iniciar importação",
+        "starting": "Iniciando…",
+        "step3Title": "Etapa 3 de 3 · Importando",
+        "progress": "{{processed}} de {{total}} atividades lidas",
+        "progressStarting": "Obtendo sua exportação do Strava…",
+        "leaveHint": "Você pode fechar esta janela: a importação continua.",
+        "cancel": "Cancelar importação",
+        "doneTitle": "Atividades importadas: {{count}}",
+        "doneSpan": "De {{from}} a {{to}}",
+        "notImported": "Não importadas: {{count}}",
+        "details": "Detalhes",
+        "hideDetails": "Ocultar detalhes",
+        "done": "Concluído",
+        "historyTitle": "Histórico",
+        "historyLine": "{{count}} atividades · importadas em {{date}}",
+        "importNewer": "Importar uma exportação mais recente",
+        "delete": "Excluir o histórico importado",
+        "deleteConfirmTitle": "Excluir o histórico importado?",
+        "deleteConfirmBody": "Excluir {{count}} atividades importadas, e as rotas e melhores esforços calculados a partir delas? Isso não pode ser desfeito.",
+        "deleteConfirmAction": "Excluir {{count}} atividades",
+        "deleted": "Histórico importado excluído.",
+        "retry": "Cole o link novamente para retomar.",
+        "inProgress": "Uma importação do Strava já está em andamento.",
+        "genericError": "Algo deu errado. Tente novamente em instantes.",
+        "outcome": {
+          "strava_export_error": "O Strava não conseguiu exportar esta atividade",
+          "missing_file": "O arquivo dela está faltando na exportação",
+          "unreadable_file": "O arquivo dela não pôde ser lido",
+          "file_too_large": "O arquivo dela é grande demais",
+          "invalid_row": "A linha dela na exportação está incompleta",
+          "zero_elapsed": "Um registro manual sem tempo"
+        },
+        "refusal": {
+          "link_invalid": "Isso não parece um link de exportação. Copie o link completo do e-mail do Strava.",
+          "link_host_not_allowed": "Esse link não é do e-mail de exportação do Strava.",
+          "link_expired": "Esse link expirou. Solicite uma nova exportação ao Strava.",
+          "link_unreachable": "Não foi possível acessar esse link. Tente novamente em instantes."
+        },
+        "failure": {
+          "download_failed": "O download parou antes de terminar.",
+          "link_expired": "O link expirou antes de o download terminar.",
+          "archive_too_large": "A exportação é maior do que o Dravr consegue importar.",
+          "archive_unreadable": "A exportação não é um arquivo ZIP legível.",
+          "archive_limit": "A exportação viola um limite de segurança e não foi lida.",
+          "missing_activities_csv": "A exportação não tem lista de atividades.",
+          "unknown_locale": "A lista de atividades da exportação está em um idioma que o Dravr ainda não consegue ler.",
+          "spool_missing": "A importação perdeu sua cópia da exportação.",
+          "not_an_export": "Esse arquivo não é uma exportação do Strava."
+        }
+      }
+    }
   },
   "settings": {
     "account": "Conta",

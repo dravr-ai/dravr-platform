@@ -3244,7 +3244,94 @@
       "failed": "Could not update your AI consent. Please try again."
     },
     "connectTombstoned": "This {{provider}} account belonged to a Dravr account deleted on {{date}}. Its data stays deleted until you choose to start fresh with it.",
-    "connectTombstonedClear": "Start fresh and connect"
+    "connectTombstonedClear": "Start fresh and connect",
+    "import": {
+      "link": "Import your own data",
+      "linkHint": "Bring in history you've exported from another service.",
+      "title": "Import your own data",
+      "intro": "Bring in the history you exported from another service. Imported activities are yours: they stay in Dravr if you disconnect that service, and you can delete them any time.",
+      "unavailable": "Importing your own data isn't available here yet.",
+      "close": "Close",
+      "back": "Back",
+      "loading": "Loading your imports…",
+      "historyOnCard": "Imported history: {{count}} activities",
+      "sources": {
+        "strava": "Strava",
+        "stravaHint": "Your full activity history from Strava's data export"
+      },
+      "state": {
+        "awaitingLink": "Waiting for Strava's email · Paste the link",
+        "awaitingLinkLate": "Still waiting on Strava?",
+        "queued": "Starting your import",
+        "downloading": "Downloading your export",
+        "importing": "Importing · {{processed}} of {{total}}",
+        "completed": "{{count}} activities imported · {{date}}",
+        "stopped": "Import stopped · {{count}} imported"
+      },
+      "strava": {
+        "intro": "History you import from your own Strava export is yours and stays, even if you disconnect Strava.",
+        "step1Title": "Step 1 of 3 · Request your Strava export",
+        "step1Body": "On Strava, open Settings, then My Account, then Download or Delete Your Account, and choose Request Your Archive. Strava emails you a link when it is ready, usually within a few hours.",
+        "step1Open": "Open Strava's export page",
+        "step1Requested": "I've requested it",
+        "step2Title": "Step 2 of 3 · Paste the link from Strava's email",
+        "linkLabel": "Link from Strava's email",
+        "linkPlaceholder": "https://…",
+        "check": "Check link",
+        "checking": "Checking…",
+        "found": "Export found · about {{size}}",
+        "foundNoSize": "Export found",
+        "start": "Start import",
+        "starting": "Starting…",
+        "step3Title": "Step 3 of 3 · Importing",
+        "progress": "{{processed}} of {{total}} activities read",
+        "progressStarting": "Getting your export from Strava…",
+        "leaveHint": "You can close this window: the import keeps going.",
+        "cancel": "Cancel import",
+        "doneTitle": "Activities imported: {{count}}",
+        "doneSpan": "From {{from}} to {{to}}",
+        "notImported": "Not imported: {{count}}",
+        "details": "Details",
+        "hideDetails": "Hide details",
+        "done": "Done",
+        "historyTitle": "History",
+        "historyLine": "{{count}} activities · imported {{date}}",
+        "importNewer": "Import a newer export",
+        "delete": "Delete imported history",
+        "deleteConfirmTitle": "Delete imported history?",
+        "deleteConfirmBody": "Delete {{count}} imported activities, and the routes and best efforts calculated from them? This can't be undone.",
+        "deleteConfirmAction": "Delete {{count}} activities",
+        "deleted": "Imported history deleted.",
+        "retry": "Paste the link again to resume.",
+        "inProgress": "An import from Strava is already running.",
+        "genericError": "Something went wrong. Try again in a moment.",
+        "outcome": {
+          "strava_export_error": "Strava could not export this activity",
+          "missing_file": "Its file is missing from the export",
+          "unreadable_file": "Its file could not be read",
+          "file_too_large": "Its file is too large",
+          "invalid_row": "Its row in the export is incomplete",
+          "zero_elapsed": "A manual entry with no time"
+        },
+        "refusal": {
+          "link_invalid": "That doesn't look like an export link. Copy the whole link from Strava's email.",
+          "link_host_not_allowed": "That link isn't from Strava's export email.",
+          "link_expired": "That link has expired. Request a new export from Strava.",
+          "link_unreachable": "Couldn't reach that link. Try again in a moment."
+        },
+        "failure": {
+          "download_failed": "The download stopped before it finished.",
+          "link_expired": "The link expired before the download finished.",
+          "archive_too_large": "The export is larger than Dravr can import.",
+          "archive_unreadable": "The export isn't a readable ZIP file.",
+          "archive_limit": "The export breaks a safety limit, so it was not read.",
+          "missing_activities_csv": "The export has no activity list.",
+          "unknown_locale": "The export's activity list is in a language Dravr can't read yet.",
+          "spool_missing": "The import lost its copy of the export.",
+          "not_an_export": "That file isn't a Strava export."
+        }
+      }
+    }
   },
   "settings": {
     "account": "Account",

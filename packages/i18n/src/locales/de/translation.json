@@ -3244,7 +3244,94 @@
       "failed": "Deine KI-Einwilligung konnte nicht aktualisiert werden. Bitte versuche es erneut."
     },
     "connectTombstoned": "Dieses {{provider}}-Konto gehörte zu einem Dravr-Konto, das am {{date}} gelöscht wurde. Seine Daten bleiben gelöscht, bis du dich entscheidest, damit neu anzufangen.",
-    "connectTombstonedClear": "Neu anfangen und verbinden"
+    "connectTombstonedClear": "Neu anfangen und verbinden",
+    "import": {
+      "link": "Eigene Daten importieren",
+      "linkHint": "Hol dir den Verlauf, den du aus einem anderen Dienst exportiert hast.",
+      "title": "Eigene Daten importieren",
+      "intro": "Hol dir den Verlauf, den du aus einem anderen Dienst exportiert hast. Importierte Aktivitäten gehören dir: Sie bleiben in Dravr, wenn du diesen Dienst trennst, und du kannst sie jederzeit löschen.",
+      "unavailable": "Der Import eigener Daten ist hier noch nicht verfügbar.",
+      "close": "Schließen",
+      "back": "Zurück",
+      "loading": "Deine Importe werden geladen…",
+      "historyOnCard": "Importierter Verlauf: {{count}} Aktivitäten",
+      "sources": {
+        "strava": "Strava",
+        "stravaHint": "Dein gesamter Aktivitätsverlauf aus dem Datenexport von Strava"
+      },
+      "state": {
+        "awaitingLink": "Warte auf die E-Mail von Strava · Link einfügen",
+        "awaitingLinkLate": "Wartest du noch auf Strava?",
+        "queued": "Dein Import startet",
+        "downloading": "Dein Export wird heruntergeladen",
+        "importing": "Import läuft · {{processed}} von {{total}}",
+        "completed": "{{count}} Aktivitäten importiert · {{date}}",
+        "stopped": "Import angehalten · {{count}} importiert"
+      },
+      "strava": {
+        "intro": "Der Verlauf, den du aus deinem eigenen Strava-Export importierst, gehört dir und bleibt, auch wenn du Strava trennst.",
+        "step1Title": "Schritt 1 von 3 · Fordere deinen Strava-Export an",
+        "step1Body": "Öffne auf Strava die Einstellungen, dann Mein Konto, dann Konto herunterladen oder löschen, und wähle Archiv anfordern. Strava schickt dir einen Link per E-Mail, sobald er bereit ist, meist innerhalb weniger Stunden.",
+        "step1Open": "Exportseite von Strava öffnen",
+        "step1Requested": "Ich habe ihn angefordert",
+        "step2Title": "Schritt 2 von 3 · Füge den Link aus der E-Mail von Strava ein",
+        "linkLabel": "Link aus der E-Mail von Strava",
+        "linkPlaceholder": "https://…",
+        "check": "Link prüfen",
+        "checking": "Wird geprüft…",
+        "found": "Export gefunden · etwa {{size}}",
+        "foundNoSize": "Export gefunden",
+        "start": "Import starten",
+        "starting": "Startet…",
+        "step3Title": "Schritt 3 von 3 · Import läuft",
+        "progress": "{{processed}} von {{total}} Aktivitäten gelesen",
+        "progressStarting": "Dein Export wird von Strava geholt…",
+        "leaveHint": "Du kannst dieses Fenster schließen: Der Import läuft weiter.",
+        "cancel": "Import abbrechen",
+        "doneTitle": "Importierte Aktivitäten: {{count}}",
+        "doneSpan": "Von {{from}} bis {{to}}",
+        "notImported": "Nicht importiert: {{count}}",
+        "details": "Details",
+        "hideDetails": "Details ausblenden",
+        "done": "Fertig",
+        "historyTitle": "Verlauf",
+        "historyLine": "{{count}} Aktivitäten · importiert am {{date}}",
+        "importNewer": "Einen neueren Export importieren",
+        "delete": "Importierten Verlauf löschen",
+        "deleteConfirmTitle": "Importierten Verlauf löschen?",
+        "deleteConfirmBody": "{{count}} importierte Aktivitäten löschen, samt den daraus berechneten Routen und Bestleistungen? Das lässt sich nicht rückgängig machen.",
+        "deleteConfirmAction": "{{count}} Aktivitäten löschen",
+        "deleted": "Importierter Verlauf gelöscht.",
+        "retry": "Füge den Link erneut ein, um fortzufahren.",
+        "inProgress": "Ein Import von Strava läuft bereits.",
+        "genericError": "Etwas ist schiefgelaufen. Versuch es gleich noch einmal.",
+        "outcome": {
+          "strava_export_error": "Strava konnte diese Aktivität nicht exportieren",
+          "missing_file": "Ihre Datei fehlt im Export",
+          "unreadable_file": "Ihre Datei konnte nicht gelesen werden",
+          "file_too_large": "Ihre Datei ist zu groß",
+          "invalid_row": "Ihre Zeile im Export ist unvollständig",
+          "zero_elapsed": "Ein manueller Eintrag ohne Dauer"
+        },
+        "refusal": {
+          "link_invalid": "Das sieht nicht nach einem Export-Link aus. Kopiere den ganzen Link aus der E-Mail von Strava.",
+          "link_host_not_allowed": "Dieser Link stammt nicht aus der Export-E-Mail von Strava.",
+          "link_expired": "Dieser Link ist abgelaufen. Fordere bei Strava einen neuen Export an.",
+          "link_unreachable": "Dieser Link ist nicht erreichbar. Versuch es gleich noch einmal."
+        },
+        "failure": {
+          "download_failed": "Der Download ist vor dem Ende abgebrochen.",
+          "link_expired": "Der Link ist abgelaufen, bevor der Download fertig war.",
+          "archive_too_large": "Der Export ist größer, als Dravr importieren kann.",
+          "archive_unreadable": "Der Export ist keine lesbare ZIP-Datei.",
+          "archive_limit": "Der Export verletzt ein Sicherheitslimit und wurde nicht gelesen.",
+          "missing_activities_csv": "Der Export enthält keine Aktivitätsliste.",
+          "unknown_locale": "Die Aktivitätsliste des Exports ist in einer Sprache, die Dravr noch nicht lesen kann.",
+          "spool_missing": "Der Import hat seine Kopie des Exports verloren.",
+          "not_an_export": "Diese Datei ist kein Strava-Export."
+        }
+      }
+    }
   },
   "settings": {
     "account": "Konto",
