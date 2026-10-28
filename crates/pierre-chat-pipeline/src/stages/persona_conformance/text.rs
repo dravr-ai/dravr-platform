@@ -226,11 +226,11 @@ pub fn significant_digits(token: &str) -> usize {
 /// (`~`, `≈`) has no word edge and matches wherever it sits.
 #[must_use]
 pub fn modifier_adjacent_to_digit(lowered: &str, modifier: &str) -> bool {
-    let starts_alpha = modifier.chars().next().is_some_and(char::is_alphanumeric);
+    let starts_alpha = modifier.chars().next().is_some_and(char::is_alphabetic);
     let ends_alpha = modifier
         .chars()
         .next_back()
-        .is_some_and(char::is_alphanumeric);
+        .is_some_and(char::is_alphabetic);
     let mut search_from = 0;
     while let Some(rel) = lowered[search_from..].find(modifier) {
         let start = search_from + rel;

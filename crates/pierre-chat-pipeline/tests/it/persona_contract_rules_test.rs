@@ -133,6 +133,8 @@ fn hedge_inside_a_longer_word_passes_exact_numbers() {
         "Ton environnement 2 fois plus chaud ralentit l'allure.",
         "Le bloc aboutit à 250 watts au seuil.",
         "Take the roundabout 3 km in.",
+        "Mach etwas 5 Minuten locker.",
+        "Lee acerca de 3 series de umbral.",
     ] {
         let leftover = rules(EXACT, CoachingPersona::PowerAthlete, reply, None);
         assert!(
