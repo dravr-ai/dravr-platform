@@ -137,7 +137,7 @@ describe('the spoken verdict label', () => {
     fr: 'Verdicts sur les affirmations : 2 appuyées, 1 invérifiable',
     es: 'Veredictos sobre las afirmaciones: 2 respaldadas, 1 no verificable',
     de: 'Urteile zu den Aussagen: 2 gestützt, 1 nicht überprüfbar',
-    pt: 'Veredictos sobre as afirmações: 2 sustentadas, 1 não verificável',
+    pt: 'Vereditos sobre as afirmações: 2 sustentadas, 1 não verificável',
   };
 
   it('reads as one sentence in all five locales', () => {
