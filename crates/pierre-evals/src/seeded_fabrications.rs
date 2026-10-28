@@ -110,6 +110,8 @@ pub struct SyntheticActivity {
     pub duration_min: f64,
     /// Ascent in metres.
     pub elevation_m: Option<f64>,
+    /// Average heart rate in beats per minute.
+    pub average_hr_bpm: Option<f64>,
 }
 
 /// The computed physiology the personalized layer reads.
@@ -179,6 +181,7 @@ impl SyntheticAthlete {
                     distance_km: a.distance_km,
                     duration_min: a.duration_min,
                     elevation_m: a.elevation_m,
+                    average_hr_bpm: a.average_hr_bpm,
                 })
             })
             .collect::<AppResult<Vec<_>>>()?;

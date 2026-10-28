@@ -9,11 +9,12 @@ import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 import { BookOpen, ExternalLink, MessageCircle, MoreHorizontal } from 'lucide-react';
 import type { ClaimVerdict } from '@pierre/shared-types';
-import { VERDICT_STATUS_TONE } from '@pierre/shared-types';
+import { VERDICT_STATUS_TONE, summarizeVerdicts } from '@pierre/shared-types';
 import {
   EVIDENCE_STRENGTH_LABEL_KEY,
   VERDICT_STATUS_LABEL_KEY,
   verdictCategoryLabelKey,
+  verdictChipLabel,
 } from '@pierre/shared-constants';
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import type { EvidenceRef } from '@pierre/chat-utils';
@@ -437,6 +438,10 @@ export default function VerdictDrawer({
   renderTriage,
 }: VerdictDrawerProps) {
   const { t, language } = useTranslation();
+  // The subline is the chip's own rollup, so the drawer a chip opens repeats
+  // what the chip said — « 2 appuyées · 1 invérifiable » — never a second
+  // reading of the same rows.
+  const headerSummary = summarizeVerdicts(verdicts);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -466,9 +471,9 @@ export default function VerdictDrawer({
             <p className="mt-0.5 text-xs text-outline">
               {loading
                 ? t('chat.verdictsLoading')
-                : verdicts.length === 1
-                  ? t('chat.verdictChipOne', { count: 1, qualifier: t(VERDICT_STATUS_LABEL_KEY[verdicts[0].status]) })
-                  : t('chat.verdictsCount', { count: verdicts.length })}
+                : headerSummary === null
+                  ? t('chat.verdictsNone')
+                  : verdictChipLabel(t, headerSummary)}
             </p>
           </div>
           <button

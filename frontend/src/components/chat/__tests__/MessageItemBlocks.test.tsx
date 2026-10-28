@@ -88,7 +88,7 @@ describe('MessageItem reply-block switch', () => {
     expect(screen.getByText('Your load is climbing.')).toBeInTheDocument();
   });
 
-  it('renders a verdict chip from the block chips alone, with the status as its qualifier', () => {
+  it('renders a verdict chip from the block chips alone, counting each status', () => {
     const blocks: ReplyBlock[] = [
       { type: 'prose', text: 'Your VO2max is 82.' },
       {
@@ -102,7 +102,7 @@ describe('MessageItem reply-block switch', () => {
 
     render(<MessageItem message={assistantMessage()} blocks={blocks} />);
 
-    expect(screen.getByText('2 verdicts · contradicted')).toBeInTheDocument();
+    expect(screen.getByText('1 contradicted · 1 unsupported')).toBeInTheDocument();
   });
 
   it('draws no notice inside the message — the conversation banner owns it', () => {

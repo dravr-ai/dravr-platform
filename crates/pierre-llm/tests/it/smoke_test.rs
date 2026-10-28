@@ -39,6 +39,7 @@ fn chat_message_serde_round_trip() {
         tool_calls: None,
         tool_call_id: None,
         name: None,
+        stable_prefix_len: None,
     };
     let json = serde_json::to_string(&msg).expect("ChatMessage serialize");
     let parsed: ChatMessage = serde_json::from_str(&json).expect("ChatMessage deserialize");

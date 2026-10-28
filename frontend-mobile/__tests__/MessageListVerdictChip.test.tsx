@@ -94,8 +94,8 @@ describe('MessageList verdict chip', () => {
       verdicts: [ROW],
     });
 
-    expect(getByText('1 verdict · contradicted')).toBeTruthy();
-    expect(queryByText(/3 verdicts/)).toBeNull();
+    expect(getByText('1 contradicted')).toBeTruthy();
+    expect(queryByText(/unsupported/)).toBeNull();
   });
 
   it('draws the plain shield when every claim was supported, the alert shield when one was contradicted', () => {
@@ -103,7 +103,7 @@ describe('MessageList verdict chip', () => {
       messageBlocks: { [MESSAGE_ID]: CHIP_BLOCKS },
       verdicts: [{ ...ROW, status: 'supported', evidence_strength: 'strong' }],
     });
-    expect(supported.getByText('1 verdict · supported')).toBeTruthy();
+    expect(supported.getByText('1 supported')).toBeTruthy();
     expect(supported.getByTestId('icon-shield-outline')).toBeTruthy();
     expect(supported.queryByTestId('icon-shield-half-outline')).toBeNull();
     supported.unmount();
@@ -119,7 +119,7 @@ describe('MessageList verdict chip', () => {
   it('previews the count from the chips while no row has landed', () => {
     const { getByText } = renderList({ messageBlocks: { [MESSAGE_ID]: CHIP_BLOCKS } });
 
-    expect(getByText('2 verdicts · contradicted')).toBeTruthy();
+    expect(getByText('1 contradicted · 1 unsupported')).toBeTruthy();
   });
 
   it('opens the verdicts on press with the rows it has and the message they belong to', () => {
@@ -136,12 +136,28 @@ describe('MessageList verdict chip', () => {
     expect(onShowVerdict).toHaveBeenCalledWith([ROW], MESSAGE_ID);
   });
 
-  it('speaks the worst status in the athlete\'s language', () => {
+  it('speaks the chip\'s counts in the athlete\'s language', () => {
     const { getByLabelText } = renderList({
       messageBlocks: { [MESSAGE_ID]: CHIP_BLOCKS },
       verdicts: [ROW],
     });
 
-    expect(getByLabelText('Claim verdicts: contradicted')).toBeTruthy();
+    expect(getByLabelText('Claim verdicts: 1 contradicted')).toBeTruthy();
+  });
+
+  it('lets no abstention label a reply whose other claims held (carnet#1189)', () => {
+    const { getByText, getByLabelText, getByTestId, queryByTestId } = renderList({
+      messageBlocks: { [MESSAGE_ID]: CHIP_BLOCKS },
+      verdicts: [
+        { ...ROW, id: 'v1', status: 'supported', evidence_strength: 'strong' },
+        { ...ROW, id: 'v2', status: 'supported', evidence_strength: 'mixed' },
+        { ...ROW, id: 'v3', status: 'unverifiable', evidence_strength: 'none' },
+      ],
+    });
+
+    expect(getByText('2 supported · 1 unverifiable')).toBeTruthy();
+    expect(getByLabelText('Claim verdicts: 2 supported, 1 unverifiable')).toBeTruthy();
+    expect(getByTestId('icon-shield-outline')).toBeTruthy();
+    expect(queryByTestId('icon-shield-half-outline')).toBeNull();
   });
 });

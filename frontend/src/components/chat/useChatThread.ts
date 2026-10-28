@@ -128,6 +128,8 @@ export interface ChatThreadState {
   activeCoach: Agent | null;
   /** What the thread's replies are signed with: the group's agent, else the thread's own. */
   activeCoachTitle: string | null;
+  /** The group's human coach, who signs a correction in its thread; `null` outside a group or before one is known. */
+  groupCoachName: string | null;
   /** The thread's stored title — the list row's — else the agent about to be talked to. */
   title: string;
   /** The line under the title: a plan thread's athlete, the group badge, the agent's handle, or what the agent can see. */
@@ -271,11 +273,6 @@ export function useChatThread({
   });
 
   const hasConnectedProvider = providersData?.providers?.some(p => p.connected) ?? false;
-  // Gated on the query having actually answered, not on the `?? false` default.
-  // While loading, `hasConnectedProvider` is false for everyone, so keying the
-  // banner off it alone flashes a connect-provider nudge at users who are
-  // connected — every chat load.
-  const showConnectBanner = providersLoaded && !hasConnectedProvider;
 
   // Fetch messages for selected conversation — the caller's own rows. In a
   // group thread these are the model's context store, and the room below is
@@ -380,6 +377,16 @@ export function useChatThread({
     () => conversations.find(c => c.id === selectedConversation) ?? null,
     [conversations, selectedConversation],
   );
+
+  // Gated on the query having actually answered, not on the `?? false` default.
+  // While loading, `hasConnectedProvider` is false for everyone, so keying the
+  // banner off it alone flashes a connect-provider nudge at users who are
+  // connected — every chat load. A plan thread for one athlete is about that
+  // athlete's data, which the agent reads through the athlete's own links: the
+  // coach working on it is never asked to connect a service of their own
+  // there (carnet#1191).
+  const showConnectBanner =
+    providersLoaded && !hasConnectedProvider && !activeConversation?.subject_user_id;
 
   const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? null);
   // A group's agent may belong to another tenant, where the caller's own agent
@@ -974,6 +981,7 @@ export function useChatThread({
     activeConversation,
     activeCoach,
     activeCoachTitle,
+    groupCoachName: activeGroup?.coach_display_name ?? null,
     title,
     subtitle,
     providerStatus,

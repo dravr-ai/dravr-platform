@@ -102,6 +102,7 @@ fn record(prompt: i64, completion: i64, reasoning: i64, estimated: bool) -> LlmC
         completion_tokens: completion,
         cached_tokens: 0,
         cached_write_tokens: 0,
+        cached_write_1h_tokens: 0,
         reasoning_tokens: reasoning,
         latency_ms: 1200,
         success: true,

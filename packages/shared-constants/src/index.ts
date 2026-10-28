@@ -231,8 +231,9 @@ export {
   VERDICT_CATEGORY_LABEL_KEY,
   VERDICT_CATEGORY_OTHER_KEY,
   verdictCategoryLabelKey,
-  VERDICT_CHIP_ONE_KEY,
-  VERDICT_CHIP_N_KEY,
+  VERDICT_COUNT_LABEL_KEY,
+  VERDICT_CHIP_SEPARATOR,
+  VERDICT_SPOKEN_SEPARATOR,
   verdictChipLabel,
 } from './verdicts';
 
@@ -329,3 +330,7 @@ export { API_KEY_USAGE_WINDOW_DAYS } from './api-keys';
 
 // The catalogue key naming each account role (Account pane, sidebar badge)
 export { ACCOUNT_ROLE_LABEL_KEY } from './roles';
+
+// Singular or plural catalogue key for a count, per locale (no Intl.PluralRules)
+export { countKey } from './plural';
+export type { CountKeys } from './plural';

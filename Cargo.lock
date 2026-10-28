@@ -1609,9 +1609,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.41.0"
+version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14b0522e06b8de7d3cda1041f423c9678cebc17cf54c0b075c699b2f981df619"
+checksum = "85fa9b9f15c1cb40020b988e8cc63a243d30f603dd221218858f8ae75f6cb9fa"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1632,9 +1632,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.41.0"
+version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ffb0764d8487cfe2b4a2428b82882b1d96591b1b28f8e741723df5598c3d1c4"
+checksum = "51e8a16b58b2c7a133e13df8d03b010b5e48f762ffb863291f0d8008b8761218"
 dependencies = [
  "async-trait",
  "axum",
@@ -4474,6 +4474,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "tracing-subscriber",
  "url",
  "urlencoding",
  "uuid",

@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { render, within } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 
 import type { WorkoutPlan } from '@pierre/shared-types';
 import WorkoutPlanCard from '../src/screens/chat/WorkoutPlanCard';
@@ -144,17 +145,17 @@ describe('WorkoutPlanCard', () => {
 
     expect(getByText(/This week/)).toBeTruthy();
     expect(getByText(/Next week/)).toBeTruthy();
-    expect(within(getByTestId('workout-plan-week-1')).getByText('2026-09-14').props.className).toContain(
+    expect(within(getByTestId('workout-plan-week-1')).getByText('September 14').props.className).toContain(
       'font-mono',
     );
 
     const day = within(getByTestId('workout-plan-day-2026-09-15'));
-    expect(day.getByText('2026-09-15').props.className).toContain('font-mono');
+    expect(day.getByText('Tue, Sep 15').props.className).toContain('font-mono');
     expect(day.getByText('4 x 8 min at threshold')).toBeTruthy();
     // The duration is a mono span of its own; the sentence around it still
-    // reads "· run · 65 min · threshold".
+    // reads "· Run · 65 min · threshold".
     expect(day.getByText('65 min').props.className).toContain('font-mono');
-    expect(day.getByText(/· run ·.*· threshold$/)).toBeTruthy();
+    expect(day.getByText(/· Run ·.*· threshold$/)).toBeTruthy();
     // A step is one sentence whose duration and repeat count are mono spans.
     expect(day.getByText(/Threshold · 8m · Threshold ×4/)).toBeTruthy();
     expect(day.getByText('8m').props.className).toContain('font-mono');
@@ -193,7 +194,7 @@ describe('WorkoutPlanCard', () => {
     const { getByText } = render(<WorkoutPlanCard plan={plan()} />);
     expect(getByText(/Also racing/)).toBeTruthy();
     expect(getByText(/Club 10k/)).toBeTruthy();
-    expect(getByText('2026-10-11').props.className).toContain('font-mono');
+    expect(getByText('Oct 11, 2026').props.className).toContain('font-mono');
   });
 
   it('says how many weeks the plan still holds beyond the card', () => {
@@ -217,6 +218,29 @@ describe('WorkoutPlanCard', () => {
     expect(json).not.toContain('borderBottomWidth');
     const hairlines = json.match(/border-b border-border-faint/g) ?? [];
     expect(hairlines).toHaveLength(1);
+  });
+
+  // The card printed « 2026-09-15 » and « run » under French chrome
+  // (carnet#1191): every date is a date in the athlete's language, and a
+  // sport is its catalogue word.
+  it("reads dates and sports in the athlete's language, never the wire spelling", async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      const { getByText, getByTestId, queryByText } = render(<WorkoutPlanCard plan={plan()} />);
+
+      expect(getByText('14 nov. 2026')).toBeTruthy();
+      expect(getByText('14 sept. 2026')).toBeTruthy();
+      expect(getByText('16 nov. 2026')).toBeTruthy();
+      const day = within(getByTestId('workout-plan-day-2026-09-15'));
+      expect(day.getByText('mar. 15 sept.')).toBeTruthy();
+      expect(day.getByText(/· Course ·/)).toBeTruthy();
+      expect(day.queryByText(/· run ·/)).toBeNull();
+      expect(within(getByTestId('workout-plan-day-2026-09-17')).getByText('Repos')).toBeTruthy();
+      expect(within(getByTestId('workout-plan-week-1')).getByText('14 septembre')).toBeTruthy();
+      expect(queryByText(/\d{4}-\d{2}-\d{2}/)).toBeNull();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('never leaks a field name to the screen', () => {

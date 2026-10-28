@@ -32,15 +32,16 @@
 //! worse than saying nothing.
 //!
 //! When we do hold records, a figure that matches one is supported and a figure
-//! that matches none is *unsupported* rather than contradicted — our cache is a
+//! that matches none is unverifiable rather than contradicted — our cache is a
 //! window, not the whole truth, and it can legitimately miss an activity.
 //!
-//! A figure stated over a period — "42 km this week", "6 h per week this
-//! block" — is the exception: it is compared with the same total or average
-//! over the same days, and contradicted when the record holds every one of
-//! those days and disagrees. A figure no word calls the total disagrees only
-//! above it, since below it may be some of the sessions. The `period` module
-//! states the windows.
+//! Two exceptions. A figure stated over a period — "42 km this week" — is
+//! compared with the same total or average over the same days, and
+//! contradicted when the record holds every one of those days and disagrees;
+//! the `period` module states the windows. An average heart rate is held
+//! against the one session the sentence's other figures pin, and contradicted
+//! when that session averaged something else; the `heart_rate` module states
+//! the pinning.
 
 use chrono::{Datelike, NaiveDate};
 use pierre_core::civil_time::{
@@ -52,6 +53,7 @@ use crate::claim_extractor::ExtractedClaim;
 use crate::verdict_engine::VerdictOutcome;
 use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
+mod heart_rate;
 mod period;
 pub use period::{
     BackfillDepth, CacheRead, HistoryInputs, PeriodHistory, SourceCoverage, SourceSessions,
@@ -79,6 +81,9 @@ pub struct RecordedActivity {
     pub duration_min: f64,
     /// Total ascent in metres, when the source carries it.
     pub elevation_m: Option<f64>,
+    /// Average heart rate over the session in beats per minute, when the
+    /// source recorded one — « ta FC est restée à 133 » is checked against it.
+    pub average_hr_bpm: Option<f64>,
 }
 
 /// What we actually hold about an athlete, as far as this layer is concerned.
@@ -145,6 +150,7 @@ impl RecordedActivity {
             Unit::Minutes => Some(self.duration_min),
             Unit::ElevationMetres => self.elevation_m,
             Unit::DistanceMetres => self.distance_km.map(|km| km * 1000.0),
+            Unit::HeartRate => self.average_hr_bpm,
         }
     }
 }
@@ -183,6 +189,10 @@ enum Unit {
     /// nothing else. Which one a figure means is decided by
     /// [`mentions_elevation`], not by the unit token (registre#260).
     DistanceMetres,
+    /// Average heart rate over one session, in beats per minute. Only a figure
+    /// the sentence calls an average or a value that held is one — a peak, a
+    /// cap or a zone bound is not what the record holds (see `heart_rate`).
+    HeartRate,
 }
 
 /// Check a claim about the athlete's own records.
@@ -256,18 +266,29 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
         ));
     }
 
+    // A heart rate is one session's, never a period's: the period check reads
+    // the amounts, and the heart rate is held against the session they match.
+    let (beats, amounts): (Vec<AssertedFigure>, Vec<AssertedFigure>) = figures
+        .iter()
+        .partition(|figure| figure.unit == Unit::HeartRate);
+
     // A figure stated over a period is checked against that period's total or
     // average, which no single activity can match (carnet#846).
-    if let Some(verdict) = period::check(&claim.text, &figures, record) {
-        return Some(verdict);
+    if !amounts.is_empty() {
+        if let Some(verdict) = period::check(&claim.text, &amounts, record) {
+            return Some(verdict);
+        }
     }
 
-    let matched = figures
-        .iter()
-        .filter(|f| matches_record(**f, record))
-        .count();
+    let beats_held = match heart_rate::assess(&claim.text, &beats, &amounts, record) {
+        heart_rate::Beats::Contradicted(explanation) => return Some(contradicted(explanation)),
+        heart_rate::Beats::Unrecorded(explanation) => return Some(unverifiable(&explanation)),
+        heart_rate::Beats::Held => true,
+        heart_rate::Beats::Missed => false,
+    };
+    let amounts_held = amounts.iter().all(|f| matches_record(*f, record));
 
-    Some(if matched == figures.len() {
+    Some(if amounts_held && beats_held {
         VerdictOutcome {
             status: ClaimStatus::Supported,
             evidence_strength: EvidenceStrength::Strong,
@@ -295,8 +316,9 @@ pub fn check(claim: &ExtractedClaim, record: &AthleteRecord) -> Option<VerdictOu
         //
         // The honest reading of a miss is "this layer cannot settle it", which is
         // exactly `Unverifiable` — non-actionable, still recorded as a verdict.
-        // The one case where absence really is evidence is the providerless
-        // branch above, and that keeps its `Contradicted`.
+        // Absence is evidence only in the providerless branch above; a pinned
+        // session's heart rate and a vouched-for period are the two misses
+        // that can be contradicted, and both return before this.
         VerdictOutcome {
             status: ClaimStatus::Unverifiable,
             evidence_strength: EvidenceStrength::None,
@@ -819,7 +841,19 @@ fn matches_record(figure: AssertedFigure, record: &AthleteRecord) -> bool {
     record
         .held(figure.unit)
         .iter()
-        .any(|&actual| (actual - figure.value).abs() <= actual.abs() * MATCH_TOLERANCE)
+        .any(|&actual| agrees(figure, actual))
+}
+
+/// Whether `figure` describes a recorded `actual` value: within
+/// [`MATCH_TOLERANCE`] of an amount, within [`heart_rate::TOLERANCE_BPM`] of a
+/// heart rate, whose scale makes a relative band too wide at the top.
+fn agrees(figure: AssertedFigure, actual: f64) -> bool {
+    let band = if figure.unit == Unit::HeartRate {
+        heart_rate::TOLERANCE_BPM
+    } else {
+        actual.abs() * MATCH_TOLERANCE
+    };
+    (actual - figure.value).abs() <= band
 }
 
 /// Render figures for an explanation a human will read in the admin console.
@@ -834,6 +868,7 @@ fn describe(figures: &[AssertedFigure]) -> String {
             // symbol and are checked against different fields.
             Unit::ElevationMetres => format!("{} m D+", trim_float(f.value)),
             Unit::DistanceMetres => format!("{} m", trim_float(f.value)),
+            Unit::HeartRate => format!("{} bpm", trim_float(f.value)),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -936,6 +971,12 @@ fn extract_figures(text: &str) -> Vec<AssertedFigure> {
                 value: value * to_canonical,
                 unit,
                 rate: rate_at(&rate_tokens(tail)),
+            });
+        } else if heart_rate::averaged_at(&lower, start, i) {
+            out.push(AssertedFigure {
+                value,
+                unit: Unit::HeartRate,
+                rate: true,
             });
         }
     }

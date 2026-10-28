@@ -804,7 +804,10 @@ mod tests {
     };
     use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
-    use super::{reply_action, resolved_action, withholds_unchecked_reply};
+    use super::{
+        actionable_problems, reply_action, resolved_action, warn_affordance,
+        withholds_unchecked_reply, WarnAffordance,
+    };
 
     fn config(fallback: VerificationFallback) -> VerificationConfig {
         VerificationConfig {
@@ -923,5 +926,48 @@ mod tests {
         let action = reply_action(&verdicts, &config(VerificationFallback::Warn));
 
         assert_eq!(action, ResolvedAction::WarnBanner);
+    }
+
+    #[test]
+    fn an_abstention_beside_supported_claims_raises_no_warning_on_any_surface() {
+        // carnet#1189: the client chip no longer lets an abstention label a
+        // reply whose other claims held. The messaging banner and the chip
+        // rail already read only findings, and this pins that they stay so:
+        // an unverifiable or rhetorical claim is never a warning.
+        let verdicts = vec![
+            supported(),
+            supported(),
+            (
+                claim("Next week, add a fourth interval."),
+                verdict(ClaimStatus::Unverifiable, VerdictLayer::AthleteData),
+            ),
+            (
+                claim("You've got this!"),
+                verdict(ClaimStatus::Rhetorical, VerdictLayer::Rhetoric),
+            ),
+        ];
+
+        let shown = actionable_problems(&verdicts);
+        assert_eq!(
+            shown,
+            [],
+            "bug: an abstention must never be shown as a problem"
+        );
+        let reply = "Your week held. Next week, add a fourth interval.";
+        assert_eq!(
+            warn_affordance(&shown, reply, false, "Check these:"),
+            WarnAffordance::Silent,
+            "bug: abstentions alone must not raise a warning"
+        );
+        assert_eq!(
+            warn_affordance(&shown, reply, true, "Check these:"),
+            WarnAffordance::Silent,
+            "bug: abstentions alone must not raise a warning, banner allowed or not"
+        );
+        assert_eq!(
+            reply_action(&verdicts, &config(VerificationFallback::Warn)),
+            ResolvedAction::Pass,
+            "bug: a reply whose claims held passes despite abstentions"
+        );
     }
 }

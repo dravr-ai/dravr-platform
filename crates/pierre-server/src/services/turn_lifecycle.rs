@@ -628,6 +628,7 @@ mod tests {
                 completion_tokens: 40,
                 cached_tokens: 0,
                 cached_write_tokens: 0,
+                cached_write_1h_tokens: 0,
                 reasoning_tokens: 0,
                 latency_ms: 900,
                 success: true,

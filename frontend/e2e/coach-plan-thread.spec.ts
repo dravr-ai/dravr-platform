@@ -210,6 +210,8 @@ interface Sent {
 interface PlanThreadMockOptions {
   /** The coach also holds a membership row in the group they coach. */
   coachIsMember?: boolean;
+  /** The role that membership row carries; a member's by default. */
+  coachRole?: 'owner' | 'admin' | 'member';
   /** The refusal the athlete-thread route answers with, instead of opening the thread. */
   openRefusal?: { status: number; body: unknown };
 }
@@ -218,7 +220,9 @@ async function setupPlanThreadMocks(page: Page, options: PlanThreadMockOptions =
   const sent: Sent = { opened: [], published: [] };
   let threadOpened = false;
   let published = false;
-  const roster = options.coachIsMember ? [...members, coachMembership] : members;
+  const roster = options.coachIsMember
+    ? [...members, { ...coachMembership, role: options.coachRole ?? coachMembership.role }]
+    : members;
 
   await page.route('**/api/groups/permissions', (route) =>
     route.fulfill(json({ can_create: true, policy: 'everyone', weekly_digest: false })),
@@ -303,6 +307,10 @@ test.describe("A coach's plan thread for one athlete", () => {
     await page.getByTestId('conversation-header-title').click();
     await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
 
+    // The coach has connected nothing of their own, so their own group thread
+    // asks them to.
+    await expect(page.getByTestId('connect-provider-banner')).toBeVisible();
+
     // The coach works on Alice's plan; nobody else's row is the coach's own.
     await page.getByRole('button', { name: "Work on Alice Runner's plan" }).click();
 
@@ -317,6 +325,9 @@ test.describe("A coach's plan thread for one athlete", () => {
     await expect(page.getByTestId('group-info-panel')).toHaveCount(0);
     await expect(page.getByTestId('thread-title')).toHaveText('Alice Runner');
     await expect(page.getByTestId('thread-subtitle')).toHaveText('Plan · Alice Runner');
+    // Alice's plan reads Alice's data through her links: the coach is never
+    // asked to connect a service of their own here (carnet#1191).
+    await expect(page.getByTestId('connect-provider-banner')).toHaveCount(0);
 
     // Listed under Groups, with the plan glyph.
     const planRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Alice Runner' });
@@ -331,6 +342,48 @@ test.describe("A coach's plan thread for one athlete", () => {
     await expect(page.getByTestId('plan-draft-published')).toHaveText('Published. Alice Runner has been notified.');
     expect(sent.published).toEqual([{ overwrite_athlete_changes: false }]);
     await expect(page.getByRole('button', { name: 'Discard draft' })).toHaveCount(0);
+  });
+
+  // At 1440 px the members table overflowed the Group info panel and cut the
+  // Actions column off (carnet#1191). The widest row is an owner coach's: a
+  // plan, a role change and a removal on every other member.
+  test('Group info fits the members table, Actions column included, at 1440 px', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupPlanThreadMocks(page, { coachIsMember: true, coachRole: 'owner' });
+    await loginToDashboard(page);
+    await openGroups(page);
+
+    const groupRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' });
+    await groupRow.getByRole('button').first().click();
+    await page.getByTestId('conversation-header-title').click();
+    await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
+
+    const list = page.getByTestId('member-list');
+    await expect(list.getByRole('button', { name: "Work on Alice Runner's plan" })).toBeVisible();
+
+    // Nothing scrolls sideways inside the list.
+    const overflow = await list.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+
+    // Every action on Alice's row sits inside the panel, the last one too.
+    const panel = await page.getByTestId('group-info-panel').boundingBox();
+    expect(panel).not.toBeNull();
+    const aliceRow = list.locator('tr', { hasText: 'Alice Runner' });
+    const actions = aliceRow.getByRole('button');
+    await expect(actions).toHaveCount(3);
+    for (const index of [0, 1, 2]) {
+      const box = await actions.nth(index).boundingBox();
+      expect(box).not.toBeNull();
+      if (box && panel) {
+        expect(box.x).toBeGreaterThanOrEqual(panel.x);
+        expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+      }
+    }
+
+    // The join date and the sharing state read under the name.
+    await expect(list.getByTestId(`member-detail-${ATHLETE_ID}`)).toContainText('Sharing on');
+    await expect(list.getByTestId('member-detail-user-3')).toContainText('Sharing off');
   });
 
   test('A coach who is also a member works on every other member, and hears when one stopped sharing', async ({

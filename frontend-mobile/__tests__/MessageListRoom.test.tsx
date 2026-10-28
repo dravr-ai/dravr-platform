@@ -80,9 +80,10 @@ const ROOM: GroupTranscriptEntry[] = [
   },
 ];
 
-function renderThread(messages: Message[]) {
+function renderThread(messages: Message[], coachName: string | null = null) {
   return render(
     <MessageList
+      coachName={coachName}
       messages={messages}
       isLoading={false}
       isSending={false}
@@ -186,6 +187,26 @@ describe('MessageList group thread room', () => {
     expect(getByTestId('room-correction-quote')).toHaveTextContent('On: Solid week, 62 km.');
     expect(getByText('That week was 52 km, not 62.')).toBeTruthy();
     expect(queryByTestId('message-turn-room-t10')).toBeNull();
+  });
+
+  // The correction bubble did not say which coach wrote it (carnet#1191).
+  it('names the group\'s coach over the correction once the group names one', () => {
+    const correction: GroupTranscriptEntry = {
+      id: 't11',
+      speaker: 'correction',
+      withheld: false,
+      own: true,
+      author_user_id: 'user-me',
+      author_display_name: 'Me',
+      content: 'That week was 52 km, not 62.',
+      message_id: null,
+      corrects: { entry_id: 't-own-reply', message_id: 'm2', excerpt: 'Solid week, 62 km.' },
+      created_at: '2026-09-14T12:30:00Z',
+    };
+    const { getByText, queryByText } = renderThread(composeRoomThread(OWN, [...ROOM, correction]), 'Camille');
+
+    expect(getByText('Correction from Camille, your human coach')).toBeTruthy();
+    expect(queryByText("Your human coach's correction")).toBeNull();
   });
 });
 

@@ -48,11 +48,11 @@ jest.mock('../src/services/api', () => ({
 import { GroupTranscriptSection } from '../src/screens/groups/GroupTranscriptSection';
 import { groupsApi } from '../src/services/api';
 
-function renderSection() {
+function renderSection(coachName: string | null = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <QueryClientProvider client={client}>
-      <GroupTranscriptSection groupId="group-1" />
+      <GroupTranscriptSection groupId="group-1" coachName={coachName} />
     </QueryClientProvider>,
   );
 }
@@ -110,6 +110,33 @@ describe('GroupTranscriptSection', () => {
     });
     expect(getByText("Human coach's correction for Marie")).toBeTruthy();
     expect(queryByText('Marie')).toBeNull();
+  });
+
+  // The correction did not say which coach wrote it (carnet#1191).
+  it('names the group\'s coach over a correction once the group names one', async () => {
+    (groupsApi.getTranscript as jest.Mock).mockResolvedValueOnce({
+      group_id: 'group-1',
+      members: [],
+      entries: [
+        {
+          id: 'entry-4',
+          speaker: 'correction',
+          withheld: false,
+          own: false,
+          author_user_id: 'user-marie',
+          author_display_name: 'Marie',
+          content: 'Marie, ta sortie faisait 18 km.',
+          message_id: null,
+          corrects: { entry_id: 'entry-2', message_id: null, excerpt: 'Oui, allure facile.' },
+          created_at: '2026-01-15T12:05:00Z',
+        },
+      ],
+    } satisfies GroupTranscriptResponse);
+    const { getByText } = renderSection('Camille');
+
+    await waitFor(() => {
+      expect(getByText('Correction from Camille for Marie')).toBeTruthy();
+    });
   });
 });
 

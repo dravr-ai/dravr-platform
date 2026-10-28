@@ -63,6 +63,7 @@ fn record() -> AthleteRecord {
             distance_km: Some(180.0),
             duration_min: 480.0,
             elevation_m: None,
+            average_hr_bpm: None,
         }],
         history: None,
     }

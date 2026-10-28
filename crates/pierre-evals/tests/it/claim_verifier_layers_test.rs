@@ -12,8 +12,12 @@ use std::slice;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::claim_extractor_test::LOOK_AHEAD_LAST_SESSIONS;
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use pierre_core::errors::AppError;
+use pierre_core::models::SportType;
+use pierre_evals::athlete_data::{AthleteRecord, RecordedActivity};
 use pierre_evals::judge::judge_claim;
 use pierre_evals::ClaimSource;
 use pierre_evals::{
@@ -787,4 +791,335 @@ async fn verify_reply_hands_an_inconclusive_claim_to_the_judge() {
     assert_eq!(verdicts[0].1.layer_fired, VerdictLayer::Judge);
     assert_eq!(verdicts[0].1.status, ClaimStatus::Contradicted);
     assert_eq!(judge.call_count(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Own-data sentences reach the athlete's record, never the judge (carnet#1188)
+// ---------------------------------------------------------------------------
+
+/// The French reply of 2026-10-26, reconstructed from the sentence the issue
+/// quotes. The chip read « 5 verdicts · invérifiable » on it although the
+/// synced record holds the session it describes.
+const REPLY_2026_10_26: &str = "Ta dernière séance, samedi, c'était 6,7 km faciles avec 173 m \
+     de dénivelé, et ta FC est restée à 133 en moyenne. Bravo pour la régularité !";
+
+/// The record synced on 2026-10-26: sam. 24 oct., 6,74 km, +173 m, an
+/// average heart rate of 133.
+fn record_2026_10_26() -> AthleteRecord {
+    AthleteRecord {
+        has_provider: true,
+        activities: vec![RecordedActivity {
+            date: NaiveDate::from_ymd_opt(2026, 10, 24).expect("valid date"),
+            sport: SportType::Run,
+            name: "Morning Run".to_owned(),
+            distance_km: Some(6.74),
+            duration_min: 48.0,
+            elevation_m: Some(173.0),
+            average_hr_bpm: Some(133.0),
+        }],
+        today: NaiveDate::from_ymd_opt(2026, 10, 26).expect("valid date"),
+        locale: "fr".to_owned(),
+        history: None,
+    }
+}
+
+#[tokio::test]
+async fn the_2026_10_26_french_reply_rechecks_as_supported_against_the_record() {
+    // A judge that abstains, as `claim_judge.md` does on a claim about one
+    // athlete: had the sentence reached it, the verdict would be unverifiable.
+    let judge = CannedJudge::new(
+        r#"{"verdict":"unverifiable","confidence":0.2,"rationale":"Not a consensus question."}"#,
+    );
+    let record = record_2026_10_26();
+    let verdicts = verify_reply(
+        REPLY_2026_10_26,
+        &VerificationConfig::default(),
+        &EvidenceCorpus::default(),
+        Some(claim_judge(&judge)),
+        None,
+        Some(&record),
+    )
+    .await;
+
+    assert_eq!(
+        verdicts.len(),
+        1,
+        "bug: the 2026-10-26 reply carries exactly one claim: {verdicts:?}"
+    );
+    let (claim, outcome) = &verdicts[0];
+    assert_eq!(
+        claim.category,
+        ClaimCategory::AthleteData,
+        "bug: an own-session figure routes to the record: {claim:?}"
+    );
+    assert_eq!(
+        outcome.layer_fired,
+        VerdictLayer::AthleteData,
+        "bug: an own-session figure must be ruled on by the record layer: {}",
+        outcome.explanation
+    );
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Supported,
+        "bug: the record holds the session the reply describes: {}",
+        outcome.explanation
+    );
+    assert_eq!(
+        judge.call_count(),
+        0,
+        "bug: an own-data sentence reached the judge instead of the record"
+    );
+}
+
+/// The sentence exactly as carnet#1188 quotes it, without « en moyenne »:
+/// a held heart rate on the one session the distance and the climb pin is
+/// the session's average, so the record settles it.
+const REPLY_1188_QUOTED: &str = "Ta dernière séance, samedi, c'était 6,7 km faciles avec 173 m \
+     de dénivelé, et ta FC est restée à 133.";
+
+#[tokio::test]
+async fn the_issue_1188_quoted_sentence_rechecks_as_supported_against_the_record() {
+    let judge = CannedJudge::new(
+        r#"{"verdict":"unverifiable","confidence":0.2,"rationale":"Not a consensus question."}"#,
+    );
+    let record = record_2026_10_26();
+    let verdicts = verify_reply(
+        REPLY_1188_QUOTED,
+        &VerificationConfig::default(),
+        &EvidenceCorpus::default(),
+        Some(claim_judge(&judge)),
+        None,
+        Some(&record),
+    )
+    .await;
+
+    assert_eq!(
+        verdicts.len(),
+        1,
+        "bug: the quoted sentence carries exactly one claim: {verdicts:?}"
+    );
+    let (claim, outcome) = &verdicts[0];
+    assert_eq!(
+        claim.category,
+        ClaimCategory::AthleteData,
+        "bug: the quoted own-session sentence must route to the record: {claim:?}"
+    );
+    assert_eq!(
+        outcome.layer_fired,
+        VerdictLayer::AthleteData,
+        "bug: the quoted sentence must be ruled on by the record layer: {}",
+        outcome.explanation
+    );
+    assert_eq!(
+        outcome.status,
+        ClaimStatus::Supported,
+        "bug: the record holds the quoted session (6.74 km, +173 m, avg HR 133): {}",
+        outcome.explanation
+    );
+    assert_eq!(
+        judge.call_count(),
+        0,
+        "bug: the quoted own-data sentence reached the judge instead of the record"
+    );
+}
+
+/// The 2026-10-26 sentence with the heart rate changed: the distance and the
+/// climb place it on the one session held, which averaged 133, so « 160 » is
+/// a finding — and « 134 » is the same average rounded.
+#[tokio::test]
+async fn the_2026_10_26_heart_rate_is_held_against_the_session() {
+    let record = record_2026_10_26();
+    for (reply, expected) in [
+        (
+            REPLY_2026_10_26.replace("133", "134"),
+            ClaimStatus::Supported,
+        ),
+        (
+            REPLY_2026_10_26.replace("133", "160"),
+            ClaimStatus::Contradicted,
+        ),
+    ] {
+        let verdicts = verify_reply(
+            &reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            None,
+            None,
+            Some(&record),
+        )
+        .await;
+        assert_eq!(
+            verdicts.len(),
+            1,
+            "bug: the reply carries exactly one claim: {reply}: {verdicts:?}"
+        );
+        let (_, outcome) = &verdicts[0];
+        assert_eq!(
+            outcome.layer_fired,
+            VerdictLayer::AthleteData,
+            "bug: an own-session heart rate must be ruled on by the record layer: {reply}"
+        );
+        assert_eq!(
+            outcome.status, expected,
+            "bug: the heart rate must be held against the pinned session's average: {reply}: {}",
+            outcome.explanation
+        );
+    }
+}
+
+/// A heart rate the other figures do not pin to one session is a miss this
+/// layer cannot settle, and a peak is never held against the average.
+#[tokio::test]
+async fn a_heart_rate_on_no_pinned_session_is_never_contradicted() {
+    let record = record_2026_10_26();
+    for reply in [
+        "Ta dernière séance : ta FC est restée à 160 en moyenne, bravo.",
+        "Ta dernière séance, samedi, c'était 6,7 km avec 173 m de dénivelé, et ta FC \
+         est montée à 175 au maximum dans la côte.",
+    ] {
+        let verdicts = verify_reply(
+            reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            None,
+            None,
+            Some(&record),
+        )
+        .await;
+        for (_, outcome) in &verdicts {
+            assert_ne!(
+                outcome.status,
+                ClaimStatus::Contradicted,
+                "bug: a heart rate on no pinned session (or a peak) must never be contradicted: {reply}: {}",
+                outcome.explanation
+            );
+        }
+    }
+}
+
+/// A session held without a heart rate cannot settle one: the reply's other
+/// figures match it, so the verdict says the heart rate is what is missing.
+/// With nothing connected, a heart rate is a figure like any other, and the
+/// record it would have come from does not exist.
+#[tokio::test]
+async fn a_heart_rate_without_a_recorded_one_is_unverifiable_and_without_a_provider_invented() {
+    let mut record = record_2026_10_26();
+    for session in &mut record.activities {
+        session.average_hr_bpm = None;
+    }
+    let today = record.today;
+    let cases = [
+        (
+            record,
+            REPLY_2026_10_26,
+            ClaimStatus::Unverifiable,
+            "carries no heart rate",
+        ),
+        (
+            AthleteRecord::providerless(today, "fr"),
+            "Ta dernière séance : ta FC est restée à 133 en moyenne, bravo.",
+            ClaimStatus::Contradicted,
+            "133 bpm",
+        ),
+    ];
+    for (record, reply, expected, explained) in cases {
+        let verdicts = verify_reply(
+            reply,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            None,
+            None,
+            Some(&record),
+        )
+        .await;
+        assert_eq!(
+            verdicts.len(),
+            1,
+            "bug: the reply carries exactly one claim: {reply}: {verdicts:?}"
+        );
+        let (claim, outcome) = &verdicts[0];
+        assert_eq!(
+            claim.category,
+            ClaimCategory::AthleteData,
+            "bug: an own-session heart rate must route to the record: {reply}"
+        );
+        assert_eq!(
+            outcome.status,
+            expected,
+            "bug: a missing recorded heart rate is unverifiable, a providerless one invented: {reply}: {}",
+            outcome.explanation
+        );
+        assert!(
+            outcome.explanation.contains(explained),
+            "bug: the explanation must name {explained:?}: {reply}: {}",
+            outcome.explanation
+        );
+    }
+}
+
+/// A "last" session still to come is a plan: for an athlete with nothing
+/// connected, its figures are never called invented (carnet#1188 review).
+#[tokio::test]
+async fn a_providerless_last_session_still_to_come_is_never_contradicted() {
+    let record =
+        AthleteRecord::providerless(NaiveDate::from_ymd_opt(2026, 10, 26).expect("date"), "fr");
+    for sentence in LOOK_AHEAD_LAST_SESSIONS {
+        let verdicts = verify_reply(
+            sentence,
+            &VerificationConfig::default(),
+            &EvidenceCorpus::default(),
+            None,
+            None,
+            Some(&record),
+        )
+        .await;
+        for (claim, outcome) in &verdicts {
+            assert_ne!(
+                claim.category,
+                ClaimCategory::AthleteData,
+                "bug: a last session still to come is a plan, not the record: {sentence}"
+            );
+            assert_ne!(
+                outcome.status,
+                ClaimStatus::Contradicted,
+                "bug: a providerless plan's figures must never be called invented: {sentence}: {}",
+                outcome.explanation
+            );
+        }
+    }
+}
+
+/// The other side of the routing: a weekly plan names weekdays and figures,
+/// and for an athlete with nothing connected the record layer contradicts any
+/// figure it is handed. No plan line may be called invented.
+#[tokio::test]
+async fn a_providerless_weekly_plan_is_never_contradicted() {
+    let record =
+        AthleteRecord::providerless(NaiveDate::from_ymd_opt(2026, 10, 26).expect("date"), "fr");
+    let plan = "Samedi : ta sortie longue, 18 km en endurance fondamentale.\n\
+                Dimanche : 8 km faciles avec 150 m de dénivelé.\n\
+                Ta prochaine séance : 10 km avec 5 x 1000 m au seuil.\n\
+                Ta séance de jeudi sera de 45 minutes avec ta FC sous 140.";
+    let verdicts = verify_reply(
+        plan,
+        &VerificationConfig::default(),
+        &EvidenceCorpus::default(),
+        None,
+        None,
+        Some(&record),
+    )
+    .await;
+    assert!(
+        !verdicts.is_empty(),
+        "bug: the weekly plan must yield claims for the guard below to check"
+    );
+    for (claim, outcome) in &verdicts {
+        assert_ne!(
+            outcome.status,
+            ClaimStatus::Contradicted,
+            "bug: a providerless plan line was called invented ({:?}): {}",
+            claim.category,
+            outcome.explanation
+        );
+    }
 }

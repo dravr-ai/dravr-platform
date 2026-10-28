@@ -102,6 +102,7 @@ async fn seed_usage(resources: &Arc<ServerContext>, tenant_id: &str, user_id: &s
             total_tokens: 150 + (offset * 15),
             cached_tokens: 0,
             cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
             reasoning_tokens: 0,
             call_type: "chat",
             tool_calls_count: 0,

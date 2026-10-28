@@ -4,12 +4,14 @@
 // ABOUTME: The claim-verdict vocabulary both chat surfaces print — status, evidence and category words as corpus keys
 // ABOUTME: A constants module cannot translate, so it names the keys and each client resolves them with its own t()
 
+import { VERDICT_STATUS_ORDER } from '@pierre/shared-types';
 import type {
   ClaimEvidenceStrength,
   ClaimVerdictCategory,
   ClaimVerdictStatus,
   VerdictSummary,
 } from '@pierre/shared-types';
+import type { CountKeys } from './plural';
 
 /** The corpus key naming what the verifier concluded about a claim. */
 export const VERDICT_STATUS_LABEL_KEY: Record<ClaimVerdictStatus, string> = {
@@ -56,30 +58,56 @@ export function verdictCategoryLabelKey(category: string): string {
     : VERDICT_CATEGORY_OTHER_KEY;
 }
 
-/** The chip line for exactly one verdict: `{{count}} verdict · {{qualifier}}`. */
-export const VERDICT_CHIP_ONE_KEY = 'chat.verdictChipOne';
-/** The chip line for several verdicts: `{{count}} verdicts · {{qualifier}}`. */
-export const VERDICT_CHIP_N_KEY = 'chat.verdictChipN';
+/**
+ * The corpus keys counting the verdicts of one status, singular and plural:
+ * `{{count}} appuyée` / `{{count}} appuyées`. The status word agrees with
+ * the count in French, Spanish and Portuguese, so each status carries both
+ * forms rather than one word under a number.
+ */
+export const VERDICT_COUNT_LABEL_KEY: Record<ClaimVerdictStatus, CountKeys> = {
+  supported: { one: 'chat.verdictCountSupportedOne', many: 'chat.verdictCountSupportedN' },
+  unsupported: { one: 'chat.verdictCountUnsupportedOne', many: 'chat.verdictCountUnsupportedN' },
+  contradicted: { one: 'chat.verdictCountContradictedOne', many: 'chat.verdictCountContradictedN' },
+  rhetorical: { one: 'chat.verdictCountRhetoricalOne', many: 'chat.verdictCountRhetoricalN' },
+  unverifiable: { one: 'chat.verdictCountUnverifiableOne', many: 'chat.verdictCountUnverifiableN' },
+};
+
+/** What sits between two status counts on the chip. */
+export const VERDICT_CHIP_SEPARATOR = ' · ';
+
+/**
+ * What sits between two status counts when the rollup is spoken: a screen
+ * reader names the middle dot (« point médian ») or swallows it, where a
+ * comma is a pause in every catalogue language.
+ */
+export const VERDICT_SPOKEN_SEPARATOR = ', ';
 
 /** The shape of `t()` this module needs: a key and its interpolation values. */
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
 /**
- * The verdict chip's label: how many verdicts, and the worst thing about them.
+ * The verdict chip's label: how many claims landed on each status.
  *
- * The qualifier is the worst status word — « contredite », « non appuyée » —
- * whether the surface read the rows or only has the turn's chips, so the
- * word sits on the same axis as the chip's tone. The evidence strength behind
- * a verdict is a per-claim detail and stays in the drawer and the sheet, where
- * `chat.evidenceLabel` prints it beside each card. Both words come from the
- * corpus, so the chip reads in the athlete's language on web and mobile alike.
+ * Every status the reply carries is counted, in the rollup's own order —
+ * a finding first, then the supported claims, then the abstentions — so a
+ * reply whose claims held reads « 2 appuyées · 1 invérifiable » and never
+ * hides its supported count behind one abstention. Zero counts are left out.
+ * The evidence strength behind a verdict is a per-claim detail and stays in
+ * the drawer and the sheet. Every word comes from the corpus, so the chip
+ * reads in the athlete's language on web and mobile alike. `separator` is
+ * the chip's middle dot unless the label is spoken
+ * ([`VERDICT_SPOKEN_SEPARATOR`]).
  */
 export function verdictChipLabel(
   t: Translate,
-  summary: Pick<VerdictSummary, 'count' | 'worstStatus'>,
+  summary: Pick<VerdictSummary, 'statusCounts'>,
+  separator: string = VERDICT_CHIP_SEPARATOR,
 ): string {
-  return t(summary.count === 1 ? VERDICT_CHIP_ONE_KEY : VERDICT_CHIP_N_KEY, {
-    count: summary.count,
-    qualifier: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
-  });
+  return VERDICT_STATUS_ORDER.filter((status) => summary.statusCounts[status] > 0)
+    .map((status) => {
+      const count = summary.statusCounts[status];
+      const keys = VERDICT_COUNT_LABEL_KEY[status];
+      return t(count === 1 ? keys.one : keys.many, { count });
+    })
+    .join(separator);
 }

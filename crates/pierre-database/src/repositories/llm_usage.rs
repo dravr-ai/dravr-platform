@@ -96,7 +96,7 @@ macro_rules! llm_usage_columns {
         "id, tenant_id, user_id, conversation_id, turn_id, provider, model, \
          prompt_tokens, completion_tokens, total_tokens, cached_tokens, cached_write_tokens, \
          reasoning_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, \
-         cost_usd, call_sequence, created_at"
+         cost_usd, call_sequence, created_at, cached_write_1h_tokens"
     };
 }
 
@@ -104,7 +104,7 @@ macro_rules! llm_usage_columns {
 pub(crate) const INSERT_LLM_USAGE_SQL: &str = concat!(
     "INSERT INTO llm_usage (",
     llm_usage_columns!(),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)"
+    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)"
 );
 
 /// The token sums every aggregate projects. Postgres sums a `BIGINT` as
@@ -115,6 +115,7 @@ macro_rules! llm_usage_token_sums {
          CAST(COALESCE(SUM(completion_tokens), 0) AS BIGINT) AS completion_tokens, \
          CAST(COALESCE(SUM(cached_tokens), 0) AS BIGINT) AS cached_tokens, \
          CAST(COALESCE(SUM(cached_write_tokens), 0) AS BIGINT) AS cached_write_tokens, \
+         CAST(COALESCE(SUM(cached_write_1h_tokens), 0) AS BIGINT) AS cached_write_1h_tokens, \
          CAST(COALESCE(SUM(reasoning_tokens), 0) AS BIGINT) AS reasoning_tokens, \
          CAST(COUNT(*) AS BIGINT) AS calls"
     };
@@ -240,6 +241,7 @@ where
         completion_tokens: count("completion_tokens")?,
         cached_tokens: count("cached_tokens")?,
         cached_write_tokens: count("cached_write_tokens")?,
+        cached_write_1h_tokens: count("cached_write_1h_tokens")?,
         reasoning_tokens: count("reasoning_tokens")?,
         calls: count("calls")?,
     })
@@ -273,6 +275,7 @@ where
         completion_tokens: count("completion_tokens")?,
         cached_tokens: count("cached_tokens")?,
         cached_write_tokens: count("cached_write_tokens")?,
+        cached_write_1h_tokens: count("cached_write_1h_tokens")?,
         reasoning_tokens: count("reasoning_tokens")?,
         calls: count("calls")?,
         avg_execution_time_ms: avg_exec_ms.unwrap_or(0.0),
@@ -341,6 +344,7 @@ macro_rules! impl_llm_usage_repository {
                 total_tokens: count("total_tokens")?,
                 cached_tokens: count("cached_tokens")?,
                 cached_write_tokens: count("cached_write_tokens")?,
+                cached_write_1h_tokens: count("cached_write_1h_tokens")?,
                 reasoning_tokens: count("reasoning_tokens")?,
                 call_type: text("call_type")?,
                 tool_calls_count: count("tool_calls_count")?,
@@ -386,6 +390,7 @@ macro_rules! impl_llm_usage_repository {
                     .bind(params.cost_usd)
                     .bind(params.call_sequence.map(call_sequence_column))
                     .bind(now)
+                    .bind(params.cached_write_1h_tokens)
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to insert LLM usage: {e}")))?;
@@ -403,6 +408,7 @@ macro_rules! impl_llm_usage_repository {
                     total_tokens: params.total_tokens,
                     cached_tokens: params.cached_tokens,
                     cached_write_tokens: params.cached_write_tokens,
+                    cached_write_1h_tokens: params.cached_write_1h_tokens,
                     reasoning_tokens: params.reasoning_tokens,
                     call_type: params.call_type.to_owned(),
                     tool_calls_count: params.tool_calls_count,

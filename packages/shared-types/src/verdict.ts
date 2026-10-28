@@ -171,26 +171,52 @@ export interface VerdictSeverity {
   evidence_strength?: ClaimEvidenceStrength;
 }
 
-/** The worst verdict attached to one reply, and how many there were. */
+/**
+ * The one chip a reply's verdicts roll up into.
+ *
+ * A finding — a claim contradicted by a bound or one the evidence could not
+ * support — leads it. Without one, the supported claims do: an abstention
+ * (`unverifiable`, `rhetorical`) is the verifier declining to judge, so it
+ * never labels a reply whose other claims were checked and held. The counts
+ * are carried per status so the chip can say « 2 appuyées · 1 invérifiable »
+ * rather than one word for the whole reply.
+ */
 export interface VerdictSummary {
-  /** The most severe status across the set. */
-  worstStatus: ClaimVerdictStatus;
-  /** The weakest evidence across the set, or `null` when none carried any. */
+  /** The status that leads the chip and sets its tone (see `STATUS_PRIORITY`). */
+  headlineStatus: ClaimVerdictStatus;
+  /** How many verdicts carried each status; a status absent from the set is 0. */
+  statusCounts: Record<ClaimVerdictStatus, number>;
+  /**
+   * The weakest evidence behind the headline status, or `null` when none of
+   * those verdicts carried any. Read off the headline's own verdicts so an
+   * abstention's `none` cannot qualify a reply whose supported claims held.
+   */
   worstStrength: ClaimEvidenceStrength | null;
   /** How many verdicts the summary covers. */
   count: number;
-  /** The tone [`worstStatus`](VerdictSummary.worstStatus) paints in. */
+  /** The tone [`headlineStatus`](VerdictSummary.headlineStatus) paints in. */
   tone: VerdictTone;
 }
 
-/** Severity order for a status — higher wins the rollup. */
+/**
+ * Which status leads the rollup — higher wins.
+ *
+ * Findings outrank everything, then a supported claim, then the abstentions:
+ * a reply with three supported claims and one forward-looking prescription
+ * the verifier could not check reads as supported, not as « invérifiable ».
+ */
 const STATUS_PRIORITY: Record<ClaimVerdictStatus, number> = {
   contradicted: 4,
   unsupported: 3,
-  unverifiable: 2,
-  rhetorical: 1,
-  supported: 0,
+  supported: 2,
+  unverifiable: 1,
+  rhetorical: 0,
 };
+
+/** Every status, in the order the chip names them: the headline order. */
+export const VERDICT_STATUS_ORDER: readonly ClaimVerdictStatus[] = (
+  Object.keys(STATUS_PRIORITY) as ClaimVerdictStatus[]
+).sort((a, b) => STATUS_PRIORITY[b] - STATUS_PRIORITY[a]);
 
 /** Severity order for an evidence strength — higher (weaker) wins the rollup. */
 const STRENGTH_PRIORITY: Record<ClaimEvidenceStrength, number> = {
@@ -236,21 +262,37 @@ export function verdictChipSeverity(chip: ReplyVerdictChip): VerdictSeverity {
 /**
  * Roll a set of verdicts up into the one chip a reply shows.
  *
- * Returns `null` for an empty set, which is the "draw no chip" answer.
+ * Contradicted and unsupported claims still win; an abstention never
+ * outranks a supported claim (carnet#1189). Returns `null` for an empty set,
+ * which is the "draw no chip" answer.
  */
 export function summarizeVerdicts(
   verdicts: readonly VerdictSeverity[],
 ): VerdictSummary | null {
   if (verdicts.length === 0) return null;
 
-  let worstStatus: ClaimVerdictStatus = 'supported';
+  const statusCounts: Record<ClaimVerdictStatus, number> = {
+    contradicted: 0,
+    unsupported: 0,
+    supported: 0,
+    unverifiable: 0,
+    rhetorical: 0,
+  };
+  // Seeded with the lowest-priority status, so any verdict at all replaces or
+  // equals it: a set of rhetorical claims alone headlines as rhetorical.
+  let headlineStatus: ClaimVerdictStatus = 'rhetorical';
+  for (const verdict of verdicts) {
+    statusCounts[verdict.status] += 1;
+    if (STATUS_PRIORITY[verdict.status] > STATUS_PRIORITY[headlineStatus]) {
+      headlineStatus = verdict.status;
+    }
+  }
+
   let worstStrength: ClaimEvidenceStrength | null = null;
   for (const verdict of verdicts) {
-    if (STATUS_PRIORITY[verdict.status] > STATUS_PRIORITY[worstStatus]) {
-      worstStatus = verdict.status;
-    }
     const strength = verdict.evidence_strength;
     if (
+      verdict.status === headlineStatus &&
       strength !== undefined &&
       (worstStrength === null ||
         STRENGTH_PRIORITY[strength] > STRENGTH_PRIORITY[worstStrength])
@@ -260,9 +302,10 @@ export function summarizeVerdicts(
   }
 
   return {
-    worstStatus,
+    headlineStatus,
+    statusCounts,
     worstStrength,
     count: verdicts.length,
-    tone: VERDICT_STATUS_TONE[worstStatus],
+    tone: VERDICT_STATUS_TONE[headlineStatus],
   };
 }

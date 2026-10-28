@@ -470,7 +470,7 @@ describe('ChatTab verdict drawer', () => {
     await send('What pace for threshold?');
 
     const chip = await screen.findByTestId('verdict-chip');
-    expect(chip).toHaveTextContent('1 verdict · supported');
+    expect(chip).toHaveTextContent('1 supported');
     expect(getConversationVerdicts).toHaveBeenCalledTimes(2);
     expect(getConversationVerdicts).toHaveBeenLastCalledWith(CONVERSATION_ID);
     // One rail, not the rows' rail beside a streamed one.
@@ -522,7 +522,7 @@ describe('ChatTab verdict drawer', () => {
 
     // The chip previews the turn's two chips while the re-read is still out.
     const chip = await screen.findByTestId('verdict-chip');
-    expect(chip).toHaveTextContent('2 verdicts · contradicted');
+    expect(chip).toHaveTextContent('1 contradicted · 1 unsupported');
     await user.click(chip);
 
     expect(await screen.findByTestId('verdict-drawer')).toBeInTheDocument();
@@ -536,7 +536,7 @@ describe('ChatTab verdict drawer', () => {
     expect(card).toHaveTextContent('Your VO2max is 82.');
     expect(screen.queryByText('Loading verdicts…')).toBeNull();
     // And the chip now counts the one row, not the two chips beside it.
-    expect(screen.getByTestId('verdict-chip')).toHaveTextContent('1 verdict · contradicted');
+    expect(screen.getByTestId('verdict-chip')).toHaveTextContent('1 contradicted');
   });
 
   describe('on a reply read back from history', () => {

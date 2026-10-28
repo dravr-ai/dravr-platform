@@ -41,7 +41,7 @@ export type NotificationCategoryColors = Record<NotificationCategory, string>;
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
   training: { labelKey: 'notifPrefs.catTraining', iconName: 'dumbbell' },
   recovery: { labelKey: 'notifPrefs.catRecovery', iconName: 'heart' },
-  coach: { labelKey: 'notifPrefs.catAgent', iconName: 'message-circle' },
+  coach: { labelKey: 'notifPrefs.catCoach', iconName: 'message-circle' },
   achievement: { labelKey: 'notifPrefs.catAchievement', iconName: 'trophy' },
   system: { labelKey: 'notifPrefs.catSystem', iconName: 'settings' },
   ai: { labelKey: 'notifPrefs.catAi', iconName: 'brain' },
@@ -172,13 +172,17 @@ export function formatNotificationTime(dateStr: string, t: Translate): string {
 }
 
 /**
- * Format a collapsed notification count for display.
+ * Format a collapsed notification count for display, in the athlete's language.
  *
- * Returns null when the notification is not collapsed (count <= 1).
+ * Returns null when the notification is not collapsed (count <= 1). The
+ * catalogue carries the words, one and many, so both notification centres
+ * read it in the athlete's language; the choice between them is made here,
+ * since the phone's engine has no plural rules to make it.
  */
-export function formatCollapsedCount(count: number | undefined): string | null {
+export function formatCollapsedCount(count: number | undefined, t: Translate): string | null {
   if (!count || count <= 1) return null;
-  return `+${count - 1} similar`;
+  const similar = count - 1;
+  return t(similar === 1 ? 'notifications.collapsedSimilarOne' : 'notifications.collapsedSimilarN', { count: similar });
 }
 
 /**
@@ -209,7 +213,7 @@ export const NOTIFICATION_MAX_PER_DAY_CHOICES: readonly (number | null)[] = [
 export const NOTIFICATION_CATEGORY_BLURB_KEYS: Record<NotificationCategory, string> = {
   training: 'notifPrefs.blurbTraining',
   recovery: 'notifPrefs.blurbRecovery',
-  coach: 'notifPrefs.blurbAgent',
+  coach: 'notifPrefs.blurbCoach',
   achievement: 'notifPrefs.blurbAchievement',
   system: 'notifPrefs.blurbSystem',
   ai: 'notifPrefs.blurbAi',

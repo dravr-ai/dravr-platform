@@ -213,9 +213,9 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
     });
 
     const view = renderList(result.current.messages, result.current.messageBlocks);
-    // The shared rollup picked the worst of the two, and the chip says which.
-    expect(view.getByText('2 verdicts · contradicted')).toBeTruthy();
-    expect(view.getByLabelText('Claim verdicts: contradicted')).toBeTruthy();
+    // The shared rollup counts each status, the contradicted claim first.
+    expect(view.getByText('1 contradicted · 1 unsupported')).toBeTruthy();
+    expect(view.getByLabelText('Claim verdicts: 1 contradicted, 1 unsupported')).toBeTruthy();
   });
 
   it('renders the reconnect call to action from the block, not from a URL in the prose', async () => {
@@ -336,9 +336,9 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
       />
     );
 
-    // The chip qualifies with the row's status word; its evidence strength
-    // is a per-claim detail the sheet prints.
-    expect(view.getByText('1 verdict · contradicted')).toBeTruthy();
+    // The chip counts the row's status word; its evidence strength is a
+    // per-claim detail the sheet prints.
+    expect(view.getByText('1 contradicted')).toBeTruthy();
   });
 
   it('counts the rows alone once the read lands, even when the live chips spelled the claim differently', async () => {
@@ -402,7 +402,7 @@ describe('PHASE 2 — TurnEnvelope blocks on mobile', () => {
     expect(chips?.type === 'verdicts' ? chips.chips : []).toHaveLength(2);
 
     const view = renderList(result.current.messages, result.current.messageBlocks, result.current.verdicts);
-    expect(view.getByText('1 verdict · contradicted')).toBeTruthy();
-    expect(view.queryByText(/3 verdicts/)).toBeNull();
+    expect(view.getByText('1 contradicted')).toBeTruthy();
+    expect(view.queryByText(/unsupported/)).toBeNull();
   });
 });

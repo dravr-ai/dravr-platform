@@ -856,7 +856,11 @@ fn with_planner_prompt(messages: &[ChatMessage], planner_prompt: &str) -> Vec<Ch
     let mut out = messages.to_vec();
     match out.first_mut() {
         Some(first) if first.role == MessageRole::System => {
-            first.content = format!("{planner_prompt}\n\n{}", first.content);
+            let lead = format!("{planner_prompt}\n\n");
+            // The stable head the message names now starts after the lead,
+            // which is the same on every plan call: it grows by its length.
+            first.stable_prefix_len = first.stable_prefix_len.map(|len| len + lead.len());
+            first.content.insert_str(0, &lead);
         }
         _ => out.insert(0, ChatMessage::system(planner_prompt)),
     }
@@ -1108,4 +1112,29 @@ pub(crate) async fn run_headless_tool_loop(
 /// when it hands the turn there — bounding them to this turn.
 pub(crate) fn headless_turn_key(params: &ToolLoopParams<'_>) -> TurnKey {
     TurnKey::new(Some(params.tenant_id.as_uuid()), params.user_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_llm::ChatMessage;
+
+    use super::with_planner_prompt;
+
+    #[test]
+    fn the_planner_lead_keeps_the_stable_head_on_the_same_bytes() {
+        let messages = vec![
+            ChatMessage::system("head tail").with_stable_prefix_len(4),
+            ChatMessage::user("hi"),
+        ];
+        let out = with_planner_prompt(&messages, "plan first");
+        assert_eq!(
+            out[0].content, "plan first\n\nhead tail",
+            "bug: the planner lead must precede the system prompt"
+        );
+        assert_eq!(
+            out[0].stable_split(),
+            Some(("plan first\n\nhead", " tail")),
+            "bug: the stable head must grow by the lead and cover the same bytes"
+        );
+    }
 }

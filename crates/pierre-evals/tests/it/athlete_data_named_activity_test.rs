@@ -53,6 +53,7 @@ fn raphs_week() -> AthleteRecord {
                 distance_km: Some(161.0),
                 duration_min: 372.0,
                 elevation_m: Some(2391.0),
+                average_hr_bpm: None,
             },
             RecordedActivity {
                 date: NaiveDate::from_ymd_opt(2026, 8, 28).expect("valid date"),
@@ -61,6 +62,7 @@ fn raphs_week() -> AthleteRecord {
                 distance_km: Some(26.0),
                 duration_min: 200.0,
                 elevation_m: Some(895.0),
+                average_hr_bpm: None,
             },
         ],
     }
@@ -150,6 +152,7 @@ fn a_sub_discipline_matches_its_family() {
             distance_km: Some(16.25),
             duration_min: 87.0,
             elevation_m: Some(414.0),
+            average_hr_bpm: None,
         }],
     };
 
@@ -295,6 +298,7 @@ fn a_two_letter_activity_name_is_never_matched() {
             distance_km: Some(20.0),
             duration_min: 60.0,
             elevation_m: None,
+            average_hr_bpm: None,
         }],
     };
 
@@ -401,6 +405,7 @@ fn an_activity_name_inside_a_longer_word_does_not_name_it() {
             distance_km: Some(30.0),
             duration_min: 90.0,
             elevation_m: Some(500.0),
+            average_hr_bpm: None,
         }],
     };
 
@@ -506,6 +511,7 @@ fn a_session_named_for_an_ordinary_training_word_is_not_matched() {
             distance_km: Some(40.0),
             duration_min: 90.0,
             elevation_m: Some(300.0),
+            average_hr_bpm: None,
         }],
     };
 
@@ -540,6 +546,7 @@ fn a_default_provider_name_is_not_matched() {
                 distance_km: Some(40.0),
                 duration_min: 90.0,
                 elevation_m: Some(300.0),
+                average_hr_bpm: None,
             }],
         };
 
@@ -595,6 +602,7 @@ fn a_distance_in_metres_is_not_checked_against_climbing() {
             distance_km: Some(12.0),
             duration_min: 55.0,
             elevation_m: Some(400.0),
+            average_hr_bpm: None,
         }],
     };
 
@@ -624,6 +632,7 @@ fn a_distance_in_metres_is_matched_against_distance() {
             distance_km: Some(1.5),
             duration_min: 40.0,
             elevation_m: None,
+            average_hr_bpm: None,
         }],
     };
 
@@ -718,6 +727,7 @@ fn jfs_week() -> AthleteRecord {
                 distance_km: Some(14.14),
                 duration_min: 77.85,
                 elevation_m: Some(280.0),
+                average_hr_bpm: None,
             },
             RecordedActivity {
                 date: day(19),
@@ -726,6 +736,7 @@ fn jfs_week() -> AthleteRecord {
                 distance_km: Some(3.46),
                 duration_min: 54.7,
                 elevation_m: Some(92.8),
+                average_hr_bpm: None,
             },
             RecordedActivity {
                 date: day(18),
@@ -734,6 +745,7 @@ fn jfs_week() -> AthleteRecord {
                 distance_km: Some(16.54),
                 duration_min: 88.7,
                 elevation_m: Some(331.0),
+                average_hr_bpm: None,
             },
         ],
     }

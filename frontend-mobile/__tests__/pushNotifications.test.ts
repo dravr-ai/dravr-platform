@@ -354,7 +354,7 @@ describe('push registration', () => {
         setChannel.mock.calls.map(([id, channel]: [string, { name: string; importance: number }]) => [id, channel]),
       );
       expect(options.coach).toEqual({
-        name: 't:notifPrefs.catAgent',
+        name: 't:notifPrefs.catCoach',
         importance: Notifications.AndroidImportance.MAX,
       });
       expect(options.system).toEqual({

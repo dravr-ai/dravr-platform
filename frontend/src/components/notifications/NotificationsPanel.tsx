@@ -16,13 +16,18 @@ import {
   NOTIFICATION_CATEGORY_COLORS,
   NOTIFICATION_CATEGORY_META,
   NOTIFICATION_CATEGORIES,
+  countKey,
   formatNotificationTime,
   formatCollapsedCount,
   webNotificationRoute,
 } from '@pierre/shared-constants';
+import type { CountKeys } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../../hooks/useTheme';
+
+/** The header's unread count, singular and plural. */
+const UNREAD_KEYS: CountKeys = { one: 'shell.notificationsUnreadOne', many: 'shell.notificationsUnreadN' };
 
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
@@ -35,7 +40,7 @@ interface NotificationsPanelProps {
 }
 
 export default function NotificationsPanel({ onNavigate, embedded = false }: NotificationsPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // The dot takes the hue paired with the athlete's scheme: the panel follows
   // the theme like every surface around it, and the map is total, so a
   // category never falls back to the text ink.
@@ -79,10 +84,14 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
     })),
   ];
 
+  // The count line is the panel's header, and every word in it comes from the
+  // catalogue, so it reads in the athlete's language.
   const description = (
     <>
-      {unreadCount > 0 ? `${unreadCount} unread` : t('shell.notificationsCaughtUp')}
-      {total > 0 && ` · ${total} total`}
+      {unreadCount > 0
+        ? t(countKey(unreadCount, i18n.language, UNREAD_KEYS), { count: unreadCount })
+        : t('shell.notificationsCaughtUp')}
+      {total > 0 && ` · ${t('shell.notificationsTotal', { count: total })}`}
     </>
   );
   const markAll =
@@ -144,7 +153,9 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
             <p className="mt-0.5 text-xs text-outline">
               {selectedCategory === 'all'
                 ? t('frag.allCaughtUp')
-                : t('shell.notificationsEmptyCategory', { category: selectedCategory })}
+                : t('shell.notificationsEmptyCategory', {
+                    category: t(NOTIFICATION_CATEGORY_META[selectedCategory].labelKey),
+                  })}
             </p>
           </div>
         ) : (
@@ -152,7 +163,7 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
             {notifications.map((item) => {
               const isUnread = !item.read_at;
               const meta = NOTIFICATION_CATEGORY_META[item.category];
-              const collapsedLabel = formatCollapsedCount(item.collapsed_count);
+              const collapsedLabel = formatCollapsedCount(item.collapsed_count, t);
               const route = webNotificationRoute(item.data as Record<string, unknown> | undefined);
 
               return (

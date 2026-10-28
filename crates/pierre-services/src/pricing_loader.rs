@@ -31,6 +31,12 @@ struct PricingOverridePayload {
     /// Fraction of the input rate at which a cache *write* bills. On
     /// Anthropic this is a premium (1.25), not a discount.
     cache_write_multiplier: Option<f64>,
+    /// Fraction of the input rate at which a write to a 1-hour cache entry
+    /// bills (Anthropic 2.0). Omitted, the compile-time table's rate for the
+    /// same row carries over, as `long_prompt` does: an operator repricing
+    /// Opus's base rates must not quietly bill its 1-hour writes at the
+    /// 5-minute rate.
+    cache_write_1h_multiplier: Option<f64>,
     /// The second rate card above a prompt-length threshold
     /// (`{"above_prompt_tokens", "input_per_million", "output_per_million"}`).
     /// Omitted, the compile-time table's card for the same row carries over:
@@ -43,19 +49,24 @@ impl PricingOverridePayload {
     /// The pricing this override sets for `(provider, model_prefix)`.
     ///
     /// Every rate the payload names wins. A cache multiplier it omits is the
-    /// compile-time default; a long-prompt card it omits is the one the
-    /// compile-time table holds for that row, when it holds one.
+    /// compile-time default; a 1-hour write rate or a long-prompt card it
+    /// omits is the one the compile-time table holds for that row, when it
+    /// holds one.
     fn into_pricing(self, provider: &str, model_prefix: &str) -> ModelPricing {
+        let table = lookup_pricing(provider, model_prefix);
         let base = ModelPricing::new(self.input_per_million, self.output_per_million);
-        let pricing = base.with_cache_rates(
+        let mut pricing = base.with_cache_rates(
             self.cache_read_multiplier
                 .unwrap_or(base.cache_read_multiplier),
             self.cache_write_multiplier
                 .unwrap_or(base.cache_write_multiplier),
         );
+        pricing.cache_write_1h_multiplier = self
+            .cache_write_1h_multiplier
+            .or_else(|| table.as_ref().and_then(|row| row.cache_write_1h_multiplier));
         let long_prompt = self
             .long_prompt
-            .or_else(|| lookup_pricing(provider, model_prefix).and_then(|table| table.long_prompt));
+            .or_else(|| table.and_then(|row| row.long_prompt));
         long_prompt.map_or(pricing, |long| {
             pricing.with_long_prompt_rates(
                 long.above_prompt_tokens,
@@ -170,6 +181,7 @@ fn parse_override_row(
 #[cfg(test)]
 mod tests {
     use super::PricingOverridePayload;
+    use embacle::pricing::{cost_from_pricing, TokenCounts};
 
     fn payload(json: &str) -> PricingOverridePayload {
         serde_json::from_str(json).expect("a valid override payload")
@@ -198,6 +210,44 @@ mod tests {
         let long = pricing.long_prompt.expect("the payload's card");
         assert_eq!(long.above_prompt_tokens, 200_000);
         assert!((long.input_per_million - 0.40).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn an_override_without_a_one_hour_rate_keeps_the_tables() {
+        let pricing = payload(r#"{"input_per_million": 4.0, "output_per_million": 20.0}"#)
+            .into_pricing("anthropic", "claude-opus-5-5");
+        assert_eq!(
+            pricing.cache_write_1h_multiplier,
+            Some(2.0),
+            "bug: an override omitting the 1-hour rate keeps the table's"
+        );
+        // A 1-hour write of 1M tokens on a 1M-token prompt: 2x the $4 input.
+        let counts = TokenCounts::new(1_000_000, 0)
+            .with_cache(0, 1_000_000)
+            .with_cache_write_1h(1_000_000);
+        assert!(
+            (cost_from_pricing(&pricing, &counts) - 8.0).abs() < 1e-9,
+            "bug: a 1-hour write bills at 2x input"
+        );
+    }
+
+    #[test]
+    fn an_override_naming_a_one_hour_rate_wins_and_a_row_without_one_gets_none() {
+        let pricing = payload(
+            r#"{"input_per_million": 4.0, "output_per_million": 20.0, "cache_write_1h_multiplier": 1.8}"#,
+        )
+        .into_pricing("anthropic", "claude-opus-5-5");
+        assert_eq!(
+            pricing.cache_write_1h_multiplier,
+            Some(1.8),
+            "bug: a 1-hour rate the override names must win"
+        );
+        let unlisted = payload(r#"{"input_per_million": 1.0, "output_per_million": 1.0}"#)
+            .into_pricing("nobody", "no-model");
+        assert_eq!(
+            unlisted.cache_write_1h_multiplier, None,
+            "bug: a row the table does not hold gets no 1-hour rate"
+        );
     }
 
     #[test]

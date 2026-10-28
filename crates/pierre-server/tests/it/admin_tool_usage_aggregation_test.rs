@@ -93,6 +93,7 @@ async fn record_call(
             total_tokens: 0,
             cached_tokens: 0,
             cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
             reasoning_tokens: 0,
             call_type: "chat",
             tool_calls_count: i64::try_from(tools.len()).unwrap(),

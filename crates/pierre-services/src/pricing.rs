@@ -157,6 +157,7 @@ pub fn cost_for_record(record: &LlmUsageRecord) -> f64 {
         &record.model,
         &TokenCounts::new(record.prompt_tokens, record.completion_tokens)
             .with_cache(record.cached_tokens, record.cached_write_tokens)
+            .with_cache_write_1h(record.cached_write_1h_tokens)
             .with_reasoning(record.reasoning_tokens),
     )
 }
@@ -172,6 +173,7 @@ pub fn cost_for_aggregate(row: &LlmUsageAggregateRow) -> f64 {
         &row.model,
         &TokenCounts::new(row.prompt_tokens, row.completion_tokens)
             .with_cache(row.cached_tokens, row.cached_write_tokens)
+            .with_cache_write_1h(row.cached_write_1h_tokens)
             .with_reasoning(row.reasoning_tokens),
     )
 }

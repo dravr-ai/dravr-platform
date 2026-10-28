@@ -4,6 +4,7 @@
 import React from 'react';
 import { View, Text } from 'react-native';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
+import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
 import type {
   PlanDay,
   PlanPhase,
@@ -22,6 +23,15 @@ interface WorkoutPlanCardProps {
 
 /** A figure inside a sentence: dates, durations, counts, set in the mono face so columns of them line up. */
 const FIGURE = 'font-mono tabular-nums';
+
+/**
+ * A plan's calendar day with its year — "14 nov. 2026" — for the goal race,
+ * the other races and the season's ends, spelled in the athlete's language
+ * so it reads as a date rather than as the wire's ISO data.
+ */
+function planDate(date: string, language: string): string {
+  return formatCivilDate(date, language, { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 /**
  * A figure inside a sentence — a date, a duration, a count — set in the mono
@@ -129,7 +139,7 @@ function PhaseSegment({ phase }: { phase: PlanPhase }) {
  * compact row, then the current phase's rhythm.
  */
 function Season({ plan }: { plan: WorkoutPlan }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { flavour, phases } = plan;
   const current = phases.find((phase) => phase.current);
   if (!flavour && phases.length === 0) {
@@ -154,9 +164,9 @@ function Season({ plan }: { plan: WorkoutPlan }) {
             {plan.season_start && plan.season_end ? (
               <Text>
                 {'  '}
-                <Figure>{plan.season_start}</Figure>
+                <Figure>{planDate(plan.season_start, language)}</Figure>
                 {' → '}
-                <Figure>{plan.season_end}</Figure>
+                <Figure>{planDate(plan.season_end, language)}</Figure>
               </Text>
             ) : null}
           </Text>
@@ -180,11 +190,13 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * selected and next-week days with this same row, so a day reads alike there.
  */
 export function DayRow({ day }: { day: PlanDay }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const steps = day.steps ?? [];
   return (
     <View className="flex-row mt-2" testID={`workout-plan-day-${day.date}`}>
-      <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>{day.date}</Text>
+      <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>
+        {formatCivilDate(day.date, language, ROW_DATE)}
+      </Text>
       <View className="flex-1">
         {day.rest ? (
           <Text className="text-sm text-text-secondary">{t('chat.restDay')}</Text>
@@ -193,7 +205,7 @@ export function DayRow({ day }: { day: PlanDay }) {
             <Text className="font-semibold">{day.workout}</Text>
             <Text className="text-text-secondary">
               {' · '}
-              {day.sport}
+              {sportLabel(t, day.sport)}
               {day.duration_min !== undefined ? (
                 <Text>
                   {' · '}
@@ -255,7 +267,8 @@ export function WeekHeading({
   index: number;
   currentIndex: number;
 }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const monday = civilDayMonth(week.week_start, language);
   const named = week.current
     ? t('plan.card.thisWeek')
     : currentIndex >= 0 && index === currentIndex + 1
@@ -264,12 +277,12 @@ export function WeekHeading({
   return (
     <Text className="text-sm">
       <Text className="font-semibold text-text-secondary">
-        {named ?? <Sentence text={t('plan.card.weekOf', { date: week.week_start })} figure={week.week_start} />}
+        {named ?? <Sentence text={t('plan.card.weekOf', { date: monday })} figure={monday} />}
       </Text>
       {named ? (
         <Text className="text-text-tertiary">
           {' '}
-          <Figure>{week.week_start}</Figure>
+          <Figure>{monday}</Figure>
         </Text>
       ) : null}
       {week.focus ? <Text className="text-text-secondary"> {week.focus}</Text> : null}
@@ -283,7 +296,7 @@ export function WeekHeading({
  * by spacing alone.
  */
 export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const currentIndex = plan.weeks.findIndex((week) => week.current);
 
   return (
@@ -294,7 +307,7 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
           {t('plan.card.goalRace')}{' '}
           <Text className="font-semibold text-text-primary">{plan.goal_race.name}</Text>
           {' · '}
-          <Figure>{plan.goal_race.date}</Figure>
+          <Figure>{planDate(plan.goal_race.date, language)}</Figure>
         </Text>
       </View>
 
@@ -304,7 +317,7 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
           {plan.races.map((race, index) => (
             <Text key={`${race.name}-${race.date}`}>
               {index > 0 ? '  ·  ' : ''}
-              {race.name} <Figure>{race.date}</Figure> ({race.priority})
+              {race.name} <Figure>{planDate(race.date, language)}</Figure> ({race.priority})
             </Text>
           ))}
         </Text>

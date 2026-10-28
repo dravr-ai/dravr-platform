@@ -93,6 +93,7 @@ fn session(distance_km: Option<f64>, duration_min: f64) -> RecordedActivity {
         distance_km,
         duration_min,
         elevation_m: None,
+        average_hr_bpm: None,
     }
 }
 

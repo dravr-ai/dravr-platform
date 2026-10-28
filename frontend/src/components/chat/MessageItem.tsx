@@ -19,6 +19,7 @@ import {
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import {
   copyableText,
+  correctionAuthorLabel,
   countActivities,
   formatDecimal,
   isModelReply,
@@ -28,7 +29,12 @@ import {
   transcriptBlocks,
   withVerdictRows,
 } from '@pierre/chat-utils';
-import { EVIDENCE_STRENGTH_LABEL_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
+import {
+  EVIDENCE_STRENGTH_LABEL_KEY,
+  VERDICT_SPOKEN_SEPARATOR,
+  VERDICT_STATUS_LABEL_KEY,
+  verdictChipLabel,
+} from '@pierre/shared-constants';
 import { linkifyUrls } from './utils';
 import { SceneView } from './SceneView';
 import CoachAvatar from './CoachAvatar';
@@ -45,6 +51,8 @@ interface MessageItemProps {
    */
   conversationId?: string | null;
   message: Message;
+  /** The group's human coach, named over a correction they posted (carnet#1191). */
+  coachName?: string | null;
   metadata?: MessageMetadata;
   feedback?: MessageFeedback;
   isError?: boolean;
@@ -177,6 +185,7 @@ const ACTION_BUTTON = 'p-0.5 text-outline transition-colors hover:text-on-surfac
 const MessageItem = memo(function MessageItem({
   conversationId = null,
   message,
+  coachName = null,
   metadata,
   feedback,
   isError = false,
@@ -339,17 +348,28 @@ const MessageItem = memo(function MessageItem({
             <button
               type="button"
               data-testid="verdict-chip"
+              // A screen reader names the chip's middle dot or swallows it, so
+              // the spoken label joins the counts with a pause instead.
+              aria-label={t('app.claimVerdictsStatus', {
+                status: verdictChipLabel(t, summary, VERDICT_SPOKEN_SEPARATOR),
+              })}
               onClick={onShowVerdict ? () => onShowVerdict(messageVerdicts, message.id) : undefined}
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors focus-ring ${chipClassForTone(summary.tone)}`}
-              title={t('app.claimVerdictSummary', {
-                count: summary.count,
-                status: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
-                strength: t(
-                  summary.worstStrength === null
-                    ? VERDICT_STATUS_LABEL_KEY[summary.worstStatus]
-                    : EVIDENCE_STRENGTH_LABEL_KEY[summary.worstStrength],
-                ),
-              })}
+              title={
+                // The tooltip names the status the chip leads with — a
+                // supported reply's is « supported », never the « worst » —
+                // and the evidence behind it only when the rows carry one.
+                summary.worstStrength === null
+                  ? t('app.claimVerdictSummaryStatusOnly', {
+                      count: summary.count,
+                      status: t(VERDICT_STATUS_LABEL_KEY[summary.headlineStatus]),
+                    })
+                  : t('app.claimVerdictSummary', {
+                      count: summary.count,
+                      status: t(VERDICT_STATUS_LABEL_KEY[summary.headlineStatus]),
+                      strength: t(EVIDENCE_STRENGTH_LABEL_KEY[summary.worstStrength]),
+                    })
+              }
             >
               {verdictToneAlerts(summary.tone) ? (
                 <ShieldAlert className="h-3 w-3" aria-hidden="true" />
@@ -419,9 +439,7 @@ const MessageItem = memo(function MessageItem({
   // coach's words from the room's side, never the athlete's own bubble and
   // never a rateable reply, under the opening of the reply it corrects.
   if (room?.speaker === 'correction' && !room.withheld) {
-    const label = room.own
-      ? t('chat.roomCorrectionOwn')
-      : t('chat.roomCorrectionTo', { name: peerName });
+    const label = correctionAuthorLabel(t, { own: room.own, memberName: peerName, coachName });
     return (
       <MessageBubble side="assistant" authorLabel={label} timestamp={timestamp} groupStart={groupStart}>
         {room.corrects && (

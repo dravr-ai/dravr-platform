@@ -520,6 +520,7 @@ fn llm_call<'a>(
         total_tokens: 140,
         cached_tokens: 10,
         cached_write_tokens: 5,
+        cached_write_1h_tokens: 0,
         reasoning_tokens: 2,
         call_type: "chat",
         tool_calls_count: 1,

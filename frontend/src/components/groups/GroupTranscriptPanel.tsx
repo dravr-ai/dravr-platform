@@ -7,10 +7,12 @@
 import { MessageCircle } from 'lucide-react';
 import { useGroupTranscript } from '../../hooks/useGroups';
 import { useTranslation } from '@pierre/i18n';
-import { formatDateTime } from '@pierre/chat-utils';
+import { correctionAuthorLabel, formatDateTime } from '@pierre/chat-utils';
 
 interface GroupTranscriptPanelProps {
   groupId: string;
+  /** The group's human coach, named over each correction they posted. */
+  coachName?: string | null;
 }
 
 /**
@@ -23,7 +25,7 @@ interface GroupTranscriptPanelProps {
  * quieter than it was. A messaging turn, a web turn and ambient room chatter
  * all land in this one transcript.
  */
-export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelProps) {
+export default function GroupTranscriptPanel({ groupId, coachName = null }: GroupTranscriptPanelProps) {
   const { t, language } = useTranslation();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
@@ -74,7 +76,11 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
                   {/* A coach's correction is the coach speaking, about the
                       member the reply it corrects answered (carnet#847). */}
                   {entry.speaker === 'correction'
-                    ? t('chat.roomCorrectionTo', { name: entry.author_display_name ?? entry.author_user_id ?? '' })
+                    ? correctionAuthorLabel(t, {
+                        own: false,
+                        memberName: entry.author_display_name ?? entry.author_user_id ?? '',
+                        coachName,
+                      })
                     : entry.author_display_name ?? entry.author_user_id}
                   {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}
                 </span>

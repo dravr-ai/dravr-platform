@@ -108,7 +108,7 @@ describe('NotificationPreferencesScreen', () => {
     await waitFor(() => expect(screen.getByTestId('notification-pref-training')).toBeTruthy());
     expect(screen.getByTestId('notification-pref-coach')).toBeTruthy();
     expect(screen.getByText('Training')).toBeTruthy();
-    expect(screen.getByText('Agent')).toBeTruthy();
+    expect(screen.getByText('Coaching')).toBeTruthy();
     expect(screen.getByTestId('notification-pref-switch-training').props.value).toBe(true);
     expect(screen.getByTestId('notification-pref-switch-coach').props.value).toBe(false);
   });

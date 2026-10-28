@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { GroupTranscriptResponse } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
@@ -17,11 +17,11 @@ vi.mock('../../../services/api', () => ({
   groupsApi: { getTranscript: (...a: unknown[]) => getTranscript(...a) },
 }));
 
-function renderPanel() {
+function renderPanel(coachName: string | null = null) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <GroupTranscriptPanel groupId="group-1" />
+      <GroupTranscriptPanel groupId="group-1" coachName={coachName} />
     </QueryClientProvider>,
   );
 }
@@ -154,6 +154,12 @@ describe('GroupTranscriptPanel', () => {
     expect(await screen.findByText('Bob, that was a half marathon.')).toBeInTheDocument();
     expect(screen.getByText("Human coach's correction for Bob")).toBeInTheDocument();
     expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+
+    // The group names its coach, and the correction then says who wrote it
+    // (carnet#1191).
+    cleanup();
+    renderPanel('Camille');
+    expect(await screen.findByText('Correction from Camille for Bob')).toBeInTheDocument();
   });
 });
 

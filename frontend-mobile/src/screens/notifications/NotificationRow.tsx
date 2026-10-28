@@ -38,7 +38,7 @@ export function NotificationRow({ item, onPress, onLongPress }: NotificationRowP
   // The word is text, not the web panel's 8px dot, so it takes the hue for
   // the athlete's own scheme.
   const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][item.category];
-  const collapsedLabel = formatCollapsedCount(item.collapsed_count);
+  const collapsedLabel = formatCollapsedCount(item.collapsed_count, t);
 
   return (
     <Pressable

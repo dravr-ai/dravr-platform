@@ -47,4 +47,19 @@ describe('a coach\'s correction in a group thread', () => {
     expect(screen.getByText("Human coach's correction for Alex")).toBeInTheDocument();
     expect(screen.getByTestId('room-entry-correction')).toHaveTextContent('Your May race was a half marathon.');
   });
+
+  // The bubble did not say which coach wrote it (carnet#1191): the group names
+  // its coach, and the bubble names them on both sides of the room.
+  it('names the coach who wrote it on the athlete\'s own thread', () => {
+    render(<MessageItem message={correction(true)} coachName="Camille" />);
+
+    expect(screen.getByText('Correction from Camille, your human coach')).toBeInTheDocument();
+    expect(screen.queryByText("Your human coach's correction")).not.toBeInTheDocument();
+  });
+
+  it('names the coach and the athlete it concerns on another member\'s thread', () => {
+    render(<MessageItem message={correction(false)} coachName="Camille" />);
+
+    expect(screen.getByText('Correction from Camille for Alex')).toBeInTheDocument();
+  });
 });

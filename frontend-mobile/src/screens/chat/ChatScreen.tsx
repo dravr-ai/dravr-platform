@@ -36,6 +36,7 @@ import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
 import { useProviderConnected } from '../../hooks/useHome';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
+import { useGroup } from '../../hooks/useGroups';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -163,6 +164,10 @@ export function ChatScreen() {
   // way back to the foreground. Skipped mid-send, as the focus read is.
   const openConversationId = conversations.currentConversation?.id;
   const openGroupId = conversations.currentConversation?.group_id;
+  // The group's human coach signs a correction in its thread (carnet#1191):
+  // the room entry is attributed to the athlete it concerns, so the coach's
+  // name comes from the group.
+  const { group: openGroup } = useGroup(openGroupId ?? '');
   const { isSending, loadMessages } = messagesHook;
   useEffect(() => {
     if (!isAuthenticated || !openConversationId) return undefined;
@@ -453,6 +458,7 @@ export function ChatScreen() {
           sendText={sendText}
           composerOrigin={draftSeeded ? 'draft' : undefined}
           starters={starters}
+          coachName={openGroup?.coach_display_name ?? null}
         />
 
         <PromptDialog

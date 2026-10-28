@@ -10,7 +10,8 @@ import { AlertTriangle, Flag, PenLine } from 'lucide-react';
 import clsx from 'clsx';
 import type { ClaimVerdict, CoachReply, ReplyFlagReason } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
-import { VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
+import { countKey, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
+import type { CountKeys } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
@@ -34,6 +35,10 @@ const REASON_LABEL_KEY: Record<ReplyFlagReason, string> = {
   off_tone: 'coachReview.reasonOffTone',
 };
 const REASONS = Object.keys(REASON_LABEL_KEY) as ReplyFlagReason[];
+
+/** This week's flag and correction counts, singular and plural. */
+const WEEK_FLAGGED_KEYS: CountKeys = { one: 'coachReview.weekFlaggedOne', many: 'coachReview.weekFlaggedN' };
+const WEEK_CORRECTED_KEYS: CountKeys = { one: 'coachReview.weekCorrectedOne', many: 'coachReview.weekCorrectedN' };
 
 /** A verdict chip's tone: how alarming its status is. */
 function chipTone(status: ClaimVerdict['status']): string {
@@ -234,7 +239,7 @@ function ReplyCard({ reply }: ReplyCardProps) {
  * the "corrections needed" figure the cohort report prints.
  */
 export default function CoachReplies() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [athleteId, setAthleteId] = useState<string | null>(null);
 
   const pages = useInfiniteQuery({
@@ -256,8 +261,18 @@ export default function CoachReplies() {
   const first = pages.data?.pages[0];
   const replies = useMemo(() => pages.data?.pages.flatMap((page) => page.replies) ?? [], [pages.data]);
   const thisWeek = weekly.data?.weeks.at(-1);
+  // Each count agrees with its own number: the summary sentence holds two
+  // counts, and no single plural form fits both, so each is its own phrase
+  // (carnet#1191). One and many are catalogue keys, and countKey picks
+  // between them per language — French reads « 0 signalée » — since the
+  // phone's engine has no plural rules to choose between them.
   const description = thisWeek
-    ? t('coachReview.weekCount', { flags: thisWeek.flags, corrections: thisWeek.corrections })
+    ? t('coachReview.weekSummary', {
+        flagged: t(countKey(thisWeek.flags, i18n.language, WEEK_FLAGGED_KEYS), { count: thisWeek.flags }),
+        corrected: t(countKey(thisWeek.corrections, i18n.language, WEEK_CORRECTED_KEYS), {
+          count: thisWeek.corrections,
+        }),
+      })
     : undefined;
 
   const filter = first && first.athletes.length > 0 && (

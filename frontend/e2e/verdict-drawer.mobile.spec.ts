@@ -104,7 +104,7 @@ async function setupMocks(page: Page) {
 async function openDrawer(page: Page): Promise<Locator> {
   await openPersonalConversation(page, CONVERSATION_TITLE);
   await expect(page.getByText('Comment était ma sortie ?')).toBeVisible({ timeout: 10000 });
-  await page.getByRole('button', { name: /1 verdict · supported/ }).tap();
+  await page.getByRole('button', { name: /1 supported/ }).tap();
   const drawer = page.getByTestId('verdict-drawer');
   await expect(drawer).toBeVisible();
   return drawer;

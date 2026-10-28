@@ -31,7 +31,24 @@ function verdict(id: string, overrides: Partial<ClaimVerdict> = {}): ClaimVerdic
 }
 
 describe('VerdictDrawer subline', () => {
-  it('says the count alone when a reply drew several verdicts', () => {
+  it('repeats the chip rollup when a reply drew several verdicts', () => {
+    render(
+      <VerdictDrawer
+        verdicts={[
+          verdict('v1'),
+          verdict('v2'),
+          verdict('v3', { status: 'unverifiable', evidence_strength: 'none' }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // The drawer a chip opens says what the chip said: the supported count
+    // first, the abstention after it, never one word for the whole reply.
+    expect(screen.getByText('2 supported · 1 unverifiable')).toBeInTheDocument();
+  });
+
+  it('leads with a finding when one of the verdicts is contradicted', () => {
     render(
       <VerdictDrawer
         verdicts={[verdict('v1'), verdict('v2', { status: 'contradicted' })]}
@@ -39,19 +56,13 @@ describe('VerdictDrawer subline', () => {
       />,
     );
 
-    // The chip's string is "{{count}} verdicts · {{qualifier}}", and the
-    // drawer used to pass an empty qualifier and strip the dangling separator
-    // with a regex — which only ever knew the separator English and French
-    // happen to use. The subline has its own key now.
-    const subline = screen.getByText(/2 verdicts/);
-    expect(subline.textContent).toBe('2 verdicts');
-    expect(subline.textContent).not.toMatch(/·/);
+    expect(screen.getByText('1 contradicted · 1 supported')).toBeInTheDocument();
   });
 
-  it('keeps the status qualifier when there is exactly one', () => {
+  it('names the one status when there is exactly one', () => {
     render(<VerdictDrawer verdicts={[verdict('v1')]} onClose={vi.fn()} />);
 
-    expect(screen.getByText('1 verdict · supported')).toBeInTheDocument();
+    expect(screen.getByText('1 supported')).toBeInTheDocument();
   });
 
   it('says it is still reading while the rows are in flight', () => {
@@ -60,6 +71,15 @@ describe('VerdictDrawer subline', () => {
     // The subline and the empty body both say it — the header while the count
     // is unknown, the body where the cards will land.
     expect(screen.getAllByText('Loading verdicts…')).toHaveLength(2);
+  });
+
+  it('says there are none once an empty set has loaded, never a blank line', () => {
+    render(<VerdictDrawer verdicts={[]} onClose={vi.fn()} />);
+
+    // A reply whose rows came back empty still reads as a finished answer:
+    // the subline names the absence rather than collapsing to ''.
+    expect(screen.getByText('No verdicts')).toBeInTheDocument();
+    expect(screen.queryByText('Loading verdicts…')).not.toBeInTheDocument();
   });
 });
 

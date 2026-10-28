@@ -37,6 +37,7 @@ fn run(date: NaiveDate, km: f64) -> RecordedActivity {
         distance_km: Some(km),
         duration_min: km * 6.0,
         elevation_m: None,
+        average_hr_bpm: None,
     }
 }
 
@@ -53,6 +54,7 @@ fn ride(date: NaiveDate, km: f64) -> RecordedActivity {
         distance_km: Some(km),
         duration_min: km * 2.5,
         elevation_m: None,
+        average_hr_bpm: None,
     }
 }
 

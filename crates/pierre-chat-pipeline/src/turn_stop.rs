@@ -451,6 +451,7 @@ async fn consumed_usage(scope: &StopScope<'_>) -> Option<TokenUsage> {
             Some(sum(|call| call.cached_tokens)),
             Some(sum(|call| call.cached_write_tokens)),
         )
+        .with_cache_write_1h(Some(sum(|call| call.cached_write_1h_tokens)))
         .with_reasoning(Some(sum(|call| call.reasoning_tokens))),
     )
 }

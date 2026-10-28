@@ -85,6 +85,11 @@ pub struct LlmCallRecord {
     /// these into the fresh-prompt count understates the bill. Zero when
     /// the provider does not break cache writes out.
     pub cached_write_tokens: i64,
+    /// The part of `cached_write_tokens` written to a 1-hour cache entry
+    /// (Anthropic `usage.cache_creation.ephemeral_1h_input_tokens`), billed
+    /// at 2x input rather than the 5-minute 1.25x. Zero when the provider
+    /// reports no TTL split.
+    pub cached_write_1h_tokens: i64,
     /// Reasoning / "thought" tokens reported apart from the completion
     /// count. Billed at the output rate. Zero when the provider does not
     /// report them separately.
@@ -224,6 +229,9 @@ pub fn emit_call_record_with_text(
     let cached_write_tokens = usage
         .and_then(|u| u.cached_write_tokens)
         .map_or(0, i64::from);
+    let cached_write_1h_tokens = usage
+        .and_then(|u| u.cached_write_1h_tokens)
+        .map_or(0, i64::from);
     let reasoning_tokens = usage.and_then(|u| u.reasoning_tokens).map_or(0, i64::from);
     recorder.record(LlmCallRecord {
         provider: provider.to_owned(),
@@ -232,6 +240,7 @@ pub fn emit_call_record_with_text(
         completion_tokens,
         cached_tokens,
         cached_write_tokens,
+        cached_write_1h_tokens,
         reasoning_tokens,
         latency_ms,
         success,

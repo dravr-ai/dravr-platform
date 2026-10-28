@@ -28,11 +28,12 @@
 use embacle::pool::PooledTier;
 use embacle::types::{ChatMessage, ChatRequest, LlmProvider as EmbacleLlmProvider};
 use embacle::{
-    AnthropicConfig, AnthropicProvider, CohereConfig, CohereProvider, FunctionDeclaration,
-    GeminiConfig, GeminiProvider, GroqConfig, GroqProvider, OpenAiCompatibleConfig,
-    OpenAiCompatibleProvider, OpenRouterConfig, OpenRouterProvider,
+    AnthropicCacheTtl, AnthropicConfig, AnthropicProvider, CohereConfig, CohereProvider,
+    FunctionDeclaration, GeminiConfig, GeminiProvider, GroqConfig, GroqProvider,
+    OpenAiCompatibleConfig, OpenAiCompatibleProvider, OpenRouterConfig, OpenRouterProvider,
 };
 use pierre_core::http_client::llm_inner_client;
+use std::env;
 use tracing::{debug, info};
 
 use crate::config::{ChainEntry, HttpProvider, LlmModelConfig};
@@ -115,11 +116,32 @@ pub(crate) fn anthropic_pooled_accounts(entry: &ChainEntry) -> Vec<EmbacleProvid
         .collect()
 }
 
-/// `config` on `model_override`, when the chain entry names one.
+/// `config` on `model_override`, when the chain entry names one, with the
+/// platform's prefix cache lifetime.
+///
+/// The tools and system breakpoints live one hour unless
+/// `ANTHROPIC_PREFIX_CACHE_TTL` says otherwise (carnet#1190): a coaching
+/// conversation's turns land more than five minutes apart, so under embacle's
+/// 5-minute default every turn rewrote its whole prefix. A 1-hour write costs
+/// 2x input against 1.25x and is priced at that rate end to end
+/// (`cached_write_1h_tokens`), so turning this on cannot under-report COGS.
 fn anthropic_config(config: AnthropicConfig, model_override: Option<&str>) -> AnthropicConfig {
+    let ttl_is_set = env::var(embacle::ANTHROPIC_PREFIX_CACHE_TTL_ENV)
+        .is_ok_and(|value| !value.trim().is_empty());
+    let config = with_platform_prefix_ttl(config, ttl_is_set);
     match model_override {
         Some(model) => config.with_model(model),
         None => config,
+    }
+}
+
+/// One hour for the cached prefix, unless the environment named a TTL —
+/// then `config` already carries the one it named.
+const fn with_platform_prefix_ttl(config: AnthropicConfig, ttl_is_set: bool) -> AnthropicConfig {
+    if ttl_is_set {
+        config
+    } else {
+        config.with_prefix_cache_ttl(AnthropicCacheTtl::OneHour)
     }
 }
 
@@ -382,12 +404,12 @@ fn local_display_name(provider_name: &str) -> &'static str {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use embacle::{AnthropicConfig, FunctionDeclaration};
+    use embacle::{AnthropicCacheTtl, AnthropicConfig, FunctionDeclaration};
     use serde_json::json;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
 
-    use super::count_tool_tokens;
+    use super::{count_tool_tokens, with_platform_prefix_ttl};
 
     /// What the endpoint counts for a request that carries a `tools` block
     const WITH_TOOLS: u32 = 1_830;
@@ -537,6 +559,24 @@ mod tests {
         assert!(
             !seen.lock().expect("read the requests").is_empty(),
             "the refusal must come from the endpoint, not from building the request"
+        );
+    }
+
+    #[test]
+    fn the_prefix_lives_an_hour_unless_the_environment_names_a_ttl() {
+        let unset = with_platform_prefix_ttl(AnthropicConfig::new("k"), false);
+        assert_eq!(
+            unset.prefix_cache_ttl,
+            AnthropicCacheTtl::OneHour,
+            "bug: with no TTL named the prefix must live an hour"
+        );
+
+        let named = AnthropicConfig::new("k").with_prefix_cache_ttl(AnthropicCacheTtl::FiveMinutes);
+        let kept = with_platform_prefix_ttl(named, true);
+        assert_eq!(
+            kept.prefix_cache_ttl,
+            AnthropicCacheTtl::FiveMinutes,
+            "bug: a TTL the environment names must win over the platform default"
         );
     }
 }

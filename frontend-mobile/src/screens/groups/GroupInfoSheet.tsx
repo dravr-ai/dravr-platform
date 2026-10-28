@@ -788,7 +788,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         )}
 
         <CollapsibleSection title={t('app.room')} testID="group-info-room">
-          <GroupTranscriptSection groupId={groupId} />
+          <GroupTranscriptSection groupId={groupId} coachName={group?.coach_display_name ?? null} />
         </CollapsibleSection>
       </View>
 

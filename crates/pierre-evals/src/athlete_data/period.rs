@@ -446,6 +446,7 @@ mod tests {
             distance_km: Some(km),
             duration_min: minutes,
             elevation_m: None,
+            average_hr_bpm: None,
         }
     }
 

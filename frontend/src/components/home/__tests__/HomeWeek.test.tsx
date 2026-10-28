@@ -194,7 +194,7 @@ describe('HomeWeek — this week', () => {
 
     const next = screen.getByTestId('home-next-week');
     expect(within(next).getByText('Next week')).toBeInTheDocument();
-    expect(within(next).getByText('2026-09-28')).toBeInTheDocument();
+    expect(within(next).getByText('September 28')).toBeInTheDocument();
     expect(within(next).getByText('absorb the block')).toBeInTheDocument();
   });
 

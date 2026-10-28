@@ -118,6 +118,10 @@ impl LoopSpend {
             accumulate_optional(self.usage.cached_read_tokens, usage.cached_read_tokens);
         self.usage.cached_write_tokens =
             accumulate_optional(self.usage.cached_write_tokens, usage.cached_write_tokens);
+        self.usage.cached_write_1h_tokens = accumulate_optional(
+            self.usage.cached_write_1h_tokens,
+            usage.cached_write_1h_tokens,
+        );
         self.usage.reasoning_tokens =
             accumulate_optional(self.usage.reasoning_tokens, usage.reasoning_tokens);
     }

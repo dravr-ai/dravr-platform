@@ -9,11 +9,13 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { useThemeColors } from '../../constants/theme';
 import { useGroupTranscript } from '../../hooks/useGroups';
 import { useTranslation } from '@pierre/i18n';
-import { formatDate } from '@pierre/chat-utils';
+import { correctionAuthorLabel, formatDate } from '@pierre/chat-utils';
 
 interface GroupTranscriptSectionProps {
   /** The group whose room to read. */
   groupId: string;
+  /** The group's human coach, named over each correction they posted. */
+  coachName?: string | null;
 }
 
 /**
@@ -29,7 +31,7 @@ interface GroupTranscriptSectionProps {
  * word made sense as a card's own label but is redundant once flattened, so
  * it is dropped here rather than carried into a plain view.
  */
-export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps) {
+export function GroupTranscriptSection({ groupId, coachName = null }: GroupTranscriptSectionProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
@@ -77,7 +79,11 @@ export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps)
                   {/* A coach's correction is the coach speaking, about the
                       member the reply it corrects answered (carnet#847). */}
                   {entry.speaker === 'correction'
-                    ? t('chat.roomCorrectionTo', { name: entry.author_display_name ?? entry.author_user_id ?? '' })
+                    ? correctionAuthorLabel(t, {
+                        own: false,
+                        memberName: entry.author_display_name ?? entry.author_user_id ?? '',
+                        coachName,
+                      })
                     : entry.author_display_name ?? entry.author_user_id}
                   {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}
                 </Text>

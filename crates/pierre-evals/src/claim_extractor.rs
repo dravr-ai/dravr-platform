@@ -18,6 +18,13 @@ use std::fmt;
 use pierre_memory::ClaimCategory;
 use serde::{Deserialize, Serialize};
 
+mod cues;
+
+use cues::{
+    CURRENT_PERIOD, FORWARD_MARKERS, GERMAN_PARTICIPLES, HELD_REACH, OWN_RECORD_CUES, PHYSIOLOGY,
+    PRESCRIPTION_MARKERS, RECORD_VERBS, SESSION_MEASURES, TOMORROW_HOMOGRAPHS,
+};
+
 /// Where a claim's text came from.
 ///
 /// Downstream presentation keys off this: a [`ClaimSource::Reply`] claim is a
@@ -329,91 +336,30 @@ fn tokens_of(text: &str) -> Vec<&str> {
 #[must_use]
 pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
     let lower = sentence.to_lowercase();
+
+    // A figure stated about one of the athlete's own sessions belongs to their
+    // record, whatever subject words it also carries. Scored instead, "Ta
+    // dernière séance, samedi : 6,7 km … ta FC est restée à 133" tied "fc"
+    // against "séance", Physiological won the tie by bucket order, and the
+    // judge — which rules only on sports-science consensus — returned
+    // « invérifiable » on a reply the synced record supports (carnet#1188).
+    // The same guards as the bucket below keep a plan, a question or a
+    // supposition out of the record, and a physiology figure in a clause of
+    // its own keeps its scored category.
+    if lower.chars().any(|c| c.is_ascii_digit())
+        && refers_to_own_record(&lower)
+        && !is_prescriptive(&lower)
+        && !is_question(sentence)
+        && !opens_with_condition(&lower)
+        && !physiology_in_another_clause(&lower)
+    {
+        return Some(ClaimCategory::AthleteData);
+    }
+
     let mut best: Option<(ClaimCategory, usize)> = None;
 
     let buckets: [(ClaimCategory, &[&str]); 7] = [
-        (
-            ClaimCategory::Physiological,
-            &[
-                "vo2max",
-                "vo2 max",
-                "heart rate",
-                "hr max",
-                "hrmax",
-                "lactate",
-                "threshold",
-                "substrate",
-                "zone",
-                "ftp",
-                // Critical-power family in the five shipped locales. The
-                // prime symbols are left out: tokenized, "W′" is the bare
-                // "w" every wattage carries.
-                "critical power",
-                "critical speed",
-                "w prime",
-                "d prime",
-                "puissance critique",
-                "vitesse critique",
-                "potencia crítica",
-                "velocidad crítica",
-                "kritische leistung",
-                "kritische geschwindigkeit",
-                "potência crítica",
-                "velocidade crítica",
-                // French
-                "fc",
-                "fc moy",
-                "fc max",
-                "fréquence cardiaque",
-                "frequence cardiaque",
-                "bpm",
-                "seuil",
-                // Resting heart rate, which the personalized layer checks
-                // against the athlete's synced mornings (carnet#853). "Heart
-                // rate" and "fc" already catch it in English and French.
-                "resting hr",
-                "fc en reposo",
-                "frecuencia cardíaca en reposo",
-                "ruhepuls",
-                "ruheherzfrequenz",
-                "fc em repouso",
-                "frequência cardíaca em repouso",
-                // Form, which the personalized layer checks as a share of the
-                // athlete's own fitness and a band (carnet#850): the labels and
-                // possessives a reply puts on it, the fitness it is a share of,
-                // and the band only a form claim names.
-                "tsb",
-                "training stress balance",
-                "ctl",
-                "current form",
-                "your form",
-                "of your fitness",
-                "deep fatigue",
-                "forme actuelle",
-                "ta forme",
-                "votre forme",
-                "indice de forme",
-                "indice de fatigue",
-                "condition physique",
-                "fatigue profonde",
-                "forma actual",
-                "tu forma",
-                "su forma",
-                "condición física",
-                "fatiga profunda",
-                "aktuelle form",
-                "deine form",
-                "ihre form",
-                "deiner fitness",
-                "formwert",
-                "tiefe ermüdung",
-                "forma atual",
-                "tua forma",
-                "sua forma",
-                "condição física",
-                "fadiga profunda",
-            ],
-        ),
+        (ClaimCategory::Physiological, PHYSIOLOGY),
         (
             ClaimCategory::TrainingPrescription,
             &[
@@ -630,44 +576,132 @@ pub fn classify_heuristic(sentence: &str) -> Option<ClaimCategory> {
 /// `"shoulder"` and `"target"` inside `"targeted"`, silently reclassifying
 /// ordinary sentences about a sore shoulder.
 ///
-/// "This week" and "cette semaine" point both ways: "this week, aim for 40 km"
-/// plans it, "you ran 42 km this week" reports it. They mark a prescription
-/// only when no verb [`record_verb_hits`] reads reports past training — otherwise the
-/// weekly total, the figure a coach writes most often, never reached the
-/// athlete-data layer that adds the week up (carnet#846).
+/// Three kinds of marker, in the five shipped locales:
+///
+/// - a [`PRESCRIPTION_MARKERS`] modal, imperative or future day prescribes
+///   whatever else the sentence says;
+/// - a [`FORWARD_MARKERS`] word ("before", « prochaine », "antes de") looks
+///   ahead unless the sentence reports — see [`looks_ahead`];
+/// - "this week" and « cette semaine » point both ways: "this week, aim for
+///   40 km" plans it, "you ran 42 km this week" reports it. They mark a
+///   prescription only when nothing reports past training — otherwise the
+///   weekly total, the figure a coach writes most often, never reached the
+///   athlete-data layer that adds the week up (carnet#846).
 fn is_prescriptive(lower: &str) -> bool {
-    const CURRENT_PERIOD: [&str; 2] = ["this week", "cette semaine"];
-    const MARKERS: [&str; 24] = [
-        // Modal / intent
-        "aim for",
-        "let's",
-        "lets",
-        "we'll",
-        "you'll",
-        "should",
-        "try to",
-        "plan to",
-        "target",
-        "recommend",
-        "suggest",
-        "go for",
-        "start with",
-        "focus on",
-        // Future time
-        "tomorrow",
-        "next week",
-        // French
-        "vise",
-        "on va",
-        "tu devrais",
-        "la semaine prochaine",
-        "demain",
-        "je te propose",
-        "commence par",
-        "essaie",
-    ];
-    MARKERS.iter().any(|m| keyword_hits(lower, m))
-        || (CURRENT_PERIOD.iter().any(|m| keyword_hits(lower, m)) && record_verb_hits(lower) == 0)
+    PRESCRIPTION_MARKERS
+        .iter()
+        .any(|(_, markers)| markers.iter().any(|m| prescribes(lower, m)))
+        || looks_ahead(lower)
+        || (names_current_period(lower) && !reports(lower))
+}
+
+/// Whether `marker` occurs as a prescription. A [`TOMORROW_HOMOGRAPHS`] form
+/// right after one of its "morning" words is the morning, not tomorrow.
+fn prescribes(lower: &str, marker: &str) -> bool {
+    let Some((_, mornings)) = TOMORROW_HOMOGRAPHS.iter().find(|(form, _)| *form == marker) else {
+        return keyword_hits(lower, marker);
+    };
+    let tokens = tokens_of(lower);
+    tokens.iter().enumerate().any(|(at, token)| {
+        *token == marker
+            && !at
+                .checked_sub(1)
+                .and_then(|i| tokens.get(i))
+                .is_some_and(|before| mornings.contains(before))
+    })
+}
+
+/// Whether the sentence names the current week, in any shipped locale.
+fn names_current_period(lower: &str) -> bool {
+    CURRENT_PERIOD.iter().any(|m| keyword_hits(lower, m))
+}
+
+/// Whether the sentence looks ahead: it carries a [`FORWARD_MARKERS`] word and
+/// nothing in it reports past training. « Ta dernière sortie longue avant le
+/// marathon : 32 km » names a session and plans it.
+fn looks_ahead(lower: &str) -> bool {
+    FORWARD_MARKERS
+        .iter()
+        .any(|(_, markers)| markers.iter().any(|m| keyword_hits(lower, m)))
+        && !reports(lower)
+}
+
+/// Whether something in the sentence is past tense about the athlete: a record
+/// verb, or a possessive value that held over a session.
+fn reports(lower: &str) -> bool {
+    record_verb_hits(lower) > 0 || states_held_value(lower)
+}
+
+/// Whether a sentence points at one of the athlete's own past sessions: a
+/// record verb ("tu es passé", "you ran"), a possessive value that held over a
+/// session ("ta FC est restée"), or a possessive with "last" ("ta dernière
+/// séance") in a sentence that neither looks ahead nor names the current week.
+/// See [`OwnRecordCues`](cues::OwnRecordCues).
+fn refers_to_own_record(lower: &str) -> bool {
+    reports(lower)
+        || (recalls_last_session(lower) && !looks_ahead(lower) && !names_current_period(lower))
+}
+
+/// Whether the sentence names the athlete's last session: "your last ride",
+/// « ta dernière séance », "deine letzte Einheit".
+fn recalls_last_session(lower: &str) -> bool {
+    OWN_RECORD_CUES
+        .iter()
+        .any(|(_, cues)| cues.recency.iter().any(|form| keyword_hits(lower, form)))
+}
+
+/// Whether a value the athlete measured held over a session: a `held` form a
+/// few words after a possessive of the same locale — "ta FC est restée",
+/// "dein Puls blieb", "your average heart rate stayed".
+///
+/// Pairing within one locale, and within [`HELD_REACH`] words, is what keeps a
+/// homograph from routing another language's sentence: Spanish `tu` is the
+/// French subject pronoun, and « tu FC est restée » is no French possessive.
+pub(crate) fn states_held_value(lower: &str) -> bool {
+    let tokens = tokens_of(lower);
+    OWN_RECORD_CUES.iter().any(|(_, cues)| {
+        cues.held.iter().any(|form| {
+            phrase_starts(&tokens, form).any(|at| {
+                tokens
+                    .get(at.saturating_sub(HELD_REACH)..at)
+                    .is_some_and(|before| before.iter().any(|t| cues.possessives.contains(t)))
+            })
+        })
+    })
+}
+
+/// Where the whole-word `phrase` starts in `tokens`.
+fn phrase_starts<'a>(tokens: &'a [&str], phrase: &str) -> impl Iterator<Item = usize> + 'a {
+    let words: Vec<String> = tokens_of(phrase).into_iter().map(str::to_owned).collect();
+    tokens
+        .windows(words.len().max(1))
+        .enumerate()
+        .filter(move |(_, window)| {
+            !words.is_empty() && window.iter().zip(&words).all(|(t, w)| t == w)
+        })
+        .map(|(at, _)| at)
+}
+
+/// Whether one of the sentence's clauses states a physiology figure of its own:
+/// "You ran 10 km; a `VO2max` of 55 is above average for your age".
+///
+/// The record verb in the first clause says nothing about the second, and a
+/// `VO2max` is not a figure of the session. Such a sentence keeps its scored
+/// category, so the physiology claim still reaches the layers that can rule on
+/// it. A clause is split at `;`, at a comma followed by a space (never the
+/// French decimal in « 6,7 km ») and at a dash; a heart rate or a zone is the
+/// session's own measure, so a clause stating one does not count.
+fn physiology_in_another_clause(lower: &str) -> bool {
+    lower
+        .split([';', '—', '–'])
+        .flat_map(|part| part.split(", "))
+        .any(|clause| {
+            clause.chars().any(|c| c.is_ascii_digit())
+                && !refers_to_own_record(clause)
+                && PHYSIOLOGY
+                    .iter()
+                    .any(|kw| !SESSION_MEASURES.contains(kw) && keyword_hits(clause, kw))
+        })
 }
 
 /// Whether a sentence asks rather than states.
@@ -746,85 +780,156 @@ fn record_verb_hits(lower: &str) -> usize {
         + usize::from(german)
 }
 
-/// Second-person past-tense verbs that report the athlete's own training, in
-/// the five shipped locales.
-///
-/// The past tense is what separates a record from a plan: "you ran 42 km"
-/// happened, "run 42 km" has not. That is why Spanish, German and Portuguese
-/// enter the athlete-data bucket through these verbs alone, with no time words:
-/// a time word ("esta semana") is as at home in a plan as in a report, and
-/// those locales carry no prescription markers to tell the two apart.
-///
-/// Every form is second person, so a sentence about another athlete's result
-/// is not read as one about this athlete. German is read separately, through
-/// [`GERMAN_PARTICIPLES`].
-const RECORD_VERBS: &[&str] = &[
-    // English
-    "you ran",
-    "you rode",
-    "you swam",
-    "you covered",
-    "you logged",
-    "you completed",
-    "you clocked",
-    "you averaged",
-    "you've run",
-    "you have run",
-    "you've ridden",
-    "you've covered",
-    "you've logged",
-    // French
-    "tu as couru",
-    "tu as roulé",
-    "tu as roule",
-    "tu as nagé",
-    "tu as nage",
-    "tu as parcouru",
-    "tu as cumulé",
-    "tu as cumule",
-    "tu as bouclé",
-    "tu as boucle",
-    "vous avez couru",
-    "vous avez roulé",
-    "vous avez roule",
-    "vous avez parcouru",
-    // Spanish
-    "corriste",
-    "rodaste",
-    "pedaleaste",
-    "nadaste",
-    "recorriste",
-    "acumulaste",
-    "completaste",
-    "has corrido",
-    "has rodado",
-    "has pedaleado",
-    "has nadado",
-    "has recorrido",
-    "has acumulado",
-    // Portuguese
-    "correste",
-    "pedalaste",
-    "percorreste",
-    "você correu",
-    "voce correu",
-    "você pedalou",
-    "voce pedalou",
-    "você nadou",
-    "voce nadou",
-    "você percorreu",
-    "voce percorreu",
-    "você acumulou",
-    "voce acumulou",
-];
+#[cfg(test)]
+mod tests {
+    use super::{classify_heuristic, FORWARD_MARKERS, OWN_RECORD_CUES, PRESCRIPTION_MARKERS};
+    use pierre_memory::ClaimCategory;
 
-/// German participles that report training, read with `du` by
-/// [`record_verb_hits`].
-const GERMAN_PARTICIPLES: &[&str] = &[
-    "gelaufen",
-    "gefahren",
-    "geradelt",
-    "geschwommen",
-    "zurückgelegt",
-    "absolviert",
-];
+    const LOCALES: [&str; 5] = ["en", "fr", "es", "de", "pt"];
+
+    /// Every own-record cue list exists in the five shipped locales, and every
+    /// form in it routes a figure to the record on its own. A locale missing a
+    /// kind is how French lost « ta dernière » while English kept "your last"
+    /// (carnet#1188).
+    #[test]
+    fn own_record_cues_cover_the_five_locales_and_every_form_routes() {
+        let locales: Vec<&str> = OWN_RECORD_CUES.iter().map(|(locale, _)| *locale).collect();
+        assert_eq!(
+            locales, LOCALES,
+            "bug: the own-record cues must cover exactly the shipped locales"
+        );
+
+        for (locale, cues) in &OWN_RECORD_CUES {
+            assert!(
+                !cues.recency.is_empty(),
+                "bug: {locale} ships no recency cue, so « your last » cannot route to the record"
+            );
+            assert!(
+                !cues.held.is_empty(),
+                "bug: {locale} ships no held cue, so « stayed at » cannot route"
+            );
+            assert!(
+                !cues.possessives.is_empty(),
+                "bug: {locale} ships no possessive, so no held cue can route to the record"
+            );
+            for form in cues.recency {
+                let sentence = format!("{form} sortie, 12 km avec une fc moyenne de 140 bpm");
+                assert_eq!(
+                    classify_heuristic(&sentence),
+                    Some(ClaimCategory::AthleteData),
+                    "bug: {locale} recency cue {form:?} must route a figure to the record on its own"
+                );
+            }
+            for form in cues.held {
+                for possessive in cues.possessives {
+                    let sentence = format!("{possessive} fc {form} 133 bpm sur 12 km");
+                    assert_eq!(
+                        classify_heuristic(&sentence),
+                        Some(ClaimCategory::AthleteData),
+                        "bug: {locale} held cue {form:?} with {possessive:?} must route a figure to the record"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A held cue without a possessive says nothing about this athlete.
+    #[test]
+    fn a_held_value_without_a_possessive_is_not_the_athletes_record() {
+        for (locale, cues) in &OWN_RECORD_CUES {
+            for form in cues.held {
+                let sentence = format!("Lactate {form} near 4 mmol at threshold");
+                assert_ne!(
+                    classify_heuristic(&sentence),
+                    Some(ClaimCategory::AthleteData),
+                    "bug: {locale} held cue {form:?} routed to the record without a possessive naming the athlete"
+                );
+            }
+        }
+    }
+
+    /// Every marker that keeps a plan out of the record exists in the five
+    /// shipped locales, and each one does so on its own. Spanish, German and
+    /// Portuguese once had none, so « Tu última tirada antes de la carrera:
+    /// 28 km » reached the record with no guard at all (carnet#1188).
+    #[test]
+    fn plan_markers_cover_the_five_locales_and_every_marker_keeps_a_plan_out() {
+        for table in [&PRESCRIPTION_MARKERS, &FORWARD_MARKERS] {
+            let locales: Vec<&str> = table.iter().map(|(locale, _)| *locale).collect();
+            assert_eq!(
+                locales, LOCALES,
+                "bug: the plan markers must cover exactly the shipped locales"
+            );
+        }
+        for ((locale, cues), ((_, prescriptions), (_, forwards))) in OWN_RECORD_CUES
+            .iter()
+            .zip(PRESCRIPTION_MARKERS.iter().zip(FORWARD_MARKERS.iter()))
+        {
+            assert!(
+                !prescriptions.is_empty(),
+                "bug: {locale} ships no prescription marker, so a prescribed plan reaches the record"
+            );
+            assert!(
+                !forwards.is_empty(),
+                "bug: {locale} ships no forward marker, so a future plan reaches the record"
+            );
+            let last = cues.recency[0];
+            for marker in prescriptions.iter().chain(forwards.iter()) {
+                let sentence = format!("{last} sortie {marker} 12 km");
+                assert_ne!(
+                    classify_heuristic(&sentence),
+                    Some(ClaimCategory::AthleteData),
+                    "bug: {locale} plan marker {marker:?} must keep a plan out of the record: {sentence}"
+                );
+            }
+            // A prescription marker prescribes whatever else the sentence
+            // reports; a forward marker does not, since a held value is past.
+            let held = format!(
+                "{} fc {} 133 bpm sur 12 km",
+                cues.possessives[0], cues.held[0]
+            );
+            for marker in *prescriptions {
+                let sentence = format!("{held} {marker} 10 km");
+                assert_ne!(
+                    classify_heuristic(&sentence),
+                    Some(ClaimCategory::AthleteData),
+                    "bug: {locale} prescription marker {marker:?} must keep a held value out of the record: {sentence}"
+                );
+            }
+            for marker in *forwards {
+                let sentence = format!("{held} {marker} 10 km");
+                assert_eq!(
+                    classify_heuristic(&sentence),
+                    Some(ClaimCategory::AthleteData),
+                    "bug: {locale} forward marker {marker:?} must leave a past held value in the record: {sentence}"
+                );
+            }
+        }
+    }
+
+    /// "Mañana" and "Morgen" are tomorrow, except right after the word that
+    /// makes them the morning.
+    #[test]
+    fn the_morning_is_not_tomorrow() {
+        for report in [
+            "Esta mañana corriste 10 km a buen ritmo",
+            "Gestern Morgen bist du 10 km gelaufen",
+        ] {
+            assert_eq!(
+                classify_heuristic(report),
+                Some(ClaimCategory::AthleteData),
+                "bug: a morning ('mañana'/'Morgen' after its day word) must stay a past report: {report}"
+            );
+        }
+        for plan in [
+            "Mañana corriste 10 km, mañana repite",
+            "Morgen bist du 10 km gelaufen, sagt der Plan",
+        ] {
+            assert_ne!(
+                classify_heuristic(plan),
+                Some(ClaimCategory::AthleteData),
+                "bug: a bare 'mañana'/'Morgen' is tomorrow and must keep a plan out of the record: {plan}"
+            );
+        }
+    }
+}

@@ -2,9 +2,12 @@
 // ABOUTME: Red if the two surfaces could describe the same switch, hour or cap in different words
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import fr from '../../i18n/src/locales/fr/translation.json';
 import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_BLURB_KEYS,
+  NOTIFICATION_CATEGORY_META,
+  formatCollapsedCount,
   NOTIFICATION_MAX_PER_DAY_CHOICES,
   NOTIFICATION_QUIET_HOUR_VALUES,
   localTimezone,
@@ -20,10 +23,46 @@ afterEach(() => {
 });
 
 describe('NOTIFICATION_CATEGORY_BLURB_KEYS', () => {
-  it('describes every category, the coach category as an agent', () => {
+  it('describes every category, the coach category as its agent and its human coach', () => {
     expect(Object.keys(NOTIFICATION_CATEGORY_BLURB_KEYS).sort()).toEqual([...NOTIFICATION_CATEGORIES].sort());
-    expect(NOTIFICATION_CATEGORY_BLURB_KEYS.coach).toBe('notifPrefs.blurbAgent');
+    expect(NOTIFICATION_CATEGORY_BLURB_KEYS.coach).toBe('notifPrefs.blurbCoach');
     expect(NOTIFICATION_CATEGORY_BLURB_KEYS.reminders).toBe('notifPrefs.blurbReminders');
+  });
+});
+
+describe('NOTIFICATION_CATEGORY_META', () => {
+  // « Plan publié par <coach> » sat under « Agent » (carnet#1191): the coach
+  // category carries the human coach's notices as well as the agent's, so its
+  // name is the activity both share, never the persona alone.
+  it('names the coach category for coaching, not for the agent', () => {
+    expect(NOTIFICATION_CATEGORY_META.coach.labelKey).toBe('notifPrefs.catCoach');
+    expect(fr.notifPrefs.catCoach).toBe('Coaching');
+    expect(fr.notifPrefs.blurbCoach).toContain('coach humain');
+  });
+
+  it('labels every category with a key the catalogue holds', () => {
+    const prefs = fr.notifPrefs as Record<string, string>;
+    for (const category of NOTIFICATION_CATEGORIES) {
+      const [, key] = NOTIFICATION_CATEGORY_META[category].labelKey.split('.');
+      expect({ category, label: prefs[key] }).toEqual({ category, label: expect.any(String) });
+      const [, blurb] = NOTIFICATION_CATEGORY_BLURB_KEYS[category].split('.');
+      expect({ category, blurb: prefs[blurb] }).toEqual({ category, blurb: expect.any(String) });
+    }
+  });
+});
+
+describe('formatCollapsedCount', () => {
+  it('says nothing for a notification that collapsed nothing', () => {
+    expect(formatCollapsedCount(undefined, t)).toBeNull();
+    expect(formatCollapsedCount(1, t)).toBeNull();
+  });
+
+  // It printed « +1 similar » under French chrome (carnet#1191).
+  it('counts the others in the catalogue, one and many', () => {
+    expect(formatCollapsedCount(2, t)).toBe('notifications.collapsedSimilarOne({"count":1})');
+    expect(formatCollapsedCount(4, t)).toBe('notifications.collapsedSimilarN({"count":3})');
+    expect(fr.notifications.collapsedSimilarOne).toBe('+{{count}} similaire');
+    expect(fr.notifications.collapsedSimilarN).toBe('+{{count}} similaires');
   });
 });
 

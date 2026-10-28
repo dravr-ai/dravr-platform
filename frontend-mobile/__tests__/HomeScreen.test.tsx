@@ -509,7 +509,7 @@ describe('the week strip', () => {
     const screen = renderHome();
 
     const next = await screen.findByTestId('home-next-week');
-    expect(next).toHaveTextContent(/Next week.*2026-09-28.*Race-pace long run/);
+    expect(next).toHaveTextContent(/Next week.*September 28.*Race-pace long run/);
     expect(next.props.accessibilityState).toEqual({ expanded: false });
     expect(screen.queryByTestId('home-next-week-days')).toBeNull();
 

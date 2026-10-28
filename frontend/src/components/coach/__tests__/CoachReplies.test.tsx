@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import type { CoachRepliesPage } from '@pierre/shared-types';
 import { ToastProvider } from '../../ui';
 import CoachReplies from '../CoachReplies';
@@ -103,6 +104,39 @@ describe('CoachReplies', () => {
     // An athlete who does not share is offered, and says so.
     expect(screen.getByRole('option', { name: 'Ben (not shared with you)' })).toBeInTheDocument();
     expect(list).toHaveBeenCalledWith({ athlete_id: undefined, before: undefined, limit: 20 });
+  });
+
+  // « 1 signalées · 1 corrigées » (carnet#1191): each count takes its own
+  // number in French.
+  it("agrees each of the week's counts with its own number in French", async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      weekly.mockResolvedValue({ weeks: [{ week_start: '2026-10-05', flags: 1, corrections: 1 }] });
+      const { unmount } = renderPage();
+      expect(await screen.findByText('Cette semaine : 1 signalée · 1 corrigée')).toBeInTheDocument();
+      unmount();
+
+      weekly.mockResolvedValue({ weeks: [{ week_start: '2026-10-05', flags: 3, corrections: 1 }] });
+      renderPage();
+      expect(await screen.findByText('Cette semaine : 3 signalées · 1 corrigée')).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
+  // French reads a zero count as singular: « 0 signalée », never « 0 signalées ».
+  it('reads a quiet week singular in French', async () => {
+    weekly.mockResolvedValue({ weeks: [{ week_start: '2026-10-05', flags: 0, corrections: 0 }] });
+    await i18n.changeLanguage('fr');
+    try {
+      const { unmount } = renderPage();
+      expect(await screen.findByText('Cette semaine : 0 signalée · 0 corrigée')).toBeInTheDocument();
+      unmount();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+    renderPage();
+    expect(await screen.findByText('This week: 0 flagged · 0 corrected')).toBeInTheDocument();
   });
 
   it('narrows the page to one athlete', async () => {

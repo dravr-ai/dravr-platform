@@ -60,6 +60,10 @@ pub struct LlmUsageRecord {
     /// call. Billed at the model's cache-write multiplier — a premium on
     /// Anthropic, not a discount. Zero when unreported.
     pub cached_write_tokens: i64,
+    /// The part of `cached_write_tokens` written to a 1-hour cache entry,
+    /// billed at the model's 1-hour write multiplier (2x input on
+    /// Anthropic) rather than the 5-minute one. Zero when unreported.
+    pub cached_write_1h_tokens: i64,
     /// Reasoning tokens reported apart from the completion count, billed
     /// at the output rate. Zero when unreported.
     pub reasoning_tokens: i64,
@@ -324,6 +328,10 @@ pub struct InsertLlmUsage<'a> {
     /// call. Billed at the model's cache-write multiplier, which is a
     /// premium (1.25x) on Anthropic rather than a discount.
     pub cached_write_tokens: i64,
+    /// The part of `cached_write_tokens` written to a 1-hour cache entry,
+    /// billed at the model's 1-hour write multiplier (2x input on
+    /// Anthropic) rather than the 5-minute one. Zero when unreported.
+    pub cached_write_1h_tokens: i64,
     /// Reasoning tokens reported apart from the completion count, billed
     /// at the output rate. Zero when the provider does not report them.
     pub reasoning_tokens: i64,
@@ -376,6 +384,7 @@ impl<'a> InsertLlmUsage<'a> {
             total_tokens: 0,
             cached_tokens: 0,
             cached_write_tokens: 0,
+            cached_write_1h_tokens: 0,
             reasoning_tokens: 0,
             call_type: "mcp_tool",
             tool_calls_count: 1,
@@ -412,6 +421,10 @@ pub struct LlmUsageAggregateRow {
     /// Prompt tokens written into the provider's context cache. Billed at
     /// the model's cache-write multiplier — a premium on Anthropic.
     pub cached_write_tokens: i64,
+    /// The part of `cached_write_tokens` written to a 1-hour cache entry,
+    /// billed at the model's 1-hour write multiplier (2x input on
+    /// Anthropic) rather than the 5-minute one. Zero when unreported.
+    pub cached_write_1h_tokens: i64,
     /// Reasoning tokens reported apart from the completion count, billed
     /// at the output rate.
     pub reasoning_tokens: i64,
@@ -441,6 +454,10 @@ pub struct LlmUsageDailyRow {
     /// Prompt tokens written into the provider's context cache. Billed at
     /// the model's cache-write multiplier — a premium on Anthropic.
     pub cached_write_tokens: i64,
+    /// The part of `cached_write_tokens` written to a 1-hour cache entry,
+    /// billed at the model's 1-hour write multiplier (2x input on
+    /// Anthropic) rather than the 5-minute one. Zero when unreported.
+    pub cached_write_1h_tokens: i64,
     /// Reasoning tokens reported apart from the completion count, billed
     /// at the output rate.
     pub reasoning_tokens: i64,

@@ -634,6 +634,71 @@ async fn a_coach_cannot_flag_or_correct_a_reply_outside_their_groups() {
     assert_eq!(weekly["weeks"][0]["corrections"], 0);
 }
 
+/// Only the group's attached coach writes a correction, so the client may sign
+/// every correction in a room with that coach's name (carnet#1191): another
+/// owner or admin of the same group, in the same tenant, who shares with the
+/// coach, is refused like a stranger, and nothing reaches the room.
+#[tokio::test]
+async fn only_the_attached_coach_corrects_a_reply_not_another_group_admin() {
+    let w = world().await;
+    // Dana, a coach in Casey's tenant, joins Casey's group as an admin.
+    join_group(
+        &w.res,
+        w.casey_group,
+        w.dana.id,
+        w.casey.tenant,
+        GroupRole::Admin,
+        true,
+    )
+    .await;
+
+    let reply = w.replies.alex_first;
+    let (status, body) = post(
+        &w.router,
+        &format!("/api/coach/replies/{reply}/corrections"),
+        &w.dana.auth,
+        &json!({ "content": CORRECTION }),
+    )
+    .await;
+    assert_eq!(
+        status, 404,
+        "bug: a group admin who is not the reply's coach must not correct it: {body}"
+    );
+    let (status, body) = post(
+        &w.router,
+        &format!("/api/coach/replies/{reply}/flags"),
+        &w.dana.auth,
+        &json!({ "reason": "wrong", "note": "no" }),
+    )
+    .await;
+    assert_eq!(
+        status, 404,
+        "bug: a group admin who is not the reply's coach must not flag it: {body}"
+    );
+
+    // The room Alex reads holds no correction.
+    let (status, room) = get(
+        &w.router,
+        &format!("/api/chat/groups/{}/transcript", w.casey_group),
+        &w.alex.auth,
+    )
+    .await;
+    assert_eq!(
+        status, 200,
+        "bug: the athlete must read their own group transcript: {room}"
+    );
+    let corrections = room["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["speaker"] == "correction")
+        .count();
+    assert_eq!(
+        corrections, 0,
+        "bug: a refused correction must never reach the athlete's room: {room}"
+    );
+}
+
 #[tokio::test]
 async fn a_flag_stays_with_the_coach_and_a_correction_reaches_the_athletes_thread() {
     let w = world().await;

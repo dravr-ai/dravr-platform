@@ -45,6 +45,9 @@ use super::subject_context::{inject_subject_context, SubjectContextInputs};
 use super::turn_clock::{format_current_date, with_freshness, CURRENT_DATE_POINTER};
 use super::viz_blocks;
 
+mod stable_head;
+use stable_head::mark_stable_head;
+
 /// Identity anchor appended to the tail of every assembled system prompt.
 ///
 /// Placed LAST, on measured evidence rather than intuition. A 48-run live A/B
@@ -695,6 +698,16 @@ pub(crate) async fn assemble_prompt_and_messages(
         render_tool_index(&tool_names)
     );
 
+    // The cache boundary (carnet#1190). Everything above is the same from one
+    // turn of the conversation to the next — contract, persona, the closed
+    // tool set — and the first stage below that is not is the athlete's
+    // context: providers, group, followups, facts, plan, transcript. Nothing
+    // is moved: the prompt keeps its order, and this records only where its
+    // unchanging head ends, so a provider that caches per block (Anthropic)
+    // can keep that head cached while the rest is rewritten. Every other
+    // provider reads the message whole.
+    let stable_head = base_prompt.clone();
+
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.
     let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
@@ -1101,8 +1114,9 @@ pub(crate) async fn assemble_prompt_and_messages(
             Vec::new()
         }
     };
-    let (llm_messages, source_ids) =
+    let (mut llm_messages, source_ids) =
         build_llm_messages_with_blocks(Some(&prompt_guard.hardened_prompt), history, &blocks);
+    mark_stable_head(&mut llm_messages, &stable_head);
 
     let span = Span::current();
     span.record("prompt_len", prompt_guard.hardened_prompt.len());

@@ -50,7 +50,7 @@ function verdictForMessage(messageId: string, overrides: Partial<ClaimVerdict> =
 describe('MessageItem claim verdict chip', () => {
   it('does not render a chip when no verdicts exist', () => {
     render(<MessageItem message={assistantMessage()} verdicts={[]} />);
-    expect(screen.queryByText(/verdict/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('verdict-chip')).not.toBeInTheDocument();
   });
 
   it('renders a chip on an assistant message with one verdict', () => {
@@ -60,9 +60,9 @@ describe('MessageItem claim verdict chip', () => {
         verdicts={[verdictForMessage('msg-1')]}
       />,
     );
-    expect(screen.getByText('1 verdict · supported')).toBeInTheDocument();
+    expect(screen.getByText('1 supported')).toBeInTheDocument();
     // The evidence strength is a per-claim detail the drawer prints; the chip
-    // qualifies with the status word alone.
+    // counts status words alone.
     expect(screen.queryByText(/strong/)).not.toBeInTheDocument();
   });
 
@@ -73,19 +73,19 @@ describe('MessageItem claim verdict chip', () => {
         verdicts={[verdictForMessage('msg-2')]}
       />,
     );
-    expect(screen.queryByText(/verdict/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('verdict-chip')).not.toBeInTheDocument();
   });
 
-  it('summarizes worst-status across multiple verdicts', () => {
+  it('counts each status across multiple verdicts, a finding first', () => {
     const verdicts: ClaimVerdict[] = [
       verdictForMessage('msg-1', { id: 'v1', status: 'supported', evidence_strength: 'strong' }),
       verdictForMessage('msg-1', { id: 'v2', status: 'unsupported', evidence_strength: 'mixed' }),
       verdictForMessage('msg-1', { id: 'v3', status: 'contradicted', evidence_strength: 'weak' }),
     ];
     render(<MessageItem message={assistantMessage()} verdicts={verdicts} />);
-    // The worst status among (supported, unsupported, contradicted) is
-    // "contradicted"; the chip never mentions an evidence strength.
-    expect(screen.getByText('3 verdicts · contradicted')).toBeInTheDocument();
+    // The contradicted claim leads, the supported one is still counted, and
+    // the chip never mentions an evidence strength.
+    expect(screen.getByText('1 contradicted · 1 unsupported · 1 supported')).toBeInTheDocument();
     expect(screen.queryByText(/weak/)).not.toBeInTheDocument();
   });
 
@@ -111,8 +111,8 @@ describe('MessageItem claim verdict chip', () => {
         verdicts={[verdict]}
       />,
     );
-    expect(screen.getByText('1 verdict · contradicted')).toBeInTheDocument();
-    expect(screen.queryByText(/3 verdicts/)).not.toBeInTheDocument();
+    expect(screen.getByText('1 contradicted')).toBeInTheDocument();
+    expect(screen.queryByText(/unsupported/)).not.toBeInTheDocument();
   });
 
   it('draws the plain shield for a reply whose every claim was supported', () => {
@@ -125,6 +125,44 @@ describe('MessageItem claim verdict chip', () => {
     const chip = screen.getByTestId('verdict-chip');
     expect(chip.querySelector('svg.lucide-shield')).not.toBeNull();
     expect(chip.querySelector('svg.lucide-shield-alert')).toBeNull();
+  });
+
+  it('lets no abstention label a reply whose other claims held (carnet#1189)', () => {
+    render(
+      <MessageItem
+        message={assistantMessage()}
+        verdicts={[
+          verdictForMessage('msg-1', { id: 'v1', status: 'supported', evidence_strength: 'strong' }),
+          verdictForMessage('msg-1', { id: 'v2', status: 'supported', evidence_strength: 'strong' }),
+          verdictForMessage('msg-1', { id: 'v3', status: 'unverifiable', evidence_strength: 'none' }),
+        ]}
+      />,
+    );
+    const chip = screen.getByTestId('verdict-chip');
+    expect(chip).toHaveTextContent('2 supported · 1 unverifiable');
+    // Supported leads: the plain shield, and the tooltip qualifies by the
+    // supported claims' own evidence rather than the abstention's « none ».
+    expect(chip.querySelector('svg.lucide-shield')).not.toBeNull();
+    expect(chip.querySelector('svg.lucide-shield-alert')).toBeNull();
+    expect(chip).toHaveAttribute('title', '3 claim verdicts — overall: supported, strong');
+  });
+
+  it('speaks the chip with a pause between counts, never the middle dot', () => {
+    render(
+      <MessageItem
+        message={assistantMessage()}
+        verdicts={[
+          verdictForMessage('msg-1', { id: 'v1', status: 'supported', evidence_strength: 'strong' }),
+          verdictForMessage('msg-1', { id: 'v2', status: 'supported', evidence_strength: 'strong' }),
+          verdictForMessage('msg-1', { id: 'v3', status: 'unverifiable', evidence_strength: 'none' }),
+        ]}
+      />,
+    );
+    // The label joins the counts with VERDICT_SPOKEN_SEPARATOR, as the phone's
+    // accessibilityLabel does, while the visible chip keeps its middle dot.
+    const chip = screen.getByRole('button', { name: 'Claim verdicts: 2 supported, 1 unverifiable' });
+    expect(chip).toHaveAttribute('data-testid', 'verdict-chip');
+    expect(chip).toHaveTextContent('2 supported · 1 unverifiable');
   });
 
   it('draws the alert shield for a reply with a contradicted claim, and speaks no raw enum in its tooltip', () => {
@@ -145,6 +183,28 @@ describe('MessageItem claim verdict chip', () => {
     expect(chip).toHaveAttribute('title', '2 claim verdicts — overall: contradicted, none');
   });
 
+  it('names the lead status alone in the tooltip when the chips carry no evidence strength', () => {
+    render(
+      <MessageItem
+        message={assistantMessage()}
+        blocks={[
+          { type: 'prose', text: 'Take 5 g of creatine per day for high-intensity performance.' },
+          {
+            type: 'verdicts',
+            chips: [
+              { claim: 'Take 5 g of creatine per day for high-intensity performance.', contradicted: true },
+              { claim: 'Creatine works for everyone.', contradicted: false },
+            ],
+          },
+        ]}
+        verdicts={[]}
+      />,
+    );
+    // No row has landed, so there is no strength to name: the tooltip never
+    // repeats the status in the strength slot (« contradicted, contradicted »).
+    expect(screen.getByTestId('verdict-chip')).toHaveAttribute('title', '2 claim verdicts — overall: contradicted');
+  });
+
   it('opens the drawer with no rows when only the turn\'s chips have landed', () => {
     const onShowVerdict = vi.fn();
     render(
@@ -161,7 +221,7 @@ describe('MessageItem claim verdict chip', () => {
         onShowVerdict={onShowVerdict}
       />,
     );
-    expect(screen.getByText('1 verdict · contradicted')).toBeInTheDocument();
+    expect(screen.getByText('1 contradicted')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('verdict-chip'));
     expect(onShowVerdict).toHaveBeenCalledWith([], 'msg-1');
   });

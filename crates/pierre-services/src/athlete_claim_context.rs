@@ -206,6 +206,7 @@ pub async fn build_athlete_record(
             distance_km: a.distance_meters().map(|m| m / 1000.0),
             duration_min,
             elevation_m: a.elevation_gain(),
+            average_hr_bpm: a.average_heart_rate().map(f64::from),
         }
     };
     let held: Vec<RecordedActivity> = activities.iter().map(recorded).collect();

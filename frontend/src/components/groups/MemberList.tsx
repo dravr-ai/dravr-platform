@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Sortable member list table for a coaching group
-// ABOUTME: Displays name, role, join date, peer sharing status, admin actions, and the coach's way into each athlete's plan
+// ABOUTME: Sortable member list table for a coaching group, sized for the Group info side panel
+// ABOUTME: Displays name with join date and peer sharing under it, role, admin actions, and the coach's way into each athlete's plan
 
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Shield, User, ChevronUp, ChevronDown, Trash2, Clipboard } from 'lucide-react';
-import { Button, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import { Shield, User, ChevronUp, ChevronDown, Trash2, Clipboard, ArrowUp, ArrowDown } from 'lucide-react';
+import { Button, ConfirmDialog, Select, useErrorToast, useSuccessToast } from '../ui';
 import RoleBadge from './RoleBadge';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
@@ -32,8 +32,29 @@ interface MemberListProps {
   openingPlanFor?: string | null;
 }
 
+/**
+ * What the list sorts by. The table lives in the Group info panel (448px at
+ * most), which has room for three columns with the Actions column whole
+ * (carnet#1191): the join date and the sharing state read as one line under
+ * the name. The name
+ * and role headers still sort on a click; every field, the join date and the
+ * sharing state included, is picked from the compact control above the table,
+ * which costs height rather than width.
+ */
 type SortField = 'display_name' | 'role' | 'joined_at' | 'peer_sharing_consent';
 type SortDirection = 'asc' | 'desc';
+
+/** The sort control's fields, in menu order, with their catalogue labels. */
+const SORT_FIELD_LABEL_KEY: Record<SortField, string> = {
+  display_name: 'groups.colName',
+  role: 'settingsUi.role',
+  joined_at: 'groups.colJoined',
+  peer_sharing_consent: 'groups.peerSharing',
+};
+
+function isSortField(value: string): value is SortField {
+  return Object.prototype.hasOwnProperty.call(SORT_FIELD_LABEL_KEY, value);
+}
 
 const ROLE_ORDER: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 };
 
@@ -82,8 +103,6 @@ export default function MemberList({
         return (new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime()) * direction;
       case 'peer_sharing_consent':
         return ((a.peer_sharing_consent ? 1 : 0) - (b.peer_sharing_consent ? 1 : 0)) * direction;
-      default:
-        return 0;
     }
   });
 
@@ -133,38 +152,65 @@ export default function MemberList({
     );
   }
 
+  const directionLabel = sortDirection === 'asc' ? t('groups.sortAscending') : t('groups.sortDescending');
+
   return (
     <>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      {/* The sort control: one line above the table, so the four fields it
+          offers never widen the panel. It shares its state with the headers. */}
+      <div className="flex items-center justify-end gap-2 px-3 pb-2" data-testid="member-sort">
+        <span className="text-xs text-on-surface-variant whitespace-nowrap">{t('groups.sortBy')}</span>
+        <div className="w-36">
+          <Select
+            size="sm"
+            aria-label={t('groups.sortBy')}
+            value={sortField}
+            onChange={(event) => {
+              if (isSortField(event.target.value)) {
+                setSortField(event.target.value);
+                setSortDirection('asc');
+              }
+            }}
+            options={(Object.keys(SORT_FIELD_LABEL_KEY) as SortField[]).map((field) => ({
+              value: field,
+              label: t(SORT_FIELD_LABEL_KEY[field]),
+            }))}
+            data-testid="member-sort-field"
+          />
+        </div>
+        <Button
+          variant="tertiary"
+          size="sm"
+          onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+          title={directionLabel}
+          aria-label={directionLabel}
+          data-testid="member-sort-direction"
+        >
+          {sortDirection === 'asc' ? (
+            <ArrowUp className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <ArrowDown className="w-4 h-4" aria-hidden="true" />
+          )}
+        </Button>
+      </div>
+      <div className="overflow-x-auto" data-testid="member-list">
+        <table className="w-full table-fixed text-sm">
           <thead>
             <tr className="border-b ghost-border text-left">
               <th
-                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
+                className="py-3 px-3 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('display_name')}
               >
                 {t('groups.colName')} <SortIcon field="display_name" />
               </th>
               <th
-                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
+                className="w-28 py-3 px-3 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('role')}
               >
                 {t('settingsUi.role')} <SortIcon field="role" />
               </th>
-              <th
-                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
-                onClick={() => handleSort('joined_at')}
-              >
-                {t('groups.colJoined')} <SortIcon field="joined_at" />
-              </th>
-              <th
-                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
-                onClick={() => handleSort('peer_sharing_consent')}
-              >
-                {t('groups.peerSharing')} <SortIcon field="peer_sharing_consent" />
-              </th>
               {hasActions && (
-                <th className="py-3 px-4 text-on-surface-variant font-medium text-right">
+                <th className="w-36 py-3 px-3 text-on-surface-variant font-medium text-right">
                   {t('groups.colActions')}
                 </th>
               )}
@@ -186,30 +232,36 @@ export default function MemberList({
                     isSelf ? 'bg-primary/5' : 'hover:bg-surface-container-low'
                   )}
                 >
-                  <td className="py-3 px-4">
-                    <span className="text-on-surface font-medium">
+                  <td className="min-w-0 py-2.5 px-3">
+                    <span className="block truncate text-on-surface font-medium" title={member.display_name ?? undefined}>
                       {member.display_name ?? t('settingsUi.unknownDate')}
                       {isSelf && (
                         <span className="ml-2 text-xs text-outline">{t('groups.youSuffix')}</span>
                       )}
                     </span>
+                    {/* The join date and the sharing state, wrapping onto a
+                        second line rather than widening the panel. */}
+                    <span
+                      className="flex flex-wrap gap-x-1.5 text-xs text-on-surface-variant"
+                      data-testid={`member-detail-${member.user_id}`}
+                    >
+                      <span className="whitespace-nowrap">
+                        {t('groups.colJoined')}{' '}
+                        {formatDate(member.joined_at, i18n.language)}
+                      </span>
+                      {member.peer_sharing_consent ? (
+                        <span className="whitespace-nowrap text-activity font-medium">{t('groups.sharingOn')}</span>
+                      ) : (
+                        <span className="whitespace-nowrap text-outline">{t('groups.sharingOff')}</span>
+                      )}
+                    </span>
                   </td>
-                  <td className="py-3 px-4">
+                  <td className="py-2.5 px-3">
                     <RoleBadge kind={member.role} />
                   </td>
-                  <td className="py-3 px-4 text-on-surface-variant">
-                    {formatDate(member.joined_at, i18n.language)}
-                  </td>
-                  <td className="py-3 px-4">
-                    {member.peer_sharing_consent ? (
-                      <span className="text-activity text-xs font-medium">{t('groups.enabled')}</span>
-                    ) : (
-                      <span className="text-outline text-xs">{t('groups.disabled')}</span>
-                    )}
-                  </td>
                   {hasActions && (
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="py-2.5 px-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
                         {onWorkOnPlan && !isSelf && (
                           <Button
                             variant="tertiary"

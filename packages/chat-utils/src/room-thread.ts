@@ -2,6 +2,7 @@
 // ABOUTME: Other members' words, the agent's replies to them and withheld placeholders join the caller's own rows in time order
 
 import type { GroupTranscriptEntry, Message, RoomAttribution } from '@pierre/shared-types';
+import type { Translate } from './text';
 
 /**
  * The id prefix of a row a group thread shows from the room. A room entry's id
@@ -95,4 +96,30 @@ export function runAuthorOf(row: { role: string; room?: RoomAttribution | null }
   if (!room || room.own) return row.role;
   if (room.withheld) return `withheld:${room.speaker}`;
   return `${room.speaker}:${room.author_user_id ?? ''}`;
+}
+
+/**
+ * The author line over a human coach's correction (carnet#847), naming the
+ * coach who wrote it (carnet#1191).
+ *
+ * The correction is attributed to the member whose reply it corrects, so the
+ * room entry carries the athlete's name, never the coach's; the coach's comes
+ * from the group the thread belongs to. Only the group's attached coach can
+ * write one — the server's review scope requires `coaching_groups.coach_user_id`
+ * to be the caller, and an owner or admin who is not the coach is refused
+ * (`coach_reply_review_test::only_the_attached_coach_corrects_a_reply_not_another_group_admin`). `own` is the reader's own thread, where
+ * the correction is addressed to them; on anyone else's it names the member it
+ * concerns. A group read before its coach is known keeps the unnamed wording.
+ */
+export function correctionAuthorLabel(
+  t: Translate,
+  correction: { own: boolean; memberName: string; coachName?: string | null },
+): string {
+  const coach = correction.coachName?.trim();
+  if (correction.own) {
+    return coach ? t('chat.roomCorrectionOwnNamed', { coach }) : t('chat.roomCorrectionOwn');
+  }
+  return coach
+    ? t('chat.roomCorrectionToNamed', { coach, name: correction.memberName })
+    : t('chat.roomCorrectionTo', { name: correction.memberName });
 }

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GroupTranscriptEntry, Message } from '@pierre/shared-types';
-import { composeRoomThread } from '../src/room-thread';
+import { composeRoomThread, correctionAuthorLabel } from '../src/room-thread';
 import { isSameMessageGroup } from '../src/message-time';
 
 const ALICE = 'user-alice';
@@ -202,5 +202,31 @@ describe('isSameMessageGroup in a group thread', () => {
         { role: 'assistant', created_at: at(10), room: room(BOB, false, 'coach') },
       ),
     ).toBe(false);
+  });
+});
+
+describe('correctionAuthorLabel', () => {
+  /** A translator that shows which key and params it was handed. */
+  const t = (key: string, params?: Record<string, string | number>) =>
+    params ? `${key}(${JSON.stringify(params)})` : key;
+
+  // The correction bubble did not say which coach wrote it (carnet#1191).
+  it("names the coach on the athlete's own thread", () => {
+    expect(correctionAuthorLabel(t, { own: true, memberName: 'Alex', coachName: 'Camille' })).toBe(
+      'chat.roomCorrectionOwnNamed({"coach":"Camille"})',
+    );
+  });
+
+  it("names the coach and the athlete it concerns on another member's thread", () => {
+    expect(correctionAuthorLabel(t, { own: false, memberName: 'Alex', coachName: 'Camille' })).toBe(
+      'chat.roomCorrectionToNamed({"coach":"Camille","name":"Alex"})',
+    );
+  });
+
+  it('keeps the unnamed wording while the group names no coach', () => {
+    expect(correctionAuthorLabel(t, { own: true, memberName: 'Alex', coachName: null })).toBe('chat.roomCorrectionOwn');
+    expect(correctionAuthorLabel(t, { own: false, memberName: 'Alex', coachName: '  ' })).toBe(
+      'chat.roomCorrectionTo({"name":"Alex"})',
+    );
   });
 });

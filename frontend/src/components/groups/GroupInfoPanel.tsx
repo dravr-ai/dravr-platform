@@ -638,7 +638,7 @@ export default function GroupInfoPanel({
       )}
 
       <Section icon={<MessageCircle className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabRoom')}>
-        <GroupTranscriptPanel groupId={groupId} />
+        <GroupTranscriptPanel groupId={groupId} coachName={group.coach_display_name} />
       </Section>
 
       {!isCoachViewer && (

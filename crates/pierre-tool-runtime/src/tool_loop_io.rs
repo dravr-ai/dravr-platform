@@ -586,6 +586,8 @@ fn sum_usage(first: Option<TokenUsage>, second: Option<TokenUsage>) -> Option<To
                 accumulate_optional(a.cached_read_tokens, b.cached_read_tokens);
             sum.cached_write_tokens =
                 accumulate_optional(a.cached_write_tokens, b.cached_write_tokens);
+            sum.cached_write_1h_tokens =
+                accumulate_optional(a.cached_write_1h_tokens, b.cached_write_1h_tokens);
             sum.reasoning_tokens = accumulate_optional(a.reasoning_tokens, b.reasoning_tokens);
             Some(sum)
         }

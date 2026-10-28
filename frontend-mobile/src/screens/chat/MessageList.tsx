@@ -21,6 +21,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
 import {
   copyableText,
+  correctionAuthorLabel,
   countActivities,
   dayLabelFor,
   filterDisplayMessages,
@@ -35,7 +36,7 @@ import {
   withVerdictRows,
 } from '@pierre/chat-utils';
 import { linkifyUrls } from '@pierre/domain-utils';
-import { SLASH_HINT_KEY, VERDICT_STATUS_LABEL_KEY, verdictChipLabel } from '@pierre/shared-constants';
+import { SLASH_HINT_KEY, VERDICT_SPOKEN_SEPARATOR, verdictChipLabel } from '@pierre/shared-constants';
 import { spacing, typeScale, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock, UseCaseStarter, VerdictTone } from '@pierre/shared-types';
@@ -465,6 +466,8 @@ interface MessageListProps {
    * the header stands while the thread loads and before its first message.
    */
   header?: React.ReactElement;
+  /** The group's human coach, named over a correction they posted (carnet#1191). */
+  coachName?: string | null;
   /**
    * The use-case starters ranked for the athlete, drawn as the empty
    * thread's ink links — three at most. Without them, the empty thread
@@ -508,6 +511,7 @@ export function MessageList({
   onActionClick,
   onShowVerdict,
   header,
+  coachName = null,
   starters,
   onStarter,
   hasEarlier = false,
@@ -644,7 +648,7 @@ export function MessageList({
             testID="verdict-chip"
             accessibilityRole="button"
             accessibilityLabel={t('app.claimVerdictsStatus', {
-              status: t(VERDICT_STATUS_LABEL_KEY[summary.worstStatus]),
+              status: verdictChipLabel(t, summary, VERDICT_SPOKEN_SEPARATOR),
             })}
             className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
             style={{ backgroundColor: chip.fill }}
@@ -750,7 +754,7 @@ export function MessageList({
         <View testID="room-entry-correction" className={`${spacing} items-start`}>
           {groupStart ? (
             <Text className="text-xs font-semibold text-text-secondary mb-1">
-              {room.own ? t('chat.roomCorrectionOwn') : t('chat.roomCorrectionTo', { name })}
+              {correctionAuthorLabel(t, { own: room.own, memberName: name, coachName })}
             </Text>
           ) : null}
           <View className="max-w-[85%] rounded-[18px] rounded-bl-[4px] px-3 py-2 bg-surface-container-high">

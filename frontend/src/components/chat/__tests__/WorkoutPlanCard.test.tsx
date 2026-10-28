@@ -5,7 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import { i18n } from '@pierre/i18n';
 import type { WorkoutPlan } from '@pierre/shared-types';
 import WorkoutPlanCard from '../WorkoutPlanCard';
 
@@ -116,7 +117,7 @@ describe('WorkoutPlanCard', () => {
 
     expect(screen.getByText('Training plan')).toBeInTheDocument();
     expect(screen.getByText('Parkrun PB')).toBeInTheDocument();
-    expect(screen.getByText('2026-11-14')).toBeInTheDocument();
+    expect(screen.getByText('Nov 14, 2026')).toBeInTheDocument();
     expect(screen.getByText('mostly easy with two hard days')).toBeInTheDocument();
     expect(screen.getByText(/chosen by your human coach/)).toBeInTheDocument();
   });
@@ -187,6 +188,36 @@ describe('WorkoutPlanCard', () => {
   it('says how many weeks the plan still holds beyond the card', () => {
     render(<WorkoutPlanCard plan={plan()} />);
     expect(screen.getByText(/4 more weeks in the plan/)).toBeInTheDocument();
+  });
+
+  // The card printed « 2026-09-15 » and « run » / « rest » under French
+  // chrome (carnet#1191): every date is a date in the athlete's language, and
+  // a sport is its catalogue word.
+  it('reads dates and sports in the athlete\'s language, never the wire spelling', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      const { container } = render(<WorkoutPlanCard plan={plan()} />);
+
+      expect(screen.getByText('14 nov. 2026')).toBeInTheDocument();
+      expect(screen.getByText(/14 sept\. 2026 → 16 nov\. 2026/)).toBeInTheDocument();
+      const session = screen.getByText('4 x 8 min at threshold').closest('tr');
+      expect(session).not.toBeNull();
+      expect(within(session as HTMLElement).getByText('mar. 15 sept.')).toBeInTheDocument();
+      expect(within(session as HTMLElement).getByText('Course')).toBeInTheDocument();
+      // A rest day names no sport: its one word is the day.
+      const rest = screen.getByText('Repos').closest('tr');
+      expect(rest).not.toBeNull();
+      expect(rest?.textContent).toBe('jeu. 17 sept.Repos');
+      // The week that is not named reads its Monday as a date.
+      expect(screen.getByText('14 septembre')).toBeInTheDocument();
+
+      expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+      for (const raw of ['run', 'rest']) {
+        expect(screen.queryByText(raw)).toBeNull();
+      }
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('never leaks a field name to the page', () => {

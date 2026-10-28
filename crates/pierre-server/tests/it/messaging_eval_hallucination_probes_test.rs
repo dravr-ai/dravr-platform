@@ -243,6 +243,7 @@ fn probe_providerless_check_does_not_flag_a_real_ride() {
         distance_km: Some(km),
         duration_min: min,
         elevation_m: None,
+        average_hr_bpm: None,
     };
     let record = AthleteRecord {
         has_provider: true,
