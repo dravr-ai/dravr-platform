@@ -137,6 +137,8 @@ pub const COACH_SEAT_ERROR_CODE: &str = "coach_seat_withheld";
 pub const ATHLETE_THREAD_ERROR_CODE: &str = "athlete_thread_withheld";
 
 /// Whether `tool_name` is withheld while the sender holds the coach's seat.
+///
+/// LIMITATION(registre#1244): `is_withheld_on_coach_seat` withholds `get_training_plan` in a group the sender coaches, and nothing there points the coach at the athlete's plan thread or their own conversation with Dravr, where they can read that athlete's plan.
 fn is_withheld_on_coach_seat(registry: &ToolRegistry, tool_name: &str) -> bool {
     let Some(tool) = registry.get(tool_name) else {
         return false;
