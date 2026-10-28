@@ -2415,6 +2415,13 @@
       "oauthStartFailed": "We couldn't start the connection for this provider. Please go back and try again.",
       "generic": "Something went wrong connecting your account. Please request a fresh link from your chat.",
       "importTombstoned": "This account belonged to a Dravr account that was deleted. Start fresh with it from the Dravr app before connecting it here."
+    },
+    "import": {
+      "detailsInApp": "Open Dravr to see which activities were not imported, and why.",
+      "doneTitle": "Activities imported: {0}",
+      "notImported": "Not imported: {0}",
+      "progress": "{0} of {1} activities read",
+      "stopped": "Import stopped · {0} imported"
     }
   },
   "humanCoach": {

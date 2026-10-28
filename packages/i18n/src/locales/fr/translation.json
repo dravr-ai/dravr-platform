@@ -2415,6 +2415,13 @@
       "oauthStartFailed": "Nous n’avons pas pu démarrer la connexion pour ce service. Reviens en arrière et réessaie.",
       "generic": "Un problème est survenu pendant la connexion de ton compte. Demande un nouveau lien dans ta conversation.",
       "importTombstoned": "Ce compte appartenait à un compte Dravr supprimé. Repars de zéro avec lui depuis l’app Dravr avant de le connecter ici."
+    },
+    "import": {
+      "detailsInApp": "Ouvrez Dravr pour voir quelles activités n'ont pas été importées, et pourquoi.",
+      "doneTitle": "Activités importées : {0}",
+      "notImported": "Non importées : {0}",
+      "progress": "{0} activités lues sur {1}",
+      "stopped": "Import arrêté · {0} importées"
     }
   },
   "humanCoach": {

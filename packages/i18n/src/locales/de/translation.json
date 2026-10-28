@@ -2415,6 +2415,13 @@
       "oauthStartFailed": "Wir konnten die Verbindung zu diesem Dienst nicht starten. Geh zurück und versuche es erneut.",
       "generic": "Beim Verbinden deines Kontos ist etwas schiefgelaufen. Fordere in deinem Chat einen neuen Link an.",
       "importTombstoned": "Dieses Konto gehörte zu einem gelöschten Dravr-Konto. Fang in der Dravr-App damit neu an, bevor du es hier verbindest."
+    },
+    "import": {
+      "detailsInApp": "Öffne Dravr, um zu sehen, welche Aktivitäten nicht importiert wurden und warum.",
+      "doneTitle": "Importierte Aktivitäten: {0}",
+      "notImported": "Nicht importiert: {0}",
+      "progress": "{0} von {1} Aktivitäten gelesen",
+      "stopped": "Import angehalten · {0} importiert"
     }
   },
   "humanCoach": {
