@@ -6,7 +6,8 @@
 
 import React from 'react';
 import { Alert, type AlertButton } from 'react-native';
-import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { GearItem } from '@pierre/shared-types';
 import type { DistanceUnit } from '@pierre/chat-utils';
@@ -138,6 +139,25 @@ describe('GearScreen', () => {
     expect(within(trail).queryByTestId('gear-default-trail')).toBeNull();
     expect(within(trail).queryByTestId('gear-warning-trail')).toBeNull();
     expect(within(trail).getByTestId('gear-delete-trail')).toBeTruthy();
+  });
+
+  // carnet#1212: the count chose its form with an inline `=== 1`, so a new
+  // pair read « 0 activités » to a French athlete.
+  it('counts a new pair\'s activities in the French singular', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const screen = renderScreen();
+      const trail = await screen.findByTestId('gear-trail');
+      expect(trail).toHaveTextContent('0 activité', { exact: false });
+      expect(trail).not.toHaveTextContent('0 activités', { exact: false });
+      expect(screen.getByTestId('gear-road')).toHaveTextContent('41 activités', { exact: false });
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('lists a retired pair apart, with its distance kept and a way back into use', async () => {

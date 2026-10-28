@@ -30,6 +30,7 @@ import {
   sportLabel,
   useDistanceUnit,
 } from '@pierre/ui-logic';
+import { countKey, GEAR_ACTIVITY_COUNT_KEYS } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 import {
   Button,
@@ -190,9 +191,7 @@ function InkAction({ label, onPress, disabled = false, testID }: InkActionProps)
 /** The figures under a pair's name: how many activities, when last used or retired, where it warns. */
 function pairFacts(t: Translate, pair: GearItem, unit: DistanceUnit, language: string): string {
   const facts = [
-    pair.activity_count === 1
-      ? t('gear.activityCountOne', { count: pair.activity_count })
-      : t('gear.activityCountN', { count: pair.activity_count }),
+    t(countKey(pair.activity_count, language, GEAR_ACTIVITY_COUNT_KEYS), { count: pair.activity_count }),
   ];
   if (pair.retired_at !== null) {
     facts.push(t('gear.retiredOn', { date: formatDate(pair.retired_at, language) }));

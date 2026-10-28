@@ -190,6 +190,25 @@ describe('WorkoutPlanCard', () => {
     expect(screen.getByText(/4 more weeks in the plan/)).toBeInTheDocument();
   });
 
+  // carnet#1212: both counts had one plural form, so « 1 more weeks » and
+  // « 1 dures/sem »; countKey now picks the singular.
+  it('reads one deferred week and one hard session in the singular', async () => {
+    const one = plan({ weeks_deferred: 1 });
+    const [build, taper] = one.phases ?? [];
+    one.phases = [{ ...build, hard_sessions_max: 1 }, taper];
+    const { unmount } = render(<WorkoutPlanCard plan={one} />);
+    expect(screen.getByText('1 more week in the plan')).toBeInTheDocument();
+    unmount();
+    await i18n.changeLanguage('fr');
+    try {
+      render(<WorkoutPlanCard plan={one} />);
+      expect(screen.getByText('1 semaine de plus dans le plan')).toBeInTheDocument();
+      expect(screen.getByText(/· 1 dure\/sem/)).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+  });
+
   // The card printed « 2026-09-15 » and « run » / « rest » under French
   // chrome (carnet#1191): every date is a date in the athlete's language, and
   // a sport is its catalogue word.

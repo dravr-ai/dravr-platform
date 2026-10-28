@@ -189,6 +189,17 @@ describe('OnboardingCoachProposalScreen', () => {
     }
   });
 
+  // carnet#1212: the sentence had one plural form, « we logged 1 activities ».
+  it('counts a single logged activity in the singular', async () => {
+    mockGetProposal.mockResolvedValue({
+      ...PROPOSAL,
+      profile: { ...PROPOSAL.profile, total_activities: 1, primary_sport: undefined },
+    });
+    const { findByText } = renderScreen();
+
+    expect(await findByText('Over the last 14 days we logged 1 activity')).toBeTruthy();
+  });
+
   it('writes the profile as one sentence with localized sport and category words', async () => {
     const { findByText, getByText } = renderScreen();
 

@@ -71,7 +71,7 @@ function ThisWeek({ totals }: { totals: VolumeTotals }) {
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-medium text-on-surface">{t(TRAINING_VOLUME_KEY.thisWeek)}</span>
         <span data-testid="home-volume-count" className="text-xs text-on-surface-variant">
-          {activitiesLine(t, totals.activities)}
+          {activitiesLine(t, totals.activities, language)}
         </span>
       </div>
       <dl className="mt-2 grid grid-cols-3 gap-3">

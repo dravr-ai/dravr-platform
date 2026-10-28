@@ -10,8 +10,7 @@ import { AlertTriangle, Flag, PenLine } from 'lucide-react';
 import clsx from 'clsx';
 import type { ClaimVerdict, CoachReply, ReplyFlagReason } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
-import { countKey, VERDICT_STATUS_LABEL_KEY } from '@pierre/shared-constants';
-import type { CountKeys } from '@pierre/shared-constants';
+import { countKey, VERDICT_STATUS_LABEL_KEY, WEEK_CORRECTED_KEYS, WEEK_FLAGGED_KEYS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 import { coachRepliesApi } from '../../services/api';
@@ -35,10 +34,6 @@ const REASON_LABEL_KEY: Record<ReplyFlagReason, string> = {
   off_tone: 'coachReview.reasonOffTone',
 };
 const REASONS = Object.keys(REASON_LABEL_KEY) as ReplyFlagReason[];
-
-/** This week's flag and correction counts, singular and plural. */
-const WEEK_FLAGGED_KEYS: CountKeys = { one: 'coachReview.weekFlaggedOne', many: 'coachReview.weekFlaggedN' };
-const WEEK_CORRECTED_KEYS: CountKeys = { one: 'coachReview.weekCorrectedOne', many: 'coachReview.weekCorrectedN' };
 
 /** A verdict chip's tone: how alarming its status is. */
 function chipTone(status: ClaimVerdict['status']): string {

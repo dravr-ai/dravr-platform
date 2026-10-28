@@ -29,6 +29,7 @@ import {
   sportLabel,
   useDistanceUnit,
 } from '@pierre/ui-logic';
+import { countKey, GEAR_ACTIVITY_COUNT_KEYS } from '@pierre/shared-constants';
 import { Badge, Button, Checkbox, ConfirmDialog, Input, Section, Select } from '../ui';
 import { useGearChanges, useGearLedger } from '../../hooks/useGear';
 import { GearWarning } from './GearWarning';
@@ -139,10 +140,7 @@ function GearForm({ initial, submitLabel, busyLabel, isPending, onSubmit, onCanc
 function PairFacts({ pair }: { pair: GearItem }) {
   const { t, language } = useTranslation();
   const unit = useDistanceUnit();
-  const count =
-    pair.activity_count === 1
-      ? t('gear.activityCountOne', { count: pair.activity_count })
-      : t('gear.activityCountN', { count: pair.activity_count });
+  const count = t(countKey(pair.activity_count, language, GEAR_ACTIVITY_COUNT_KEYS), { count: pair.activity_count });
   return (
     <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-on-surface-variant">
       <span>{count}</span>

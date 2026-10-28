@@ -49,7 +49,7 @@ function capValue(max: number | null): string {
  * shared label.
  */
 export default function NotificationSettingsTab() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   // The dot takes the hue paired with the athlete's scheme: the map is total,
   // so a category never falls back to the text ink.
   const { scheme } = useTheme();
@@ -153,7 +153,7 @@ export default function NotificationSettingsTab() {
                     data-testid={`notification-pref-cap-${pref.category}`}
                     options={NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => ({
                       value: capValue(choice),
-                      label: notificationCapLabel(choice, t),
+                      label: notificationCapLabel(choice, t, language),
                     }))}
                     onChange={(e) =>
                       updatePreference(

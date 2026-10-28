@@ -48,11 +48,11 @@ jest.mock('../src/services/api', () => ({
 import { GroupTranscriptSection } from '../src/screens/groups/GroupTranscriptSection';
 import { groupsApi } from '../src/services/api';
 
-function renderSection(coachName: string | null = null) {
+function renderSection() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   return render(
     <QueryClientProvider client={client}>
-      <GroupTranscriptSection groupId="group-1" coachName={coachName} />
+      <GroupTranscriptSection groupId="group-1" />
     </QueryClientProvider>,
   );
 }
@@ -112,8 +112,10 @@ describe('GroupTranscriptSection', () => {
     expect(queryByText('Marie')).toBeNull();
   });
 
-  // The correction did not say which coach wrote it (carnet#1191).
-  it('names the group\'s coach over a correction once the group names one', async () => {
+  // The correction did not say which coach wrote it (carnet#1191); each one
+  // names the coach who wrote it, so after a reassignment the old correction
+  // keeps the old coach's name (carnet#1211).
+  it('names each correction after the coach who wrote it, across a coach reassignment', async () => {
     (groupsApi.getTranscript as jest.Mock).mockResolvedValueOnce({
       group_id: 'group-1',
       members: [],
@@ -128,15 +130,30 @@ describe('GroupTranscriptSection', () => {
           content: 'Marie, ta sortie faisait 18 km.',
           message_id: null,
           corrects: { entry_id: 'entry-2', message_id: null, excerpt: 'Oui, allure facile.' },
+          corrector: { user_id: 'coach-camille', display_name: 'Camille' },
           created_at: '2026-01-15T12:05:00Z',
+        },
+        {
+          id: 'entry-5',
+          speaker: 'correction',
+          withheld: false,
+          own: false,
+          author_user_id: 'user-marie',
+          author_display_name: 'Marie',
+          content: 'Marie, garde jeudi facile.',
+          message_id: null,
+          corrects: { entry_id: 'entry-2', message_id: null, excerpt: 'Oui, allure facile.' },
+          corrector: { user_id: 'coach-dana', display_name: 'Dana' },
+          created_at: '2026-01-16T12:05:00Z',
         },
       ],
     } satisfies GroupTranscriptResponse);
-    const { getByText } = renderSection('Camille');
+    const { getByText } = renderSection();
 
     await waitFor(() => {
       expect(getByText('Correction from Camille for Marie')).toBeTruthy();
     });
+    expect(getByText('Correction from Dana for Marie')).toBeTruthy();
   });
 });
 

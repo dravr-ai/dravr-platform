@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
 import { UnitsContext, useVolumeSportFilter } from '@pierre/ui-logic';
+import { i18n } from '@pierre/i18n';
 import { useTrainingVolume } from '../../../hooks/useHome';
 import { HomeVolume } from '../HomeVolume';
 
@@ -153,6 +154,21 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Oct 5: 1h 30m');
     // One sport: nothing to choose between.
     expect(screen.queryByRole('group', { name: 'Sport' })).not.toBeInTheDocument();
+  });
+
+  // carnet#1212: the count chose its form with an inline `=== 1`, so a quiet
+  // week read « 0 activités » to a French athlete.
+  it('counts a quiet week in the French singular', async () => {
+    api.getTrainingVolume.mockResolvedValue(
+      volume({ weeks: [{ week_start: '2026-09-28', sports: [RUN] }, { week_start: '2026-10-05', sports: [] }] }),
+    );
+    await i18n.changeLanguage('fr');
+    try {
+      renderVolume();
+      expect(await screen.findByTestId('home-volume-count')).toHaveTextContent(/^0 activité$/);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('says in words that one week is not yet a trend', async () => {

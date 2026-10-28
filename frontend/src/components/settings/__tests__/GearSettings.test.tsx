@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { GearItem } from '@pierre/shared-types';
 import { UnitsContext } from '@pierre/ui-logic';
+import { i18n } from '@pierre/i18n';
 import type { DistanceUnit } from '@pierre/chat-utils';
 import GearSettings from '../GearSettings';
 
@@ -98,6 +99,20 @@ describe('GearSettings', () => {
     expect(trail).toHaveTextContent('Pinned');
     expect(within(trail).queryByTestId('gear-warning-trail')).not.toBeInTheDocument();
     expect(within(trail).getByTestId('gear-delete-trail')).toBeInTheDocument();
+  });
+
+  // carnet#1212: the count chose its form with an inline `=== 1`, so a new
+  // pair read « 0 activités » to a French athlete.
+  it('counts a new pair\'s activities in the French singular', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      renderPane();
+      expect(await screen.findByTestId('gear-trail')).toHaveTextContent('0 activité');
+      expect(screen.getByTestId('gear-trail')).not.toHaveTextContent('0 activités');
+      expect(screen.getByTestId('gear-road')).toHaveTextContent('41 activités');
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('lists a retired pair apart, with its distance kept and a way back into use', async () => {

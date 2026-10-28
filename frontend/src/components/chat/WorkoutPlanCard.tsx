@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
+import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
 import type {
   PlanDay,
@@ -42,13 +43,13 @@ function stepText(step: PlanStep): string {
  * The current phase's rhythm — its intent, then the weekly hours and hard
  * sessions the kernel set for it — as one line under the timeline.
  */
-function phaseSummary(phase: PlanPhase, t: TFunction): string {
+function phaseSummary(phase: PlanPhase, t: TFunction, language: string): string {
   const parts = [phase.intent || phase.purpose];
   if (phase.target_hours !== undefined) {
     parts.push(t('plan.card.hoursPerWeek', { hours: phase.target_hours }));
   }
   if (phase.hard_sessions_max !== undefined) {
-    parts.push(t('plan.card.hardPerWeek', { count: phase.hard_sessions_max }));
+    parts.push(t(countKey(phase.hard_sessions_max, language, PLAN_HARD_PER_WEEK_KEYS), { count: phase.hard_sessions_max }));
   }
   return parts.filter((part) => part.length > 0).join(' · ');
 }
@@ -116,7 +117,7 @@ function Season({ plan }: { plan: WorkoutPlan }) {
             ))}
           </ol>
           {current && (
-            <p className="mt-1.5 text-xs text-on-surface-variant">{phaseSummary(current, t)}</p>
+            <p className="mt-1.5 text-xs text-on-surface-variant">{phaseSummary(current, t, language)}</p>
           )}
         </>
       )}
@@ -279,7 +280,7 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
 
       {plan.weeks_deferred > 0 && (
         <div className="border-t ghost-border-faint px-3 py-2 text-xs text-on-surface-variant">
-          {t('plan.card.moreWeeks', { count: plan.weeks_deferred })}
+          {t(countKey(plan.weeks_deferred, language, PLAN_MORE_WEEKS_KEYS), { count: plan.weeks_deferred })}
         </div>
       )}
 

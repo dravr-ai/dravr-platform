@@ -25,7 +25,7 @@ import { Section, Row } from '../../components/ui';
 import type { StoreAgent, StoreAgentDetail } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate } from '@pierre/chat-utils';
-import { coachCategoryLabelKey } from '@pierre/shared-constants';
+import { coachCategoryLabelKey, countKey, INSTALL_COUNT_KEYS } from '@pierre/shared-constants';
 
 /**
  * The athlete's installation of a listing, if any. The installations endpoint
@@ -250,9 +250,7 @@ export function StoreCoachDetailScreen() {
             </Text>
           </View>
           <Text testID="install-count" className="text-sm text-text-secondary">
-            {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
-              count: coach.install_count,
-            })}
+            {t(countKey(coach.install_count, language, INSTALL_COUNT_KEYS), { count: coach.install_count })}
           </Text>
         </View>
 

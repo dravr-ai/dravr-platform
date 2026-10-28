@@ -10,6 +10,14 @@ import {
   type ArchiveImport,
   type ImportLinkRefusal,
 } from '@pierre/shared-types';
+import {
+  countKey,
+  IMPORT_COMPLETED_KEYS,
+  IMPORT_DELETE_CONFIRM_ACTION_KEYS,
+  IMPORT_DELETE_CONFIRM_BODY_KEYS,
+  IMPORT_HISTORY_LINE_KEYS,
+  IMPORT_STOPPED_KEYS,
+} from '@pierre/shared-constants';
 
 /** How long an import may wait for its link before its line asks whether Strava is late. */
 export const AWAITING_LINK_LATE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -64,13 +72,29 @@ export function importStateCopy(entry: ArchiveImport, locale: string, now = Date
     case 'completed':
       if (!entry.history_held) return { key: 'providers.import.strava.deleted' };
       return {
-        key: 'providers.import.state.completed',
+        key: countKey(entry.imported, locale, IMPORT_COMPLETED_KEYS),
         values: { count: entry.imported, date: importDate(entry.finished_at, locale) },
       };
     case 'failed':
     case 'cancelled':
-      return { key: 'providers.import.state.stopped', values: { count: entry.imported } };
+      return { key: countKey(entry.imported, locale, IMPORT_STOPPED_KEYS), values: { count: entry.imported } };
   }
+}
+
+/** The import screen's history line for a completed import: how many activities it holds, and when it landed. */
+export function importHistoryCopy(entry: ArchiveImport, locale: string): CopyLine {
+  return {
+    key: countKey(entry.imported, locale, IMPORT_HISTORY_LINE_KEYS),
+    values: { count: entry.imported, date: importDate(entry.finished_at, locale) },
+  };
+}
+
+/** The confirmation before `count` imported activities are deleted: its body and its action's label. */
+export function importDeleteCopy(count: number, locale: string): { body: CopyLine; action: CopyLine } {
+  return {
+    body: { key: countKey(count, locale, IMPORT_DELETE_CONFIRM_BODY_KEYS), values: { count } },
+    action: { key: countKey(count, locale, IMPORT_DELETE_CONFIRM_ACTION_KEYS), values: { count } },
+  };
 }
 
 /** What the Strava import screen shows, from its latest import. */

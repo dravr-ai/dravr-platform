@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for GET /internal/conversation-turn/{turn_id} admin endpoint
-// ABOUTME: Covers happy path, 404, auth failure, non-admin rejection, and cross-tenant isolation
+// ABOUTME: Covers happy path, cache-write split, 404, auth failure, non-admin rejection, cross-tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -350,6 +350,66 @@ async fn returns_full_turn_summary_for_admin() -> Result<()> {
     // end-to-end turn time including tool execution between calls —
     // NOT the sum of per-call latencies (500 + 501 + 502 = 1503).
     assert_eq!(body["total_latency_ms"].as_i64().unwrap(), 3912);
+
+    Ok(())
+}
+
+/// The 1-hour share of a call's cache write bills at 2x input on Anthropic
+/// against 1.25x for the 5-minute share, so the per-turn view carries it
+/// apart from the total: a turn that wrote 7 000 tokens costs a different
+/// amount depending on how many of them went to the 1-hour cache.
+#[tokio::test]
+#[serial]
+async fn llm_call_carries_one_hour_cache_write_split() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (user_id, tenant_id, auth) =
+        create_admin_user_and_token(&resources, "turn-cache-1h@test.com").await;
+    let tenant_str = tenant_id.to_string();
+    let user_str = user_id.to_string();
+    let turn = ConversationTurnId::new();
+
+    resources
+        .common
+        .repos
+        .llm_usage
+        .insert_llm_usage(&InsertLlmUsage {
+            tenant_id: &tenant_str,
+            user_id: &user_str,
+            conversation_id: Some("conv-cache"),
+            turn_id: turn,
+            provider: "anthropic",
+            model: "claude-sonnet-4-5",
+            prompt_tokens: 9_000,
+            completion_tokens: 300,
+            total_tokens: 9_300,
+            cached_tokens: 1_000,
+            cached_write_tokens: 7_000,
+            cached_write_1h_tokens: 5_000,
+            reasoning_tokens: 0,
+            call_type: "chat",
+            tool_calls_count: 0,
+            tools_called: "[]",
+            execution_time_ms: Some(800),
+            cost_usd: 0.0,
+            call_sequence: Some(1),
+        })
+        .await?;
+
+    let response = AxumTestRequest::get(&format!("/internal/conversation-turn/{turn}"))
+        .header("authorization", &auth)
+        .send(build_router(resources))
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let body: Value = response.json();
+    let call = &body["llm_calls"][0];
+    assert_eq!(call["cached_tokens"].as_i64(), Some(1_000));
+    assert_eq!(call["cached_write_tokens"].as_i64(), Some(7_000));
+    assert_eq!(
+        call["cached_write_1h_tokens"].as_i64(),
+        Some(5_000),
+        "the 1-hour cache-write share must round-trip through the endpoint: {call}"
+    );
 
     Ok(())
 }

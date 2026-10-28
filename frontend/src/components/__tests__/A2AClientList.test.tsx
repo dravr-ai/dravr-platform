@@ -181,3 +181,32 @@ describe('A2AClientList usage panel', () => {
     expect(screen.queryByText('Last Request:')).not.toBeInTheDocument();
   });
 });
+
+// carnet#1212: the description had one plural form, « 1 total apps ».
+describe('A2AClientList count', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getA2AClientUsage.mockResolvedValue(usage);
+    getA2AClientRateLimit.mockResolvedValue(budget());
+  });
+
+  it('counts one connected app in the singular, and two in the plural', async () => {
+    getA2AClients.mockResolvedValue([client]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <A2AClientList />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('1 total app')).toBeInTheDocument();
+    unmount();
+
+    getA2AClients.mockResolvedValue([client, { ...client, id: 'second', name: 'Second app' }]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <A2AClientList />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('2 total apps')).toBeInTheDocument();
+  });
+});

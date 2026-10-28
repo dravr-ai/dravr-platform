@@ -81,6 +81,26 @@ describe('ApiKeysSettings', () => {
     expect(screen.queryByTestId('api-key-k0')).not.toBeInTheDocument();
   });
 
+  // carnet#1212: the line had one plural form, « 1 requests ».
+  it('counts a single request in the singular', async () => {
+    usage.mockResolvedValue({
+      stats: {
+        api_key_id: 'k1',
+        period_start: '2026-08-29T00:00:00Z',
+        period_end: '2026-09-28T00:00:00Z',
+        total_requests: 1,
+        successful_requests: 1,
+        failed_requests: 0,
+        total_response_time_ms: 10,
+        tools: [],
+      },
+    });
+    renderPane();
+
+    const row = await screen.findByTestId('api-key-k1');
+    expect(await within(row).findByText('1 request in the last 30 days')).toBeInTheDocument();
+  });
+
   it("lists the tools a key called, most-called first, with each one's count", async () => {
     usage.mockResolvedValue({
       stats: {

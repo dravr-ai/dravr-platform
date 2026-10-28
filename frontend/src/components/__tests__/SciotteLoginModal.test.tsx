@@ -2,28 +2,48 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for SciotteLoginModal's server-driven timeout copy and its busy-scraper retry wait
-// ABOUTME: Covers formatTimeout (minutes vs seconds) and the retry honouring the refusal's details.retry_after_secs
+// ABOUTME: Covers formatTimeout (minutes vs seconds, in the reader's language) and the retry honouring the refusal's details.retry_after_secs
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { AxiosInstance } from 'axios'
 import { createOAuthApi } from '@pierre/api-client'
+import { i18n } from '@pierre/i18n'
 import { formatTimeout } from '../sciotteLoginCopy'
 
 describe('formatTimeout', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en')
+  })
+
+  const en = (secs: number | null) => formatTimeout(secs, i18n.t, 'en')
+
   it('renders short budgets in seconds', () => {
-    expect(formatTimeout(30)).toBe('30 seconds')
-    expect(formatTimeout(89)).toBe('89 seconds')
+    expect(en(30)).toBe('30 seconds')
+    expect(en(89)).toBe('89 seconds')
+    expect(en(1)).toBe('1 second')
   })
 
   it('collapses budgets >= 90s into whole minutes', () => {
-    expect(formatTimeout(240)).toBe('4 minutes')
-    expect(formatTimeout(210)).toBe('4 minutes')
-    expect(formatTimeout(180)).toBe('3 minutes')
+    expect(en(240)).toBe('4 minutes')
+    expect(en(210)).toBe('4 minutes')
+    expect(en(180)).toBe('3 minutes')
   })
 
   it('switches units at the 90s boundary', () => {
-    expect(formatTimeout(90)).toBe('2 minutes')
-    expect(formatTimeout(60)).toBe('60 seconds')
+    expect(en(90)).toBe('2 minutes')
+    expect(en(60)).toBe('60 seconds')
+  })
+
+  it('names an unknown budget without a number', () => {
+    expect(en(null)).toBe('a few minutes')
+  })
+
+  it('speaks the reader language, never English inside a French sentence', async () => {
+    await i18n.changeLanguage('fr')
+    expect(formatTimeout(180, i18n.t, 'fr')).toBe('3 minutes')
+    expect(formatTimeout(45, i18n.t, 'fr')).toBe('45 secondes')
+    expect(formatTimeout(0, i18n.t, 'fr')).toBe('0 seconde')
+    expect(formatTimeout(null, i18n.t, 'fr')).toBe('quelques minutes')
   })
 })
 

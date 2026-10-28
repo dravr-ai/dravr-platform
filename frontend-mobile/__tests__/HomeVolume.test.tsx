@@ -5,7 +5,8 @@
 // ABOUTME: Red if a week the server did not send is drawn, a filter leaks another sport's figures, or nothing stored reads as zeros
 
 import React from 'react';
-import { fireEvent, render, within } from '@testing-library/react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import type { TrainingVolumeResponse } from '@pierre/shared-types';
 import { UnitsContext, useVolumeSportFilter } from '@pierre/ui-logic';
 import { HomeVolume } from '../src/screens/home/HomeVolume';
@@ -112,6 +113,26 @@ describe('HomeVolume', () => {
     expect(screen.getByTestId('home-volume-trend-label')).toHaveTextContent('Time per week, last 2 weeks');
     expect(screen.getByTestId('home-volume-readout')).toHaveTextContent('Week of Sep 21: 1h 30m');
     expect(screen.queryByTestId('home-volume-filter')).toBeNull();
+  });
+
+  // carnet#1212: the count chose its form with an inline `=== 1`, so a quiet
+  // week read « 0 activités » to a French athlete.
+  it('counts a quiet week in the French singular', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const screen = renderVolume({
+        today: '2026-09-24',
+        weeks: [VOLUME_RESPONSE.weeks[0], VOLUME_RESPONSE.weeks[1], { week_start: '2026-09-21', sports: [] }],
+        garmin_contribution: null,
+      });
+      expect(screen.getByTestId('home-volume-count')).toHaveTextContent('0 activité');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('says in words that one week is not yet a trend', () => {

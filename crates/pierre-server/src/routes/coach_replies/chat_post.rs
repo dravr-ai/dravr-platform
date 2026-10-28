@@ -33,15 +33,38 @@ use crate::services::group_chat_poster::ServerGroupChatPoster;
 /// athlete read the reply.
 pub(super) async fn post(
     resources: &ServerContext,
-    tenant_id: TenantId,
     coach_user_id: Uuid,
     outcome: &CorrectionOutcome,
 ) -> bool {
     let repos = &resources.common.repos;
+    let poster = ServerGroupChatPoster::from_repos(Arc::clone(repos));
+    post_through(
+        repos,
+        &resources.mcp.messaging_strings_registry,
+        poster.as_ref(),
+        coach_user_id,
+        outcome,
+    )
+    .await
+}
+
+/// [`post`] through `poster`, the seam that lets a test see what reaches the
+/// chat without a channel API.
+async fn post_through(
+    repos: &RepositoryRegistry,
+    registry: &MessagingStringsRegistry,
+    poster: &dyn GroupChatPoster,
+    coach_user_id: Uuid,
+    outcome: &CorrectionOutcome,
+) -> bool {
     let group_id = outcome.reply.group_id;
+    // The id alone finds the group: `get_group`'s tenant filters nothing, since
+    // groups are cross-tenant. What must be the group's side, never the
+    // coach's — whose tenant is another when an athlete's group invited them
+    // (carnet#1210) — is the session read and the chat post below.
     let group = match repos
         .groups
-        .get_group(&group_id.to_string(), tenant_id)
+        .get_group(&group_id.to_string(), outcome.reply.group_tenant_id)
         .await
     {
         Ok(Some(group)) => group,
@@ -63,10 +86,9 @@ pub(super) async fn post(
         return false;
     };
     let locale = resolve_user_locale(repos.users.as_ref(), outcome.reply.athlete_user_id).await;
-    let poster = ServerGroupChatPoster::from_repos(Arc::clone(repos));
     post_into_group_chat(
-        poster.as_ref(),
-        &resources.mcp.messaging_strings_registry,
+        poster,
+        registry,
         &group,
         &locale,
         ChatNames {
@@ -226,8 +248,12 @@ mod tests {
     use async_trait::async_trait;
     use chrono::Utc;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
-    use pierre_core::models::CoachReplyCorrection;
+    use pierre_core::models::{CoachReplyCorrection, Tenant};
     use pierre_core::transport::TransportPolicy;
+    use pierre_database::backends::CreateSessionParams;
+    use pierre_test_support::db::create_test_db;
+    use pierre_test_support::delegation::create_group_agent;
+    use pierre_test_support::server::create_test_user;
     use serde_json::json;
 
     use super::*;
@@ -285,6 +311,7 @@ mod tests {
                 entry_id,
                 group_id: Uuid::new_v4(),
                 group_name: "Marathon block".to_owned(),
+                group_tenant_id: TenantId::generate(),
                 conversation_tenant_id: Uuid::new_v4().to_string(),
                 athlete_user_id: Uuid::new_v4(),
                 athlete_name: Some("Paul".to_owned()),
@@ -410,5 +437,123 @@ mod tests {
             &session("telegram", Some("-100123")),
             &group(None)
         ));
+    }
+
+    /// A stored account named `name`, owning a tenant of its own, as signing
+    /// up leaves every account.
+    async fn account(repos: &RepositoryRegistry, name: &str) -> (Uuid, TenantId) {
+        let user = create_test_user(
+            &format!("{}@review.test", Uuid::new_v4()),
+            Some(name.to_owned()),
+        );
+        let user_id = repos.users.create(&user).await.expect("account");
+        let tenant_id = TenantId::generate();
+        repos
+            .tenants
+            .create(&Tenant {
+                id: tenant_id,
+                name: format!("{name}'s tenant"),
+                slug: format!("tenant-{tenant_id}"),
+                domain: None,
+                plan: "professional".to_owned(),
+                owner_user_id: user_id,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+            .await
+            .expect("tenant");
+        repos
+            .users
+            .update_tenant_id(user_id, tenant_id)
+            .await
+            .expect("account tenant");
+        (user_id, tenant_id)
+    }
+
+    /// An athlete's group, in the athlete's tenant, bound to a Telegram chat
+    /// and coached by a coach whose own tenant is another (carnet#1210): the
+    /// agent's reply was sent in that chat, and the coach's correction must
+    /// reach it. Reading the reply's session under the coach's tenant finds
+    /// nothing, so the correction would silently stay in the group thread, and
+    /// posting under it would reach another tenant's channel config.
+    #[tokio::test]
+    async fn a_correction_reaches_the_chat_of_a_group_in_the_athletes_tenant() {
+        const CHAT: &str = "-100777";
+        let db = create_test_db().await.expect("test database");
+        let repos = db.repositories();
+        // Every account is its own tenant: the coach's is not the group's.
+        let (coach_id, coach_tenant) = account(repos, "Coach Marie").await;
+        let (athlete_id, athlete_tenant) = account(repos, "Paul").await;
+        assert_ne!(coach_tenant, athlete_tenant);
+
+        let agent_id = create_group_agent(repos, athlete_id, athlete_tenant)
+            .await
+            .expect("agent");
+        let mut athletes_group = group(Some(("telegram", CHAT)));
+        athletes_group.tenant_id = athlete_tenant.to_string();
+        athletes_group.agent_id = agent_id;
+        athletes_group.owner_id = athlete_id;
+        athletes_group.coach_user_id = Some(coach_id);
+        let athletes_group = repos
+            .groups
+            .create_group(athlete_tenant, &athletes_group)
+            .await
+            .expect("group");
+
+        // The athlete's conversation is the session of the group's chat: the
+        // reply was sent there.
+        let conversation = repos
+            .chat
+            .create_conversation(
+                &athlete_id.to_string(),
+                athlete_tenant,
+                "group chat",
+                "model",
+                None,
+                None,
+            )
+            .await
+            .expect("conversation");
+        repos
+            .messaging
+            .create_session(&CreateSessionParams {
+                id: &Uuid::new_v4().to_string(),
+                user_id: &athlete_id.to_string(),
+                tenant_id: athlete_tenant,
+                channel_type: "telegram",
+                channel_user_id: "4242",
+                channel_conversation_id: Some(CHAT),
+                pierre_conversation_id: Some(&conversation.id),
+            })
+            .await
+            .expect("session");
+
+        let mut correction = outcome();
+        correction.reply.group_id = athletes_group.id;
+        correction.reply.group_tenant_id = athlete_tenant;
+        correction.reply.conversation_tenant_id = athlete_tenant.to_string();
+        correction.reply.athlete_user_id = athlete_id;
+        correction.reply.conversation_id = Some(conversation.id.clone());
+
+        let poster = RecordingPoster::default();
+        let reached_chat = post_through(repos, &registry(), &poster, coach_id, &correction).await;
+        assert!(
+            reached_chat,
+            "the correction must reach the chat of a group the coach's tenant does not own"
+        );
+        let posts = poster.posts.lock().unwrap();
+        assert_eq!(posts.len(), 1);
+        let (tenant, channel, chat_id, text) = &posts[0];
+        assert_eq!(*tenant, athlete_tenant, "posted under the group's tenant");
+        assert_ne!(*tenant, coach_tenant);
+        assert_eq!(*channel, ChannelType::Telegram);
+        assert_eq!(chat_id, CHAT);
+        // Named and quoted in the athlete's locale, whatever its wording.
+        assert!(
+            text.contains("Coach Marie")
+                && text.contains("Paul")
+                && text.contains(&correction.correction.content),
+            "{text}"
+        );
     }
 }

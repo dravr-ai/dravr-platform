@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { GroupTranscriptResponse } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
@@ -17,11 +17,11 @@ vi.mock('../../../services/api', () => ({
   groupsApi: { getTranscript: (...a: unknown[]) => getTranscript(...a) },
 }));
 
-function renderPanel(coachName: string | null = null) {
+function renderPanel() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <GroupTranscriptPanel groupId="group-1" coachName={coachName} />
+      <GroupTranscriptPanel groupId="group-1" />
     </QueryClientProvider>,
   );
 }
@@ -144,6 +144,8 @@ describe('GroupTranscriptPanel', () => {
           content: 'Bob, that was a half marathon.',
           message_id: null,
           corrects: { entry_id: 'e0', message_id: 'bob-msg', excerpt: 'Your marathon in May' },
+          // The coach who wrote it is gone (deleted account): no name to show.
+          corrector: null,
           created_at: '2026-10-09T12:00:00Z',
         },
       ],
@@ -154,12 +156,38 @@ describe('GroupTranscriptPanel', () => {
     expect(await screen.findByText('Bob, that was a half marathon.')).toBeInTheDocument();
     expect(screen.getByText("Human coach's correction for Bob")).toBeInTheDocument();
     expect(screen.queryByText('Bob')).not.toBeInTheDocument();
+  });
 
-    // The group names its coach, and the correction then says who wrote it
-    // (carnet#1191).
-    cleanup();
-    renderPanel('Camille');
+  // Each correction names the coach who wrote it (carnet#1191), not the
+  // group's current coach: after a reassignment the old one keeps the old
+  // name (carnet#1211).
+  it('names each correction after the coach who wrote it, across a coach reassignment', async () => {
+    const correction = (id: string, coach: string, at: string) => ({
+      id,
+      speaker: 'correction' as const,
+      withheld: false,
+      own: false,
+      author_user_id: 'user-bob',
+      author_display_name: 'Bob',
+      content: `${coach}: noted.`,
+      message_id: null,
+      corrects: { entry_id: 'e0', message_id: 'bob-msg', excerpt: 'Your marathon in May' },
+      corrector: { user_id: `user-${coach}`, display_name: coach },
+      created_at: at,
+    });
+    getTranscript.mockResolvedValue({
+      group_id: 'group-1',
+      members: [],
+      entries: [
+        correction('e1', 'Camille', '2026-10-09T12:00:00Z'),
+        correction('e2', 'Dana', '2026-10-10T12:00:00Z'),
+      ],
+    } satisfies GroupTranscriptResponse);
+
+    renderPanel();
+
     expect(await screen.findByText('Correction from Camille for Bob')).toBeInTheDocument();
+    expect(screen.getByText('Correction from Dana for Bob')).toBeInTheDocument();
   });
 });
 

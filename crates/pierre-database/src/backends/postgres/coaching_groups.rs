@@ -9,8 +9,8 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, CorrectedReply, GroupDigestMode, GroupInvite, GroupInviteKind,
     GroupMember, GroupRespondMode, GroupRole, GroupSetupTimeline, GroupSummary,
-    GroupTranscriptEntry, NewGroupTranscriptEntry, RoomEntryBody, RoomTranscriptEntry,
-    SharedRoomEntry, TranscriptSpeaker, UpdateGroupRequest,
+    GroupTranscriptEntry, NewGroupTranscriptEntry, RoomCorrector, RoomEntryBody,
+    RoomTranscriptEntry, SharedRoomEntry, TranscriptSpeaker, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;

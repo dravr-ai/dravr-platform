@@ -104,6 +104,10 @@ pub struct CoachReply {
     pub group_id: Uuid,
     /// That group's name
     pub group_name: String,
+    /// The tenant that owns the group — the athlete's when they invited the
+    /// coach, so never assumed to be the coach's (carnet#1210). A flag or a
+    /// correction on the reply is written under it.
+    pub group_tenant_id: TenantId,
     /// The tenant of the athlete's conversation the reply was written in —
     /// the tenant its claim verdicts are stored under
     pub conversation_tenant_id: String,
@@ -194,7 +198,8 @@ impl CoachReplyReview {
 /// Everything a new flag row carries.
 #[derive(Debug, Clone, Copy)]
 pub struct NewReplyFlag<'a> {
-    /// The group's tenant, which is the coach's
+    /// The tenant of the group the reply was sent into
+    /// ([`CoachReply::group_tenant_id`]), not the coach's
     pub tenant_id: TenantId,
     /// The group the reply was sent into
     pub group_id: Uuid,
@@ -213,7 +218,8 @@ pub struct NewReplyFlag<'a> {
 /// Everything a new correction carries: its room entry and its review row.
 #[derive(Debug, Clone, Copy)]
 pub struct NewReplyCorrection<'a> {
-    /// The group's tenant, which is the coach's
+    /// The tenant of the group the reply was sent into
+    /// ([`CoachReply::group_tenant_id`]), not the coach's
     pub tenant_id: TenantId,
     /// The group the reply was sent into
     pub group_id: Uuid,

@@ -5,9 +5,10 @@
 
 import React from 'react';
 import { ActionSheetIOS, Alert } from 'react-native';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { EMBEDDED_RESOURCES, i18n } from '@pierre/i18n';
+import { memoryFactCountLabel } from '@pierre/shared-constants';
 
 const mockListMemoryFacts = jest.fn();
 const mockForgetMemoryFact = jest.fn();
@@ -171,6 +172,34 @@ describe('MemoryScreen', () => {
     expect(counts).toHaveLength(2);
     expect(counts[0].props.children).toEqual(i18n.t('shell.memoryFactCountOne', { count: 1 }));
     expect(counts[0].props.className).toContain('font-mono');
+  });
+
+  // carnet#1212: the count chose its form with an inline `=== 1`; it now goes
+  // through memoryFactCountLabel, so the French section reads « 1 info » and
+  // « 2 infos ». A section never holds 0 facts, so the 0 the inline test read
+  // as « 0 infos » is pinned through that same helper, against the corpus.
+  it('counts each section\'s facts in French through memoryFactCountLabel', async () => {
+    mockListMemoryFacts.mockResolvedValueOnce({
+      facts: [createFact(), createFact({ id: 'fact-2' }), createFact({ id: 'fact-3', kind: 'injury' })],
+      total: 3,
+    });
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const { getByTestId } = renderScreen();
+      await waitFor(() => expect(getByTestId('memory-section-injury')).toBeTruthy());
+      const goal = within(getByTestId('memory-section-goal')).getByTestId('memory-fact-count');
+      const injury = within(getByTestId('memory-section-injury')).getByTestId('memory-fact-count');
+      expect(goal.props.children).toBe('2 infos');
+      expect(injury.props.children).toBe('1 info');
+      expect(goal.props.children).toBe(memoryFactCountLabel(i18n.t, 2, 'fr'));
+      expect(memoryFactCountLabel(i18n.t, 0, 'fr')).toBe('0 info');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('shows the sentence the server rendered, verbatim and in the athlete\'s language', async () => {

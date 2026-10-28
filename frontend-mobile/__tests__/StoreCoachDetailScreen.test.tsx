@@ -285,6 +285,25 @@ describe('StoreCoachDetailScreen', () => {
       }
     });
 
+    // carnet#1212: the count chose its form with an inline `=== 1`, so a
+    // listing nobody installed read « 0 utilisateurs ».
+    it('counts the listing\'s users in the French singular for 0', async () => {
+      mockGet.mockResolvedValue(createMockStoreCoachDetail({ install_count: 0 }));
+      await act(async () => {
+        await i18n.changeLanguage('fr');
+      });
+      try {
+        const { getByTestId } = render(<StoreCoachDetailScreen />);
+        await waitFor(() => {
+          expect(getByTestId('install-count').props.children).toBe('0 utilisateur');
+        });
+      } finally {
+        await act(async () => {
+          await i18n.changeLanguage('en');
+        });
+      }
+    });
+
     it('should show error state when agent not found', async () => {
       mockGet.mockResolvedValue(null);
 

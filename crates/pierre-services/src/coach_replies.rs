@@ -23,9 +23,13 @@
 //!
 //! Who may review what is the repository's one rule
 //! ([`pierre_database::repositories::coach_reply_reviews`]): the group's
-//! attached coach, in their own tenant, on replies to a live member who shares
-//! with them. A reply outside it is not found, so a coach cannot tell a reply
-//! to another coach's athlete from one that does not exist.
+//! attached coach, whatever tenant owns the group, on replies to a live member
+//! who shares with them. The coach relationship is the scope, never the
+//! caller's tenant: every account is its own tenant, so an athlete's group
+//! that invited a coach lives in the athlete's tenant (carnet#1210). A flag or
+//! a correction is written under the group's tenant. A reply outside it is
+//! not found, so a coach cannot tell a reply to another coach's athlete from
+//! one that does not exist.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -122,7 +126,7 @@ pub struct CoachReplyView {
 /// One page of the coach's review.
 #[derive(Debug, Serialize)]
 pub struct CoachRepliesPage {
-    /// Every active group the caller coaches in their tenant
+    /// Every active group the caller coaches, whatever tenant owns it
     pub groups: Vec<CoachedGroup>,
     /// Every live athlete of those groups, by name — the athlete filter
     pub athletes: Vec<CoachedAthlete>,
@@ -195,10 +199,9 @@ pub async fn list_replies(
     repos: &RepositoryRegistry,
     corpus: &EvidenceRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
     query: ReplyPageQuery,
 ) -> AppResult<CoachRepliesPage> {
-    let (groups, athletes) = coached_roster(repos, coach_user_id, tenant_id).await?;
+    let (groups, athletes) = coached_roster(repos, coach_user_id).await?;
     let limit = query
         .limit
         .unwrap_or(DEFAULT_PAGE_SIZE)
@@ -207,7 +210,6 @@ pub async fn list_replies(
         .coach_reply_reviews
         .list_coach_replies(
             coach_user_id,
-            tenant_id,
             &CoachReplyFilter {
                 group_id: query.group_id,
                 athlete_user_id: query.athlete_user_id,
@@ -217,7 +219,7 @@ pub async fn list_replies(
         )
         .await?;
 
-    let mut reviews = page_reviews(repos, coach_user_id, tenant_id, &replies).await?;
+    let mut reviews = page_reviews(repos, coach_user_id, &replies).await?;
     // A full page may have more behind it; a short one is the last.
     let next_before = if i64::try_from(replies.len()).unwrap_or(i64::MAX) >= limit {
         replies.last().map(|r| r.entry_id.to_string())
@@ -249,7 +251,6 @@ pub async fn list_replies(
 pub async fn flag_reply(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
     entry_id: Uuid,
     reason: ReplyFlagReason,
     note: Option<&str>,
@@ -260,11 +261,11 @@ pub async fn flag_reply(
             "A flag's note holds at most {MAX_FLAG_NOTE_CHARS} characters"
         )));
     }
-    let reply = reviewable_reply(repos, coach_user_id, tenant_id, entry_id).await?;
+    let reply = reviewable_reply(repos, coach_user_id, entry_id).await?;
     let flag = repos
         .coach_reply_reviews
         .record_flag(&NewReplyFlag {
-            tenant_id,
+            tenant_id: reply.group_tenant_id,
             group_id: reply.group_id,
             coach_user_id,
             athlete_user_id: reply.athlete_user_id,
@@ -277,7 +278,7 @@ pub async fn flag_reply(
         target: "notify",
         event = "coach_reply.flagged",
         user_id = %coach_user_id,
-        tenant_id = %tenant_id,
+        tenant_id = %reply.group_tenant_id,
         group_id = %reply.group_id,
         reason = %reason,
         "a coach flagged one of the agent's group replies"
@@ -296,7 +297,6 @@ pub async fn flag_reply(
 pub async fn correct_reply(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
     entry_id: Uuid,
     content: &str,
 ) -> AppResult<CorrectionOutcome> {
@@ -309,11 +309,11 @@ pub async fn correct_reply(
             "A correction holds at most {MAX_CORRECTION_CHARS} characters"
         )));
     }
-    let reply = reviewable_reply(repos, coach_user_id, tenant_id, entry_id).await?;
+    let reply = reviewable_reply(repos, coach_user_id, entry_id).await?;
     let correction = repos
         .coach_reply_reviews
         .record_correction(&NewReplyCorrection {
-            tenant_id,
+            tenant_id: reply.group_tenant_id,
             group_id: reply.group_id,
             coach_user_id,
             athlete_user_id: reply.athlete_user_id,
@@ -326,7 +326,7 @@ pub async fn correct_reply(
         target: "notify",
         event = "coach_reply.corrected",
         user_id = %coach_user_id,
-        tenant_id = %tenant_id,
+        tenant_id = %reply.group_tenant_id,
         group_id = %reply.group_id,
         "a coach corrected one of the agent's group replies"
     );
@@ -343,7 +343,6 @@ pub async fn correct_reply(
 pub async fn weekly_counts(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
     weeks: Option<u32>,
     now: DateTime<Utc>,
 ) -> AppResult<Vec<CoachReviewWeek>> {
@@ -352,7 +351,7 @@ pub async fn weekly_counts(
     let since = first_monday.and_time(NaiveTime::MIN).and_utc();
     let stamps = repos
         .coach_reply_reviews
-        .list_review_stamps(coach_user_id, tenant_id, since)
+        .list_review_stamps(coach_user_id, since)
         .await?;
     Ok(bucket_weeks(&stamps, first_monday, weeks))
 }
@@ -397,30 +396,34 @@ fn bucket_weeks(
 async fn reviewable_reply(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
     entry_id: Uuid,
 ) -> AppResult<CoachReply> {
     repos
         .coach_reply_reviews
-        .get_coach_reply(coach_user_id, tenant_id, entry_id)
+        .get_coach_reply(coach_user_id, entry_id)
         .await?
         .ok_or_else(|| AppError::not_found("Reply"))
 }
 
-/// The groups the caller coaches in `tenant_id` and their live athletes, by
-/// name. The coach is never listed as their own athlete.
+/// The groups the caller coaches and their live athletes, by name. The coach
+/// is never listed as their own athlete.
+///
+/// A group is the caller's by its `coach_user_id`, whatever tenant owns it:
+/// every account is its own tenant, so an athlete's group that invited the
+/// coach lives in the athlete's tenant, and keeping only the caller's tenant
+/// hid it (carnet#1210). The coach relationship is the access key, as
+/// [`pierre_database::repositories::CoachingGroupRepository::list_groups_coached_by`]
+/// documents.
 async fn coached_roster(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
 ) -> AppResult<(Vec<CoachedGroup>, Vec<CoachedAthlete>)> {
-    let tenant = tenant_id.to_string();
     let groups: Vec<_> = repos
         .groups
         .list_groups_coached_by(coach_user_id)
         .await?
         .into_iter()
-        .filter(|g| g.is_active && g.tenant_id == tenant)
+        .filter(|g| g.is_active)
         .collect();
 
     let mut athletes: HashMap<Uuid, CoachedAthlete> = HashMap::new();
@@ -463,7 +466,6 @@ async fn coached_roster(
 async fn page_reviews(
     repos: &RepositoryRegistry,
     coach_user_id: Uuid,
-    tenant_id: TenantId,
     replies: &[CoachReply],
 ) -> AppResult<HashMap<Uuid, (Vec<CoachReplyFlag>, Vec<CoachReplyCorrection>)>> {
     let (Some(newest), Some(oldest)) = (replies.first(), replies.last()) else {
@@ -471,12 +473,7 @@ async fn page_reviews(
     };
     let reviews = repos
         .coach_reply_reviews
-        .list_reviews_for_window(
-            coach_user_id,
-            tenant_id,
-            oldest.created_at,
-            newest.created_at,
-        )
+        .list_reviews_for_window(coach_user_id, oldest.created_at, newest.created_at)
         .await?;
     // The window can hold replies the page's filter left out; only the page's
     // own are kept.

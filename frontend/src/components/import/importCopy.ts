@@ -6,10 +6,14 @@
 
 import type { TFunction } from '@pierre/i18n';
 import type { ArchiveImport } from '@pierre/shared-types';
-import { importStateCopy } from '@pierre/ui-logic';
+import { importStateCopy, type CopyLine } from '@pierre/ui-logic';
+
+/** One shared copy line, rendered. */
+export function copyText(t: TFunction, line: CopyLine): string {
+  return t(line.key, line.values);
+}
 
 /** The state line of `entry`, in `locale`. */
 export function importStateLine(t: TFunction, entry: ArchiveImport, locale: string): string {
-  const line = importStateCopy(entry, locale);
-  return t(line.key, line.values);
+  return copyText(t, importStateCopy(entry, locale));
 }

@@ -16,7 +16,9 @@
 //! coach sharing) in tenant A; coach Dana coaches Eve in the same tenant; coach
 //! Finn coaches Gus in tenant B. Casey must see Alex's replies and nobody
 //! else's — not Ben's, not her own, not Dana's athlete's, not tenant B's —
-//! and must be refused, as not found, on every reply outside that set.
+//! and must be refused, as not found, on every reply outside that set. A
+//! group lives in its owner's tenant, so a coach also reviews a group an
+//! athlete created in their own tenant and invited them to (carnet#1210).
 
 use crate::common;
 use crate::helpers;
@@ -966,4 +968,348 @@ async fn a_flag_or_correction_out_of_bounds_is_refused() {
     .await;
     assert_eq!(status, 201);
     assert!(flagged["flag"]["note"].is_null());
+}
+
+/// A group `owner` created in their own tenant and invited `coach` to coach —
+/// the shape every athlete-made group has, since every account is its own
+/// tenant. The owner joins sharing with the coach.
+async fn athlete_owned_group(
+    res: &Arc<ServerContext>,
+    owner: &Person,
+    coach: Uuid,
+    name: &str,
+) -> Uuid {
+    let agent = group_agent(res, owner).await;
+    let now = Utc::now();
+    let group = res
+        .common
+        .repos
+        .groups
+        .create_group(
+            owner.tenant,
+            &CoachingGroup {
+                id: Uuid::new_v4(),
+                tenant_id: owner.tenant.to_string(),
+                name: name.to_owned(),
+                description: None,
+                agent_id: agent,
+                owner_id: owner.id,
+                coach_user_id: Some(coach),
+                peer_data_sharing: false,
+                respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
+                max_members: 10,
+                is_active: true,
+                channel_type: None,
+                channel_chat_id: None,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+    join_group(res, group, owner.id, owner.tenant, GroupRole::Owner, true).await;
+    group
+}
+
+/// carnet#1210: a coach sees, flags and corrects in every group they coach,
+/// whatever tenant owns it. Hana's group lives in Hana's tenant and is
+/// coached by Casey, whose tenant is another; Ivy's group lives in Ivy's
+/// tenant and is coached by Finn. Casey reviews Hana's group and never Ivy's,
+/// and Dana, in Casey's own tenant, reviews neither.
+#[tokio::test]
+async fn a_coach_reviews_a_group_owned_in_the_athletes_tenant_and_no_one_elses() {
+    let w = world().await;
+    let (hana, _) = person(&w.res, "hana@review.test", "Hana Athlete").await;
+    let (ivy, _) = person(&w.res, "ivy@review.test", "Ivy Athlete").await;
+    assert_ne!(
+        hana.tenant, w.casey.tenant,
+        "the group must live outside Casey's tenant"
+    );
+    let hana_group = athlete_owned_group(&w.res, &hana, w.casey.id, "Hana's crew").await;
+    let ivy_group = athlete_owned_group(&w.res, &ivy, w.finn.id, "Ivy's crew").await;
+    let (hana_reply, _) = agent_reply(&w.res, hana_group, &hana, "Hana, hold your pace.").await;
+    let (ivy_reply, _) = agent_reply(&w.res, ivy_group, &ivy, "Ivy, rest tomorrow.").await;
+
+    // Casey's page offers both groups she coaches and Hana, and lists Hana's
+    // reply above Alex's; Ivy's group, coached by Finn, is nowhere.
+    let (status, page) = get(&w.router, "/api/coach/replies", &w.casey.auth).await;
+    assert_eq!(status, 200, "{page}");
+    let mut groups: Vec<&str> = page["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["name"].as_str().unwrap())
+        .collect();
+    groups.sort_unstable();
+    assert_eq!(groups, vec!["Casey's squad", "Hana's crew"]);
+    let athletes: Vec<&str> = page["athletes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        athletes,
+        vec!["Alex Athlete", "Ben Athlete", "Hana Athlete"]
+    );
+    let ids = reply_ids(&page);
+    assert_eq!(ids.first(), Some(&hana_reply.to_string()));
+    assert!(
+        !ids.contains(&ivy_reply.to_string()),
+        "Ivy's reply leaked to Casey"
+    );
+    let body = page.to_string();
+    assert!(!body.contains("Ivy's crew") && !body.contains("Ivy, rest tomorrow."));
+
+    // Narrowed to Hana's group, the page holds Hana's reply alone.
+    let (_, narrowed) = get(
+        &w.router,
+        &format!("/api/coach/replies?group_id={hana_group}"),
+        &w.casey.auth,
+    )
+    .await;
+    assert_eq!(reply_ids(&narrowed), vec![hana_reply.to_string()]);
+
+    // Casey flags and corrects Hana's reply; both come back on her page and in
+    // her weekly count, read back under the group's tenant, not hers.
+    let (status, flagged) = post(
+        &w.router,
+        &format!("/api/coach/replies/{hana_reply}/flags"),
+        &w.casey.auth,
+        &json!({ "reason": "wrong", "note": FLAG_NOTE }),
+    )
+    .await;
+    assert_eq!(status, 201, "{flagged}");
+    let (status, corrected) = post(
+        &w.router,
+        &format!("/api/coach/replies/{hana_reply}/corrections"),
+        &w.casey.auth,
+        &json!({ "content": CORRECTION }),
+    )
+    .await;
+    assert_eq!(status, 201, "{corrected}");
+    let (_, page) = get(
+        &w.router,
+        &format!("/api/coach/replies?group_id={hana_group}"),
+        &w.casey.auth,
+    )
+    .await;
+    assert_eq!(page["replies"][0]["flags"][0]["note"], FLAG_NOTE);
+    assert_eq!(page["replies"][0]["corrections"][0]["content"], CORRECTION);
+    let (_, weekly) = get(
+        &w.router,
+        "/api/coach/replies/weekly?weeks=1",
+        &w.casey.auth,
+    )
+    .await;
+    assert_eq!(weekly["weeks"][0]["flags"], 1);
+    assert_eq!(weekly["weeks"][0]["corrections"], 1);
+
+    // Hana reads the correction in her group's room, linked to the reply.
+    let (status, room) = get(
+        &w.router,
+        &format!("/api/chat/groups/{hana_group}/transcript"),
+        &hana.auth,
+    )
+    .await;
+    assert_eq!(status, 200, "{room}");
+    let correction = room["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["speaker"] == "correction")
+        .expect("the correction is in Hana's room");
+    assert_eq!(correction["content"], CORRECTION);
+    assert_eq!(correction["corrects"]["entry_id"], hana_reply.to_string());
+
+    // Nobody else reviews across tenants: Casey cannot touch Ivy's reply, and
+    // neither Dana (Casey's tenant) nor Finn can touch Hana's.
+    let flag = json!({ "reason": "wrong" });
+    let correction = json!({ "content": "no" });
+    let foreign = [
+        (&w.casey.auth, ivy_reply),
+        (&w.dana.auth, hana_reply),
+        (&w.finn.auth, hana_reply),
+    ];
+    for (auth, reply) in foreign {
+        for (path, body) in [("flags", &flag), ("corrections", &correction)] {
+            let (status, _) = post(
+                &w.router,
+                &format!("/api/coach/replies/{reply}/{path}"),
+                auth,
+                body,
+            )
+            .await;
+            assert_eq!(status, 404, "{path} on {reply} must be refused");
+        }
+    }
+    let (_, dana_page) = get(&w.router, "/api/coach/replies", &w.dana.auth).await;
+    assert_eq!(reply_ids(&dana_page), vec![w.replies.eve.to_string()]);
+    assert!(
+        !dana_page.to_string().contains("Hana"),
+        "Hana's group leaked to Dana"
+    );
+    let (_, finn_page) = get(&w.router, "/api/coach/replies", &w.finn.auth).await;
+    assert_eq!(
+        reply_ids(&finn_page),
+        vec![ivy_reply.to_string(), w.replies.gus.to_string()]
+    );
+    assert!(
+        !finn_page.to_string().contains("Hana"),
+        "Hana's group leaked to Finn"
+    );
+}
+
+/// The corrections in the room `reader` reads, oldest first, as
+/// `(content, corrector)`.
+async fn room_corrections(w: &World, reader: &Person) -> Vec<(String, Value)> {
+    let (status, room) = get(
+        &w.router,
+        &format!("/api/chat/groups/{}/transcript", w.casey_group),
+        &reader.auth,
+    )
+    .await;
+    assert_eq!(status, 200, "{room}");
+    room["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["speaker"] == "correction")
+        .map(|e| {
+            (
+                e["content"].as_str().unwrap().to_owned(),
+                e["corrector"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// carnet#1211: a correction names the coach who wrote it, read from its
+/// review row, not the group's current coach. Casey corrects a reply, the
+/// group's coach is reassigned to Dana, Dana corrects another: each keeps its
+/// own author.
+#[tokio::test]
+async fn a_correction_keeps_its_author_after_the_coach_is_reassigned() {
+    let w = world().await;
+    let casey_said = "Casey: the May race was a half.";
+    let dana_said = "Dana: keep Thursday truly easy.";
+
+    let (status, body) = post(
+        &w.router,
+        &format!("/api/coach/replies/{}/corrections", w.replies.alex_first),
+        &w.casey.auth,
+        &json!({ "content": casey_said }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+
+    join_group(
+        &w.res,
+        w.casey_group,
+        w.dana.id,
+        w.casey.tenant,
+        GroupRole::Admin,
+        true,
+    )
+    .await;
+    assert!(w
+        .res
+        .common
+        .repos
+        .groups
+        .set_group_coach_user(&w.casey_group.to_string(), Some(w.dana.id), w.casey.tenant)
+        .await
+        .unwrap());
+    let (status, body) = post(
+        &w.router,
+        &format!("/api/coach/replies/{}/corrections", w.replies.alex_later),
+        &w.dana.auth,
+        &json!({ "content": dana_said }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+
+    let corrections = room_corrections(&w, &w.alex).await;
+    assert_eq!(corrections.len(), 2, "{corrections:?}");
+    assert_eq!(corrections[0].0, casey_said);
+    assert_eq!(
+        corrections[0].1,
+        json!({ "user_id": w.casey.id.to_string(), "display_name": "Casey Coach" }),
+        "bug: Casey's correction must keep her name after Dana became the coach"
+    );
+    assert_eq!(corrections[1].0, dana_said);
+    assert_eq!(
+        corrections[1].1,
+        json!({ "user_id": w.dana.id.to_string(), "display_name": "Dana Coach" }),
+    );
+    // Every other entry names no corrector.
+    let (_, room) = get(
+        &w.router,
+        &format!("/api/chat/groups/{}/transcript", w.casey_group),
+        &w.alex.auth,
+    )
+    .await;
+    assert!(room["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["speaker"] != "correction")
+        .all(|e| e["corrector"].is_null()));
+}
+
+/// carnet#1211: the one case a correction names no author. A coach who
+/// corrected a reply, was replaced, and then deleted their account takes the
+/// review row with them (`coach_reply_reviews.coach_user_id` cascades), so
+/// the correction stays in the room with no corrector — the clients' unnamed
+/// wording — rather than borrowing a coach who did not write it.
+#[tokio::test]
+async fn a_deleted_coachs_correction_stays_in_the_room_unnamed() {
+    let w = world().await;
+    let hana_said = "Hana: that was a half marathon.";
+    let (mut hana, hana_user) = person(&w.res, "hana@review.test", "Hana Coach").await;
+    join_tenant(&w.res, &mut hana, &hana_user, w.casey.tenant).await;
+    join_group(
+        &w.res,
+        w.casey_group,
+        hana.id,
+        w.casey.tenant,
+        GroupRole::Admin,
+        true,
+    )
+    .await;
+    let groups = &w.res.common.repos.groups;
+    let group = w.casey_group.to_string();
+    assert!(groups
+        .set_group_coach_user(&group, Some(hana.id), w.casey.tenant)
+        .await
+        .unwrap());
+    let (status, body) = post(
+        &w.router,
+        &format!("/api/coach/replies/{}/corrections", w.replies.alex_first),
+        &hana.auth,
+        &json!({ "content": hana_said }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    let corrections = room_corrections(&w, &w.alex).await;
+    assert_eq!(corrections[0].1["display_name"], "Hana Coach", "premise");
+
+    // Casey takes the group back, and Hana's account is deleted.
+    assert!(groups
+        .set_group_coach_user(&group, Some(w.casey.id), w.casey.tenant)
+        .await
+        .unwrap());
+    delete_account(&w.res.common.repos, hana.id, None)
+        .await
+        .unwrap();
+
+    let corrections = room_corrections(&w, &w.alex).await;
+    assert_eq!(corrections.len(), 1, "{corrections:?}");
+    assert_eq!(corrections[0].0, hana_said);
+    assert!(
+        corrections[0].1.is_null(),
+        "bug: a deleted coach's correction must name no one, never the current coach: {corrections:?}"
+    );
 }

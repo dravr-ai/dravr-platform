@@ -18,7 +18,9 @@ import {
   IMPORT_POLL_INTERVAL_MS,
   classifyApiError,
   importDate,
+  importDeleteCopy,
   importFailureKey,
+  importHistoryCopy,
   importOutcomeKey,
   importPhase,
   importSize,
@@ -199,6 +201,8 @@ function StravaImportView({ enabled }: { enabled: boolean }) {
     return <ActivityIndicator color={colors.tokens.primary} />;
   }
   const locale = i18n.language;
+  const deleteCopy = importDeleteCopy(current?.imported ?? 0, locale);
+  const historyLine = current ? importHistoryCopy(current, locale) : null;
 
   return (
     <View testID="strava-import">
@@ -236,10 +240,7 @@ function StravaImportView({ enabled }: { enabled: boolean }) {
             ))}
           <Text className="text-xs font-semibold text-text-secondary mt-4">{t('providers.import.strava.historyTitle')}</Text>
           <Text className="text-sm text-text-primary">
-            {t('providers.import.strava.historyLine', {
-              count: current.imported,
-              date: importDate(current.finished_at, locale),
-            })}
+            {historyLine && t(historyLine.key, historyLine.values)}
           </Text>
           <View className="mt-3 gap-2">
             <Button
@@ -364,10 +365,10 @@ function StravaImportView({ enabled }: { enabled: boolean }) {
           {t('providers.import.strava.deleteConfirmTitle')}
         </Text>
         <Text className="text-sm text-text-secondary mb-4">
-          {t('providers.import.strava.deleteConfirmBody', { count: current?.imported ?? 0 })}
+          {t(deleteCopy.body.key, deleteCopy.body.values)}
         </Text>
         <Button
-          title={t('providers.import.strava.deleteConfirmAction', { count: current?.imported ?? 0 })}
+          title={t(deleteCopy.action.key, deleteCopy.action.values)}
           variant="danger"
           onPress={() => remove.mutate()}
           loading={remove.isPending}

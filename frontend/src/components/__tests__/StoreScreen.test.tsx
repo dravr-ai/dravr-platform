@@ -805,6 +805,52 @@ describe('StoreScreen', () => {
         vi.mocked(storeApi.get).mockImplementation(original!);
       }
     });
+
+    // carnet#1212: the count picked its form with an inline `=== 1`, so a
+    // listing nobody installed read « 0 utilisateurs ». countKey reads French
+    // 0 and 1 in the singular.
+    it('counts a listing\'s users in the French singular for 0 and 1', async () => {
+      const original = vi.mocked(storeApi.browse).getMockImplementation();
+      const page = await (original as () => ReturnType<typeof storeApi.browse>)();
+      const [first, second, third] = page.agents;
+      vi.mocked(storeApi.browse).mockResolvedValue({
+        ...page,
+        agents: [
+          { ...first, install_count: 0 },
+          { ...second, install_count: 1 },
+          { ...third, install_count: 2 },
+        ],
+      });
+      await i18n.changeLanguage('fr');
+      try {
+        renderStoreScreen();
+        const counts = await screen.findAllByTestId('coach-install-count');
+        expect(counts.map((node) => node.textContent)).toEqual(['0 utilisateur', '1 utilisateur', '2 utilisateurs']);
+      } finally {
+        await i18n.changeLanguage('en');
+        vi.mocked(storeApi.browse).mockImplementation(original!);
+      }
+    });
+
+    it('counts the open listing\'s users in the French singular for 0', async () => {
+      const listing = await storeApi.get('coach-1');
+      const original = vi.mocked(storeApi.get).getMockImplementation();
+      vi.mocked(storeApi.get).mockResolvedValue({ ...listing, install_count: 0 });
+      await i18n.changeLanguage('fr');
+      try {
+        const user = userEvent.setup();
+        renderStoreScreen();
+        await openMarathonListing(user);
+        await waitFor(() =>
+          expect(screen.getAllByTestId('coach-install-count').map((node) => node.textContent)).toContain(
+            '0 utilisateur',
+          ),
+        );
+      } finally {
+        await i18n.changeLanguage('en');
+        vi.mocked(storeApi.get).mockImplementation(original!);
+      }
+    });
   });
 
   describe('pick modes (the team step\'s sheets)', () => {

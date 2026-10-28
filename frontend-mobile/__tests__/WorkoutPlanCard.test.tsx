@@ -5,7 +5,7 @@
 // ABOUTME: Red if a field name reaches the screen, if no phase carries the now badge, or if a day's steps go missing
 
 import React from 'react';
-import { render, within } from '@testing-library/react-native';
+import { act, render, within } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 
 import type { WorkoutPlan } from '@pierre/shared-types';
@@ -201,6 +201,29 @@ describe('WorkoutPlanCard', () => {
     const { getByText } = render(<WorkoutPlanCard plan={plan()} />);
     expect(getByText(/4 more weeks in the plan/)).toBeTruthy();
     expect(getByText('4').props.className).toContain('font-mono');
+  });
+
+  // carnet#1212: both counts had one plural form, « 1 more weeks » and
+  // « 1 dures/sem »; countKey now picks the singular, and the figure stays mono.
+  it('reads one deferred week and one hard session in the singular', async () => {
+    const one = plan({ weeks_deferred: 1 });
+    const [build, taper] = one.phases ?? [];
+    one.phases = [{ ...build, hard_sessions_max: 1 }, taper];
+    const english = render(<WorkoutPlanCard plan={one} />);
+    expect(english.getByText(/^1 more week in the plan$/)).toBeTruthy();
+    english.unmount();
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const { getByText } = render(<WorkoutPlanCard plan={one} />);
+      expect(getByText(/^1 semaine de plus dans le plan$/)).toBeTruthy();
+      expect(getByText('1 dure/sem').props.className).toContain('font-mono');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   // Boreal v2.2 P3: the card is one faint outline on the paper — no header

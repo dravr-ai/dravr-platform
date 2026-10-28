@@ -74,7 +74,16 @@ macro_rules! group_columns {
 /// row already in hand. `NULL` only when the user row is missing.
 macro_rules! person_name_column {
     () => {
-        "COALESCE(NULLIF(TRIM(u.display_name), ''), u.email)"
+        person_name_column!("u")
+    };
+    ($alias:literal) => {
+        concat!(
+            "COALESCE(NULLIF(TRIM(",
+            $alias,
+            ".display_name), ''), ",
+            $alias,
+            ".email)"
+        )
     };
 }
 pub(crate) use person_name_column;
@@ -436,6 +445,13 @@ macro_rules! impl_coaching_group_repository {
             let speaker: String = column(r, "speaker")?;
             let visible: bool = column(r, "visible")?;
             let body = if visible {
+                let corrected_by = match $ids::read_opt(r, "corrector_user_id")? {
+                    Some(user_id) => Some(RoomCorrector {
+                        user_id,
+                        display_name: column(r, "corrector_display_name")?,
+                    }),
+                    None => None,
+                };
                 let corrected_content: Option<String> = column(r, "corrects_content")?;
                 let corrects = match ($ids::read_opt(r, "corrects_entry_id")?, corrected_content) {
                     (Some(entry_id), Some(content)) => Some(CorrectedReply {
@@ -445,14 +461,15 @@ macro_rules! impl_coaching_group_repository {
                     }),
                     _ => None,
                 };
-                RoomEntryBody::Shared(SharedRoomEntry {
+                RoomEntryBody::Shared(Box::new(SharedRoomEntry {
                     author_user_id: $ids::read(r, "author_user_id")?,
                     author_display_name: column(r, "author_display_name")?,
                     content: column(r, "content")?,
                     source_conversation_id: column(r, "source_conversation_id")?,
                     source_message_id: column(r, "source_message_id")?,
                     corrects,
-                })
+                    corrected_by,
+                }))
             } else {
                 RoomEntryBody::Withheld
             };

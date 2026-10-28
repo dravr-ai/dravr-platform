@@ -18,7 +18,13 @@ import PostInstallHint from './discover/PostInstallHint';
 import { homeConversationRoute } from './home/homeRoute';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
-import { COACH_CATEGORY_LABEL_KEY, coachCategoryLabelKey, isCoachFacing } from '@pierre/shared-constants';
+import {
+  COACH_CATEGORY_LABEL_KEY,
+  coachCategoryLabelKey,
+  countKey,
+  INSTALL_COUNT_KEYS,
+  isCoachFacing,
+} from '@pierre/shared-constants';
 import { describeApiError } from '@pierre/ui-logic';
 import type { StoreAgent, StoreAgentDetail } from '@pierre/shared-types';
 
@@ -625,7 +631,7 @@ interface CoachCardProps {
  * the detail view, where there is room to read them.
  */
 const CoachCard = memo(function CoachCard({ coach, onClick, pick }: CoachCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const categoryDot = COACH_CATEGORY_DOT[coach.category] ?? 'bg-outline-variant';
   const rowClass =
     'group flex min-h-[64px] w-full items-center gap-3.5 border-t ghost-border-faint py-3 text-left transition-colors first:border-t-0';
@@ -713,9 +719,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick, pick }: CoachCardPro
         </span>
       )}
       <span data-testid="coach-install-count" className="ml-auto shrink-0 font-mono text-xs text-outline">
-        {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
-          count: coach.install_count,
-        })}
+        {t(countKey(coach.install_count, language, INSTALL_COUNT_KEYS), { count: coach.install_count })}
       </span>
     </button>
   );
@@ -822,9 +826,7 @@ function CoachDetailView({
               {t(coachCategoryLabelKey(coach.category))}
             </span>
             <span data-testid="coach-install-count" className="font-mono text-xs text-outline">
-              {t(coach.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
-                count: coach.install_count,
-              })}
+              {t(countKey(coach.install_count, language, INSTALL_COUNT_KEYS), { count: coach.install_count })}
             </span>
           </div>
 

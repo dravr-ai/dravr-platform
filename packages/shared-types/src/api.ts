@@ -206,6 +206,11 @@ export interface RoomAttribution {
   withheld: boolean;
   /** The reply a coach's correction is linked to; `null` on every other row. */
   corrects?: CorrectedReply | null;
+  /**
+   * The name of the coach who wrote a correction — never the group's current
+   * coach; `null` on every other row and when that coach's account is gone.
+   */
+  corrector_name?: string | null;
 }
 
 /**

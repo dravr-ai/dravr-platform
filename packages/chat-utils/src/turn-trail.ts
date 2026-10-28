@@ -7,6 +7,7 @@
 import type { AwaitingReply, Message, TurnProgress } from '@pierre/shared-types';
 
 import { replyLandedSince } from './conversation';
+import { countKey, type CountKeys } from './plural';
 import type { TranslatableText } from './text';
 
 /** How long a turn runs before its indicator shows the time it has taken. */
@@ -88,6 +89,12 @@ export const TURN_TRAIL_KEYS = {
   stepsLabel: 'chat.turn.stepsLabel',
   tabTitle: 'chat.turn.tabTitle',
 } as const;
+
+/** The folded line's step count, singular and plural; both forms interpolate `{{count}}`. */
+export const TURN_FOLDED_KEYS: CountKeys = {
+  one: TURN_TRAIL_KEYS.foldedOne,
+  many: TURN_TRAIL_KEYS.foldedN,
+};
 
 type StepKind = keyof typeof TURN_STEP_KEYS;
 
@@ -459,15 +466,17 @@ export interface FoldedTrail {
 /**
  * What a finished turn folds into, or `null` when it is not worth a line —
  * a quick answer that called no tool.
+ *
+ * A turn with no step reads `foldedNoSteps`; otherwise [`countKey`] picks the
+ * step count's form in `language`.
  */
-export function foldTurnTrail(trail: TurnTrail): FoldedTrail | null {
+export function foldTurnTrail(trail: TurnTrail, language: string | undefined): FoldedTrail | null {
   if (trail.finishedAt === null) return null;
   const tookMs = trail.finishedAt - trail.startedAt;
   const steps = doneSteps(trail);
   if (steps.length === 0 && tookMs < TURN_ELAPSED_AFTER_MS) return null;
   const count = steps.length;
-  const key =
-    count === 0 ? TURN_TRAIL_KEYS.foldedNoSteps : count === 1 ? TURN_TRAIL_KEYS.foldedOne : TURN_TRAIL_KEYS.foldedN;
+  const key = count === 0 ? TURN_TRAIL_KEYS.foldedNoSteps : countKey(count, language, TURN_FOLDED_KEYS);
   return { line: { key, params: { count } }, duration: formatTurnDuration(tookMs), steps };
 }
 

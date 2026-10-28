@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { NotificationBell } from '../NotificationBell';
 
@@ -38,14 +39,14 @@ const ROW = {
 
 function renderBell(onNavigate = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={client}>
       <ThemeProvider>
         <NotificationBell onNavigate={onNavigate} />
       </ThemeProvider>
     </QueryClientProvider>,
   );
-  return { onNavigate };
+  return { onNavigate, unmount };
 }
 
 beforeEach(() => {
@@ -61,6 +62,24 @@ describe('NotificationBell', () => {
 
     const bell = await screen.findByRole('button', { name: 'Notifications, 3 unread' });
     expect(within(bell).getByTestId('notification-bell-badge')).toHaveTextContent('3');
+  });
+
+  // carnet#1212: the name had one key for every count, so French read
+  // « Notifications, 1 non lues ».
+  it('names one unread in the French singular and several in the plural', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      api.getUnreadCount.mockResolvedValue({ unread_count: 1 });
+      const { unmount } = renderBell();
+      expect(await screen.findByRole('button', { name: 'Notifications, 1 non lue' })).toBeInTheDocument();
+      unmount();
+
+      api.getUnreadCount.mockResolvedValue({ unread_count: 4 });
+      renderBell();
+      expect(await screen.findByRole('button', { name: 'Notifications, 4 non lues' })).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('shows no badge when everything is read', async () => {

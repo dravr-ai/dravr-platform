@@ -11,7 +11,8 @@ import type {
   ClaimVerdictStatus,
   VerdictSummary,
 } from '@pierre/shared-types';
-import type { CountKeys } from './plural';
+import { countKey } from '@pierre/chat-utils';
+import type { CountKeys } from '@pierre/chat-utils';
 
 /** The corpus key naming what the verifier concluded about a claim. */
 export const VERDICT_STATUS_LABEL_KEY: Record<ClaimVerdictStatus, string> = {
@@ -101,13 +102,13 @@ type Translate = (key: string, values?: Record<string, string | number>) => stri
 export function verdictChipLabel(
   t: Translate,
   summary: Pick<VerdictSummary, 'statusCounts'>,
+  language: string | undefined,
   separator: string = VERDICT_CHIP_SEPARATOR,
 ): string {
   return VERDICT_STATUS_ORDER.filter((status) => summary.statusCounts[status] > 0)
     .map((status) => {
       const count = summary.statusCounts[status];
-      const keys = VERDICT_COUNT_LABEL_KEY[status];
-      return t(count === 1 ? keys.one : keys.many, { count });
+      return t(countKey(count, language, VERDICT_COUNT_LABEL_KEY[status]), { count });
     })
     .join(separator);
 }

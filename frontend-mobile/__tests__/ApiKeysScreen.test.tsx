@@ -64,6 +64,17 @@ describe('ApiKeysScreen', () => {
     expect(queryByTestId('api-key-row-k0')).toBeNull();
   });
 
+  // carnet#1212: the line had one plural form, « 1 requests ».
+  it('counts a single request in the singular', async () => {
+    mockUsage.mockResolvedValue({ stats: { total_requests: 1 } });
+    const { findByTestId } = render(<ApiKeysScreen />);
+
+    const row = await findByTestId('api-key-row-k1');
+    await waitFor(() =>
+      expect(row).toHaveTextContent('pk_live_k1… · 1 request in the last 30 days', { exact: false }),
+    );
+  });
+
   it('shows a created key once and lists it', async () => {
     mockCreate.mockImplementation(async () => {
       keys = [...keys, key('k2', 'Garmin sync')];

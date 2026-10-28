@@ -96,6 +96,7 @@ const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provide
 const getProvidersStatus = vi.fn().mockResolvedValue({ providers: [] });
 const disconnectProvider = vi.fn().mockResolvedValue(undefined);
 const withdrawAiConsent = vi.fn().mockResolvedValue(undefined);
+const getImports = vi.fn().mockResolvedValue({ imports: [] });
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -141,6 +142,9 @@ vi.mock('../../services/api', () => ({
       createMcpToken: vi.fn(),
       revokeMcpToken: vi.fn(),
     },
+  },
+  importsApi: {
+    getImports: (...args: unknown[]) => getImports(...args),
   },
   // Read by the shared hook bindings at import; this spec asserts nothing they fetch.
   notificationsApi: {},
@@ -1499,6 +1503,74 @@ describe('UserSettings Component', () => {
         // Should show the tokens content with create button
         expect(screen.getByText('Create New Token')).toBeInTheDocument();
       });
+    });
+  });
+
+  // carnet#1212: both counts had one plural form, « 1 active tokens » and
+  // « Imported history: 1 activities »; countKey now picks the singular.
+  describe('single counts', () => {
+    it('counts one active token in the singular', async () => {
+      vi.mocked(userApi.getMcpTokens).mockResolvedValueOnce({
+        tokens: [
+          {
+            id: 'tok-1',
+            name: 'Claude Desktop',
+            token_prefix: 'pmcp_abc',
+            expires_at: null,
+            last_used_at: null,
+            usage_count: 0,
+            is_revoked: false,
+            created_at: '2026-10-01T00:00:00Z',
+          },
+        ],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'tokens', hideTabNav: true });
+      });
+      expect(await screen.findByText('1 active token for AI client connections')).toBeInTheDocument();
+    });
+
+    it('counts one imported activity on the Strava card in the singular', async () => {
+      getProvidersStatus.mockResolvedValueOnce({
+        providers: [
+          {
+            provider: 'sciotte',
+            display_name: 'Strava',
+            requires_oauth: false,
+            connected: true,
+            needs_reauth: false,
+            capabilities: ['activities'],
+          },
+        ],
+      });
+      getImports.mockResolvedValueOnce({
+        imports: [
+          {
+            id: 'job-1',
+            source: 'strava_archive',
+            status: 'completed',
+            total_rows: 1,
+            processed_rows: 1,
+            imported: 1,
+            skipped: 0,
+            failed: 0,
+            error_code: null,
+            earliest_start: '2026-03-01T08:00:00Z',
+            latest_start: '2026-03-01T08:00:00Z',
+            created_at: '2026-10-27T08:00:00Z',
+            updated_at: '2026-10-27T09:00:00Z',
+            finished_at: '2026-10-27T09:00:00Z',
+            expires_at: null,
+            history_held: true,
+          },
+        ],
+      });
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+      expect(await screen.findByTestId('provider-imported-history-sciotte')).toHaveTextContent(
+        'Imported history: 1 activity',
+      );
     });
   });
 });

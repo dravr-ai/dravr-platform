@@ -18,7 +18,12 @@ import { useCoachProposalSeen } from '../../hooks/useCoachProposalSeen';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { useTranslation } from '@pierre/i18n';
-import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-constants';
+import {
+  activitySportLabelKey,
+  coachCategoryLabelKey,
+  countKey,
+  ONBOARDING_WINDOW_SUMMARY_KEYS,
+} from '@pierre/shared-constants';
 import { useRouter } from 'expo-router';
 import { useOpenPersonalTopic } from '../chat/usePersonalThread';
 import { threadHref } from '../../navigation/routes';
@@ -34,7 +39,7 @@ import { threadHref } from '../../navigation/routes';
  * cache, which routes the user on to chat.
  */
 export function OnboardingCoachProposalScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user } = useAuth();
   const { markSeen: markSeenLocal } = useCoachProposalSeen(user?.id);
   // The step is done on this device at once, and on the server for every other
@@ -140,7 +145,7 @@ export function OnboardingCoachProposalScreen() {
         {profile.has_profile ? (
           <>
             <Text className="text-sm text-on-surface">
-              {t('app.obWindowSummary', {
+              {t(countKey(profile.total_activities, language, ONBOARDING_WINDOW_SUMMARY_KEYS), {
                 days: profile.window_days,
                 count: profile.total_activities,
               })}

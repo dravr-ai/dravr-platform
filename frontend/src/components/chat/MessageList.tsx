@@ -53,8 +53,6 @@ interface MessageListProps {
   /** Label shown above assistant turns — the active agent's name, or
    *  'Dravr' when the conversation has no agent attached. */
   assistantLabel?: string;
-  /** The group's human coach, named over a correction they posted. */
-  coachName?: string | null;
   isLoading: boolean;
   isStreaming: boolean;
   streamingContent: string;
@@ -129,7 +127,6 @@ export default function MessageList({
   messageBlocks,
   verdicts,
   assistantLabel,
-  coachName = null,
   isLoading,
   isStreaming,
   streamingContent,
@@ -271,7 +268,6 @@ export default function MessageList({
           blocks={messageBlocks?.get(msg.id)}
           verdicts={verdicts}
           assistantLabel={assistantLabel}
-          coachName={coachName}
           timestamp={origin ? `${time} · ${t('chat.fromChannel', { channel: origin.label })}` : time}
           groupStart={groupStart}
           lead={foldedTrail ? <FoldedTurnTrail trail={foldedTrail} /> : undefined}
@@ -305,7 +301,6 @@ export default function MessageList({
     messageBlocks,
     verdicts,
     assistantLabel,
-    coachName,
     turnTrails,
     onCopyMessage,
     onShareMessage,

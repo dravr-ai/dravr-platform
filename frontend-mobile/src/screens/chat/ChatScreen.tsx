@@ -23,8 +23,7 @@ import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButt
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
-import { providerStatusLine } from '@pierre/chat-utils';
-import { MOBILE_THREAD_INFO_GROUP, MOBILE_THREAD_INFO_PARAM } from '@pierre/shared-constants';
+import { MOBILE_THREAD_INFO_GROUP, MOBILE_THREAD_INFO_PARAM, providerStatusLine } from '@pierre/shared-constants';
 import type { TurnSendOptions } from '@pierre/shared-types';
 
 import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
@@ -36,7 +35,6 @@ import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
 import { useProviderConnected } from '../../hooks/useHome';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
-import { useGroup } from '../../hooks/useGroups';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -46,7 +44,7 @@ import { useUsageStatus } from './useUsageStatus';
 import { useTranslation } from '@pierre/i18n';
 
 export function ChatScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { isAuthenticated } = useAuth();
   // The native header sits above this screen, so the keyboard-avoiding column
   // offsets by its height on iOS, where `padding` measures from the window.
@@ -81,7 +79,10 @@ export function ChatScreen() {
   // The header's fallback line reads the status the reconnect banner under it
   // reads, so the two can never disagree about a flagged connection.
   const { providers: statusRows } = useProviderConnected();
-  const headerProviderStatus = useMemo(() => providerStatusLine(t, statusRows, statusRows !== null), [statusRows, t]);
+  const headerProviderStatus = useMemo(
+    () => providerStatusLine(t, statusRows, statusRows !== null, language),
+    [statusRows, t, language],
+  );
   const usageStatus = useUsageStatus();
   // The starters the empty thread offers, read while it is the thread on
   // screen: the new thread, which exists only once its first line is sent,
@@ -164,10 +165,6 @@ export function ChatScreen() {
   // way back to the foreground. Skipped mid-send, as the focus read is.
   const openConversationId = conversations.currentConversation?.id;
   const openGroupId = conversations.currentConversation?.group_id;
-  // The group's human coach signs a correction in its thread (carnet#1191):
-  // the room entry is attributed to the athlete it concerns, so the coach's
-  // name comes from the group.
-  const { group: openGroup } = useGroup(openGroupId ?? '');
   const { isSending, loadMessages } = messagesHook;
   useEffect(() => {
     if (!isAuthenticated || !openConversationId) return undefined;
@@ -458,7 +455,6 @@ export function ChatScreen() {
           sendText={sendText}
           composerOrigin={draftSeeded ? 'draft' : undefined}
           starters={starters}
-          coachName={openGroup?.coach_display_name ?? null}
         />
 
         <PromptDialog

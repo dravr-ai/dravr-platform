@@ -5,7 +5,8 @@
 // ABOUTME: Avatar slot, kind glyph, semibold-when-unread title, preview, time, the one count capsule and its @ reading, swipe actions
 
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { act, render, fireEvent } from '@testing-library/react-native';
+import { i18n } from '@pierre/i18n';
 import { TouchableOpacity } from 'react-native';
 import { buildConversationRow, type ConversationRowModel } from '@pierre/chat-utils';
 
@@ -173,6 +174,24 @@ describe('ConversationRow', () => {
   it('badges the unread count and caps it at 99+', () => {
     expect(renderRow(row({ unread_count: 4 })).getByTestId('conversation-unread-conv-1')).toHaveTextContent('4');
     expect(renderRow(row({ unread_count: 250 })).getByTestId('conversation-unread-conv-1')).toHaveTextContent('99+');
+  });
+
+  // carnet#1212: the spoken label had one plural form, « 1 non lus ».
+  it('speaks one unread row in the singular', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const { getByTestId } = renderRow(row({ unread_count: 1 }));
+      expect(getByTestId('conversation-row-conv-1').props.accessibilityLabel).toBe('Ouvrir Tempo Tuesday, 1 non lu');
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
+    expect(renderRow(row({ unread_count: 2 })).getByTestId('conversation-row-conv-1').props.accessibilityLabel).toBe(
+      'Open Tempo Tuesday, 2 unread',
+    );
   });
 
   it('prefixes the count capsule with @ only when the unread preview mentions someone', () => {

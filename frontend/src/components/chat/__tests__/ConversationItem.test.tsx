@@ -11,6 +11,7 @@ import { AVATAR_SLOT_HUES, AVATAR_SLOTS, buildConversationRow } from '@pierre/ch
 /** The words the row cannot spell itself, as the English client resolves them. */
 const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitled chat' };
 import type { Conversation } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import ConversationItem from '../ConversationItem';
 import { AVATAR_SLOT_CLASSES, avatarSlotClass } from '../avatarSlots';
 
@@ -85,6 +86,20 @@ describe('ConversationItem anatomy', () => {
     expect(screen.getByTestId('conversation-title')).toHaveClass('font-semibold');
     expect(screen.getByTestId('conversation-unread-count')).toHaveTextContent('3');
     expect(screen.getByTestId('conversation-row')).toHaveAttribute('data-unread', 'true');
+  });
+
+  // carnet#1212: the spoken count had one plural form, « 1 non lus ».
+  it('speaks one unread row in the singular', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      const { unmount } = renderRow(conversation({ unread_count: 1 }));
+      expect(screen.getByTestId('conversation-unread-count')).toHaveAttribute('aria-label', '1 non lu');
+      unmount();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
+    renderRow(conversation({ unread_count: 2 }));
+    expect(screen.getByTestId('conversation-unread-count')).toHaveAttribute('aria-label', '2 unread');
   });
 
   it('drops the title to medium weight and shows no count once everything is read', () => {

@@ -4,6 +4,9 @@
 // ABOUTME: Names the Home weekly volume in the reader's language — the heading, the figures, the trend's label and readout
 // ABOUTME: The server sends weeks of numbers and sport keys only; both clients render them through these keys and their own t()
 
+import { countKey } from '@pierre/chat-utils';
+import { WEEK_ACTIVITY_COUNT_KEYS } from './count-keys';
+
 /** The corpus key for each line of the weekly volume card. */
 export const TRAINING_VOLUME_KEY = {
   heading: 'home.volume.heading',
@@ -13,8 +16,6 @@ export const TRAINING_VOLUME_KEY = {
   distance: 'home.volume.distance',
   time: 'home.volume.time',
   elevation: 'home.volume.elevation',
-  activitiesOne: 'home.volume.activitiesOne',
-  activitiesMany: 'home.volume.activitiesMany',
   chartDistance: 'home.volume.chartDistance',
   chartTime: 'home.volume.chartTime',
   chartAlt: 'home.volume.chartAlt',
@@ -30,12 +31,16 @@ export const ALL_SPORTS = 'all';
 /** The shape of `t()` this module needs: a key and its interpolation values. */
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
-/** "3 activities", "1 activity". */
-export function activitiesLine(t: Translate, count: number): string {
-  return count === 1 ? t(TRAINING_VOLUME_KEY.activitiesOne) : t(TRAINING_VOLUME_KEY.activitiesMany, { count });
+/** "3 activities", "1 activity"; [`countKey`] picks the form, so French and Portuguese read 0 in the singular. */
+export function activitiesLine(t: Translate, count: number, language: string | undefined): string {
+  return t(countKey(count, language, WEEK_ACTIVITY_COUNT_KEYS), { count });
 }
 
-/** The trend's label: what the bars measure, over how many weeks they cover. */
+/**
+ * The trend's label: what the bars measure, over how many weeks they cover.
+ * One plural form is enough: both clients draw the trend only from two weeks
+ * up, and show `trendTooShort` below that.
+ */
 export function volumeChartLabel(t: Translate, metric: 'distance' | 'duration', weeks: number): string {
   return t(metric === 'distance' ? TRAINING_VOLUME_KEY.chartDistance : TRAINING_VOLUME_KEY.chartTime, {
     count: weeks,

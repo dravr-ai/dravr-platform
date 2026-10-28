@@ -201,11 +201,12 @@ export default function ActivityTab() {
           {/* Table header — min-w keeps the 12-col faux-table legible; the
               parent card scrolls horizontally on a narrow phone instead of
               crushing the Category/Time cells. Header + rows share the scroll. */}
-          <div className="grid grid-cols-12 gap-3 px-4 py-3 min-w-[640px] border-b ghost-border text-xs font-medium text-on-surface-variant">
+          <div className="grid grid-cols-12 gap-3 px-4 py-3 min-w-[760px] border-b ghost-border text-xs font-medium text-on-surface-variant">
             <div className="col-span-1">Type</div>
-            <div className="col-span-4">Details</div>
+            <div className="col-span-3">Details</div>
             <div className="col-span-2">Category</div>
-            <div className="col-span-3">Metrics</div>
+            <div className="col-span-2">Metrics</div>
+            <div className="col-span-2" title="Cache read / cache write, and the 1-hour share of the write">Cache</div>
             <div className="col-span-2 text-right">Time</div>
           </div>
 
@@ -220,7 +221,7 @@ export default function ActivityTab() {
                 <div key={entry.id}>
                   <button
                     onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
-                    className="w-full grid grid-cols-12 gap-3 px-4 py-3 min-w-[640px] border-b ghost-border hover:bg-surface-container-low transition-colors text-left items-center"
+                    className="w-full grid grid-cols-12 gap-3 px-4 py-3 min-w-[760px] border-b ghost-border hover:bg-surface-container-low transition-colors text-left items-center"
                   >
                     {/* Type icon */}
                     <div className="col-span-1">
@@ -240,7 +241,7 @@ export default function ActivityTab() {
                     </div>
 
                     {/* Title + subtitle */}
-                    <div className="col-span-4 min-w-0">
+                    <div className="col-span-3 min-w-0">
                       <p className="text-sm font-medium text-on-surface truncate">{entry.title}</p>
                       <p className="text-xs text-outline truncate mt-0.5">{entry.subtitle}</p>
                     </div>
@@ -257,16 +258,21 @@ export default function ActivityTab() {
                     </div>
 
                     {/* Metrics */}
-                    <div className="col-span-3 text-xs text-on-surface-variant">
+                    <div className="col-span-2 text-xs text-on-surface-variant">
                       {entry.type === 'llm' ? (
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                           <span>{formatTokens((entry.rawData as RecentLlmCall).total_tokens)}</span>
                           <span>{formatCost((entry.rawData as RecentLlmCall).cost_usd)}</span>
                           <span>{formatDuration((entry.rawData as RecentLlmCall).execution_time_ms)}</span>
                         </div>
                       ) : (
-                        <span className="text-outline">{(entry.rawData as RecentConversation).user_email}</span>
+                        <span className="text-outline truncate block">{(entry.rawData as RecentConversation).user_email}</span>
                       )}
+                    </div>
+
+                    {/* Cache read / write */}
+                    <div className="col-span-2 text-xs text-on-surface-variant">
+                      {entry.type === 'llm' && <CacheCell call={entry.rawData as RecentLlmCall} />}
                     </div>
 
                     {/* Timestamp */}
@@ -292,6 +298,9 @@ export default function ActivityTab() {
                             <DetailItem label="Provider" value={(entry.rawData as RecentLlmCall).provider} />
                             <DetailItem label="Model" value={(entry.rawData as RecentLlmCall).model} />
                             <DetailItem label="Tokens" value={(entry.rawData as RecentLlmCall).total_tokens.toLocaleString()} />
+                            <DetailItem label="Cache Read" value={(entry.rawData as RecentLlmCall).cached_tokens.toLocaleString()} />
+                            <DetailItem label="Cache Write" value={(entry.rawData as RecentLlmCall).cached_write_tokens.toLocaleString()} />
+                            <DetailItem label="Cache Write (1h)" value={(entry.rawData as RecentLlmCall).cached_write_1h_tokens.toLocaleString()} />
                             <DetailItem label="Cost" value={formatCost((entry.rawData as RecentLlmCall).cost_usd)} />
                             <DetailItem label="Duration" value={formatDuration((entry.rawData as RecentLlmCall).execution_time_ms)} />
                             <DetailItem label="Type" value={(entry.rawData as RecentLlmCall).call_type} />
@@ -317,6 +326,25 @@ export default function ActivityTab() {
             Showing {filteredEntries.length} of {allEntries.length} entries
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Cache cell: read / write tokens, with the 1-hour share of the write beneath */
+function CacheCell({ call }: { call: RecentLlmCall }) {
+  if (call.cached_tokens === 0 && call.cached_write_tokens === 0) {
+    return <span className="text-outline" aria-label="No cache activity">—</span>;
+  }
+  return (
+    <div className="font-mono" data-testid="llm-cache-cell">
+      <span title="Cache read / cache write tokens">
+        {formatTokens(call.cached_tokens)} / {formatTokens(call.cached_write_tokens)}
+      </span>
+      {call.cached_write_tokens > 0 && (
+        <span className="block text-outline" title="Tokens of the write held in a 1-hour cache entry">
+          1h: {formatTokens(call.cached_write_1h_tokens)}
+        </span>
       )}
     </div>
   );

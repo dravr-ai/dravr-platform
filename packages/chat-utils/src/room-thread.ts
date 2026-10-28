@@ -33,6 +33,7 @@ function roomRow(entry: GroupTranscriptEntry): RoomMessage {
       own: entry.own,
       withheld: entry.withheld,
       ...(entry.corrects ? { corrects: entry.corrects } : {}),
+      ...(entry.corrector ? { corrector_name: entry.corrector.display_name } : {}),
     },
   };
 }
@@ -103,19 +104,19 @@ export function runAuthorOf(row: { role: string; room?: RoomAttribution | null }
  * coach who wrote it (carnet#1191).
  *
  * The correction is attributed to the member whose reply it corrects, so the
- * room entry carries the athlete's name, never the coach's; the coach's comes
- * from the group the thread belongs to. Only the group's attached coach can
- * write one — the server's review scope requires `coaching_groups.coach_user_id`
- * to be the caller, and an owner or admin who is not the coach is refused
- * (`coach_reply_review_test::only_the_attached_coach_corrects_a_reply_not_another_group_admin`). `own` is the reader's own thread, where
- * the correction is addressed to them; on anyone else's it names the member it
- * concerns. A group read before its coach is known keeps the unnamed wording.
+ * room entry's author is the athlete; the coach who wrote it is the entry's
+ * own `corrector`, read from the review recorded with it (carnet#1211) —
+ * never the group's current coach, who may have been reassigned since.
+ * `own` is the reader's own thread, where the correction is addressed to
+ * them; on anyone else's it names the member it concerns. A correction whose
+ * coach's account was deleted names no coach: it keeps the unnamed wording
+ * rather than borrowing one who did not write it.
  */
 export function correctionAuthorLabel(
   t: Translate,
-  correction: { own: boolean; memberName: string; coachName?: string | null },
+  correction: { own: boolean; memberName: string; correctorName?: string | null },
 ): string {
-  const coach = correction.coachName?.trim();
+  const coach = correction.correctorName?.trim();
   if (correction.own) {
     return coach ? t('chat.roomCorrectionOwnNamed', { coach }) : t('chat.roomCorrectionOwn');
   }

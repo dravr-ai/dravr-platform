@@ -41,7 +41,7 @@ const CAP_NONE_KEY = 'none';
  * divider is drawn between them (DESIGN.md §10).
  */
 export function NotificationPreferencesScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { preferences, isLoading, isError, updatePreference, isUpdating } =
     useNotificationPreferences();
@@ -59,9 +59,9 @@ export function NotificationPreferencesScreen() {
     () =>
       NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => ({
         key: choice === null ? CAP_NONE_KEY : String(choice),
-        label: notificationCapLabel(choice, t),
+        label: notificationCapLabel(choice, t, language),
       })),
-    [t],
+    [t, language],
   );
   const quietHourItems = useMemo(
     () =>

@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { i18n } from '@pierre/i18n';
 import MessageItem from '../MessageItem';
 import type { Message } from '../types';
 import type { ClaimVerdict } from '@pierre/shared-types';
@@ -203,6 +204,39 @@ describe('MessageItem claim verdict chip', () => {
     // No row has landed, so there is no strength to name: the tooltip never
     // repeats the status in the strength slot (« contradicted, contradicted »).
     expect(screen.getByTestId('verdict-chip')).toHaveAttribute('title', '2 claim verdicts — overall: contradicted');
+  });
+
+  // carnet#1212: the tooltip had one key for every count, so a reply with one
+  // checked claim read « 1 claim verdicts » in every locale.
+  it('counts one verdict in the singular in the tooltip, with or without a strength', async () => {
+    const { unmount } = render(
+      <MessageItem
+        message={assistantMessage()}
+        verdicts={[verdictForMessage('msg-1', { id: 'v1', status: 'supported', evidence_strength: 'strong' })]}
+      />,
+    );
+    expect(screen.getByTestId('verdict-chip')).toHaveAttribute('title', '1 claim verdict — overall: supported, strong');
+    unmount();
+
+    await i18n.changeLanguage('fr');
+    try {
+      render(
+        <MessageItem
+          message={assistantMessage()}
+          blocks={[
+            { type: 'prose', text: 'Creatine works for everyone.' },
+            { type: 'verdicts', chips: [{ claim: 'Creatine works for everyone.', contradicted: true }] },
+          ]}
+          verdicts={[]}
+        />,
+      );
+      expect(screen.getByTestId('verdict-chip')).toHaveAttribute(
+        'title',
+        "1 verdict sur les affirmations — dans l'ensemble : contredite",
+      );
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('opens the drawer with no rows when only the turn\'s chips have landed', () => {

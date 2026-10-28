@@ -30,6 +30,9 @@ import {
   withVerdictRows,
 } from '@pierre/chat-utils';
 import {
+  CLAIM_VERDICT_SUMMARY_KEYS,
+  CLAIM_VERDICT_SUMMARY_STATUS_ONLY_KEYS,
+  countKey,
   EVIDENCE_STRENGTH_LABEL_KEY,
   VERDICT_SPOKEN_SEPARATOR,
   VERDICT_STATUS_LABEL_KEY,
@@ -52,8 +55,6 @@ interface MessageItemProps {
    */
   conversationId?: string | null;
   message: Message;
-  /** The group's human coach, named over a correction they posted (carnet#1191). */
-  coachName?: string | null;
   metadata?: MessageMetadata;
   feedback?: MessageFeedback;
   isError?: boolean;
@@ -186,7 +187,6 @@ const ACTION_BUTTON = 'p-0.5 text-outline transition-colors hover:text-on-surfac
 const MessageItem = memo(function MessageItem({
   conversationId = null,
   message,
-  coachName = null,
   metadata,
   feedback,
   isError = false,
@@ -352,7 +352,7 @@ const MessageItem = memo(function MessageItem({
               // A screen reader names the chip's middle dot or swallows it, so
               // the spoken label joins the counts with a pause instead.
               aria-label={t('app.claimVerdictsStatus', {
-                status: verdictChipLabel(t, summary, VERDICT_SPOKEN_SEPARATOR),
+                status: verdictChipLabel(t, summary, i18n.language, VERDICT_SPOKEN_SEPARATOR),
               })}
               onClick={onShowVerdict ? () => onShowVerdict(messageVerdicts, message.id) : undefined}
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors focus-ring ${chipClassForTone(summary.tone)}`}
@@ -361,11 +361,11 @@ const MessageItem = memo(function MessageItem({
                 // supported reply's is « supported », never the « worst » —
                 // and the evidence behind it only when the rows carry one.
                 summary.worstStrength === null
-                  ? t('app.claimVerdictSummaryStatusOnly', {
+                  ? t(countKey(summary.count, i18n.language, CLAIM_VERDICT_SUMMARY_STATUS_ONLY_KEYS), {
                       count: summary.count,
                       status: t(VERDICT_STATUS_LABEL_KEY[summary.headlineStatus]),
                     })
-                  : t('app.claimVerdictSummary', {
+                  : t(countKey(summary.count, i18n.language, CLAIM_VERDICT_SUMMARY_KEYS), {
                       count: summary.count,
                       status: t(VERDICT_STATUS_LABEL_KEY[summary.headlineStatus]),
                       strength: t(EVIDENCE_STRENGTH_LABEL_KEY[summary.worstStrength]),
@@ -377,7 +377,7 @@ const MessageItem = memo(function MessageItem({
               ) : (
                 <Shield className="h-3 w-3" aria-hidden="true" />
               )}
-              <span>{verdictChipLabel(t, summary)}</span>
+              <span>{verdictChipLabel(t, summary, i18n.language)}</span>
             </button>
             {summary.count > 1 ? <span className="text-xs text-outline">{t('chat.clickForDetails')}</span> : null}
             {onAskAboutClaim && single ? (
@@ -440,7 +440,11 @@ const MessageItem = memo(function MessageItem({
   // coach's words from the room's side, never the athlete's own bubble and
   // never a rateable reply, under the opening of the reply it corrects.
   if (room?.speaker === 'correction' && !room.withheld) {
-    const label = correctionAuthorLabel(t, { own: room.own, memberName: peerName, coachName });
+    const label = correctionAuthorLabel(t, {
+      own: room.own,
+      memberName: peerName,
+      correctorName: room.corrector_name,
+    });
     return (
       <MessageBubble side="assistant" authorLabel={label} timestamp={timestamp} groupStart={groupStart}>
         {room.corrects && (

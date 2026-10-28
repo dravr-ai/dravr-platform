@@ -1,5 +1,11 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
 // ABOUTME: The chat header's provider line — which providers still sync, that a reconnect is needed, or that none are connected
 // ABOUTME: Shared so the phone and the web say the same thing in the same state
+
+import { countKey } from '@pierre/chat-utils';
+import { PROVIDERS_CONNECTED_KEYS } from './count-keys';
 
 /** The fields the line reads off a provider row, from either client's status call. */
 export interface ProviderStatusRow {
@@ -27,11 +33,15 @@ export interface ProviderStatusRow {
  * Strava session had died saw an ordinary header and a coach that had quietly
  * stopped citing their activities, with nothing anywhere saying why
  * (carnet#231).
+ *
+ * `language` picks the participle's number through [`countKey`]; the names
+ * are always at least one here, so it never meets a zero.
  */
 export function providerStatusLine(
   t: (key: string, vars?: Record<string, string>) => string,
   providers: readonly ProviderStatusRow[] | null | undefined,
   loaded: boolean,
+  language: string | undefined,
 ): string | null {
   if (!loaded) return null;
   const connected = (providers ?? []).filter((p) => p.connected);
@@ -41,7 +51,5 @@ export function providerStatusLine(
   // row are both "Strava" — and the line names the provider, not the backend.
   const names = [...new Set(syncing.map((p) => p.display_name))];
   if (names.length === 0) return t('chat.noProviderStatus');
-  return t(names.length === 1 ? 'chat.providersConnectedOne' : 'chat.providersConnectedN', {
-    providers: names.join(', '),
-  });
+  return t(countKey(names.length, language, PROVIDERS_CONNECTED_KEYS), { providers: names.join(', ') });
 }

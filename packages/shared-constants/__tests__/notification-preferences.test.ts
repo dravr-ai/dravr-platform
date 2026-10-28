@@ -3,6 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fr from '../../i18n/src/locales/fr/translation.json';
+import pt from '../../i18n/src/locales/pt/translation.json';
 import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_BLURB_KEYS,
@@ -13,10 +14,23 @@ import {
   localTimezone,
   notificationCapLabel,
 } from '../src/notifications';
+import { COLLAPSED_SIMILAR_KEYS } from '../src/count-keys';
 
 /** A translator that shows which key and params it was handed. */
 const t = (key: string, params?: Record<string, string | number>) =>
   params ? `${key}(${JSON.stringify(params)})` : key;
+
+/** A `t()` that resolves keys against one shipped locale and fills `{{name}}`, as both clients do. */
+function translatorFor(corpus: unknown) {
+  return (key: string, params: Record<string, string | number> = {}): string => {
+    const template = key.split('.').reduce<unknown>((node, part) => {
+      if (node && typeof node === 'object' && part in node) return (node as Record<string, unknown>)[part];
+      return undefined;
+    }, corpus);
+    if (typeof template !== 'string') return key;
+    return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(params[name] ?? ''));
+  };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -53,16 +67,25 @@ describe('NOTIFICATION_CATEGORY_META', () => {
 
 describe('formatCollapsedCount', () => {
   it('says nothing for a notification that collapsed nothing', () => {
-    expect(formatCollapsedCount(undefined, t)).toBeNull();
-    expect(formatCollapsedCount(1, t)).toBeNull();
+    expect(formatCollapsedCount(undefined, t, 'en')).toBeNull();
+    expect(formatCollapsedCount(1, t, 'en')).toBeNull();
   });
 
   // It printed « +1 similar » under French chrome (carnet#1191).
   it('counts the others in the catalogue, one and many', () => {
-    expect(formatCollapsedCount(2, t)).toBe('notifications.collapsedSimilarOne({"count":1})');
-    expect(formatCollapsedCount(4, t)).toBe('notifications.collapsedSimilarN({"count":3})');
+    expect(formatCollapsedCount(2, t, 'en')).toBe('notifications.collapsedSimilarOne({"count":1})');
+    expect(formatCollapsedCount(4, t, 'en')).toBe('notifications.collapsedSimilarN({"count":3})');
     expect(fr.notifications.collapsedSimilarOne).toBe('+{{count}} similaire');
     expect(fr.notifications.collapsedSimilarN).toBe('+{{count}} similaires');
+  });
+
+  // carnet#1212: the form went through an inline `=== 1`; it now goes through
+  // countKey with COLLAPSED_SIMILAR_KEYS, the one rule every count follows.
+  it('picks the form through countKey in the athlete language', () => {
+    const frT = translatorFor(fr);
+    expect(formatCollapsedCount(2, frT, 'fr')).toBe('+1 similaire');
+    expect(formatCollapsedCount(3, frT, 'fr-CA')).toBe('+2 similaires');
+    expect(formatCollapsedCount(2, t, 'pt')).toBe(`${COLLAPSED_SIMILAR_KEYS.one}({"count":1})`);
   });
 });
 
@@ -78,15 +101,33 @@ describe('NOTIFICATION_QUIET_HOUR_VALUES', () => {
 
 describe('notificationCapLabel', () => {
   it('labels no cap, one a day and N a day with their own keys', () => {
-    expect(notificationCapLabel(null, t)).toBe('frag.noLimit');
-    expect(notificationCapLabel(1, t)).toBe('frag.perDayOne');
-    expect(notificationCapLabel(5, t)).toBe('frag.perDayN({"count":5})');
+    expect(notificationCapLabel(null, t, 'en')).toBe('frag.noLimit');
+    expect(notificationCapLabel(1, t, 'en')).toBe('frag.perDayOne({"count":1})');
+    expect(notificationCapLabel(5, t, 'en')).toBe('frag.perDayN({"count":5})');
+  });
+
+  // The form is countKey's choice, as for every other count (carnet#1212):
+  // French and Portuguese read 0 in the singular where English does not.
+  it('picks the form through countKey in the athlete language', () => {
+    expect(notificationCapLabel(0, t, 'fr')).toBe('frag.perDayOne({"count":0})');
+    expect(notificationCapLabel(0, t, 'pt')).toBe('frag.perDayOne({"count":0})');
+    expect(notificationCapLabel(0, t, 'en')).toBe('frag.perDayN({"count":0})');
+    expect(notificationCapLabel(3, t, 'fr')).toBe('frag.perDayN({"count":3})');
+  });
+
+  // The singular spelled « 1 par jour », so the French and Portuguese 0 that
+  // countKey sends to it printed 1: the rendered text pins the count it shows.
+  it('prints the count it was given, 0 and 1 alike, in French and Portuguese', () => {
+    expect(notificationCapLabel(0, translatorFor(fr), 'fr')).toBe('0 par jour');
+    expect(notificationCapLabel(1, translatorFor(fr), 'fr')).toBe('1 par jour');
+    expect(notificationCapLabel(0, translatorFor(pt), 'pt')).toBe('0 por dia');
+    expect(notificationCapLabel(1, translatorFor(pt), 'pt')).toBe('1 por dia');
   });
 
   it('has a label for every choice the surfaces offer', () => {
-    expect(NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => notificationCapLabel(choice, t))).toEqual([
+    expect(NOTIFICATION_MAX_PER_DAY_CHOICES.map((choice) => notificationCapLabel(choice, t, 'en'))).toEqual([
       'frag.noLimit',
-      'frag.perDayOne',
+      'frag.perDayOne({"count":1})',
       'frag.perDayN({"count":3})',
       'frag.perDayN({"count":5})',
       'frag.perDayN({"count":10})',

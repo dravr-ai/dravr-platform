@@ -2,6 +2,8 @@
 // ABOUTME: Category metadata (scheme-aware hues, labels, blurbs, icon names), time formatting, preference choices and merging
 
 import type { ColorScheme } from './design-system';
+import { countKey } from '@pierre/chat-utils';
+import { COLLAPSED_SIMILAR_KEYS, PER_DAY_KEYS } from './count-keys';
 import type {
   NotificationCategory,
   NotificationPreferenceItem,
@@ -176,13 +178,17 @@ export function formatNotificationTime(dateStr: string, t: Translate): string {
  *
  * Returns null when the notification is not collapsed (count <= 1). The
  * catalogue carries the words, one and many, so both notification centres
- * read it in the athlete's language; the choice between them is made here,
- * since the phone's engine has no plural rules to make it.
+ * read it in the athlete's language; [`countKey`] picks between them, since
+ * the phone's engine has no plural rules to make it.
  */
-export function formatCollapsedCount(count: number | undefined, t: Translate): string | null {
+export function formatCollapsedCount(
+  count: number | undefined,
+  t: Translate,
+  language: string | undefined,
+): string | null {
   if (!count || count <= 1) return null;
   const similar = count - 1;
-  return t(similar === 1 ? 'notifications.collapsedSimilarOne' : 'notifications.collapsedSimilarN', { count: similar });
+  return t(countKey(similar, language, COLLAPSED_SIMILAR_KEYS), { count: similar });
 }
 
 /**
@@ -246,13 +252,14 @@ export function localTimezone(): string {
 /**
  * Label for one daily-cap choice.
  *
- * Takes the caller's `t` rather than holding a translator: this module has no
- * locale, and the caller re-renders the label when the athlete changes
- * language.
+ * Takes the caller's `t` and `language` rather than holding a translator: this
+ * module has no locale, and the caller re-renders the label when the athlete
+ * changes language. [`countKey`] picks the form, so the cap reads like every
+ * other count in the athlete's language.
  */
-export function notificationCapLabel(choice: number | null, t: Translate): string {
+export function notificationCapLabel(choice: number | null, t: Translate, language: string | undefined): string {
   if (choice === null) return t('frag.noLimit');
-  return choice === 1 ? t('frag.perDayOne') : t('frag.perDayN', { count: choice });
+  return t(countKey(choice, language, PER_DAY_KEYS), { count: choice });
 }
 
 /**

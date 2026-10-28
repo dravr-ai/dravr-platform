@@ -14,13 +14,18 @@ import {
   hasEarlierMessages,
   joinMessageWindows,
   PLAN_THREAD_KEYS,
-  providerStatusLine,
   readLostTurn,
   reduceLostTurn,
   threadSubtitle,
   type TurnTrail,
 } from '@pierre/chat-utils';
-import { holdIdleWhileBusy, idleSignal, MENTION_PREFIX, trackAbsence } from '@pierre/shared-constants';
+import {
+  holdIdleWhileBusy,
+  idleSignal,
+  MENTION_PREFIX,
+  providerStatusLine,
+  trackAbsence,
+} from '@pierre/shared-constants';
 import {
   describeApiError,
   describeTurnFailure,
@@ -128,8 +133,6 @@ export interface ChatThreadState {
   activeCoach: Agent | null;
   /** What the thread's replies are signed with: the group's agent, else the thread's own. */
   activeCoachTitle: string | null;
-  /** The group's human coach, who signs a correction in its thread; `null` outside a group or before one is known. */
-  groupCoachName: string | null;
   /** The thread's stored title — the list row's — else the agent about to be talked to. */
   title: string;
   /** The line under the title: a plan thread's athlete, the group badge, the agent's handle, or what the agent can see. */
@@ -215,7 +218,7 @@ export function useChatThread({
   pendingComposerAction,
   onPendingComposerActionConsumed,
 }: UseChatThreadOptions): ChatThreadState {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const queryClient = useQueryClient();
   const showErrorToast = useErrorToast();
   const [newMessage, setNewMessage] = useState('');
@@ -488,8 +491,8 @@ export function useChatThread({
 
   // The line under the name: the agent's handle, or what the agent can see.
   const providerStatus = useMemo<string | null>(
-    () => providerStatusLine(t, providersData?.providers, providersLoaded),
-    [providersData, providersLoaded, t],
+    () => providerStatusLine(t, providersData?.providers, providersLoaded, language),
+    [providersData, providersLoaded, t, language],
   );
   const subtitle = useMemo<string | null>(() => {
     const line = threadSubtitle(activeConversation);
@@ -981,7 +984,6 @@ export function useChatThread({
     activeConversation,
     activeCoach,
     activeCoachTitle,
-    groupCoachName: activeGroup?.coach_display_name ?? null,
     title,
     subtitle,
     providerStatus,

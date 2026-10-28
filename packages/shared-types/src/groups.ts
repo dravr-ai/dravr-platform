@@ -300,6 +300,19 @@ export interface CorrectedReply {
 }
 
 /**
+ * The human coach who wrote a correction (carnet#1211).
+ *
+ * Mirrors `CorrectorResponse` in `routes/chat/group_transcript.rs`: read from
+ * the review recorded with the correction, so it stays the coach who wrote it
+ * after the group's coach is reassigned.
+ */
+export interface TranscriptCorrector {
+  user_id: string;
+  /** The coach's display name, else their email. */
+  display_name: string | null;
+}
+
+/**
  * One utterance of the shared room, oldest first in the listing.
  *
  * Mirrors `TranscriptEntryResponse` in `routes/chat/group_transcript.rs`. An
@@ -329,6 +342,12 @@ export interface GroupTranscriptEntry {
   message_id: string | null;
   /** The reply a `correction` entry corrects; `null` or absent on every other entry and on a withheld one. */
   corrects?: CorrectedReply | null;
+  /**
+   * The coach who wrote a `correction` entry; `null` or absent on every other
+   * entry, on a withheld one, and on a correction whose coach's account was
+   * deleted.
+   */
+  corrector?: TranscriptCorrector | null;
   created_at: string;
 }
 

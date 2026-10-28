@@ -11,8 +11,6 @@ import { correctionAuthorLabel, formatDateTime } from '@pierre/chat-utils';
 
 interface GroupTranscriptPanelProps {
   groupId: string;
-  /** The group's human coach, named over each correction they posted. */
-  coachName?: string | null;
 }
 
 /**
@@ -25,7 +23,7 @@ interface GroupTranscriptPanelProps {
  * quieter than it was. A messaging turn, a web turn and ambient room chatter
  * all land in this one transcript.
  */
-export default function GroupTranscriptPanel({ groupId, coachName = null }: GroupTranscriptPanelProps) {
+export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelProps) {
   const { t, language } = useTranslation();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
 
@@ -73,13 +71,14 @@ export default function GroupTranscriptPanel({ groupId, coachName = null }: Grou
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-xs font-medium text-on-surface-variant">
-                  {/* A coach's correction is the coach speaking, about the
-                      member the reply it corrects answered (carnet#847). */}
+                  {/* A coach's correction is the coach who wrote it speaking,
+                      about the member the reply it corrects answered
+                      (carnet#847, carnet#1211). */}
                   {entry.speaker === 'correction'
                     ? correctionAuthorLabel(t, {
                         own: false,
                         memberName: entry.author_display_name ?? entry.author_user_id ?? '',
-                        coachName,
+                        correctorName: entry.corrector?.display_name,
                       })
                     : entry.author_display_name ?? entry.author_user_id}
                   {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}

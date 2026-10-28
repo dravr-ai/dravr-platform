@@ -466,8 +466,6 @@ interface MessageListProps {
    * the header stands while the thread loads and before its first message.
    */
   header?: React.ReactElement;
-  /** The group's human coach, named over a correction they posted (carnet#1191). */
-  coachName?: string | null;
   /**
    * The use-case starters ranked for the athlete, drawn as the empty
    * thread's ink links — three at most. Without them, the empty thread
@@ -511,7 +509,6 @@ export function MessageList({
   onActionClick,
   onShowVerdict,
   header,
-  coachName = null,
   starters,
   onStarter,
   hasEarlier = false,
@@ -648,7 +645,7 @@ export function MessageList({
             testID="verdict-chip"
             accessibilityRole="button"
             accessibilityLabel={t('app.claimVerdictsStatus', {
-              status: verdictChipLabel(t, summary, VERDICT_SPOKEN_SEPARATOR),
+              status: verdictChipLabel(t, summary, language, VERDICT_SPOKEN_SEPARATOR),
             })}
             className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
             style={{ backgroundColor: chip.fill }}
@@ -663,7 +660,7 @@ export function MessageList({
               color={chip.ink}
             />
             <Text className="text-xs ml-1" style={{ color: chip.ink }}>
-              {verdictChipLabel(t, summary)}
+              {verdictChipLabel(t, summary, language)}
             </Text>
           </TouchableOpacity>
         );
@@ -754,7 +751,11 @@ export function MessageList({
         <View testID="room-entry-correction" className={`${spacing} items-start`}>
           {groupStart ? (
             <Text className="text-xs font-semibold text-text-secondary mb-1">
-              {correctionAuthorLabel(t, { own: room.own, memberName: name, coachName })}
+              {correctionAuthorLabel(t, {
+                own: room.own,
+                memberName: name,
+                correctorName: room.corrector_name,
+              })}
             </Text>
           ) : null}
           <View className="max-w-[85%] rounded-[18px] rounded-bl-[4px] px-3 py-2 bg-surface-container-high">

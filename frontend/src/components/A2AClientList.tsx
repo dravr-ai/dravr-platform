@@ -10,6 +10,7 @@ import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
 import { formatDate, formatDateTime } from '@pierre/chat-utils';
+import { A2A_TOTAL_APPS_KEYS, countKey } from '@pierre/shared-constants';
 /**
  * How long ago `date` was, in the athlete's language.
  *
@@ -169,7 +170,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
   return (
     <div className="space-y-6">
       {/* A2A Client List */}
-      <Section title={t('a2a.yourConnectedApps')} description={t('a2a.totalAppsCount', { count: allClients.length })}>
+      <Section title={t('a2a.yourConnectedApps')} description={t(countKey(allClients.length, language, A2A_TOTAL_APPS_KEYS), { count: allClients.length })}>
         {/* Status Filter */}
         <div className="pb-3">
           <StatusFilter

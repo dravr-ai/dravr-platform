@@ -10,7 +10,7 @@ import type { ApiKeyCreateResponse, ApiKeyInfo } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { formatDateTime } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
-import { API_KEY_USAGE_WINDOW_DAYS } from '@pierre/shared-constants';
+import { API_KEY_REQUESTS_KEYS, API_KEY_USAGE_WINDOW_DAYS, countKey } from '@pierre/shared-constants';
 import { apiKeysApi } from '../../services/api';
 import { Button, ConfirmDialog, Input, Section } from '../ui';
 
@@ -32,12 +32,13 @@ function useKeyUsage(keyId: string) {
 
 /** The "N requests in the last 30 days" line under one key. */
 function KeyUsage({ keyId }: { keyId: string }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const usage = useKeyUsage(keyId);
   if (!usage.data) return null;
+  const requests = usage.data.stats.total_requests;
   return (
     <span data-testid={`api-key-usage-${keyId}`}>
-      {t('apiKeys.requests30d', { count: usage.data.stats.total_requests })}
+      {t(countKey(requests, language, API_KEY_REQUESTS_KEYS), { count: requests })}
     </span>
   );
 }

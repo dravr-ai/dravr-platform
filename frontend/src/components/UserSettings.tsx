@@ -17,10 +17,13 @@ import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } fro
 import { STRAVA_ARCHIVE_SOURCE } from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
+  ACTIVE_TOKEN_COUNT_KEYS,
   AI_CONSENT_KEYS,
   ADMIN_HIDDEN_PANES,
   APP_VERSION,
+  countKey,
   HELP_URL,
+  IMPORT_HISTORY_ON_CARD_KEYS,
   LEGAL_URL,
   providerGlyphInk,
   settingsPaneSections,
@@ -879,7 +882,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                 className="text-xs font-medium text-primary hover:text-primary-hover mt-0.5"
                                 data-testid="provider-imported-history-sciotte"
                               >
-                                {t('providers.import.historyOnCard', { count: importedStravaCount })}{' '}
+                                {t(countKey(importedStravaCount, language, IMPORT_HISTORY_ON_CARD_KEYS), { count: importedStravaCount })}{' '}
                                 <span aria-hidden="true">›</span>
                               </button>
                             )}
@@ -1225,7 +1228,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               </div>
             )}
 
-            <Section title={t('tokens.title')} description={t('tokens.activeCount', { count: activeTokens.length })}>
+            <Section title={t('tokens.title')} description={t(countKey(activeTokens.length, language, ACTIVE_TOKEN_COUNT_KEYS), { count: activeTokens.length })}>
 
               {/* Create Token Section */}
               <div className="mb-6">

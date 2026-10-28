@@ -18,7 +18,9 @@ import {
   IMPORT_RESULT_STORAGE_KEY,
   classifyApiError,
   importDate,
+  importDeleteCopy,
   importFailureKey,
+  importHistoryCopy,
   importOutcomeKey,
   importPhase,
   importSize,
@@ -26,6 +28,7 @@ import {
   startErrorKey,
 } from '@pierre/ui-logic';
 import { importsApi } from '../../services/api';
+import { copyText } from './importCopy';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, Input } from '../ui';
 
@@ -146,6 +149,7 @@ export default function StravaImport({ enabled }: StravaImportProps) {
 
   const locale = i18n.language;
   const stepClass = 'border-t ghost-border-faint py-4';
+  const deleteCopy = importDeleteCopy(current?.imported ?? 0, locale);
 
   return (
     <div data-testid="strava-import">
@@ -197,10 +201,7 @@ export default function StravaImport({ enabled }: StravaImportProps) {
               {t('providers.import.strava.historyTitle')}
             </h4>
             <p className="text-sm text-on-surface">
-              {t('providers.import.strava.historyLine', {
-                count: current.imported,
-                date: importDate(current.finished_at, locale),
-              })}
+              {copyText(t, importHistoryCopy(current, locale))}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" onClick={() => start.mutate(undefined)} loading={start.isPending}>
@@ -339,8 +340,8 @@ export default function StravaImport({ enabled }: StravaImportProps) {
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => remove.mutate()}
         title={t('providers.import.strava.deleteConfirmTitle')}
-        message={t('providers.import.strava.deleteConfirmBody', { count: current?.imported ?? 0 })}
-        confirmLabel={t('providers.import.strava.deleteConfirmAction', { count: current?.imported ?? 0 })}
+        message={copyText(t, deleteCopy.body)}
+        confirmLabel={copyText(t, deleteCopy.action)}
         variant="danger"
         isLoading={remove.isPending}
       />

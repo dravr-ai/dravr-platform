@@ -123,11 +123,11 @@ export function LiveTurnIndicator({ trail, startedAt, glyph }: LiveTurnProps) {
  * that called no tool.
  */
 export function FoldedTurnTrail({ trail }: { trail: TurnTrail }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const text = useText();
   const colors = useThemeColors();
   const [open, setOpen] = useState(false);
-  const folded = foldTurnTrail(trail);
+  const folded = foldTurnTrail(trail, language);
   if (folded === null) return null;
   const line = t(folded.line.key, { ...folded.line.params, duration: text(folded.duration) });
   if (folded.steps.length === 0) {

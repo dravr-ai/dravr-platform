@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
-import { API_KEY_USAGE_WINDOW_DAYS } from '@pierre/shared-constants';
+import { API_KEY_REQUESTS_KEYS, API_KEY_USAGE_WINDOW_DAYS, countKey } from '@pierre/shared-constants';
 import type { ApiKeyInfo } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Button, EmptyState, Input, PaneScrollView, Row, Section, Sheet } from '../../components/ui';
@@ -22,7 +22,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * sheet that created it, and never again.
  */
 export function ApiKeysScreen() {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { isAuthenticated } = useAuth();
 
@@ -167,7 +167,7 @@ export function ApiKeysScreen() {
                 value={
                   requests[key.id] === undefined
                     ? `${key.key_prefix}…`
-                    : `${key.key_prefix}… · ${t('apiKeys.requests30d', { count: requests[key.id] })}`
+                    : `${key.key_prefix}… · ${t(countKey(requests[key.id], language, API_KEY_REQUESTS_KEYS), { count: requests[key.id] })}`
                 }
                 last={index === keys.length - 1}
                 trailing={

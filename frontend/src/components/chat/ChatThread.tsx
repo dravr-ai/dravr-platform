@@ -168,7 +168,6 @@ export default function ChatThread({
             messageBlocks={thread.messageBlocks}
             verdicts={verdicts}
             assistantLabel={thread.activeCoachTitle ?? undefined}
-            coachName={thread.groupCoachName}
             isLoading={thread.messagesLoading}
             isStreaming={thread.isStreaming}
             streamingContent={thread.streamingContent}

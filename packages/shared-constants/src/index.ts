@@ -141,7 +141,7 @@ export {
 export type { NotificationDestination, NotificationNavTarget } from './notification-routing';
 
 // Memory fact kinds (the server's FactKind wire values and their label keys)
-export { MEMORY_KIND_LABEL_KEY } from './memory';
+export { MEMORY_KIND_LABEL_KEY, memoryFactCountLabel } from './memory';
 
 // Billing vocabulary both plan pages print (tier names, plan rows, quota
 // counters and provider statuses as corpus keys, and the subscription statuses
@@ -332,5 +332,43 @@ export { API_KEY_USAGE_WINDOW_DAYS } from './api-keys';
 export { ACCOUNT_ROLE_LABEL_KEY } from './roles';
 
 // Singular or plural catalogue key for a count, per locale (no Intl.PluralRules)
-export { countKey } from './plural';
-export type { CountKeys } from './plural';
+export { countKey } from '@pierre/chat-utils';
+export type { CountKeys } from '@pierre/chat-utils';
+
+// The singular and plural keys of every count the clients print
+export {
+  A2A_TOTAL_APPS_KEYS,
+  ACTIVE_TOKEN_COUNT_KEYS,
+  API_KEY_REQUESTS_KEYS,
+  BUDGET_MINUTES_KEYS,
+  BUDGET_SECONDS_KEYS,
+  CLAIM_VERDICT_SUMMARY_KEYS,
+  CLAIM_VERDICT_SUMMARY_STATUS_ONLY_KEYS,
+  COLLAPSED_SIMILAR_KEYS,
+  GEAR_ACTIVITY_COUNT_KEYS,
+  IMPORT_COMPLETED_KEYS,
+  IMPORT_DELETE_CONFIRM_ACTION_KEYS,
+  IMPORT_DELETE_CONFIRM_BODY_KEYS,
+  IMPORT_HISTORY_LINE_KEYS,
+  IMPORT_HISTORY_ON_CARD_KEYS,
+  IMPORT_STOPPED_KEYS,
+  INSTALL_COUNT_KEYS,
+  MEMORY_FACT_COUNT_KEYS,
+  NOTIFICATIONS_BELL_UNREAD_KEYS,
+  NOTIFICATIONS_UNREAD_KEYS,
+  ONBOARDING_WINDOW_SUMMARY_KEYS,
+  OPEN_ROW_UNREAD_KEYS,
+  PER_DAY_KEYS,
+  PLAN_HARD_PER_WEEK_KEYS,
+  PLAN_MORE_WEEKS_KEYS,
+  PROVIDERS_CONNECTED_KEYS,
+  UNREAD_COUNT_ARIA_KEYS,
+  WEEK_ACTIVITY_COUNT_KEYS,
+  WEEK_CORRECTED_KEYS,
+  WEEK_FLAGGED_KEYS,
+} from './count-keys';
+
+// The chat header's fallback line when there is no group and no handle to name:
+// which providers the coach can see, or that none are connected.
+export { providerStatusLine } from './provider-status';
+export type { ProviderStatusRow } from './provider-status';

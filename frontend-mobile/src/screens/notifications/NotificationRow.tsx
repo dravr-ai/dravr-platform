@@ -32,13 +32,13 @@ export interface NotificationRowProps {
 export function NotificationRow({ item, onPress, onLongPress }: NotificationRowProps) {
   const colors = useThemeColors();
   const { scheme } = useTheme();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const isUnread = !item.read_at;
   const meta = NOTIFICATION_CATEGORY_META[item.category];
   // The word is text, not the web panel's 8px dot, so it takes the hue for
   // the athlete's own scheme.
   const categoryColor = NOTIFICATION_CATEGORY_COLORS[scheme][item.category];
-  const collapsedLabel = formatCollapsedCount(item.collapsed_count, t);
+  const collapsedLabel = formatCollapsedCount(item.collapsed_count, t, language);
 
   return (
     <Pressable

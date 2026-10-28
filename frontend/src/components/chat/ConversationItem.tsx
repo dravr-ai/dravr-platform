@@ -8,7 +8,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { clsx } from 'clsx';
 import { Clipboard, Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
 import { PLAN_THREAD_KEYS, type ConversationRowModel } from '@pierre/chat-utils';
-import { badgeLabel } from '@pierre/shared-constants';
+import { badgeLabel, countKey, UNREAD_COUNT_ARIA_KEYS } from '@pierre/shared-constants';
 import { IconButton, Input } from '../ui';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
@@ -190,7 +190,7 @@ const ConversationItem = memo(function ConversationItem({
   onSaveRename,
   onCancelRename,
 }: ConversationItemProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const unread = row.unreadCount > 0;
   // The open menu drops over the rows below it, so the row it belongs to has
   // to sit above its later siblings while it is showing — a `relative` row at
@@ -316,7 +316,7 @@ const ConversationItem = memo(function ConversationItem({
             {unread && (
               <span
                 data-testid="conversation-unread-count"
-                aria-label={t('chat.unreadCountAria', { count: row.unreadCount })}
+                aria-label={t(countKey(row.unreadCount, language, UNREAD_COUNT_ARIA_KEYS), { count: row.unreadCount })}
                 className="flex h-[18px] min-w-[18px] flex-shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold leading-none text-on-primary"
               >
                 {badgeLabel(row.unreadCount)}

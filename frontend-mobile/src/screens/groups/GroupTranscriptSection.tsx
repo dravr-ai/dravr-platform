@@ -14,8 +14,6 @@ import { correctionAuthorLabel, formatDate } from '@pierre/chat-utils';
 interface GroupTranscriptSectionProps {
   /** The group whose room to read. */
   groupId: string;
-  /** The group's human coach, named over each correction they posted. */
-  coachName?: string | null;
 }
 
 /**
@@ -31,7 +29,7 @@ interface GroupTranscriptSectionProps {
  * word made sense as a card's own label but is redundant once flattened, so
  * it is dropped here rather than carried into a plain view.
  */
-export function GroupTranscriptSection({ groupId, coachName = null }: GroupTranscriptSectionProps) {
+export function GroupTranscriptSection({ groupId }: GroupTranscriptSectionProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { transcript, isLoading, isError } = useGroupTranscript(groupId, true);
@@ -76,13 +74,14 @@ export function GroupTranscriptSection({ groupId, coachName = null }: GroupTrans
             <View key={entry.id} style={{ marginBottom: 10 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text className="text-xs font-semibold" style={{ color: colors.text.secondary }}>
-                  {/* A coach's correction is the coach speaking, about the
-                      member the reply it corrects answered (carnet#847). */}
+                  {/* A coach's correction is the coach who wrote it speaking,
+                      about the member the reply it corrects answered
+                      (carnet#847, carnet#1211). */}
                   {entry.speaker === 'correction'
                     ? correctionAuthorLabel(t, {
                         own: false,
                         memberName: entry.author_display_name ?? entry.author_user_id ?? '',
-                        coachName,
+                        correctorName: entry.corrector?.display_name,
                       })
                     : entry.author_display_name ?? entry.author_user_id}
                   {entry.speaker === 'coach' ? ` · ${t('app.agent')}` : ''}

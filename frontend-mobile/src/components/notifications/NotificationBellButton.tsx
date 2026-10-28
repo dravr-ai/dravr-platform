@@ -5,7 +5,7 @@ import React from 'react';
 import { View, TouchableOpacity, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Bell } from 'lucide-react-native';
-import { badgeLabel } from '@pierre/shared-constants';
+import { badgeLabel, countKey, NOTIFICATIONS_BELL_UNREAD_KEYS } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { useUnreadCount } from '../../hooks/useNotifications';
 import { useThemeColors } from '../../constants/theme';
@@ -26,7 +26,7 @@ export function NotificationBellButton({
   color,
 }: NotificationBellButtonProps) {
   const router = useRouter();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const { unreadCount } = useUnreadCount();
   const iconColor = color ?? colors.text.secondary;
@@ -41,7 +41,9 @@ export function NotificationBellButton({
       // matches the web bell's.
       accessibilityRole="button"
       accessibilityLabel={
-        unreadCount > 0 ? t('shell.notificationsBellUnread', { count: unreadCount }) : t('nav.notifications')
+        unreadCount > 0
+          ? t(countKey(unreadCount, language, NOTIFICATIONS_BELL_UNREAD_KEYS), { count: unreadCount })
+          : t('nav.notifications')
       }
     >
       <Bell size={size} color={iconColor} />

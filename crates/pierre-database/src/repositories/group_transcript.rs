@@ -71,9 +71,12 @@ pub(crate) const LIST_TRANSCRIPT_VISIBLE_TO_SQL: &str = concat!(
 /// nulled inside the statement, so they never leave the database. A coach's
 /// correction also carries the reply it corrects (`corrects_*`), which is
 /// attributed to the same member and so readable exactly when the correction
-/// is. `$4` is the id of the oldest entry the viewer already holds (NULL for
-/// the newest page); the page holds the entries ordered strictly before it,
-/// on the same `(created_at, id)` order the page is sorted by. No tenant
+/// is, and the coach who wrote it (`corrector_*`), read from the review row
+/// recorded with it in the entry's tenant (carnet#1211): the group's coach
+/// can be reassigned, a correction's author cannot. `$4` is the id of the
+/// oldest entry the viewer already holds (NULL for the newest page); the page
+/// holds the entries ordered strictly before it, on the same
+/// `(created_at, id)` order the page is sorted by. No tenant
 /// filter: membership is cross-tenant and the caller verified the viewer's
 /// membership.
 pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
@@ -87,9 +90,13 @@ pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
               CASE WHEN r.visible THEN r.source_message_id END AS source_message_id,
               CASE WHEN r.visible THEN r.corrects_entry_id END AS corrects_entry_id,
               CASE WHEN r.visible THEN ce.source_message_id END AS corrects_message_id,
-              CASE WHEN r.visible THEN ce.content END AS corrects_content
+              CASE WHEN r.visible THEN ce.content END AS corrects_content,
+              CASE WHEN r.visible THEN rv.coach_user_id END AS corrector_user_id,
+              CASE WHEN r.visible THEN ",
+    person_name_column!("cu"),
+    r" END AS corrector_display_name
               FROM (
-                SELECT e.id, e.author_user_id, e.speaker, e.content,
+                SELECT e.id, e.tenant_id, e.author_user_id, e.speaker, e.content,
                        e.source_conversation_id, e.source_message_id, e.created_at,
                        e.first_party_only, e.corrects_entry_id,
                        ",
@@ -117,5 +124,8 @@ pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
               ) r
               LEFT JOIN users u ON u.id = r.author_user_id
               LEFT JOIN group_transcript_entries ce ON ce.id = r.corrects_entry_id
+              LEFT JOIN coach_reply_reviews rv
+                ON rv.correction_entry_id = r.id AND rv.tenant_id = r.tenant_id
+              LEFT JOIN users cu ON cu.id = rv.coach_user_id
               ORDER BY r.created_at DESC, r.id DESC"
 );

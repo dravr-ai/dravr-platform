@@ -564,6 +564,7 @@ fn build_turn_summary(
             total_tokens: row.total_tokens,
             cached_tokens: row.cached_tokens,
             cached_write_tokens: row.cached_write_tokens,
+            cached_write_1h_tokens: row.cached_write_1h_tokens,
             reasoning_tokens: row.reasoning_tokens,
             latency_ms: row.execution_time_ms,
             created_at: row.created_at.clone(),

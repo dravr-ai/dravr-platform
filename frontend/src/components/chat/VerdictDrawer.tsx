@@ -473,7 +473,7 @@ export default function VerdictDrawer({
                 ? t('chat.verdictsLoading')
                 : headerSummary === null
                   ? t('chat.verdictsNone')
-                  : verdictChipLabel(t, headerSummary)}
+                  : verdictChipLabel(t, headerSummary, language)}
             </p>
           </div>
           <button

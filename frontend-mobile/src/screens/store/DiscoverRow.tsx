@@ -8,7 +8,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { coachCategoryLabelKey } from '@pierre/shared-constants';
+import { coachCategoryLabelKey, countKey, INSTALL_COUNT_KEYS } from '@pierre/shared-constants';
 import { categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
 import type { StoreAgent } from '../../types';
 
@@ -32,7 +32,7 @@ export interface DiscoverRowProps {
  * `categoryAccent`/`categoryInk`.
  */
 export function DiscoverRow({ agent, onPress, index }: DiscoverRowProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const accent = categoryAccent(colors, agent.category);
   const ink = categoryInk(colors, agent.category);
@@ -89,9 +89,7 @@ export function DiscoverRow({ agent, onPress, index }: DiscoverRowProps) {
             className="text-sm font-mono tabular-nums text-text-tertiary ml-2"
             style={{ marginLeft: 'auto' }}
           >
-            {t(agent.install_count === 1 ? 'discover.installCountOne' : 'discover.installCountN', {
-              count: agent.install_count,
-            })}
+            {t(countKey(agent.install_count, language, INSTALL_COUNT_KEYS), { count: agent.install_count })}
           </Text>
         </View>
 

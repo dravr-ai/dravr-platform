@@ -11,6 +11,7 @@ import {
   TURN_ELAPSED_AFTER_MS,
   TURN_SAFE_TO_LEAVE_AFTER_MS,
   TURN_STEP_KEYS,
+  TURN_FOLDED_KEYS,
   TURN_TRAIL_KEYS,
   awaitedSince,
   foldTurnTrail,
@@ -106,6 +107,7 @@ describe('reduceTurnTrail', () => {
 
     const folded = foldTurnTrail(
       reduceTurnTrail(withdrawn, { type: 'finished', at: T0 + 2_000, toolsCalled: ['get_training_plan'] }),
+      'en',
     );
     expect(folded?.steps.map(step => step.id)).toEqual(['c1']);
   });
@@ -216,20 +218,31 @@ describe('foldTurnTrail', () => {
   }
 
   it('folds nothing while the turn runs, or for a quick answer with no tool', () => {
-    expect(foldTurnTrail(startTurnTrail(T0))).toBeNull();
-    expect(foldTurnTrail(finished(0, 3_000))).toBeNull();
+    expect(foldTurnTrail(startTurnTrail(T0), 'en')).toBeNull();
+    expect(foldTurnTrail(finished(0, 3_000), 'en')).toBeNull();
   });
 
   it('folds a long turn into its duration and step count', () => {
-    expect(foldTurnTrail(finished(6, 420_000))).toMatchObject({
+    expect(foldTurnTrail(finished(6, 420_000), 'en')).toMatchObject({
       line: { key: TURN_TRAIL_KEYS.foldedN, params: { count: 6 } },
       duration: { key: TURN_TRAIL_KEYS.elapsedMinutes, params: { minutes: 7, seconds: 0 } },
     });
-    expect(foldTurnTrail(finished(1, 2_000))?.line).toEqual({
+    expect(foldTurnTrail(finished(1, 2_000), 'en')?.line).toEqual({
       key: TURN_TRAIL_KEYS.foldedOne,
       params: { count: 1 },
     });
-    expect(foldTurnTrail(finished(0, 30_000))?.line.key).toBe(TURN_TRAIL_KEYS.foldedNoSteps);
+    expect(foldTurnTrail(finished(0, 30_000), 'en')?.line.key).toBe(TURN_TRAIL_KEYS.foldedNoSteps);
+  });
+
+  // carnet#1212: the step count's form goes through countKey, the one rule
+  // every count follows, so the singular is TURN_FOLDED_KEYS.one in every
+  // language, and a stepless turn keeps its own line rather than reading as
+  // a French singular « 0 étape ».
+  it('picks the step count through countKey, and never sends a stepless turn to the singular', () => {
+    expect(foldTurnTrail(finished(1, 2_000), 'fr')?.line.key).toBe(TURN_FOLDED_KEYS.one);
+    expect(foldTurnTrail(finished(2, 2_000), 'fr-CA')?.line.key).toBe(TURN_FOLDED_KEYS.many);
+    expect(foldTurnTrail(finished(0, 30_000), 'fr')?.line.key).toBe(TURN_TRAIL_KEYS.foldedNoSteps);
+    expect(foldTurnTrail(finished(0, 30_000), 'pt')?.line.key).toBe(TURN_TRAIL_KEYS.foldedNoSteps);
   });
 });
 

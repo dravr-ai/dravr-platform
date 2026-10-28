@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { MEMORY_KIND_LABEL_KEY } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY, memoryFactCountLabel } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import { userApi } from '../../services/api';
@@ -38,10 +38,6 @@ const KIND_VARIANT: Record<MemoryFactRow['kind'], 'success' | 'info' | 'warning'
   medical: 'warning',
   other: 'secondary',
 };
-
-function factCount(t: (key: string, options: { count: number }) => string, count: number): string {
-  return t(count === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', { count });
-}
 
 export default function MemoryPanel() {
   const { t, language } = useTranslation();
@@ -127,7 +123,7 @@ export default function MemoryPanel() {
               );
             })}
             <span data-testid="memory-fact-count" className="ml-auto whitespace-nowrap font-mono text-xs text-outline">
-              {factCount(t, facts.length)}
+              {memoryFactCountLabel(t, facts.length, language)}
             </span>
           </div>
         </div>
@@ -174,7 +170,7 @@ export default function MemoryPanel() {
               <div className="flex items-center gap-2 border-b ghost-border-faint pb-2">
                 <Badge variant={KIND_VARIANT[kind]}>{t(MEMORY_KIND_LABEL_KEY[kind])}</Badge>
                 <span data-testid="memory-fact-count" className="text-xs text-on-surface-variant">
-                  {factCount(t, items.length)}
+                  {memoryFactCountLabel(t, items.length, language)}
                 </span>
               </div>
               <ul>

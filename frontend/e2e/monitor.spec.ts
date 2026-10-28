@@ -40,9 +40,9 @@ async function setupActivityMocks(
     }
 
     const llmCalls = [
-      { id: 'llm-1', provider: 'google', model: 'gemini-2.0-flash', total_tokens: 1500, cost_usd: 0.0012, call_type: 'chat', execution_time_ms: 230, created_at: new Date(Date.now() - 60000).toISOString() },
-      { id: 'llm-2', provider: 'groq', model: 'llama-3.3-70b', total_tokens: 800, cost_usd: 0.0005, call_type: 'insight', execution_time_ms: 150, created_at: new Date(Date.now() - 120000).toISOString() },
-      { id: 'llm-3', provider: 'google', model: 'gemini-2.0-flash', total_tokens: 2200, cost_usd: 0.0018, call_type: 'chat', execution_time_ms: 340, created_at: new Date(Date.now() - 300000).toISOString() },
+      { id: 'llm-1', provider: 'google', model: 'gemini-2.0-flash', total_tokens: 1500, cached_tokens: 900, cached_write_tokens: 300, cached_write_1h_tokens: 200, cost_usd: 0.0012, call_type: 'chat', execution_time_ms: 230, created_at: new Date(Date.now() - 60000).toISOString() },
+      { id: 'llm-2', provider: 'groq', model: 'llama-3.3-70b', total_tokens: 800, cached_tokens: 0, cached_write_tokens: 0, cached_write_1h_tokens: 0, cost_usd: 0.0005, call_type: 'insight', execution_time_ms: 150, created_at: new Date(Date.now() - 120000).toISOString() },
+      { id: 'llm-3', provider: 'google', model: 'gemini-2.0-flash', total_tokens: 2200, cached_tokens: 1200, cached_write_tokens: 0, cached_write_1h_tokens: 0, cost_usd: 0.0018, call_type: 'chat', execution_time_ms: 340, created_at: new Date(Date.now() - 300000).toISOString() },
     ];
 
     const conversations = [

@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { MemoryFactRow } from '@pierre/api-client';
-import { MEMORY_KIND_LABEL_KEY, formatNotificationTime } from '@pierre/shared-constants';
+import { MEMORY_KIND_LABEL_KEY, formatNotificationTime, memoryFactCountLabel } from '@pierre/shared-constants';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { EmptyState, Row, Section, SwipeableRow, TextTabs, type SwipeAction } from '../../components/ui';
@@ -24,7 +24,7 @@ const MEMORY_FACTS_QUERY_KEY = ['memory', 'facts'] as const;
 const ALL_KINDS_TAB = 'all';
 
 export function MemoryScreen(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<MemoryFactRow['kind'] | ''>('');
@@ -171,9 +171,7 @@ export function MemoryScreen(): React.JSX.Element {
                 title={t(MEMORY_KIND_LABEL_KEY[kind])}
                 actions={
                   <Text testID="memory-fact-count" className="text-xs font-mono tabular-nums text-text-tertiary">
-                    {t(items.length === 1 ? 'shell.memoryFactCountOne' : 'shell.memoryFactCountN', {
-                      count: items.length,
-                    })}
+                    {memoryFactCountLabel(t, items.length, language)}
                   </Text>
                 }
               >

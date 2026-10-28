@@ -13,19 +13,23 @@
 //! correction, and a correction also joins the room as a `correction` entry
 //! linked to the reply it corrects.
 //!
-//! **Who reads what.** Every read names the coach and the tenant: the groups
-//! are those in the coach's tenant whose `coach_user_id` is the coach — a
-//! coach coaches only in their own tenant — and the replies are those to a
-//! live member who shares with the coach (`coach_sharing_consent`), the rule
-//! the roster and the room apply to a group's coach (ADR-002). The group's
+//! **Who reads what.** Every read names the coach: the groups are those whose
+//! `coach_user_id` is the coach, in whichever tenant owns them — every account
+//! is its own tenant, so the group of an athlete who invited a coach lives in
+//! the athlete's tenant, never the coach's (carnet#1210) — and the replies are
+//! those to a live member who shares with the coach (`coach_sharing_consent`),
+//! the rule the roster and the room apply to a group's coach (ADR-002). The group's
 //! peer switch governs what members see of each other, never what the coach
 //! sees, so it plays no part. A reply outside that set is not found, whoever
 //! asks for it by id.
 //!
-//! **Tenants.** `coach_reply_reviews.tenant_id` is the group's tenant and
-//! every statement on it filters on it. The transcript is read by group like
-//! every room read, since membership is cross-tenant; the group itself is
-//! filtered on the coach's tenant.
+//! **Tenants.** `coach_reply_reviews.tenant_id` is the group's tenant: a flag
+//! or a correction is written under the tenant of the group its reply was sent
+//! into, and every read of it joins that group on its own tenant
+//! (`r.tenant_id = g.tenant_id`), so a review row is never read outside the
+//! group it belongs to. The transcript is read by group like every room read,
+//! since membership is cross-tenant. The caller's own tenant scopes nothing
+//! here: it is not the group's.
 //!
 //! uuid columns are `uuid` on Postgres and hyphenated `TEXT` on `SQLite`; they
 //! bind and read through the shell's codec (`$ids`). `$n` placeholders
@@ -36,7 +40,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     CoachReply, CoachReplyCorrection, CoachReplyFilter, CoachReplyFlag, CoachReplyReview,
-    NewReplyCorrection, NewReplyFlag, ReplyReviewStamp, TenantId,
+    NewReplyCorrection, NewReplyFlag, ReplyReviewStamp,
 };
 use uuid::Uuid;
 
@@ -45,23 +49,21 @@ use super::coaching_groups::person_name_column;
 /// A coach's review of the agent's replies in the groups they coach.
 #[async_trait]
 pub trait CoachReplyReviewRepository: Send + Sync {
-    /// The agent's replies in the groups `coach_user_id` coaches in
-    /// `tenant_id`, newest first, narrowed and paged by `filter`. Only replies
-    /// to a live member who shares with the coach are listed.
+    /// The agent's replies in the groups `coach_user_id` coaches, whatever
+    /// tenant owns them, newest first, narrowed and paged by `filter`. Only
+    /// replies to a live member who shares with the coach are listed.
     async fn list_coach_replies(
         &self,
         coach_user_id: Uuid,
-        tenant_id: TenantId,
         filter: &CoachReplyFilter,
     ) -> AppResult<Vec<CoachReply>>;
 
     /// One reply the coach may review, by its transcript entry id; `None` for
-    /// an entry that is not an agent reply in a group they coach in
-    /// `tenant_id`, or one to a member who does not share with them.
+    /// an entry that is not an agent reply in a group they coach, or one to a
+    /// member who does not share with them.
     async fn get_coach_reply(
         &self,
         coach_user_id: Uuid,
-        tenant_id: TenantId,
         entry_id: Uuid,
     ) -> AppResult<Option<CoachReply>>;
 
@@ -75,23 +77,23 @@ pub trait CoachReplyReviewRepository: Send + Sync {
         correction: &NewReplyCorrection<'_>,
     ) -> AppResult<CoachReplyCorrection>;
 
-    /// Every flag and correction the coach made in `tenant_id` on a reply sent
-    /// between `oldest` and `newest` (inclusive), oldest first — the reviews a
-    /// page of replies spanning that window can carry.
+    /// Every flag and correction the coach made, in a group they coach and
+    /// under that group's tenant, on a reply sent between `oldest` and
+    /// `newest` (inclusive), oldest first — the reviews a page of replies
+    /// spanning that window can carry.
     async fn list_reviews_for_window(
         &self,
         coach_user_id: Uuid,
-        tenant_id: TenantId,
         oldest: DateTime<Utc>,
         newest: DateTime<Utc>,
     ) -> AppResult<Vec<CoachReplyReview>>;
 
-    /// When each flag and correction the coach made in `tenant_id` since
-    /// `since` was made, oldest first — what the weekly count buckets.
+    /// When each flag and correction the coach made since `since` was made,
+    /// each read under its group's tenant, oldest first — what the weekly
+    /// count buckets.
     async fn list_review_stamps(
         &self,
         coach_user_id: Uuid,
-        tenant_id: TenantId,
         since: DateTime<Utc>,
     ) -> AppResult<Vec<ReplyReviewStamp>>;
 }
@@ -102,21 +104,23 @@ macro_rules! coach_reply_columns {
         concat!(
             r"e.id, e.group_id, e.tenant_id, e.author_user_id, e.content,
                      e.source_conversation_id, e.source_message_id, e.created_at,
-                     e.first_party_only, g.name AS group_name, ",
+                     e.first_party_only, g.name AS group_name,
+                     g.tenant_id AS group_tenant_id, ",
             person_name_column!(),
             " AS athlete_name"
         )
     };
 }
 
-/// The replies coach `$1` may review in tenant `$2`: the agent's replies
-/// (`e`) in the active groups (`g`) of that tenant they coach, to a live
-/// member who shares with them — never a reply to the coach themself, who may
-/// also be a member of a group they run.
+/// The replies coach `$1` may review: the agent's replies (`e`) in the active
+/// groups (`g`) they coach, whatever tenant owns the group — the coach
+/// relationship is the access key, as for
+/// `CoachingGroupRepository::list_groups_coached_by` — to a live member who
+/// shares with them, never a reply to the coach themself, who may also be a
+/// member of a group they run.
 macro_rules! coach_reply_scope {
     () => {
         r"g.coach_user_id = $1
-                AND g.tenant_id = $2
                 AND g.is_active = TRUE
                 AND e.speaker = 'coach'
                 AND e.author_user_id <> $1
@@ -130,20 +134,20 @@ macro_rules! coach_reply_scope {
     };
 }
 
-/// When the cursor entry `$5` was written, read only from a group coach `$1`
-/// runs in tenant `$2`, so a cursor naming any other entry matches nothing.
+/// When the cursor entry `$4` was written, read only from a group coach `$1`
+/// runs, so a cursor naming any other entry matches nothing.
 macro_rules! coach_reply_cursor_created_at {
     () => {
         r"(
                     SELECT c.created_at FROM group_transcript_entries c
                     JOIN coaching_groups cg ON cg.id = c.group_id
-                    WHERE c.id = $5 AND cg.coach_user_id = $1 AND cg.tenant_id = $2
+                    WHERE c.id = $4 AND cg.coach_user_id = $1
                   )"
     };
 }
 
-/// One page of the coach's replies, newest first. `$3` narrows to one group
-/// and `$4` to one athlete (NULL for any); `$5` is the id of the oldest reply
+/// One page of the coach's replies, newest first. `$2` narrows to one group
+/// and `$3` to one athlete (NULL for any); `$4` is the id of the oldest reply
 /// the coach already holds (NULL for the newest page), and the page holds the
 /// replies ordered strictly before it on the `(created_at, id)` order it is
 /// sorted by.
@@ -157,10 +161,10 @@ pub(crate) const LIST_COACH_REPLIES_SQL: &str = concat!(
               WHERE ",
     coach_reply_scope!(),
     r"
-                AND ($3 IS NULL OR e.group_id = $3)
-                AND ($4 IS NULL OR e.author_user_id = $4)
+                AND ($2 IS NULL OR e.group_id = $2)
+                AND ($3 IS NULL OR e.author_user_id = $3)
                 AND (
-                  $5 IS NULL
+                  $4 IS NULL
                   OR e.created_at < ",
     coach_reply_cursor_created_at!(),
     r"
@@ -168,14 +172,14 @@ pub(crate) const LIST_COACH_REPLIES_SQL: &str = concat!(
                     e.created_at = ",
     coach_reply_cursor_created_at!(),
     r"
-                    AND e.id < $5
+                    AND e.id < $4
                   )
                 )
               ORDER BY e.created_at DESC, e.id DESC
-              LIMIT $6"
+              LIMIT $5"
 );
 
-/// One reply the coach may review, by id (`$3`).
+/// One reply the coach may review, by id (`$2`).
 pub(crate) const GET_COACH_REPLY_SQL: &str = concat!(
     "SELECT ",
     coach_reply_columns!(),
@@ -186,7 +190,7 @@ pub(crate) const GET_COACH_REPLY_SQL: &str = concat!(
               WHERE ",
     coach_reply_scope!(),
     r"
-                AND e.id = $3"
+                AND e.id = $2"
 );
 
 /// One flag.
@@ -209,23 +213,30 @@ pub(crate) const INSERT_CORRECTION_REVIEW_SQL: &str = r"INSERT INTO coach_reply_
                reason, note, correction_entry_id, created_at)
               VALUES ($1, $2, $3, $4, $5, $6, 'correction', NULL, NULL, $7, $8)";
 
-/// The coach's reviews on replies sent inside `[$3, $4]`, with each
-/// correction's words read from the room entry it posted.
+/// Coach `$1`'s reviews on replies sent inside `[$2, $3]` in a group they
+/// coach, with each correction's words read from the room entry it posted.
+/// Each review row is read under its group's own tenant (`r.tenant_id =
+/// g.tenant_id`), never the caller's.
 pub(crate) const LIST_REVIEWS_FOR_WINDOW_SQL: &str = r"SELECT r.id, r.reply_entry_id, r.kind, r.reason, r.note,
               r.correction_entry_id, r.created_at, ce.content AS correction_content
               FROM coach_reply_reviews r
+              JOIN coaching_groups g ON g.id = r.group_id AND g.tenant_id = r.tenant_id
               JOIN group_transcript_entries e ON e.id = r.reply_entry_id
               LEFT JOIN group_transcript_entries ce ON ce.id = r.correction_entry_id
-              WHERE r.tenant_id = $1
-                AND r.coach_user_id = $2
-                AND e.created_at >= $3
-                AND e.created_at <= $4
+              WHERE r.coach_user_id = $1
+                AND g.coach_user_id = $1
+                AND e.created_at >= $2
+                AND e.created_at <= $3
               ORDER BY r.created_at ASC, r.id ASC";
 
-/// When each of the coach's reviews since `$3` was made.
-pub(crate) const LIST_REVIEW_STAMPS_SQL: &str = r"SELECT kind, created_at FROM coach_reply_reviews
-              WHERE tenant_id = $1 AND coach_user_id = $2 AND created_at >= $3
-              ORDER BY created_at ASC";
+/// When each of coach `$1`'s reviews since `$2` was made, each review row read
+/// under its group's own tenant (`r.tenant_id = g.tenant_id`). Every review
+/// the coach made counts, in a group they still coach or not: the count is of
+/// their own work.
+pub(crate) const LIST_REVIEW_STAMPS_SQL: &str = r"SELECT r.kind, r.created_at FROM coach_reply_reviews r
+              JOIN coaching_groups g ON g.id = r.group_id AND g.tenant_id = r.tenant_id
+              WHERE r.coach_user_id = $1 AND r.created_at >= $2
+              ORDER BY r.created_at ASC";
 
 /// Emit the whole [`CoachReplyReviewRepository`] implementation for one
 /// backend type. `$row` is the driver's row type and `$ids` the backend's
@@ -242,6 +253,12 @@ macro_rules! impl_coach_reply_review_repository {
                     entry_id: $ids::read(r, "id")?,
                     group_id: $ids::read(r, "group_id")?,
                     group_name: column(r, "group_name")?,
+                    group_tenant_id: {
+                        let tenant: String = column(r, "group_tenant_id")?;
+                        TenantId::parse_str(&tenant).map_err(|e| {
+                            AppError::database(format!("coaching_groups tenant is not a uuid: {e}"))
+                        })?
+                    },
                     conversation_tenant_id: column(r, "tenant_id")?,
                     athlete_user_id: $ids::read(r, "author_user_id")?,
                     athlete_name: column(r, "athlete_name")?,
@@ -316,12 +333,10 @@ macro_rules! impl_coach_reply_review_repository {
             async fn list_coach_replies(
                 &self,
                 coach_user_id: Uuid,
-                tenant_id: TenantId,
                 filter: &CoachReplyFilter,
             ) -> AppResult<Vec<CoachReply>> {
                 let rows = sqlx::query(LIST_COACH_REPLIES_SQL)
                     .bind($ids::bind(coach_user_id))
-                    .bind(tenant_id.to_string())
                     .bind($ids::bind_opt(filter.group_id))
                     .bind($ids::bind_opt(filter.athlete_user_id))
                     .bind($ids::bind_opt(filter.before))
@@ -335,12 +350,10 @@ macro_rules! impl_coach_reply_review_repository {
             async fn get_coach_reply(
                 &self,
                 coach_user_id: Uuid,
-                tenant_id: TenantId,
                 entry_id: Uuid,
             ) -> AppResult<Option<CoachReply>> {
                 let row = sqlx::query(GET_COACH_REPLY_SQL)
                     .bind($ids::bind(coach_user_id))
-                    .bind(tenant_id.to_string())
                     .bind($ids::bind(entry_id))
                     .fetch_optional(self.pool())
                     .await
@@ -426,12 +439,10 @@ macro_rules! impl_coach_reply_review_repository {
             async fn list_reviews_for_window(
                 &self,
                 coach_user_id: Uuid,
-                tenant_id: TenantId,
                 oldest: DateTime<Utc>,
                 newest: DateTime<Utc>,
             ) -> AppResult<Vec<CoachReplyReview>> {
                 let rows = sqlx::query(LIST_REVIEWS_FOR_WINDOW_SQL)
-                    .bind(tenant_id.to_string())
                     .bind($ids::bind(coach_user_id))
                     .bind(oldest)
                     .bind(newest)
@@ -446,11 +457,9 @@ macro_rules! impl_coach_reply_review_repository {
             async fn list_review_stamps(
                 &self,
                 coach_user_id: Uuid,
-                tenant_id: TenantId,
                 since: DateTime<Utc>,
             ) -> AppResult<Vec<ReplyReviewStamp>> {
                 let rows = sqlx::query(LIST_REVIEW_STAMPS_SQL)
-                    .bind(tenant_id.to_string())
                     .bind($ids::bind(coach_user_id))
                     .bind(since)
                     .fetch_all(self.pool())

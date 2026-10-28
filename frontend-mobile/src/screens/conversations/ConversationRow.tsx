@@ -9,7 +9,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { PLAN_THREAD_KEYS, type ConversationKind, type ConversationRowModel } from '@pierre/chat-utils';
-import { MENTION_PREFIX, badgeLabel } from '@pierre/shared-constants';
+import { MENTION_PREFIX, OPEN_ROW_UNREAD_KEYS, badgeLabel, countKey } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
@@ -75,7 +75,7 @@ export interface ConversationRowProps {
  * is inset to the text and the avatars stand in an unbroken column.
  */
 export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDelete }: ConversationRowProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const colors = useThemeColors();
   const unread = row.unreadCount > 0;
   const mentioned = unread && previewMentionsSomeone(row.preview);
@@ -112,7 +112,11 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
         onLongPress={() => onLongPress(row)}
         delayLongPress={300}
         accessibilityRole="button"
-        accessibilityLabel={unread ? t('app.openRowUnread', { title: spokenTitle, count: row.unreadCount }) : t('app.openRow', { title: spokenTitle })}
+        accessibilityLabel={
+          unread
+            ? t(countKey(row.unreadCount, language, OPEN_ROW_UNREAD_KEYS), { title: spokenTitle, count: row.unreadCount })
+            : t('app.openRow', { title: spokenTitle })
+        }
         testID={`conversation-row-${row.id}`}
       >
         <InitialsAvatar

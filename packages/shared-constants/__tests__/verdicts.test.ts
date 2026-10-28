@@ -78,7 +78,7 @@ function summaryOf(...statuses: ClaimVerdictStatus[]): VerdictSummary {
 describe('verdictChipLabel', () => {
   it('states the supported count beside an abstention, in French', () => {
     const t = translatorFor('fr');
-    expect(verdictChipLabel(t, summaryOf('supported', 'unverifiable', 'supported'))).toBe(
+    expect(verdictChipLabel(t, summaryOf('supported', 'unverifiable', 'supported'), 'fr')).toBe(
       '2 appuyées · 1 invérifiable',
     );
   });
@@ -86,31 +86,31 @@ describe('verdictChipLabel', () => {
   it('leads with a finding, then the supported claims, then the abstentions', () => {
     const t = translatorFor('en');
     expect(
-      verdictChipLabel(t, summaryOf('rhetorical', 'supported', 'unverifiable', 'contradicted', 'supported')),
+      verdictChipLabel(t, summaryOf('rhetorical', 'supported', 'unverifiable', 'contradicted', 'supported'), 'en'),
     ).toBe('1 contradicted · 2 supported · 1 unverifiable · 1 rhetorical');
   });
 
   it('names one status alone when every claim landed on it', () => {
-    expect(verdictChipLabel(translatorFor('fr'), summaryOf('supported', 'supported', 'supported'))).toBe(
+    expect(verdictChipLabel(translatorFor('fr'), summaryOf('supported', 'supported', 'supported'), 'fr')).toBe(
       '3 appuyées',
     );
     // An all-abstention reply never prints « 0 appuyée ».
-    expect(verdictChipLabel(translatorFor('fr'), summaryOf('unverifiable'))).toBe('1 invérifiable');
+    expect(verdictChipLabel(translatorFor('fr'), summaryOf('unverifiable'), 'fr')).toBe('1 invérifiable');
   });
 
   it('labels the turn chips the server sends before the rows land', () => {
     // A `verdicts` reply block carries contradicted / unsupported flags alone.
-    expect(verdictChipLabel(translatorFor('fr'), summaryOf('unsupported', 'unsupported'))).toBe(
+    expect(verdictChipLabel(translatorFor('fr'), summaryOf('unsupported', 'unsupported'), 'fr')).toBe(
       '2 non appuyées',
     );
   });
 
   it('agrees the status word with its count', () => {
     const t = translatorFor('fr');
-    expect(verdictChipLabel(t, summaryOf('contradicted'))).toBe('1 contredite');
-    expect(verdictChipLabel(t, summaryOf('contradicted', 'contradicted'))).toBe('2 contredites');
-    expect(verdictChipLabel(translatorFor('es'), summaryOf('supported', 'supported'))).toBe('2 respaldadas');
-    expect(verdictChipLabel(translatorFor('pt'), summaryOf('unverifiable', 'unverifiable'))).toBe(
+    expect(verdictChipLabel(t, summaryOf('contradicted'), 'fr')).toBe('1 contredite');
+    expect(verdictChipLabel(t, summaryOf('contradicted', 'contradicted'), 'fr')).toBe('2 contredites');
+    expect(verdictChipLabel(translatorFor('es'), summaryOf('supported', 'supported'), 'es')).toBe('2 respaldadas');
+    expect(verdictChipLabel(translatorFor('pt'), summaryOf('unverifiable', 'unverifiable'), 'pt')).toBe(
       '2 não verificáveis',
     );
   });
@@ -143,7 +143,7 @@ describe('the spoken verdict label', () => {
   it('reads as one sentence in all five locales', () => {
     for (const locale of LOCALES) {
       const t = translatorFor(locale);
-      const status = verdictChipLabel(t, summaryOf('supported', 'unverifiable', 'supported'), VERDICT_SPOKEN_SEPARATOR);
+      const status = verdictChipLabel(t, summaryOf('supported', 'unverifiable', 'supported'), locale, VERDICT_SPOKEN_SEPARATOR);
       expect(t('app.claimVerdictsStatus', { status }), locale).toBe(EXPECTED[locale]);
     }
   });

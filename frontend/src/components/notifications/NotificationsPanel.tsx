@@ -19,15 +19,12 @@ import {
   countKey,
   formatNotificationTime,
   formatCollapsedCount,
+  NOTIFICATIONS_UNREAD_KEYS,
   webNotificationRoute,
 } from '@pierre/shared-constants';
-import type { CountKeys } from '@pierre/shared-constants';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../../hooks/useTheme';
-
-/** The header's unread count, singular and plural. */
-const UNREAD_KEYS: CountKeys = { one: 'shell.notificationsUnreadOne', many: 'shell.notificationsUnreadN' };
 
 interface NotificationsPanelProps {
   /** Callback when a notification with route data is clicked */
@@ -89,7 +86,7 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
   const description = (
     <>
       {unreadCount > 0
-        ? t(countKey(unreadCount, i18n.language, UNREAD_KEYS), { count: unreadCount })
+        ? t(countKey(unreadCount, i18n.language, NOTIFICATIONS_UNREAD_KEYS), { count: unreadCount })
         : t('shell.notificationsCaughtUp')}
       {total > 0 && ` · ${t('shell.notificationsTotal', { count: total })}`}
     </>
@@ -163,7 +160,7 @@ export default function NotificationsPanel({ onNavigate, embedded = false }: Not
             {notifications.map((item) => {
               const isUnread = !item.read_at;
               const meta = NOTIFICATION_CATEGORY_META[item.category];
-              const collapsedLabel = formatCollapsedCount(item.collapsed_count, t);
+              const collapsedLabel = formatCollapsedCount(item.collapsed_count, t, i18n.language);
               const route = webNotificationRoute(item.data as Record<string, unknown> | undefined);
 
               return (

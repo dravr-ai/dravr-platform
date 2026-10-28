@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MEMORY_FACT_KINDS } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import MemoryPanel from '../MemoryPanel';
 import type { MemoryFactRow } from '@pierre/api-client';
 
@@ -82,6 +83,26 @@ describe('MemoryPanel', () => {
     renderPanel();
     expect(await screen.findByText(/Coach Marie/)).toBeInTheDocument();
     expect(screen.queryByText(/7c1f7d2e/)).not.toBeInTheDocument();
+  });
+
+  // carnet#1212: the count chose its form with an inline `=== 1`, so a French
+  // athlete with nothing remembered read « 0 infos ».
+  it('counts the facts in the French singular for 0 and 1', async () => {
+    await i18n.changeLanguage('fr');
+    try {
+      vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({ facts: [], total: 0 });
+      const { unmount } = renderPanel();
+      await waitFor(() => expect(screen.getByTestId('memory-fact-count')).toHaveTextContent('0 info'));
+      expect(screen.getByTestId('memory-fact-count').textContent).toBe('0 info');
+      unmount();
+
+      vi.mocked(userApi.listMemoryFacts).mockResolvedValueOnce({ facts: [sampleFact()], total: 1 });
+      renderPanel();
+      await waitFor(() => expect(screen.getAllByTestId('memory-fact-count')).toHaveLength(2));
+      expect(screen.getAllByTestId('memory-fact-count').map((node) => node.textContent)).toEqual(['1 info', '1 info']);
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('renders facts grouped by kind', async () => {

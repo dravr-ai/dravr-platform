@@ -212,21 +212,60 @@ describe('correctionAuthorLabel', () => {
 
   // The correction bubble did not say which coach wrote it (carnet#1191).
   it("names the coach on the athlete's own thread", () => {
-    expect(correctionAuthorLabel(t, { own: true, memberName: 'Alex', coachName: 'Camille' })).toBe(
+    expect(correctionAuthorLabel(t, { own: true, memberName: 'Alex', correctorName: 'Camille' })).toBe(
       'chat.roomCorrectionOwnNamed({"coach":"Camille"})',
     );
   });
 
   it("names the coach and the athlete it concerns on another member's thread", () => {
-    expect(correctionAuthorLabel(t, { own: false, memberName: 'Alex', coachName: 'Camille' })).toBe(
+    expect(correctionAuthorLabel(t, { own: false, memberName: 'Alex', correctorName: 'Camille' })).toBe(
       'chat.roomCorrectionToNamed({"coach":"Camille","name":"Alex"})',
     );
   });
 
-  it('keeps the unnamed wording while the group names no coach', () => {
-    expect(correctionAuthorLabel(t, { own: true, memberName: 'Alex', coachName: null })).toBe('chat.roomCorrectionOwn');
-    expect(correctionAuthorLabel(t, { own: false, memberName: 'Alex', coachName: '  ' })).toBe(
+  it('keeps the unnamed wording when the coach who wrote it cannot be named', () => {
+    expect(correctionAuthorLabel(t, { own: true, memberName: 'Alex', correctorName: null })).toBe('chat.roomCorrectionOwn');
+    expect(correctionAuthorLabel(t, { own: false, memberName: 'Alex', correctorName: '  ' })).toBe(
       'chat.roomCorrectionTo({"name":"Alex"})',
     );
+  });
+
+  // A correction was labelled with the group's CURRENT coach, so after a
+  // reassignment an old one showed under the new coach's name (carnet#1211).
+  // The room row carries the coach who wrote each one, and the label reads it.
+  it('keeps the name of the coach who wrote each correction after the coach is reassigned', () => {
+    const correction = (id: string, created_at: string, corrector: GroupTranscriptEntry['corrector']) =>
+      entry({
+        id,
+        created_at,
+        speaker: 'correction',
+        own: true,
+        author_user_id: ALICE,
+        author_display_name: 'Alice',
+        content: 'Not quite.',
+        corrects: { entry_id: 'reply-1', message_id: 'msg-2', excerpt: 'Solid week, Alice.' },
+        corrector,
+      });
+    const room = [
+      correction('c-1', '2026-09-14T12:00:00Z', { user_id: 'coach-camille', display_name: 'Camille' }),
+      correction('c-2', '2026-09-15T12:00:00Z', { user_id: 'coach-dana', display_name: 'Dana' }),
+      // Its coach's account is gone: no corrector to name.
+      correction('c-3', '2026-09-16T12:00:00Z', null),
+    ];
+
+    const labels = composeRoomThread([], room).map((row) => {
+      const attribution = 'room' in row ? row.room : null;
+      return correctionAuthorLabel(t, {
+        own: attribution?.own ?? false,
+        memberName: attribution?.author_name ?? '',
+        correctorName: attribution?.corrector_name,
+      });
+    });
+
+    expect(labels).toEqual([
+      'chat.roomCorrectionOwnNamed({"coach":"Camille"})',
+      'chat.roomCorrectionOwnNamed({"coach":"Dana"})',
+      'chat.roomCorrectionOwn',
+    ]);
   });
 });

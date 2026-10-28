@@ -476,8 +476,9 @@ pub struct RoomTranscriptEntry {
 /// What a reader may see of one room entry.
 #[derive(Debug, Clone)]
 pub enum RoomEntryBody {
-    /// The reader may read the entry: its author, words and provenance.
-    Shared(SharedRoomEntry),
+    /// The reader may read the entry: its author, words and provenance
+    /// (boxed: a withheld entry carries nothing).
+    Shared(Box<SharedRoomEntry>),
     /// The consent rule withholds the entry from this reader: neither its
     /// words nor who it is attributed to leave the database.
     Withheld,
@@ -502,6 +503,21 @@ pub struct SharedRoomEntry {
     /// The agent reply a [`TranscriptSpeaker::Correction`] entry corrects;
     /// `None` for every other entry.
     pub corrects: Option<CorrectedReply>,
+    /// The coach who wrote a [`TranscriptSpeaker::Correction`] entry, from
+    /// the review row recorded with it (carnet#1211) — never the group's
+    /// current coach, who may have been reassigned since. `None` for every
+    /// other entry, and for a correction whose coach's account was deleted
+    /// (the review row goes with it).
+    pub corrected_by: Option<RoomCorrector>,
+}
+
+/// The human coach who wrote a correction.
+#[derive(Debug, Clone)]
+pub struct RoomCorrector {
+    /// The coach's user id (`coach_reply_reviews.coach_user_id`)
+    pub user_id: Uuid,
+    /// The coach's display name, else their email
+    pub display_name: Option<String>,
 }
 
 /// The agent reply a coach's correction is linked to.

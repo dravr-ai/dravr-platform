@@ -73,7 +73,7 @@ function ThisWeek({ totals }: { totals: VolumeTotals }) {
       <View className="flex-row items-baseline justify-between">
         <Text className="text-sm font-medium text-text-primary">{t(TRAINING_VOLUME_KEY.thisWeek)}</Text>
         <Text className="text-xs text-text-secondary" testID="home-volume-count">
-          {activitiesLine(t, totals.activities)}
+          {activitiesLine(t, totals.activities, language)}
         </Text>
       </View>
       <View className="mt-2 flex-row gap-3">

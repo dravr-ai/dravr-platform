@@ -154,6 +154,12 @@ pub struct LlmCallEntry {
     pub model: String,
     /// Combined prompt + completion tokens
     pub total_tokens: i64,
+    /// Prompt tokens served from the provider's context cache
+    pub cached_tokens: i64,
+    /// Prompt tokens this call wrote into the provider's context cache
+    pub cached_write_tokens: i64,
+    /// The part of `cached_write_tokens` written to a 1-hour cache entry
+    pub cached_write_1h_tokens: i64,
     /// Estimated USD cost for this call
     pub cost_usd: f64,
     /// Call category (chat, tool, embedding, etc.)
@@ -975,6 +981,9 @@ pub async fn fetch_recent_activity(data: &DataContext) -> Result<RecentActivityR
                 provider: r.provider.clone(),
                 model: r.model.clone(),
                 total_tokens: r.total_tokens,
+                cached_tokens: r.cached_tokens,
+                cached_write_tokens: r.cached_write_tokens,
+                cached_write_1h_tokens: r.cached_write_1h_tokens,
                 cost_usd: cost,
                 call_type: r.call_type.clone(),
                 execution_time_ms: r.execution_time_ms,

@@ -75,7 +75,7 @@ export default function SciotteLoginModal({
   target = 'strava',
   consentRequired = false,
 }: SciotteLoginModalProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { scheme } = useTheme();
   const online = useOnlineStatus();
   // Credentials and a 2FA code, in an overlay that had no dialog semantics at
@@ -559,7 +559,7 @@ export default function SciotteLoginModal({
                 <p className="text-on-surface/80 text-sm font-medium">{progressLabel}</p>
                 <p className="text-on-surface/40 text-xs mt-2">
                   {(() => {
-                    const budget = loginTimeoutSecs === null ? 'a few minutes' : formatTimeout(loginTimeoutSecs);
+                    const budget = formatTimeout(loginTimeoutSecs, t, i18n.language);
                     return elapsedSecs > 0
                       ? t('app.elapsedMayTake', { elapsed: elapsedSecs, budget })
                       : t('frag.mayTakeUpTo', { budget });

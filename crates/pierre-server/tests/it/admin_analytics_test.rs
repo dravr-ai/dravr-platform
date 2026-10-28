@@ -573,3 +573,72 @@ async fn test_recent_activity_respects_limit() -> Result<()> {
 
     Ok(())
 }
+
+// ============================================================================
+// Test: each recent LLM call carries its cache read/write split
+// ============================================================================
+
+#[tokio::test]
+#[serial]
+async fn test_recent_activity_llm_call_carries_cache_tokens() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (user_id, auth_token) =
+        create_admin_user_and_token(&resources, "cache_admin@test.com").await;
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await?
+        .into_iter()
+        .next()
+        .expect("admin user should have a tenant");
+    let tenant_id_str = tenant.id.to_string();
+    let user_id_str = user_id.to_string();
+
+    let seeded = resources
+        .common
+        .repos
+        .llm_usage
+        .insert_llm_usage(&InsertLlmUsage {
+            tenant_id: &tenant_id_str,
+            user_id: &user_id_str,
+            conversation_id: None,
+            turn_id: ConversationTurnId::new(),
+            provider: "anthropic",
+            model: "claude-sonnet-4-5",
+            prompt_tokens: 12_000,
+            completion_tokens: 400,
+            total_tokens: 12_400,
+            cached_tokens: 9_000,
+            cached_write_tokens: 2_500,
+            cached_write_1h_tokens: 1_500,
+            reasoning_tokens: 0,
+            call_type: "chat",
+            tool_calls_count: 0,
+            tools_called: "[]",
+            execution_time_ms: Some(900),
+            cost_usd: 0.0,
+            call_sequence: None,
+        })
+        .await?;
+
+    let response = AxumTestRequest::get("/api/admin/analytics/recent-activity")
+        .header("authorization", &auth_token)
+        .send(build_admin_analytics_router(resources))
+        .await;
+    assert_eq!(response.status(), 200);
+
+    let body: Value = response.json();
+    let call = body["recent_llm_calls"]
+        .as_array()
+        .expect("recent_llm_calls should be an array")
+        .iter()
+        .find(|c| c["id"] == seeded.id.as_str())
+        .expect("the seeded call should be listed");
+    assert_eq!(call["cached_tokens"].as_i64(), Some(9_000));
+    assert_eq!(call["cached_write_tokens"].as_i64(), Some(2_500));
+    assert_eq!(call["cached_write_1h_tokens"].as_i64(), Some(1_500));
+
+    Ok(())
+}

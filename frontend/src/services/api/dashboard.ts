@@ -25,6 +25,12 @@ export interface RecentLlmCall {
   provider: string;
   model: string;
   total_tokens: number;
+  /** Prompt tokens served from the provider's context cache */
+  cached_tokens: number;
+  /** Prompt tokens this call wrote into the provider's context cache */
+  cached_write_tokens: number;
+  /** The part of `cached_write_tokens` written to a 1-hour cache entry */
+  cached_write_1h_tokens: number;
   cost_usd: number;
   call_type: string;
   execution_time_ms: number | null;

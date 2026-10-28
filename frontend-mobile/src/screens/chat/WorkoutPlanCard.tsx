@@ -3,7 +3,8 @@
 
 import React from 'react';
 import { View, Text } from 'react-native';
-import { fuelParts, stepDuration } from '@pierre/chat-utils';
+import { countKey, fuelParts, stepDuration } from '@pierre/chat-utils';
+import { PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
 import type {
   PlanDay,
@@ -90,7 +91,7 @@ function StepText({ step }: { step: PlanStep }) {
  * weekly figures are mono; the intent is prose.
  */
 function PhaseSummary({ phase }: { phase: PlanPhase }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const intent = phase.intent || phase.purpose;
   return (
     <Text className="text-sm text-text-secondary mt-2">
@@ -104,7 +105,9 @@ function PhaseSummary({ phase }: { phase: PlanPhase }) {
       {phase.hard_sessions_max !== undefined ? (
         <Text>
           {' · '}
-          <Figure>{t('plan.card.hardPerWeek', { count: phase.hard_sessions_max })}</Figure>
+          <Figure>
+            {t(countKey(phase.hard_sessions_max, language, PLAN_HARD_PER_WEEK_KEYS), { count: phase.hard_sessions_max })}
+          </Figure>
         </Text>
       ) : null}
     </Text>
@@ -344,7 +347,10 @@ export default function WorkoutPlanCard({ plan, children }: WorkoutPlanCardProps
 
       {plan.weeks_deferred > 0 ? (
         <Text className="px-4 mt-3 mb-3 text-sm text-text-secondary">
-          <Sentence text={t('plan.card.moreWeeks', { count: plan.weeks_deferred })} figure={plan.weeks_deferred} />
+          <Sentence
+            text={t(countKey(plan.weeks_deferred, language, PLAN_MORE_WEEKS_KEYS), { count: plan.weeks_deferred })}
+            figure={plan.weeks_deferred}
+          />
         </Text>
       ) : (
         <View className="mb-3" />

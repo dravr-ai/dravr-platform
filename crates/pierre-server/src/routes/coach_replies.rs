@@ -21,6 +21,11 @@
 //!
 //! The rules live in [`pierre_services::coach_replies`]; this module is the
 //! HTTP boundary plus the chat post, which needs the messaging adapters.
+//!
+//! No route resolves the caller's tenant: a coach reviews the groups they
+//! coach whatever tenant owns them — an athlete's group that invited them
+//! lives in the athlete's tenant (carnet#1210) — and every review row is
+//! scoped to its group's own tenant by the repository.
 
 use std::sync::Arc;
 
@@ -36,7 +41,6 @@ use pierre_core::errors::AppError;
 use pierre_core::models::{CoachReplyCorrection, CoachReplyFlag, CoachReviewWeek, ReplyFlagReason};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
-use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use pierre_services::coach_replies::{self, ReplyPageQuery};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -122,20 +126,18 @@ fn optional_id(raw: Option<&str>) -> Result<Option<Uuid>, AppError> {
 ///
 /// # Errors
 ///
-/// Returns `AppError` when authentication fails, the caller has no tenant, an
-/// id is malformed, or a read fails.
+/// Returns `AppError` when authentication fails, an id is malformed, or a read
+/// fails.
 pub async fn handle_list(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Query(query): Query<RepliesQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let page = coach_replies::list_replies(
         &resources.common.repos,
         &resources.mcp.evidence_registry,
         auth.user_id,
-        tenant_id,
         ReplyPageQuery {
             group_id: optional_id(query.group_id.as_deref())?,
             athlete_user_id: optional_id(query.athlete_id.as_deref())?,
@@ -160,11 +162,9 @@ pub async fn handle_flag(
     Json(body): Json<FlagBody>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let outcome = coach_replies::flag_reply(
         &resources.common.repos,
         auth.user_id,
-        tenant_id,
         parse_uuid(&entry_id)?,
         body.reason,
         body.note.as_deref(),
@@ -194,11 +194,9 @@ pub async fn handle_correction(
     Json(body): Json<CorrectionBody>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let outcome = coach_replies::correct_reply(
         &resources.common.repos,
         auth.user_id,
-        tenant_id,
         parse_uuid(&entry_id)?,
         &body.content,
     )
@@ -206,7 +204,7 @@ pub async fn handle_correction(
     // Without the messaging adapters there is no chat to post into: the
     // correction lives in the group thread only.
     #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
-    let posted_to_chat = chat_post::post(&resources, tenant_id, auth.user_id, &outcome).await;
+    let posted_to_chat = chat_post::post(&resources, auth.user_id, &outcome).await;
     #[cfg(not(all(feature = "client-messaging", feature = "client-groups")))]
     let posted_to_chat = false;
     Ok((
@@ -223,19 +221,16 @@ pub async fn handle_correction(
 ///
 /// # Errors
 ///
-/// Returns `AppError` when authentication fails, the caller has no tenant, or
-/// the read fails.
+/// Returns `AppError` when authentication fails or the read fails.
 pub async fn handle_weekly(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Query(query): Query<WeeklyQuery>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let tenant_id = require(resolve_tenant(&resources, &auth, TenantMode::Required).await?)?;
     let weeks = coach_replies::weekly_counts(
         &resources.common.repos,
         auth.user_id,
-        tenant_id,
         query.weeks,
         Utc::now(),
     )

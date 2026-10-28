@@ -13,7 +13,9 @@ import pt from '../../i18n/src/locales/pt/translation.json';
 import type { ArchiveImport, ImportStatus } from '@pierre/shared-types';
 import {
   AWAITING_LINK_LATE_MS,
+  importDeleteCopy,
   importFailureKey,
+  importHistoryCopy,
   importOutcomeKey,
   importPhase,
   importSize,
@@ -64,9 +66,42 @@ describe('an import, as both clients say it', () => {
       key: 'providers.import.state.importing',
       values: { processed: 1240, total: 3105 },
     });
-    expect(importStateCopy(entry('completed'), 'en').values?.count).toBe(1240);
-    expect(importStateCopy(entry('failed'), 'en').key).toBe('providers.import.state.stopped');
-    expect(importStateCopy(entry('cancelled'), 'en').key).toBe('providers.import.state.stopped');
+    expect(importStateCopy(entry('completed'), 'en')).toMatchObject({
+      key: 'providers.import.state.completedN',
+      values: { count: 1240 },
+    });
+    expect(importStateCopy(entry('failed'), 'en').key).toBe('providers.import.state.stoppedN');
+    expect(importStateCopy(entry('cancelled'), 'en').key).toBe('providers.import.state.stoppedN');
+  });
+
+  // carnet#1212: the count read one plural form, so « 1 activities imported »
+  // and a French « Import arrêté · 0 importées »; countKey now picks the form.
+  it('picks the imported count\'s form in the reader\'s language', () => {
+    expect(importStateCopy(entry('completed', { imported: 1 }), 'en').key).toBe('providers.import.state.completedOne');
+    expect(importStateCopy(entry('completed', { imported: 0 }), 'en').key).toBe('providers.import.state.completedN');
+    expect(importStateCopy(entry('completed', { imported: 0 }), 'fr').key).toBe('providers.import.state.completedOne');
+    expect(importStateCopy(entry('failed', { imported: 0 }), 'pt-BR')).toEqual({
+      key: 'providers.import.state.stoppedOne',
+      values: { count: 0 },
+    });
+    expect(importStateCopy(entry('cancelled', { imported: 0 }), 'de').key).toBe('providers.import.state.stoppedN');
+  });
+
+  // carnet#1212: the history line and the delete confirmation read one plural
+  // form, so « Delete 1 activities »; both clients now read these helpers.
+  it('counts the held history and the deletion in the reader\'s language', () => {
+    expect(importHistoryCopy(entry('completed', { imported: 1 }), 'en')).toEqual({
+      key: 'providers.import.strava.historyLineOne',
+      values: { count: 1, date: expect.any(String) },
+    });
+    expect(importHistoryCopy(entry('completed'), 'fr').key).toBe('providers.import.strava.historyLineN');
+    expect(importDeleteCopy(1, 'en')).toEqual({
+      body: { key: 'providers.import.strava.deleteConfirmBodyOne', values: { count: 1 } },
+      action: { key: 'providers.import.strava.deleteConfirmActionOne', values: { count: 1 } },
+    });
+    expect(importDeleteCopy(0, 'fr').action.key).toBe('providers.import.strava.deleteConfirmActionOne');
+    expect(importDeleteCopy(0, 'es').action.key).toBe('providers.import.strava.deleteConfirmActionN');
+    expect(importDeleteCopy(1240, 'de').body.key).toBe('providers.import.strava.deleteConfirmBodyN');
   });
 
   it('puts the screen in the phase the latest import calls for', () => {
@@ -110,6 +145,13 @@ describe('an import, as both clients say it', () => {
       ...(['awaiting_link', 'queued', 'downloading', 'importing', 'completed', 'failed'] as ImportStatus[]).map(
         (status) => importStateCopy(entry(status), 'en').key,
       ),
+      ...(['completed', 'failed'] as ImportStatus[]).map(
+        (status) => importStateCopy(entry(status, { imported: 1 }), 'en').key,
+      ),
+      ...[1, 2].flatMap((count) => {
+        const { body, action } = importDeleteCopy(count, 'en');
+        return [body.key, action.key, importHistoryCopy(entry('completed', { imported: count }), 'en').key];
+      }),
       'providers.import.state.awaitingLinkLate',
       ...(['link_invalid', 'link_host_not_allowed', 'link_expired', 'link_unreachable'] as const).map(linkRefusalKey),
       ...[

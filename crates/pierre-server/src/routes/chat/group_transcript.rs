@@ -99,6 +99,11 @@ pub(super) struct TranscriptEntryResponse {
     /// The agent reply a `correction` entry corrects; `None` for every other
     /// entry and for a withheld one
     pub corrects: Option<CorrectedReplyResponse>,
+    /// The human coach who wrote a `correction` entry — the coach at the time
+    /// it was written, not the group's current one (carnet#1211); `None` for
+    /// every other entry, for a withheld one, and for a correction whose
+    /// coach's account was deleted
+    pub corrector: Option<CorrectorResponse>,
     /// When the utterance was recorded (RFC 3339)
     pub created_at: String,
 }
@@ -115,6 +120,15 @@ pub(super) struct CorrectedReplyResponse {
     pub excerpt: String,
 }
 
+/// The human coach who wrote a correction.
+#[derive(Debug, Serialize)]
+pub(super) struct CorrectorResponse {
+    /// The coach's user id
+    pub user_id: String,
+    /// The coach's display name, else their email
+    pub display_name: Option<String>,
+}
+
 impl TranscriptEntryResponse {
     /// Shape one room entry for the caller who reads it.
     fn for_viewer(entry: RoomTranscriptEntry, viewer: Uuid) -> Self {
@@ -122,24 +136,31 @@ impl TranscriptEntryResponse {
         let speaker = entry.speaker.as_str().to_owned();
         let created_at = entry.created_at.to_rfc3339();
         match entry.body {
-            RoomEntryBody::Shared(shared) => Self {
-                id,
-                speaker,
-                withheld: false,
-                own: shared.author_user_id == viewer,
-                author_user_id: Some(shared.author_user_id.to_string()),
-                author_display_name: shared.author_display_name,
-                content: Some(shared.content),
-                // Only a turn row names a chat message: an ambient row's
-                // provenance is the channel's own message id.
-                message_id: shared.source_conversation_id.and(shared.source_message_id),
-                corrects: shared.corrects.map(|reply| CorrectedReplyResponse {
-                    entry_id: reply.entry_id.to_string(),
-                    message_id: reply.message_id,
-                    excerpt: preview_text(&reply.content),
-                }),
-                created_at,
-            },
+            RoomEntryBody::Shared(shared) => {
+                let shared = *shared;
+                Self {
+                    id,
+                    speaker,
+                    withheld: false,
+                    own: shared.author_user_id == viewer,
+                    author_user_id: Some(shared.author_user_id.to_string()),
+                    author_display_name: shared.author_display_name,
+                    content: Some(shared.content),
+                    // Only a turn row names a chat message: an ambient row's
+                    // provenance is the channel's own message id.
+                    message_id: shared.source_conversation_id.and(shared.source_message_id),
+                    corrects: shared.corrects.map(|reply| CorrectedReplyResponse {
+                        entry_id: reply.entry_id.to_string(),
+                        message_id: reply.message_id,
+                        excerpt: preview_text(&reply.content),
+                    }),
+                    corrector: shared.corrected_by.map(|coach| CorrectorResponse {
+                        user_id: coach.user_id.to_string(),
+                        display_name: coach.display_name,
+                    }),
+                    created_at,
+                }
+            }
             RoomEntryBody::Withheld => Self {
                 id,
                 speaker,
@@ -150,6 +171,7 @@ impl TranscriptEntryResponse {
                 content: None,
                 message_id: None,
                 corrects: None,
+                corrector: None,
                 created_at,
             },
         }

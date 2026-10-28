@@ -80,10 +80,9 @@ const ROOM: GroupTranscriptEntry[] = [
   },
 ];
 
-function renderThread(messages: Message[], coachName: string | null = null) {
+function renderThread(messages: Message[]) {
   return render(
     <MessageList
-      coachName={coachName}
       messages={messages}
       isLoading={false}
       isSending={false}
@@ -189,8 +188,10 @@ describe('MessageList group thread room', () => {
     expect(queryByTestId('message-turn-room-t10')).toBeNull();
   });
 
-  // The correction bubble did not say which coach wrote it (carnet#1191).
-  it('names the group\'s coach over the correction once the group names one', () => {
+  // The correction bubble did not say which coach wrote it (carnet#1191); it
+  // names the coach the entry says wrote it, not the group's current one
+  // (carnet#1211).
+  it('names the coach who wrote the correction', () => {
     const correction: GroupTranscriptEntry = {
       id: 't11',
       speaker: 'correction',
@@ -201,9 +202,10 @@ describe('MessageList group thread room', () => {
       content: 'That week was 52 km, not 62.',
       message_id: null,
       corrects: { entry_id: 't-own-reply', message_id: 'm2', excerpt: 'Solid week, 62 km.' },
+      corrector: { user_id: 'coach-camille', display_name: 'Camille' },
       created_at: '2026-09-14T12:30:00Z',
     };
-    const { getByText, queryByText } = renderThread(composeRoomThread(OWN, [...ROOM, correction]), 'Camille');
+    const { getByText, queryByText } = renderThread(composeRoomThread(OWN, [...ROOM, correction]));
 
     expect(getByText('Correction from Camille, your human coach')).toBeTruthy();
     expect(queryByText("Your human coach's correction")).toBeNull();

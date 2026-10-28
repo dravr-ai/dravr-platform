@@ -105,4 +105,28 @@ describe('ImportScreen', () => {
 
     await waitFor(() => expect(api.deleteHistory).toHaveBeenCalledWith('strava_archive'));
   });
+
+  // carnet#1212: the state line, the history line and the confirmation had one
+  // plural form, « 1 activities imported » and « Delete 1 activities ».
+  it('counts a single imported activity in the singular on every line', async () => {
+    api.getImports.mockResolvedValue({
+      enabled: true,
+      sources: ['strava_archive'],
+      imports: [job({ imported: 1 })],
+    });
+    api.getCurrentImport.mockResolvedValue(job({ imported: 1 }));
+    const list = renderScreen();
+    expect(await screen.findByTestId('import-state-strava')).toHaveTextContent(/^1 activity imported · /);
+    list.unmount();
+
+    renderScreen('strava_archive');
+    expect(await screen.findByText(/^1 activity · imported /)).toBeTruthy();
+    fireEvent.press(await screen.findByTestId('import-delete'));
+    expect(
+      await screen.findByText(
+        "Delete 1 imported activity, and the routes and best efforts calculated from it? This can't be undone.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByTestId('import-delete-confirm')).toHaveTextContent('Delete 1 activity');
+  });
 });

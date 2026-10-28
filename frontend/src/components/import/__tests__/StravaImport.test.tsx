@@ -124,6 +124,24 @@ describe('StravaImport', () => {
     await waitFor(() => expect(deleteHistory).toHaveBeenCalledWith('strava_archive'));
   });
 
+  // carnet#1212: the history line and the confirmation had one plural form,
+  // « 1 activities · imported … » and « Delete 1 activities ».
+  it('counts a single imported activity in the singular, in the history and the confirmation', async () => {
+    getCurrentImport.mockResolvedValue(job({ imported: 1 }));
+    getReport.mockResolvedValue({ issues: [], next_offset: null });
+    const user = userEvent.setup();
+    renderImport();
+
+    expect(await screen.findByTestId('import-completed')).toHaveTextContent(/1 activity · imported /);
+    await user.click(screen.getByText('Delete imported history'));
+    expect(
+      await screen.findByText(
+        "Delete 1 imported activity, and the routes and best efforts calculated from it? This can't be undone.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Delete 1 activity')).toBeInTheDocument();
+  });
+
   it('says why a failed import stopped, and asks for the link again', async () => {
     getCurrentImport.mockResolvedValue(job({ status: 'failed', error_code: 'link_expired', imported: 0 }));
     renderImport();

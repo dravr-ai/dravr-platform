@@ -71,8 +71,6 @@ export interface ChatThreadProps {
    * out gets no conversation section there.
    */
   conversationTitle?: string;
-  /** The group's human coach, named over a correction they posted. */
-  coachName?: string | null;
 }
 
 /**
@@ -98,7 +96,6 @@ export function ChatThread({
   starters,
   onScrollToBottom,
   conversationTitle,
-  coachName = null,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   // The message whose verdicts the sheet shows, or `null` while it is closed.
@@ -363,7 +360,6 @@ export function ChatThread({
         onActionClick={handleActionClick}
         onShowVerdict={handleShowVerdict}
         header={header}
-        coachName={coachName}
         starters={starters}
         onStarter={handleStarter}
         hasEarlier={messagesHook.hasEarlier}

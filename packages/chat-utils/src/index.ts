@@ -92,6 +92,7 @@ export {
   TURN_ELAPSED_AFTER_MS,
   TURN_SAFE_TO_LEAVE_AFTER_MS,
   TURN_STEP_KEYS,
+  TURN_FOLDED_KEYS,
   TURN_TRAIL_KEYS,
   awaitedSince,
   doneSteps,
@@ -216,7 +217,8 @@ export { formatList } from './list-format';
 export { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, planConflictText } from './plan-draft';
 export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
 
-// The header's fallback line when there is no group and no handle to name:
-// which providers the coach can see, or that none are connected.
-export { providerStatusLine } from './provider-status';
-export type { ProviderStatusRow } from './provider-status';
+// Singular or plural catalogue key for a count, per locale (no Intl.PluralRules).
+// It lives here, below shared-constants (which depends on this package and
+// re-exports it), so this package's own counts pick their form the same way.
+export { countKey } from './plural';
+export type { CountKeys } from './plural';

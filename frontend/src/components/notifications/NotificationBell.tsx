@@ -7,7 +7,7 @@
 import { lazy, Suspense, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
-import { badgeLabel } from '@pierre/shared-constants';
+import { badgeLabel, countKey, NOTIFICATIONS_BELL_UNREAD_KEYS } from '@pierre/shared-constants';
 import { Sheet } from '../ui/Sheet';
 import { useUnreadCount } from '../../hooks/useNotifications';
 import { useIsMobile } from '../../hooks/useBreakpoint';
@@ -26,12 +26,14 @@ interface NotificationBellProps {
  * never leaves the surface the athlete is on.
  */
 export function NotificationBell({ onNavigate }: NotificationBellProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const isMobile = useIsMobile();
   const { unreadCount } = useUnreadCount();
   const [open, setOpen] = useState(false);
   const label =
-    unreadCount > 0 ? t('shell.notificationsBellUnread', { count: unreadCount }) : t('nav.notifications');
+    unreadCount > 0
+      ? t(countKey(unreadCount, language, NOTIFICATIONS_BELL_UNREAD_KEYS), { count: unreadCount })
+      : t('nav.notifications');
 
   return (
     <>

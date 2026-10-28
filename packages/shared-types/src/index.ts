@@ -381,6 +381,7 @@ export type {
   GroupMembersResponse,
   GroupTranscriptEntry,
   CorrectedReply,
+  TranscriptCorrector,
   GroupTranscriptPage,
   GroupTranscriptResponse,
   TranscriptMember,
