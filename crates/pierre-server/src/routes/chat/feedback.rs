@@ -27,6 +27,8 @@ use super::dto::{MessageFeedbackEntry, UpsertFeedbackRequest};
 /// refreshes the optional reason. Ownership is enforced in the repository — the
 /// write only lands when the message belongs to a conversation the caller owns
 /// in this tenant, otherwise a 404 is returned.
+///
+/// LIMITATION(registre#1235): `upsert_feedback` emits no notify event; nothing reads it.
 pub(super) async fn upsert_feedback(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
