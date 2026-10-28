@@ -1851,6 +1851,22 @@
     "validation": "Vérifie ce que tu as saisi, puis réessaie.",
     "weeklyMessageLimitReached": "Limite de messages hebdomadaires atteinte ({{current, number}}/{{limit, number}}). Réinitialisation la semaine prochaine."
   },
+  "feedback": {
+    "aboutReply": "À propos d’une réponse de l’agent",
+    "accountMenu": "Menu du compte",
+    "contextNotice": "Chaque message inclut aussi l’écran d’où tu viens, la version de l’application et ta langue.",
+    "delivered": "Envoyé",
+    "loadFailed": "Impossible de charger tes messages.",
+    "navSendFeedback": "Donner ton avis",
+    "placeholder": "Écris à l’équipe Dravr…",
+    "removeAboutReply": "Retirer la réponse",
+    "send": "Envoyer",
+    "sendFailed": "Ton message n’est pas parti. Réessaie.",
+    "subtitle": "Lu par les personnes qui construisent Dravr. Aucune IA.",
+    "tellTeamMore": "En dire plus à l’équipe Dravr",
+    "title": "L’équipe Dravr",
+    "welcome": "Dis-nous ce qui fonctionne, ce qui est déroutant ou ce que tu aimerais que Dravr fasse. Écris dans la langue de ton choix. Nous lisons chaque message."
+  },
   "frag": {
     "allCaughtUp": "Tu es à jour !",
     "analyzed": "Analysé",

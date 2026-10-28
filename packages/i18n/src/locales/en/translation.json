@@ -1851,6 +1851,22 @@
     "validation": "Check what you entered and try again.",
     "weeklyMessageLimitReached": "Weekly message limit reached ({{current, number}}/{{limit, number}}). Resets next week."
   },
+  "feedback": {
+    "aboutReply": "About an agent reply",
+    "accountMenu": "Account menu",
+    "contextNotice": "Each message also carries the screen you came from, the app version and your language.",
+    "delivered": "Delivered",
+    "loadFailed": "We couldn't load your messages.",
+    "navSendFeedback": "Send feedback",
+    "placeholder": "Message the Dravr team...",
+    "removeAboutReply": "Remove the reply",
+    "send": "Send",
+    "sendFailed": "Your message didn't send. Try again.",
+    "subtitle": "Read by the people who build Dravr. No AI.",
+    "tellTeamMore": "Tell the Dravr team more",
+    "title": "Dravr team",
+    "welcome": "Tell us what's working, what's confusing, or what you wish Dravr did. Write in any language. We read every message."
+  },
   "frag": {
     "allCaughtUp": "You're all caught up!",
     "analyzed": "Analyzed",
