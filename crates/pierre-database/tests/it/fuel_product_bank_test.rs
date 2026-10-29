@@ -13,12 +13,14 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::sync::Arc;
 
 use pierre_core::models::{
     normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldOverride,
-    FieldProvenance, FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelItemEntry,
-    FuelRejectReason, NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalSourceImage,
-    ProposalStatus, TenantId, User, MAX_FUEL_ITEMS_PER_ATHLETE,
+    FieldProvenance, FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelItemCarried,
+    FuelItemEntry, FuelRejectReason, NewFuelProposal, PlausibilityViolation, ProposalSource,
+    ProposalSourceImage, ProposalStatus, TenantId, User, MAX_FUEL_ITEMS_PER_ATHLETE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -464,15 +466,16 @@ async fn a_pending_item_is_relinked_when_its_proposal_is_approved() {
         .athlete_fuel_items
         .add_pending_fuel_item(tenant, athlete, id, Some("2 per hour"))
         .await
-        .unwrap();
-    // Adding it twice keeps one item.
+        .unwrap()
+        .id();
+    // Adding it twice keeps one item, and says so.
     assert_eq!(
         repos
             .athlete_fuel_items
             .add_pending_fuel_item(tenant, athlete, id, None)
             .await
             .unwrap(),
-        item
+        FuelItemCarried::AlreadyCarried(item)
     );
     let listed = repos
         .athlete_fuel_items
@@ -507,7 +510,7 @@ async fn a_pending_item_is_relinked_when_its_proposal_is_approved() {
             .add_fuel_product_item(tenant, athlete, product.product.id, None)
             .await
             .unwrap(),
-        item
+        FuelItemCarried::AlreadyCarried(item)
     );
 }
 
@@ -529,7 +532,8 @@ async fn relinking_onto_a_product_already_carried_keeps_one_item() {
         .athlete_fuel_items
         .add_fuel_product_item(tenant, athlete, product.product.id, None)
         .await
-        .unwrap();
+        .unwrap()
+        .id();
 
     // An update to the same product, carried while pending.
     let mut update = proposal("Enervit", gel_facts());
@@ -589,7 +593,8 @@ async fn athlete_items_are_isolated_by_tenant_and_user() {
         .athlete_fuel_items
         .add_fuel_product_item(tenant, athlete, product.product.id, Some("race day"))
         .await
-        .unwrap();
+        .unwrap()
+        .id();
 
     // Another athlete in the tenant, and the athlete in another tenant, see nothing.
     for (t, u) in [(tenant, other_athlete), (other_tenant, athlete)] {
@@ -637,7 +642,8 @@ async fn athlete_items_are_isolated_by_tenant_and_user() {
         .athlete_fuel_items
         .add_fuel_product_item(tenant, athlete, product.product.id, None)
         .await
-        .unwrap();
+        .unwrap()
+        .id();
     assert_ne!(again, item);
 
     // A product the catalogue does not hold cannot be carried.
@@ -725,7 +731,8 @@ async fn an_athlete_carries_at_most_the_cap() {
                 .athlete_fuel_items
                 .add_pending_fuel_item(tenant, athlete, id, None)
                 .await
-                .unwrap(),
+                .unwrap()
+                .id(),
         );
     }
     let one_more = repos
@@ -754,6 +761,117 @@ async fn an_athlete_carries_at_most_the_cap() {
         .add_pending_fuel_item(tenant, athlete, one_more, None)
         .await
         .unwrap();
+}
+
+/// How many adds race in [`concurrent_adds_keep_the_cap_and_one_item_per_product`].
+const RACERS: usize = 8;
+
+/// Run `count` copies of `add` at once, each on its own task, and collect
+/// what each returned.
+async fn race<F, Fut, T>(repos: &Arc<RepositoryRegistry>, count: usize, add: F) -> Vec<T>
+where
+    F: Fn(Arc<RepositoryRegistry>, usize) -> Fut,
+    Fut: Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let tasks: Vec<_> = (0..count)
+        .map(|n| tokio::spawn(add(Arc::clone(repos), n)))
+        .collect();
+    let mut results = Vec::with_capacity(count);
+    for task in tasks {
+        results.push(task.await.unwrap());
+    }
+    results
+}
+
+/// Adds racing for an athlete's last slot, or for the same product, end with
+/// the cap and the one-live-item rule intact: one add lands, the others are
+/// refused or told the athlete already carries it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_adds_keep_the_cap_and_one_item_per_product() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+
+    // The same product, added by eight callers at once: one item.
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("Racer", gel_facts()))
+        .await
+        .unwrap();
+    let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
+    let outcomes = race(repos, RACERS, |repos, _| async move {
+        repos
+            .athlete_fuel_items
+            .add_fuel_product_item(tenant, athlete, product.product.id, None)
+            .await
+    })
+    .await;
+    let outcomes: Vec<FuelItemCarried> = outcomes.into_iter().map(Result::unwrap).collect();
+    let added: Vec<Uuid> = outcomes
+        .iter()
+        .filter_map(|o| match o {
+            FuelItemCarried::Added(id) => Some(*id),
+            FuelItemCarried::AlreadyCarried(_) => None,
+        })
+        .collect();
+    assert_eq!(added.len(), 1, "one add lands: {outcomes:?}");
+    assert!(
+        outcomes.iter().all(|o| o.id() == added[0]),
+        "every other add finds the item that landed: {outcomes:?}"
+    );
+
+    // Fill the list to one under the cap, then race two adds for the last slot.
+    let cap = usize::try_from(MAX_FUEL_ITEMS_PER_ATHLETE).unwrap();
+    for _ in 1..cap - 1 {
+        let id = repos
+            .fuel_catalogue
+            .create_fuel_proposal(&proposal("Filler", gel_facts()))
+            .await
+            .unwrap();
+        repos
+            .athlete_fuel_items
+            .add_pending_fuel_item(tenant, athlete, id, None)
+            .await
+            .unwrap();
+    }
+    let mut racers = Vec::new();
+    for _ in 0..RACERS {
+        racers.push(
+            repos
+                .fuel_catalogue
+                .create_fuel_proposal(&proposal("Last slot", gel_facts()))
+                .await
+                .unwrap(),
+        );
+    }
+    let racers = Arc::new(racers);
+    let results = race(repos, RACERS, move |repos, n| {
+        let racers = Arc::clone(&racers);
+        async move {
+            repos
+                .athlete_fuel_items
+                .add_pending_fuel_item(tenant, athlete, racers[n], None)
+                .await
+        }
+    })
+    .await;
+    assert_eq!(
+        results.iter().filter(|r| r.is_ok()).count(),
+        1,
+        "exactly one add takes the last slot: {results:?}"
+    );
+    assert_eq!(
+        repos
+            .athlete_fuel_items
+            .list_fuel_items(tenant, athlete)
+            .await
+            .unwrap()
+            .len(),
+        cap
+    );
 }
 
 #[tokio::test]

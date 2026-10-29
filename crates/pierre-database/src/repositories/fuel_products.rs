@@ -35,8 +35,8 @@ use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome,
-    FuelFactOverrides, FuelProductProposal, FuelProposalDetail, FuelRejectReason, NewFuelProposal,
-    ProposalStatus, TenantId,
+    FuelFactOverrides, FuelItemCarried, FuelProductProposal, FuelProposalDetail, FuelRejectReason,
+    NewFuelProposal, ProposalStatus, TenantId,
 };
 use uuid::Uuid;
 
@@ -151,8 +151,9 @@ pub trait FuelCatalogueRepository: Send + Sync {
 /// `tenant_id` and `user_id`.
 #[async_trait]
 pub trait AthleteFuelItemRepository: Send + Sync {
-    /// Carry a catalogue product and return the item's id. An athlete who
-    /// already carries it gets that item's id back.
+    /// Carry a catalogue product. An athlete who already carries it gets
+    /// [`FuelItemCarried::AlreadyCarried`] with that item's id, including
+    /// when a concurrent add or an approval's relink wrote it first.
     ///
     /// # Errors
     /// A not-found error when the catalogue holds no such product, or an
@@ -163,11 +164,11 @@ pub trait AthleteFuelItemRepository: Send + Sync {
         user_id: Uuid,
         product_id: Uuid,
         note: Option<&str>,
-    ) -> AppResult<Uuid>;
+    ) -> AppResult<FuelItemCarried>;
 
-    /// Carry a proposal while it is under review and return the item's id.
-    /// An approved proposal is carried as its product; an athlete who
-    /// already carries it gets that item's id back.
+    /// Carry a proposal while it is under review. An approved proposal is
+    /// carried as its product; an athlete who already carries it gets
+    /// [`FuelItemCarried::AlreadyCarried`].
     ///
     /// # Errors
     /// A not-found error for no such proposal, an invalid-input error for a
@@ -178,7 +179,7 @@ pub trait AthleteFuelItemRepository: Send + Sync {
         user_id: Uuid,
         proposal_id: Uuid,
         note: Option<&str>,
-    ) -> AppResult<Uuid>;
+    ) -> AppResult<FuelItemCarried>;
 
     /// The items the athlete carries, oldest first, each resolved to its
     /// product's current facts or to its proposal.
@@ -201,9 +202,12 @@ pub trait AthleteFuelItemRepository: Send + Sync {
 /// `$row` is that backend's row type, `$ids` its uuid codec
 /// ([`crate::repositories::uuid_columns`]) and `$begin` the statement that
 /// opens a write transaction (`BEGIN IMMEDIATE` on `SQLite`, so the write lock
-/// is held before the approval reads).
+/// is held before the approval reads). `$owner_lock` is the statement, if the
+/// backend needs one, that serializes one athlete's item writes inside that
+/// transaction: `SQLite`'s `BEGIN IMMEDIATE` already does, Postgres takes a
+/// transaction-scoped advisory lock keyed by the athlete.
 macro_rules! impl_fuel_product_repositories {
-    ($ty:ty, $row:ty, $ids:ident, $begin:literal) => {
+    ($ty:ty, $row:ty, $ids:ident, $begin:literal, $owner_lock:expr) => {
         impl $ty {
             fn fuel_catalogue_row(row: &$row) -> AppResult<CatalogueFuelProduct> {
                 catalogue_from_row(
@@ -421,19 +425,65 @@ macro_rules! impl_fuel_product_repositories {
                 Ok(())
             }
 
-            /// Open the transaction an athlete's item is written in. On
-            /// `SQLite` it takes the write lock first, so the cap count, the
-            /// duplicate check and the insert see one state.
+            /// Open the transaction one athlete's item is written in, holding
+            /// that athlete's item writes until it ends, so the cap count, the
+            /// duplicate check and the insert see one state under concurrent
+            /// adds. `SQLite` holds the write lock from `BEGIN IMMEDIATE`.
+            /// Postgres takes the athlete's advisory lock before its first
+            /// read: a row lock could not do it, since at READ COMMITTED a
+            /// count that waited on locked rows still misses a row inserted
+            /// meanwhile, and the next statement's snapshot sees what the
+            /// writer before it committed.
             async fn begin_fuel_item_write(
                 &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
             ) -> AppResult<sqlx::Transaction<'static, <$row as sqlx::Row>::Database>> {
-                self.pool()
+                let mut tx = self
+                    .pool()
                     .begin_with($begin)
                     .await
-                    .map_err(|e| fuel_error("begin an item write in", e))
+                    .map_err(|e| fuel_error("begin an item write in", e))?;
+                let owner_lock: Option<&'static str> = $owner_lock;
+                if let Some(lock) = owner_lock {
+                    sqlx::query(lock)
+                        .bind(format!("athlete_fuel_items:{tenant_id}:{user_id}"))
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| fuel_error("lock an athlete's items in", e))?;
+                }
+                Ok(tx)
             }
 
-            /// Insert an item unless the athlete is at the cap.
+            /// The live item a unique-index collision met: what the athlete
+            /// carries, read after the failed transaction is dropped (Postgres
+            /// aborts it on the error).
+            async fn colliding_fuel_item(
+                &self,
+                sql: &'static str,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                key: Uuid,
+            ) -> AppResult<FuelItemCarried> {
+                let row = sqlx::query(sql)
+                    .bind($ids::bind(tenant_id.as_uuid()))
+                    .bind($ids::bind(user_id))
+                    .bind($ids::bind(key))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("find an item in", e))?;
+                match row {
+                    Some(row) => Ok(FuelItemCarried::AlreadyCarried($ids::read(&row, "id")?)),
+                    None => Err(AppError::database(
+                        "A fuel item collided with one that is no longer carried; add it again",
+                    )),
+                }
+            }
+
+            /// Insert an item unless the athlete is at the cap. `Ok(None)`
+            /// when a live item for the same product or proposal holds the
+            /// unique index: one written outside this athlete's lock, by an
+            /// approval relinking a pending item.
             async fn insert_fuel_item(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 tenant_id: TenantId,
@@ -441,7 +491,7 @@ macro_rules! impl_fuel_product_repositories {
                 product_id: Option<Uuid>,
                 proposal_id: Option<Uuid>,
                 note: Option<&str>,
-            ) -> AppResult<Uuid> {
+            ) -> AppResult<Option<Uuid>> {
                 let live: i64 = sqlx::query_scalar(COUNT_LIVE_ITEMS_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
@@ -454,7 +504,7 @@ macro_rules! impl_fuel_product_repositories {
                     )));
                 }
                 let id = Uuid::new_v4();
-                sqlx::query(INSERT_ITEM_SQL)
+                let inserted = sqlx::query(INSERT_ITEM_SQL)
                     .bind($ids::bind(id))
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
@@ -463,9 +513,18 @@ macro_rules! impl_fuel_product_repositories {
                     .bind(note)
                     .bind(Utc::now())
                     .execute(&mut **tx)
-                    .await
-                    .map_err(|e| fuel_error("add an item to", e))?;
-                Ok(id)
+                    .await;
+                match inserted {
+                    Ok(_) => Ok(Some(id)),
+                    Err(e)
+                        if e
+                            .as_database_error()
+                            .is_some_and(|db| db.is_unique_violation()) =>
+                    {
+                        Ok(None)
+                    }
+                    Err(e) => Err(fuel_error("add an item to", e)),
+                }
             }
 
             /// The live item of the athlete a lookup selects, if any.
@@ -762,8 +821,8 @@ macro_rules! impl_fuel_product_repositories {
                 user_id: Uuid,
                 product_id: Uuid,
                 note: Option<&str>,
-            ) -> AppResult<Uuid> {
-                let mut tx = self.begin_fuel_item_write().await?;
+            ) -> AppResult<FuelItemCarried> {
+                let mut tx = self.begin_fuel_item_write(tenant_id, user_id).await?;
                 let exists: i64 = sqlx::query_scalar(COUNT_PRODUCT_SQL)
                     .bind($ids::bind(product_id))
                     .fetch_one(&mut *tx)
@@ -781,15 +840,21 @@ macro_rules! impl_fuel_product_repositories {
                 )
                 .await?
                 {
-                    return Ok(held);
+                    return Ok(FuelItemCarried::AlreadyCarried(held));
                 }
-                let id =
+                let inserted =
                     Self::insert_fuel_item(&mut tx, tenant_id, user_id, Some(product_id), None, note)
                         .await?;
+                let Some(id) = inserted else {
+                    drop(tx);
+                    return self
+                        .colliding_fuel_item(FIND_LIVE_PRODUCT_ITEM_SQL, tenant_id, user_id, product_id)
+                        .await;
+                };
                 tx.commit()
                     .await
                     .map_err(|e| fuel_error("commit an item to", e))?;
-                Ok(id)
+                Ok(FuelItemCarried::Added(id))
             }
 
             async fn add_pending_fuel_item(
@@ -798,7 +863,7 @@ macro_rules! impl_fuel_product_repositories {
                 user_id: Uuid,
                 proposal_id: Uuid,
                 note: Option<&str>,
-            ) -> AppResult<Uuid> {
+            ) -> AppResult<FuelItemCarried> {
                 use sqlx::Row as _;
                 let row = sqlx::query(PROPOSAL_LINK_SQL)
                     .bind($ids::bind(proposal_id))
@@ -821,7 +886,7 @@ macro_rules! impl_fuel_product_repositories {
                         "An approved fuel proposal names no product",
                     )),
                     (ProposalStatus::Pending, _) => {
-                        let mut tx = self.begin_fuel_item_write().await?;
+                        let mut tx = self.begin_fuel_item_write(tenant_id, user_id).await?;
                         // Hold the proposal while the item is written: an
                         // approval claims it with an UPDATE, so it waits for
                         // this commit and its relink then sees the item. Had
@@ -839,7 +904,7 @@ macro_rules! impl_fuel_product_repositories {
                                 .add_pending_fuel_item(tenant_id, user_id, proposal_id, note)
                                 .await;
                         }
-                        let id = match Self::find_live_fuel_item(
+                        if let Some(held) = Self::find_live_fuel_item(
                             &mut tx,
                             FIND_LIVE_PENDING_ITEM_SQL,
                             tenant_id,
@@ -848,23 +913,32 @@ macro_rules! impl_fuel_product_repositories {
                         )
                         .await?
                         {
-                            Some(held) => held,
-                            None => {
-                                Self::insert_fuel_item(
-                                    &mut tx,
+                            return Ok(FuelItemCarried::AlreadyCarried(held));
+                        }
+                        let inserted = Self::insert_fuel_item(
+                            &mut tx,
+                            tenant_id,
+                            user_id,
+                            None,
+                            Some(proposal_id),
+                            note,
+                        )
+                        .await?;
+                        let Some(id) = inserted else {
+                            drop(tx);
+                            return self
+                                .colliding_fuel_item(
+                                    FIND_LIVE_PENDING_ITEM_SQL,
                                     tenant_id,
                                     user_id,
-                                    None,
-                                    Some(proposal_id),
-                                    note,
+                                    proposal_id,
                                 )
-                                .await?
-                            }
+                                .await;
                         };
                         tx.commit()
                             .await
                             .map_err(|e| fuel_error("commit an item to", e))?;
-                        Ok(id)
+                        Ok(FuelItemCarried::Added(id))
                     }
                 }
             }

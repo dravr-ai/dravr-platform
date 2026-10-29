@@ -1,5 +1,5 @@
 // ABOUTME: PostgreSQL-backed FuelCatalogueRepository and AthleteFuelItemRepository, emitted from the shared body in repositories/
-// ABOUTME: Native uuid ids through the NativeUuid codec; the statements are the ones SQLite runs
+// ABOUTME: Native uuid ids through the NativeUuid codec, an advisory lock per athlete for item writes; otherwise the statements SQLite runs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,9 +8,10 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     check_plausibility, fuel_natural_key, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct,
-    FactProvenance, FuelApprovalOutcome, FuelFacts, FuelItemEntry, FuelProductProposal,
-    FuelProposalDetail, FuelRejectReason, NewFuelProposal, PendingFuelItem, ProposalSourceImage,
-    ProposalStatus, TenantId, MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
+    FactProvenance, FuelApprovalOutcome, FuelFacts, FuelItemCarried, FuelItemEntry,
+    FuelProductProposal, FuelProposalDetail, FuelRejectReason, NewFuelProposal, PendingFuelItem,
+    ProposalSourceImage, ProposalStatus, TenantId, MAX_FUEL_ITEMS_PER_ATHLETE,
+    MAX_FUEL_PRODUCT_LOOKUP,
 };
 use sqlx::postgres::PgRow;
 use uuid::Uuid;
@@ -32,4 +33,15 @@ use crate::repositories::fuel_products::{
 };
 use crate::repositories::uuid_columns::NativeUuid;
 
-impl_fuel_product_repositories!(PostgresDatabase, PgRow, NativeUuid, "BEGIN");
+/// Serializes one athlete's item writes for the rest of the transaction,
+/// keyed by a hash of `athlete_fuel_items:<tenant>:<user>`. A hash that two
+/// athletes share only makes one wait on the other's add.
+const LOCK_ATHLETE_FUEL_ITEMS_SQL: &str = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))";
+
+impl_fuel_product_repositories!(
+    PostgresDatabase,
+    PgRow,
+    NativeUuid,
+    "BEGIN",
+    Some(LOCK_ATHLETE_FUEL_ITEMS_SQL)
+);

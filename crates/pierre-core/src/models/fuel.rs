@@ -543,6 +543,27 @@ pub struct AthleteFuelItem {
     pub entry: FuelItemEntry,
 }
 
+/// What carrying a product or a proposal did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FuelItemCarried {
+    /// A new item was written.
+    Added(Uuid),
+    /// The athlete already carried it; this is the item they carry. Two
+    /// concurrent adds of one product land here too: the second one finds
+    /// the first's item instead of a second live row.
+    AlreadyCarried(Uuid),
+}
+
+impl FuelItemCarried {
+    /// The item's id, new or held.
+    #[must_use]
+    pub const fn id(self) -> Uuid {
+        match self {
+            Self::Added(id) | Self::AlreadyCarried(id) => id,
+        }
+    }
+}
+
 /// The most catalogue products one lookup resolves at once.
 pub const MAX_FUEL_PRODUCT_LOOKUP: usize = 64;
 

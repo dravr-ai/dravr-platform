@@ -8,9 +8,10 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     check_plausibility, fuel_natural_key, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct,
-    FactProvenance, FuelApprovalOutcome, FuelFacts, FuelItemEntry, FuelProductProposal,
-    FuelProposalDetail, FuelRejectReason, NewFuelProposal, PendingFuelItem, ProposalSourceImage,
-    ProposalStatus, TenantId, MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
+    FactProvenance, FuelApprovalOutcome, FuelFacts, FuelItemCarried, FuelItemEntry,
+    FuelProductProposal, FuelProposalDetail, FuelRejectReason, NewFuelProposal, PendingFuelItem,
+    ProposalSourceImage, ProposalStatus, TenantId, MAX_FUEL_ITEMS_PER_ATHLETE,
+    MAX_FUEL_PRODUCT_LOOKUP,
 };
 use sqlx::sqlite::SqliteRow;
 use uuid::Uuid;
@@ -32,4 +33,4 @@ use crate::repositories::fuel_products::{
 };
 use crate::repositories::uuid_columns::TextUuid;
 
-impl_fuel_product_repositories!(Database, SqliteRow, TextUuid, "BEGIN IMMEDIATE");
+impl_fuel_product_repositories!(Database, SqliteRow, TextUuid, "BEGIN IMMEDIATE", None);
