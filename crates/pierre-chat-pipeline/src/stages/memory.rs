@@ -36,6 +36,7 @@ use pierre_providers::registry::global_registry;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::memory_facts::SentenceRenderer;
 use pierre_services::okf::render_okf_bundle_default;
+use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::playbook_render::{render_archetype_block, render_playbooks_block};
 use pierre_services::training_plan_render::render_training_plan_block;
@@ -210,7 +211,15 @@ pub(crate) async fn append_plan_block(
             None
         });
     let catalogue = PackagedCatalogue::new(catalogue, package);
-    match render_training_plan_block(plan, weeks, today, &catalogue, &fueling) {
+    // The fuel products the days name. An unreadable catalogue renders the
+    // plan without their names rather than dropping it.
+    let products = PlanFuelProducts::for_weeks(repos, weeks)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "fuel catalogue read failed; rendering the plan without product names");
+            PlanFuelProducts::default()
+        });
+    match render_training_plan_block(plan, weeks, today, &catalogue, (&fueling, &products)) {
         Some(block) => format!("{base_prompt}{block}"),
         None => base_prompt,
     }

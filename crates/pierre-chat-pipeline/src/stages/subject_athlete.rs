@@ -59,6 +59,7 @@ use pierre_services::linked_wellness::{linked_wellness, LinkedWellness, LINKED_W
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use super::fuel_products::inject_fuel_products;
 use crate::ChatPipelineContext;
 
 /// Heads the block, granted or refused.
@@ -258,7 +259,14 @@ pub(crate) async fn resolve_withholding_history(
 
 /// The prompt block for the turn: one line when refused, the coach's view of
 /// the athlete when granted.
-pub(crate) async fn block(ctx: &ChatPipelineContext, turn: &SubjectTurn) -> String {
+///
+/// On access the athlete's fuel products follow, ahead of the plan block, and
+/// are withheld with it (`fuel_products_withheld`).
+pub(crate) async fn block(
+    ctx: &ChatPipelineContext,
+    turn: &SubjectTurn,
+    fuel_products_withheld: bool,
+) -> String {
     match turn {
         SubjectTurn::Refused(refused) => format!("{HEADING}{}", refused.line()),
         SubjectTurn::Granted(granted) => {
@@ -269,7 +277,14 @@ pub(crate) async fn block(ctx: &ChatPipelineContext, turn: &SubjectTurn) -> Stri
                     .unwrap_or(&readings.provider);
                 (brand, readings)
             });
-            granted_block(granted, &training, shown)
+            inject_fuel_products(
+                &ctx.repos,
+                granted.tenant(),
+                granted.athlete(),
+                fuel_products_withheld,
+                granted_block(granted, &training, shown),
+            )
+            .await
         }
     }
 }

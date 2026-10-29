@@ -42,6 +42,7 @@ use pierre_services::coached_athlete::{
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
+use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
     publish_draft_live, DraftPublishOutcome,
@@ -132,8 +133,20 @@ pub(super) async fn get_subject_plan(
         Some(&user_locale(coach_user.as_ref())),
     );
     let fueling = FuelingDisclosure::for_athlete(repos, access.tenant, athlete).await?;
+    // The products both views name, read once: the draft and the live weeks
+    // are mostly the same days.
+    let products = PlanFuelProducts::for_weeks(
+        repos,
+        view.live
+            .iter()
+            .flat_map(|live| &live.weeks)
+            .chain(view.draft.iter().flat_map(|draft| &draft.weeks)),
+    )
+    .await?;
     let registry = &resources.mcp.messaging_strings_registry;
-    let card = |plan, weeks: &[_]| PlanCard::build(plan, weeks, today, registry, &locale, &fueling);
+    let card = |plan, weeks: &[_]| {
+        PlanCard::build(plan, weeks, today, registry, &locale, (&fueling, &products))
+    };
     let live = view
         .live
         .as_ref()

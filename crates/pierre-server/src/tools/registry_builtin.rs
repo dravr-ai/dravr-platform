@@ -466,6 +466,7 @@ fn register_fitness_config_tools(registry: &mut ToolRegistry) {
 /// Register nutrition tools
 #[cfg(feature = "tools-nutrition")]
 fn register_nutrition_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::fuel_products::create_fuel_product_tools;
     use pierre_tool_runtime::implementations::nutrition::create_nutrition_tools;
     use std::sync::Arc;
     use tracing::debug;
@@ -475,8 +476,12 @@ fn register_nutrition_tools(registry: &mut ToolRegistry) {
         registry.len()
     );
 
-    // Register all nutrition tools with the "nutrition" category
-    for tool in create_nutrition_tools() {
+    // Register all nutrition tools with the "nutrition" category, the
+    // fuel-product bank's athlete tools among them (carnet#155)
+    for tool in create_nutrition_tools()
+        .into_iter()
+        .chain(create_fuel_product_tools())
+    {
         registry.register_with_category(Arc::from(tool), "nutrition");
     }
 

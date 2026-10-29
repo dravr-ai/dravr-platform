@@ -179,6 +179,33 @@ describe('WorkoutPlanCard', () => {
     expect(screen.queryByText(/g\/h/)).not.toBeInTheDocument();
   });
 
+  it('names the fuel products a day uses, even when its amounts are withheld', () => {
+    const flagged = plan();
+    flagged.weeks[0].days[0] = {
+      date: '2026-09-15',
+      sport: 'run',
+      workout: 'long run',
+      duration_min: 120,
+      intensity: 'Z2',
+      rest: false,
+      fueling_withheld: {
+        reason: 'medical_flag',
+        set_by: 'clinician',
+        note: 'A medical/PAR-Q flag is on file for this athlete.',
+      },
+      fuel_products: [
+        { product_id: '7b0c0d3e-2f4b-4b9e-9b7e-1d2c3a4b5c6d', name: 'Maurten Gel 100 (Caf 100)' },
+        { product_id: '0d7f7a44-5d2c-4e57-8c5a-6b1a2e3f4d5c', name: 'Näak Drink Mix' },
+      ],
+    };
+    render(<WorkoutPlanCard plan={flagged} />);
+
+    expect(screen.getByTestId('plan-day-fuel-products')).toHaveTextContent(
+      'Maurten Gel 100 (Caf 100) · Näak Drink Mix',
+    );
+    expect(screen.queryByText(/g\/h/)).not.toBeInTheDocument();
+  });
+
   it('shows the other races the athlete named', () => {
     render(<WorkoutPlanCard plan={plan()} />);
     expect(screen.getByText(/Also racing/)).toBeInTheDocument();

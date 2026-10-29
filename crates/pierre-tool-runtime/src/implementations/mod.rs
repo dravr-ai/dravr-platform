@@ -261,6 +261,8 @@ pub mod training_plan_compliance;
 /// A coach's draft on the tool path: the save into it, the read of it, and
 /// `publish_training_plan` with the publish entry point the routes share.
 pub mod training_plan_drafts;
+/// The fuel products a saved plan day names, held to the catalogue and the athlete's list.
+pub mod training_plan_fuel_products;
 /// `push_training_plan` — the athlete's active plan onto their provider calendar, reconciled.
 pub mod training_plan_push;
 /// The rails every write to an athlete's live plan runs once it commits.
@@ -287,6 +289,12 @@ pub mod mobility;
 /// `get_nutrient_timing`, `search_food`, etc. (`tools-nutrition` feature).
 #[cfg(feature = "tools-nutrition")]
 pub mod nutrition;
+
+/// The fuel-product bank's athlete tools: `search_fuel_products`,
+/// `add_fuel_item`, `list_fuel_items`, `remove_fuel_item` (`tools-nutrition`
+/// feature, carnet#155).
+#[cfg(feature = "tools-nutrition")]
+pub mod fuel_products;
 
 /// The medical-flag gate on prescriptive nutrition figures, shared by the
 /// nutrition, recipe and recommendation tools.

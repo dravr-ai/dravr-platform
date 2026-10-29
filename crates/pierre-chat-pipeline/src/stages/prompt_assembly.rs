@@ -774,13 +774,24 @@ pub(crate) async fn assemble_prompt_and_messages(
     // persona.
     let turn_agent_id = input.turn_agent_id(conv);
 
+    // One decision, four consumers below plus the plan-save refusal in
+    // `flow_refuses_plan_save`: an interview gets none of the plan context, a
+    // flow that exists to write a plan gets all of it. The plan block (7f.2)
+    // and the fuel products (7f.1b) are suppressed while an INTERVIEW owns
+    // the turn, and on a room turn, whose reply the whole room reads (see
+    // `inject_training_plan`). A flow that exists to write a plan needs the
+    // block it is writing against, which is why the test is the flow's own
+    // nature rather than "a guided flow is active".
+    let interview_owns_turn = onboarding.is_some_and(|turn| turn.state.flow.is_interview());
+    let plan_withheld = interview_owns_turn || !input.is_direct_message;
+
     // Stages 7d–7f.1: the subject's own athlete context. The coach's seat skips
     // it whole — the coach's own training is not the group's. A coach's
     // athlete thread carries the athlete's coach view in its place: the gates'
     // answer, and on access the roster line, plan, draft and linked wellness.
     let (base_prompt, pending_followup_ids, freshness_hint) =
         if let Some(turn) = subject_turn.as_ref() {
-            let block = subject_athlete::block(ctx, turn).await;
+            let block = subject_athlete::block(ctx, turn, plan_withheld).await;
             (format!("{base_prompt}{block}"), Vec::new(), None)
         } else if sender_is_subject {
             let subject = inject_subject_context(
@@ -791,6 +802,7 @@ pub(crate) async fn assemble_prompt_and_messages(
                     user_uuid,
                     turn_agent_id,
                     user_timezone: user_timezone.as_deref(),
+                    fuel_products_withheld: plan_withheld,
                 },
                 base_prompt,
             )
@@ -810,21 +822,9 @@ pub(crate) async fn assemble_prompt_and_messages(
     // so week selection and the race countdown match their calendar, not the
     // server's UTC clock.
     //
-    // One decision, three consumers below plus the plan-save refusal in
-    // `flow_refuses_plan_save`: an interview gets none of the plan context, a
-    // flow that exists to write a plan gets all of it.
-    let interview_owns_turn = onboarding.is_some_and(|turn| turn.state.flow.is_interview());
-
-    // Suppressed while an INTERVIEW owns the turn, and on a room turn, whose
-    // reply the whole room reads (see `inject_training_plan`). A flow that
-    // exists to write a plan needs the block it is writing against, which is
-    // why the test is the flow's own nature rather than "a guided flow is
-    // active".
-    //
     // In a coach's athlete thread the block is the athlete's — the coach's
     // draft over their live weeks, or their live season — on the athlete's
     // calendar, and none at all once the gates refuse.
-    let plan_withheld = interview_owns_turn || !input.is_direct_message;
     let base_prompt = match subject_turn.as_ref() {
         None => {
             let athlete_today = clock_date(Utc::now(), resolve_zone(user_timezone.as_deref()));

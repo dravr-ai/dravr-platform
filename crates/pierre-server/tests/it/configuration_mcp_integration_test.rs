@@ -264,9 +264,12 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-10-28: get_group_member_plan_status added (115→116, total 121→122)
     // — whether a coached athlete has a published plan and where their coach
     // reads it, the coach seat's answer in a room, carnet#1244.
+    // 2026-10-29: search_fuel_products, add_fuel_item, list_fuel_items and
+    // remove_fuel_item added (116→120, total 122→126) — the fuel-product
+    // bank's athlete tools, carnet#155.
     assert_eq!(
-        fitness_tools, 116,
-        "Expected exactly 116 non-configuration tools"
+        fitness_tools, 120,
+        "Expected exactly 120 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -274,5 +277,5 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 122, "Expected total of 122 tools"); // 116 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 126, "Expected total of 126 tools"); // 120 non-configuration + 6 configuration
 }

@@ -111,6 +111,11 @@ use pierre_tool_runtime::implementations::fitness_config::{
     GetFitnessConfigTool, ListFitnessConfigsResult, ListFitnessConfigsTool, SetFitnessConfigResult,
     SetFitnessConfigTool,
 };
+use pierre_tool_runtime::implementations::fuel_products::{
+    AddFuelItemResult, AddFuelItemTool, FuelItemStatus, FuelItemView, FuelLabelFacts,
+    FuelProductView, ListFuelItemsResult, ListFuelItemsTool, RemoveFuelItemResult,
+    RemoveFuelItemTool, SearchFuelProductsResult, SearchFuelProductsTool,
+};
 use pierre_tool_runtime::implementations::goals::{
     AnalyzeGoalFeasibilityTool, SetGoalTool, SuggestGoalsTool, TrackProgressTool,
 };
@@ -3610,6 +3615,28 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             <PushTrainingPlanTool as McpTool<dyn ToolRuntime>>::definition(&PushTrainingPlanTool),
             output_schema_for::<PushReport>(),
         ),
+        (
+            "search_fuel_products",
+            <SearchFuelProductsTool as McpTool<dyn ToolRuntime>>::definition(
+                &SearchFuelProductsTool,
+            ),
+            output_schema_for::<SearchFuelProductsResult>(),
+        ),
+        (
+            "add_fuel_item",
+            <AddFuelItemTool as McpTool<dyn ToolRuntime>>::definition(&AddFuelItemTool),
+            output_schema_for::<AddFuelItemResult>(),
+        ),
+        (
+            "list_fuel_items",
+            <ListFuelItemsTool as McpTool<dyn ToolRuntime>>::definition(&ListFuelItemsTool),
+            output_schema_for::<ListFuelItemsResult>(),
+        ),
+        (
+            "remove_fuel_item",
+            <RemoveFuelItemTool as McpTool<dyn ToolRuntime>>::definition(&RemoveFuelItemTool),
+            output_schema_for::<RemoveFuelItemResult>(),
+        ),
     ] {
         assert_eq!(
             declared.name, tool_name,
@@ -3622,6 +3649,81 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             derived,
             "{tool_name} declares a schema derived from a DIFFERENT result type"
         );
+    }
+}
+
+/// The fuel-product answers validate against the schemas the tools declare:
+/// an approved item with its facts, a pending and a rejected one without
+/// (carnet#155).
+#[test]
+fn the_fuel_product_answers_match_their_schemas() {
+    let product = FuelProductView {
+        product_id: "7b0c0d3e-2f4b-4b9e-9b7e-1d2c3a4b5c6d".to_owned(),
+        brand: "Maurten".to_owned(),
+        name: "Gel 100".to_owned(),
+        variant: "Caf 100".to_owned(),
+        form: "gel".to_owned(),
+        gtin: Some("07350093970042".to_owned()),
+        facts: FuelLabelFacts {
+            serving_label: Some("1 gel (40 g)".to_owned()),
+            serving_g: Some(40.0),
+            carbs_g: Some(25.0),
+            caffeine_mg: Some(100.0),
+            glucose_fructose_ratio: Some(0.8),
+            ..FuelLabelFacts::default()
+        },
+        sources: [("carbs_g".to_owned(), "label_ocr".to_owned())].into(),
+        facts_since: "2026-10-29T12:00:00+00:00".to_owned(),
+    };
+    let item = |status, product| FuelItemView {
+        item_id: "0d7f7a44-5d2c-4e57-8c5a-6b1a2e3f4d5c".to_owned(),
+        status,
+        brand: "Maurten".to_owned(),
+        name: "Gel 100".to_owned(),
+        variant: String::new(),
+        form: "gel".to_owned(),
+        product,
+        note: Some("2 per hour".to_owned()),
+    };
+    let checks = [
+        (
+            output_schema_for::<SearchFuelProductsResult>(),
+            serde_json::to_value(SearchFuelProductsResult {
+                products: vec![product.clone()],
+                count: 1,
+            }),
+        ),
+        (
+            output_schema_for::<ListFuelItemsResult>(),
+            serde_json::to_value(ListFuelItemsResult {
+                items: vec![
+                    item(FuelItemStatus::Approved, Some(product)),
+                    item(FuelItemStatus::Pending, None),
+                    item(FuelItemStatus::Rejected, None),
+                ],
+                count: 3,
+            }),
+        ),
+        (
+            output_schema_for::<AddFuelItemResult>(),
+            serde_json::to_value(AddFuelItemResult {
+                item: item(FuelItemStatus::Pending, None),
+                already_carried: false,
+                message: "pending review".to_owned(),
+            }),
+        ),
+        (
+            output_schema_for::<RemoveFuelItemResult>(),
+            serde_json::to_value(RemoveFuelItemResult {
+                item_id: "0d7f7a44-5d2c-4e57-8c5a-6b1a2e3f4d5c".to_owned(),
+                removed: true,
+            }),
+        ),
+    ];
+    for (schema, value) in checks {
+        let value = value.expect("serializes");
+        let validator = jsonschema::validator_for(&schema).expect("compiles");
+        assert!(validator.is_valid(&value), "fuel answer:\n{value:#}");
     }
 }
 

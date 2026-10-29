@@ -41,7 +41,12 @@ use crate::common;
 /// 2026-10-28: 94,750 → 95,100 for `get_group_member_plan_status` (carnet#1244),
 /// the coach seat's one plan read, kept to a single argument and a two-line
 /// description (~330 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_100;
+///
+/// 2026-10-29: 95,100 → 97,450 for the fuel-product bank (carnet#155): four
+/// tools, `add_fuel_item`'s label facts the largest share, and
+/// `save_training_plan`'s `fuel_product_ids`. All four go out deferred on a
+/// model that defers, so the loaded prefix does not move.
+const CATALOGUE_BUDGET_BYTES: usize = 97_450;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

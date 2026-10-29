@@ -1,10 +1,10 @@
-// ABOUTME: The turn subject's own athlete context — freshness, OKF bundle, playbooks, notes, followups, commitments
+// ABOUTME: The turn subject's own athlete context — freshness, OKF bundle, playbooks, notes, followups, commitments, fuel products
 // ABOUTME: One gate for prompt assembly: a coach's seat in their group skips all of it (carnet#741)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Prompt stages 7d–7f.1: the turn subject's own athlete context.
+//! Prompt stages 7d–7f.1b: the turn subject's own athlete context.
 //!
 //! Everything here is read from the sender's own records. Grouped so the one
 //! decision that the sender is not the subject (the coach's seat, see
@@ -19,6 +19,7 @@ use super::super::surface_profile::SurfaceProfile;
 use super::super::turn::TurnInput;
 use super::commitments::inject_commitments;
 use super::followups::inject_pending_followups;
+use super::fuel_products::inject_fuel_products;
 use super::memory::{inject_agent_notes, inject_okf_bundle, inject_playbooks};
 use super::refresh::refresh_and_hint;
 use crate::ChatPipelineContext;
@@ -37,6 +38,9 @@ pub struct SubjectContextInputs<'a> {
     pub turn_agent_id: Option<&'a str>,
     /// The sender's IANA timezone, when reported.
     pub user_timezone: Option<&'a str>,
+    /// Whether the fuel-products block is withheld: exactly when the plan
+    /// block is — an interview owns the turn, or the turn is in a room.
+    pub fuel_products_withheld: bool,
 }
 
 // The turn carries the athlete's message: only its id prints.
@@ -48,6 +52,7 @@ impl fmt::Debug for SubjectContextInputs<'_> {
             .field("user_uuid", &self.user_uuid)
             .field("turn_agent_id", &self.turn_agent_id)
             .field("user_timezone", &self.user_timezone)
+            .field("fuel_products_withheld", &self.fuel_products_withheld)
             .finish_non_exhaustive()
     }
 }
@@ -86,6 +91,7 @@ pub async fn inject_subject_context(
         user_uuid,
         turn_agent_id,
         user_timezone,
+        fuel_products_withheld,
     } = inputs;
 
     // Stage 7d: Trigger the chat refresh and build the freshness hint.
@@ -173,6 +179,19 @@ pub async fn inject_subject_context(
         &input.tool_tenant_id.to_string(),
         &input.user_id,
         user_timezone,
+        base_prompt,
+    )
+    .await;
+
+    // Stage 7f.1b: The fuel products the athlete carries, between their
+    // commitments and the plan (7f.2) a day of which may name one. Scoped to
+    // the TOOL tenant — the tenant `add_fuel_item` writes under — and withheld
+    // where the plan block is.
+    let base_prompt = inject_fuel_products(
+        &ctx.repos,
+        input.tool_tenant_id,
+        user_uuid,
+        fuel_products_withheld,
         base_prompt,
     )
     .await;

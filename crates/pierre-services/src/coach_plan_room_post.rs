@@ -390,6 +390,7 @@ mod tests {
             intensity: "Z2".to_owned(),
             steps: Vec::new(),
             fueling: None,
+            fuel_product_ids: Vec::new(),
             template_slug: None,
             template_params: None,
             template_source: None,

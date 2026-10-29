@@ -217,6 +217,9 @@ pub mod medical_flag;
 /// Plan fuelling under a medical flag: rates refused on save, withheld on every read surface
 pub mod plan_fueling;
 
+/// The names of the fuel products a stored plan's days reference (carnet#155)
+pub mod plan_fuel_products;
+
 /// « Style de coaching » persona cards rendered from the live persona-contract registry
 pub mod personas;
 

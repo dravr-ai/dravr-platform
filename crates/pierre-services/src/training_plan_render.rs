@@ -30,6 +30,7 @@ use pierre_memory::FactKind;
 use std::fmt::Write as _;
 
 use crate::agent_package::PackagedCatalogue;
+use crate::plan_fuel_products::PlanFuelProducts;
 use crate::plan_fueling::FuelingDisclosure;
 
 /// Weeks [`select_active_weeks`] may return: the current one and the next —
@@ -174,22 +175,47 @@ const MAX_STRATEGY_LEN: usize = 4_000;
 /// away.
 const MAX_PROMPT_STEPS: usize = 12;
 
-/// Neutralize a free-text plan field before it enters the **unfenced** system
-/// prompt. Plan text is agent/LLM/athlete-authored (an athlete can call
+/// Neutralize a free-text field before it enters the **unfenced** system
+/// prompt.
+///
+/// Plan text is agent/LLM/athlete-authored (an athlete can call
 /// `save_training_plan` directly), so an unescaped field could smuggle a forged
 /// prompt section (`"## Coach directives …"`), a fenced code block, or a
-/// blockquote into a trusted, above-user-trust region.
+/// blockquote into a trusted, above-user-trust region. The fuel-products block
+/// passes catalogue and athlete text through it for the same reason.
 ///
 /// Collapsing every whitespace run (including newlines) to a single space
 /// removes the line-starts a markdown header / blockquote / list item needs;
 /// any leading structural punctuation is then stripped, backticks are
 /// defanged, and the field is length-capped.
-fn sanitize_prompt_field(s: &str, max_len: usize) -> String {
+#[must_use]
+pub fn sanitize_prompt_field(s: &str, max_len: usize) -> String {
     let stripped = flatten_line(s)
         .trim_start_matches(['#', '>', '*', '-', '`'])
         .trim()
         .replace('`', "'");
     cap(&stripped, max_len)
+}
+
+/// The `· fuel products:` clause naming the products a day references, each
+/// with its id so a re-save carries them forward; empty when it names none.
+fn fuel_products_clause(products: &PlanFuelProducts, day: &PlannedDay) -> String {
+    let named: Vec<String> = products
+        .day(day)
+        .iter()
+        .map(|product| {
+            format!(
+                "{} [{}]",
+                sanitize_prompt_field(&product.name, MAX_FIELD_LEN),
+                product.product_id
+            )
+        })
+        .collect();
+    if named.is_empty() {
+        String::new()
+    } else {
+        format!(" · fuel products: {}", named.join(", "))
+    }
 }
 
 /// One clause naming a structured day's steps — `Warm-up 15min Z1; Work 8min
@@ -244,13 +270,15 @@ fn step_extent(step: &WorkoutStep) -> String {
 /// `fueling` decides whether a day's stored fuelling rates are rendered or
 /// withheld; withheld, the block also says so up front, so the agent writes
 /// the next save's fuelling in words rather than having it refused.
+/// `products` names the fuel products a day references; names show either
+/// way, a product's name not being an amount.
 #[must_use]
 pub fn render_training_plan_block(
     plan: &TrainingPlan,
     weeks: &[PlanWeek],
     today: NaiveDate,
     catalogue: &PackagedCatalogue<'_>,
-    fueling: &FuelingDisclosure,
+    (fueling, products): (&FuelingDisclosure, &PlanFuelProducts),
 ) -> Option<String> {
     let mut out = String::with_capacity(1_024);
     out.push_str("\n\n## Current training plan (persisted)\n\n");
@@ -442,9 +470,10 @@ pub fn render_training_plan_block(
                         sanitize_prompt_field(&fueling.clause(f), MAX_FIELD_LEN)
                     )
                 });
+                let fuel_products = fuel_products_clause(products, day);
                 let _ = writeln!(
                     out,
-                    "- {}: {elapsed}{}{duration}{intensity} — {}{structure}{fuel}",
+                    "- {}: {elapsed}{}{duration}{intensity} — {}{structure}{fuel}{fuel_products}",
                     day.date,
                     sanitize_prompt_field(&day.sport, MAX_FIELD_LEN),
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN),

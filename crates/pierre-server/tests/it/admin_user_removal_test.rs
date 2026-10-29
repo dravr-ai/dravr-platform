@@ -1277,6 +1277,7 @@ async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_seaso
         intensity: "Z1".to_owned(),
         steps: Vec::new(),
         fueling: None,
+        fuel_product_ids: Vec::new(),
         template_slug: None,
         template_params: None,
         template_source: None,

@@ -251,6 +251,12 @@ export function DayRow({ day }: { day: PlanDay }) {
             {t('chat.fuelWithheld')}
           </Text>
         ) : null}
+        {day.fuel_products && day.fuel_products.length > 0 ? (
+          <Text className="text-sm text-text-secondary mt-0.5" testID="plan-day-fuel-products">
+            <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
+            {day.fuel_products.map((product) => product.name).join(' · ')}
+          </Text>
+        ) : null}
       </View>
     </View>
   );

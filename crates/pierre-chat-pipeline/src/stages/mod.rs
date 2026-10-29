@@ -51,6 +51,8 @@ pub mod completion;
 /// Turns the platform answers itself, without the LLM.
 pub mod deterministic_reply;
 pub mod followups;
+/// The athlete's fuel products rendered into the system prompt (carnet#155).
+pub mod fuel_products;
 /// Whether a group turn's sender is the group's coach, not an athlete in it.
 pub(crate) mod group_subject;
 /// Guardian confirm-required recovery: short-circuit a turn with the

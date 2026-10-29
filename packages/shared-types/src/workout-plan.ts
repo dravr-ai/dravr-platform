@@ -85,6 +85,17 @@ export interface PlanFuelingWithheld {
   note: string;
 }
 
+/**
+ * A fuel-product catalogue product a day's session is fuelled with. Shown
+ * whether or not a medical flag withholds the day's rates: a name is not an
+ * amount.
+ */
+export interface PlanDayFuelProduct {
+  product_id: string;
+  /** Brand, name and variant as one label, e.g. "Maurten Gel 100 (Caf 100)". */
+  name: string;
+}
+
 export interface PlanDay {
   /** `YYYY-MM-DD`. */
   date: string;
@@ -96,6 +107,7 @@ export interface PlanDay {
   steps?: PlanStep[];
   fueling?: PlanFueling;
   fueling_withheld?: PlanFuelingWithheld;
+  fuel_products?: PlanDayFuelProduct[];
   template_slug?: string;
   template_source?: PlanTemplateSource;
 }

@@ -101,6 +101,7 @@ fn day(date: NaiveDate, sport: &str, workout: &str, minutes: Option<u32>) -> Pla
         intensity: if minutes.is_some() { "Z2" } else { "" }.to_owned(),
         steps: Vec::new(),
         fueling: None,
+        fuel_product_ids: Vec::new(),
         template_slug: None,
         template_params: None,
         template_source: None,

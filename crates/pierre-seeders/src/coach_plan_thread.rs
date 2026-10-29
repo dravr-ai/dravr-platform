@@ -398,6 +398,7 @@ fn week_days(week_start: NaiveDate, key_session: &str, key_intensity: &str) -> V
         intensity: intensity.to_owned(),
         steps: vec![],
         fueling: None,
+        fuel_product_ids: Vec::new(),
         template_slug: None,
         template_params: None,
         template_source: None,

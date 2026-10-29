@@ -655,6 +655,24 @@ mod nutrition_tests {
     }
 
     #[test]
+    fn test_create_fuel_product_tools_factory() {
+        use pierre_tool_runtime::implementations::fuel_products::create_fuel_product_tools;
+
+        let tools = create_fuel_product_tools();
+        let names: Vec<String> = tools.iter().map(|t| t.definition().name).collect();
+        assert_eq!(
+            names,
+            [
+                "search_fuel_products",
+                "add_fuel_item",
+                "list_fuel_items",
+                "remove_fuel_item",
+            ],
+            "the fuel-product bank's four athlete tools, in registration order"
+        );
+    }
+
+    #[test]
     fn test_all_nutrition_tools_read_only() {
         use pierre_tool_runtime::implementations::nutrition::create_nutrition_tools;
 

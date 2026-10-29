@@ -46,6 +46,7 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::{FuelingProtocol, WorkoutStep};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Lifecycle of a [`TrainingPlan`] outline.
 ///
@@ -416,6 +417,14 @@ pub struct PlannedDay {
     /// need fuelling, and for a rest day.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling: Option<FuelingProtocol>,
+    /// The fuel-product catalogue products the session is fuelled with, by
+    /// id — products the athlete carries (carnet#155). Beside `fueling`
+    /// rather than inside it: the protocol is the training-science type, and
+    /// a product reference is the platform's catalogue. A product's name is
+    /// not a figure, so a medical flag that withholds `fueling` still shows
+    /// which products the day names. Empty for a day that names none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fuel_product_ids: Vec<Uuid>,
     /// The catalogue template this day instantiates, when it does — the
     /// slug `list_workout_templates` lists. Absent for a rest day and for a
     /// session the agent wrote without a template, which the compliance

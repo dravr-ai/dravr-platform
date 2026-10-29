@@ -27,6 +27,9 @@
 //! plate or a recipe contains is a property of the food, the same fact a label
 //! prints; an athlete whose clinician sets their targets still needs to know
 //! what they ate to stay inside them. None of these sets a target.
+//! The fuel-product tools (`search_fuel_products`, `add_fuel_item`,
+//! `list_fuel_items`) are of this kind too: they return a product's printed
+//! label facts, which no medical flag changes.
 //!
 //! Plan fuelling (`save_training_plan` day `fueling`) is gated on the same
 //! flag: a save carrying rates is refused and every surface that shows a

@@ -73,6 +73,353 @@
       }
     },
     {
+      "name": "add_fuel_item",
+      "description": "Add a gel, drink mix or bar to the athlete's fuel list: a product_id, or brand, name, form and label facts for one not in the catalogue, filed for review and unused until approved.",
+      "inputSchema": {
+        "properties": {
+          "brand": {
+            "description": "New product only.",
+            "type": "string"
+          },
+          "facts": {
+            "description": "Per serving, as printed; never estimate.",
+            "properties": {
+              "caffeine_mg": {
+                "description": "mg",
+                "type": "number"
+              },
+              "carbs_g": {
+                "description": "g",
+                "type": "number"
+              },
+              "energy_kcal": {
+                "description": "kcal",
+                "type": "number"
+              },
+              "fluid_ml": {
+                "description": "ml",
+                "type": "number"
+              },
+              "glucose_fructose_ratio": {
+                "description": "1:0.8 is 0.8",
+                "type": "number"
+              },
+              "serving_g": {
+                "description": "g",
+                "type": "number"
+              },
+              "serving_label": {
+                "description": "'1 gel (40 g)'",
+                "type": "string"
+              },
+              "sodium_mg": {
+                "description": "mg",
+                "type": "number"
+              },
+              "sugars_g": {
+                "description": "g",
+                "type": "number"
+              }
+            },
+            "type": "object"
+          },
+          "form": {
+            "description": "One of: gel, drink_mix, bar, chew, capsule, tablet, other.",
+            "type": "string"
+          },
+          "gtin": {
+            "description": "Barcode, if known.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Product name.",
+            "type": "string"
+          },
+          "note": {
+            "description": "How they use it.",
+            "type": "string"
+          },
+          "product_id": {
+            "description": "A search_fuel_products product_id.",
+            "type": "string"
+          },
+          "variant": {
+            "description": "Flavour.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "FuelItemStatus": {
+            "description": "Where one carried item stands.",
+            "oneOf": [
+              {
+                "const": "approved",
+                "description": "A catalogue product with approved facts.",
+                "type": "string"
+              },
+              {
+                "const": "pending",
+                "description": "Filed by the athlete, awaiting review: its facts are not used.",
+                "type": "string"
+              },
+              {
+                "const": "rejected",
+                "description": "Filed by the athlete and rejected at review: its facts are not used.",
+                "type": "string"
+              }
+            ]
+          },
+          "FuelItemView": {
+            "description": "One item the athlete carries.",
+            "properties": {
+              "brand": {
+                "description": "The brand.",
+                "type": "string"
+              },
+              "form": {
+                "description": "The form.",
+                "type": "string"
+              },
+              "item_id": {
+                "description": "The id `remove_fuel_item` takes.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The product name.",
+                "type": "string"
+              },
+              "note": {
+                "description": "The athlete's note (\"2 per hour after 90 min\").",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "product": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FuelProductView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The catalogue product, with its approved facts; absent until approved."
+              },
+              "status": {
+                "$ref": "#/$defs/FuelItemStatus",
+                "description": "approved, pending or rejected."
+              },
+              "variant": {
+                "description": "The variant; empty when there is none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_id",
+              "status",
+              "brand",
+              "name",
+              "variant",
+              "form"
+            ],
+            "type": "object"
+          },
+          "FuelLabelFacts": {
+            "description": "One product's label facts per serving. Absent is what the label does not\nstate, never zero.",
+            "properties": {
+              "caffeine_mg": {
+                "description": "Caffeine, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "carbs_g": {
+                "description": "Carbohydrate, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "energy_kcal": {
+                "description": "kcal per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fat_g": {
+                "description": "Fat, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fluid_ml": {
+                "description": "Fluid, ml per serving (a gel's volume, a drink mix's mixing volume).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "glucose_fructose_ratio": {
+                "description": "Grams of fructose per gram of glucose source: 0.8 for 1:0.8, 0.5 for\n2:1, 0 for glucose or maltodextrin only.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "potassium_mg": {
+                "description": "Potassium, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "protein_g": {
+                "description": "Protein, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "serving_g": {
+                "description": "Grams per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "serving_label": {
+                "description": "How the label names one serving (\"1 gel (40 g)\").",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sodium_mg": {
+                "description": "Sodium, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sugars_g": {
+                "description": "Of which sugars, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "FuelProductView": {
+            "description": "A catalogue product with its current, approved facts.",
+            "properties": {
+              "brand": {
+                "description": "The brand.",
+                "type": "string"
+              },
+              "facts": {
+                "$ref": "#/$defs/FuelLabelFacts",
+                "description": "The label's facts per serving, as approved."
+              },
+              "facts_since": {
+                "description": "When these facts became current, RFC 3339.",
+                "type": "string"
+              },
+              "form": {
+                "description": "gel, `drink_mix`, bar, chew, capsule, tablet or other.",
+                "type": "string"
+              },
+              "gtin": {
+                "description": "The barcode, GTIN-14, when on file.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The product name.",
+                "type": "string"
+              },
+              "product_id": {
+                "description": "The id `add_fuel_item` and a plan day's `fuel_product_ids` take.",
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or\n`brand_page`, by fact name.",
+                "type": "object"
+              },
+              "variant": {
+                "description": "The flavour or variant; empty when there is none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "product_id",
+              "brand",
+              "name",
+              "variant",
+              "form",
+              "facts",
+              "sources",
+              "facts_since"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `add_fuel_item` answers.",
+        "properties": {
+          "already_carried": {
+            "description": "True when the athlete already carried it; nothing was added.",
+            "type": "boolean"
+          },
+          "item": {
+            "$ref": "#/$defs/FuelItemView",
+            "description": "The item, new or already carried."
+          },
+          "message": {
+            "description": "What to tell the athlete about the item's facts.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item",
+          "already_carried",
+          "message"
+        ],
+        "title": "AddFuelItemResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "admin_assign_agent",
       "description": "Assign a system agent to a specific user (admin only)",
       "inputSchema": {
@@ -17642,6 +17989,14 @@
                   "null"
                 ]
               },
+              "fuel_product_ids": {
+                "description": "The fuel-product catalogue products the session is fuelled with, by\nid — products the athlete carries (carnet#155). Beside `fueling`\nrather than inside it: the protocol is the training-science type, and\na product reference is the platform's catalogue. A product's name is\nnot a figure, so a medical flag that withholds `fueling` still shows\nwhich products the day names. Empty for a day that names none.",
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "fueling": {
                 "anyOf": [
                   {
@@ -21803,6 +22158,282 @@
           "retrieved_at"
         ],
         "title": "ListFitnessConfigsResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_fuel_items",
+      "description": "The gels, drink mixes and bars on the athlete's fuel list: approved ones with label facts, others pending review or rejected (facts not used).",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "FuelItemStatus": {
+            "description": "Where one carried item stands.",
+            "oneOf": [
+              {
+                "const": "approved",
+                "description": "A catalogue product with approved facts.",
+                "type": "string"
+              },
+              {
+                "const": "pending",
+                "description": "Filed by the athlete, awaiting review: its facts are not used.",
+                "type": "string"
+              },
+              {
+                "const": "rejected",
+                "description": "Filed by the athlete and rejected at review: its facts are not used.",
+                "type": "string"
+              }
+            ]
+          },
+          "FuelItemView": {
+            "description": "One item the athlete carries.",
+            "properties": {
+              "brand": {
+                "description": "The brand.",
+                "type": "string"
+              },
+              "form": {
+                "description": "The form.",
+                "type": "string"
+              },
+              "item_id": {
+                "description": "The id `remove_fuel_item` takes.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The product name.",
+                "type": "string"
+              },
+              "note": {
+                "description": "The athlete's note (\"2 per hour after 90 min\").",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "product": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FuelProductView"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The catalogue product, with its approved facts; absent until approved."
+              },
+              "status": {
+                "$ref": "#/$defs/FuelItemStatus",
+                "description": "approved, pending or rejected."
+              },
+              "variant": {
+                "description": "The variant; empty when there is none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_id",
+              "status",
+              "brand",
+              "name",
+              "variant",
+              "form"
+            ],
+            "type": "object"
+          },
+          "FuelLabelFacts": {
+            "description": "One product's label facts per serving. Absent is what the label does not\nstate, never zero.",
+            "properties": {
+              "caffeine_mg": {
+                "description": "Caffeine, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "carbs_g": {
+                "description": "Carbohydrate, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "energy_kcal": {
+                "description": "kcal per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fat_g": {
+                "description": "Fat, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fluid_ml": {
+                "description": "Fluid, ml per serving (a gel's volume, a drink mix's mixing volume).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "glucose_fructose_ratio": {
+                "description": "Grams of fructose per gram of glucose source: 0.8 for 1:0.8, 0.5 for\n2:1, 0 for glucose or maltodextrin only.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "potassium_mg": {
+                "description": "Potassium, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "protein_g": {
+                "description": "Protein, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "serving_g": {
+                "description": "Grams per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "serving_label": {
+                "description": "How the label names one serving (\"1 gel (40 g)\").",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sodium_mg": {
+                "description": "Sodium, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sugars_g": {
+                "description": "Of which sugars, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "FuelProductView": {
+            "description": "A catalogue product with its current, approved facts.",
+            "properties": {
+              "brand": {
+                "description": "The brand.",
+                "type": "string"
+              },
+              "facts": {
+                "$ref": "#/$defs/FuelLabelFacts",
+                "description": "The label's facts per serving, as approved."
+              },
+              "facts_since": {
+                "description": "When these facts became current, RFC 3339.",
+                "type": "string"
+              },
+              "form": {
+                "description": "gel, `drink_mix`, bar, chew, capsule, tablet or other.",
+                "type": "string"
+              },
+              "gtin": {
+                "description": "The barcode, GTIN-14, when on file.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The product name.",
+                "type": "string"
+              },
+              "product_id": {
+                "description": "The id `add_fuel_item` and a plan day's `fuel_product_ids` take.",
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or\n`brand_page`, by fact name.",
+                "type": "object"
+              },
+              "variant": {
+                "description": "The flavour or variant; empty when there is none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "product_id",
+              "brand",
+              "name",
+              "variant",
+              "form",
+              "facts",
+              "sources",
+              "facts_since"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `list_fuel_items` answers.",
+        "properties": {
+          "count": {
+            "description": "How many.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "items": {
+            "description": "The athlete's items, oldest first.",
+            "items": {
+              "$ref": "#/$defs/FuelItemView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "count"
+        ],
+        "title": "ListFuelItemsResult",
         "type": "object"
       },
       "annotations": {
@@ -26260,6 +26891,48 @@
       }
     },
     {
+      "name": "remove_fuel_item",
+      "description": "Take a product off the athlete's fuel list.",
+      "inputSchema": {
+        "properties": {
+          "item_id": {
+            "description": "A list_fuel_items item_id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `remove_fuel_item` answers.",
+        "properties": {
+          "item_id": {
+            "description": "The item asked for.",
+            "type": "string"
+          },
+          "removed": {
+            "description": "False when the athlete carried no such item.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "item_id",
+          "removed"
+        ],
+        "title": "RemoveFuelItemResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "save_recipe",
       "description": "Save a validated recipe to your collection",
       "inputSchema": {
@@ -26689,6 +27362,14 @@
                       "duration_min": {
                         "description": "Planned minutes; omit for rest days and when steps are given (summed from them).",
                         "type": "integer"
+                      },
+                      "fuel_product_ids": {
+                        "description": "The athlete's fuel products for this session: approved product_ids from list_fuel_items.",
+                        "items": {
+                          "description": "A product_id.",
+                          "type": "string"
+                        },
+                        "type": "array"
                       },
                       "fueling": {
                         "description": "In-session intake, for any session long enough to need fuelling. For an athlete with a medical/PAR-Q flag on file, omit it (a save carrying it is refused): their clinician sets amounts, so describe fuelling in the workout in words — what and when, no amounts.",
@@ -27799,6 +28480,214 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true
+      }
+    },
+    {
+      "name": "search_fuel_products",
+      "description": "Find a gel, drink mix, bar or chew in the fuel catalogue by name or barcode: approved label facts per serving (carbs, sodium, caffeine, glucose:fructose) with each fact's source.",
+      "inputSchema": {
+        "properties": {
+          "query": {
+            "description": "Brand and product words ('maurten 160'), or a barcode.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "FuelLabelFacts": {
+            "description": "One product's label facts per serving. Absent is what the label does not\nstate, never zero.",
+            "properties": {
+              "caffeine_mg": {
+                "description": "Caffeine, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "carbs_g": {
+                "description": "Carbohydrate, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "energy_kcal": {
+                "description": "kcal per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fat_g": {
+                "description": "Fat, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "fluid_ml": {
+                "description": "Fluid, ml per serving (a gel's volume, a drink mix's mixing volume).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "glucose_fructose_ratio": {
+                "description": "Grams of fructose per gram of glucose source: 0.8 for 1:0.8, 0.5 for\n2:1, 0 for glucose or maltodextrin only.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "potassium_mg": {
+                "description": "Potassium, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "protein_g": {
+                "description": "Protein, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "serving_g": {
+                "description": "Grams per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "serving_label": {
+                "description": "How the label names one serving (\"1 gel (40 g)\").",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sodium_mg": {
+                "description": "Sodium, mg per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "sugars_g": {
+                "description": "Of which sugars, g per serving.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "FuelProductView": {
+            "description": "A catalogue product with its current, approved facts.",
+            "properties": {
+              "brand": {
+                "description": "The brand.",
+                "type": "string"
+              },
+              "facts": {
+                "$ref": "#/$defs/FuelLabelFacts",
+                "description": "The label's facts per serving, as approved."
+              },
+              "facts_since": {
+                "description": "When these facts became current, RFC 3339.",
+                "type": "string"
+              },
+              "form": {
+                "description": "gel, `drink_mix`, bar, chew, capsule, tablet or other.",
+                "type": "string"
+              },
+              "gtin": {
+                "description": "The barcode, GTIN-14, when on file.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The product name.",
+                "type": "string"
+              },
+              "product_id": {
+                "description": "The id `add_fuel_item` and a plan day's `fuel_product_ids` take.",
+                "type": "string"
+              },
+              "sources": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or\n`brand_page`, by fact name.",
+                "type": "object"
+              },
+              "variant": {
+                "description": "The flavour or variant; empty when there is none.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "product_id",
+              "brand",
+              "name",
+              "variant",
+              "form",
+              "facts",
+              "sources",
+              "facts_since"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `search_fuel_products` answers.",
+        "properties": {
+          "count": {
+            "description": "How many matched, at most ten.",
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "products": {
+            "description": "Matching catalogue products, approved facts only.",
+            "items": {
+              "$ref": "#/$defs/FuelProductView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "products",
+          "count"
+        ],
+        "title": "SearchFuelProductsResult",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {

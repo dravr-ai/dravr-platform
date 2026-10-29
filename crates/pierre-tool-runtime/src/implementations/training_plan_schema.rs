@@ -357,6 +357,13 @@ fn day_schema() -> PropertySchema {
     );
     p.insert("fueling".to_owned(), fueling_schema());
     p.insert(
+        "fuel_product_ids".to_owned(),
+        array_prop(
+            "The athlete's fuel products for this session: approved product_ids from list_fuel_items.",
+            string_prop("A product_id."),
+        ),
+    );
+    p.insert(
         "template_slug".to_owned(),
         string_prop("The catalogue template this day instantiates (a list_workout_templates slug). Give it for every quality session built from the bank."),
     );

@@ -23,6 +23,7 @@ use pierre_memory::training_plans::{
 };
 use pierre_services::agent_package::PackagedCatalogue;
 use pierre_services::plan_calendar_push::plan_day_session;
+use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
 use uuid::Uuid;
@@ -46,6 +47,7 @@ fn fuelled_day() -> PlannedDay {
             sodium_mg_per_h: Some(600.0),
             carb_source: Some("glucose:fructose 1:0.8".to_owned()),
         }),
+        fuel_product_ids: Vec::new(),
         template_slug: None,
         template_params: None,
         template_source: None,
@@ -197,6 +199,7 @@ fn a_rest_day_produces_no_session_to_fuel() {
         intensity: String::new(),
         steps: Vec::new(),
         fueling: None,
+        fuel_product_ids: Vec::new(),
         template_slug: None,
         template_params: None,
         template_source: None,
@@ -216,7 +219,7 @@ fn the_prompt_renders_the_fuelling_clause() {
         &[week],
         date("2026-09-03"),
         &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
-        &FuelingDisclosure::Shown,
+        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
     )
     .expect("an active plan renders a block");
 
@@ -241,7 +244,7 @@ fn a_day_without_fuelling_renders_no_clause() {
         &[week_with(vec![day])],
         date("2026-09-03"),
         &PackagedCatalogue::catalogue_only(&TrainingCatalogueRegistry::new()),
-        &FuelingDisclosure::Shown,
+        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
     )
     .expect("an active plan renders a block");
 

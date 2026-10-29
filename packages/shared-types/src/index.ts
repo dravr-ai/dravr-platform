@@ -164,6 +164,7 @@ export type {
   PlanPhase,
   PlanStep,
   PlanFueling,
+  PlanDayFuelProduct,
   PlanDay,
   PlanWeek,
   WorkoutPlan,
