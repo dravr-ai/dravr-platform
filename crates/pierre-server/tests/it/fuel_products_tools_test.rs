@@ -500,7 +500,8 @@ async fn a_plan_day_names_only_products_the_athlete_carries() -> Result<()> {
 #[tokio::test]
 async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures() -> Result<()> {
     use pierre_chat_pipeline::stages::fuel_products::{
-        inject_fuel_products, FUEL_PRODUCTS_PROMPT_LIMIT,
+        inject_fuel_products, render_fuel_products_block, FuelBlockReader,
+        FUEL_PRODUCTS_PROMPT_LIMIT,
     };
     use pierre_core::models::TenantId;
 
@@ -510,7 +511,14 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
     let repos = executor.resources.repos();
 
     // Nothing carried: no section at all.
-    let untouched = inject_fuel_products(repos, tenant_id, athlete, false, "BASE".to_owned()).await;
+    let untouched = inject_fuel_products(
+        repos,
+        (tenant_id, athlete),
+        FuelBlockReader::Athlete,
+        false,
+        "BASE".to_owned(),
+    )
+    .await;
     assert_eq!(untouched, "BASE");
 
     let product = catalogue_product(&executor, athlete, "Approved").await?;
@@ -536,7 +544,14 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
     )
     .await?;
 
-    let prompt = inject_fuel_products(repos, tenant_id, athlete, false, "BASE".to_owned()).await;
+    let prompt = inject_fuel_products(
+        repos,
+        (tenant_id, athlete),
+        FuelBlockReader::Athlete,
+        false,
+        "BASE".to_owned(),
+    )
+    .await;
     assert!(
         prompt.starts_with("BASE\n\n## Fuel products the athlete carries"),
         "{prompt}"
@@ -564,7 +579,14 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
     );
 
     // Withheld exactly when the plan block is: nothing is read or rendered.
-    let withheld = inject_fuel_products(repos, tenant_id, athlete, true, "BASE".to_owned()).await;
+    let withheld = inject_fuel_products(
+        repos,
+        (tenant_id, athlete),
+        FuelBlockReader::Athlete,
+        true,
+        "BASE".to_owned(),
+    )
+    .await;
     assert_eq!(withheld, "BASE");
 
     // Bounded: past the limit the rest is pointed at list_fuel_items.
@@ -578,7 +600,14 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
         )
         .await?;
     }
-    let bounded = inject_fuel_products(repos, tenant_id, athlete, false, "BASE".to_owned()).await;
+    let bounded = inject_fuel_products(
+        repos,
+        (tenant_id, athlete),
+        FuelBlockReader::Athlete,
+        false,
+        "BASE".to_owned(),
+    )
+    .await;
     assert_eq!(
         bounded
             .lines()
@@ -590,5 +619,165 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
         bounded.contains("(2 more — read them with `list_fuel_items`.)"),
         "{bounded}"
     );
+
+    // In a coach's thread the fuel tools read the coach's own list, so the
+    // overflow line never points the agent at them for the athlete's.
+    let items = repos
+        .athlete_fuel_items
+        .list_fuel_items(tenant_id, athlete)
+        .await?;
+    let coach_view = render_fuel_products_block(&items, FuelBlockReader::CoachThread)
+        .expect("the athlete carries items");
+    assert!(
+        coach_view.contains("(2 more on the athlete's list, not shown here;"),
+        "{coach_view}"
+    );
+    assert!(
+        !coach_view.contains("read them with `list_fuel_items`"),
+        "{coach_view}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_plan_day_is_refused_for_a_rest_day_too_many_or_a_repeated_product() -> Result<()> {
+    let executor = create_executor().await?;
+    let (athlete, tenant) = create_athlete(&executor).await?;
+    let product = Uuid::new_v4().to_string();
+
+    // A rest day fuels nothing.
+    let mut rest_day = plan_naming(&[]);
+    rest_day["weeks"][0]["days"][0]["fuel_product_ids"] = json!([product]);
+    let refusal = refused(&executor, "save_training_plan", rest_day, athlete, &tenant).await;
+    assert!(
+        refusal.contains("is a rest day and names fuel products"),
+        "{refusal}"
+    );
+
+    // Nine products on one day is past the bound.
+    let nine: Vec<String> = (0..9).map(|_| Uuid::new_v4().to_string()).collect();
+    let refusal = refused(
+        &executor,
+        "save_training_plan",
+        plan_naming(&nine),
+        athlete,
+        &tenant,
+    )
+    .await;
+    assert!(
+        refusal.contains("names 9 fuel products; max 8"),
+        "{refusal}"
+    );
+
+    // One product named twice.
+    let refusal = refused(
+        &executor,
+        "save_training_plan",
+        plan_naming(&[product.clone(), product]),
+        athlete,
+        &tenant,
+    )
+    .await;
+    assert!(
+        refusal.contains("names the same fuel product twice"),
+        "{refusal}"
+    );
+
+    let plan = call(
+        &executor,
+        "get_training_plan",
+        json!({"agent_id": "endurance-coach"}),
+        athlete,
+        &tenant,
+    )
+    .await?;
+    assert!(plan["plan"].is_null(), "no refused save wrote: {plan}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_filing_is_refused_for_a_bad_barcode_or_label_and_kept_once_while_pending() -> Result<()>
+{
+    let executor = create_executor().await?;
+    let (athlete, tenant) = create_athlete(&executor).await?;
+    let filing = |extra: Value| {
+        let mut args = json!({
+            "brand": "Homebrew",
+            "name": "Date Gel",
+            "variant": "Salted",
+            "form": "gel",
+            "facts": {"serving_g": 40.0, "carbs_g": 24.0},
+        });
+        if let (Some(args), Some(extra)) = (args.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                args.insert(key.clone(), value.clone());
+            }
+        }
+        args
+    };
+
+    // A barcode with a wrong check digit is refused, never filed without it.
+    let refusal = refused(
+        &executor,
+        "add_fuel_item",
+        filing(json!({"gtin": "4006381333932"})),
+        athlete,
+        &tenant,
+    )
+    .await;
+    assert!(
+        refusal.contains("is not a valid UPC, EAN or GTIN"),
+        "{refusal}"
+    );
+
+    // A serving label is bounded like every other typed text.
+    let refusal = refused(
+        &executor,
+        "add_fuel_item",
+        filing(json!({"facts": {"serving_label": "x".repeat(121), "carbs_g": 24.0}})),
+        athlete,
+        &tenant,
+    )
+    .await;
+    assert!(
+        refusal.contains("serving_label is longer than"),
+        "{refusal}"
+    );
+    let listed = call(&executor, "list_fuel_items", json!({}), athlete, &tenant).await?;
+    assert_eq!(listed["count"], 0, "nothing refused was filed: {listed}");
+
+    // Filed, then filed again while under review: one item, one proposal.
+    let first = call(
+        &executor,
+        "add_fuel_item",
+        filing(json!({})),
+        athlete,
+        &tenant,
+    )
+    .await?;
+    assert_eq!(first["already_carried"], false, "{first}");
+    let again = call(
+        &executor,
+        "add_fuel_item",
+        filing(json!({"brand": "  homebrew ", "name": "DATE  gel"})),
+        athlete,
+        &tenant,
+    )
+    .await?;
+    assert_eq!(again["already_carried"], true, "{again}");
+    assert_eq!(again["item"]["item_id"], first["item"]["item_id"]);
+    assert_eq!(again["item"]["status"], "pending");
+    let queued = executor
+        .resources
+        .repos()
+        .fuel_catalogue
+        .list_fuel_proposals(ProposalStatus::Pending, 500, 0)
+        .await?
+        .iter()
+        .filter(|p| p.proposed_by_user_id == Some(athlete))
+        .count();
+    assert_eq!(queued, 1, "the label is queued once");
+    let listed = call(&executor, "list_fuel_items", json!({}), athlete, &tenant).await?;
+    assert_eq!(listed["count"], 1, "{listed}");
     Ok(())
 }

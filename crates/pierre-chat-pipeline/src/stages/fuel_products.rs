@@ -44,6 +44,17 @@ pub const FUEL_PRODUCTS_PROMPT_LIMIT: usize = 12;
 /// Longest product label or note the block prints.
 const MAX_FIELD_LEN: usize = 120;
 
+/// Who reads the block, which decides whether the fuel tools reach the list
+/// it shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FuelBlockReader {
+    /// The athlete's own turn: `list_fuel_items` reads this same list.
+    Athlete,
+    /// A coach's thread about the athlete. The fuel tools act on the caller's
+    /// own list, the coach's, so the block never points the agent at them.
+    CoachThread,
+}
+
 /// Append the athlete's fuel-products block to `base_prompt`.
 ///
 /// Nothing is appended when `withheld` or the athlete carries nothing.
@@ -51,8 +62,8 @@ const MAX_FIELD_LEN: usize = 120;
 /// prompt goes on without it.
 pub async fn inject_fuel_products(
     repos: &RepositoryRegistry,
-    tenant: TenantId,
-    user: Uuid,
+    (tenant, user): (TenantId, Uuid),
+    reader: FuelBlockReader,
     withheld: bool,
     base_prompt: String,
 ) -> String {
@@ -60,7 +71,7 @@ pub async fn inject_fuel_products(
         return base_prompt;
     }
     match repos.athlete_fuel_items.list_fuel_items(tenant, user).await {
-        Ok(items) => match render_fuel_products_block(&items) {
+        Ok(items) => match render_fuel_products_block(&items, reader) {
             Some(block) => format!("{base_prompt}{block}"),
             None => base_prompt,
         },
@@ -73,7 +84,10 @@ pub async fn inject_fuel_products(
 
 /// The section for `items`, or `None` when there are none.
 #[must_use]
-pub fn render_fuel_products_block(items: &[AthleteFuelItem]) -> Option<String> {
+pub fn render_fuel_products_block(
+    items: &[AthleteFuelItem],
+    reader: FuelBlockReader,
+) -> Option<String> {
     if items.is_empty() {
         return None;
     }
@@ -89,11 +103,17 @@ pub fn render_fuel_products_block(items: &[AthleteFuelItem]) -> Option<String> {
         let _ = writeln!(out, "- {}", item_line(item));
     }
     if items.len() > FUEL_PRODUCTS_PROMPT_LIMIT {
-        let _ = writeln!(
-            out,
-            "({} more — read them with `list_fuel_items`.)",
-            items.len() - FUEL_PRODUCTS_PROMPT_LIMIT
-        );
+        let more = items.len() - FUEL_PRODUCTS_PROMPT_LIMIT;
+        let _ = match reader {
+            FuelBlockReader::Athlete => {
+                writeln!(out, "({more} more — read them with `list_fuel_items`.)")
+            }
+            FuelBlockReader::CoachThread => writeln!(
+                out,
+                "({more} more on the athlete's list, not shown here; `list_fuel_items` reads \
+                 the coach's own list, never the athlete's.)"
+            ),
+        };
     }
     Some(out)
 }

@@ -26,7 +26,9 @@
 //!   so form arrives banded as a share of their own fitness;
 //! - their live season and the coach's draft, with where the draft stands;
 //! - their wellness, only what the coach's link filed under the athlete's
-//!   `wellness_read` consent ([`linked_wellness`]).
+//!   `wellness_read` consent ([`linked_wellness`]);
+//! - the fuel products they carry, so a draft day can name one (carnet#155),
+//!   withheld where the plan block is.
 //!
 //! Never their dossier, memory, notes, followups or commitments, and never
 //! another member's data. The plan block that follows (stage 7f.2) is the
@@ -59,7 +61,7 @@ use pierre_services::linked_wellness::{linked_wellness, LinkedWellness, LINKED_W
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::fuel_products::inject_fuel_products;
+use super::fuel_products::{inject_fuel_products, FuelBlockReader};
 use crate::ChatPipelineContext;
 
 /// Heads the block, granted or refused.
@@ -279,8 +281,8 @@ pub(crate) async fn block(
             });
             inject_fuel_products(
                 &ctx.repos,
-                granted.tenant(),
-                granted.athlete(),
+                (granted.tenant(), granted.athlete()),
+                FuelBlockReader::CoachThread,
                 fuel_products_withheld,
                 granted_block(granted, &training, shown),
             )

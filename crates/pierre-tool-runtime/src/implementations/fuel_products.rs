@@ -41,10 +41,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    check_plausibility, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct, FactProvenance,
-    FactSource, FieldProvenance, FuelFacts, FuelForm, FuelItemCarried, FuelItemEntry,
-    NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalStatus, TenantId,
-    MAX_FUEL_ITEMS_PER_ATHLETE,
+    check_plausibility, fuel_natural_key, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct,
+    FactProvenance, FactSource, FieldProvenance, FuelFacts, FuelForm, FuelItemCarried,
+    FuelItemEntry, NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalStatus,
+    TenantId, MAX_FUEL_ITEMS_PER_ATHLETE,
 };
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
@@ -532,10 +532,7 @@ impl McpTool<dyn ToolRuntime> for AddFuelItemTool {
             "product_id".to_owned(),
             string_property("A search_fuel_products product_id."),
         );
-        properties.insert(
-            "brand".to_owned(),
-            string_property("New product only."),
-        );
+        properties.insert("brand".to_owned(), string_property("New product only."));
         properties.insert("name".to_owned(), string_property("Product name."));
         properties.insert("variant".to_owned(), string_property("Flavour."));
         properties.insert(
@@ -576,10 +573,7 @@ impl McpTool<dyn ToolRuntime> for AddFuelItemTool {
                 Some(id) => Some(id),
                 // A barcode the catalogue already holds is that product,
                 // whatever else was typed.
-                None => match optional_text(&args, "gtin")?
-                    .as_deref()
-                    .and_then(normalize_gtin)
-                {
+                None => match typed_gtin(&args)? {
                     Some(gtin) => repos
                         .fuel_catalogue
                         .get_fuel_product_by_gtin(&gtin)
@@ -597,11 +591,23 @@ impl McpTool<dyn ToolRuntime> for AddFuelItemTool {
             }
             match proposal_from_args(&args, user)? {
                 Ok(proposal) => {
-                    let live = repos
+                    let items = repos
                         .athlete_fuel_items
                         .list_fuel_items(tenant, user)
-                        .await?
-                        .len();
+                        .await?;
+                    // The same product filed again while its first filing is
+                    // still under review is already on the list: a second
+                    // proposal would only queue the label twice.
+                    if let Some(held) = pending_filing_of(&items, &proposal) {
+                        return answer_carried(
+                            &context,
+                            tenant,
+                            user,
+                            FuelItemCarried::AlreadyCarried(held),
+                        )
+                        .await;
+                    }
+                    let live = items.len();
                     if i64::try_from(live).unwrap_or(i64::MAX) >= MAX_FUEL_ITEMS_PER_ATHLETE {
                         return Err(AppError::invalid_input(format!(
                             "the athlete carries {MAX_FUEL_ITEMS_PER_ATHLETE} fuel items, the most \
@@ -644,6 +650,13 @@ fn proposal_from_args(args: &Value, user: Uuid) -> AppResult<Result<NewFuelPropo
             .map_err(|e| AppError::invalid_input(format!("facts: {e}")))?,
         _ => FuelLabelFacts::default(),
     };
+    if let Some(label) = typed.serving_label.as_deref() {
+        if label.chars().count() > MAX_TEXT_LEN {
+            return Err(AppError::invalid_input(format!(
+                "facts.serving_label is longer than {MAX_TEXT_LEN} characters"
+            )));
+        }
+    }
     let facts = typed.to_facts();
     if let Err(violations) = check_plausibility(form, &facts) {
         let codes: Vec<&str> = violations.iter().map(PlausibilityViolation::code).collect();
@@ -678,9 +691,7 @@ fn proposal_from_args(args: &Value, user: Uuid) -> AppResult<Result<NewFuelPropo
         name,
         variant: optional_text(args, "variant")?.unwrap_or_default(),
         form,
-        gtin: optional_text(args, "gtin")?
-            .as_deref()
-            .and_then(normalize_gtin),
+        gtin: typed_gtin(args)?,
         source_kind: ProposalSource::Athlete,
         source_url: None,
         source_image: None,
@@ -690,6 +701,38 @@ fn proposal_from_args(args: &Value, user: Uuid) -> AppResult<Result<NewFuelPropo
         gate_flags: Vec::new(),
         proposed_by_user_id: Some(user),
     }))
+}
+
+/// The barcode typed, as the GTIN-14 the catalogue stores. A barcode that is
+/// not a valid UPC, EAN or GTIN is refused rather than dropped: a misread
+/// digit would otherwise file the product with no barcode and say nothing.
+fn typed_gtin(args: &Value) -> AppResult<Option<String>> {
+    optional_text(args, "gtin")?
+        .map(|raw| {
+            normalize_gtin(&raw).ok_or_else(|| {
+                AppError::invalid_input(format!(
+                    "gtin '{raw}' is not a valid UPC, EAN or GTIN barcode (wrong length or check \
+                     digit): ask the athlete to read it again, or leave it out"
+                ))
+            })
+        })
+        .transpose()
+}
+
+/// The athlete's live item that carries a still-pending filing of the same
+/// product (brand, name, variant and form), if any.
+fn pending_filing_of(items: &[AthleteFuelItem], proposal: &NewFuelProposal) -> Option<Uuid> {
+    let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
+    items.iter().find_map(|item| match &item.entry {
+        FuelItemEntry::Pending(pending)
+            if pending.status == ProposalStatus::Pending
+                && pending.form == proposal.form
+                && fuel_natural_key(&pending.brand, &pending.name, &pending.variant) == key =>
+        {
+            Some(item.id)
+        }
+        _ => None,
+    })
 }
 
 async fn answer_carried(

@@ -19,7 +19,7 @@ use super::super::surface_profile::SurfaceProfile;
 use super::super::turn::TurnInput;
 use super::commitments::inject_commitments;
 use super::followups::inject_pending_followups;
-use super::fuel_products::inject_fuel_products;
+use super::fuel_products::{inject_fuel_products, FuelBlockReader};
 use super::memory::{inject_agent_notes, inject_okf_bundle, inject_playbooks};
 use super::refresh::refresh_and_hint;
 use crate::ChatPipelineContext;
@@ -189,8 +189,8 @@ pub async fn inject_subject_context(
     // where the plan block is.
     let base_prompt = inject_fuel_products(
         &ctx.repos,
-        input.tool_tenant_id,
-        user_uuid,
+        (input.tool_tenant_id, user_uuid),
+        FuelBlockReader::Athlete,
         fuel_products_withheld,
         base_prompt,
     )
