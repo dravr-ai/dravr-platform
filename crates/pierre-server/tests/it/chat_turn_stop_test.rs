@@ -30,7 +30,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use futures_util::stream;
 use pierre_chat_pipeline::stages::prompt_builder::build_llm_messages;
 use pierre_chat_pipeline::turn_stop::{
-    author_marker, latest_question_by, question_state, stop_marker, QuestionState,
+    latest_question_by, question_blocks, question_state, stop_marker, QuestionState,
 };
 use pierre_contremaitre::messaging_strings::{DEFAULT_LOCALE, KEY_TURN_STOPPED};
 use pierre_core::errors::AppError;
@@ -360,7 +360,7 @@ fn row(id: &str, role: &str, finish_reason: Option<&str>, blocks: Option<String>
 }
 
 fn question(id: &str, author: &str) -> MessageRecord {
-    row(id, "user", None, author_marker(author))
+    row(id, "user", None, question_blocks(author, None))
 }
 
 fn stop_of(id: &str, question_id: &str) -> MessageRecord {

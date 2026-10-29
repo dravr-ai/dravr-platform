@@ -41,7 +41,9 @@ use pierre_commands::RotatedTo;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_USE_CASES_NEXT_TIME};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::TranscriptSpeaker;
-use pierre_core::models::{ConversationTurnId, InputSource, OnboardingState, TenantId, TurnOrigin};
+use pierre_core::models::{
+    ConversationTurnId, InputSource, OnboardingState, RoomQuote, TenantId, TurnOrigin,
+};
 use pierre_core::transport::Transport;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::stage::LlmStage;
@@ -118,6 +120,11 @@ pub struct TurnRequest<'a> {
     /// Pre-rendered room transcript for a group turn; `None` for a DM or an
     /// in-app conversation.
     pub ambient_context: Option<AmbientContext>,
+    /// An athlete's room words the coach's message quotes, already verified
+    /// by the surface against the room's consent rule (carnet#1249). Stored
+    /// on the message's own row, so it replays — and is withheld — with it.
+    /// `None` on every turn that quotes nothing.
+    pub quote: Option<RoomQuote>,
     /// Canonical channel identifier (`"web"`, `"mobile"`, `"telegram"`, …)
     /// used for slash-command analytics and the command context.
     pub channel_type: &'a str,
@@ -161,6 +168,7 @@ impl fmt::Debug for TurnRequest<'_> {
             .field("input_source", &self.input_source)
             .field("turn_id", &self.turn_id)
             .field("has_ambient_context", &self.ambient_context.is_some())
+            .field("quote", &self.quote)
             .field("channel_type", &self.channel_type)
             .field("is_direct_message", &self.is_direct_message)
             .field("ambient_group_fallback", &self.ambient_group_fallback)
@@ -559,6 +567,7 @@ async fn execute_turn(
         input_source: request.input_source,
         turn_id: request.turn_id,
         ambient_context: request.ambient_context,
+        quote: request.quote,
         quota,
         mentioned_agent: mentioned_agent.map(Box::new),
         steps_after,

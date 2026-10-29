@@ -37,7 +37,20 @@ import {
 import { useTranslation } from '@pierre/i18n';
 import type { Message } from '../../types';
 import type { ChatRow } from './MessageList';
-import { describeApiError, describeTurnFailure, streamedReplyCallbacks, useTurnTrail } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  describeTurnFailure,
+  streamedReplyCallbacks,
+  useTurnTrail,
+  type PrivateSendOptions,
+  type PrivateSendOutcome,
+} from '@pierre/ui-logic';
+
+/**
+ * How a coach's private turn reaches their work thread: the private lane's
+ * `send` (carnet#1249). The lane writes the turn's rows; this hook draws it live.
+ */
+export type PrivateTurnSender = (content: string, options: PrivateSendOptions) => Promise<PrivateSendOutcome>;
 
 export interface MessagesState {
   messages: Message[];
@@ -108,6 +121,11 @@ export interface MessagesState {
    */
   turnInFlight: boolean;
   /**
+   * The turn running on this client is a coach's private one (carnet#1249):
+   * its words stream under "Only you", and its stop goes to the work thread.
+   */
+  privateTurnInFlight: boolean;
+  /**
    * The open group thread's room could not be read, so the thread shows only
    * the caller's own side of it — said on screen rather than left as a gap.
    */
@@ -153,10 +171,28 @@ export interface MessagesActions {
     options?: TurnSendOptions,
   ) => Promise<string | null>;
   /**
+   * Send one of a coach's private turns in a one-athlete room through the
+   * private lane's `send` (carnet#1249), drawn live where every turn is: the
+   * trail, the streamed words and the stop button. The lane writes the turn's
+   * rows — never this thread's own — and the outcome is the lane's.
+   */
+  sendPrivateTurn: (
+    send: PrivateTurnSender,
+    messageText: string,
+    options?: TurnSendOptions,
+  ) => Promise<PrivateSendOutcome>;
+  /**
    * Stop the turn that is running. The server ends it and closes the question
    * with a short notice, which the open stream then delivers as the reply.
+   * A private turn is not this thread's: it is stopped with `stopPrivateTurn`.
    */
   stopTurn: () => Promise<void>;
+  /**
+   * Stop a coach's private turn in `threadId`, their work thread about the
+   * room's athlete — the one this client is streaming, or one the server is
+   * still answering after the app reopened.
+   */
+  stopPrivateTurn: (threadId: string) => Promise<void>;
   retryMessage: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsUp: (messageId: string, conversationId: string) => Promise<void>;
   handleThumbsDown: (messageId: string, conversationId: string) => Promise<void>;
@@ -200,6 +236,11 @@ export function useMessages(): MessagesState & MessagesActions {
   // The conversation the running turn was posted to, so a stop reaches that
   // turn even when the screen has since been pointed at another thread.
   const sendingConversationRef = useRef<string | null>(null);
+  // A coach's private turn is running (carnet#1249). It is posted to their
+  // work thread, never to this one, so it leaves `sendingConversationRef`
+  // alone: this thread's own reads and waits go on as if nothing were sent.
+  const privateTurnRef = useRef(false);
+  const [privateTurnInFlight, setPrivateTurnInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [messageFeedbackComment, setMessageFeedbackComment] = useState<Record<string, string>>({});
@@ -722,7 +763,102 @@ export function useMessages(): MessagesState & MessagesActions {
     return rotatedTo;
   }, [isSending, messages, deferredScrollToBottom, invalidateConversationList, failedTurnRow, recoverOnReturn, refreshVerdicts, roomGroupOf, loadMessages, stopPolling, beginTrail, trailProgress, trailProse, trailRetract, finishTrail, turnFailureText]);
 
+  /**
+   * A coach's private turn in a one-athlete room (carnet#1249).
+   *
+   * The lane posts it to the coach's work thread and writes its rows — the
+   * pending question, then the server's — into its own cache, which the room
+   * draws inline. None of them ever joins this thread's `messages`: a retry,
+   * the read marker and the lost-turn note act on this conversation's rows,
+   * and a private line taken for one of them would be said to the room.
+   *
+   * What this hook adds is the live turn, the same one a room turn draws: the
+   * trail, the words as they stream, the stop button for its whole length,
+   * and the reply's blocks keyed by its id so its plan card carries the draft
+   * controls the moment it lands. A failure is the caller's to word: the lane
+   * hands it back in the outcome, with whether the words may go back in the
+   * composer.
+   */
+  const sendPrivateTurn = useCallback(async (
+    send: PrivateTurnSender,
+    messageText: string,
+    options: TurnSendOptions = {},
+  ): Promise<PrivateSendOutcome> => {
+    if (!messageText.trim() || isSending) return { kind: 'skipped' };
+
+    setIsSending(true);
+    privateTurnRef.current = true;
+    setPrivateTurnInFlight(true);
+    setError(null);
+    beginTrail();
+    setStreamingContent('');
+    deferredScrollToBottom(200);
+    const streamed = streamedReplyCallbacks(setStreamingContent, { prose: trailProse, retract: trailRetract });
+    const turnBlocks: ReplyBlock[] = [];
+    const releaseIdleHold = holdIdleWhileBusy();
+    const signal = idleSignal();
+    try {
+      return await send(messageText, {
+        signal,
+        origin: options.origin,
+        display: options.display,
+        onProgress: trailProgress,
+        ...streamed,
+        onBlock: block => {
+          if (block.type === 'notice') {
+            setQuotaNotice(block.notice);
+            return;
+          }
+          turnBlocks.push(block);
+        },
+        // The lane has written the turn's rows by the time this runs, in the
+        // same tick, so the streamed words give way to the reply without the
+        // reply ever showing twice.
+        onDone: turn => {
+          const assistantId = turn.assistant.message.id;
+          setStreamingContent('');
+          finishTrail(assistantId || null, turn.telemetry.tools_called);
+          if (turnBlocks.length > 0 && assistantId) {
+            const blocks = [...turnBlocks];
+            setMessageBlocks(prev => ({ ...prev, [assistantId]: blocks }));
+          }
+        },
+        onError: () => {
+          setStreamingContent('');
+          finishTrail(null);
+        },
+      });
+    } finally {
+      releaseIdleHold();
+      privateTurnRef.current = false;
+      setPrivateTurnInFlight(false);
+      setIsSending(false);
+      setIsStopping(false);
+      setStreamingContent('');
+      finishTrail(null);
+      deferredScrollToBottom(200);
+    }
+  }, [isSending, deferredScrollToBottom, beginTrail, trailProgress, trailProse, trailRetract, finishTrail]);
+
+  const stopPrivateTurn = useCallback(async (threadId: string) => {
+    if (isStopping) return;
+    // Only a turn streaming here waits on its stop: its stream ends it. A
+    // reply the server is still writing after a reopen ends on the lane's
+    // own re-read, so the button stays as it is meanwhile.
+    const live = privateTurnRef.current;
+    if (live) setIsStopping(true);
+    try {
+      const stopped = await chatApi.stopTurn(threadId);
+      if (!stopped) setIsStopping(false);
+    } catch (err) {
+      setIsStopping(false);
+      setError(describeApiError(err, { t, fallbackKey: 'chat.turnTryAgain' }));
+    }
+  }, [isStopping, t]);
+
   const stopTurn = useCallback(async () => {
+    // A coach's private turn runs in their work thread, never this one.
+    if (privateTurnRef.current) return;
     // A turn restored after the app reopened runs with no body here: the stop
     // goes to the open thread the server says is still being answered, and a
     // re-read brings the notice it closes the question with.
@@ -998,6 +1134,7 @@ export function useMessages(): MessagesState & MessagesActions {
     turnTrails,
     awaitingSince,
     turnInFlight: isSending || awaitingSince !== null,
+    privateTurnInFlight,
     roomUnavailable,
     hasEarlier,
     loadingEarlier,
@@ -1005,7 +1142,9 @@ export function useMessages(): MessagesState & MessagesActions {
     loadEarlier,
     refreshVerdicts,
     sendTurn,
+    sendPrivateTurn,
     stopTurn,
+    stopPrivateTurn,
     retryMessage,
     handleThumbsUp,
     handleThumbsDown,

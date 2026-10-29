@@ -30,11 +30,22 @@ import {
   describeApiError,
   describeTurnFailure,
   isTurnFailureRetryable,
+  privateSendFailureText,
   streamedReplyCallbacks,
   useTurnTrail,
+  type UsePrivateLaneResult,
 } from '@pierre/ui-logic';
 import { replySceneBlocks, type MessagesResponse } from '@pierre/api-client';
-import type { Agent, ClaimVerdict, Conversation, MessageOrigin, ReplyBlock, TurnSendOptions } from '@pierre/shared-types';
+import type {
+  Agent,
+  ClaimVerdict,
+  Conversation,
+  MessageAudience,
+  MessageOrigin,
+  ReplyBlock,
+  TurnEnvelope,
+  TurnSendOptions,
+} from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi, groupsApi, providersApi } from '../../services/api';
 import { track } from '../../services/analytics';
@@ -46,6 +57,7 @@ import { useEarlierMessages } from '../../hooks/useEarlierMessages';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useGroup } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
+import { usePrivateLane } from '../../hooks/usePrivateLane';
 import { useErrorToast } from '../ui';
 import { useMessageFeedback } from './useMessageFeedback';
 import { useOAuthCompletion } from './useOAuthCompletion';
@@ -178,9 +190,22 @@ export interface ChatThreadState {
   awaitingSince: number | null;
   /** Each finished reply's trail this session, keyed by the reply's id. */
   turnTrails: ReadonlyMap<string, TurnTrail>;
+  /**
+   * Who the turn streaming or awaited on screen speaks to: `private` while it
+   * is the coach's "Only <agent>" turn, so its live rows draw as private.
+   */
+  liveAudience: MessageAudience;
   isStopping: boolean;
   stopTurn: () => Promise<void>;
   sendTurn: (content: string, options?: TurnSendOptions) => Promise<void>;
+  /**
+   * The coach's private lane in a room of one athlete (carnet#1249): the
+   * Everyone / Only <agent> switch, the quote, the work thread. `available`
+   * is false in every other thread and for every other reader.
+   */
+  privateLane: UsePrivateLaneResult;
+  /** Send one turn to the private lane — never to the room — carrying the held quote. */
+  sendPrivateTurn: (content: string, options?: TurnSendOptions) => Promise<void>;
   retryMessage: (messageId: string) => Promise<void>;
   /** The error line under the transcript. */
   shownError: string | null;
@@ -223,6 +248,11 @@ export function useChatThread({
   const showErrorToast = useErrorToast();
   const [newMessage, setNewMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  // Who the streaming turn speaks to: the room, or the coach's private lane.
+  const [streamingAudience, setStreamingAudience] = useState<MessageAudience>('room');
+  // A private turn is streaming. Its thread may not exist when it starts —
+  // the first private send opens it — so a stop reads the lane's id then.
+  const privateStreamingRef = useRef(false);
   const [streamingContent, setStreamingContent] = useState('');
   // A stop was sent for the in-flight turn and its stream has not ended yet.
   const [isStopping, setIsStopping] = useState(false);
@@ -277,6 +307,61 @@ export function useChatThread({
 
   const hasConnectedProvider = providersData?.providers?.some(p => p.connected) ?? false;
 
+  // The list is the one source for the open thread's row: its title, the
+  // agent it is bound to and the group it is scoped to all come from there,
+  // so the header and the info drawer read the same record the sidebar draws.
+  const { conversations } = useConversationList();
+  const activeConversation = useMemo(
+    () => conversations.find(c => c.id === selectedConversation) ?? null,
+    [conversations, selectedConversation],
+  );
+
+  // Gated on the query having actually answered, not on the `?? false` default.
+  // While loading, `hasConnectedProvider` is false for everyone, so keying the
+  // banner off it alone flashes a connect-provider nudge at users who are
+  // connected — every chat load. A plan thread for one athlete is about that
+  // athlete's data, which the agent reads through the athlete's own links: the
+  // coach working on it is never asked to connect a service of their own
+  // there (carnet#1191).
+  const showConnectBanner =
+    providersLoaded && !hasConnectedProvider && !activeConversation?.subject_user_id;
+
+  const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? null);
+  // A group's agent may belong to another tenant, where the caller's own agent
+  // list cannot see it; the group names its agent as the caller reads it.
+  const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
+  const activeCoachTitle = activeGroup?.agent_title ?? activeCoach?.title ?? null;
+
+  // A coach's private lane in a room of one athlete (carnet#1249): the
+  // Everyone / Only <agent> switch, the rows of the coach's work thread about
+  // that athlete drawn inline in the room, and the turn that goes there and
+  // never to the room. The hook decides whether it exists — only the group's
+  // coach, only while the server names one athlete — so every other thread
+  // and every other reader gets it switched off.
+  const lane = usePrivateLane({ group: activeGroup ?? null, viewerId: user?.id ?? null, conversations });
+  const {
+    send: sendToLane,
+    available: laneAvailable,
+    audience: laneAudience,
+    conversationId: laneConversationId,
+  } = lane;
+  const laneAthleteName = lane.athlete?.display_name ?? '';
+  // The private reply the server is still writing, with nothing streaming
+  // here (a reload mid-turn): the indicator runs from the question it answers.
+  const privateAwaitingSince = useMemo<number | null>(() => {
+    if (!lane.awaitingReply) return null;
+    const asked = [...lane.rows].reverse().find(row => row.role === 'user') ?? lane.rows[lane.rows.length - 1];
+    const at = asked ? Date.parse(asked.created_at) : Number.NaN;
+    return Number.isNaN(at) ? null : at;
+  }, [lane.awaitingReply, lane.rows]);
+  // The private rows are on screen in the room, so the work thread's own
+  // list row is read as far as its newest reply.
+  const latestLaneReplyId = useMemo(
+    () => [...lane.rows].reverse().find(row => row.role === 'assistant')?.id ?? null,
+    [lane.rows],
+  );
+  useMarkConversationRead(laneConversationId, latestLaneReplyId);
+
   // Fetch messages for selected conversation — the caller's own rows. In a
   // group thread these are the model's context store, and the room below is
   // woven through them.
@@ -310,9 +395,18 @@ export function useChatThread({
     () => awaitedSince(messagesData?.awaiting_reply, messagesData?.messages ?? []),
     [messagesData],
   );
-  const awaitingSince = isStreaming ? null : serverAwaitingSince;
-  // A turn runs in this thread — streaming here, or restored after a reload.
-  // Either way a second one must not start: sends wait behind it.
+  // The room's own awaited reply first; else the private lane's.
+  const awaitingSince = isStreaming ? null : (serverAwaitingSince ?? privateAwaitingSince);
+  // Who the live rows speak to: the streaming turn's audience, or the lane's
+  // when the reply awaited is the private one.
+  const liveAudience: MessageAudience = isStreaming
+    ? streamingAudience
+    : serverAwaitingSince === null && privateAwaitingSince !== null
+      ? 'private'
+      : 'room';
+  // A turn runs on this screen — streaming here, or restored after a reload,
+  // in the room or in the coach's private lane. Either way a second one must
+  // not start: sends wait behind it.
   const turnInFlight = isStreaming || awaitingSince !== null;
   // A queued send also waits for the thread's first read to answer: until it
   // does, nobody knows whether the server is still writing a reply in it.
@@ -366,36 +460,21 @@ export function useChatThread({
     queryFn: () => chatApi.getConversationVerdicts(selectedConversation!),
     enabled: !!selectedConversation,
   });
-  const verdicts: ClaimVerdict[] = useMemo(() => verdictsData?.verdicts ?? [], [verdictsData]);
+  // The private lane's replies are checked in their own thread: its verdict
+  // rows join the room's, so a private reply's chip survives a reload too.
+  const { data: laneVerdictsData } = useQuery({
+    queryKey: QUERY_KEYS.chat.verdicts(laneConversationId),
+    queryFn: () => chatApi.getConversationVerdicts(laneConversationId!),
+    enabled: laneConversationId !== null,
+  });
+  const verdicts: ClaimVerdict[] = useMemo(
+    () => [...(verdictsData?.verdicts ?? []), ...(laneVerdictsData?.verdicts ?? [])],
+    [verdictsData, laneVerdictsData],
+  );
   // Joins a read a completed turn already started instead of cancelling it.
   const refetchVerdicts = useCallback(() => {
     void refetch({ cancelRefetch: false });
   }, [refetch]);
-
-  // The list is the one source for the open thread's row: its title, the
-  // agent it is bound to and the group it is scoped to all come from there,
-  // so the header and the info drawer read the same record the sidebar draws.
-  const { conversations } = useConversationList();
-  const activeConversation = useMemo(
-    () => conversations.find(c => c.id === selectedConversation) ?? null,
-    [conversations, selectedConversation],
-  );
-
-  // Gated on the query having actually answered, not on the `?? false` default.
-  // While loading, `hasConnectedProvider` is false for everyone, so keying the
-  // banner off it alone flashes a connect-provider nudge at users who are
-  // connected — every chat load. A plan thread for one athlete is about that
-  // athlete's data, which the agent reads through the athlete's own links: the
-  // coach working on it is never asked to connect a service of their own
-  // there (carnet#1191).
-  const showConnectBanner =
-    providersLoaded && !hasConnectedProvider && !activeConversation?.subject_user_id;
-
-  const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? null);
-  // A group's agent may belong to another tenant, where the caller's own agent
-  // list cannot see it; the group names its agent as the caller reads it.
-  const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
-  const activeCoachTitle = activeGroup?.agent_title ?? activeCoach?.title ?? null;
 
   // A group thread renders the room, not only the caller's side of it: every
   // member's words and the agent's replies to them, each under its author, and
@@ -472,13 +551,30 @@ export function useChatThread({
         : ownMessages,
     [lostReading, ownMessages],
   );
+  // The coach's private rows join the room in time order, tagged private;
+  // nobody else's thread carries any (`lane.rows` is empty without the lane).
   const threadMessages = useMemo<Message[]>(
     () =>
       roomGroupId && roomEntries
-        ? composeRoomThread(ownWithQuestion ?? [], roomEntries)
+        ? composeRoomThread<Message>(ownWithQuestion ?? [], roomEntries, lane.rows)
         : ownWithQuestion ?? [],
-    [roomGroupId, roomEntries, ownWithQuestion],
+    [roomGroupId, roomEntries, ownWithQuestion, lane.rows],
   );
+
+  // The private reply the server was writing has landed, or it stopped
+  // waiting: a stop sent for it is done, its verdict rows are re-read, and a
+  // reply landing in a hidden tab marks the tab.
+  const laneAwaitedRef = useRef(false);
+  useEffect(() => {
+    const was = laneAwaitedRef.current;
+    laneAwaitedRef.current = privateAwaitingSince !== null;
+    if (!was || privateAwaitingSince !== null || isStreaming) return;
+    setIsStopping(false);
+    if (lane.rows[lane.rows.length - 1]?.role === 'assistant') markReplyLanded();
+    if (laneConversationId) {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.verdicts(laneConversationId) });
+    }
+  }, [privateAwaitingSince, isStreaming, lane.rows, laneConversationId, markReplyLanded, queryClient]);
 
   // What the thread is called: its stored title, which the server already
   // spells as the group, the agent, or the moment it started — the same
@@ -571,6 +667,7 @@ export function useChatThread({
     if (!content || !selectedConversation || turnInFlight) return;
 
     setIsStreaming(true);
+    setStreamingAudience('room');
     streamingConversationRef.current = selectedConversation;
     setStreamingContent('');
     setErrorMessage(null);
@@ -834,6 +931,98 @@ export function useChatThread({
   }, [selectedConversation, turnInFlight, queryClient, usageStatus, onSelectConversation, t, roomGroupId, showsReplyModel, beginTrail, trailProse, trailRetract, trailProgress, finishTrail, markReplyLanded]);
 
   /**
+   * Send one turn to the coach's private lane (carnet#1249): the work thread
+   * about the room's athlete, never the room, carrying the quote "Adjust plan
+   * from this" holds.
+   *
+   * The lane writes the question and the reply into its own rows, which the
+   * room draws; this drives what a room turn shows while it runs — the
+   * streaming words, the trail, the reply's blocks — and holds the idle watch
+   * the same way. A send the server refused before any turn ran puts the
+   * coach's words back in the composer, under the lane's own wording of why.
+   */
+  const sendPrivateTurn = useCallback(async (content: string, options: TurnSendOptions = {}) => {
+    if (!content || turnInFlight || !laneAvailable) return;
+
+    setIsStreaming(true);
+    setStreamingAudience('private');
+    privateStreamingRef.current = true;
+    setStreamingContent('');
+    setErrorMessage(null);
+    dispatchLostTurn({ type: 'sent' });
+    track({ name: 'feature_engaged', props: { feature: 'chat_private_message_sent' } });
+
+    beginTrail();
+    const streamed = streamedReplyCallbacks(setStreamingContent, { prose: trailProse, retract: trailRetract });
+    const turnBlocks: ReplyBlock[] = [];
+    const releaseIdleHold = holdIdleWhileBusy();
+    const ended = () => {
+      setIsStreaming(false);
+      setStreamingContent('');
+    };
+    const outcome = await sendToLane(content, {
+      signal: idleSignal(),
+      origin: options.origin,
+      display: options.display,
+      ...streamed,
+      onProgress: progress => trailProgress(progress),
+      onBlock: block => {
+        if (block.type === 'notice') {
+          usageStatus.applyNotice(block.notice);
+          return;
+        }
+        turnBlocks.push(block);
+      },
+      onDone: (turn: TurnEnvelope) => {
+        // The lane has written the reply into its rows in this same tick, so
+        // the streaming bubble comes down with it rather than after it.
+        ended();
+        const assistantMessageId = turn.assistant.message.id;
+        const { model, execution_time_ms: executionTimeMs } = turn.telemetry;
+        finishTrail(assistantMessageId || null, turn.telemetry.tools_called);
+        markReplyLanded();
+        if (showsReplyModel && assistantMessageId && model) {
+          setMessageMetadata(prev => new Map(prev).set(assistantMessageId, { model, executionTimeMs }));
+        }
+        if (turnBlocks.length > 0 && assistantMessageId) {
+          const blocks = [...turnBlocks];
+          setMessageBlocks(prev => new Map(prev).set(assistantMessageId, blocks));
+        }
+      },
+      onError: () => {
+        ended();
+        finishTrail(null);
+      },
+    });
+
+    releaseIdleHold();
+    ended();
+    setIsStopping(false);
+    privateStreamingRef.current = false;
+    finishTrail(null);
+    usageStatus.invalidate();
+
+    if (outcome.kind === 'sent') {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.verdicts(outcome.conversationId) });
+      return;
+    }
+    if (outcome.kind === 'failed') {
+      setErrorMessage(
+        privateSendFailureText(outcome.error, {
+          t,
+          athleteName: laneAthleteName,
+          online: navigator.onLine,
+        }),
+      );
+      // Nothing was stored: the coach's typed words go back where they typed
+      // them, unless they have already started something else there.
+      if (outcome.refused && options.display === undefined) {
+        setNewMessage(current => (current.trim() ? current : content));
+      }
+    }
+  }, [turnInFlight, laneAvailable, sendToLane, laneAthleteName, usageStatus, t, queryClient, showsReplyModel, beginTrail, trailProse, trailRetract, trailProgress, finishTrail, markReplyLanded]);
+
+  /**
    * Stop the turn that is streaming.
    *
    * The server ends it and closes the question with a short notice; the open
@@ -842,11 +1031,18 @@ export function useChatThread({
    * be sent, the button is handed back and the turn carries on.
    */
   const stopTurn = useCallback(async () => {
+    // A private turn runs in the coach's work thread, never in the room: the
+    // stop goes there — streaming here, or awaited after a reload.
+    const privateTurn = privateStreamingRef.current || liveAudience === 'private';
     // After a reload the turn runs with no stream here: the stop goes to the
     // thread the server says is still being answered, and a re-read brings
     // the notice it closes the question with.
-    const restored = streamingConversationRef.current === null && awaitingSince !== null;
-    const streamingConversation = streamingConversationRef.current ?? (restored ? selectedConversation : null);
+    const restored = privateTurn
+      ? !privateStreamingRef.current
+      : streamingConversationRef.current === null && awaitingSince !== null;
+    const streamingConversation = privateTurn
+      ? laneConversationId
+      : (streamingConversationRef.current ?? (restored ? selectedConversation : null));
     if (!streamingConversation || isStopping) return;
     setIsStopping(true);
     try {
@@ -862,9 +1058,13 @@ export function useChatThread({
         describeApiError(error, { t, fallbackKey: 'chat.turnTryAgain' }),
       );
     }
-  }, [isStopping, showErrorToast, t, awaitingSince, selectedConversation, queryClient]);
+  }, [isStopping, showErrorToast, t, awaitingSince, selectedConversation, queryClient, liveAudience, laneConversationId]);
 
-  /** The composer's own send: hand the typed text to {@link sendTurn} and clear the box. */
+  /**
+   * The composer's own send: hand the typed text to {@link sendTurn} — or to
+   * {@link sendPrivateTurn} while a coach's switch says Only <agent> — and
+   * clear the box.
+   */
   const sendComposer = useCallback(() => {
     const typed = newMessage.trim();
     // While a turn runs the composer is disabled; a send that still reaches
@@ -873,8 +1073,13 @@ export function useChatThread({
     const origin: MessageOrigin | undefined = draftSeededRef.current ? 'draft' : undefined;
     draftSeededRef.current = false;
     setNewMessage('');
+    // "Only <agent>": the turn goes to the coach's private lane, never the room.
+    if (laneAvailable && laneAudience === 'private') {
+      void sendPrivateTurn(typed, { origin });
+      return;
+    }
     void sendTurn(typed, { origin });
-  }, [newMessage, sendTurn, turnInFlight]);
+  }, [newMessage, sendTurn, sendPrivateTurn, turnInFlight, laneAvailable, laneAudience]);
 
   // A draft the athlete erased entirely is no longer a draft: what they type
   // next is their own.
@@ -1017,9 +1222,12 @@ export function useChatThread({
     liveTrail,
     awaitingSince,
     turnTrails,
+    liveAudience,
     isStopping,
     stopTurn,
     sendTurn,
+    privateLane: lane,
+    sendPrivateTurn,
     retryMessage,
     shownError,
     dismissError,

@@ -590,6 +590,7 @@ mod playbook_injection_latency_test;
 mod pluggable_tools_test;
 mod preapproved_email_registration_test;
 mod prescribed_workouts_repo_test;
+mod private_lane_test;
 mod proactive_turn_origin_test;
 mod production_critical_coverage;
 mod production_logging_test;

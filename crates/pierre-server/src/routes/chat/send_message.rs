@@ -27,7 +27,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::KEY_TURN_INTERRUPTED;
-use pierre_core::models::{AddMessageParams, ConversationTurnId, COMMAND_FINISH_REASON};
+use pierre_core::models::{AddMessageParams, ConversationTurnId, RoomQuote, COMMAND_FINISH_REASON};
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -50,6 +50,7 @@ use pierre_notifications::triggers as notification_triggers;
 
 use super::common::get_tenant_id;
 use super::dto::{MessageResponse, SendMessageRequest};
+use super::room_quote::verify_room_quote;
 use super::turn_response::{
     message_response, platform_blocks, welcome_response, AssistantResponse, TurnResponse,
     TurnTelemetryResponse,
@@ -196,6 +197,22 @@ pub(super) async fn send_message(
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
+    // A quoted room message is verified before anything is written: a quote
+    // the coach may not carry refuses the whole send (carnet#1249).
+    let quote = match request.quote_entry_id.as_deref() {
+        Some(entry_id) => Some(
+            verify_room_quote(
+                &resources.common.repos,
+                &conversation,
+                auth.user_id,
+                entry_id,
+                &request.content,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+
     // The athlete's stored preference is the turn service's starting point; it
     // refines it from the language of the message itself.
     let stored_locale =
@@ -232,6 +249,7 @@ pub(super) async fn send_message(
         turn_id,
         channel_type: channel_type_for(surface).to_owned(),
         transport: turn_transport(&auth.auth_method, surface),
+        quote,
     };
 
     if wants_sse {
@@ -276,6 +294,8 @@ struct TurnEgress {
     channel_type: String,
     /// The transport the turn is served over, from the request's credential.
     transport: Transport,
+    /// The room words the message quotes, verified before the turn began.
+    quote: Option<RoomQuote>,
 }
 
 impl TurnEgress {
@@ -300,6 +320,7 @@ impl TurnEgress {
             turn_id: self.turn_id,
             // In-app conversations are single-user; no room transcript exists.
             ambient_context: None,
+            quote: self.quote.clone(),
             channel_type: &self.channel_type,
             transport: self.transport,
             // A thread bound to a coaching group is a group thread, whichever
@@ -342,7 +363,11 @@ impl TurnEgress {
                     self.tenant_id,
                     &self.conversation.id,
                 );
-                TurnResponse::from_envelope(*envelope, execution_time_ms)
+                let mut response = TurnResponse::from_envelope(*envelope, execution_time_ms);
+                // The one quote a send shows is the one this request verified
+                // under the thread's coaching gates, which its row now holds.
+                response.user_message.quote = self.quote.map(Into::into);
+                response
             }
             ServedTurn::Command { command, quota } => {
                 self.command_response(*command, &quota, request)
@@ -447,6 +472,7 @@ fn unpersisted_message(role: &str, content: String, created_at: String) -> Messa
         finish_reason: Some(COMMAND_FINISH_REASON.to_owned()),
         actions: None,
         channel_type: None,
+        quote: None,
         created_at,
     }
 }

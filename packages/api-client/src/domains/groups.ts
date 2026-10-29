@@ -109,7 +109,11 @@ export function createGroupsApi(axios: AxiosInstance) {
       return response.data;
     },
 
-    /** Get a specific group by ID */
+    /**
+     * Get a specific group by ID, as the caller reads it. Its human coach also
+     * reads `solo_athlete` while the room holds exactly one athlete
+     * (carnet#1249); create and update answer in the same shape.
+     */
     async getGroup(groupId: string): Promise<CoachingGroup> {
       const response = await axios.get<CoachingGroup>(ENDPOINTS.GROUPS.GROUP(groupId));
       return response.data;

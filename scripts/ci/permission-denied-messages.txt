@@ -79,6 +79,7 @@ crates/pierre-server/src/routes/chat/athlete_plan.rs:Training plans are turned o
 crates/pierre-server/src/routes/chat/common.rs:Cannot attach conversation to a group you don't belong to
 crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's owner can delete it
 crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is not a member of this conversation's tenant
+crates/pierre-server/src/routes/chat/room_quote.rs:That message is not shared with you
 crates/pierre-server/src/routes/imports.rs:Imports are started and managed only from Dravr's own apps
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant
 crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration

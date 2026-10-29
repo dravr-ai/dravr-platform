@@ -2,15 +2,17 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat composer bar — the field, the slash-command and @handle palettes, voice and send
-// ABOUTME: An in-flow bar under the thread: the layout, not a transform, keeps it above the keyboard
+// ABOUTME: An in-flow bar under the thread; in a coach's one-athlete room it carries the Everyone / Only <agent> switch and the quote
 
 import React, { useEffect, useState } from 'react';
-import { View, TextInput, TouchableOpacity, ActivityIndicator, Text, StyleSheet, Keyboard, Platform } from 'react-native';
+import { View, TextInput, TouchableOpacity, Pressable, ActivityIndicator, Text, StyleSheet, Keyboard, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { isCommandDraft } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PALETTE_KEYS } from '@pierre/ui-logic';
+import type { PrivateLaneComposerText } from '@pierre/chat-utils';
+import type { MessageAudience } from '@pierre/shared-types';
 import { useThemeColors } from '../../constants/theme';
 import { VoiceButton } from '../../components/ui';
 import { CommandPalette } from '../../components/CommandPalette';
@@ -18,6 +20,27 @@ import { MentionPalette } from '../../components/MentionPalette';
 import { useCommandPalette } from '../../hooks/useCommandPalette';
 import { useMentionPalette } from '../../hooks/useMentionPalette';
 import { composerKey, type ComposerKeyEvent } from '../../hooks/composerKeys';
+
+/**
+ * The Everyone / Only <agent> switch a coach sees in a room of one athlete
+ * (carnet#1249). Who the next send reaches; the host routes it.
+ */
+export interface ComposerAudience {
+  /** `private` while the next send goes to the agent alone. */
+  value: MessageAudience;
+  /** The switch's label and accessible name, and the field's placeholder, for `value`. */
+  text: PrivateLaneComposerText;
+  onToggle: () => void;
+}
+
+/** The athlete's room message "Adjust plan from this" quoted, until it is sent or removed. */
+export interface ComposerQuote {
+  /** "From <name>'s message". */
+  label: string;
+  /** The remove control's accessible name. */
+  removeLabel: string;
+  onRemove: () => void;
+}
 
 interface ChatInputBarProps {
   inputText: string;
@@ -39,6 +62,13 @@ interface ChatInputBarProps {
   onSendMessage: () => void;
   /** Ends the running turn; while one runs, the send button is this instead. */
   onStopTurn: () => void;
+  /**
+   * The audience switch of a coach's one-athlete room. Absent for everyone
+   * else and in every other thread, where the bar has no such control.
+   */
+  audience?: ComposerAudience;
+  /** The quote the next private send carries, shown as a chip over the field. */
+  quote?: ComposerQuote | null;
 }
 
 /**
@@ -73,6 +103,8 @@ export function ChatInputBar({
   onVoicePress,
   onSendMessage,
   onStopTurn,
+  audience,
+  quote = null,
 }: ChatInputBarProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -149,6 +181,15 @@ export function ChatInputBar({
         testID: canSend ? 'send-button' : 'send-button-disabled',
       };
 
+  // While the next send reaches the agent alone, the field is drawn dashed in
+  // the private accent, as the private bubbles are: a line meant for the
+  // agent sent to the room by mistake is the costlier error (carnet#1249 D2).
+  const isPrivate = audience?.value === 'private';
+  const fieldTone = isPrivate ? 'border border-dashed border-warning/60 bg-warning/5' : 'bg-surface-container';
+  const placeholder = isListening
+    ? t('app.composerListening')
+    : (audience?.text.placeholder ?? t('app.composerPlaceholder'));
+
   return (
     <View
       className="px-3 pt-2 border-t border-border bg-background-primary"
@@ -166,15 +207,72 @@ export function ChatInputBar({
         highlightedIndex={mentions.highlightedIndex}
         onSelect={mentions.select}
       />
+      {audience ? (
+        /*
+          The switch and the quote sit over the field rather than in it: the
+          phone's field is one 40-tall well, and both controls need a 44-point
+          target. Pressing the switch flips it; "Adjust plan from this" flips
+          it too and puts the quote beside it. Its name starts with the label
+          it shows and carries the state (WCAG 2.5.3), so it announces no
+          selected state on top.
+        */
+        <View className="flex-row items-center" testID="composer-audience-row">
+          <Pressable
+            onPress={audience.onToggle}
+            accessibilityRole="button"
+            accessibilityLabel={audience.text.aria}
+            className="min-h-11 justify-center"
+            testID="composer-audience-switch"
+          >
+            <View
+              className={`flex-row items-center rounded-lg px-2.5 py-1.5 ${isPrivate ? 'bg-warning/15' : 'bg-surface-container'}`}
+              testID="composer-audience-chip"
+            >
+              {isPrivate ? <Ionicons name="lock-closed" size={14} color={colors.ink.warning} /> : null}
+              <Text
+                className={`text-xs font-semibold ${isPrivate ? 'ml-1 text-on-warning-container' : 'text-text-secondary'}`}
+              >
+                {audience.text.label}
+              </Text>
+              <View className="ml-1">
+                <Ionicons
+                  name="chevron-down"
+                  size={14}
+                  color={isPrivate ? colors.ink.warning : colors.text.secondary}
+                />
+              </View>
+            </View>
+          </Pressable>
+          {quote ? (
+            <View
+              className="ml-2 flex-1 flex-row items-center rounded-lg bg-warning/15 pl-2.5"
+              testID="composer-quote-chip"
+            >
+              <Text numberOfLines={1} className="flex-1 text-xs font-medium text-on-warning-container">
+                {quote.label}
+              </Text>
+              <Pressable
+                onPress={quote.onRemove}
+                accessibilityRole="button"
+                accessibilityLabel={quote.removeLabel}
+                className="w-11 h-11 items-center justify-center"
+                testID="composer-quote-remove"
+              >
+                <Ionicons name="close" size={14} color={colors.ink.warning} />
+              </Pressable>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       <View className="flex-row items-end">
         <View
-          className="flex-1 min-h-[40px] max-h-[120px] rounded-[20px] bg-surface-container px-3 justify-center"
+          className={`flex-1 min-h-[40px] max-h-[120px] rounded-[20px] ${fieldTone} px-3 justify-center`}
           testID="message-field"
         >
           <TextInput
             ref={inputRef}
             className="text-base text-text-primary py-2"
-            placeholder={isListening ? t('app.composerListening') : t('app.composerPlaceholder')}
+            placeholder={placeholder}
             placeholderTextColor={isListening ? colors.error : colors.text.tertiary}
             value={displayText}
             onChangeText={onChangeText}

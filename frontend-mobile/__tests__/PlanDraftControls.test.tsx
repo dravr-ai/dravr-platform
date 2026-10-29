@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the draft controls a coach's plan card carries on the phone — owner-only, Publish, a refused publish, Discard
+// ABOUTME: Tests the draft controls a coach's plan card carries on the phone — owner-only, Publish, a refused publish, Discard, a private row
 // ABOUTME: Reads the card back from a persisted transcript row through MessageList, so the block, the card and the shared hook run together
 
 import React from 'react';
@@ -37,7 +37,8 @@ jest.mock('../src/screens/chat/presentMessageMenu', () => ({
   presentMessageMenu: jest.fn(),
 }));
 
-import { MessageList } from '../src/screens/chat/MessageList';
+import { composeRoomThread } from '@pierre/chat-utils';
+import { MessageList, type MessageListPrivateLane } from '../src/screens/chat/MessageList';
 import type { Message } from '../src/types';
 
 const PLAN: WorkoutPlan = {
@@ -81,7 +82,10 @@ const draftReply: Message = {
   ]),
 } as Message;
 
-function renderThread(conversationId: string | null = CONVERSATION_ID) {
+function renderThread(
+  conversationId: string | null = CONVERSATION_ID,
+  room: { messages: Message[]; privateLane: MessageListPrivateLane } | null = null,
+) {
   // No garbage-collection timers: a cache entry's five-minute timer would
   // otherwise hold an in-band run open long after the last assertion.
   const client = new QueryClient({
@@ -94,7 +98,8 @@ function renderThread(conversationId: string | null = CONVERSATION_ID) {
     <QueryClientProvider client={client}>
       <MessageList
         conversationId={conversationId}
-        messages={[draftReply]}
+        messages={room?.messages ?? [draftReply]}
+        privateLane={room?.privateLane}
         isLoading={false}
         isSending={false}
         messageFeedback={{}}
@@ -220,5 +225,52 @@ describe("a coach's draft on the phone's plan card", () => {
     expect(screen.getByText('Harricana 65K')).toBeTruthy();
     expect(mockListParticipants).not.toHaveBeenCalled();
     expect(screen.queryByTestId('plan-draft-controls')).toBeNull();
+  });
+
+  // carnet#1249: the draft card on the agent's private reply, drawn inline in
+  // the one-athlete room, belongs to the coach's work thread — the room's own
+  // conversation holds no draft and must never be published from.
+  it("acts on the coach's work thread when the card is on a private row of the room", async () => {
+    mockPublish.mockResolvedValue({
+      status: 'published',
+      published: { plan_id: 'plan-2', superseded_plan_id: null, athlete_notified: true },
+    });
+    const screen = renderThread('conv-room-alice', {
+      messages: composeRoomThread([], [], [draftReply]),
+      privateLane: {
+        conversationId: CONVERSATION_ID,
+        agentName: 'Dravr',
+        canAdjustFrom: () => false,
+        onAdjustFrom: jest.fn(),
+        turnLive: false,
+      },
+    });
+
+    expect(await screen.findByTestId('plan-draft-badge')).toHaveTextContent("Draft · Alice Runner can't see it yet");
+    expect(screen.getByTestId('private-reply-tag')).toBeTruthy();
+    expect(mockListParticipants).toHaveBeenCalledWith(CONVERSATION_ID);
+    expect(mockListParticipants).not.toHaveBeenCalledWith('conv-room-alice');
+
+    fireEvent.press(screen.getByTestId('plan-draft-publish'));
+
+    expect(await screen.findByTestId('plan-draft-published')).toBeTruthy();
+    expect(mockPublish).toHaveBeenCalledWith(CONVERSATION_ID, { overwrite_athlete_changes: false });
+  });
+
+  it('draws no controls on a private row before the work thread is known', () => {
+    const screen = renderThread('conv-room-alice', {
+      messages: composeRoomThread([], [], [draftReply]),
+      privateLane: {
+        conversationId: null,
+        agentName: 'Dravr',
+        canAdjustFrom: () => false,
+        onAdjustFrom: jest.fn(),
+        turnLive: false,
+      },
+    });
+
+    expect(screen.getByText('Harricana 65K')).toBeTruthy();
+    expect(screen.queryByTestId('plan-draft-controls')).toBeNull();
+    expect(mockListParticipants).not.toHaveBeenCalled();
   });
 });

@@ -78,7 +78,6 @@
 
 use pierre_providers::ai_scope;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -97,6 +96,7 @@ use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_groups::GroupService;
 use pierre_notifications::events::NotificationEvent;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
+use pierre_services::group_chat_poster::{self, GroupChatPoster};
 use pierre_services::locale::user_locale;
 use pierre_services::notification_text::{
     NotificationTextRenderer, CONCERN_DEEP_FATIGUE, CONCERN_HEAVY_BLOCK, CONCERN_INACTIVE,
@@ -119,7 +119,6 @@ use pierre_notifications::{
 #[cfg(feature = "client-notifications")]
 use pierre_services::notification_text::PARAM_VISIBLE_MEMBERS;
 
-use crate::group_chat_poster::GroupChatPoster;
 use crate::group_digest_slot::{due_week, group_zone};
 
 /// How often the digest worker ticks.
@@ -290,7 +289,9 @@ where
 /// The chat a group's digest is posted into, or `None` when its mode posts
 /// into no chat or it has none that takes one.
 ///
-/// Only [`GroupDigestMode::Chat`] posts into the group's chat. A REST-created
+/// Only [`GroupDigestMode::Chat`] posts into the group's chat, and only a chat
+/// the platform may post into unasked
+/// ([`proactive_chat`](group_chat_poster::proactive_chat)). A REST-created
 /// group has no chat. `WhatsApp` and Messenger refuse a text the platform
 /// starts outside the 24-hour window after a member's last message, so a
 /// group bound there keeps its managers' own notifications instead of a post
@@ -300,16 +301,8 @@ pub fn digest_room(group: &CoachingGroup) -> Option<DigestRoom<'_>> {
     if group.digest_mode != GroupDigestMode::Chat {
         return None;
     }
-    let channel = ChannelType::from_str(group.channel_type.as_deref()?).ok()?;
-    let chat_id = group
-        .channel_chat_id
-        .as_deref()
-        .filter(|id| !id.trim().is_empty())?;
-    matches!(
-        channel,
-        ChannelType::Telegram | ChannelType::Slack | ChannelType::Discord
-    )
-    .then_some(DigestRoom { channel, chat_id })
+    let (channel, chat_id) = group_chat_poster::proactive_chat(group)?;
+    Some(DigestRoom { channel, chat_id })
 }
 
 /// Process every active group for one eligible tenant.

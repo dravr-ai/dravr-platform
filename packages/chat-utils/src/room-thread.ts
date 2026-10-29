@@ -1,7 +1,7 @@
 // ABOUTME: A group thread as both clients render it — the room's entries woven through the caller's own conversation
-// ABOUTME: Other members' words, the agent's replies to them and withheld placeholders join the caller's own rows in time order
+// ABOUTME: Other members' words, the agent's replies, withheld placeholders and a coach's private rows join in time order
 
-import type { GroupTranscriptEntry, Message, RoomAttribution } from '@pierre/shared-types';
+import type { GroupTranscriptEntry, Message, MessageAudience, RoomAttribution } from '@pierre/shared-types';
 import type { Translate } from './text';
 
 /**
@@ -14,6 +14,16 @@ const ROOM_ROW_ID_PREFIX = 'room-';
 
 /** A row a group thread shows from the room. */
 export type RoomMessage = Message & { room: RoomAttribution };
+
+/**
+ * The transcript entry id a room row shows, or `null` for a row that is not
+ * one — the id "Adjust plan from this" quotes (carnet#1249).
+ */
+export function roomEntryIdOf(row: { id: string; room?: RoomAttribution | null }): string | null {
+  if (!row.room || !row.id.startsWith(ROOM_ROW_ID_PREFIX)) return null;
+  const entryId = row.id.slice(ROOM_ROW_ID_PREFIX.length);
+  return entryId.length > 0 ? entryId : null;
+}
 
 /**
  * The room entry as a thread row. A member's words are a user row; the
@@ -45,8 +55,32 @@ function instantOf(row: { created_at?: string | null }): number {
 }
 
 /**
+ * Two row lists, each oldest first, as one in time order — `first`'s row
+ * ahead when two share an instant, and each list's own order kept.
+ */
+function mergeByTime<A extends { created_at?: string | null }, B extends { created_at?: string | null }>(
+  first: readonly A[],
+  second: readonly B[],
+): (A | B)[] {
+  const merged: (A | B)[] = [];
+  let f = 0;
+  let s = 0;
+  while (f < first.length || s < second.length) {
+    if (s < second.length && (f >= first.length || instantOf(second[s]) < instantOf(first[f]))) {
+      merged.push(second[s]);
+      s += 1;
+    } else {
+      merged.push(first[f]);
+      f += 1;
+    }
+  }
+  return merged;
+}
+
+/**
  * The thread a group conversation renders: the room, with the caller's own
- * conversation in it.
+ * conversation in it — and, for a coach in a room of one athlete, the rows of
+ * the coach's private thread about that athlete (carnet#1249).
  *
  * The caller's own rows stay exactly as their conversation holds them — the
  * charts, the controls, the ratings and the retry all hang off those rows —
@@ -56,31 +90,33 @@ function instantOf(row: { created_at?: string | null }): number {
  * room chatter, and each entry the author's sharing consent withholds, which
  * keeps its place as a placeholder rather than leaving a silent gap.
  *
- * Both inputs arrive oldest first, and each keeps its own order: the two are
- * merged by time, the caller's row first when two share an instant.
+ * `privateLane` is the coach's thread about the room's one athlete, which no
+ * one else reads. Each of its rows joins once, as that thread holds it,
+ * tagged `audience: 'private'`. The room's de-duplication never drops one: a
+ * room entry naming a private row is left to it, as an entry naming one of
+ * the caller's own rows is. A private row the caller's own conversation also
+ * holds is drawn once, as that conversation's row. The coach's private turns
+ * are never fanned out to the room, so in practice neither case arises.
+ *
+ * Every input arrives oldest first, and each keeps its own order: they are
+ * merged by time — the caller's own row first when two share an instant,
+ * then the private row, then the room's.
  */
 export function composeRoomThread<M extends Pick<Message, 'id' | 'created_at'>>(
   own: readonly M[],
   room: readonly GroupTranscriptEntry[],
+  privateLane: readonly M[] = [],
 ): (M | RoomMessage)[] {
-  const held = new Set(own.map((row) => row.id));
+  const ownIds = new Set(own.map((row) => row.id));
+  const privateRows = privateLane
+    .filter((row) => !ownIds.has(row.id))
+    .map((row): M & { audience: MessageAudience } => ({ ...row, audience: 'private' }));
+  const held = new Set([...ownIds, ...privateRows.map((row) => row.id)]);
   const joining = room
     .filter((entry) => !(entry.message_id && held.has(entry.message_id)))
     .map(roomRow);
 
-  const thread: (M | RoomMessage)[] = [];
-  let o = 0;
-  let r = 0;
-  while (o < own.length || r < joining.length) {
-    if (r < joining.length && (o >= own.length || instantOf(joining[r]) < instantOf(own[o]))) {
-      thread.push(joining[r]);
-      r += 1;
-    } else {
-      thread.push(own[o]);
-      o += 1;
-    }
-  }
-  return thread;
+  return mergeByTime(mergeByTime(own, privateRows), joining);
 }
 
 /**
@@ -89,9 +125,16 @@ export function composeRoomThread<M extends Pick<Message, 'id' | 'created_at'>>(
  * author line, and a withheld entry never runs on from a readable one. A human
  * coach's correction is its own author, never a run of the agent's replies,
  * even on the thread of the athlete it concerns, and a run of corrections
- * concerns one athlete, so each athlete's is labelled with their name.
+ * concerns one athlete, so each athlete's is labelled with their name. A row
+ * of a coach's private lane never runs on from a row the room reads, nor a
+ * room row from it (carnet#1249).
  */
-export function runAuthorOf(row: { role: string; room?: RoomAttribution | null }): string {
+export function runAuthorOf(row: {
+  role: string;
+  room?: RoomAttribution | null;
+  audience?: MessageAudience | null;
+}): string {
+  if (row.audience === 'private') return `private:${row.role}`;
   const room = row.room;
   if (room?.speaker === 'correction' && !room.withheld) return `correction:${room.author_user_id ?? ''}`;
   if (!room || room.own) return row.role;

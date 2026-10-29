@@ -1095,6 +1095,19 @@ pub const KEY_GROUP_COACH_DETACHED: &str = "humanCoach.group_detached";
 /// carnet#847. `{0}` = the coach's name, `{1}` = the athlete the reply
 /// answered, `{2}` = the reply's opening, `{3}` = the correction.
 pub const KEY_GROUP_REPLY_CORRECTED: &str = "humanCoach.reply_corrected";
+/// Key: the room post a coach's publish of an athlete's plan leaves in their
+/// group, when it changed days of a plan the athlete already had.
+///
+/// carnet#1249. `{0}` = the coach's name, `{1}` = the changed days, joined
+/// with commas, ending in [`KEY_PLAN_PUBLISHED_ROOM_POST_MORE`] when there
+/// are more than the post lists.
+pub const KEY_PLAN_PUBLISHED_ROOM_POST: &str = "humanCoach.planPublishedRoomPost";
+/// Key: the room post a coach's publish leaves when the athlete had no plan
+/// before it. carnet#1249. `{0}` = the coach's name.
+pub const KEY_PLAN_PUBLISHED_ROOM_POST_NEW: &str = "humanCoach.planPublishedRoomPostNew";
+/// Key: the last item of a room post's changed days, counting the days it
+/// does not list. carnet#1249. `{0}` = how many.
+pub const KEY_PLAN_PUBLISHED_ROOM_POST_MORE: &str = "humanCoach.planPublishedRoomPostMore";
 /// Key: `/group create` usage hint when no name was typed.
 pub const KEY_GROUP_CREATE_USAGE: &str = "commands.group.create_usage";
 /// Key: `/group create` refusal when neither the conversation nor the

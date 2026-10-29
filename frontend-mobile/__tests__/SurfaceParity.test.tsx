@@ -139,7 +139,7 @@ const BLOCK_CASES: Record<string, { blocks: ReplyBlock[]; shows: (view: RenderRe
     shows: (view) => {
       expect(view.getByText('Pick a session')).toBeTruthy();
       fireEvent.press(view.getByText(SESSION.label));
-      expect(onActionClick).toHaveBeenCalledWith(SESSION);
+      expect(onActionClick).toHaveBeenCalledWith(SESSION, 'room');
     },
   },
   notice: {

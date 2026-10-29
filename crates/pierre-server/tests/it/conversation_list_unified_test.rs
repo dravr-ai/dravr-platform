@@ -706,6 +706,7 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
             content: "Comment se présente ma semaine d'entraînement?".to_owned(),
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
+            quote: None,
             channel_type: "web",
             transport: Transport::WebApp,
             is_direct_message: true,

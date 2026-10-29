@@ -8,6 +8,7 @@ import { useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from 'rea
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  audienceOf,
   dayLabelFor,
   filterDisplayMessages,
   formatMessageTime,
@@ -15,6 +16,8 @@ import {
   isSameMessageGroup,
   localDayKey,
   messageChannelOrigin,
+  opensPrivateStretch,
+  PRIVATE_LANE_KEYS,
   type TurnTrail,
 } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
@@ -23,11 +26,29 @@ import DaySeparator from './DaySeparator';
 import TopicDivider from './TopicDivider';
 import CoachAvatar from './CoachAvatar';
 import { FoldedTurnTrail, LiveTurnIndicator, LiveTurnLine } from './TurnTrail';
-import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
+import { PrivateLaneDivider, PrivateReplyTag } from './PrivateLane';
+import type { ChatMessageAction, ClaimVerdict, MessageAudience, ReplyBlock } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls, topicAnchorId } from './utils';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useTranslation } from '@pierre/i18n';
+
+/**
+ * What the transcript needs of a coach's private lane in a one-athlete room
+ * (carnet#1249). Absent in every other thread.
+ */
+export interface TranscriptPrivateLane {
+  /** The coach's work thread the private rows come from; a draft card on one acts on it. */
+  conversationId: string | null;
+  /** Whether "Adjust plan from this" shows on a room row: the athlete's own readable words. */
+  canAdjustFrom: (row: Message) => boolean;
+  /** "Adjust plan from this": quote the row and turn the composer to the agent alone. */
+  onAdjustFrom: (row: Message) => void;
+  /** A control on a private reply — answered in the private lane, never in the room. */
+  onActionClick?: (action: ChatMessageAction) => void;
+  /** "Ask me about this claim" on a private reply — drafted for the private lane. */
+  onAskAboutClaim?: (verdict: ClaimVerdict) => void;
+}
 
 interface MessageListProps {
   /**
@@ -105,6 +126,14 @@ interface MessageListProps {
   loadingEarlier?: boolean;
   /** The reader reached the top of what is drawn while older rows remain. */
   onReachStart?: () => void;
+  /** A coach's private lane in this room; absent everywhere else. */
+  privateLane?: TranscriptPrivateLane | null;
+  /**
+   * Who the turn streaming or awaited here speaks to. `private` draws its
+   * live rows as the private lane's, under its divider when they open a
+   * private stretch.
+   */
+  liveAudience?: MessageAudience;
 }
 
 /** The nearest ancestor that scrolls, which holds the thread's position. */
@@ -151,6 +180,8 @@ export default function MessageList({
   hasEarlier = false,
   loadingEarlier = false,
   onReachStart,
+  privateLane = null,
+  liveAudience = 'room',
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -226,6 +257,9 @@ export default function MessageList({
   const rows = useMemo(() => {
     const out: ReactNode[] = [];
     let previous: Message | null = null;
+    // The row drawn before, whatever broke the run since: a private stretch
+    // opens after a room row or at the top, never again after a day pill.
+    let previousShown: Message | null = null;
     let previousDay = '';
     for (const msg of visibleMessages) {
       const day = localDayKey(msg.created_at);
@@ -247,10 +281,21 @@ export default function MessageList({
         previous = null;
         continue;
       }
+      // A coach's private rows (carnet#1249) open under a line saying who sees them.
+      const isPrivate = audienceOf(msg) === 'private';
+      if (privateLane && opensPrivateStretch(previousShown, msg)) {
+        out.push(<PrivateLaneDivider key={`private-${msg.id}`} agent={author} />);
+      }
+      previousShown = msg;
       const groupStart = previous === null || !isSameMessageGroup(previous, msg);
       // Copy, rating and retry act on a row of the caller's own conversation;
       // a row the group thread shows from the room is not one, so it has none.
-      const ownReply = msg.role === 'assistant' && !msg.room;
+      // A private reply lives in the coach's work thread: it is copied, but
+      // its rating and retry belong to that thread, not to this one.
+      const ownReply = msg.role === 'assistant' && !msg.room && !isPrivate;
+      const copyable = ownReply || (isPrivate && msg.role === 'assistant');
+      // "Adjust plan from this", on the room's athlete's own words.
+      const adjustable = privateLane !== null && !isPrivate && privateLane.canAdjustFrom(msg);
       // The personal thread is shared with the athlete's messaging DM: their
       // words from a messaging app say where they came from.
       const origin = messageChannelOrigin(msg);
@@ -259,7 +304,7 @@ export default function MessageList({
       out.push(
         <MessageItem
           key={msg.id}
-          conversationId={conversationId}
+          conversationId={isPrivate ? (privateLane?.conversationId ?? null) : conversationId}
           message={msg}
           metadata={messageMetadata.get(msg.id)}
           feedback={messageFeedback.get(msg.id)}
@@ -274,7 +319,7 @@ export default function MessageList({
           // The bubble hands back the reply as a reader outside the app can
           // use it — its charts named rather than left as ⟦viz:N⟧ markers —
           // because only the bubble has the resolved scenes to name them from.
-          onCopy={ownReply ? onCopyMessage : undefined}
+          onCopy={copyable ? onCopyMessage : undefined}
           onShare={ownReply ? onShareMessage : undefined}
           onThumbsUp={ownReply ? () => onThumbsUp(msg.id) : undefined}
           onThumbsDown={ownReply ? () => onThumbsDown(msg.id) : undefined}
@@ -283,8 +328,9 @@ export default function MessageList({
           }
           onRetry={ownReply ? () => onRetryMessage(msg.id) : undefined}
           onShowVerdict={onShowVerdict}
-          onAskAboutClaim={onAskAboutClaim}
-          onActionClick={onActionClick}
+          onAskAboutClaim={isPrivate ? (privateLane?.onAskAboutClaim ?? onAskAboutClaim) : onAskAboutClaim}
+          onActionClick={isPrivate ? privateLane?.onActionClick : onActionClick}
+          onAdjustPlan={adjustable ? () => privateLane?.onAdjustFrom(msg) : undefined}
         />,
       );
       previous = msg;
@@ -311,7 +357,25 @@ export default function MessageList({
     onShowVerdict,
     onAskAboutClaim,
     onActionClick,
+    privateLane,
+    author,
   ]);
+
+  // The live rows of a private turn draw as the private lane's: the dashed
+  // rule, the "Only you" tag, and the divider when the thread so far ended on
+  // a row the room reads.
+  const livePrivate = liveAudience === 'private';
+  const lastShown = visibleMessages[visibleMessages.length - 1] ?? null;
+  const liveOpensStretch = livePrivate && opensPrivateStretch(lastShown, { audience: 'private' });
+  const liveBubble = {
+    side: 'assistant' as const,
+    authorLabel: author,
+    avatar: <CoachAvatar label={author} />,
+    audience: liveAudience,
+    tag: livePrivate ? <PrivateReplyTag /> : undefined,
+    ariaLabel: livePrivate ? t(PRIVATE_LANE_KEYS.bubbleAria, { agent: author }) : undefined,
+  };
+  const liveShown = isStreaming || awaitingSince !== null;
 
   if (isLoading) {
     return (
@@ -351,9 +415,11 @@ export default function MessageList({
         </MessageBubble>
       )}
 
+      {liveShown && liveOpensStretch ? <PrivateLaneDivider agent={author} /> : null}
+
       {/* Streaming response, with what the turn is on under its words */}
       {isStreaming && streamingContent && (
-        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+        <MessageBubble {...liveBubble}>
           <div className="text-on-surface text-base leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-a:text-primary prose-a:underline hover:prose-a:text-primary/80">
             <Markdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
               {linkifyUrls(streamingContent)}
@@ -367,12 +433,12 @@ export default function MessageList({
           is on, and how long it has run. After a reload the server's word
           that a reply is coming stands in for the stream, with no steps. */}
       {isStreaming && !streamingContent && (
-        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+        <MessageBubble {...liveBubble}>
           <LiveTurnIndicator trail={liveTrail} />
         </MessageBubble>
       )}
       {!isStreaming && awaitingSince !== null && (
-        <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
+        <MessageBubble {...liveBubble}>
           <LiveTurnIndicator trail={null} startedAt={awaitingSince} />
         </MessageBubble>
       )}

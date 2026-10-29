@@ -1109,6 +1109,27 @@ macro_rules! impl_coaching_group_repository {
                 rows.iter().map(row_to_room_entry).collect()
             }
 
+            async fn get_room_transcript_entry_for(
+                &self,
+                group_id: &str,
+                viewer_user_id: Uuid,
+                entry_id: Uuid,
+                tenants: [TenantId; 2],
+            ) -> AppResult<Option<RoomTranscriptEntry>> {
+                let [first_tenant, second_tenant] = tenants;
+                let row = sqlx::query(GET_ROOM_TRANSCRIPT_ENTRY_SQL)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(viewer_user_id))
+                    .bind($ids::bind(entry_id))
+                    .bind(first_tenant.to_string())
+                    .bind(second_tenant.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to read a room entry: {e}")))?;
+
+                row.as_ref().map(row_to_room_entry).transpose()
+            }
+
             async fn claim_group_digest(
                 &self,
                 tenant_id: TenantId,

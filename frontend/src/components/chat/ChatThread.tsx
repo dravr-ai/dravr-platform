@@ -9,8 +9,8 @@ import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
 import type { ChatMessageAction, ClaimVerdict } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { useInfoToast, useSuccessToast, useErrorToast } from '../ui';
-import MessageList from './MessageList';
-import MessageInput from './MessageInput';
+import MessageList, { type TranscriptPrivateLane } from './MessageList';
+import MessageInput, { type ComposerPrivateLane } from './MessageInput';
 import UsageWarningBanner from './UsageWarningBanner';
 import VerdictDrawer, { type VerdictSource } from './VerdictDrawer';
 import type { ChatThreadState } from './useChatThread';
@@ -41,6 +41,17 @@ export interface ChatThreadProps {
 }
 
 /**
+ * Open a reply's link — but only after {@link trustedActionUrl} vouches for
+ * the host: the value reaches the client inside a model-adjacent reply, so an
+ * unvouched address is an open redirect wearing a button. A refused URL opens
+ * nothing.
+ */
+function openTrustedUrl(value: string): void {
+  const target = trustedActionUrl(value, [window.location.origin]);
+  if (target) window.open(target, '_blank', 'noopener,noreferrer');
+}
+
+/**
  * A thread: the usage banner, the transcript, the composer and the verdict
  * drawer, with every handler a reply's controls need.
  *
@@ -60,7 +71,10 @@ export default function ChatThread({
   const showSuccessToast = useSuccessToast();
   const showInfoToast = useInfoToast();
   const showErrorToast = useErrorToast();
-  const { verdicts, refetchVerdicts, seedDraft, sendTurn, threadMessages } = thread;
+  const { verdicts, refetchVerdicts, seedDraft, sendTurn, sendPrivateTurn, threadMessages, privateLane: lane } = thread;
+  // The agent the room's replies are signed with — and the one a coach's
+  // private lane speaks to.
+  const agentName = thread.activeCoachTitle ?? t('shell.brandName');
 
   // The message whose verdicts the drawer shows. The rows are written right
   // after the reply row, so a chip that landed before the read did opens the
@@ -121,12 +135,63 @@ export default function ChatThread({
    */
   const handleActionClick = useCallback((action: ChatMessageAction) => {
     if (action.action_type === 'url') {
-      const target = trustedActionUrl(action.value, [window.location.origin]);
-      if (target) window.open(target, '_blank', 'noopener,noreferrer');
+      openTrustedUrl(action.value);
       return;
     }
     void sendTurn(action.value, action.value.startsWith('/') ? {} : { display: action.label });
   }, [sendTurn]);
+
+  // A control on a coach's private reply answers in the private lane: a
+  // suggestion from what only the coach and the agent read never lands in
+  // the room (carnet#1249).
+  const handlePrivateActionClick = useCallback((action: ChatMessageAction) => {
+    if (action.action_type === 'url') {
+      openTrustedUrl(action.value);
+      return;
+    }
+    void sendPrivateTurn(action.value, action.value.startsWith('/') ? {} : { display: action.label });
+  }, [sendPrivateTurn]);
+
+  // A follow-up on a private reply's claim is drafted for the private lane.
+  const { setAudience } = lane;
+  const handlePrivateAskAboutClaim = useCallback((verdict: ClaimVerdict) => {
+    setAudience('private');
+    seedDraft(t('app.backUpClaim', { claim: verdict.claim_text }));
+  }, [setAudience, seedDraft, t]);
+
+  // What the transcript and the composer need of the coach's private lane,
+  // when this room has one; nothing in every other thread.
+  const transcriptLane = useMemo<TranscriptPrivateLane | null>(
+    () =>
+      lane.available
+        ? {
+            conversationId: lane.conversationId,
+            canAdjustFrom: lane.canAdjustFrom,
+            onAdjustFrom: lane.adjustFrom,
+            onActionClick: handlePrivateActionClick,
+            onAskAboutClaim: handlePrivateAskAboutClaim,
+          }
+        : null,
+    [
+      lane.available,
+      lane.conversationId,
+      lane.canAdjustFrom,
+      lane.adjustFrom,
+      handlePrivateActionClick,
+      handlePrivateAskAboutClaim,
+    ],
+  );
+  const composerLane: ComposerPrivateLane | null =
+    lane.available && lane.athlete
+      ? {
+          audience: lane.audience,
+          agentName,
+          athleteName: lane.athlete.display_name.trim() || t('app.unknownMember'),
+          onToggle: lane.toggleAudience,
+          quote: lane.quote,
+          onRemoveQuote: lane.removeQuote,
+        }
+      : null;
 
   const handleShareMessage = useCallback((content: string) => {
     // Use native Web Share API if available, otherwise copy to clipboard
@@ -192,6 +257,8 @@ export default function ChatThread({
             hasEarlier={thread.history.hasEarlier}
             loadingEarlier={thread.history.earlierLoading}
             onReachStart={thread.reachStart}
+            privateLane={transcriptLane}
+            liveAudience={thread.liveAudience}
           />
         </div>
       </div>
@@ -206,6 +273,7 @@ export default function ChatThread({
         disabled={thread.usageStatus.sendDisabled}
         conversationId={thread.conversationId}
         focusOnMount={focusComposerOnOpen}
+        privateLane={composerLane}
       />
 
       {verdictMessageId ? (

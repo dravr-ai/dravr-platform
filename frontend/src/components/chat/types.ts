@@ -8,9 +8,11 @@ import type {
   Conversation,
   Agent,
   MessageActions,
+  MessageAudience,
   MessageOrigin,
   MessageRole,
   RoomAttribution,
+  RoomQuote,
 } from '@pierre/shared-types';
 
 export interface Message {
@@ -42,6 +44,17 @@ export interface Message {
    * sharing consent withholds. Absent on the caller's own rows.
    */
   room?: RoomAttribution;
+  /**
+   * The athlete's room words a coach's private question quotes — "Adjust plan
+   * from this" (carnet#1249). Absent on every other row.
+   */
+  quote?: RoomQuote;
+  /**
+   * `private` on a row of the coach's own thread about the room's one
+   * athlete, drawn inline in the room for the coach alone (carnet#1249).
+   * Absent reads as the room's; read it through `audienceOf`.
+   */
+  audience?: MessageAudience;
 }
 
 export interface ConversationListResponse {

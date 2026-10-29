@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GroupTranscriptEntry, Message } from '@pierre/shared-types';
-import { composeRoomThread, correctionAuthorLabel } from '../src/room-thread';
+import { composeRoomThread, correctionAuthorLabel, roomEntryIdOf, runAuthorOf } from '../src/room-thread';
 import { isSameMessageGroup } from '../src/message-time';
 
 const ALICE = 'user-alice';
@@ -114,6 +114,116 @@ describe('composeRoomThread', () => {
     const thread = composeRoomThread([...OWN, optimistic], room);
 
     expect(thread.map((row) => row.id)).toEqual(['msg-1', 'msg-2', 'room-t-3', 'user-1757844000000']);
+  });
+});
+
+describe("a coach's private lane in a one-athlete room (carnet#1249)", () => {
+  const COACH = 'user-coach';
+  // The coach's own room conversation: one line everyone reads.
+  const coachOwn: Message[] = [
+    { id: 'room-msg-1', role: 'user', content: "Agreed. I'll rework the week tonight.", created_at: '2026-10-28T07:30:00Z' },
+  ];
+  // The athlete's words and the agent's reply to them, as the room holds them.
+  const athleteRoom: GroupTranscriptEntry[] = [
+    entry({ id: 't-1', created_at: '2026-10-28T07:12:00Z', author_user_id: ALICE, author_display_name: 'Alice', content: 'Legs felt heavy.', message_id: 'alice-msg-1' }),
+    entry({ id: 't-2', created_at: '2026-10-28T07:13:00Z', speaker: 'coach', author_user_id: ALICE, author_display_name: 'Alice', content: "I'd keep Thursday easy.", message_id: 'alice-msg-2' }),
+  ];
+  // The coach's thread about Alice, which nobody else reads.
+  const work: Message[] = [
+    { id: 'work-1', role: 'user', content: "Move Thursday's threshold run to Saturday.", created_at: '2026-10-28T20:40:00Z' },
+    { id: 'work-2', role: 'assistant', content: 'Done. Two days change.', created_at: '2026-10-28T20:41:00Z', scene_blocks: '[]' },
+  ];
+
+  it('draws the private rows inline in time order, each tagged private and otherwise as its thread holds it', () => {
+    const early: Message = { id: 'work-0', role: 'user', content: 'Plan for the week?', created_at: '2026-10-28T07:20:00Z' };
+
+    const thread = composeRoomThread(coachOwn, athleteRoom, [early, ...work]);
+
+    expect(thread.map((row) => row.id)).toEqual(['room-t-1', 'room-t-2', 'work-0', 'room-msg-1', 'work-1', 'work-2']);
+    expect(thread.map((row) => ('audience' in row ? row.audience : undefined))).toEqual([
+      undefined,
+      undefined,
+      'private',
+      undefined,
+      'private',
+      'private',
+    ]);
+    // The private reply keeps what its card hangs off; the coach's room row is untouched.
+    expect(thread[5]).toEqual({ ...work[1], audience: 'private' });
+    expect(thread[3]).toBe(coachOwn[0]);
+  });
+
+  it("never drops a private row to the room's de-duplication, and never draws one twice", () => {
+    const room: GroupTranscriptEntry[] = [
+      ...athleteRoom,
+      // An entry that names a private row: left to it, as an entry naming an own row is.
+      entry({ id: 't-3', created_at: '2026-10-28T20:40:00.200Z', own: true, author_user_id: COACH, content: "Move Thursday's threshold run to Saturday.", message_id: 'work-1' }),
+      // The coach's own room line, fanned out: left to the conversation's row.
+      entry({ id: 't-4', created_at: '2026-10-28T07:30:00.100Z', own: true, author_user_id: COACH, content: "Agreed. I'll rework the week tonight.", message_id: 'room-msg-1' }),
+    ];
+
+    const thread = composeRoomThread(coachOwn, room, work);
+
+    expect(thread.map((row) => row.id)).toEqual(['room-t-1', 'room-t-2', 'room-msg-1', 'work-1', 'work-2']);
+  });
+
+  it("draws a row the caller's own conversation also holds once, as that conversation's row", () => {
+    const thread = composeRoomThread([...coachOwn, work[0]], athleteRoom, work);
+
+    expect(thread.filter((row) => row.id === 'work-1')).toEqual([work[0]]);
+    expect(thread.map((row) => row.id)).toEqual(['room-t-1', 'room-t-2', 'room-msg-1', 'work-1', 'work-2']);
+  });
+
+  it("orders rows that share an instant: the caller's own, then the private one, then the room's", () => {
+    const at = '2026-10-28T09:00:00Z';
+    const thread = composeRoomThread(
+      [{ id: 'own-1', role: 'user', content: 'room line', created_at: at } as Message],
+      [entry({ id: 't-9', created_at: at })],
+      [{ id: 'work-9', role: 'user', content: 'private line', created_at: at } as Message],
+    );
+
+    expect(thread.map((row) => row.id)).toEqual(['own-1', 'work-9', 'room-t-9']);
+  });
+
+  it('keeps the private row the client stamped itself after the room it was typed beside', () => {
+    const pending: Message = { id: 'private-pending-1', role: 'user', content: 'Ease Sunday off', created_at: '2026-10-28T21:00:00Z' };
+
+    const thread = composeRoomThread(coachOwn, athleteRoom, [...work, pending]);
+
+    expect(thread[thread.length - 1]).toEqual({ ...pending, audience: 'private' });
+  });
+
+  it('runs private rows apart from the rows the room reads, and together with each other', () => {
+    const at = (minute: number) => new Date(2026, 9, 28, 20, minute).toISOString();
+    const own = { role: 'user', created_at: at(0) };
+    const ownPrivate = { role: 'user', created_at: at(1), audience: 'private' as const };
+    expect(isSameMessageGroup(own, ownPrivate)).toBe(false);
+    expect(isSameMessageGroup(ownPrivate, own)).toBe(false);
+    expect(isSameMessageGroup(ownPrivate, { ...ownPrivate, created_at: at(2) })).toBe(true);
+
+    // The agent's private reply never runs on from its reply in the room.
+    const roomReply = {
+      role: 'assistant',
+      created_at: at(0),
+      room: { speaker: 'coach' as const, author_user_id: ALICE, author_name: 'Alice', own: false, withheld: false },
+    };
+    const privateReply = { role: 'assistant', created_at: at(1), audience: 'private' as const };
+    expect(isSameMessageGroup(roomReply, privateReply)).toBe(false);
+    expect(runAuthorOf(privateReply)).not.toBe(runAuthorOf({ role: 'assistant' }));
+    // A row tagged for the room is the row it always was.
+    expect(runAuthorOf({ role: 'user', audience: 'room' })).toBe(runAuthorOf({ role: 'user' }));
+  });
+});
+
+describe('roomEntryIdOf', () => {
+  it('names the transcript entry a room row shows', () => {
+    const [row] = composeRoomThread([], [entry({ id: '8f0c6a2e-entry', created_at: '2026-10-28T07:12:00Z' })]);
+    expect(roomEntryIdOf(row)).toBe('8f0c6a2e-entry');
+  });
+
+  it("is null for a row of the caller's own conversation, whatever its id says", () => {
+    expect(roomEntryIdOf(OWN[0])).toBeNull();
+    expect(roomEntryIdOf({ id: 'room-msg-1' })).toBeNull();
   });
 });
 

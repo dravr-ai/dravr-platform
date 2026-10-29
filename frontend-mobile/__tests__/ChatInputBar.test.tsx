@@ -8,7 +8,15 @@ import React, { useState } from 'react';
 import { TouchableOpacity } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ChatInputBar, composerBottomPadding } from '../src/screens/chat/ChatInputBar';
+import { i18n } from '@pierre/i18n';
+import { privateLaneComposerText } from '@pierre/chat-utils';
+import type { MessageAudience } from '@pierre/shared-types';
+import {
+  ChatInputBar,
+  composerBottomPadding,
+  type ComposerAudience,
+  type ComposerQuote,
+} from '../src/screens/chat/ChatInputBar';
 
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ conversationId: 'conv-1' }),
@@ -27,10 +35,19 @@ interface ComposerProps {
   voiceAvailable?: boolean;
   isSending?: boolean;
   isStopping?: boolean;
+  audience?: ComposerAudience;
+  quote?: ComposerQuote | null;
 }
 
 /** The composer with real value state, so the send flip follows the draft. */
-function Composer({ initial = '', voiceAvailable = false, isSending = false, isStopping = false }: ComposerProps) {
+function Composer({
+  initial = '',
+  voiceAvailable = false,
+  isSending = false,
+  isStopping = false,
+  audience,
+  quote,
+}: ComposerProps) {
   const [inputText, setInputText] = useState(initial);
   const inputRef = React.useRef(null);
   return (
@@ -46,8 +63,31 @@ function Composer({ initial = '', voiceAvailable = false, isSending = false, isS
       onVoicePress={onVoicePress}
       onSendMessage={onSendMessage}
       onStopTurn={onStopTurn}
+      audience={audience}
+      quote={quote}
     />
   );
+}
+
+const onToggleAudience = jest.fn();
+
+/** The switch of a coach's one-athlete room, worded as the catalogue words it. */
+function audienceFor(value: MessageAudience): ComposerAudience {
+  return {
+    value,
+    text: privateLaneComposerText(value, { agent: 'Dravr', athlete: 'Camille' }, i18n.t),
+    onToggle: onToggleAudience,
+  };
+}
+
+/**
+ * WCAG 2.5.3 Label in Name: the switch's spoken name starts with the words it
+ * shows, then says what a press does. The name carries the state, so the
+ * switch announces no selected state on top of it.
+ */
+function expectNamedByItsLabel(toggle: ReturnType<typeof screen.getByTestId>, label: string) {
+  expect(String(toggle.props.accessibilityLabel).startsWith(`${label}.`)).toBe(true);
+  expect(toggle.props.accessibilityState?.selected).toBeUndefined();
 }
 
 function renderComposer(props: ComposerProps = {}) {
@@ -163,6 +203,77 @@ describe('ChatInputBar', () => {
 
     renderComposer({ voiceAvailable: true });
     expect(screen.getByTestId('voice-input-button')).toBeTruthy();
+  });
+});
+
+// carnet#1249: a coach in a room of one athlete chooses who the next line reaches.
+describe('ChatInputBar audience switch', () => {
+  beforeEach(() => {
+    onToggleAudience.mockReset();
+  });
+
+  it('has no switch in a thread without a private lane', () => {
+    renderComposer();
+    expect(screen.queryByTestId('composer-audience-row')).toBeNull();
+    expect(screen.queryByTestId('composer-audience-switch')).toBeNull();
+    expect(screen.getByTestId('message-input').props.placeholder).toBe('Message Dravr...');
+  });
+
+  it('reads Everyone, with the room placeholder and a plain field, while the next line reaches the room', () => {
+    renderComposer({ audience: audienceFor('room') });
+
+    const toggle = screen.getByTestId('composer-audience-switch');
+    expect(toggle).toHaveTextContent(/Everyone/);
+    expect(toggle.props.accessibilityRole).toBe('button');
+    expectNamedByItsLabel(toggle, 'Everyone');
+    expect(toggle.props.accessibilityLabel).toBe('Everyone. Switch to only Dravr');
+    // A 44-point target, whatever the chip inside it measures.
+    expect(toggle.props.className).toContain('min-h-11');
+    expect(screen.getByTestId('message-input').props.placeholder).toBe(
+      'Message Camille and Dravr. Type / for commands',
+    );
+    const field = screen.getByTestId('message-field');
+    expect(field.props.className).toContain('bg-surface-container');
+    expect(field.props.className).not.toContain('border-dashed');
+  });
+
+  it('reads Only Dravr and dashes the field in the private accent while the next line is private', () => {
+    renderComposer({ audience: audienceFor('private') });
+
+    const toggle = screen.getByTestId('composer-audience-switch');
+    expect(toggle).toHaveTextContent(/Only Dravr/);
+    expectNamedByItsLabel(toggle, 'Only Dravr');
+    expect(toggle.props.accessibilityLabel).toBe('Only Dravr. Switch to everyone');
+    expect(screen.getByTestId('composer-audience-chip').props.className).toContain('bg-warning/15');
+    expect(screen.getByTestId('message-input').props.placeholder).toBe(
+      "Ask Dravr to change Camille's plan. Camille won't see this.",
+    );
+    const field = screen.getByTestId('message-field');
+    expect(field.props.className).toContain('border-dashed');
+    expect(field.props.className).toContain('border-warning/60');
+    expect(field.props.className).not.toContain('bg-surface-container');
+  });
+
+  it('flips on a press', () => {
+    renderComposer({ audience: audienceFor('room') });
+    fireEvent.press(screen.getByTestId('composer-audience-switch'));
+    expect(onToggleAudience).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the quote as a chip with a 44-point remove control', () => {
+    const onRemove = jest.fn();
+    renderComposer({
+      audience: audienceFor('private'),
+      quote: { label: "From Camille's message", removeLabel: 'Remove quote', onRemove },
+    });
+
+    expect(screen.getByTestId('composer-quote-chip')).toHaveTextContent(/From Camille's message/);
+    const remove = screen.getByTestId('composer-quote-remove');
+    expect(remove.props.accessibilityRole).toBe('button');
+    expect(remove.props.accessibilityLabel).toBe('Remove quote');
+    expect(remove.props.className).toContain('w-11 h-11');
+    fireEvent.press(remove);
+    expect(onRemove).toHaveBeenCalledTimes(1);
   });
 });
 

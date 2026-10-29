@@ -201,6 +201,7 @@ impl PlatformPost for PipelinePlatformPost {
             turn_id: ConversationTurnId::new(),
             // A post lands in the athlete's own conversation, never a room.
             ambient_context: None,
+            quote: None,
             channel_type: &channel_slug,
             // The platform answers on its own initiative, into the athlete's
             // own surface.

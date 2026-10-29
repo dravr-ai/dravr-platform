@@ -599,6 +599,27 @@ pub trait CoachingGroupRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<RoomTranscriptEntry>>;
 
+    /// Read one entry of the room as the viewer reads it, by id, written
+    /// under one of `tenants`.
+    ///
+    /// The same consent rule and the same shape as one row of
+    /// [`Self::list_room_transcript_for`]: an entry the viewer may not read
+    /// comes back as
+    /// [`RoomEntryBody::Withheld`](pierre_core::models::groups::RoomEntryBody::Withheld).
+    /// `None` when `group_id` holds no entry `entry_id` under one of
+    /// `tenants`, an entry of another group included. An entry carries the
+    /// tenant of the conversation or chat session that wrote it, and
+    /// membership is cross-tenant, so the caller names the tenants it
+    /// expects; callers gate access by verifying the viewer's standing in the
+    /// group first.
+    async fn get_room_transcript_entry_for(
+        &self,
+        group_id: &str,
+        viewer_user_id: Uuid,
+        entry_id: Uuid,
+        tenants: [TenantId; 2],
+    ) -> AppResult<Option<RoomTranscriptEntry>>;
+
     // -- Weekly digest deliveries --
 
     /// Take one group's weekly digest for one week, if nobody has.

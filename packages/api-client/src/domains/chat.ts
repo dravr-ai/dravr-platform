@@ -20,6 +20,7 @@ import type {
   MessageOrigin,
   PublishSubjectPlanRequest,
   PublishSubjectPlanResult,
+  SendMessageRequest,
   StartersResponse,
   SubjectPlanResponse,
   TurnEnvelope,
@@ -158,6 +159,23 @@ export interface SendTurnOptions extends TurnCallbacks {
    * their data, or typed (the default, and what an absent value means).
    */
   origin?: MessageOrigin;
+  /**
+   * The id of the group room entry the message quotes (`quote_entry_id`) — a
+   * coach's "Adjust plan from this" on their athlete's room message, sent to
+   * the coach's own thread about that athlete (carnet#1249). The server reads
+   * the words from the room; a quote it will not carry refuses the whole
+   * send with a `details.reason` (`RoomQuoteRefusalReason`).
+   */
+  quoteEntryId?: string;
+}
+
+/** The body one turn is posted with: the message, and only the options it carries. */
+function sendMessageBody(content: string, options?: SendTurnOptions): SendMessageRequest {
+  return {
+    content,
+    ...(options?.origin ? { origin: options.origin } : {}),
+    ...(options?.quoteEntryId ? { quote_entry_id: options.quoteEntryId } : {}),
+  };
 }
 
 /**
@@ -572,9 +590,7 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
           {
             method: 'POST',
             headers: await turnHeaders(adapter),
-            body: JSON.stringify(
-              options?.origin ? { content, origin: options.origin } : { content },
-            ),
+            body: JSON.stringify(sendMessageBody(content, options)),
             credentials: adapter.turnCredentials,
             signal: options?.signal,
           },

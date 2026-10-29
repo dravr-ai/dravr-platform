@@ -142,6 +142,18 @@ export {
   createCoachPlanHooks,
   openThreadRefusalText,
 } from './coachPlanHooks';
+// A coach's private lane in a one-athlete room: the Everyone / Only <agent> switch, the work
+// thread's rows drawn in the room, "Adjust plan from this" and the private send (carnet#1249).
+export {
+  type AudienceStore,
+  type PrivateLaneApis,
+  type PrivateSendOptions,
+  type PrivateSendOutcome,
+  type UsePrivateLaneInput,
+  type UsePrivateLaneResult,
+  createPrivateLaneHooks,
+  privateSendFailureText,
+} from './privateLaneHooks';
 export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';

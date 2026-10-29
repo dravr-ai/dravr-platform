@@ -7,11 +7,10 @@
 use std::sync::Arc;
 
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_GROUP_REPLY_CORRECTED};
-use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{CoachReply, CoachingGroup, TenantId};
 use pierre_database::RepositoryRegistry;
-use pierre_routes_groups::GroupChatPoster;
 use pierre_services::coach_replies::CorrectionOutcome;
+use pierre_services::group_chat_poster::{proactive_chat, GroupChatPoster};
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
 use tracing::{info, warn};
@@ -214,18 +213,10 @@ async fn post_into_group_chat(
     names: ChatNames<'_>,
     outcome: &CorrectionOutcome,
 ) -> bool {
-    let (Some(channel), Some(chat_id)) = (
-        group.channel_type.as_deref(),
-        group.channel_chat_id.as_deref(),
-    ) else {
+    let Some(channel) = group.channel_type.as_deref() else {
         return false;
     };
-    let Some(channel_type) = channel.parse::<ChannelType>().ok().filter(|c| {
-        matches!(
-            c,
-            ChannelType::Telegram | ChannelType::Slack | ChannelType::Discord
-        )
-    }) else {
+    let Some((channel_type, chat_id)) = proactive_chat(group) else {
         info!(group_id = %group.id, channel = %channel, "correction: the group's chat takes no post the platform starts; it is in the group thread only");
         return false;
     };
@@ -248,6 +239,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::Utc;
     use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode};
+    use pierre_core::models::messaging::ChannelType;
     use pierre_core::models::{CoachReplyCorrection, Tenant};
     use pierre_core::transport::TransportPolicy;
     use pierre_database::backends::CreateSessionParams;

@@ -1,9 +1,17 @@
 // ABOUTME: The clock and the day a message row shows — one rule for web and mobile, in the reader's locale
 // ABOUTME: A 24-hour time inside the bubble, a day pill between days, and the grouping window for consecutive rows
 
-import type { RoomAttribution } from '@pierre/shared-types';
+import type { MessageAudience, RoomAttribution } from '@pierre/shared-types';
 import { clock24, dayDiff } from './date-buckets';
 import { runAuthorOf } from './room-thread';
+
+/** What deciding whether two rows run together reads off each. */
+interface GroupableRow {
+  role: string;
+  created_at?: string | null;
+  room?: RoomAttribution | null;
+  audience?: MessageAudience | null;
+}
 
 /** Rows from the same author closer than this are drawn as one group. */
 export const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -60,11 +68,12 @@ export function dayLabelFor(iso: string, locale: string, now: Date = new Date())
  * on the same day, within {@link MESSAGE_GROUP_WINDOW_MS} of each other.
  *
  * In a group thread the author of a room row is the member it belongs to, not
- * its role, so two members' consecutive lines each keep their own author line.
+ * its role, so two members' consecutive lines each keep their own author line,
+ * and a coach's private row never groups with a row the room reads.
  */
 export function isSameMessageGroup(
-  previous: { role: string; created_at?: string | null; room?: RoomAttribution | null },
-  next: { role: string; created_at?: string | null; room?: RoomAttribution | null },
+  previous: GroupableRow,
+  next: GroupableRow,
 ): boolean {
   if (runAuthorOf(previous) !== runAuthorOf(next)) return false;
   if (!previous.created_at || !next.created_at) return false;

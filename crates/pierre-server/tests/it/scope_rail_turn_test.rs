@@ -225,6 +225,7 @@ async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
         content: text.to_owned(),
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
+        quote: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,

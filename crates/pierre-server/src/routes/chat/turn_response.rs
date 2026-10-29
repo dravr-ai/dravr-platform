@@ -255,10 +255,14 @@ impl TurnResponse {
     }
 }
 
-/// Serialize a persisted message row without its stored scenes or controls.
+/// Serialize a persisted message row without its stored scenes, controls or
+/// room quote.
 ///
 /// The turn's charts and buttons ride the block list; repeating them here
-/// would draw every one twice on a client that renders both.
+/// would draw every one twice on a client that renders both. A quote shows
+/// only where the thread's coaching gates were asked for the request
+/// ([`QuoteReading`](super::room_quote::QuoteReading)), which this cannot
+/// know (carnet#1249).
 pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
     MessageResponse {
         id: record.id,
@@ -269,6 +273,7 @@ pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
         finish_reason: record.finish_reason,
         actions: None,
         channel_type: record.channel_type,
+        quote: None,
         created_at: record.created_at,
     }
 }

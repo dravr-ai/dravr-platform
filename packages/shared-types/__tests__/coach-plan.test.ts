@@ -146,6 +146,26 @@ describe('parsePublishedSubjectPlan', () => {
   it('refuses a body without its notice flag', () => {
     expect(parsePublishedSubjectPlan({ plan_id: 'plan-1', superseded_plan_id: null })).toBeNull();
   });
+
+  // The publish says whether the room was told which days changed (carnet#1249).
+  it('reads whether the publish was said in the room, either way', () => {
+    const published = { plan_id: 'plan-2', superseded_plan_id: 'plan-1', athlete_notified: true };
+    expect(parsePublishedSubjectPlan({ ...published, posted_in_room: true })).toEqual({
+      ...published,
+      posted_in_room: true,
+    });
+    // A room that is not the coach's and the athlete's alone hears nothing.
+    expect(parsePublishedSubjectPlan({ ...published, posted_in_room: false })?.posted_in_room).toBe(false);
+  });
+
+  it('invents no room line for a body that names none, and refuses one that is not a flag', () => {
+    const published = parsePublishedSubjectPlan({ plan_id: 'plan-2', superseded_plan_id: null, athlete_notified: true });
+    expect(published).not.toBeNull();
+    expect(published !== null && 'posted_in_room' in published).toBe(false);
+    expect(
+      parsePublishedSubjectPlan({ plan_id: 'plan-2', superseded_plan_id: null, athlete_notified: true, posted_in_room: 'yes' }),
+    ).toBeNull();
+  });
 });
 
 describe('parsePlanPublishConflict', () => {

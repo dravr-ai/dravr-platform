@@ -2,6 +2,7 @@
 // ABOUTME: Chat types, prompt suggestions, and common response patterns
 
 import type { CorrectedReply, TranscriptSpeaker } from './groups.js';
+import type { RoomQuote } from './room-quote.js';
 import type { ChatMessageAction } from './turn.js';
 
 // ========== CHAT TYPES ==========
@@ -184,7 +185,27 @@ export interface Message {
    * row of the caller's own conversation.
    */
   room?: RoomAttribution;
+  /**
+   * The athlete's room words a coach's question quotes (carnet#1249), as the
+   * server copied them from the room when the question was sent. Absent on
+   * every other row.
+   */
+  quote?: RoomQuote;
+  /**
+   * Who sees the row in a coach's group room (carnet#1249): `private` on a
+   * row of the coach's own thread about the room's one athlete, which
+   * `composeRoomThread` draws inline and only the coach and the agent read.
+   * Absent reads as `room`; read it through `audienceOf` in
+   * `@pierre/chat-utils`.
+   */
+  audience?: MessageAudience;
 }
+
+/**
+ * Who sees a row of a coach's group room: everyone in the room, or the coach
+ * and the agent alone (the coach's thread about the room's one athlete).
+ */
+export type MessageAudience = 'room' | 'private';
 
 /**
  * Who a room row in a group thread belongs to.

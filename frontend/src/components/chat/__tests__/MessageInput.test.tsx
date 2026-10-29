@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the composer's visible "/" affordance — the discoverable path to the command palette
-// ABOUTME: Pins that pressing it types "/" so the same palette a typed slash opens comes up, that the field carries a name, and that it grows with the draft
+// ABOUTME: Tests for the composer's visible "/" affordance, its growth with the draft, and a coach's Everyone / Only <agent> switch
+// ABOUTME: Pins that pressing "/" opens the palette, that the field carries a name, and how the switch and the quote chip read (carnet#1249)
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useState } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CommandEntry } from '@pierre/shared-types';
+import type { CommandEntry, MessageAudience, RoomQuote } from '@pierre/shared-types';
 import MessageInput from '../MessageInput';
 
 const listCommands = vi.fn();
@@ -209,5 +209,137 @@ describe('MessageInput auto-grow', () => {
     expect(composer.style.height).toBe('85px');
     await user.clear(composer);
     expect(composer.style.height).toBe('39px');
+  });
+});
+
+/** The athlete's room message "Adjust plan from this" quoted. */
+const QUOTE: RoomQuote = {
+  entry_id: 'entry-camille-1',
+  author_user_id: 'user-camille',
+  author_display_name: 'Camille',
+  content: "Legs felt heavy in this morning's swim. Is Thursday's threshold run still a good idea?",
+  created_at: '2026-10-29T07:12:00Z',
+};
+
+/** A coach's composer in a one-athlete room: the switch and the quote held as the room screen holds them. */
+function LaneComposer({ initial = 'room', quote = null }: { initial?: MessageAudience; quote?: RoomQuote | null }) {
+  const [value, setValue] = useState('');
+  const [audience, setAudience] = useState<MessageAudience>(initial);
+  const [held, setHeld] = useState<RoomQuote | null>(quote);
+  return (
+    <MessageInput
+      value={value}
+      onChange={setValue}
+      onSend={vi.fn()}
+      isStreaming={false}
+      onStop={onStop}
+      conversationId="conv-1"
+      focusOnMount={false}
+      privateLane={{
+        audience,
+        agentName: 'Dravr',
+        athleteName: 'Camille',
+        onToggle: () => setAudience((current) => (current === 'private' ? 'room' : 'private')),
+        quote: held,
+        onRemoveQuote: () => setHeld(null),
+      }}
+    />
+  );
+}
+
+/**
+ * WCAG 2.5.3 Label in Name: the switch's accessible name starts with the
+ * words it shows, then says what a press does. The name carries the state, so
+ * the switch announces no pressed state on top of it.
+ */
+function expectNamedByItsLabel(toggle: HTMLElement, label: string) {
+  expect(toggle.textContent?.trim()).toBe(label);
+  expect(toggle.getAttribute('aria-label')?.startsWith(`${label}.`)).toBe(true);
+  expect(toggle).not.toHaveAttribute('aria-pressed');
+}
+
+function renderLaneComposer(props: { initial?: MessageAudience; quote?: RoomQuote | null } = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <LaneComposer {...props} />
+    </QueryClientProvider>,
+  );
+}
+
+// carnet#1249: in a room of one coach and one athlete, the coach can turn the
+// composer to the agent alone. A private message sent to the room by mistake
+// is the costlier error, so the switch is explicit and the field says so.
+describe('MessageInput Everyone / Only <agent> switch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listCommands.mockResolvedValue(CATALOGUE);
+  });
+
+  it('carries no switch outside a coach\'s one-athlete room', () => {
+    renderComposer();
+    expect(screen.queryByTestId('composer-audience-switch')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Message Dravr' })).toHaveAttribute('placeholder', 'Message Dravr...');
+  });
+
+  it('starts at Everyone: a real button named by its label, over the room placeholder', () => {
+    renderLaneComposer();
+
+    const toggle = screen.getByRole('button', { name: 'Everyone. Switch to only Dravr' });
+    expect(toggle.tagName).toBe('BUTTON');
+    expectNamedByItsLabel(toggle, 'Everyone');
+    const field = screen.getByRole('textbox', { name: 'Message Camille and Dravr. Type / for commands' });
+    expect(field).toHaveAttribute('placeholder', 'Message Camille and Dravr. Type / for commands');
+    expect(field).toHaveAttribute('data-audience', 'room');
+    expect(field).not.toHaveClass('border-dashed');
+    expect(screen.getByTestId('slash-command-button')).toBeInTheDocument();
+  });
+
+  it('turns to Only Dravr on a press: renamed, the field dashed in the private accent, the private placeholder', async () => {
+    const user = userEvent.setup();
+    renderLaneComposer();
+
+    await user.click(screen.getByTestId('composer-audience-switch'));
+
+    const toggle = screen.getByRole('button', { name: 'Only Dravr. Switch to everyone' });
+    expectNamedByItsLabel(toggle, 'Only Dravr');
+    const field = screen.getByRole('textbox', { name: "Ask Dravr to change Camille's plan. Camille won't see this." });
+    expect(field).toHaveAttribute('data-audience', 'private');
+    expect(field).toHaveClass('border-dashed', 'border-warning/60');
+    // The private placeholder offers no commands, so the slash steps aside.
+    expect(screen.queryByTestId('slash-command-button')).toBeNull();
+
+    await user.click(toggle);
+    expect(screen.getByTestId('composer-audience-switch')).toHaveAccessibleName('Everyone. Switch to only Dravr');
+    expect(screen.getByTestId('slash-command-button')).toBeInTheDocument();
+  });
+
+  it('is reached and pressed from the keyboard', async () => {
+    const user = userEvent.setup();
+    renderLaneComposer();
+
+    await user.tab();
+    expect(screen.getByTestId('composer-audience-switch')).toHaveFocus();
+    await user.keyboard(' ');
+    expect(screen.getByTestId('composer-audience-switch')).toHaveAccessibleName('Only Dravr. Switch to everyone');
+    await user.keyboard('{Enter}');
+    expect(screen.getByTestId('composer-audience-switch')).toHaveAccessibleName('Everyone. Switch to only Dravr');
+  });
+
+  it("shows the quoted message as a chip naming the athlete, hands the caret to the field, and lets the quote go", async () => {
+    const user = userEvent.setup();
+    renderLaneComposer({ initial: 'private', quote: QUOTE });
+
+    const chip = screen.getByTestId('composer-quote');
+    expect(chip).toHaveTextContent("From Camille's message");
+    expect(chip).toHaveTextContent("Legs felt heavy in this morning's swim.");
+    // "Adjust plan from this" ends with the coach typing.
+    expect(screen.getByRole('textbox', { name: /Ask Dravr to change/ })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Remove quote' }));
+
+    expect(screen.queryByTestId('composer-quote')).toBeNull();
+    // Taking the quote off leaves the audience where it was.
+    expect(screen.getByTestId('composer-audience-switch')).toHaveAccessibleName('Only Dravr. Switch to everyone');
   });
 });

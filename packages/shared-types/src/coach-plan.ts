@@ -73,6 +73,14 @@ export interface PublishedSubjectPlan {
   superseded_plan_id: string | null;
   /** Whether the athlete was sent the published notice. */
   athlete_notified: boolean;
+  /**
+   * Whether a line naming the days the publish changed was posted in the
+   * group room the thread acts under (carnet#1249): `false` when the publish
+   * changed no day, or the room is not the coach's and the athlete's alone.
+   * Optional because a fixture or a cached answer written before the room
+   * line carries none; the parser keeps it out rather than inventing one.
+   */
+  posted_in_room?: boolean;
 }
 
 /** The `error_code` of a publish refused because the athlete's plan moved under the draft. */
@@ -197,7 +205,8 @@ export function parsePublishedSubjectPlan(body: unknown): PublishedSubjectPlan |
     !isRecord(body) ||
     typeof body.plan_id !== 'string' ||
     !(body.superseded_plan_id === null || typeof body.superseded_plan_id === 'string') ||
-    typeof body.athlete_notified !== 'boolean'
+    typeof body.athlete_notified !== 'boolean' ||
+    !(body.posted_in_room === undefined || typeof body.posted_in_room === 'boolean')
   ) {
     return null;
   }
@@ -205,6 +214,7 @@ export function parsePublishedSubjectPlan(body: unknown): PublishedSubjectPlan |
     plan_id: body.plan_id,
     superseded_plan_id: body.superseded_plan_id,
     athlete_notified: body.athlete_notified,
+    ...(typeof body.posted_in_room === 'boolean' ? { posted_in_room: body.posted_in_room } : {}),
   };
 }
 

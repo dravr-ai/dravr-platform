@@ -310,6 +310,11 @@ pub struct PublishedCoachDraft {
     /// (`coach_plan_published`): `false` when the deployment has no
     /// notification service or the coach's account could not be read.
     pub athlete_notified: bool,
+    /// The athlete's live season as it stood just before the publish, or
+    /// `None` when they had none — what the room post compares the published
+    /// weeks with to name the days that changed (carnet#1249). Read for that
+    /// comparison only, never served.
+    pub previous: Option<PlanWithWeeks>,
 }
 
 /// What a publish came to.
@@ -364,6 +369,10 @@ pub async fn publish_coach_draft(
     if !preview.conflicts.is_empty() && !overwrite {
         return Ok(CoachDraftPublish::Conflict(DraftState::of(&preview)));
     }
+
+    // What the athlete's plan said before the publish, so the room can be
+    // told which days changed (carnet#1249).
+    let previous = season_before_publish(repos, target).await?;
 
     // A re-laid outline is the athlete's new goal: the plan row stores the
     // fact it links to, so the fact is written first, and the facts it
@@ -435,6 +444,7 @@ pub async fn publish_coach_draft(
             superseded_plan_id: published.superseded_plan_id,
             outline_published: published.outline_published,
             athlete_notified,
+            previous,
         },
     )))
 }
@@ -461,8 +471,27 @@ pub async fn discard_coach_draft(
     Ok(discarded)
 }
 
-/// The athlete's live season with its active weeks.
+/// The athlete's live season with its active weeks, refused to an external
+/// caller when it is first-party-only.
 async fn live_season(
+    repos: &RepositoryRegistry,
+    target: &CoachDraftTarget,
+) -> AppResult<Option<PlanWithWeeks>> {
+    let season = season_before_publish(repos, target).await?;
+    if let Some(season) = &season {
+        admit(&season.plan)?;
+    }
+    Ok(season)
+}
+
+/// The athlete's live season with its active weeks, whatever the caller's
+/// transport.
+///
+/// [`live_season`] serves it and so refuses a first-party-only season to an
+/// external caller. A publish reads it here too, before it replaces part of
+/// it: nothing read for that is served to the caller, and the room post
+/// built from it carries the season's stamp.
+async fn season_before_publish(
     repos: &RepositoryRegistry,
     target: &CoachDraftTarget,
 ) -> AppResult<Option<PlanWithWeeks>> {
@@ -473,7 +502,6 @@ async fn live_season(
     else {
         return Ok(None);
     };
-    admit(&plan)?;
     let weeks = repos
         .training_plans
         .list_plan_weeks(&target.tenant_id, &target.athlete_id, &plan.id, false)

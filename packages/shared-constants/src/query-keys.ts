@@ -164,6 +164,14 @@ export const QUERY_KEYS = {
     /** A coached athlete's live plan, read-only, as their coach reads it from Group info. */
     athletePlan: (athleteUserId: string | null, groupId: string | null) =>
       ['chat', 'athlete-plan', athleteUserId, groupId] as const,
+    /**
+     * Who a coach's next send in a one-athlete room reaches — everyone, or the
+     * agent alone — as this device remembers it for the viewer in that room
+     * (carnet#1249). The private rows themselves are the work thread's
+     * `messages`.
+     */
+    privateLaneAudience: (viewerId: string | null, groupId: string | null) =>
+      ['chat', 'private-lane-audience', viewerId, groupId] as const,
   },
 
   // ==================== COACHES ====================

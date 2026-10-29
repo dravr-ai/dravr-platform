@@ -298,6 +298,7 @@ fn turn(conversation_id: &str, user: Uuid, tenant: TenantId, is_direct_message: 
         content: "Où en est ma saison ?".to_owned(),
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
+        quote: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,

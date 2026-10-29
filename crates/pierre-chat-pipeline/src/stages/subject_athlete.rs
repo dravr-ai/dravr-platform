@@ -233,7 +233,9 @@ pub(crate) async fn resolve(
 ///
 /// The thread stays the coach's own record to read, but what the athlete
 /// shared is no longer the agent's input: no earlier tool result that read
-/// them, no earlier reply quoting them. Prompt assembly withholds the
+/// them, no earlier reply quoting them, no room words of theirs the coach
+/// quoted — not even on the new message, whose quote was checked before
+/// these gates ran again (carnet#1249). Prompt assembly withholds the
 /// thread's compaction summaries on the same refusal.
 pub(crate) async fn resolve_withholding_history(
     repos: &RepositoryRegistry,
@@ -245,6 +247,11 @@ pub(crate) async fn resolve_withholding_history(
     let turn = resolve(repos, conv, sender).await;
     if matches!(turn, Some(SubjectTurn::Refused(_))) {
         history.retain(|row| row.id == current);
+        // The kept row's rail holds its author marker and any quote. A prompt
+        // reads only the quote from it, and the refusal withholds that too.
+        for row in history.iter_mut() {
+            row.content_blocks = None;
+        }
     }
     turn
 }

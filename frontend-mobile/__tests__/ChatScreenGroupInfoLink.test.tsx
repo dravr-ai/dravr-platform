@@ -134,6 +134,12 @@ jest.mock('../src/screens/chat/useChatVoiceInput', () => ({
     handleVoicePress: jest.fn(),
   }),
 }));
+// The room's group as a member reads it: it names no solo athlete, so the
+// thread has no private lane. Read here, never from the network.
+jest.mock('../src/hooks/useGroups', () => ({
+  ...jest.requireActual('../src/hooks/useGroups'),
+  useGroup: () => ({ group: null, isLoading: false, isError: false, error: null, refetch: jest.fn() }),
+}));
 jest.mock('../src/screens/chat/useMarkConversationRead', () => ({
   useMarkConversationRead: () => {},
 }));

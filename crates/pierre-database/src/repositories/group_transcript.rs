@@ -129,3 +129,44 @@ pub(crate) const LIST_ROOM_TRANSCRIPT_SQL: &str = concat!(
               LEFT JOIN users cu ON cu.id = rv.coach_user_id
               ORDER BY r.created_at DESC, r.id DESC"
 );
+
+/// One entry of group `$1`, by id (`$3`), as viewer `$2` reads it: the same
+/// columns and the same nulling as a row of [`LIST_ROOM_TRANSCRIPT_SQL`], so
+/// an entry the viewer may not read never leaves the database with its words
+/// or its author. An id from another group matches nothing, and so does an
+/// entry written under a tenant other than `$4` or `$5`: membership is
+/// cross-tenant, so the caller names the tenants it expects the entry under,
+/// once it has verified the viewer's standing in the group.
+pub(crate) const GET_ROOM_TRANSCRIPT_ENTRY_SQL: &str = concat!(
+    r"SELECT r.id, r.speaker, r.created_at, r.visible, r.first_party_only,
+              CASE WHEN r.visible THEN r.author_user_id END AS author_user_id,
+              CASE WHEN r.visible THEN ",
+    person_name_column!(),
+    r" END AS author_display_name,
+              CASE WHEN r.visible THEN r.content END AS content,
+              CASE WHEN r.visible THEN r.source_conversation_id END AS source_conversation_id,
+              CASE WHEN r.visible THEN r.source_message_id END AS source_message_id,
+              CASE WHEN r.visible THEN r.corrects_entry_id END AS corrects_entry_id,
+              CASE WHEN r.visible THEN ce.source_message_id END AS corrects_message_id,
+              CASE WHEN r.visible THEN ce.content END AS corrects_content,
+              CASE WHEN r.visible THEN rv.coach_user_id END AS corrector_user_id,
+              CASE WHEN r.visible THEN ",
+    person_name_column!("cu"),
+    r" END AS corrector_display_name
+              FROM (
+                SELECT e.id, e.tenant_id, e.author_user_id, e.speaker, e.content,
+                       e.source_conversation_id, e.source_message_id, e.created_at,
+                       e.first_party_only, e.corrects_entry_id,
+                       ",
+    transcript_entry_visible!(),
+    r" AS visible
+                FROM group_transcript_entries e
+                JOIN coaching_groups g ON g.id = e.group_id
+                WHERE e.group_id = $1 AND e.id = $3 AND e.tenant_id IN ($4, $5)
+              ) r
+              LEFT JOIN users u ON u.id = r.author_user_id
+              LEFT JOIN group_transcript_entries ce ON ce.id = r.corrects_entry_id
+              LEFT JOIN coach_reply_reviews rv
+                ON rv.correction_entry_id = r.id AND rv.tenant_id = r.tenant_id
+              LEFT JOIN users cu ON cu.id = rv.coach_user_id"
+);

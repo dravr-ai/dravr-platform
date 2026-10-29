@@ -1121,6 +1121,7 @@ async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
         content: "Propose-moi une sortie de 1,5 km".to_owned(),
         turn_id,
         ambient_context: None,
+        quote: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,

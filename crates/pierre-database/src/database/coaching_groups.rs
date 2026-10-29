@@ -34,7 +34,8 @@ use crate::repositories::group_invite_sql::{
     LIST_SIGNUP_INVITES_SQL,
 };
 use crate::repositories::group_transcript::{
-    INSERT_TRANSCRIPT_ENTRY_SQL, LIST_ROOM_TRANSCRIPT_SQL, LIST_TRANSCRIPT_VISIBLE_TO_SQL,
+    GET_ROOM_TRANSCRIPT_ENTRY_SQL, INSERT_TRANSCRIPT_ENTRY_SQL, LIST_ROOM_TRANSCRIPT_SQL,
+    LIST_TRANSCRIPT_VISIBLE_TO_SQL,
 };
 use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::CoachingGroupRepository;

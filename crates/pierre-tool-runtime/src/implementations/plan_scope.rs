@@ -104,6 +104,10 @@ pub struct PlanScope {
     /// Roster display name of the athlete when the caller acts for someone
     /// else; `None` in self scope.
     pub acting_for: Option<String>,
+    /// The group whose coaching gates let the caller act for that athlete —
+    /// the room a publish of their plan is said in (carnet#1249); `None` in
+    /// self scope.
+    pub group_id: Option<Uuid>,
 }
 
 /// Who writes to the plan: the requester and the agent their turn answers as.
@@ -339,6 +343,7 @@ pub async fn resolve_plan_scope(
             user_id: request.context.user_id,
             writer,
             acting_for: None,
+            group_id: None,
         }));
     };
 
@@ -528,5 +533,6 @@ async fn acting_for(
         user_id: access.athlete_user_id,
         writer,
         acting_for: Some(access.display_name),
+        group_id: Some(access.group.id),
     }))
 }

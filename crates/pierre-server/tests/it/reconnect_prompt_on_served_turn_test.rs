@@ -133,6 +133,7 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         content: "Comment se passe ma semaine ?".to_owned(),
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
+        quote: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,

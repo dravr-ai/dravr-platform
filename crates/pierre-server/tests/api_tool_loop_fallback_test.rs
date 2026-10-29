@@ -818,6 +818,7 @@ async fn the_pipeline_opens_the_tool_session_for_a_copilot_tier_behind_an_api_he
             content: "suis-je connecté à Strava ?".to_owned(),
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
+            quote: None,
             channel_type: "web",
             transport: Transport::WebApp,
             is_direct_message: true,

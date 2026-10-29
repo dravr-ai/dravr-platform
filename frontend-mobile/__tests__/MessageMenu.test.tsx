@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests the message long-press menu — copy, share, rate, retry on the last agent turn, cancel
+// ABOUTME: Tests the message long-press menu — copy, share, rate, retry on the last agent turn, "Adjust plan from this", cancel
 // ABOUTME: Covers the platform menu on both OSes, the row each index runs, the held rating's mark, and the haptic on open
 
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
@@ -131,6 +131,28 @@ describe('the message menu', () => {
       presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
       expect(presentedSheet().labels).toHaveLength(5);
     });
+
+    // carnet#1249: the athlete's line in their coach's one-athlete room.
+    it('leads with "Adjust plan from this" on an athlete\'s room line, then copy, and runs each', () => {
+      const onAdjustPlan = jest.fn();
+      const onCopy = jest.fn();
+      presentMessageMenu({ fromModel: false, canRetry: false, rating: null, onCopy, onAdjustPlan }, i18n.t);
+
+      const sheet = presentedSheet();
+      expect(sheet.labels).toEqual(['Adjust plan from this', 'Copy', 'Cancel']);
+      expect(sheet.cancelButtonIndex).toBe(2);
+      sheet.pick(0);
+      expect(onAdjustPlan).toHaveBeenCalledTimes(1);
+      expect(onCopy).not.toHaveBeenCalled();
+      sheet.pick(1);
+      expect(onCopy).toHaveBeenCalledTimes(1);
+      expect(onAdjustPlan).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers copy alone on a row with nothing to rate, share or retry', () => {
+      presentMessageMenu({ fromModel: false, canRetry: false, rating: null, onCopy: jest.fn() }, i18n.t);
+      expect(presentedSheet().labels).toEqual(['Copy', 'Cancel']);
+    });
   });
 
   describe('on Android', () => {
@@ -177,6 +199,19 @@ describe('the message menu', () => {
     it('gives selection feedback as the dialog opens', () => {
       presentMessageMenu({ fromModel: true, canRetry: false, rating: null, ...callbacks() }, i18n.t);
       expect(Haptics.selectionAsync).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows "Adjust plan from this" as the dialog\'s first button', () => {
+      const onAdjustPlan = jest.fn();
+      presentMessageMenu(
+        { fromModel: false, canRetry: false, rating: null, onCopy: jest.fn(), onAdjustPlan },
+        i18n.t,
+      );
+
+      const dialog = presentedDialog();
+      expect(dialog.buttons.map((button) => button.text)).toEqual(['Adjust plan from this', 'Copy', 'Cancel']);
+      dialog.buttons[0].onPress?.();
+      expect(onAdjustPlan).toHaveBeenCalledTimes(1);
     });
   });
 });

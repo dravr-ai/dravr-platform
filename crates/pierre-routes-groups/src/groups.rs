@@ -365,7 +365,7 @@ impl GroupRoutes {
     ) -> Result<GroupResponse, AppError> {
         let repos = resources.repos();
         let locale = resolve_user_locale(repos.users.as_ref(), reader).await;
-        GroupResponse::for_reader(repos, group, &locale).await
+        GroupResponse::for_reader(repos, group, reader, &locale).await
     }
 
     /// Verify the caller is an admin or owner of the given group.

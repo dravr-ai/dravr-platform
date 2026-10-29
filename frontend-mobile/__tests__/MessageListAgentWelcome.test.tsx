@@ -63,11 +63,11 @@ describe('MessageList agent welcome', () => {
       expect(screen.getByRole('button', { name: q })).toBeTruthy();
     }
     fireEvent.press(screen.getByRole('button', { name: STARTERS[2] }));
-    expect(onActionClick).toHaveBeenCalledWith({
-      label: STARTERS[2],
-      action_type: 'postback',
-      value: STARTERS[2],
-    });
+    // A starter on a row the room reads answers in the room.
+    expect(onActionClick).toHaveBeenCalledWith(
+      { label: STARTERS[2], action_type: 'postback', value: STARTERS[2] },
+      'room',
+    );
   });
 
   it('long-pressing the welcome offers a menu with no rating, share or retry', () => {

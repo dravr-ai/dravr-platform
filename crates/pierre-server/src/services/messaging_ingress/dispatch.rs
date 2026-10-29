@@ -852,6 +852,8 @@ async fn serve_turn(
         // canot's log spans already key off this id.
         turn_id: dispatch.turn_id,
         ambient_context,
+        // LIMITATION(registre#1254): `TurnRequest::quote` stays `None` on a messaging turn: a channel room has no private coach turn, so "Only <agent>" is app-only.
+        quote: None,
         channel_type: &dispatch.channel,
         // A channel the athlete linked is one of Dravr's own surfaces.
         transport: Transport::Messaging,

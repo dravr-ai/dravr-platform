@@ -402,6 +402,7 @@ mod turn_service_quota_tests {
                 content: "Comment se présente ma semaine d'entraînement?".to_owned(),
                 turn_id: ConversationTurnId::new(),
                 ambient_context: None,
+                quote: None,
                 channel_type: "web",
                 transport: Transport::WebApp,
                 is_direct_message: true,

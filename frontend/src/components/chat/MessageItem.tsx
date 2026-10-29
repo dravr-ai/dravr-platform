@@ -7,7 +7,17 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ArrowRight, Copy, Share2, ThumbsUp, ThumbsDown, RefreshCw, Shield, ShieldAlert } from 'lucide-react';
+import {
+  ArrowRight,
+  ClipboardList,
+  Copy,
+  Share2,
+  ThumbsUp,
+  ThumbsDown,
+  RefreshCw,
+  Shield,
+  ShieldAlert,
+} from 'lucide-react';
 import type { ChatMessageAction, ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
 import {
   parseWorkoutPlan,
@@ -18,6 +28,7 @@ import {
 } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import {
+  audienceOf,
   copyableText,
   correctionAuthorLabel,
   countActivities,
@@ -25,6 +36,7 @@ import {
   isModelReply,
   parseSceneBlocks,
   planCardDraft,
+  PRIVATE_LANE_KEYS,
   splitVizMarkers,
   transcriptBlocks,
   withVerdictRows,
@@ -44,6 +56,7 @@ import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import PlanDraftControls from './PlanDraftControls';
 import MessageBubble from './MessageBubble';
+import { PrivateReplyTag } from './PrivateLane';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { feedbackReplyRoute } from '../feedback/feedbackRoute';
 import { useTranslation } from '@pierre/i18n';
@@ -108,6 +121,12 @@ interface MessageItemProps {
   onAskAboutClaim?: (verdict: ClaimVerdict) => void;
   /** Press handler for a control the reply's `actions` block carried. */
   onActionClick?: (action: ChatMessageAction) => void;
+  /**
+   * "Adjust plan from this" on the room's athlete's message, for their coach
+   * (carnet#1249): quotes it and turns the composer to the agent alone.
+   * Absent wherever the row cannot be quoted.
+   */
+  onAdjustPlan?: () => void;
 }
 
 /** Chip classes for the tone the shared rollup assigned the worst verdict. */
@@ -206,6 +225,7 @@ const MessageItem = memo(function MessageItem({
   onShowVerdict,
   onAskAboutClaim,
   onActionClick,
+  onAdjustPlan,
 }: MessageItemProps) {
   const { t, i18n } = useTranslation();
   // A row a group thread shows from the room. Another member's, or the
@@ -220,6 +240,10 @@ const MessageItem = memo(function MessageItem({
   const agent = assistantLabel ?? t('shell.brandName');
   const peerName = room?.author_name ?? room?.author_user_id ?? '';
   const author = fromPeer ? `${agent} · ${t('chat.roomReplyTo', { name: peerName })}` : agent;
+  // A row of the coach's private lane in a room (carnet#1249): only the coach
+  // and the agent see it, and the row says so to the eye and to a screen reader.
+  const audience = audienceOf(message);
+  const privateAria = audience === 'private' ? t(PRIVATE_LANE_KEYS.bubbleAria, { agent }) : undefined;
 
   const messageVerdicts = useMemo(
     () => (verdicts ?? []).filter((v) => v.message_id === message.id),
@@ -477,7 +501,9 @@ const MessageItem = memo(function MessageItem({
     );
   }
 
-  // Another member's own words, shown as typed under their name.
+  // Another member's own words, shown as typed under their name. On the
+  // room's athlete's message their coach can start a private plan change from
+  // it — on hover, on focus, or always on a coarse pointer, like every action.
   if (fromPeer && room.speaker === 'member') {
     return (
       <MessageBubble
@@ -486,6 +512,19 @@ const MessageItem = memo(function MessageItem({
         avatar={<CoachAvatar label={peerName} />}
         timestamp={timestamp}
         groupStart={groupStart}
+        actions={
+          onAdjustPlan ? (
+            <button
+              type="button"
+              onClick={onAdjustPlan}
+              data-testid="adjust-plan-from-message"
+              className="inline-flex items-center gap-1.5 rounded py-1 text-sm font-medium text-primary transition-colors hover:underline focus-ring"
+            >
+              <ClipboardList className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              {t(PRIVATE_LANE_KEYS.adjustFromMessage)}
+            </button>
+          ) : undefined
+        }
       >
         <p data-testid="room-entry-member" className="whitespace-pre-wrap break-words text-base leading-relaxed text-on-surface">
           {message.content}
@@ -496,8 +535,24 @@ const MessageItem = memo(function MessageItem({
 
   if (isUser) {
     return (
-      <MessageBubble side="user" timestamp={timestamp} groupStart={groupStart}>
+      <MessageBubble
+        side="user"
+        timestamp={timestamp}
+        groupStart={groupStart}
+        audience={audience}
+        ariaLabel={privateAria}
+      >
         <span className="sr-only">{t('chat.senderYou')}</span>
+        {message.quote ? (
+          <div data-testid="message-quote" className="mb-1.5 border-l-2 border-warning/60 pl-2">
+            <p className="text-xs font-medium text-on-warning-container">
+              {t(PRIVATE_LANE_KEYS.quoteChip, { name: message.quote.author_display_name })}
+            </p>
+            <p className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-on-surface-variant">
+              {message.quote.content}
+            </p>
+          </div>
+        ) : null}
         {replyBlocks.map((block, index) => renderBlock(block, index))}
       </MessageBubble>
     );
@@ -577,6 +632,9 @@ const MessageItem = memo(function MessageItem({
         groupStart={groupStart}
         finishReason={message.finish_reason}
         actions={room ? undefined : actions}
+        audience={audience}
+        ariaLabel={privateAria}
+        tag={audience === 'private' ? <PrivateReplyTag /> : undefined}
       >
         {lead}
         {replyBlocks.map((block, index) => renderBlock(block, index))}

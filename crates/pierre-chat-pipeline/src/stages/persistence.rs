@@ -45,7 +45,7 @@ use pierre_database::repositories::CoachingGroupRepository;
 use pierre_providers::ai_scope;
 
 use crate::turn::{TurnInput, UserMessageResult};
-use crate::turn_stop::author_marker;
+use crate::turn_stop::question_blocks;
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
@@ -126,6 +126,8 @@ pub(crate) async fn fan_out_to_group_transcript(
 /// Business rules:
 /// - Conversation must exist and belong to the user/tenant
 /// - Message is persisted before LLM dispatch (crash-safe)
+/// - The room words the message quotes ride its own row, stamped no less
+///   strictly than they are (carnet#1249)
 /// - Group-bound conversations fan the row out to the shared room transcript
 /// - Returns both message and conversation (for model/prompt access in LLM step)
 ///
@@ -137,12 +139,12 @@ pub(crate) async fn fan_out_to_group_transcript(
 pub async fn persist_user_message(
     database: &dyn ChatRepository,
     groups: &dyn CoachingGroupRepository,
-    conversation_id: &str,
-    user_id: &str,
-    tenant_id: TenantId,
-    content: &str,
+    input: &TurnInput,
     channel: &str,
 ) -> AppResult<UserMessageResult> {
+    let conversation_id = input.conversation_id.as_str();
+    let user_id = input.user_id.as_str();
+    let tenant_id = input.conversation_tenant_id;
     // Verify ownership and get conversation details
     let conversation = database
         .get_conversation(conversation_id, user_id, tenant_id)
@@ -151,21 +153,30 @@ pub async fn persist_user_message(
 
     // Persist user message before LLM dispatch. The row names its author:
     // `chat_messages` has no such column, and a stop request has to tell the
-    // caller's own question from another participant's.
-    let author = author_marker(user_id);
+    // caller's own question from another participant's. A quote rides the
+    // same rail, so every prompt that replays the row reads it, and none that
+    // withholds the row can.
+    let blocks = question_blocks(user_id, input.quote.as_ref());
+    // The athlete's own words, derived from no provider data; a quote carries
+    // the stamp of the room entry it copies, and the row may go only where
+    // both may.
+    let own = TransportPolicy::AnyTransport;
+    let transport_policy = input
+        .quote
+        .as_ref()
+        .map_or(own, |quote| own.strictest(quote.transport_policy));
     let user_msg_params = AddMessageParams {
         tenant_id,
         conversation_id,
         user_id,
         role: "user",
-        content,
+        content: &input.content,
         token_count: None,
         finish_reason: None,
         prompt_tokens: None,
         model: None,
-        content_blocks: author.as_deref(),
-        // The athlete's own words, derived from no provider data.
-        transport_policy: TransportPolicy::AnyTransport,
+        content_blocks: blocks.as_deref(),
+        transport_policy,
         channel_type: Some(channel),
     };
     let message = database.add_message(&user_msg_params).await?;
@@ -213,16 +224,7 @@ pub async fn resolve_turn_prompt(
     let tenant_id = input.conversation_tenant_id;
     let content = input.content.as_str();
     if input.origin.persists_user_row() {
-        persist_user_message(
-            database,
-            groups,
-            conversation_id,
-            user_id,
-            tenant_id,
-            content,
-            channel,
-        )
-        .await
+        persist_user_message(database, groups, input, channel).await
     } else {
         resolve_platform_turn(database, conversation_id, user_id, tenant_id, content).await
     }

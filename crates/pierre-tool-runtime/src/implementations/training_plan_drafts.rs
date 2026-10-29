@@ -41,10 +41,14 @@ use pierre_services::coach_plan_draft::{
     discard_coach_draft, draft_over, publish_coach_draft, CoachDraftPublish, CoachDraftTarget,
     DraftState, PublishedCoachDraft,
 };
+use pierre_services::coach_plan_room_post::{
+    plan_change, post_plan_published, PlanRoomPost, RoomPostOutcome,
+};
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use tracing::info;
+use uuid::Uuid;
 
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest};
 use super::training_plan_authorship::load_conversation;
@@ -190,6 +194,9 @@ pub struct PublishedDraftReport {
     pub safety: PlanSafetyReport,
     /// The athlete's civil date the rails measured against.
     pub today: NaiveDate,
+    /// Where the line saying the publish in the athlete's room landed
+    /// (carnet#1249).
+    pub room_post: RoomPostOutcome,
 }
 
 /// What [`publish_draft_live`] came to.
@@ -204,14 +211,18 @@ pub enum DraftPublishOutcome {
     NoDraft,
 }
 
-/// Publish the coach's draft as the athlete's live plan, tell the athlete,
-/// then run the rails.
+/// Publish the coach's draft as the athlete's live plan, tell the athlete
+/// and the room, then run the rails.
 ///
 /// The rails are the ones every live plan write runs, over what this one
 /// wrote. The athlete is told through the runtime's notification service,
-/// when it has one ([`PublishedCoachDraft::athlete_notified`]). This is the
-/// entry point both `publish_training_plan` and the subject-plan publish
-/// route call; the caller has run the coaching gates for `target`.
+/// when it has one ([`PublishedCoachDraft::athlete_notified`]). The room of
+/// `group_id` — the group the coach coaches the athlete in — gets one line
+/// naming the days the publish changed, and the group's bound chat the same
+/// line ([`post_plan_published`]); it is built from the plans alone. This is
+/// the entry point both `publish_training_plan` and the subject-plan publish
+/// route call; the caller has run the coaching gates for `target` in
+/// `group_id`.
 ///
 /// # Errors
 ///
@@ -219,6 +230,7 @@ pub enum DraftPublishOutcome {
 pub async fn publish_draft_live(
     state: &Arc<dyn ToolRuntime>,
     target: &CoachDraftTarget,
+    group_id: Uuid,
     overwrite: bool,
 ) -> AppResult<DraftPublishOutcome> {
     let repos = state.repos();
@@ -233,6 +245,7 @@ pub async fn publish_draft_live(
         }
         CoachDraftPublish::NoDraft => return Ok(DraftPublishOutcome::NoDraft),
     };
+    let room_post = say_in_room(state, target, group_id, &published).await;
     let rails = run_live_plan_rails(
         state,
         repos,
@@ -254,8 +267,45 @@ pub async fn publish_draft_live(
             published,
             safety: rails.safety,
             today: rails.today,
+            room_post,
         },
     )))
+}
+
+/// Say `published` in the room of `group_id`: the days it changed over the
+/// season it replaced, or that the plan is new. A publish that changed no
+/// day says nothing.
+async fn say_in_room(
+    state: &Arc<dyn ToolRuntime>,
+    target: &CoachDraftTarget,
+    group_id: Uuid,
+    published: &PublishedCoachDraft,
+) -> RoomPostOutcome {
+    let previous = published.previous.as_ref();
+    let previous_weeks = previous.map(|season| season.weeks.as_slice());
+    let Some(change) = plan_change(previous_weeks, &published.weeks) else {
+        info!(group_id = %group_id, "plan room post: the publish changed no day; nothing said in the room");
+        return RoomPostOutcome::default();
+    };
+    let transport_policy = previous.map_or(published.plan.transport_policy, |season| {
+        season
+            .plan
+            .transport_policy
+            .strictest(published.plan.transport_policy)
+    });
+    post_plan_published(
+        state.repos(),
+        state.messaging_strings_registry(),
+        state.group_chat_poster().map(AsRef::as_ref),
+        &PlanRoomPost {
+            group_id,
+            coach: target.coach(),
+            athlete: target.athlete(),
+            change: &change,
+            transport_policy,
+        },
+    )
+    .await
 }
 
 /// What the coach asks of their draft.
@@ -398,7 +448,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let Some(name) = scope.acting_for.clone() else {
+            let (Some(name), Some(group_id)) = (scope.acting_for.clone(), scope.group_id) else {
                 return Ok(refusal(
                     "own_plan",
                     "Your own saves are already live — there is no draft of your own plan to \
@@ -410,7 +460,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             match action {
                 DraftAction::Discard => discard(repos, &target, name).await,
                 DraftAction::Publish => {
-                    publish(state, &context, &scope, &target, name, overwrite).await
+                    publish(state, &context, &scope, &target, group_id, name, overwrite).await
                 }
             }
         }
@@ -453,10 +503,11 @@ async fn publish(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     target: &CoachDraftTarget,
+    group_id: Uuid,
     name: String,
     overwrite: bool,
 ) -> AppResult<ToolResult> {
-    let report = match publish_draft_live(state, target, overwrite).await? {
+    let report = match publish_draft_live(state, target, group_id, overwrite).await? {
         DraftPublishOutcome::Published(report) => report,
         DraftPublishOutcome::NoDraft => return Ok(no_draft(&name)),
         DraftPublishOutcome::Conflict(standing) => {
@@ -484,6 +535,7 @@ async fn publish(
         published,
         safety,
         today,
+        room_post,
     } = *report;
     // Publishing does not write the calendar; when the calendar already
     // carries this plan, say what a push would now change.
@@ -496,9 +548,14 @@ async fn publish(
     } else {
         format!("No notice reached {name}: let them know it is published.")
     };
+    let room = if room_post.in_room {
+        format!(" A line saying so was posted in your group with {name}.")
+    } else {
+        String::new()
+    };
     let message = format!(
         "Your draft is {name}'s live plan now. The weeks you did not draft keep {name}'s own \
-         version. {told}"
+         version. {told}{room}"
     );
     ok_typed(
         PUBLISH_TOOL,

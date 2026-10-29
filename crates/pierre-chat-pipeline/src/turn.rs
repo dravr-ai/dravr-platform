@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use pierre_core::models::{ConversationTurnId, InputSource, TenantId, TurnOrigin};
+use pierre_core::models::{ConversationTurnId, InputSource, RoomQuote, TenantId, TurnOrigin};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
@@ -104,6 +104,11 @@ pub struct TurnInput {
     /// member's `chat_messages` history holds only their own exchanges.
     /// `None` for web chat and DM turns.
     pub ambient_context: Option<AmbientContext>,
+    /// An athlete's room words the coach's message quotes, verified by the
+    /// surface that received it (carnet#1249). Stored on the message's own
+    /// `user` row ([`crate::stages::persistence::persist_user_message`]), from
+    /// which every prompt reads it — this turn's and each later one's.
+    pub quote: Option<RoomQuote>,
     /// Where the athlete stood against their usage caps when the turn was
     /// admitted.
     ///
@@ -147,6 +152,7 @@ impl fmt::Debug for TurnInput {
             .field("input_source", &self.input_source)
             .field("turn_id", &self.turn_id)
             .field("has_ambient_context", &self.ambient_context.is_some())
+            .field("quote", &self.quote)
             .field("quota", &self.quota)
             .field("mentioned_agent", &self.mentioned_agent)
             .field("steps_after", &self.steps_after)

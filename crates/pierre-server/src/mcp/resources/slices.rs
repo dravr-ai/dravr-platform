@@ -98,6 +98,8 @@ use pierre_middleware::McpAuthMiddleware;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
+#[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
@@ -398,6 +400,13 @@ pub struct McpSlice {
     /// task through [`pierre_tool_runtime::runtime::ToolRuntime::backfill_notifier`].
     #[cfg(feature = "client-messaging")]
     pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
+    /// Posts into a group's own bound chat — the room post a coach's plan
+    /// publish leaves there (carnet#1249). Exposed to the publish through
+    /// [`pierre_tool_runtime::runtime::ToolRuntime::group_chat_poster`], and
+    /// shared (same `Arc`) with the weekly-digest scheduler, so every post
+    /// into a group's chat goes out through one poster.
+    #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+    pub group_chat_poster: Arc<dyn GroupChatPoster>,
     /// The verified coach post the platform makes on its own initiative,
     /// shared (same `Arc`) with [`ServerBackfillNotifier`] so the
     /// backfill-completion push can answer in the agent's own words instead of

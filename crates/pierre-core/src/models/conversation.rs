@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::models::agents::AgentCategory;
+use crate::models::room_quote::RoomQuote;
 use crate::models::tenant::TenantId;
 use crate::transport::TransportPolicy;
 
@@ -607,6 +608,10 @@ pub enum PersistedReplyBlock {
         /// Id of the `user` row whose turn was stopped.
         question_id: String,
     },
+    /// The athlete's room words a coach's question quotes — see
+    /// [`RoomQuote`]. Carried by a `user` row beside its
+    /// [`Self::TurnAuthor`] entry.
+    RoomQuote(RoomQuote),
 }
 
 /// Whether a stored `content_blocks` entry of this `type` is a turn marker —
@@ -704,6 +709,24 @@ impl MessageRecord {
     #[must_use]
     pub fn is_divider(&self) -> bool {
         self.finish_reason.as_deref() == Some(DIVIDER_FINISH_REASON)
+    }
+
+    /// The athlete's room words this `user` row quotes, when it carries a
+    /// [`PersistedReplyBlock::RoomQuote`] entry. A row of any other role, or
+    /// whose blocks do not decode, quotes nothing.
+    #[must_use]
+    pub fn room_quote(&self) -> Option<RoomQuote> {
+        if self.role != "user" {
+            return None;
+        }
+        let entries: Vec<serde_json::Value> =
+            serde_json::from_str(self.content_blocks.as_deref()?).ok()?;
+        entries.into_iter().find_map(|entry| {
+            match serde_json::from_value::<PersistedReplyBlock>(entry).ok()? {
+                PersistedReplyBlock::RoomQuote(quote) => Some(quote),
+                _ => None,
+            }
+        })
     }
 
     /// The row's content as it may re-enter a prompt.

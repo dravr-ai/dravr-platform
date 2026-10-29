@@ -482,6 +482,24 @@
     color: rgb(var(--color-on-primary-container));
   }
 
+  /* A coach's private turn in a group room (carnet#1249): only the coach and
+     the agent read it, so it is never drawn the way the room's rows are. The
+     coach's bubble keeps its shape but trades the sage tint for a dashed
+     edge in the private accent (`warning`, the draft badge's hue) over a
+     faint wash of it, body ink on top; the agent's private words sit behind
+     a dashed rule in the same accent. */
+  .chat-bubble-private {
+    @apply rounded-[14px] rounded-br-[4px] px-3 py-2 max-w-[85%] lg:max-w-[65%] ml-auto border border-dashed;
+    background: rgb(var(--color-warning) / 0.06);
+    border-color: rgb(var(--color-warning) / 0.6);
+    color: rgb(var(--color-on-surface));
+  }
+
+  .chat-column-private {
+    @apply border-l border-dashed pl-3;
+    border-color: rgb(var(--color-warning) / 0.6);
+  }
+
   /* ==========================================================================
      AI effect legacy — all the old ai-glow / ai-thinking / ai-breathe /
      ai-response / ai-input-focus / card-ai / ai-gradient-border

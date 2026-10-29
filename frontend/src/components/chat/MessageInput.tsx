@@ -2,11 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat message input component with textarea, a "/" commands button and a send button
-// ABOUTME: Handles keyboard shortcuts and the slash-command and @handle palettes
+// ABOUTME: Handles keyboard shortcuts, the slash-command and @handle palettes, and a coach's Everyone / Only <agent> switch
 
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, useId } from 'react';
 import { clsx } from 'clsx';
-import { Slash, Square } from 'lucide-react';
+import { Lock, Quote, Slash, Square, Users, X } from 'lucide-react';
+import type { MessageAudience, RoomQuote } from '@pierre/shared-types';
+import { PRIVATE_LANE_KEYS, privateLaneComposerText } from '@pierre/chat-utils';
 import CommandPalette from '../CommandPalette';
 import MentionPalette from './MentionPalette';
 import { IconButton } from '../ui';
@@ -28,6 +30,30 @@ const COMPOSER_MAX_LINES = 8;
  */
 const COMPOSER_ICON_SLOT =
   'absolute bottom-0 z-10 flex h-[41px] items-center [@media(pointer:coarse)]:h-[49px]';
+
+/**
+ * Where the text starts after a measured left slot: the slot's own 6px inset
+ * from the field's edge, then a 4px gap before the first character.
+ */
+const COMPOSER_TEXT_GAP = 10;
+
+/**
+ * A coach's private lane in a room of one athlete (carnet#1249), as the
+ * composer draws it: the Everyone / Only <agent> switch, and the athlete's
+ * message "Adjust plan from this" quoted.
+ */
+export interface ComposerPrivateLane {
+  /** Who the next send reaches. */
+  audience: MessageAudience;
+  /** The room's agent, as the room names it. */
+  agentName: string;
+  /** The room's one athlete. */
+  athleteName: string;
+  onToggle: () => void;
+  /** The athlete's room message held for the next private send. */
+  quote: RoomQuote | null;
+  onRemoveQuote: () => void;
+}
 
 interface MessageInputProps {
   value: string;
@@ -54,6 +80,12 @@ interface MessageInputProps {
    * the page past what the athlete opened and raise a phone's keyboard.
    */
   focusOnMount?: boolean;
+  /**
+   * A coach's private lane in this room. Present, the composer carries the
+   * Everyone / Only <agent> switch; while private the field is drawn dashed
+   * in the private accent and says the athlete won't see what is typed.
+   */
+  privateLane?: ComposerPrivateLane | null;
 }
 
 export default function MessageInput({
@@ -66,9 +98,46 @@ export default function MessageInput({
   disabled = false,
   conversationId,
   focusOnMount = true,
+  privateLane = null,
 }: MessageInputProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isPrivate = privateLane?.audience === 'private';
+  // What the switch and the field say for the audience the next send reaches.
+  const laneText = privateLane
+    ? privateLaneComposerText(privateLane.audience, { agent: privateLane.agentName, athlete: privateLane.athleteName }, t)
+    : null;
+  const placeholder = laneText?.placeholder ?? t('chat.messageDravrPlaceholder');
+  // With the switch, the field's name says who reads it; the placeholder
+  // already does, and it is gone once the coach types.
+  const fieldLabel = laneText?.placeholder ?? t('chat.messageDravrLabel');
+
+  // The switch sits in the field beside the slash, and its label is as wide
+  // as the language spells it: the text starts after whatever the left slot
+  // holds, measured rather than guessed.
+  const leftSlotRef = useRef<HTMLDivElement>(null);
+  const [leftInset, setLeftInset] = useState<number | null>(null);
+  const hasLane = privateLane !== null;
+  useLayoutEffect(() => {
+    const slot = leftSlotRef.current;
+    if (!hasLane || !slot) {
+      setLeftInset(null);
+      return;
+    }
+    const measure = () => setLeftInset(slot.offsetWidth > 0 ? slot.offsetWidth : null);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(slot);
+    return () => observer.disconnect();
+  }, [hasLane]);
+
+  // "Adjust plan from this" hands the coach to the composer: a new quote
+  // puts the caret in the field.
+  const quoteId = privateLane?.quote?.entry_id ?? null;
+  useEffect(() => {
+    if (quoteId !== null) inputRef.current?.focus();
+  }, [quoteId]);
   // Unique per composer: the chat surface and an activity's thread can both
   // be mounted, and a duplicated id would point a label at the wrong field.
   const inputId = useId();
@@ -105,6 +174,8 @@ export default function MessageInput({
   // React commits the value so a paste or a cleared send resizes at once. The
   // cap is read off the field's own line height and padding, which differ
   // between a fine and a coarse pointer, so it is eight whole lines on both.
+  // An empty field is as tall as its placeholder, which changes with the
+  // audience a coach's switch picks, as the left padding does.
   useLayoutEffect(() => {
     const field = inputRef.current;
     if (!field) return;
@@ -119,7 +190,7 @@ export default function MessageInput({
       border;
     field.style.height = `${Math.min(wanted, cap)}px`;
     field.style.overflowY = wanted > cap ? 'auto' : 'hidden';
-  }, [value]);
+  }, [value, leftInset, placeholder]);
 
   // Focus input on mount
   useEffect(() => {
@@ -157,6 +228,33 @@ export default function MessageInput({
           highlightedIndex={mentions.highlightedIndex}
           onSelect={mentions.select}
         />
+        {/* The athlete's message the next private send quotes, until it is
+            sent or the coach takes it off. */}
+        {privateLane?.quote ? (
+          <div
+            data-testid="composer-quote"
+            className="mb-2 flex min-w-0 items-center gap-2 rounded-lg border border-dashed border-warning/60 bg-warning/5 py-0.5 pl-2.5 pr-0.5"
+          >
+            <Quote className="h-3.5 w-3.5 shrink-0 text-on-warning-container" aria-hidden="true" />
+            <span className="shrink-0 text-xs font-medium text-on-warning-container">
+              {t(PRIVATE_LANE_KEYS.quoteChip, { name: privateLane.quote.author_display_name })}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs text-on-surface-variant">{privateLane.quote.content}</span>
+            <IconButton
+              variant="ghost"
+              size="sm"
+              aria-label={t(PRIVATE_LANE_KEYS.quoteRemove)}
+              title={t(PRIVATE_LANE_KEYS.quoteRemove)}
+              data-testid="composer-quote-remove"
+              onClick={() => {
+                privateLane.onRemoveQuote();
+                inputRef.current?.focus();
+              }}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </IconButton>
+          </div>
+        ) : null}
         {/* The composer is a chat surface, not a form field — DESIGN.md §5
             lists the two separately. It is the one white shape on the paper:
             a 41px field with a hairline, radius 12, the slash on its left and
@@ -174,21 +272,53 @@ export default function MessageInput({
               `touch-target` grows a button to 44px below 1024px wide and on
               a coarse pointer, and a fixed offset then puts its icon above
               the text. */}
-          <div className={clsx(COMPOSER_ICON_SLOT, 'left-1.5')}>
-            <IconButton
-              variant="ghost"
-              size="sm"
-              aria-label={t('chat.commandsLabel')}
-              title={t('chat.commandsLabel')}
-              data-testid="slash-command-button"
-              disabled={isStreaming || disabled}
-              onClick={() => {
-                onChange('/');
-                inputRef.current?.focus();
-              }}
-            >
-              <Slash className="h-4 w-4" aria-hidden="true" />
-            </IconButton>
+          <div ref={leftSlotRef} className={clsx(COMPOSER_ICON_SLOT, 'left-1.5 gap-1')}>
+            {/* Who the next send reaches — Everyone, or the agent alone. A
+                private message sent to the room by mistake is the costlier
+                error, so the switch is explicit and says what a press does.
+                Its name starts with the label it shows and carries the state
+                (WCAG 2.5.3), so it announces no pressed state on top. */}
+            {privateLane && laneText ? (
+              <button
+                type="button"
+                onClick={privateLane.onToggle}
+                aria-label={laneText.aria}
+                title={laneText.aria}
+                data-testid="composer-audience-switch"
+                className={clsx(
+                  'touch-target inline-flex h-7 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg px-2 text-xs font-semibold transition-colors focus-ring',
+                  isPrivate
+                    ? 'bg-warning/15 text-on-warning-container hover:bg-warning/25'
+                    : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface',
+                )}
+              >
+                {isPrivate ? (
+                  <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                )}
+                {/* On a phone the icon carries it: the label would leave the field no room. */}
+                <span className="hidden sm:inline">{laneText.label}</span>
+              </button>
+            ) : null}
+            {/* The private placeholder offers no commands: the coach is asking
+                the agent for a change, so the slash steps aside. */}
+            {isPrivate ? null : (
+              <IconButton
+                variant="ghost"
+                size="sm"
+                aria-label={t('chat.commandsLabel')}
+                title={t('chat.commandsLabel')}
+                data-testid="slash-command-button"
+                disabled={isStreaming || disabled}
+                onClick={() => {
+                  onChange('/');
+                  inputRef.current?.focus();
+                }}
+              >
+                <Slash className="h-4 w-4" aria-hidden="true" />
+              </IconButton>
+            )}
           </div>
           {/* eslint-disable-next-line no-restricted-syntax */}
           <textarea
@@ -200,7 +330,8 @@ export default function MessageInput({
             data-composer="true"
             // The placeholder disappears as soon as the athlete types, so it
             // cannot be the field's name; a screen reader announces this one.
-            aria-label={t('chat.messageDravrLabel')}
+            aria-label={fieldLabel}
+            data-audience={privateLane ? privateLane.audience : undefined}
             value={value}
             onChange={(e) => {
               onChange(e.target.value);
@@ -210,8 +341,17 @@ export default function MessageInput({
             onKeyUp={syncCaret}
             onClick={syncCaret}
             onSelect={syncCaret}
-            placeholder={t('chat.messageDravrPlaceholder')}
-            className="block w-full resize-none overflow-hidden rounded-xl border ghost-border bg-surface-container-lowest py-2 pl-11 pr-12 text-base text-on-surface transition-colors placeholder:text-outline focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary/40 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3"
+            placeholder={placeholder}
+            // While private the field is drawn dashed in the private accent,
+            // and keeps that edge while focused: the cue matters most then.
+            className={clsx(
+              'block w-full resize-none overflow-hidden rounded-xl border py-2 pl-11 pr-12 text-base text-on-surface transition-colors placeholder:text-outline focus:outline-none focus:ring-2 [@media(pointer:coarse)]:min-h-[48px] [@media(pointer:coarse)]:py-3',
+              isPrivate
+                ? 'border-dashed border-warning/60 bg-warning/5 focus:ring-warning/30'
+                : 'ghost-border bg-surface-container-lowest focus:border-transparent focus:ring-primary/40',
+            )}
+            // The measured slot: the left padding clears the switch and the slash.
+            style={leftInset !== null ? { paddingLeft: leftInset + COMPOSER_TEXT_GAP } : undefined}
             rows={1}
             disabled={isStreaming || disabled}
           />

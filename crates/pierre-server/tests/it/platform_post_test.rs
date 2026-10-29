@@ -415,6 +415,7 @@ async fn an_athletes_tool_round_is_written_as_it_lands_stamped_with_what_it_read
         content: INSTRUCTION.to_owned(),
         turn_id: ConversationTurnId::new(),
         ambient_context: None,
+        quote: None,
         quota: QuotaState::Ok,
         mentioned_agent: None,
         steps_after: None,

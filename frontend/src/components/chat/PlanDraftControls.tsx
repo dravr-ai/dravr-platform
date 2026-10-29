@@ -4,7 +4,8 @@
 // ABOUTME: A coach's draft on a plan card — the badge, Publish and Discard, a refused publish's conflict and Publish anyway
 // ABOUTME: Shown to the thread's owner alone; which state it is in comes from the shared hook, so the phone shows the same
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import type { DraftState, PlanSubject } from '@pierre/shared-types';
 import { PLAN_DRAFT_KEYS, planConflictText } from '@pierre/chat-utils';
@@ -12,6 +13,8 @@ import { API_ERROR_KEYS, describeApiError, type PlanDraftActionResult } from '@p
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../hooks/useAuth';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
+import { cachedConversations } from '../../hooks/useConversationList';
+import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, useErrorToast } from '../ui';
 
 interface PlanDraftControlsProps {
@@ -40,6 +43,17 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
     draft,
   );
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  // A publish posts the changed days in the room the plan was drafted from
+  // (carnet#1249): that room is read again, so a coach drafting inside it
+  // sees the post land under the card.
+  const queryClient = useQueryClient();
+  const published = state.kind === 'published';
+  useEffect(() => {
+    if (!published) return;
+    const roomId = cachedConversations(queryClient).find((c) => c.id === conversationId)?.subject_group_id;
+    if (roomId) void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.room(roomId) });
+  }, [published, conversationId, queryClient]);
 
   if (state.kind === 'hidden') return null;
 

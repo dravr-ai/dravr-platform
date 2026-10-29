@@ -122,6 +122,28 @@ pub fn display_line(raw: &str, max_chars: usize) -> String {
     cap(&defang_for_display(&flatten_line(raw)), max_chars)
 }
 
+/// Untrusted text set inside text a client **renders as Markdown**, made to
+/// read as itself there.
+///
+/// Every ASCII punctuation character gets a backslash — exactly the set
+/// `CommonMark` lets a backslash make literal — so the text can open no link,
+/// image, emphasis, code span or HTML tag, and a URL in it is no longer one
+/// to a linkifier (`https\:\/\/…`). A Markdown client draws the text
+/// unchanged; any other reader sees the backslashes. So this is for a
+/// person-typed field inside Markdown, after [`display_line`], and never for
+/// text a channel's own renderer escapes again.
+#[must_use]
+pub fn markdown_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + s.len() / 4);
+    for ch in s.chars() {
+        if ch.is_ascii_punctuation() {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// Tag that fences text an athlete, or someone commenting on their activity,
 /// wrote on a provider — an activity description, a comment in its thread.
 ///
@@ -156,4 +178,35 @@ pub fn fence_athlete_text(raw: &str, max_chars: usize) -> Option<String> {
         return None;
     }
     Some(format!("{ATHLETE_TEXT_OPEN}{body}{ATHLETE_TEXT_CLOSE}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A name shaped like a link and a URL reaches a Markdown client as the
+    /// characters it is: each of `CommonMark`'s backslash-escapable characters
+    /// is escaped, and nothing else is touched.
+    #[test]
+    fn markdown_literal_escapes_every_escapable_character_and_nothing_else() {
+        assert_eq!(
+            markdown_literal("[Confirm your plan] (https://evil.example) *now*"),
+            r"\[Confirm your plan\] \(https\:\/\/evil\.example\) \*now\*",
+            "a link, a URL and emphasis must each lose their syntax"
+        );
+        // The ASCII punctuation characters, the set CommonMark 0.31 §2.4 lets
+        // a backslash escape (a spec constant).
+        let escapable = r##"!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"##;
+        let escaped: String = escapable.chars().flat_map(|c| ['\\', c]).collect();
+        assert_eq!(
+            markdown_literal(escapable),
+            escaped,
+            "every escapable character must carry one backslash"
+        );
+        assert_eq!(
+            markdown_literal("Élodie Ünal 2 x 20 — ‹b› …"),
+            "Élodie Ünal 2 x 20 — ‹b› …",
+            "letters, digits, spaces and non-ASCII marks must cross unchanged"
+        );
+    }
 }

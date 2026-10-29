@@ -243,6 +243,7 @@ async fn an_english_turn_folds_an_english_list_into_its_reply() {
             content: "Can you show me my most recent rides and how they went?".to_owned(),
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
+            quote: None,
             channel_type: "telegram",
             transport: Transport::Messaging,
             is_direct_message: true,

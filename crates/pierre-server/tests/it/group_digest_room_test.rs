@@ -42,7 +42,7 @@ mod group_digest_room_tests {
         room_digest_params, tick, DigestTickOutcome,
     };
     use pierre_routes_groups::group_digest_slot::week_key;
-    use pierre_routes_groups::GroupChatPoster;
+    use pierre_services::group_chat_poster::GroupChatPoster;
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use pierre_services::notification_text::NotificationTextRenderer;
     use pierre_tool_runtime::runtime::ToolRuntime;

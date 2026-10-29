@@ -49,6 +49,24 @@ export interface TurnSendOptions {
   origin?: MessageOrigin;
 }
 
+/**
+ * `POST /api/chat/conversations/{id}/messages` body.
+ *
+ * Mirrors `SendMessageRequest` in `routes/chat/dto.rs`.
+ */
+export interface SendMessageRequest {
+  content: string;
+  /** How the athlete produced the message; absent means typed. */
+  origin?: MessageOrigin;
+  /**
+   * The id of a group room entry the message quotes — a coach's "Adjust plan
+   * from this" on their athlete's message (carnet#1249). Accepted only in the
+   * caller's own thread about that athlete; the server copies the words from
+   * the room, never from the client.
+   */
+  quote_entry_id?: string;
+}
+
 /** One flagged claim, ready to render as a chip. */
 export interface ReplyVerdictChip {
   /** The claim's own sentence, verbatim. */

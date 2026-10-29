@@ -21,6 +21,8 @@ use pierre_llm::LlmProvider;
 use pierre_notifications::NotificationService;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
+#[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
 use pierre_tool_runtime::guardian::Guardian;
@@ -100,6 +102,11 @@ impl ToolRuntime for ServerContext {
     #[cfg(feature = "client-messaging")]
     fn backfill_notifier(&self) -> Option<&Arc<dyn BackfillNotifier>> {
         self.mcp.backfill_notifier.as_ref()
+    }
+
+    #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+    fn group_chat_poster(&self) -> Option<&Arc<dyn GroupChatPoster>> {
+        Some(&self.mcp.group_chat_poster)
     }
 
     fn data(&self) -> DataContext {

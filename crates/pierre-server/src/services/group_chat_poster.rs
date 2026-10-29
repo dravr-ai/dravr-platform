@@ -43,7 +43,7 @@ use dravr_canot::rich_text::escape_markdown;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_routes_groups::GroupChatPoster;
+use pierre_services::group_chat_poster::GroupChatPoster;
 use pierre_services::messaging_broadcast::proactive_rich_text;
 use tracing::{info, warn};
 

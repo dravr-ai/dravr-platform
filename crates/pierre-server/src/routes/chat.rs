@@ -17,6 +17,7 @@
 //! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
+//! - [`chat::room_quote`] — the room entry a coach's message quotes into their athlete thread, verified
 //! - [`chat::turn_response`] — the wire shape of one turn's envelope
 //! - [`chat::dto`] — request/response shapes shared across the handlers
 //! - [`chat::common`] — auth / tenant resolution shared by every handler
@@ -31,6 +32,7 @@ mod messages;
 mod participants;
 mod personal;
 mod read_marker;
+mod room_quote;
 mod send_message;
 mod starters;
 mod stop_turn;

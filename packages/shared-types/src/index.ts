@@ -97,6 +97,7 @@ export type {
   MessageActions,
   MessageRole,
   MessageFeedbackEntry,
+  MessageAudience,
   RoomAttribution,
   ActivityPillar,
   ApiMetadata,
@@ -113,6 +114,7 @@ export type {
   ChatMessageAction,
   MessageOrigin,
   TurnSendOptions,
+  SendMessageRequest,
   ReplyVerdictChip,
   ReplyNotice,
   ReplyBlock,
@@ -122,6 +124,10 @@ export type {
   TurnProgress,
   AwaitingReply,
 } from './turn.js';
+
+// A coach's quote of their athlete's room words, and why a quote is refused (carnet#1249)
+export type { RoomQuote, RoomQuoteRefusalReason } from './room-quote.js';
+export { isRoomQuoteRefusalReason } from './room-quote.js';
 
 // Claim-verdict row and the one severity rollup both clients read
 export type {
@@ -367,6 +373,7 @@ export type {
   MemberFlag,
   HealthFlagSeverity,
   CoachingGroup,
+  SoloAthlete,
   GroupMember,
   GroupInvite,
   UpdateGroupRequest,

@@ -206,6 +206,7 @@ async fn a_room_turn_carries_the_north_star_stamped_in_the_athletes_own_workspac
             content: "What should I focus on this week?".to_owned(),
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
+            quote: None,
             quota: QuotaState::Ok,
             mentioned_agent: None,
             steps_after: None,

@@ -45,7 +45,8 @@ use std::time::Duration;
 use chrono::{DateTime, TimeDelta, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    ConversationTurnId, LlmUsageRecord, PersistedReplyBlock, TenantId, STOPPED_TURN_FINISH_REASON,
+    ConversationTurnId, LlmUsageRecord, PersistedReplyBlock, RoomQuote, TenantId,
+    STOPPED_TURN_FINISH_REASON,
 };
 use pierre_database::database::MessageRecord;
 use pierre_database::repositories::ChatRepository;
@@ -89,12 +90,19 @@ pub enum QuestionState {
     Stopped(Box<MessageRecord>),
 }
 
-/// The `content_blocks` value a `user` row is stored with, naming its author.
+/// The `content_blocks` value a `user` row is stored with: the entry naming
+/// its author, then the room words it quotes, when it quotes any
+/// (carnet#1249).
 #[must_use]
-pub fn author_marker(user_id: &str) -> Option<String> {
-    encode_marker(&PersistedReplyBlock::TurnAuthor {
+pub fn question_blocks(user_id: &str, quote: Option<&RoomQuote>) -> Option<String> {
+    let author = PersistedReplyBlock::TurnAuthor {
         user_id: user_id.to_owned(),
-    })
+    };
+    let mut entries = vec![author];
+    entries.extend(quote.cloned().map(PersistedReplyBlock::RoomQuote));
+    serde_json::to_string(&entries)
+        .inspect_err(|e| warn!(error = %e, "question blocks could not be encoded"))
+        .ok()
 }
 
 /// The `content_blocks` value a stopped notice is stored with, naming the
@@ -472,7 +480,7 @@ mod tests {
             prompt_tokens: None,
             model: None,
             finish_reason: None,
-            content_blocks: author_marker("alice"),
+            content_blocks: question_blocks("alice", None),
             created_at: created_at.to_owned(),
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,

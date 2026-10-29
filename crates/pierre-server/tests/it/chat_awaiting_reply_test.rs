@@ -22,7 +22,7 @@ use std::time::Duration;
 use axum::http::StatusCode;
 use axum::Router;
 use chrono::DateTime;
-use pierre_chat_pipeline::turn_stop::author_marker;
+use pierre_chat_pipeline::turn_stop::question_blocks;
 use pierre_core::llm::LlmProvider;
 use pierre_core::models::{AddMessageParams, TenantId, User};
 use pierre_core::transport::TransportPolicy;
@@ -123,7 +123,9 @@ impl Fixture {
 
     /// Store a row the way a turn does: a question names its author.
     async fn seed(&self, author: &str, role: &str, content: &str) -> MessageRecord {
-        let marker = (role == "user").then(|| author_marker(author)).flatten();
+        let marker = (role == "user")
+            .then(|| question_blocks(author, None))
+            .flatten();
         self.resources
             .common
             .repos

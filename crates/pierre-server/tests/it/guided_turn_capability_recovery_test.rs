@@ -253,6 +253,7 @@ mod guided_turn {
                 content: content.to_owned(),
                 turn_id: ConversationTurnId::new(),
                 ambient_context: None,
+                quote: None,
                 channel_type: "web",
                 transport: Transport::WebApp,
                 is_direct_message: true,

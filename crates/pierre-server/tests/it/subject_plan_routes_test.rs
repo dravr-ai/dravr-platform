@@ -384,9 +384,18 @@ async fn a_conflicted_publish_is_a_409_in_the_shape_the_clients_parse() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["athlete_notified", "plan_id", "superseded_plan_id"]
+        vec![
+            "athlete_notified",
+            "plan_id",
+            "posted_in_room",
+            "superseded_plan_id"
+        ],
+        "the publish answer changed shape: {body}"
     );
     assert!(body["superseded_plan_id"].is_null(), "{body}");
+    // What the room was told is `private_lane_test`'s to pin: it turns on the
+    // catalogue's strings, which this fixture does not seed.
+    assert!(body["posted_in_room"].is_boolean(), "{body}");
     // The athlete is told whenever the server sends notices at all
     // (`coach_plan_notice_test` reads the notice back).
     assert_eq!(

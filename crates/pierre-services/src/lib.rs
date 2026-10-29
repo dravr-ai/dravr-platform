@@ -61,6 +61,12 @@ pub mod coach_plan_draft;
 /// The notices an athlete gets when their human coach publishes or pushes their plan (carnet#1069).
 pub mod coach_plan_notice;
 
+/// The room post a coach's publish leaves in the athlete's group, naming the changed days (carnet#1249).
+pub mod coach_plan_room_post;
+
+/// The seam through which a group's own bound chat is posted into; implemented in `pierre-server` over the messaging adapters.
+pub mod group_chat_poster;
+
 /// The goal-race fact a live plan converges on, and the superseded ones it retires.
 pub mod plan_goal_fact;
 

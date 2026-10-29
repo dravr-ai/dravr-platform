@@ -1,5 +1,5 @@
 // ABOUTME: Thin wrapper over the canonical pierre_runtime_context::resolve_tenant helper, plus the shared conversation wire shape
-// ABOUTME: Chat routes use Required — no user-id fallback; errors if user has no tenant
+// ABOUTME: Chat routes use Required — no user-id fallback; errors if user has no tenant. Also the `details.reason` refusal shape
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,10 +11,24 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 use pierre_services::athlete_display_name::fetch_user_display_name;
+use serde_json::json;
 use uuid::Uuid;
 
 use super::dto::ConversationResponse;
 use crate::mcp::resources::ServerContext;
+
+/// A refusal whose code a client branches on, carried as `details.reason`.
+pub(super) fn refusal(code: ErrorCode, reason: &str, message: &str) -> AppError {
+    with_reason(AppError::new(code, message), reason)
+}
+
+/// `error` with the `details.reason` a client branches on. A
+/// `PermissionDenied` refusal is built with `AppError::new` at its call site,
+/// so `scripts/ci/check-permission-denied-messages.sh` reads its sentence.
+pub(super) fn with_reason(mut error: AppError, reason: &str) -> AppError {
+    error.details = Some(Box::new(json!({ "reason": reason })));
+    error
+}
 
 /// The wire shape of a conversation that may be a coach's thread bound to one
 /// athlete: that athlete's roster name is resolved alongside, so the three

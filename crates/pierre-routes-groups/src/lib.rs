@@ -41,10 +41,6 @@ pub mod delegated_connections;
 /// `/api/groups/*` URL prefix.
 pub mod group_analytics;
 
-/// The seam through which the weekly-digest scheduler posts into a group's
-/// own bound chat; implemented in `pierre-server` over the messaging adapters.
-pub mod group_chat_poster;
-
 /// Background scheduler that sends each group its weekly digest at a fixed
 /// local slot — into its bound chat and to its managers — gated by the
 /// per-tenant `weekly_digest` tier flag.
@@ -69,7 +65,6 @@ mod group_update_access;
 pub mod notifications;
 
 pub use delegated_connections::DelegatedConnectionRoutes;
-pub use group_chat_poster::GroupChatPoster;
 pub use groups::{
     GroupMetadata, GroupRoutes, HealthFlagsResponse, StatsResponse, WeeklyReportResponse,
 };

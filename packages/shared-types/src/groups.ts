@@ -66,6 +66,25 @@ export interface CoachingGroup {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  /**
+   * The room's one athlete (carnet#1249): sent only to the group's human
+   * coach (`coach_user_id`), and only while exactly one active member other
+   * than the coach remains — the room where the coach can draft that
+   * athlete's plan with the agent privately. Absent for every other reader
+   * and every other room.
+   */
+  solo_athlete?: SoloAthlete;
+}
+
+/**
+ * The one athlete of a one-coach, one-athlete room.
+ *
+ * Mirrors `SoloAthleteResponse` in `pierre-routes-groups/src/group_response.rs`.
+ */
+export interface SoloAthlete {
+  user_id: string;
+  /** The athlete's roster name: their display name, else the local part of their email. */
+  display_name: string;
 }
 
 /**

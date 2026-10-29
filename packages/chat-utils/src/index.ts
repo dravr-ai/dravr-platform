@@ -201,6 +201,17 @@ export type { DayLabel } from './message-time';
 export { composeRoomThread, correctionAuthorLabel } from './room-thread';
 export type { RoomMessage } from './room-thread';
 
+// A coach's private lane in a one-athlete room (carnet#1249): its words, which
+// rows are private, where the divider goes and what "Adjust plan from this" quotes.
+export {
+  PRIVATE_LANE_KEYS,
+  audienceOf,
+  opensPrivateStretch,
+  privateLaneComposerText,
+  roomQuoteOf,
+} from './private-lane';
+export type { PrivateLaneComposerText, QuotableRow } from './private-lane';
+
 // One localized date-and-time stamp, and its date-only sibling, for everything
 // a surface saved earlier — memory facts, verdicts, invites, admin tables.
 export { formatDate, formatDateTime } from './date-format';

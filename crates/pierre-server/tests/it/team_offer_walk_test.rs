@@ -239,6 +239,7 @@ impl Fixture {
             input_source: InputSource::Typed,
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
+            quote: None,
             quota: QuotaState::Ok,
             mentioned_agent: None,
             steps_after: None,

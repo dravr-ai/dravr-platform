@@ -29,6 +29,9 @@
 //! A refusal before the membership gate passes names nobody: the caller has
 //! not shown they coach this athlete. Once it passes, the refusal carries the
 //! athlete's name and the group's, which the caller may tell the coach.
+//!
+//! Beside the gates sits the one rule for a room shaped for a coach and a
+//! single athlete, [`solo_athlete`] (carnet#1249). It replaces none of them.
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::CoachingGroup;
@@ -199,6 +202,38 @@ pub async fn coached_athlete_access(
         display_name,
         group,
     }))
+}
+
+/// The one athlete of a room its human coach shares with no one else.
+///
+/// That is `group`'s live members other than its human coach, when they
+/// number exactly one (carnet#1249). `None` for a group with no human coach,
+/// and for one with no athlete or several.
+///
+/// The coach holds no membership row unless they also own the group, and a
+/// coach is never their own athlete, so they are left out of the count
+/// either way. Every surface that treats a room as one coach's and one
+/// athlete's asks here — the coach's view of the group and the line a plan
+/// publish leaves in its room — so no two count a different room. Neither the
+/// group's state nor the athlete's consent is asked: each caller runs its own
+/// gates.
+///
+/// # Errors
+///
+/// Returns the repository error from the member listing.
+pub async fn solo_athlete(
+    repos: &RepositoryRegistry,
+    group: &CoachingGroup,
+) -> AppResult<Option<Uuid>> {
+    let Some(coach) = group.coach_user_id else {
+        return Ok(None);
+    };
+    let members = repos.groups.list_members(&group.id.to_string()).await?;
+    let mut athletes = members.iter().filter(|member| member.user_id != coach);
+    Ok(match (athletes.next(), athletes.next()) {
+        (Some(athlete), None) => Some(athlete.user_id),
+        _ => None,
+    })
 }
 
 #[cfg(test)]

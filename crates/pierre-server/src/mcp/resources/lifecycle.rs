@@ -16,6 +16,8 @@ use crate::config::admin::AdminConfigService;
 use crate::services::archive_import::ArchiveImports;
 #[cfg(feature = "client-messaging")]
 use crate::services::backfill_notifier::ServerBackfillNotifier;
+#[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+use crate::services::group_chat_poster::ServerGroupChatPoster;
 use crate::services::photograveur_client::PhotograveurClient;
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
@@ -698,6 +700,8 @@ impl ServerContext {
             training_catalogue_registry: contremaitre_training_catalogue_registry,
             #[cfg(feature = "client-messaging")]
             backfill_notifier,
+            #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
+            group_chat_poster: ServerGroupChatPoster::from_repos(common.repos.clone()),
             #[cfg(feature = "client-messaging")]
             platform_post,
             // The coach's first post, installed post-`Arc` the same way.

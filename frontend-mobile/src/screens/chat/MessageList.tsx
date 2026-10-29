@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
 import {
+  audienceOf,
   copyableText,
   correctionAuthorLabel,
   countActivities,
@@ -31,7 +32,9 @@ import {
   isModelReply,
   isSameMessageGroup,
   localDayKey,
+  opensPrivateStretch,
   planCardDraft,
+  PRIVATE_LANE_KEYS,
   transcriptBlocks,
   withVerdictRows,
 } from '@pierre/chat-utils';
@@ -39,7 +42,14 @@ import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_SPOKEN_SEPARATOR, verdictChipLabel } from '@pierre/shared-constants';
 import { spacing, typeScale, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
-import type { ChatMessageAction, ClaimVerdict, ReplyBlock, UseCaseStarter, VerdictTone } from '@pierre/shared-types';
+import type {
+  ChatMessageAction,
+  ClaimVerdict,
+  MessageAudience,
+  ReplyBlock,
+  UseCaseStarter,
+  VerdictTone,
+} from '@pierre/shared-types';
 import {
   parseWorkoutPlan,
   summarizeVerdicts,
@@ -51,6 +61,7 @@ import { parseSceneBlocks, splitVizMarkers, type TurnTrail } from '@pierre/chat-
 import DaySeparator from './DaySeparator';
 import { FoldedTurnTrail, LiveTurnIndicator } from './TurnTrail';
 import TopicDivider from './TopicDivider';
+import PrivateLaneDivider from './PrivateLaneDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
@@ -68,12 +79,36 @@ export type ThemeColors = ReturnType<typeof useThemeColors>;
  * itself, because a separator is a row of the list like any other — FlashList
  * recycles by `getItemType`, so a label and a bubble never reuse each other's
  * view. `groupStart` is the same decision the web thread makes: the first row
- * of a run of one author's messages carries the larger gap above it.
+ * of a run of one author's messages carries the larger gap above it. A
+ * `private` row is the line over a stretch of a coach's private rows
+ * (carnet#1249).
  */
 export type ChatRow =
   | { kind: 'day'; key: string; label: string }
   | { kind: 'topic'; key: string; label: string; time: string }
+  | { kind: 'private'; key: string; label: string }
   | { kind: 'message'; key: string; message: Message; groupStart: boolean };
+
+/**
+ * A coach's private lane in the one-athlete room on screen (carnet#1249): the
+ * rows of their work thread about the athlete are drawn inline, dashed, and
+ * the athlete's own room lines offer "Adjust plan from this".
+ */
+export interface MessageListPrivateLane {
+  /**
+   * The coach's work thread about the athlete, once it exists. A plan card on
+   * a private row acts on that thread's draft, never on the room's.
+   */
+  conversationId: string | null;
+  /** The room's agent, as the divider and a private row's spoken label name it. */
+  agentName: string;
+  /** Whether "Adjust plan from this" is offered on a room row. */
+  canAdjustFrom: (row: Message) => boolean;
+  /** "Adjust plan from this" on a room row: quote it and switch to the agent alone. */
+  onAdjustFrom: (row: Message) => void;
+  /** The running turn is a private one: its words stream under "Only you". */
+  turnLive: boolean;
+}
 
 /**
  * Optional "what went wrong?" reason captured after a thumbs-down. The down
@@ -452,8 +487,11 @@ interface MessageListProps {
    * hand the athlete to Safari and never bring them back.
    */
   onReconnectProvider: (provider: string) => void;
-  /** Press handler for a control the reply's `actions` block carried. */
-  onActionClick?: (action: ChatMessageAction) => void;
+  /**
+   * Press handler for a control the reply's `actions` block carried, with who
+   * read the reply: a control on a coach's private reply answers in private.
+   */
+  onActionClick?: (action: ChatMessageAction, audience: MessageAudience) => void;
   /**
    * Open the verdict sheet for a message. Receives the rows the surface has
    * for it — possibly none yet, when only the turn's chips have landed, in
@@ -483,6 +521,8 @@ interface MessageListProps {
   loadingEarlier?: boolean;
   /** The reader reached the top of what is drawn while older rows remain. */
   onReachStart?: () => void;
+  /** A coach's private lane in this room; absent in every other thread and for every other reader. */
+  privateLane?: MessageListPrivateLane;
 }
 
 export function MessageList({
@@ -514,6 +554,7 @@ export function MessageList({
   hasEarlier = false,
   loadingEarlier = false,
   onReachStart,
+  privateLane,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -571,7 +612,16 @@ export function MessageList({
   const renderBlock = (
     block: ReplyBlock,
     key: number,
-    context: { isUser: boolean; messageId: string; scenes: RenderBlock[]; rows: ClaimVerdict[] },
+    context: {
+      isUser: boolean;
+      messageId: string;
+      scenes: RenderBlock[];
+      rows: ClaimVerdict[];
+      /** The thread whose draft a plan card acts on: the room's, or a private row's work thread. */
+      planConversationId: string | null;
+      /** Who reads the row the block is in. */
+      audience: MessageAudience;
+    },
   ): React.ReactNode => {
     switch (block.type) {
       case 'prose':
@@ -600,12 +650,15 @@ export function MessageList({
         const plan = parseWorkoutPlan(JSON.stringify(block.plan));
         if (!plan) return null;
         // A coach's draft for the thread's athlete carries its controls on
-        // the card; the controls decide for themselves who may see them.
-        const shown = conversationId === null ? null : planCardDraft(block);
+        // the card; the controls decide for themselves who may see them. On
+        // a private row the thread is the coach's work thread, whose draft
+        // the card shows, never the room the row is drawn in.
+        const planThread = context.planConversationId;
+        const shown = planThread === null ? null : planCardDraft(block);
         return (
           <WorkoutPlanCard key={key} plan={plan}>
-            {shown && conversationId !== null ? (
-              <PlanDraftControls conversationId={conversationId} subject={shown.subject} draft={shown.draft} />
+            {shown && planThread !== null ? (
+              <PlanDraftControls conversationId={planThread} subject={shown.subject} draft={shown.draft} />
             ) : null}
           </WorkoutPlanCard>
         );
@@ -679,7 +732,7 @@ export function MessageList({
                   accessibilityRole="button"
                   accessibilityLabel={action.label}
                   className="px-3 py-2 rounded-lg bg-primary/15"
-                  onPress={() => onActionClick?.(action)}
+                  onPress={() => onActionClick?.(action, context.audience)}
                 >
                   <Text className="text-sm text-primary font-medium">{action.label}</Text>
                 </TouchableOpacity>
@@ -715,7 +768,9 @@ export function MessageList({
    * placeholder where the author's sharing consent withholds an entry.
    *
    * It has no menu. Rating, retry and copy act on a row of the caller's own
-   * conversation, and a room row is not one.
+   * conversation, and a room row is not one. The one exception is a coach's
+   * one-athlete room (carnet#1249): the athlete's own readable line offers
+   * "Adjust plan from this", and copy beside it, behind a long press.
    */
   const renderRoomRow = (
     item: Message,
@@ -773,14 +828,48 @@ export function MessageList({
     if (room.speaker === 'member') {
       // Another member's words, shown as typed, on the room's side of the
       // thread under their name.
+      const bubble = (
+        <View className="max-w-[85%] rounded-[18px] rounded-bl-[4px] px-3 py-2 bg-surface-container-high">
+          <Text className="text-base leading-6 text-text-primary">{item.content}</Text>
+        </View>
+      );
+      // The athlete's line in their coach's one-athlete room: a long press
+      // offers "Adjust plan from this", which quotes it in a private turn.
+      const adjustable = privateLane?.canAdjustFrom(item) === true;
       return (
         <View testID="room-entry-member" className={`${spacing} items-start`}>
           {groupStart ? (
             <Text className="text-xs font-semibold text-text-secondary mb-1">{name}</Text>
           ) : null}
-          <View className="max-w-[85%] rounded-[18px] rounded-bl-[4px] px-3 py-2 bg-surface-container-high">
-            <Text className="text-base leading-6 text-text-primary">{item.content}</Text>
-          </View>
+          {adjustable && privateLane ? (
+            <Pressable
+              testID={`message-turn-${item.id}`}
+              className="max-w-[85%]"
+              delayLongPress={300}
+              // A screen reader reaches the same action from its actions
+              // menu, without the long press.
+              accessibilityActions={[{ name: 'adjustPlan', label: t(PRIVATE_LANE_KEYS.adjustFromMessage) }]}
+              onAccessibilityAction={(event) => {
+                if (event.nativeEvent.actionName === 'adjustPlan') privateLane.onAdjustFrom(item);
+              }}
+              onLongPress={() =>
+                presentMessageMenu(
+                  {
+                    canRetry: false,
+                    fromModel: false,
+                    rating: null,
+                    onCopy: () => handleCopyMessage(item.content),
+                    onAdjustPlan: () => privateLane.onAdjustFrom(item),
+                  },
+                  t,
+                )
+              }
+            >
+              {bubble}
+            </Pressable>
+          ) : (
+            bubble
+          )}
           {time}
         </View>
       );
@@ -791,7 +880,14 @@ export function MessageList({
     const blocks = transcriptBlocks(item, rows);
     const sceneBlock = blocks.find((block) => block.type === 'scene');
     const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
-    const context = { isUser: false, messageId: item.id, scenes, rows };
+    const context = {
+      isUser: false,
+      messageId: item.id,
+      scenes,
+      rows,
+      planConversationId: conversationId,
+      audience: 'room' as const,
+    };
     return (
       <View testID="room-entry-coach" className={`${spacing} w-full`}>
         {groupStart ? (
@@ -801,6 +897,117 @@ export function MessageList({
         ) : null}
         {blocks.map((block, index) => renderBlock(block, index, context))}
         {time}
+      </View>
+    );
+  };
+
+  /** The lock every private mark carries, in the private accent's ink. */
+  const privateLock = () => <Ionicons name="lock-closed" size={12} color={colors.ink.warning} />;
+  /** What a screen reader hears for a private row: only the coach and the agent see it. */
+  const privateSpoken = () => t(PRIVATE_LANE_KEYS.bubbleAria, { agent: privateLane?.agentName ?? t('app.aiAgent') });
+
+  /** "Only you" over the agent's private reply, spoken as only the coach and the agent seeing it. */
+  const renderPrivateReplyTag = () => (
+    <View
+      className="mb-1 flex-row items-center self-start"
+      accessible
+      accessibilityLabel={privateSpoken()}
+      testID="private-reply-tag"
+    >
+      {privateLock()}
+      <Text className="ml-1 text-xs font-medium text-on-warning-container">{t(PRIVATE_LANE_KEYS.replyTag)}</Text>
+    </View>
+  );
+
+  /**
+   * A row of a coach's private lane (carnet#1249): their work thread with the
+   * agent about the room's one athlete, drawn in the room it concerns. Nobody
+   * else reads it, and each row says so — the coach's bubble dashed in the
+   * private accent with a lock, the agent's reply under "Only you", both
+   * spoken as only the coach and the agent seeing it.
+   *
+   * A private reply's plan card acts on the work thread's draft. Rating,
+   * share, retry and the verdict sheet read and write the room conversation,
+   * whose rows these are not, so a long press offers copy alone and the reply
+   * draws no verdict chip; Group info's view of the work thread has them all.
+   */
+  const renderPrivateRow = (item: Message, groupStart: boolean, clock: string) => {
+    const spacingClass = groupStart ? 'mt-3' : 'mt-1';
+
+    if (item.role === 'user') {
+      return (
+        <View testID="private-row-user" className={`${spacingClass} items-end`}>
+          <View
+            className="max-w-[85%] rounded-[18px] rounded-br-[4px] px-3 py-2 border border-dashed border-warning/60 bg-warning/5"
+            testID="private-bubble"
+          >
+            {/* The athlete's room line the coach adjusted the plan from, as the server copied it. */}
+            {item.quote ? (
+              <View className="mb-1.5 border-l-2 border-warning/60 pl-2" testID="private-row-quote">
+                <Text className="text-xs font-medium text-on-warning-container">
+                  {t(PRIVATE_LANE_KEYS.quoteChip, { name: item.quote.author_display_name })}
+                </Text>
+                <Text className="text-sm text-text-secondary" numberOfLines={2}>
+                  {item.quote.content}
+                </Text>
+              </View>
+            ) : null}
+            <Text className="text-base leading-6 text-text-primary">{item.content}</Text>
+            <View className="mt-1 flex-row items-center justify-end">
+              {clock ? (
+                <Text className="text-xs text-on-warning-container" testID="message-time">
+                  {clock}
+                </Text>
+              ) : null}
+              <View
+                className="ml-1"
+                accessible
+                accessibilityLabel={privateSpoken()}
+                testID="private-bubble-lock"
+              >
+                {privateLock()}
+              </View>
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    const foldedTrail = turnTrails?.get(item.id);
+    const blocks = (messageBlocks?.[item.id] ?? transcriptBlocks(item)).filter((block) => block.type !== 'verdicts');
+    const sceneBlock = blocks.find((block) => block.type === 'scene');
+    const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
+    const context = {
+      isUser: false,
+      messageId: item.id,
+      scenes,
+      rows: [],
+      planConversationId: privateLane?.conversationId ?? null,
+      audience: 'private' as const,
+    };
+    const readableCopy = copyableText(item.content, scenes, t);
+    return (
+      <View testID="private-row-reply" className={spacingClass}>
+        {foldedTrail ? <FoldedTurnTrail trail={foldedTrail} /> : null}
+        {renderPrivateReplyTag()}
+        <Pressable
+          testID={`message-turn-${item.id}`}
+          className="w-full"
+          delayLongPress={300}
+          onLongPress={() =>
+            presentMessageMenu(
+              { canRetry: false, fromModel: false, rating: null, onCopy: () => handleCopyMessage(readableCopy) },
+              t,
+            )
+          }
+        >
+          {blocks.map((block, index) => renderBlock(block, index, context))}
+          {clock ? (
+            <Text className="text-xs text-text-tertiary mt-1" testID="message-time">
+              {clock}
+            </Text>
+          ) : null}
+        </Pressable>
       </View>
     );
   };
@@ -816,6 +1023,9 @@ export function MessageList({
     if (item.room && (!item.room.own || item.room.speaker === 'correction')) {
       return renderRoomRow(item, item.room, groupStart, clock);
     }
+    if (audienceOf(item) === 'private') {
+      return renderPrivateRow(item, groupStart, clock);
+    }
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
@@ -828,7 +1038,14 @@ export function MessageList({
     const blocks = streamed ? withVerdictRows(streamed, rows) : transcriptBlocks(item, rows);
     const sceneBlock = blocks.find((block) => block.type === 'scene');
     const scenes = sceneBlock?.type === 'scene' ? parseSceneBlocks(sceneBlock.scene_blocks) : [];
-    const context = { isUser, messageId: item.id, scenes, rows };
+    const context = {
+      isUser,
+      messageId: item.id,
+      scenes,
+      rows,
+      planConversationId: conversationId,
+      audience: 'room' as const,
+    };
     // What copy and share hand out. The reply's own text carries the ⟦viz:N⟧
     // markers this surface turns into charts; pasted anywhere else they are a
     // token that means nothing, so each becomes a line naming its chart.
@@ -947,9 +1164,14 @@ export function MessageList({
    * break the run they belong to. Both decisions read `created_at`, which an
    * optimistic row carries from the moment it was typed.
    */
+  const privateAgent = privateLane?.agentName ?? null;
   const rows = useMemo<ChatRow[]>(() => {
     const out: ChatRow[] = [];
     let previous: Message | null = null;
+    // The row before, whatever divides the two: a stretch of a coach's
+    // private rows opens after a row the room reads, wherever a day or a
+    // topic falls between them.
+    let previousShown: Message | null = null;
     let previousDay = '';
     for (const message of filterDisplayMessages(messages ?? [])) {
       if (!message?.id) continue;
@@ -980,6 +1202,15 @@ export function MessageList({
         previous = null;
         continue;
       }
+      // "Only you and <agent> see what follows" over each stretch of a
+      // coach's private rows (carnet#1249).
+      if (opensPrivateStretch(previousShown, message)) {
+        out.push({
+          kind: 'private',
+          key: `private-${message.id}`,
+          label: t(PRIVATE_LANE_KEYS.divider, { agent: privateAgent ?? t('app.aiAgent') }),
+        });
+      }
       out.push({
         kind: 'message',
         key: message.id,
@@ -987,9 +1218,10 @@ export function MessageList({
         groupStart: previous === null || !isSameMessageGroup(previous, message),
       });
       previous = message;
+      previousShown = message;
     }
     return out;
-  }, [messages, language, t]);
+  }, [messages, language, t, privateAgent]);
 
   // A new last row is followed to the bottom. A window read back lands at the
   // top, and from then on the reader stays where they are reading — a chart
@@ -1011,6 +1243,8 @@ export function MessageList({
         return <DaySeparator label={item.label} />;
       case 'topic':
         return <TopicDivider label={item.label} time={item.time} />;
+      case 'private':
+        return <PrivateLaneDivider label={item.label} />;
       case 'message':
         return renderMessage(item.message, item.groupStart);
     }
@@ -1105,6 +1339,8 @@ export function MessageList({
     streamingContent ? (
       <View>
         <View className="mt-3 mb-2" testID="streaming-reply">
+          {/* A coach's private turn says so while it writes, as its reply will once it lands. */}
+          {privateLane?.turnLive ? renderPrivateReplyTag() : null}
           {renderProse(streamingContent, [], 0)}
         </View>
         {renderThinkingIndicator()}

@@ -789,6 +789,7 @@ async fn an_answer_built_on_a_recovery_read_is_reported_grounded() -> Result<()>
             content: "How is my recovery this week?".to_owned(),
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
+            quote: None,
             channel_type: "web",
             transport: Transport::WebApp,
             is_direct_message: true,

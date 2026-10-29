@@ -272,6 +272,8 @@ pub use user_mcp_token::{
 
 // Chat conversation and message record types
 mod conversation;
+// A coach's quote of their athlete's group-room words (carnet#1249)
+mod room_quote;
 pub use conversation::{
     is_in_app_channel, is_turn_marker_block, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
@@ -283,6 +285,7 @@ pub use conversation::{
     STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE,
     TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
+pub use room_quote::{RoomQuote, ROOM_QUOTE_BLOCK_TYPE};
 
 // API key types for authentication and rate limiting
 mod api_key;

@@ -41,6 +41,7 @@ use super::dto::{
     preview_text, resolve_stored_blocks, AwaitingReply, MessageFeedbackEntry, MessageResponse,
     MessagesListResponse, TopicResponse, TopicsListResponse,
 };
+use super::room_quote::quote_reading;
 
 /// Messages served when the caller names no window size.
 const DEFAULT_MESSAGE_LIMIT: i64 = 100;
@@ -82,7 +83,8 @@ pub(super) async fn get_messages(
     let chat = resources.common.repos.chat.as_ref();
 
     // Verify the caller participates in this conversation
-    chat.get_conversation(&conversation_id, &user_id_str, tenant_id)
+    let conversation = chat
+        .get_conversation(&conversation_id, &user_id_str, tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
@@ -113,11 +115,15 @@ pub(super) async fn get_messages(
     // weeks ago should not relabel its axis because the athlete's last message
     // happened to be in another language.
     let locale = resolve_user_locale(resources.common.repos.users.as_ref(), auth.user_id).await;
+    // A quoted athlete's words show only while the room would show them to
+    // the caller (carnet#1249).
+    let quotes = quote_reading(&resources.common.repos, &conversation, auth.user_id).await;
 
     let messages_list: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| {
             let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), &locale);
+            let quote = quotes.quote_of(&m);
             MessageResponse {
                 id: m.id,
                 role: m.role,
@@ -127,27 +133,14 @@ pub(super) async fn get_messages(
                 finish_reason: m.finish_reason,
                 actions: blocks.actions,
                 channel_type: m.channel_type,
+                quote,
                 created_at: m.created_at,
             }
         })
         .collect();
 
     if before.is_none() {
-        match chat
-            .mark_conversation_read(&conversation_id, &user_id_str, tenant_id, None)
-            .await
-        {
-            Ok(true) => {}
-            Ok(false) => tracing::warn!(
-                conversation_id = %conversation_id,
-                "read marker did not advance for a participant who just read the thread"
-            ),
-            Err(e) => tracing::warn!(
-                conversation_id = %conversation_id,
-                error = %e,
-                "read marker could not advance after the thread was read"
-            ),
-        }
+        mark_read(chat, &conversation_id, &user_id_str, tenant_id).await;
     }
 
     // The caller's own thumbs up/down feedback for this conversation, so the
@@ -181,6 +174,31 @@ pub(super) async fn get_messages(
     };
 
     Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// Advance the caller's read marker to the thread's newest turn, logging a
+/// marker that did not move: best-effort, as [`get_messages`] says.
+async fn mark_read(
+    chat: &dyn ChatRepository,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+) {
+    match chat
+        .mark_conversation_read(conversation_id, user_id, tenant_id, None)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => tracing::warn!(
+            conversation_id = %conversation_id,
+            "read marker did not advance for a participant who just read the thread"
+        ),
+        Err(e) => tracing::warn!(
+            conversation_id = %conversation_id,
+            error = %e,
+            "read marker could not advance after the thread was read"
+        ),
+    }
 }
 
 /// The caller's question a turn is still working on, if any.

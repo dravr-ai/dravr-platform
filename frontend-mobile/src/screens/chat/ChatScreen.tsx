@@ -35,6 +35,8 @@ import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
 import { useProviderConnected } from '../../hooks/useHome';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
+import { useGroup } from '../../hooks/useGroups';
+import { usePrivateLane } from '../../hooks/usePrivateLane';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { useConversations } from './useConversations';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -45,7 +47,7 @@ import { useTranslation } from '@pierre/i18n';
 
 export function ChatScreen() {
   const { t, language } = useTranslation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   // The native header sits above this screen, so the keyboard-avoiding column
   // offsets by its height on iOS, where `padding` measures from the window.
   const headerHeight = useHeaderHeight();
@@ -74,6 +76,19 @@ export function ChatScreen() {
   const personalThread = conversations.currentConversation?.personal ? conversations.currentConversation : null;
   const { coach: boundAgent } = useCoachInfo(personalThread?.agent_id ?? null);
   const agentTitle = boundAgent?.title ?? null;
+  // A group thread's group, as the server answers this viewer: to its coach,
+  // in a room of one athlete, it names that athlete, and the composer then
+  // offers the Everyone / Only <agent> switch (carnet#1249). One lane per
+  // room screen; the thread draws it and routes its sends.
+  const roomGroupId = conversations.currentConversation?.group_id ?? null;
+  const { group: readGroup } = useGroup(roomGroupId ?? '');
+  const roomGroup = roomGroupId !== null && readGroup?.id === roomGroupId ? readGroup : null;
+  const privateLane = usePrivateLane({
+    group: roomGroup,
+    viewerId: user?.id ?? null,
+    conversations: conversations.conversations,
+  });
+  const roomAgentName = roomGroup?.agent_title ?? t('app.aiAgent');
   const messagesHook = useMessages();
   const providerStatus = useProviderStatus();
   // The header's fallback line reads the status the reconnect banner under it
@@ -455,6 +470,7 @@ export function ChatScreen() {
           sendText={sendText}
           composerOrigin={draftSeeded ? 'draft' : undefined}
           starters={starters}
+          privateLane={{ lane: privateLane, agentName: roomAgentName }}
         />
 
         <PromptDialog

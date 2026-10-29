@@ -2,17 +2,26 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: One conversation's transcript and composer — the part of a thread every chat surface on the phone shares
-// ABOUTME: The chat screen and an activity's view both mount it; each decides which conversation it is and how a turn opens one
+// ABOUTME: The chat screen and an activity's view both mount it; in a coach's one-athlete room it also routes the private lane
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Keyboard, Text, TextInput, TouchableOpacity } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useTranslation } from '@pierre/i18n';
-import { trustedActionUrl, verdictSupportReference } from '@pierre/chat-utils';
+import {
+  composeRoomThread,
+  PRIVATE_LANE_KEYS,
+  privateLaneComposerText,
+  trustedActionUrl,
+  verdictSupportReference,
+} from '@pierre/chat-utils';
 import { intervalsConnectPath, noticeRequired } from '@pierre/shared-constants';
+import { privateSendFailureText, type UsePrivateLaneResult } from '@pierre/ui-logic';
 import type {
   ChatMessageAction,
   ClaimVerdict,
+  Message,
+  MessageAudience,
   MessageOrigin,
   TurnSendOptions,
   UseCaseStarter,
@@ -23,8 +32,8 @@ import { IntervalsIcuLinkModal } from '../../components/IntervalsIcuLinkModal';
 import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { ProviderNoticeSheet } from '../../components/ProviderNotice';
 import { openExternal } from '../../utils/openExternal';
-import { ChatInputBar } from './ChatInputBar';
-import { MessageList } from './MessageList';
+import { ChatInputBar, type ComposerAudience, type ComposerQuote } from './ChatInputBar';
+import { MessageList, type MessageListPrivateLane } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import { useChatVoiceInput } from './useChatVoiceInput';
@@ -71,7 +80,16 @@ export interface ChatThreadProps {
    * out gets no conversation section there.
    */
   conversationTitle?: string;
+  /**
+   * A coach's private lane in the one-athlete room on screen (carnet#1249) —
+   * the host's one `usePrivateLane` — with the room's agent as it is named.
+   * Absent in every other thread; a lane that is not `available` draws nothing.
+   */
+  privateLane?: { lane: UsePrivateLaneResult; agentName: string } | null;
 }
+
+/** Nothing private to draw. */
+const NO_PRIVATE_ROWS: readonly Message[] = [];
 
 /**
  * A thread: the transcript, the progress line, the usage banner and the
@@ -96,8 +114,23 @@ export function ChatThread({
   starters,
   onScrollToBottom,
   conversationTitle,
+  privateLane = null,
 }: ChatThreadProps) {
   const { t } = useTranslation();
+  // The lane while it exists: the viewer is the group's coach and the room
+  // holds one athlete. Everything private below hangs off this one value.
+  const lane = privateLane?.lane.available && privateLane.lane.athlete ? privateLane.lane : null;
+  const agentName = privateLane?.agentName ?? '';
+  const athleteName = lane?.athlete?.display_name ?? '';
+  const sendsPrivately = lane?.audience === 'private';
+  // What the last private send came to, when it failed: said over the composer.
+  const [privateFailure, setPrivateFailure] = useState<string | null>(null);
+  // The composer's text as of the last render, so a refused private send puts
+  // its words back only into a field the coach has not typed in since.
+  const inputTextRef = useRef(inputText);
+  useEffect(() => {
+    inputTextRef.current = inputText;
+  }, [inputText]);
   // The message whose verdicts the sheet shows, or `null` while it is closed.
   const [verdictMessageId, setVerdictMessageId] = useState<string | null>(null);
   // The provider whose notice is on screen before a reconnect starts its
@@ -178,14 +211,43 @@ export function ChatThread({
     await openExternal(url, t);
   }, [t]);
 
+  /**
+   * One of the coach's private turns, to their work thread about the room's
+   * athlete (carnet#1249). The lane carries the quote and writes the rows;
+   * the thread draws the turn live. A send the server refused before any turn
+   * ran stored nothing, so typed words go back in the composer when the coach
+   * has not typed since; every failure is said over the composer.
+   */
+  const sendPrivate = useCallback(
+    async (text: string, options: TurnSendOptions, restoreOnRefusal: boolean) => {
+      if (!lane) return;
+      setPrivateFailure(null);
+      const outcome = await messagesHook.sendPrivateTurn(lane.send, text, options);
+      if (outcome.kind !== 'failed') return;
+      if (outcome.refused && restoreOnRefusal && inputTextRef.current.trim() === '') {
+        onChangeInputText(text);
+      }
+      setPrivateFailure(privateSendFailureText(outcome.error, { t, athleteName }));
+    },
+    [lane, messagesHook, onChangeInputText, t, athleteName],
+  );
+
   const handleSendMessage = useCallback(async () => {
     const messageText = inputText.trim();
     if (!messageText) return;
     onChangeInputText('');
-    await sendText(messageText, {
+    setPrivateFailure(null);
+    const options: TurnSendOptions = {
       origin: composerOrigin ?? (threadDrafted ? 'draft' : undefined),
-    });
-  }, [inputText, onChangeInputText, sendText, composerOrigin, threadDrafted]);
+    };
+    // The switch decides where the line goes: "Only <agent>" reaches the
+    // coach's work thread and never the room.
+    if (sendsPrivately) {
+      await sendPrivate(messageText, options, true);
+      return;
+    }
+    await sendText(messageText, options);
+  }, [inputText, onChangeInputText, sendText, composerOrigin, threadDrafted, sendsPrivately, sendPrivate]);
 
   /**
    * Press handler for a control the reply's `actions` block carried.
@@ -200,9 +262,13 @@ export function ChatThread({
    * vouches for the host: the value reaches the client inside a
    * model-adjacent reply, so an unvouched address is an open redirect wearing
    * a button. A refused URL opens nothing.
+   *
+   * A control on a coach's private reply answers in private: posted to the
+   * room, it would put the coach's draft in front of the athlete. With no
+   * lane to answer in, it sends nothing.
    */
   const handleActionClick = useCallback(
-    async (action: ChatMessageAction) => {
+    async (action: ChatMessageAction, audience: MessageAudience = 'room') => {
       if (action.action_type === 'url') {
         const target = trustedActionUrl(action.value, [
           process.env.EXPO_PUBLIC_API_URL ?? '',
@@ -210,12 +276,14 @@ export function ChatThread({
         if (target) await handleOpenUrl(target);
         return;
       }
-      await sendText(
-        action.value,
-        action.value.startsWith('/') ? undefined : { display: action.label },
-      );
+      const options = action.value.startsWith('/') ? undefined : { display: action.label };
+      if (audience === 'private') {
+        await sendPrivate(action.value, options ?? {}, false);
+        return;
+      }
+      await sendText(action.value, options);
     },
-    [handleOpenUrl, sendText],
+    [handleOpenUrl, sendText, sendPrivate],
   );
 
   // Retry, and the feedback handlers, name the open conversation so the hook
@@ -324,6 +392,72 @@ export function ChatThread({
     void providerStatus.loadProviderStatus();
   }, [providerStatus]);
 
+  // The room with the coach's private rows woven in, in time order. They are
+  // drawn here and never join the thread's own rows: a retry, the read marker
+  // and the lost-turn note act on those, and a private line taken for one of
+  // them would be said to the room.
+  const privateRows = lane?.rows ?? NO_PRIVATE_ROWS;
+  const threadMessages = useMemo(
+    () =>
+      privateRows.length > 0 ? composeRoomThread(messagesHook.messages, [], privateRows) : messagesHook.messages,
+    [messagesHook.messages, privateRows],
+  );
+
+  // A private reply the server is still writing that no send here streams —
+  // the app reopened mid-turn — runs the indicator and the stop button too.
+  const privateAwaiting = Boolean(lane?.awaitingReply) && !messagesHook.isSending;
+  const turnRunning = messagesHook.turnInFlight || privateAwaiting;
+  const laneConversationId = lane?.conversationId ?? null;
+  const { privateTurnInFlight, turnInFlight, stopTurn, stopPrivateTurn } = messagesHook;
+  const handleStopTurn = useCallback(() => {
+    const stopsPrivate = privateTurnInFlight || (!turnInFlight && privateAwaiting);
+    if (stopsPrivate) {
+      // Before the lane has opened the work thread there is no turn to stop yet.
+      if (laneConversationId) void stopPrivateTurn(laneConversationId);
+      return;
+    }
+    void stopTurn();
+  }, [privateTurnInFlight, turnInFlight, privateAwaiting, laneConversationId, stopPrivateTurn, stopTurn]);
+
+  const handleAdjustFrom = useCallback(
+    (row: Message) => {
+      if (lane?.adjustFrom(row)) {
+        setPrivateFailure(null);
+        inputRef.current?.focus();
+      }
+    },
+    [lane, inputRef],
+  );
+
+  const listLane: MessageListPrivateLane | undefined = lane
+    ? {
+        conversationId: lane.conversationId,
+        agentName,
+        canAdjustFrom: lane.canAdjustFrom,
+        onAdjustFrom: handleAdjustFrom,
+        turnLive: privateTurnInFlight,
+      }
+    : undefined;
+  const composerAudience: ComposerAudience | undefined = lane
+    ? {
+        value: lane.audience,
+        text: privateLaneComposerText(lane.audience, { agent: agentName, athlete: athleteName }, t),
+        onToggle: () => {
+          setPrivateFailure(null);
+          lane.toggleAudience();
+        },
+      }
+    : undefined;
+  // The quote rides a private send only, so the chip shows only while the
+  // next send is private: the composer shows what the next send carries.
+  const composerQuote: ComposerQuote | null = lane?.quote && sendsPrivately
+    ? {
+        label: t(PRIVATE_LANE_KEYS.quoteChip, { name: lane.quote.author_display_name }),
+        removeLabel: t(PRIVATE_LANE_KEYS.quoteRemove),
+        onRemove: lane.removeQuote,
+      }
+    : null;
+
   return (
     <>
       <VerdictSheet
@@ -338,9 +472,9 @@ export function ChatThread({
 
       <MessageList
         conversationId={conversationId}
-        messages={messagesHook.messages}
+        messages={threadMessages}
         isLoading={isLoading}
-        isSending={messagesHook.turnInFlight}
+        isSending={turnRunning}
         liveTrail={messagesHook.liveTrail}
         streamingContent={messagesHook.streamingContent}
         awaitingSince={messagesHook.awaitingSince}
@@ -365,23 +499,37 @@ export function ChatThread({
         hasEarlier={messagesHook.hasEarlier}
         loadingEarlier={messagesHook.loadingEarlier}
         onReachStart={() => void messagesHook.loadEarlier()}
+        privateLane={listLane}
       />
 
       <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+
+      {privateFailure ? (
+        <Text
+          testID="private-send-failed"
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          className="px-4 pt-2 text-sm text-error"
+        >
+          {privateFailure}
+        </Text>
+      ) : null}
 
       <ChatInputBar
         inputText={inputText}
         partialTranscript={voiceInput.partialTranscript}
         isListening={voiceInput.isListening}
-        isSending={messagesHook.turnInFlight}
+        isSending={turnRunning}
         isStopping={messagesHook.isStopping}
-        onStopTurn={() => void messagesHook.stopTurn()}
+        onStopTurn={handleStopTurn}
         disabled={usageStatus.sendDisabled}
         voiceAvailable={voiceInput.isAvailable}
         inputRef={inputRef}
         onChangeText={onChangeInputText}
         onVoicePress={voiceInput.handleVoicePress}
         onSendMessage={handleSendMessage}
+        audience={composerAudience}
+        quote={composerQuote}
       />
 
       {/* A reply asked for provider credentials the app does not hold yet. */}

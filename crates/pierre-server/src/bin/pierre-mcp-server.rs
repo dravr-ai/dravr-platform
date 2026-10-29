@@ -775,13 +775,11 @@ fn spawn_background_workers(resources_instance: ServerContext) -> Arc<ServerCont
     // delivery ledger carry its schedule across restarts.
     #[cfg(feature = "client-groups")]
     {
-        #[cfg(feature = "client-messaging")]
-        use pierre_mcp_server::services::group_chat_poster::ServerGroupChatPoster;
         use pierre_routes_groups::group_digest_scheduler::start_digest_scheduler;
+        // The context's own poster: every post into a group's chat goes out
+        // through the one the publish path uses.
         #[cfg(feature = "client-messaging")]
-        let poster = Some(ServerGroupChatPoster::from_repos(Arc::clone(
-            &resources.common.repos,
-        )));
+        let poster = Some(Arc::clone(&resources.mcp.group_chat_poster));
         #[cfg(not(feature = "client-messaging"))]
         let poster = None;
         start_digest_scheduler(

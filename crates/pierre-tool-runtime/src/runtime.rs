@@ -43,6 +43,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
+use pierre_services::group_chat_poster::GroupChatPoster;
 
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -241,6 +242,15 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// `ToolRuntime` impls (and test fakes) keep compiling unchanged; the
     /// production `ServerContext` overrides it once the push lands.
     fn backfill_notifier(&self) -> Option<&Arc<dyn BackfillNotifier>> {
+        None
+    }
+
+    /// Optional seam into a group's own bound Telegram, Slack or Discord
+    /// chat, through which a coach's plan publish leaves its room post there
+    /// too (carnet#1249). Defaults to `None` — a build without messaging has
+    /// no chat to post into, and the post stays in the group's room
+    /// transcript; the production `ServerContext` overrides it.
+    fn group_chat_poster(&self) -> Option<&Arc<dyn GroupChatPoster>> {
         None
     }
 

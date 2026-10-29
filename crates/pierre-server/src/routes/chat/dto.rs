@@ -10,7 +10,7 @@ use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
     is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
-    ParticipantRole, PersistedReplyBlock, ACTIONS_BLOCK_TYPE,
+    ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
 };
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
@@ -36,7 +36,8 @@ pub(super) struct StoredBlocks {
 /// sitting in history without a migration), and the controls a slash-command
 /// reply carried, which are partitioned out first — photograveur must never be
 /// handed a `{"type":"actions"}` entry as if it were a chart. A third kind,
-/// the turn markers, is dropped outright.
+/// the turn markers, is dropped outright, and so is a question's room quote,
+/// which the client reads from its own field ([`MessageResponse::quote`]).
 ///
 /// A visual that fails to resolve is dropped and logged rather than failing
 /// the message: one malformed chart must never cost the athlete the reply
@@ -49,10 +50,14 @@ pub(super) fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> Store
     };
     let block_type = |entry: &Value| entry.get("type").and_then(Value::as_str).map(str::to_owned);
     // Turn markers — who wrote a question, which question a stopped notice
-    // closed — are bookkeeping about the row and reach no client.
+    // closed — are bookkeeping about the row and reach no client here; a room
+    // quote is no chart either.
     let (actions, specs): (Vec<Value>, Vec<Value>) = entries
         .into_iter()
-        .filter(|entry| !block_type(entry).is_some_and(|kind| is_turn_marker_block(&kind)))
+        .filter(|entry| {
+            !block_type(entry)
+                .is_some_and(|kind| is_turn_marker_block(&kind) || kind == ROOM_QUOTE_BLOCK_TYPE)
+        })
         .partition(|entry| block_type(entry).as_deref() == Some(ACTIONS_BLOCK_TYPE));
     StoredBlocks {
         scene_blocks: resolve_visual_specs(&specs, locale),
@@ -112,7 +117,11 @@ fn decode_actions_entry(entry: Value) -> Option<MessageActionsResponse> {
         }),
         // Filtered out before the partition; an entry typed `actions` cannot
         // decode as one.
-        Ok(PersistedReplyBlock::TurnAuthor { .. } | PersistedReplyBlock::TurnStop { .. }) => None,
+        Ok(
+            PersistedReplyBlock::TurnAuthor { .. }
+            | PersistedReplyBlock::TurnStop { .. }
+            | PersistedReplyBlock::RoomQuote(_),
+        ) => None,
         Err(e) => {
             warn!(error = %e, "scene-blocks: stored actions entry is malformed; omitting it");
             None
@@ -357,6 +366,11 @@ pub(super) struct PublishedSubjectPlanResponse {
     pub superseded_plan_id: Option<String>,
     /// Whether the athlete was sent a notice of the publish.
     pub athlete_notified: bool,
+    /// Whether a line naming the days the publish changed was posted in the
+    /// group room the thread acts under (carnet#1249): `false` when the
+    /// publish changed no day, or the room is not the coach's and the
+    /// athlete's alone.
+    pub posted_in_room: bool,
 }
 
 /// `POST …/subject-plan/publish` answered 409: the athlete's plan moved
@@ -559,6 +573,13 @@ pub struct SendMessageRequest {
     /// (carnet#828).
     #[serde(default)]
     pub origin: ClientInputSource,
+    /// The id of a group room entry the message quotes — a coach's
+    /// "Adjust plan from this" on their athlete's message (carnet#1249).
+    /// Accepted only in the caller's own thread about that athlete, for an
+    /// entry the athlete wrote in the thread's group and the caller may read;
+    /// the server copies the words from the room, never from the client.
+    #[serde(default)]
+    pub quote_entry_id: Option<String>,
 }
 
 /// How a client says the athlete produced a message (carnet#828).
@@ -627,8 +648,40 @@ pub struct MessageResponse {
     /// Absent for a row no turn wrote.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_type: Option<String>,
+    /// The athlete's room words a coach's question quotes (carnet#1249), as
+    /// the server copied them from the room when the question was sent.
+    /// Absent on every other row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quote: Option<RoomQuoteResponse>,
     /// Creation timestamp
     pub created_at: String,
+}
+
+/// An athlete's group-room message, quoted by their coach.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomQuoteResponse {
+    /// The room transcript entry quoted — the `id` the room read returns.
+    pub entry_id: String,
+    /// The athlete who wrote it.
+    pub author_user_id: String,
+    /// The athlete's roster name when it was quoted.
+    pub author_display_name: String,
+    /// The athlete's words.
+    pub content: String,
+    /// When the athlete wrote them (RFC 3339).
+    pub created_at: String,
+}
+
+impl From<RoomQuote> for RoomQuoteResponse {
+    fn from(quote: RoomQuote) -> Self {
+        Self {
+            entry_id: quote.entry_id,
+            author_user_id: quote.author_user_id,
+            author_display_name: quote.author_display_name,
+            content: quote.content,
+            created_at: quote.created_at,
+        }
+    }
 }
 
 /// The controls persisted with a command reply.

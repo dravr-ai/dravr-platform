@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Renders a group thread's room rows on mobile — another member's words, the agent's reply to them, a withheld placeholder
-// ABOUTME: Pins attribution by name, the placeholder text in place of a silent gap, and no menu on a row that is not the caller's
+// ABOUTME: Renders a group thread's room rows on mobile — another member's words, the agent's reply, a withheld placeholder, a coach's private rows
+// ABOUTME: Pins attribution by name, the placeholder in place of a silent gap, no menu on a row that is not the caller's, and the private lane's marks
 
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { composeRoomThread } from '@pierre/chat-utils';
-import type { GroupTranscriptEntry } from '@pierre/shared-types';
+import type { ChatMessageAction, GroupTranscriptEntry, ReplyBlock } from '@pierre/shared-types';
 
 jest.mock('@expo/vector-icons', () => {
   const View = require('react-native').View;
@@ -24,7 +24,7 @@ jest.mock('../src/screens/chat/presentMessageMenu', () => ({
   presentMessageMenu: jest.fn(),
 }));
 
-import { MessageList } from '../src/screens/chat/MessageList';
+import { MessageList, type MessageListPrivateLane } from '../src/screens/chat/MessageList';
 import { presentMessageMenu } from '../src/screens/chat/presentMessageMenu';
 import type { Message } from '../src/types';
 
@@ -80,7 +80,14 @@ const ROOM: GroupTranscriptEntry[] = [
   },
 ];
 
-function renderThread(messages: Message[]) {
+function renderThread(
+  messages: Message[],
+  extra: {
+    privateLane?: MessageListPrivateLane;
+    messageBlocks?: Record<string, ReplyBlock[]>;
+    onActionClick?: (action: ChatMessageAction, audience: 'room' | 'private') => void;
+  } = {},
+) {
   return render(
     <MessageList
       messages={messages}
@@ -88,6 +95,7 @@ function renderThread(messages: Message[]) {
       isSending={false}
       messageFeedback={{}}
       messageFeedbackComment={{}}
+      messageBlocks={extra.messageBlocks}
       flatListRef={React.createRef()}
       onScrollToBottom={jest.fn()}
       onThumbsUp={jest.fn()}
@@ -96,8 +104,56 @@ function renderThread(messages: Message[]) {
       onRetryMessage={jest.fn()}
       onOpenUrl={jest.fn()}
       onReconnectProvider={jest.fn()}
+      onActionClick={extra.onActionClick}
+      privateLane={extra.privateLane}
     />,
   );
+}
+
+/**
+ * The coach's work thread about J-D, the room's one athlete (carnet#1249):
+ * a question quoting J-D's room line and the agent's reply, then — after J-D
+ * speaks again in the room — a second question.
+ */
+const PRIVATE: Message[] = [
+  {
+    id: 'w1',
+    role: 'user',
+    content: 'Make Saturday easy instead.',
+    created_at: '2026-09-14T11:10:00Z',
+    quote: {
+      entry_id: 't2',
+      author_user_id: 'user-jd',
+      author_display_name: 'J-D',
+      content: '@coach is Saturday a tempo?',
+      created_at: '2026-09-14T11:00:00Z',
+    },
+  },
+  { id: 'w2', role: 'assistant', content: 'Done. Saturday is now easy.', created_at: '2026-09-14T11:10:05Z' },
+  { id: 'w3', role: 'user', content: 'And Sunday?', created_at: '2026-09-14T11:30:00Z' },
+];
+
+const LATER_ROOM_LINE: GroupTranscriptEntry = {
+  id: 't5',
+  speaker: 'member',
+  withheld: false,
+  own: false,
+  author_user_id: 'user-jd',
+  author_display_name: 'J-D',
+  content: 'Thanks!',
+  message_id: 'jd-3',
+  created_at: '2026-09-14T11:20:00Z',
+};
+
+function lane(overrides: Partial<MessageListPrivateLane> = {}): MessageListPrivateLane {
+  return {
+    conversationId: 'conv-work-jd',
+    agentName: 'Dravr',
+    canAdjustFrom: (row) => row.room?.speaker === 'member' && row.room.author_user_id === 'user-jd',
+    onAdjustFrom: jest.fn(),
+    turnLive: false,
+    ...overrides,
+  };
 }
 
 describe('MessageList group thread room', () => {
@@ -209,6 +265,138 @@ describe('MessageList group thread room', () => {
 
     expect(getByText('Correction from Camille, your human coach')).toBeTruthy();
     expect(queryByText("Your human coach's correction")).toBeNull();
+  });
+});
+
+// carnet#1249: a coach's private turns, drawn inline in the room they concern.
+describe('MessageList private lane in a one-athlete room', () => {
+  beforeEach(() => {
+    (presentMessageMenu as jest.Mock).mockClear();
+  });
+
+  it('draws the divider over each stretch of private rows, and never over a room row', () => {
+    // A short room, so every row of it is inside the list's first window.
+    const { getAllByTestId } = renderThread(composeRoomThread([], [ROOM[1], LATER_ROOM_LINE], PRIVATE), {
+      privateLane: lane(),
+    });
+
+    // Two stretches — w1 and w2, then w3 after J-D's later line — so two dividers.
+    const dividers = getAllByTestId('private-lane-divider');
+    expect(dividers).toHaveLength(2);
+    expect(dividers[0]).toHaveTextContent(/Only you and Dravr see what follows/);
+    expect(dividers[0].props.accessibilityLabel).toBe('Only you and Dravr see what follows');
+  });
+
+  it("dashes the coach's private bubble, shows the quote it carried, and says who can see it", () => {
+    const { getAllByTestId, getByText } = renderThread(composeRoomThread(OWN, ROOM, PRIVATE.slice(0, 2)), {
+      privateLane: lane(),
+    });
+
+    const bubble = getAllByTestId('private-bubble')[0];
+    expect(bubble.props.className).toContain('border-dashed');
+    expect(bubble.props.className).toContain('border-warning/60');
+    expect(getByText('Make Saturday easy instead.')).toBeTruthy();
+    expect(getAllByTestId('private-row-quote')[0]).toHaveTextContent(/From J-D's message/);
+    expect(getAllByTestId('private-bubble-lock')[0].props.accessibilityLabel).toBe(
+      'Only you and Dravr can see this message',
+    );
+  });
+
+  it('tags the agent\'s private reply "Only you", spoken as only the coach and the agent seeing it', () => {
+    const { getByTestId } = renderThread(composeRoomThread(OWN, ROOM, PRIVATE.slice(0, 2)), {
+      privateLane: lane(),
+    });
+
+    const tag = getByTestId('private-reply-tag');
+    expect(tag).toHaveTextContent('Only you');
+    expect(tag.props.accessibilityLabel).toBe('Only you and Dravr can see this message');
+    expect(getByTestId('private-row-reply')).toHaveTextContent(/Done\. Saturday is now easy\./);
+  });
+
+  it('offers copy alone on a private reply: rating and retry act on the room conversation', () => {
+    const { getByTestId } = renderThread(composeRoomThread(OWN, ROOM, PRIVATE.slice(0, 2)), {
+      privateLane: lane(),
+    });
+
+    fireEvent(getByTestId('message-turn-w2'), 'longPress');
+    const menu = presentMessageMenu as jest.Mock;
+    expect(menu).toHaveBeenCalledTimes(1);
+    const [options] = menu.mock.calls[0];
+    expect(options).toMatchObject({ fromModel: false, canRetry: false });
+    expect(options.onRate).toBeUndefined();
+    expect(options.onRetry).toBeUndefined();
+    expect(options.onAdjustPlan).toBeUndefined();
+  });
+
+  it('answers a control on a private reply in private', () => {
+    const onActionClick = jest.fn();
+    const keep: ChatMessageAction = { label: 'Keep Sunday', action_type: 'postback', value: 'ex:0:1' };
+    const { getByText } = renderThread(composeRoomThread(OWN, ROOM, PRIVATE.slice(0, 2)), {
+      privateLane: lane(),
+      onActionClick,
+      messageBlocks: { w2: [{ type: 'prose', text: 'Done.' }, { type: 'actions', actions: [keep] }] },
+    });
+
+    fireEvent.press(getByText('Keep Sunday'));
+    expect(onActionClick).toHaveBeenCalledWith(keep, 'private');
+  });
+
+  it('offers "Adjust plan from this" on the athlete\'s room line, and quotes that line', () => {
+    const onAdjustFrom = jest.fn();
+    const { getByTestId, queryByTestId } = renderThread(composeRoomThread(OWN, ROOM), {
+      privateLane: lane({ onAdjustFrom }),
+    });
+
+    // The agent's reply to the athlete offers no such thing.
+    expect(queryByTestId('message-turn-room-t3')).toBeNull();
+    fireEvent(getByTestId('message-turn-room-t2'), 'longPress');
+
+    const menu = presentMessageMenu as jest.Mock;
+    expect(menu).toHaveBeenCalledTimes(1);
+    const [options] = menu.mock.calls[0];
+    expect(options.fromModel).toBe(false);
+    options.onAdjustPlan();
+    expect(onAdjustFrom).toHaveBeenCalledTimes(1);
+    expect(onAdjustFrom.mock.calls[0][0]).toMatchObject({ id: 'room-t2', content: '@coach is Saturday a tempo?' });
+  });
+
+  it('reaches "Adjust plan from this" from a screen reader\'s actions too', () => {
+    const onAdjustFrom = jest.fn();
+    const { getByTestId } = renderThread(composeRoomThread(OWN, ROOM), { privateLane: lane({ onAdjustFrom }) });
+
+    const row = getByTestId('message-turn-room-t2');
+    expect(row.props.accessibilityActions).toEqual([{ name: 'adjustPlan', label: 'Adjust plan from this' }]);
+    fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'adjustPlan' } });
+    expect(onAdjustFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives a member\'s line no long press without a private lane', () => {
+    const { queryByTestId } = renderThread(composeRoomThread(OWN, ROOM));
+    expect(queryByTestId('message-turn-room-t2')).toBeNull();
+  });
+
+  it('streams a private turn\'s words under "Only you"', () => {
+    const { getByTestId } = render(
+      <MessageList
+        messages={composeRoomThread(OWN, ROOM, PRIVATE.slice(0, 1))}
+        isLoading={false}
+        isSending
+        streamingContent="Moving Saturday…"
+        messageFeedback={{}}
+        messageFeedbackComment={{}}
+        flatListRef={React.createRef()}
+        onScrollToBottom={jest.fn()}
+        onThumbsUp={jest.fn()}
+        onThumbsDown={jest.fn()}
+        onSubmitFeedbackReason={jest.fn()}
+        onRetryMessage={jest.fn()}
+        onOpenUrl={jest.fn()}
+        onReconnectProvider={jest.fn()}
+        privateLane={lane({ turnLive: true })}
+      />,
+    );
+
+    expect(getByTestId('streaming-reply')).toHaveTextContent(/Only you/);
   });
 });
 

@@ -6,6 +6,7 @@
 
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
+import type { MessageAudience } from '@pierre/shared-types';
 
 export type BubbleSide = 'user' | 'assistant';
 
@@ -25,6 +26,17 @@ interface MessageBubbleProps {
   actions?: ReactNode;
   /** What ended the turn — `command` for a slash reply; stamped for tests and styling. */
   finishReason?: string;
+  /**
+   * Who sees the row. `private` — a coach's turn with the agent alone in a
+   * room (carnet#1249) — draws the coach's bubble dashed in the private accent
+   * and the agent's words behind a dashed rule, so a private row never reads
+   * as one the room sees.
+   */
+  audience?: MessageAudience;
+  /** Beside the time on the author line — "Only you" on the agent's private reply. */
+  tag?: ReactNode;
+  /** What a screen reader hears the row as, beyond its words — who can see it. */
+  ariaLabel?: string;
   children: ReactNode;
 }
 
@@ -51,27 +63,43 @@ export default function MessageBubble({
   footer,
   actions,
   finishReason,
+  audience = 'room',
+  tag,
+  ariaLabel,
   children,
 }: MessageBubbleProps) {
+  const isPrivate = audience === 'private';
+  // A row that says who can see it is a named group to assistive tech; its
+  // words are still read inside it.
+  const named = ariaLabel ? { role: 'group' as const, 'aria-label': ariaLabel } : {};
+
   if (side === 'user') {
     return (
       <div
         data-testid="message-row"
         data-role="user"
+        data-audience={audience}
         data-group-start={groupStart ? 'true' : undefined}
         data-finish={finishReason}
         className={clsx('group flex min-w-0 justify-end', groupStart ? 'mt-4' : 'mt-1')}
+        {...named}
       >
         {/* The column spans the row so the bubble's percentage width bound
             is measured against the thread, not against the bubble itself: a
             shrink-wrapped column would cap each message at 85% of its own
             width and break a short word like `/season` mid-word. */}
         <div className="flex min-w-0 flex-1 flex-col items-end">
-          <div className="chat-bubble-user">
+          <div className={isPrivate ? 'chat-bubble-private' : 'chat-bubble-user'}>
             {children}
             {footer}
             {timestamp ? (
-              <div className="mt-1 text-right text-xs leading-none opacity-80" data-testid="message-time">
+              <div
+                className={clsx(
+                  'mt-1 text-right text-xs leading-none',
+                  isPrivate ? 'text-on-warning-container' : 'opacity-80',
+                )}
+                data-testid="message-time"
+              >
                 {timestamp}
               </div>
             ) : null}
@@ -89,15 +117,23 @@ export default function MessageBubble({
     <div
       data-testid="message-row"
       data-role="assistant"
+      data-audience={audience}
       data-group-start={groupStart ? 'true' : undefined}
       data-finish={finishReason}
       className={clsx('group flex min-w-0 justify-start gap-2.5', groupStart ? 'mt-5' : 'mt-2')}
+      {...named}
     >
       <div className="w-6 shrink-0 pt-px" aria-hidden={avatar ? undefined : 'true'}>
         {groupStart ? avatar : null}
       </div>
-      <div data-testid="message-column" className="flex min-w-0 max-w-[620px] flex-1 flex-col items-start">
-        {groupStart && (authorLabel || timestamp) ? (
+      <div
+        data-testid="message-column"
+        className={clsx(
+          'flex min-w-0 max-w-[620px] flex-1 flex-col items-start',
+          isPrivate && 'chat-column-private',
+        )}
+      >
+        {groupStart && (authorLabel || timestamp || tag) ? (
           <div className="mb-1 flex items-baseline gap-2">
             {authorLabel ? <span className="text-sm font-semibold text-on-surface">{authorLabel}</span> : null}
             {timestamp ? (
@@ -105,6 +141,7 @@ export default function MessageBubble({
                 {timestamp}
               </span>
             ) : null}
+            {tag}
           </div>
         ) : null}
         {/* The content spans the column rather than hugging its words: a rich

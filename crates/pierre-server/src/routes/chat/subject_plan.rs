@@ -46,13 +46,12 @@ use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
     publish_draft_live, DraftPublishOutcome,
 };
-use serde_json::json;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
 
-use super::common::get_tenant_id;
+use super::common::{get_tenant_id, refusal};
 use super::dto::{
     PlanPublishConflictResponse, PublishConflictDetails, PublishSubjectPlanRequest,
     PublishedSubjectPlanResponse, SubjectPlanResponse,
@@ -61,13 +60,6 @@ use super::dto::{
 /// The code of a publish refused because the athlete's plan moved under the
 /// draft, in the 409 body's `error_code` and `details.reason`.
 const PLAN_PUBLISH_CONFLICT: &str = "plan_publish_conflict";
-
-/// A refusal whose code a client branches on, carried as `details.reason`.
-fn refusal(code: ErrorCode, reason: &str, message: &str) -> AppError {
-    let mut error = AppError::new(code, message);
-    error.details = Some(Box::new(json!({ "reason": reason })));
-    error
-}
 
 /// The 404 for a coach who holds no draft of the athlete's plan.
 fn no_draft() -> AppError {
@@ -179,19 +171,24 @@ pub(super) async fn publish_subject_plan(
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
+    // The room the publish is said in is the group the thread acts under now:
+    // reopening the thread from another group rebinds it there.
     let outcome = publish_draft_live(
         &into_runtime(&resources),
         &target,
+        access.group.id,
         request.overwrite_athlete_changes,
     )
     .await?;
     match outcome {
         DraftPublishOutcome::Published(report) => {
+            let posted_in_room = report.room_post.in_room;
             let published = report.published;
             let response = PublishedSubjectPlanResponse {
                 plan_id: published.plan.id,
                 superseded_plan_id: published.superseded_plan_id,
                 athlete_notified: published.athlete_notified,
+                posted_in_room,
             };
             Ok((StatusCode::OK, Json(response)).into_response())
         }
