@@ -15,7 +15,10 @@
 //! counts, and confuse agents that report literal row counts.
 //!
 //! [`merge_duplicates`] groups those recordings and keeps one canonical row per
-//! workout, filling that row's missing fields from the other recordings of the
+//! workout. The row takes the volume of every piece of the session it did not
+//! record — a ride the watch split into 70 km and 30 km is one 100 km session —
+//! while a second recording of the same time adds none, so nothing is counted
+//! twice. It then fills its missing fields from the other recordings of the
 //! whole session — so a Strava ride keeps its GPS and power while gaining the
 //! WHOOP heart rate and the Intervals.icu RPE recorded for the same session. A
 //! [`FragmentReport`] names every group and every field that crossed over.
@@ -41,5 +44,6 @@ mod detection;
 
 pub use config::DedupConfig;
 pub use detection::{
-    carries_gps_trace, merge_duplicates, FilledField, FragmentGroup, FragmentReport,
+    carries_gps_trace, is_canonical_copy, merge_duplicates, FilledField, FragmentGroup,
+    FragmentReport,
 };

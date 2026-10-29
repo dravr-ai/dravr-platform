@@ -14,7 +14,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
-use std::mem;
+use std::{iter, mem};
 
 use chrono::{DateTime, Duration, NaiveTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -35,15 +35,25 @@ use crate::backend_resolver;
 /// the declared sport label.
 const CROSS_SPORT_OVERLAP_FRACTION: f64 = 0.6;
 
-/// Minimum share of the canonical row's duration a peer must cover (in
+/// Minimum share of the session's duration a recording must cover (in
 /// percent) to be another recording of the WHOLE session and so fill the
 /// canonical row's missing fields.
 ///
-/// A Garmin auto-split fragment covering one hour of a three-hour ride shares
-/// the session but not its summary: its average heart rate or calories describe
-/// that hour alone, so copying them onto the session would misreport it. Peers
-/// below this share still collapse into the group, they just donate nothing.
+/// A second device that recorded one hour of a three-hour ride shares the
+/// session but not its summary: its average heart rate or calories describe
+/// that hour alone, so copying them onto the session would misreport it.
+/// Recordings below this share still collapse into the group, they just donate
+/// nothing.
 const FULL_RECORDING_MIN_PERCENT: u64 = 80;
+
+/// Largest share of the shorter row's duration (in percent) two timed rows of
+/// a group may share and still be two pieces of the session rather than two
+/// recordings of the same time.
+///
+/// An auto-split leaves pieces that touch end to start, give or take a few
+/// seconds of clock skew; two devices recording the same ride share nearly all
+/// of it. Anything past this share is the same time recorded twice.
+const PIECE_MAX_OVERLAP_PERCENT: i64 = 10;
 
 /// Result of session merging over an activity collection.
 ///
@@ -156,9 +166,33 @@ impl FragmentReport {
 ///
 /// The canonical row is the one carrying a GPS trace ([`carries_gps_trace`]),
 /// then a distance, then the longest, then the farthest, then the lowest id.
-/// Each other member covering at least [`FULL_RECORDING_MIN_PERCENT`] of its
-/// duration then fills the fields it lacks, best-ranked member first; a field
-/// the canonical row carries is never overwritten.
+///
+/// Every other member is then either a piece of the session or a recording of
+/// it. A **piece** recorded time no row already counted recorded: it has the
+/// canonical row's sport, it is not one service's activity id with any
+/// better-ranked member (a piece or a recording), both have real start times,
+/// and they share at most [`PIECE_MAX_OVERLAP_PERCENT`] of the shorter one's
+/// duration. A row of another sport tied in by the cross-sport rule is never a
+/// piece: a brick's run is not kilometres of its ride. Members are tried
+/// best-ranked first against the canonical row and the pieces already
+/// counted, and the session sums the volume of every piece — distance, moving
+/// time, elevation gain, and the calories, steps, provider training stress and
+/// suffer score when every piece carries them — its elapsed time running from
+/// the earliest piece's start to the latest one's end, stops between them
+/// included (`Activity::extend_with_piece`): a ride the recorder split into
+/// 70 km and 30 km is a 100 km session. Every other member is a **recording**
+/// of time already counted — a second device, a second provider, an export or
+/// a capture of the same activity — and adds no volume, so the same kilometre
+/// is never counted twice. A recording that covers the canonical row's time
+/// and the pieces' stands over their sum: when it ranks canonical, the pieces
+/// overlap it and are recordings of it; when a piece ranks canonical, the
+/// other pieces are summed and the whole-session recording, overlapping them,
+/// adds nothing.
+///
+/// Each recording covering at least [`FULL_RECORDING_MIN_PERCENT`] of the
+/// session's summed duration then fills the fields the canonical row lacks,
+/// best-ranked member first; a field the canonical row carries is never
+/// overwritten. A piece fills nothing: its averages describe its own part.
 #[must_use]
 pub fn merge_duplicates(
     activities: Vec<Activity>,
@@ -197,29 +231,43 @@ fn origin_name(activity: &Activity) -> String {
 /// Fold one group (members ranked canonical-first) into its canonical slot,
 /// emptying every other member's slot, and describe what was merged. Groups
 /// are disjoint, so every slot a group names is still occupied.
+///
+/// The canonical row first takes the volume of every piece of the session,
+/// then the missing fields of every recording of the whole of it, as
+/// [`merge_duplicates`] documents.
 fn fold_group(slots: &mut [Option<Activity>], members: &[usize]) -> Option<FragmentGroup> {
-    let (&canonical_index, peers) = members.split_first()?;
+    let (&canonical_index, peer_indices) = members.split_first()?;
     let mut canonical = slots[canonical_index].take()?;
+    let peers: Vec<Activity> = peer_indices
+        .iter()
+        .filter_map(|&index| slots[index].take())
+        .collect();
 
     let mut fragment_ids = vec![canonical.id().to_owned()];
     let mut providers = vec![origin_name(&canonical)];
     let mut window_start = canonical.start_date();
     let mut window_end = activity_end(&canonical);
-    let mut filled_fields = Vec::new();
-
-    for peer in peers.iter().filter_map(|&index| slots[index].take()) {
+    for peer in &peers {
         fragment_ids.push(peer.id().to_owned());
-        let peer_origin = origin_name(&peer);
+        let peer_origin = origin_name(peer);
         if !providers.contains(&peer_origin) {
             providers.push(peer_origin);
         }
         window_start = window_start.min(peer.start_date());
-        window_end = window_end.max(activity_end(&peer));
-        if covers_session(&peer, &canonical) {
-            filled_fields.extend(canonical.fill_missing_from(&peer).into_iter().map(|field| {
+        window_end = window_end.max(activity_end(peer));
+    }
+
+    let pieces = classify_pieces(&canonical, &peers);
+    for (peer, _) in peers.iter().zip(&pieces).filter(|(_, &piece)| piece) {
+        canonical.extend_with_piece(peer);
+    }
+    let mut filled_fields = Vec::new();
+    for (peer, _) in peers.iter().zip(&pieces).filter(|(_, &piece)| !piece) {
+        if covers_session(peer, &canonical) {
+            filled_fields.extend(canonical.fill_missing_from(peer).into_iter().map(|field| {
                 FilledField {
                     field,
-                    provider: origin_name(&peer),
+                    provider: origin_name(peer),
                 }
             }));
         }
@@ -238,9 +286,80 @@ fn fold_group(slots: &mut [Option<Activity>], members: &[usize]) -> Option<Fragm
     Some(group)
 }
 
+/// Whether `recording` is the row a merged `session` stands on.
+///
+/// A caller holding the rows it merged finds that row's stored key by it: the
+/// merger never changes a canonical row's provider or id, and adding the pieces of
+/// its session only moves its start earlier and its duration up.
+#[must_use]
+pub fn is_canonical_copy(recording: &Activity, session: &Activity) -> bool {
+    recording.provider() == session.provider()
+        && recording.id() == session.id()
+        && session.start_date() <= recording.start_date()
+        && recording.duration_seconds() <= session.duration_seconds()
+}
+
+/// Which of `peers` (ranked best first) are pieces of the session the
+/// canonical row stands for, as [`merge_duplicates`] defines them: each is
+/// tried against the canonical row and every piece already counted, so of two
+/// copies of one stretch only the better-ranked is a piece.
+///
+/// A peer must also share the canonical row's sport, and must not be a native
+/// twin of any better-ranked member, piece or recording: the twin of a
+/// recording is that recording again, whatever clock it carries.
+///
+/// Read off the rows as recorded, before any piece's volume reaches the
+/// canonical row, whose window then spans the whole session.
+fn classify_pieces(canonical: &Activity, peers: &[Activity]) -> Vec<bool> {
+    let canonical_sport = sport_key(canonical.sport_type());
+    let mut counted: Vec<&Activity> = vec![canonical];
+    peers
+        .iter()
+        .enumerate()
+        .map(|(position, peer)| {
+            let piece = sport_key(peer.sport_type()) == canonical_sport
+                && !iter::once(canonical)
+                    .chain(&peers[..position])
+                    .any(|better| are_native_twins(peer, better))
+                && counted.iter().all(|row| is_other_piece(peer, row));
+            if piece {
+                counted.push(peer);
+            }
+            piece
+        })
+        .collect()
+}
+
+/// True when `a` and `b` carry one service's own activity id
+/// ([`native_activity_id`]): two rows of one workout.
+fn are_native_twins(a: &Activity, b: &Activity) -> bool {
+    matches!(
+        (native_activity_id(a), native_activity_id(b)),
+        (Some((service_a, id_a, _)), Some((service_b, id_b, _)))
+            if service_a == service_b && id_a == id_b
+    )
+}
+
+/// True when `a` and `b` recorded two different stretches of time: both have
+/// a real start and a duration, and they share at most
+/// [`PIECE_MAX_OVERLAP_PERCENT`] of the shorter's duration.
+fn is_other_piece(a: &Activity, b: &Activity) -> bool {
+    let shorter = a.duration_seconds().min(b.duration_seconds());
+    if shorter == 0 || !has_known_time(a) || !has_known_time(b) {
+        return false;
+    }
+    let overlap_start = a.start_date().max(b.start_date());
+    let overlap_end = activity_end(a).min(activity_end(b));
+    let overlap = (overlap_end - overlap_start).num_seconds().max(0);
+    overlap.saturating_mul(100)
+        <= i64::try_from(shorter)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(PIECE_MAX_OVERLAP_PERCENT)
+}
+
 /// True when `peer` recorded at least [`FULL_RECORDING_MIN_PERCENT`] of the
-/// canonical row's duration — another recording of the whole session rather
-/// than a piece of it.
+/// session's duration (the canonical row's, its pieces' volume included) —
+/// another recording of the whole session rather than of a part of it.
 fn covers_session(peer: &Activity, canonical: &Activity) -> bool {
     peer.duration_seconds().saturating_mul(100)
         >= canonical

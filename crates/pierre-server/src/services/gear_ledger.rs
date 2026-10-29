@@ -53,7 +53,7 @@ use pierre_database::repositories::CachedActivityRow;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::backend_pair_for;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{is_canonical_copy, merge_duplicates, DedupConfig};
 use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -103,16 +103,6 @@ fn row_key(row: &CachedActivityRow) -> ActivityGearKey {
     }
 }
 
-/// Whether `recording` is the cached copy a merged `session` was built on:
-/// the merger never changes a canonical copy's provider, id, start or
-/// duration, only the fields it lacked.
-fn is_copy_of(recording: &Activity, session: &Activity) -> bool {
-    recording.provider() == session.provider()
-        && recording.id() == session.id()
-        && recording.start_date() == session.start_date()
-        && recording.duration_seconds() == session.duration_seconds()
-}
-
 /// The workouts `rows` hold, each with the keys of its copies.
 fn ledger_workouts(rows: &[CachedActivityRow]) -> Vec<LedgerWorkout> {
     // The merger consumes its input and rewrites the canonical copy, while
@@ -124,7 +114,7 @@ fn ledger_workouts(rows: &[CachedActivityRow]) -> Vec<LedgerWorkout> {
         .filter_map(|session| {
             let canonical = rows
                 .iter()
-                .find(|row| is_copy_of(&row.activity, &session))?;
+                .find(|row| is_canonical_copy(&row.activity, &session))?;
             let group = report.groups.iter().find(|group| {
                 group.canonical_id == session.id()
                     && group.window_start <= session.start_date()

@@ -931,6 +931,69 @@ async fn a_limit_of_five_is_filled_when_one_connection_split_the_newest_workout(
         shown[0] == "split-a" || shown[0] == "split-b",
         "the split workout is one row on top: {shown:?}"
     );
+    // The two pieces are one session of both their volumes (carnet#1248),
+    // its elapsed time running from the first start to the second end.
+    let split = &body["activities"][0];
+    assert_eq!(split["distance_meters"], 16_000.0, "{split}");
+    assert_eq!(split["duration_seconds"], 4_980, "{split}");
+}
+
+/// carnet#1248: when the later piece of a split workout stands for it, the
+/// session starts at the earlier piece and runs to the later piece's end, so
+/// the canonical copy no longer starts or lasts as the session does. Home still finds it and shows the workout once, with both
+/// pieces' volume.
+#[tokio::test]
+async fn a_split_workout_whose_later_piece_stands_for_it_keeps_its_home_row() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "recent-split-later").await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            athlete.user_id,
+            athlete.tenant,
+            oauth_providers::STRAVA,
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .record_activity_fetch(
+            athlete.user_id,
+            &athlete.tenant,
+            oauth_providers::STRAVA,
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    let split_start = Utc::now() - Duration::hours(3);
+    let later = ActivityBuilder::new(
+        "split-later",
+        "Run split-later",
+        SportType::Run,
+        split_start + Duration::minutes(43),
+        2_400,
+        oauth_providers::STRAVA,
+    )
+    .distance_meters(9_000.0)
+    .build();
+    let rows = vec![
+        run("split-earlier", oauth_providers::STRAVA, split_start),
+        later,
+        run("older", oauth_providers::STRAVA, days_ago(1)),
+    ];
+    cache(&resources, &athlete, oauth_providers::STRAVA, &rows).await;
+
+    let body = recent(&resources, &athlete.token, "?limit=5").await;
+    assert_eq!(ids(&body), ["split-later", "older"]);
+    let split = &body["activities"][0];
+    assert_eq!(split["distance_meters"], 17_000.0, "{split}");
+    assert_eq!(split["duration_seconds"], 4_980, "{split}");
 }
 
 // ---------------------------------------------------------------------------

@@ -106,6 +106,15 @@ fn garmin_auto_split_three_fragments_collapse_to_one() {
     // Canonical: longest duration is tied (all 900s), distance tiebreak picks
     // the largest (2500.0 → frag-a).
     assert_eq!(group.canonical_id, "frag-a");
+
+    // The session is the three pieces together (carnet#1248).
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(ids(&merged), vec!["frag-a"]);
+    assert_eq!(merged[0].distance_meters(), Some(7_300.0));
+    // Elapsed runs from the first start to the last end, the two 5 s gaps
+    // included; start + duration is the session's real end.
+    assert_eq!(merged[0].duration_seconds(), 2_710);
+    assert_eq!(merged[0].start_date(), t);
 }
 
 #[test]
@@ -547,13 +556,16 @@ fn self_report_from_a_second_provider_lands_on_the_gps_session() {
 }
 
 #[test]
-fn a_partial_fragment_collapses_but_donates_nothing() {
-    // An auto-split piece covering a third of the ride describes that hour, not
-    // the session: its heart rate must not become the session's.
+fn an_auto_split_piece_adds_its_volume_but_none_of_its_averages() {
+    // A Garmin ride split into 60 km and 28 km is one 88 km session
+    // (carnet#1248). The tail's heart rate describes its own hour, not the
+    // session, so it must not become the session's.
     let t = base_time();
     let activities = vec![
         provider_activity("ride-main", "garmin", SportType::Ride, t, 7_200)
             .distance_meters(60_000.0)
+            .moving_time_seconds(7_000)
+            .elevation_gain(500.0)
             .build(),
         provider_activity(
             "ride-tail",
@@ -563,14 +575,26 @@ fn a_partial_fragment_collapses_but_donates_nothing() {
             3_600,
         )
         .distance_meters(28_000.0)
+        .moving_time_seconds(3_500)
+        .elevation_gain(150.0)
         .average_heart_rate(150)
         .build(),
     ];
     let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
 
     assert_eq!(ids(&merged), vec!["ride-main"]);
-    assert_eq!(merged[0].average_heart_rate(), None);
+    let session = &merged[0];
+    assert_eq!(session.distance_meters(), Some(88_000.0));
+    assert_eq!(session.duration_seconds(), 10_803);
+    assert_eq!(session.moving_time_seconds(), Some(10_500));
+    assert_eq!(session.elevation_gain(), Some(650.0));
+    assert_eq!(session.start_date(), t);
+    assert_eq!(session.average_heart_rate(), None);
     assert_eq!(report.groups[0].filled_fields, []);
+    assert_eq!(
+        report.groups[0].fragment_ids,
+        vec!["ride-main", "ride-tail"]
+    );
 }
 
 #[test]
@@ -1152,4 +1176,325 @@ fn every_service_read_both_ways_keys_its_twins_by_its_own_id() {
             "{service}: both copies are named by the service"
         );
     }
+}
+
+// ============================================================================
+// Pieces of one session sum; recordings of the same time never do (carnet#1248)
+// ============================================================================
+
+/// A Garmin auto-split piece carrying its own route.
+fn garmin_piece(id: &str, start: DateTime<Utc>, duration_secs: u64, distance_m: f64) -> Activity {
+    provider_activity(id, "garmin", SportType::Ride, start, duration_secs)
+        .distance_meters(distance_m)
+        .moving_time_seconds(duration_secs - 60)
+        .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+        .build()
+}
+
+#[test]
+fn two_pieces_sum_but_two_recordings_of_the_same_time_do_not() {
+    let t = base_time();
+    // Two pieces: a 70 km ride the recorder split, the second piece starting
+    // two seconds after the first ended.
+    let pieces = vec![
+        garmin_piece("g-1", t, 7_200, 70_000.0),
+        garmin_piece("g-2", t + Duration::seconds(7_202), 3_600, 30_000.0),
+    ];
+    let (merged, _) = merge_duplicates(pieces, &DedupConfig::default());
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].distance_meters(), Some(100_000.0));
+    assert_eq!(merged[0].duration_seconds(), 10_802);
+
+    // Two recordings: a watch and a bike computer on the same 70 km ride,
+    // starting 30 s apart.
+    let recordings = vec![
+        garmin_piece("watch", t, 7_200, 70_000.0),
+        provider_activity(
+            "bikecomp",
+            "wahoo",
+            SportType::Ride,
+            t + Duration::seconds(30),
+            7_190,
+        )
+        .distance_meters(70_400.0)
+        .build(),
+    ];
+    let (merged, _) = merge_duplicates(recordings, &DedupConfig::default());
+    assert_eq!(ids(&merged), vec!["watch"]);
+    assert_eq!(merged[0].distance_meters(), Some(70_000.0));
+    assert_eq!(merged[0].duration_seconds(), 7_200);
+}
+
+#[test]
+fn pieces_from_two_providers_sum_into_one_session() {
+    // The first leg on the watch (Garmin), the second on the phone (Strava)
+    // after the watch died: one session, both legs.
+    let t = base_time();
+    let activities = vec![
+        garmin_piece("garmin-leg", t, 3_600, 32_000.0),
+        provider_activity(
+            "strava-leg",
+            "strava",
+            SportType::Ride,
+            t + Duration::seconds(3_660),
+            1_800,
+        )
+        .distance_meters(15_000.0)
+        .build(),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(ids(&merged), vec!["garmin-leg"]);
+    assert_eq!(merged[0].distance_meters(), Some(47_000.0));
+    assert_eq!(merged[0].duration_seconds(), 5_460);
+    assert_eq!(report.groups[0].providers, vec!["garmin", "strava"]);
+}
+
+/// Two Garmin pieces of a 100 km ride and Strava's recording of the whole of
+/// it. `strava_gps` decides whether the Strava row carries the route.
+fn split_ride_and_its_whole_recording(strava_gps: bool) -> Vec<Activity> {
+    let t = base_time();
+    let mut strava = provider_activity(
+        "strava-whole",
+        "strava",
+        SportType::Ride,
+        t + Duration::seconds(20),
+        10_790,
+    )
+    .distance_meters(100_300.0)
+    .moving_time_seconds(10_500)
+    .average_heart_rate(141);
+    if strava_gps {
+        strava = strava.summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned());
+    }
+    let mut first = provider_activity("garmin-1", "garmin", SportType::Ride, t, 7_200)
+        .distance_meters(70_000.0)
+        .moving_time_seconds(7_000);
+    let mut second = provider_activity(
+        "garmin-2",
+        "garmin",
+        SportType::Ride,
+        t + Duration::seconds(7_202),
+        3_600,
+    )
+    .distance_meters(30_000.0)
+    .moving_time_seconds(3_500);
+    if !strava_gps {
+        first = first.summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned());
+        second = second.summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned());
+    }
+    vec![first.build(), strava.build(), second.build()]
+}
+
+#[test]
+fn a_whole_session_recording_stands_over_the_pieces_it_covers() {
+    // Strava's recording carries the route, so it stands for the session:
+    // both Garmin pieces overlap it and add nothing.
+    let (merged, report) = merge_duplicates(
+        split_ride_and_its_whole_recording(true),
+        &DedupConfig::default(),
+    );
+
+    assert_eq!(ids(&merged), vec!["strava-whole"]);
+    assert_eq!(merged[0].distance_meters(), Some(100_300.0));
+    assert_eq!(merged[0].duration_seconds(), 10_790);
+    assert_eq!(merged[0].moving_time_seconds(), Some(10_500));
+    assert_eq!(report.groups[0].fragment_ids.len(), 3);
+}
+
+#[test]
+fn split_pieces_sum_once_beside_a_whole_session_recording_of_them() {
+    // The Garmin pieces carry the route, so one stands for the session: the
+    // other piece adds its volume, and Strava's recording of the whole ride,
+    // overlapping both, adds none of it — the ride is 100 km, never 200 km.
+    let (merged, report) = merge_duplicates(
+        split_ride_and_its_whole_recording(false),
+        &DedupConfig::default(),
+    );
+
+    assert_eq!(ids(&merged), vec!["garmin-1"]);
+    assert_eq!(merged[0].distance_meters(), Some(100_000.0));
+    assert_eq!(merged[0].duration_seconds(), 10_802);
+    assert_eq!(merged[0].moving_time_seconds(), Some(10_500));
+    // Strava's row covers the whole session, so it still fills what the
+    // pieces lack.
+    assert_eq!(merged[0].average_heart_rate(), Some(141));
+    assert_eq!(report.groups[0].fragment_ids.len(), 3);
+}
+
+#[test]
+fn two_recordings_of_the_same_tail_add_it_once() {
+    // The first hour on the watch; the second hour recorded by both the
+    // watch and a bike computer. The tail counts once.
+    let t = base_time();
+    let tail_start = t + Duration::seconds(3_602);
+    let activities = vec![
+        garmin_piece("head", t, 3_600, 30_000.0),
+        garmin_piece("tail-watch", tail_start, 3_600, 31_000.0),
+        provider_activity(
+            "tail-bikecomp",
+            "wahoo",
+            SportType::Ride,
+            tail_start + Duration::seconds(15),
+            3_580,
+        )
+        .distance_meters(30_900.0)
+        .build(),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0].distance_meters(), Some(61_000.0));
+    assert_eq!(merged[0].duration_seconds(), 7_202);
+}
+
+#[test]
+fn a_date_only_row_never_adds_volume() {
+    // A capture scraped date-only sits at midnight: its window is not when it
+    // was recorded, so it can never be a piece.
+    let t = base_time();
+    let day = t.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let activities = vec![
+        provider_activity("timed", "strava", SportType::Run, t, 3_600)
+            .distance_meters(10_000.0)
+            .build(),
+        provider_activity("scraped", "sciotte", SportType::Run, day, 3_600)
+            .distance_meters(10_050.0)
+            .build(),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    // The farther row stands for the session; the other adds nothing.
+    assert_eq!(report.session_count, 1);
+    assert_eq!(ids(&merged), vec!["scraped"]);
+    assert_eq!(merged[0].distance_meters(), Some(10_050.0));
+    assert_eq!(merged[0].duration_seconds(), 3_600);
+}
+
+#[test]
+fn twins_of_one_strava_activity_never_add_volume_whatever_their_clocks() {
+    // The archive copy of a Strava activity can carry a start the API row
+    // does not (the original recording's, before an edit): two windows that
+    // do not overlap, but one activity id, so one recording.
+    let t = base_time();
+    let activities = vec![
+        strava_api_row("15000000001", t, 3_600),
+        strava_archive_row("15000000001", t + Duration::seconds(3_700), 3_600),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(ids(&merged), vec!["15000000001"]);
+    assert_eq!(merged[0].provider(), "strava");
+    assert_eq!(merged[0].distance_meters(), Some(40_000.0));
+    assert_eq!(merged[0].duration_seconds(), 3_600);
+}
+
+#[test]
+fn a_twin_of_a_recording_never_adds_volume_beside_a_third_service_s_row() {
+    // One 40 km ride: Garmin's row (one second longer, so it stands for the
+    // session), Strava's API row of it, and the archive copy of the same
+    // Strava id on the original recording's clock, an hour later. The archive
+    // row overlaps no counted row, but it is Strava's API row again: the ride
+    // stays 40 km, never 80 km.
+    let t = base_time();
+    let activities = vec![
+        garmin_piece("21000000000", t, 3_601, 40_000.0),
+        strava_api_row("15000000001", t, 3_600),
+        strava_archive_row("15000000001", t + Duration::seconds(3_700), 3_600),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(ids(&merged), vec!["21000000000"]);
+    assert_eq!(merged[0].provider(), "garmin");
+    assert_eq!(merged[0].distance_meters(), Some(40_000.0));
+    assert_eq!(merged[0].duration_seconds(), 3_601);
+    assert_eq!(report.groups[0].fragment_ids.len(), 3);
+}
+
+#[test]
+fn a_row_of_another_sport_never_adds_its_volume_to_the_session() {
+    // A brick: a Garmin ride, then a Garmin run five minutes later, and one
+    // WHOOP "cycling" row over both. WHOOP ties the run to the ride (cross
+    // sport, most of the run's time), but the run's kilometres are not the
+    // ride's: the ride stays 30 km on its own clock.
+    let t = base_time();
+    let activities = vec![
+        garmin_piece("garmin-ride", t, 3_600, 30_000.0),
+        provider_activity(
+            "garmin-run",
+            "garmin",
+            SportType::Run,
+            t + Duration::seconds(3_900),
+            1_800,
+        )
+        .distance_meters(6_000.0)
+        .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+        .build(),
+        provider_activity("whoop-cycling", "whoop", SportType::Ride, t, 5_700).build(),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+
+    let ride = merged
+        .iter()
+        .find(|a| a.id() == "garmin-ride")
+        .expect("the ride stands for its session");
+    assert_eq!(ride.sport_type(), &SportType::Ride);
+    assert_eq!(ride.distance_meters(), Some(30_000.0));
+    assert_eq!(ride.duration_seconds(), 3_600);
+}
+
+#[test]
+fn a_session_with_a_stop_between_its_pieces_ends_when_its_last_piece_ends() {
+    // Two Garmin pieces, 14:00-15:00 and 15:20-16:00 after a café stop, and
+    // Strava's recording of the whole ride, which ties them into one group.
+    // The session runs to 16:00: its elapsed time covers the stop, its moving
+    // time does not.
+    let t = base_time();
+    let activities = vec![
+        garmin_piece("first", t, 3_600, 30_000.0),
+        garmin_piece("second", t + Duration::minutes(80), 2_400, 20_000.0),
+        provider_activity("strava-whole", "strava", SportType::Ride, t, 7_200)
+            .distance_meters(50_100.0)
+            .build(),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(ids(&merged), vec!["first"]);
+    let session = &merged[0];
+    assert_eq!(session.distance_meters(), Some(50_000.0));
+    assert_eq!(session.start_date(), t);
+    assert_eq!(session.duration_seconds(), 7_200);
+    assert_eq!(session.moving_time_seconds(), Some(5_880));
+}
+
+#[test]
+fn a_split_session_spends_the_training_stress_and_calories_of_both_pieces() {
+    // A Wahoo ride split into 70 km / 2 h (TSS 120, 1 800 kcal) and 30 km /
+    // 1 h (TSS 60, 800 kcal): training load and fuelling read the session's
+    // 180 TSS and 2 600 kcal, not the first piece's.
+    let t = base_time();
+    let activities = vec![
+        provider_activity("wahoo-1", "wahoo", SportType::Ride, t, 7_200)
+            .distance_meters(70_000.0)
+            .training_stress_score(120.0)
+            .calories(1_800)
+            .build(),
+        provider_activity(
+            "wahoo-2",
+            "wahoo",
+            SportType::Ride,
+            t + Duration::seconds(7_202),
+            3_600,
+        )
+        .distance_meters(30_000.0)
+        .training_stress_score(60.0)
+        .calories(800)
+        .build(),
+    ];
+    let (merged, _) = merge_duplicates(activities, &DedupConfig::default());
+
+    assert_eq!(ids(&merged), vec!["wahoo-1"]);
+    assert_eq!(merged[0].distance_meters(), Some(100_000.0));
+    assert_eq!(merged[0].training_stress_score(), Some(180.0));
+    assert_eq!(merged[0].calories(), Some(2_600));
 }

@@ -131,7 +131,9 @@ use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack,
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
-use pierre_providers::deduplication::{carries_gps_trace, merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{
+    carries_gps_trace, is_canonical_copy, merge_duplicates, DedupConfig,
+};
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
@@ -756,7 +758,7 @@ fn workouts(rows: &[CachedActivityRow]) -> Vec<Workout<'_>> {
         .filter_map(|session| {
             let canonical = rows
                 .iter()
-                .find(|row| is_copy_of(&row.activity, &session))?;
+                .find(|row| is_canonical_copy(&row.activity, &session))?;
             let copies = report
                 .groups
                 .iter()
@@ -777,16 +779,6 @@ fn workouts(rows: &[CachedActivityRow]) -> Vec<Workout<'_>> {
             })
         })
         .collect()
-}
-
-/// Whether `recording` is the cached copy a merged `session` was built on:
-/// the merger never changes a canonical copy's provider, id, start or
-/// duration, only the fields it lacked.
-fn is_copy_of(recording: &Activity, session: &Activity) -> bool {
-    recording.provider() == session.provider()
-        && recording.id() == session.id()
-        && recording.start_date() == session.start_date()
-        && recording.duration_seconds() == session.duration_seconds()
 }
 
 async fn get_activity_route(

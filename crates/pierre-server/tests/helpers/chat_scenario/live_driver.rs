@@ -641,12 +641,13 @@ impl LiveScenarioDriver {
             summary_parts.join(". ")
         };
 
-        // Production's provider-side `merge_duplicates` collapses
-        // overlapping same-day recordings (Garmin auto-splits, dual-device
-        // captures) and hands the model a `retrieval_context.fragment_dedup`
-        // sidecar so it cites sessions, not raw rows (Anti-Hallucination
-        // Rule 5). The in-memory store has no timestamps to overlap-match,
-        // so approximate the signal by same-day/same-sport density (Rule 8)
+        // Production's provider-side `merge_duplicates` merges same-day
+        // recordings of one workout (Garmin auto-splits, their volume
+        // summed; dual-device captures, counted once) and hands the model a
+        // `retrieval_context.fragment_dedup` sidecar so it cites sessions,
+        // not raw rows (Anti-Hallucination Rule 5). The in-memory store has
+        // no timestamps to overlap-match, so approximate the signal by
+        // same-day/same-sport density (Rule 8)
         // and surface the same cue the model would see in production.
         let mut density: BTreeMap<(String, String), usize> = BTreeMap::new();
         for activity in &rows {
