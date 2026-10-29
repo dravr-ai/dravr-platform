@@ -34,7 +34,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.9
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux and dravr-riviere pins are companions of this one (see its
 # satellites.toml stanza): the three move in one commit or Cargo.lock holds two.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.6.0", default-features = false }
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.7.0", default-features = false }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.7.0" }
