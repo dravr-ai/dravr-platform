@@ -2105,11 +2105,11 @@ async fn rendered_tool_catalog_exposes_the_nested_field_names() {
     // the model ever sees. It rendered `outline (object)` / `weeks (array)`
     // and stopped, hiding every inner field — 24 of 24 live saves rejected.
     let definition = SaveTrainingPlanTool.definition();
-    let catalog = generate_tool_catalog(&[FunctionDeclaration {
-        name: definition.name,
-        description: definition.description,
-        parameters: Some(definition.input_schema),
-    }]);
+    let catalog = generate_tool_catalog(&[FunctionDeclaration::new(
+        definition.name,
+        definition.description,
+        Some(definition.input_schema),
+    )]);
 
     for field in [
         "week_start",

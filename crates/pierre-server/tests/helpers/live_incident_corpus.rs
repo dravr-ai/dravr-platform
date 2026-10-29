@@ -348,6 +348,15 @@ pub(crate) enum Expect {
     /// (registre#250). A reply that quotes 380 W back perfectly and saves
     /// nothing satisfies every substring assertion anyone could write.
     FtpSaved { watts: u32 },
+    /// The model itself called at least one of these tools during the turn,
+    /// read from the turn's `llm_usage` rows — what the model asked for, not
+    /// what a prefetch ran.
+    ///
+    /// The deferral episodes need it because their failure has no wording:
+    /// on 2026-10-29 a probe with every rare tool deferred and no way to find
+    /// one told the athlete it had no recipe tool, and a model that never
+    /// loads a deferred tool can answer fluently from what it already holds.
+    Calls(&'static [&'static str]),
 }
 
 impl Expect {
@@ -368,6 +377,7 @@ impl Expect {
             Self::NoRawVizFence => "raw_fence",
             Self::Honest { .. } => "judge",
             Self::FtpSaved { .. } => "physiology_not_saved",
+            Self::Calls(_) => "tool_not_called",
         }
     }
 
@@ -451,8 +461,20 @@ pub(crate) const UNIVERSAL: &[Expect] = &[
 /// The 9-character synthesis of 2026-08-22 09:03, and its siblings.
 pub(crate) const DEGENERATE: &[&str] = &["by dravr.", "by dravr\n"];
 
+/// Replies that disown a capability the agent has. With most tools deferred,
+/// a model that never looks one up says this instead (the 2026-10-29 probe).
+pub(crate) const DISOWNED_TOOL: &[&str] = &[
+    "je n'ai pas d'outil",
+    "je n'ai pas accès à un outil",
+    "pas d'outil pour",
+    "i don't have a tool",
+    "no tool for",
+];
+
 /// The corpus. Every entry is a turn shape that actually failed in front of
-/// an athlete; none of them is hypothetical.
+/// an athlete; none of them is hypothetical. The deferral episodes at the end
+/// replay the turns carnet#406 named as the risk of loading most tools on
+/// demand, each one a tool outside `LOADED_CORE` the turn cannot do without.
 pub(crate) const CORPUS: &[Episode] = &[
     Episode {
         name: "group_chart_ask",
@@ -656,6 +678,84 @@ pub(crate) const CORPUS: &[Episode] = &[
                                    actionable next step — as opposed to claiming its own \
                                    access to the athlete's data is broken?",
                     },
+                ],
+            },
+        ],
+    },
+    Episode {
+        name: "dinner_recipe",
+        incident: "c89da2396 the prefilter dropped search_recipes and the agent invented a dinner",
+        group: false,
+        turns: &[Turn {
+            user: "J'ai faim après ma sortie de dimanche. Tu peux me trouver une recette \
+                   pour le souper de ce soir?",
+            expect: &[
+                Expect::Calls(&["search_recipes", "list_recipes"]),
+                Expect::NoneOf(DISOWNED_TOOL),
+            ],
+        }],
+    },
+    Episode {
+        name: "year_ellipsis",
+        incident: "«Et en 2022?» answered from the previous turn's figure with no tool call",
+        group: false,
+        turns: &[
+            Turn {
+                user: "Combien de kilomètres de vélo j'ai fait cette année?",
+                expect: &[],
+            },
+            Turn {
+                user: "Et l'an dernier?",
+                expect: &[Expect::Calls(&[
+                    "get_activities",
+                    "get_stats",
+                    "get_training_history",
+                    "compute_training_history",
+                ])],
+            },
+        ],
+    },
+    Episode {
+        name: "plan_save",
+        incident: "carnet#406 a deferred write: the plan is drafted in prose and never saved",
+        group: false,
+        turns: &[Turn {
+            user: "Prépare-moi un plan de deux semaines pour un 10 km dans un mois, et \
+                   enregistre-le dans mon plan d'entraînement.",
+            expect: &[Expect::Calls(&["save_training_plan"])],
+        }],
+    },
+    Episode {
+        name: "rare_tool_sweep",
+        incident: "carnet#406 one search away: each turn needs a tool outside the loaded core",
+        group: false,
+        turns: &[
+            Turn {
+                user: "Estime ma VO2max à partir de mes sorties.",
+                expect: &[
+                    Expect::Calls(&["estimate_vo2max"]),
+                    Expect::NoneOf(DISOWNED_TOOL),
+                ],
+            },
+            Turn {
+                user: "Analyse ce repas: 200 g de riz blanc et 150 g de poulet grillé.",
+                expect: &[
+                    Expect::Calls(&["analyze_meal_nutrition", "search_food", "get_food_details"]),
+                    Expect::NoneOf(DISOWNED_TOOL),
+                ],
+            },
+            Turn {
+                user: "Quel temps je pourrais viser sur un 10 km?",
+                expect: &[
+                    Expect::Calls(&["predict_performance"]),
+                    Expect::NoneOf(DISOWNED_TOOL),
+                ],
+            },
+            Turn {
+                user: "Propose-moi des étirements après ma sortie de vélo.",
+                expect: &[
+                    Expect::Calls(&["suggest_stretches_for_activity", "list_stretching_exercises"]),
+                    Expect::NoneOf(DISOWNED_TOOL),
                 ],
             },
         ],

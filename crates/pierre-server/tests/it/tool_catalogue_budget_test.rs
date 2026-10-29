@@ -4,10 +4,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Every chat turn sends the whole chat-callable catalogue (registre#406). It
-//! is re-sent in every call's prefix and written to cache once per model on
-//! every cold turn, and on 2026-10-26 it was an estimated two thirds of a
-//! 62,199-token cold prompt. This budget keeps it from growing unnoticed.
+//! Every chat turn sends the whole chat-callable catalogue. On 2026-10-26 it
+//! was an estimated two thirds of a 62,199-token cold prompt, re-sent in every
+//! call's prefix and written to cache once per model on every cold turn. On a
+//! model that defers (Opus), every tool outside the loaded core is sent
+//! deferred (carnet#406), so a
+//! provider with tool search holds only the core in context, and the rest
+//! costs only on the turns that load it. Two budgets follow: the whole
+//! catalogue, which every provider without tool search still receives in
+//! context, and the loaded prefix, which is what a deferred turn pays.
 //!
 //! The unit is bytes of the compact Anthropic wire shape: CI computes it
 //! without a provider key, and it does not move when a tokenizer does. The
@@ -21,7 +26,9 @@
 //! budget in the same commit, so the saving cannot be spent again unseen.
 
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
-use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue, CatalogueSize};
+use pierre_tool_runtime::chat_catalogue::{
+    build_mcp_tools, defer_beyond_core, measure_catalogue, CatalogueSize,
+};
 use pierre_tool_runtime::registry::ToolRegistry;
 
 use crate::common;
@@ -35,6 +42,12 @@ use crate::common;
 /// the coach seat's one plan read, kept to a single argument and a two-line
 /// description (~330 bytes).
 const CATALOGUE_BUDGET_BYTES: usize = 95_100;
+
+/// Bytes the loaded core may take when the rest is deferred: what the model
+/// holds in context on a provider with tool search before it loads anything.
+/// It measured 10,418 bytes (10 of 89 tools, ~3.9k estimated tokens) on
+/// 2026-10-29, against 95,050 for the whole catalogue (carnet#406).
+const LOADED_PREFIX_BUDGET_BYTES: usize = 10_450;
 
 /// How far under budget the catalogue may fall before the budget follows it down.
 const RATCHET_SLACK_BYTES: usize = 4 * 1024;
@@ -83,5 +96,35 @@ fn chat_catalogue_stays_within_its_byte_budget() {
          commit so the saving stays saved.\n{report}",
         size.bytes,
         size.bytes
+    );
+}
+
+#[test]
+fn the_loaded_prefix_stays_within_its_byte_budget() {
+    let mut tools = build_mcp_tools(&builtin_registry());
+    defer_beyond_core(&mut tools);
+    let size = measure_catalogue(&tools);
+    println!(
+        "loaded prefix: {} of {} tools loaded, {} bytes, ~{} tokens",
+        size.tool_count - size.deferred_count,
+        size.tool_count,
+        size.loaded_bytes,
+        size.loaded_estimated_tokens
+    );
+
+    assert!(
+        size.loaded_bytes <= LOADED_PREFIX_BUDGET_BYTES,
+        "The loaded core is {} bytes, over its {LOADED_PREFIX_BUDGET_BYTES}-byte budget. \
+         Every deferred turn holds it in context: tighten a core tool's description, \
+         or move a tool out of LOADED_CORE, before raising the budget.",
+        size.loaded_bytes
+    );
+    assert!(
+        size.loaded_bytes + RATCHET_SLACK_BYTES >= LOADED_PREFIX_BUDGET_BYTES,
+        "The loaded core is {} bytes, more than {RATCHET_SLACK_BYTES} under its \
+         {LOADED_PREFIX_BUDGET_BYTES}-byte budget. Lower LOADED_PREFIX_BUDGET_BYTES to {} \
+         in this commit so the saving stays saved.",
+        size.loaded_bytes,
+        size.loaded_bytes
     );
 }

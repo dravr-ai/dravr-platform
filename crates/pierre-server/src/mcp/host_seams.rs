@@ -43,7 +43,7 @@ use pierre_auth::auth::AuthResult;
 use pierre_auth::config::DIALED_HOST_HEADERS;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::auth_header::is_api_key_format;
-use pierre_core::models::{EffectiveTool, TenantId, ToolEnablementSource};
+use pierre_core::models::{EffectiveTool, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
@@ -574,7 +574,8 @@ impl PierreToolDispatcher {
         &self.task_manager
     }
     /// Every tool, admin-only ones included, less those an operator switched
-    /// off: globally, for the tenant, or for this user ([`unlisted`]).
+    /// off: globally, for the tenant, or for this user
+    /// ([`EffectiveTool::is_switched_off`]).
     ///
     /// The same `is_tool_enabled_for_user` precedence the call path enforces,
     /// read in one pass, except that a tool the tenant's plan does not cover
@@ -592,7 +593,7 @@ impl PierreToolDispatcher {
             Ok(effective) => {
                 let disabled: HashSet<String> = effective
                     .into_iter()
-                    .filter(unlisted)
+                    .filter(EffectiveTool::is_switched_off)
                     .map(|tool| tool.tool_name)
                     .collect();
                 schemas.retain(|schema| !disabled.contains(&schema.name));
@@ -611,12 +612,12 @@ impl PierreToolDispatcher {
     /// Resolve the tenant-filtered schemas for a non-admin caller.
     ///
     /// Combines the `ToolSelectionService` catalog (non-admin tools no operator
-    /// switched off, see [`unlisted`]) with feature-flag tools not tracked by
-    /// the catalog (agents, mobility). When `user_id` is present, per-user
-    /// tool overrides are overlaid on top of the tenant computation so a tool
-    /// disabled for this user is hidden from discovery (and a user-enabled
-    /// tool becomes visible). A tool the tenant's plan does not cover stays
-    /// listed and is refused at call time.
+    /// switched off, see [`EffectiveTool::is_switched_off`]) with feature-flag
+    /// tools not tracked by the catalog (agents, mobility). When `user_id` is
+    /// present, per-user tool overrides are overlaid on top of the tenant
+    /// computation so a tool disabled for this user is hidden from discovery
+    /// (and a user-enabled tool becomes visible). A tool the tenant's plan
+    /// does not cover stays listed and is refused at call time.
     async fn tenant_filtered_schemas(
         &self,
         tenant_id: TenantId,
@@ -642,7 +643,7 @@ impl PierreToolDispatcher {
             Ok(all_effective_tools) => {
                 let enabled_names: Vec<String> = all_effective_tools
                     .iter()
-                    .filter(|t| !unlisted(t))
+                    .filter(|t| !t.is_switched_off())
                     .map(|t| t.tool_name.clone())
                     .collect();
                 let all_catalogued_names: Vec<String> = all_effective_tools
@@ -817,18 +818,6 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
 }
 
 /// Parse a tenant id string into a [`TenantId`], or `None` when malformed.
-/// Whether `tools/list` withholds a catalogued tool.
-///
-/// It withholds what an operator switched off — globally, for the tenant, or
-/// for this user, or off by catalogue default — because that is what the
-/// deployment offers. It does not withhold a tool the tenant's plan does not
-/// cover: the plan is the athlete's current state, and the list a client
-/// builds against must not change when it does. `tools/call` refuses that
-/// tool until the plan covers it.
-fn unlisted(tool: &EffectiveTool) -> bool {
-    !tool.is_enabled && tool.source != ToolEnablementSource::PlanRestriction
-}
-
 fn parse_tenant_id(value: &str) -> Option<TenantId> {
     Uuid::parse_str(value).ok().map(TenantId::from_uuid)
 }

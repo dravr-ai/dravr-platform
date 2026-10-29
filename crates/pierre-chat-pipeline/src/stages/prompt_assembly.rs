@@ -29,6 +29,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::unsubstituted_placeholders;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
+use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use tracing::error;
 use uuid::Uuid;
 
@@ -522,6 +523,10 @@ pub(crate) struct PromptTurn<'a> {
     pub conv: &'a ConversationRecord,
     /// Who the turn is about, named once when the conversation resolved.
     pub standing: TurnStanding,
+    /// What an operator switched off for the sender, left out of the index.
+    pub switched_off: &'a SwitchedOff,
+    /// Whether tools beyond the core go out deferred; the index says how to load one.
+    pub defer_tools: bool,
     /// Optional agent runtime context.
     pub agent_ctx: Option<&'a AgentRuntimeContext>,
     /// Persisted conversation history.
@@ -582,6 +587,8 @@ pub(crate) async fn assemble_prompt_and_messages(
         profile,
         conv,
         standing,
+        switched_off,
+        defer_tools,
         agent_ctx,
         history,
         onboarding,
@@ -674,7 +681,7 @@ pub(crate) async fn assemble_prompt_and_messages(
     // so that stays.
     //
     // The names — and only the names — come back with it, from
-    // `chat_callable_schemas()`. That is the source the declarations are built
+    // `offered_schemas`. That is the source the declarations are built
     // from, which is the half the deleted list got wrong: it read
     // `user_visible_schemas()` and advertised tools the agent could not call.
     // One source cannot drift against itself, and names-only is ~2 KB against
@@ -683,24 +690,19 @@ pub(crate) async fn assemble_prompt_and_messages(
     // It is load-bearing on the `mcp_tool_calling` path, where the catalogue
     // goes to Copilot over MCP and never reaches the prompt — the agent started
     // those turns unable to enumerate a single tool, and answered capability
-    // questions from a prompt that named none. On the native path the full
-    // schemas already ship every turn (registre#406 covers that cost), so the
-    // index is a cheap, byte-stable restatement there rather than the only copy.
-    // The seat leaves out the tools it withholds here exactly as the
-    // declarations do — the coach's own data tools on the coach's seat
-    // (carnet#742), every write on the coach's own account in their athlete
-    // thread (carnet#1070) — so the index never names a tool the turn cannot
-    // call.
-    let tool_names: Vec<String> = ctx
-        .tool_registry
-        .chat_callable_schemas()
-        .into_iter()
-        .map(|s| s.name)
-        .filter(|name| !seat.withholds(&ctx.tool_registry, name))
-        .collect();
+    // questions from a prompt that named none. On a deferring turn it is the
+    // only place the model sees the deferred names, and says to load one by
+    // name rather than guess its parameters (carnet#406). It names what
+    // `offered_schemas` offers, as the declarations and loopback do: nothing
+    // the seat withholds (carnet#742, carnet#1070) or an operator switched off.
+    let tool_names: Vec<String> =
+        chat_catalogue::offered_schemas(&ctx.tool_registry, seat, switched_off)
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
     let base_prompt = format!(
         "{base_prompt}\n\n{TOOL_BOUNDARY}{}",
-        render_tool_index(&tool_names)
+        render_tool_index(&tool_names, defer_tools)
     );
 
     // The cache boundary (carnet#1190). Everything above is the same from one

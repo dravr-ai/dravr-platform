@@ -163,11 +163,11 @@ impl LlmProvider for ContractProvider {
 /// The tool surface the platform advertises for the round trip.
 fn advertised_tools() -> Tool {
     Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: ROUND_TRIP_TOOL.to_owned(),
-            description: "Report which fitness providers are connected".to_owned(),
-            parameters: Some(json!({ "type": "object", "properties": {} })),
-        }],
+        function_declarations: vec![FunctionDeclaration::new(
+            ROUND_TRIP_TOOL.to_owned(),
+            "Report which fitness providers are connected".to_owned(),
+            Some(json!({ "type": "object", "properties": {} })),
+        )],
     }
 }
 

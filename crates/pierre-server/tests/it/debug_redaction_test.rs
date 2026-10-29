@@ -327,11 +327,11 @@ async fn tool_loop_params_print_mcp_server_names_never_their_bearer_headers() {
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
     let executor = Arc::new(UniversalExecutor::new(runtime));
     let tools = Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: "get_activities".to_owned(),
-            description: "Retrieve the athlete's activities".to_owned(),
-            parameters: None,
-        }],
+        function_declarations: vec![FunctionDeclaration::new(
+            "get_activities".to_owned(),
+            "Retrieve the athlete's activities".to_owned(),
+            None,
+        )],
     };
     let params = ToolLoopParams {
         provider: &provider,

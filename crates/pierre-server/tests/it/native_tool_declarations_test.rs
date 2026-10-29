@@ -1,5 +1,5 @@
 // ABOUTME: The native tool declarations — one declared set, a names-only index of it, byte-stable order
-// ABOUTME: A guided walk no longer narrows the declarations; the plan-writing tool stays declared (carnet#1256)
+// ABOUTME: A guided walk does not narrow them (carnet#1256); deferral loads a tested core, the rest by name
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,7 +23,10 @@
 //! `training_plan_tools_test.rs`.
 
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
-use pierre_tool_runtime::chat_catalogue::build_mcp_tools;
+use pierre_tool_runtime::chat_catalogue::{
+    self, build_mcp_tools, defer_beyond_core, SwitchedOff, LOADED_CORE,
+};
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::registry::ToolRegistry;
 use std::sync::Arc;
 
@@ -163,7 +166,7 @@ fn the_boundary_does_not_deny_the_index_that_follows_it() {
         "prescribe_workout".to_owned(),
         "save_training_plan".to_owned(),
     ];
-    let index = render_tool_index(&names);
+    let index = render_tool_index(&names, true);
     assert!(
         index.contains("prescribe_workout"),
         "the index must actually name the tools, or this test proves nothing"
@@ -220,9 +223,9 @@ fn the_surviving_advertisement_surface_is_populated() {
 /// telling two athletes it had no tool to write to Intervals.icu, with zero
 /// tool calls, about a tool it had.
 ///
-/// Anthropic's own tool-search API rejects a fully deferred catalogue outright
-/// (`All tools have defer_loading set`) — at least one tool must stay visible.
-/// This index is that floor.
+/// With deferred loading the index is also the only place the model sees the
+/// names of the tools whose schemas are not loaded, so a missing name there is
+/// a tool the model cannot find (carnet#406).
 #[test]
 fn the_tool_index_is_exactly_the_declared_set() {
     use pierre_chat_pipeline::stages::prompt_builder::render_tool_index;
@@ -235,7 +238,7 @@ fn the_tool_index_is_exactly_the_declared_set() {
          empty and every capability question would resolve to a denial"
     );
 
-    let index = render_tool_index(&declared);
+    let index = render_tool_index(&declared, true);
     assert!(
         !index.is_empty(),
         "a non-empty declaration set must render a non-empty index"
@@ -327,4 +330,112 @@ fn the_wire_tool_array_is_deterministically_ordered() {
         .map(|d| d.name)
         .collect();
     assert_eq!(names, again, "two reads of one registry disagreed");
+}
+
+/// Every name in the loaded core is a declared tool. A renamed or dropped core
+/// tool would leave the core one short without anything failing, and the turn
+/// that needs it would pay a search for what was meant to be loaded.
+#[test]
+fn every_loaded_core_tool_is_declared() {
+    let declared = declared_names(&full_registry());
+
+    for core in LOADED_CORE {
+        assert!(
+            declared.iter().any(|name| name == core),
+            "LOADED_CORE names {core}, which no chat-callable tool is"
+        );
+    }
+}
+
+/// With deferral, exactly the tools outside the core are deferred: the core
+/// is what a typical turn needs loaded, and every other tool is one search
+/// away.
+#[test]
+fn deferral_loads_the_core_and_defers_everything_else() {
+    let registry = full_registry();
+    let mut tools = build_mcp_tools(&registry);
+    defer_beyond_core(&mut tools);
+
+    let (loaded, deferred): (Vec<_>, Vec<_>) = tools
+        .function_declarations
+        .iter()
+        .partition(|decl| !decl.defer_loading);
+    let mut loaded: Vec<&str> = loaded.iter().map(|decl| decl.name.as_str()).collect();
+    loaded.sort_unstable();
+    let mut core = LOADED_CORE.to_vec();
+    core.sort_unstable();
+    assert_eq!(
+        loaded, core,
+        "the loaded tools are the core, no more and no less"
+    );
+    assert!(
+        deferred.iter().any(|decl| decl.name == "search_recipes"),
+        "the dinner incident's tool must be deferred, not dropped"
+    );
+}
+
+/// The deferral-aware index says how to reach a tool whose parameters are not
+/// loaded: by its exact name through the tool search, never by guessing. The
+/// probe on 2026-10-29 found a model given only names called deferred tools
+/// with invented arguments.
+#[test]
+fn the_on_demand_index_says_to_load_by_exact_name() {
+    use pierre_chat_pipeline::stages::prompt_builder::render_tool_index;
+
+    let names = vec!["get_activities".to_owned(), "search_recipes".to_owned()];
+    let on_demand = render_tool_index(&names, true);
+    let loaded = render_tool_index(&names, false);
+
+    assert!(
+        on_demand.contains("tool search by its exact name"),
+        "the on-demand index must say to load a tool by its exact name: {on_demand}"
+    );
+    assert!(
+        on_demand.contains("^search_recipes$"),
+        "the on-demand index must show an exact-name search pattern: {on_demand}"
+    );
+    assert!(
+        on_demand.contains("never guess its parameters"),
+        "the on-demand index must forbid guessing parameters: {on_demand}"
+    );
+    assert!(
+        !loaded.contains("tool search"),
+        "with every tool loaded the index must not mention a tool search: {loaded}"
+    );
+}
+
+/// The coach's seat withholds every core tool, so it offers no core and
+/// nothing on it is deferred: its narrow set goes out loaded, and a coach turn
+/// reaches its group tools without a search.
+#[test]
+fn on_the_coachs_seat_nothing_is_deferred() {
+    let registry = full_registry();
+    let mut tools = chat_catalogue::declarations(chat_catalogue::offered_schemas(
+        &registry,
+        TurnSeat::Coach,
+        &SwitchedOff::default(),
+    ));
+    assert!(
+        tools
+            .function_declarations
+            .iter()
+            .any(|decl| decl.name == "get_group_member_plan_status"),
+        "premise: the coach's seat offers its plan view"
+    );
+
+    defer_beyond_core(&mut tools);
+
+    assert!(
+        tools
+            .function_declarations
+            .iter()
+            .all(|decl| !decl.defer_loading),
+        "a coach-seat tool was deferred: {:?}",
+        tools
+            .function_declarations
+            .iter()
+            .filter(|decl| decl.defer_loading)
+            .map(|decl| decl.name.as_str())
+            .collect::<Vec<_>>()
+    );
 }

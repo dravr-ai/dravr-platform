@@ -20,6 +20,7 @@ use pierre_core::transport::Transport;
 use pierre_llm::{ChatMessage, FunctionResponse};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::data_helpers::provider_reconnect_note;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
@@ -379,6 +380,7 @@ fn loopback_surface(
         tenant,
         64,
         TurnSeat::Subject,
+        SwitchedOff::default(),
     )
 }
 

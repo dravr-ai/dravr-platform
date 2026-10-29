@@ -306,11 +306,11 @@ async fn run_turn_into(
             .with_turn_token("iteration-routing-turn".to_owned()),
     );
     let tools = Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: ROUND_TRIP_TOOL.to_owned(),
-            description: "Report which fitness providers are connected".to_owned(),
-            parameters: Some(json!({ "type": "object", "properties": {} })),
-        }],
+        function_declarations: vec![FunctionDeclaration::new(
+            ROUND_TRIP_TOOL.to_owned(),
+            "Report which fitness providers are connected".to_owned(),
+            Some(json!({ "type": "object", "properties": {} })),
+        )],
     };
     let rows = Arc::new(Rows::default());
     let user = user_id.to_string();

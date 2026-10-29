@@ -56,6 +56,7 @@ use pierre_core::models::{
 };
 use pierre_core::prompt_fingerprint::{extract_canary_marker, inject_canary_marker};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::chat_catalogue;
 
 /// A question the model answers itself: no data fetch, so the platform never
 /// answers in its place.
@@ -756,9 +757,15 @@ async fn the_tool_index_names_exactly_what_the_chat_surface_serves() {
 
     let conv = fx.conversation(None).await;
     let prompt = fx.turn(&conv, OPENER, "fr").await;
+    // The pipeline's own decision: the operator's switch and the turn's model.
+    let on_demand = fx.ctx.config.chat_tools.defer_tools
+        && chat_catalogue::defers_on(&fx.ctx.config.llm_chain.head_model().unwrap_or_default());
 
     assert!(
-        prompt.contains(&format!("{TOOL_BOUNDARY}{}", render_tool_index(&callable))),
+        prompt.contains(&format!(
+            "{TOOL_BOUNDARY}{}",
+            render_tool_index(&callable, on_demand)
+        )),
         "the boundary statement is followed by the index of chat-callable tools, rendered \
          from that one set — so none of {visible_only:?} is advertised"
     );

@@ -1001,11 +1001,11 @@ fn build_tool_catalog() -> (Vec<Tool>, Vec<String>) {
 fn tool_from_schema(schema: &ToolSchema) -> Tool {
     let parameters = serde_json::to_value(&schema.input_schema).ok();
     Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: schema.name.clone(),
-            description: schema.description.clone(),
+        function_declarations: vec![FunctionDeclaration::new(
+            schema.name.clone(),
+            schema.description.clone(),
             parameters,
-        }],
+        )],
     }
 }
 

@@ -50,18 +50,12 @@ fn embacles_parsed_calls_ride_a_tool_response_and_round_trip_as_name_and_args() 
 fn a_tool_surface_serializes_its_declarations_and_omits_absent_parameters() {
     let tool = Tool {
         function_declarations: vec![
-            FunctionDeclaration {
-                name: "get_activities".to_owned(),
-                description: "List recent activities".to_owned(),
-                parameters: Some(
-                    json!({"type": "object", "properties": {"limit": {"type": "integer"}}}),
-                ),
-            },
-            FunctionDeclaration {
-                name: "get_athlete".to_owned(),
-                description: "Profile".to_owned(),
-                parameters: None,
-            },
+            FunctionDeclaration::new(
+                "get_activities".to_owned(),
+                "List recent activities".to_owned(),
+                Some(json!({"type": "object", "properties": {"limit": {"type": "integer"}}})),
+            ),
+            FunctionDeclaration::new("get_athlete".to_owned(), "Profile".to_owned(), None),
         ],
     };
 

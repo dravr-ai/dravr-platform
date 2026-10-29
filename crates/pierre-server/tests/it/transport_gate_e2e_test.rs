@@ -55,6 +55,7 @@ use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
 };
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -695,6 +696,7 @@ fn copilot_surface(resources: &Arc<ServerContext>, rider: &Rider) -> TurnToolSur
             turn_agent_id: None,
             budget: 64,
             seat: TurnSeat::Subject,
+            switched_off: &SwitchedOff::default(),
         },
     )
 }

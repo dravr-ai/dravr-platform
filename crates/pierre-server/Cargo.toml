@@ -190,8 +190,8 @@ server-full = ["protocol-all", "transport-all", "client-all", "client-messaging"
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms", "language-detection"]
 
 [dependencies]
-embacle = { version = "0.42.0" }
-embacle-tool-host = "0.42.0"
+embacle = { version = "0.43.0" }
+embacle-tool-host = "0.43.0"
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "http-client", "billing", "billing-stripe"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
@@ -301,7 +301,7 @@ pierre-dev-fixture = { version = "0.3.0", path = "../pierre-dev-fixture" }
 # Test-only: compiles a tool's declared outputSchema and validates the payload
 # the tool actually sends against it. Production only DERIVES schemas.
 jsonschema = { version = "0.46.10", default-features = false }
-embacle = { version = "0.42.0" }
+embacle = { version = "0.43.0" }
 tempfile = "3.27"
 serial_test = "3.5"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }

@@ -492,14 +492,14 @@ mod tests {
 
     /// A one-tool catalogue whose name a request body shows.
     fn catalogue() -> Vec<FunctionDeclaration> {
-        vec![FunctionDeclaration {
-            name: "get_activities".to_owned(),
-            description: "The athlete's recent activities".to_owned(),
-            parameters: Some(json!({
+        vec![FunctionDeclaration::new(
+            "get_activities".to_owned(),
+            "The athlete's recent activities".to_owned(),
+            Some(json!({
                 "type": "object",
                 "properties": { "limit": { "type": "integer" } }
             })),
-        }]
+        )]
     }
 
     #[tokio::test]

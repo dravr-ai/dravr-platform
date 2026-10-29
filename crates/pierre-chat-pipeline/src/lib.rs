@@ -114,6 +114,7 @@ use pierre_llm::ChatMessage;
 use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
+use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{debug, info, warn};
@@ -225,6 +226,12 @@ struct DispatchStageArgs<'a> {
     turn_agent_id: Option<&'a str>,
     /// Whose data the turn's tools run against (see `DispatchLlmInputs::seat`).
     seat: TurnSeat,
+    /// What an operator switched off for the sender (see
+    /// `DispatchLlmInputs::switched_off`).
+    switched_off: &'a SwitchedOff,
+    /// Whether the turn's tools beyond the core go out deferred (see
+    /// `DispatchLlmInputs::defer_tools`).
+    defer_tools: bool,
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
@@ -249,6 +256,8 @@ async fn dispatch_stage(
             peer_roster: args.peer_roster,
             turn_agent_id: args.turn_agent_id,
             seat: args.seat,
+            switched_off: args.switched_off,
+            defer_tools: args.defer_tools,
         },
         llm_messages,
         max_iterations,
@@ -492,6 +501,31 @@ const fn persisted_finish_reason<'a>(
     }
 }
 
+/// The turn's tool offer: the tools an operator switched off for its sender,
+/// under the tenant its tools run in, and whether the tools beyond the loaded
+/// core go out deferred (the operator's switch, on a model
+/// `chat_catalogue::defers_on` names). A sender id that does not parse
+/// switches nothing off; the executor refuses whatever it must on its own.
+async fn turn_tool_offer(
+    ctx: &ChatPipelineContext,
+    input: &TurnInput,
+    model: &str,
+) -> (SwitchedOff, bool) {
+    let switched_off = match parse_uuid(&input.user_id) {
+        Ok(user_id) => {
+            SwitchedOff::resolve(
+                ctx.tool_runtime.tool_selection(),
+                input.tool_tenant_id,
+                user_id,
+            )
+            .await
+        }
+        Err(_) => SwitchedOff::default(),
+    };
+    let defer_tools = ctx.config.chat_tools.defer_tools && chat_catalogue::defers_on(model);
+    (switched_off, defer_tools)
+}
+
 /// Run the body of a single turn.
 async fn run_turn(
     ctx: &ChatPipelineContext,
@@ -526,8 +560,15 @@ async fn run_turn(
     record_turn_span_context(input.turn_agent_id(&conv), conv.group_id.as_deref());
 
     // Stage 4.1: who the turn is about, named once. Every stage below that
-    // reads, fetches or files the sender's own data follows it.
-    let standing = stages::group_subject::turn_standing(&ctx.repos, &conv, &input).await;
+    // reads, fetches or files the sender's own data follows it. With it, the
+    // turn's tool offer (`turn_tool_offer`): what an operator switched off for
+    // the sender, which the declarations, the prompt's names index and the
+    // loopback listing all leave out as `tools/list` does, and whether the
+    // tools beyond the loaded core go out deferred.
+    let (standing, (switched_off, defer_tools)) = tokio::join!(
+        stages::group_subject::turn_standing(&ctx.repos, &conv, &input),
+        turn_tool_offer(ctx, &input, &active_model),
+    );
     let seat = standing.seat;
 
     // Stage 4.5: Guided mode. If this conversation is mid pillars walk, mid
@@ -653,6 +694,8 @@ async fn run_turn(
             profile,
             conv: &conv,
             standing,
+            switched_off: &switched_off,
+            defer_tools,
             agent_ctx: agent_ctx.as_ref(),
             history: &history,
             onboarding: onboarding_turn.as_ref(),
@@ -685,6 +728,8 @@ async fn run_turn(
             peer_roster: &group_roster,
             turn_agent_id: input.turn_agent_id(&conv),
             seat,
+            switched_off: &switched_off,
+            defer_tools,
         },
         &mut llm_messages,
     )

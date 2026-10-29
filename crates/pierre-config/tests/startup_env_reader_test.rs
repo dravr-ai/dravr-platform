@@ -1,5 +1,5 @@
 // ABOUTME: The startup readers that capture operator settings from the environment into ServerConfig
-// ABOUTME: GUARDIAN_* overrides, service addresses, time bounds and webhook secrets are read once
+// ABOUTME: GUARDIAN_* overrides, service addresses, time bounds, tool deferral and webhook secrets, read once
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,8 +14,10 @@
 
 use std::env;
 
+use pierre_config::chat_tools::DEFER_TOOLS_VAR;
 use pierre_config::environment::{
-    ExternalServicesConfig, GuardianSettings, SciotteServiceConfig, ServerTimeouts, WebhookSecrets,
+    ChatToolSettings, ExternalServicesConfig, GuardianSettings, SciotteServiceConfig,
+    ServerTimeouts, WebhookSecrets,
 };
 use secrecy::ExposeSecret;
 
@@ -107,6 +109,25 @@ fn startup_captures_guardian_overrides_and_the_sciotte_service() {
             revalidation_timeout_secs: Some(90),
         }
     );
+
+    // Deferred tool loading is on unless the operator writes an off value,
+    // so a typo never turns it off.
+    env::remove_var(DEFER_TOOLS_VAR);
+    assert!(
+        ChatToolSettings::from_env().defer_tools,
+        "unset {DEFER_TOOLS_VAR} must leave deferral on"
+    );
+    env::set_var(DEFER_TOOLS_VAR, "nope");
+    assert!(
+        ChatToolSettings::from_env().defer_tools,
+        "an unrecognised {DEFER_TOOLS_VAR} value must leave deferral on"
+    );
+    env::set_var(DEFER_TOOLS_VAR, " Off ");
+    assert!(
+        !ChatToolSettings::from_env().defer_tools,
+        "{DEFER_TOOLS_VAR}=\" Off \" must turn deferral off"
+    );
+    env::remove_var(DEFER_TOOLS_VAR);
 
     // Webhook secrets: a blank secret configures none, the subscription list
     // keeps only the ids it can read, and Debug never prints a secret.

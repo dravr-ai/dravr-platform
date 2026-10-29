@@ -47,6 +47,7 @@ use pierre_llm::{
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, RacePriority};
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -477,6 +478,7 @@ async fn the_headless_tool_surface_authors_a_save_as_the_turns_agent() {
         turn_agent_id: Some("taper-builder-agent"),
         budget: 16,
         seat: TurnSeat::Subject,
+        switched_off: &SwitchedOff::default(),
     });
     let outcome = surface
         .call("save_training_plan", &taper_week_payload())

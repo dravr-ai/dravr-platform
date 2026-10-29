@@ -309,7 +309,8 @@ impl UniversalExecutor {
     }
 
     /// Pre-dispatch authorization refusals shared by every transport: the
-    /// always-on tenant tool-disable (S3, fail-closed on a genuine lookup error)
+    /// always-on tool-disable, per tenant and per user (S3, fail-closed on a
+    /// genuine lookup error)
     /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
     /// to block in-band (a refusal the LLM adapts to — NOT a security block that
     /// abandons the turn), or `None` to proceed to the Guardian taint/budget check.
@@ -322,14 +323,16 @@ impl UniversalExecutor {
         admin_only: bool,
         provider_gate: ProviderGate<'_>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
-        // Tenant tool-disable (absorbed `enforce_tool_allowlist`): a tenant's
-        // explicit config, enforced on every transport. Disabling a tool is
-        // config, not a security incident — return the graceful in-band nudge the
-        // old chat-only allowlist gave, so the turn is not abandoned.
+        // Tool-disable (absorbed `enforce_tool_allowlist`): an operator's
+        // explicit config for the tenant, or a per-user override above it,
+        // enforced on every transport. Disabling a tool is config, not a
+        // security incident — return the graceful in-band nudge the old
+        // chat-only allowlist gave, so the turn is not abandoned.
         if let Some(tenant) = tenant_uuid {
-            if !guardian::tenant_tool_enabled(
+            if !guardian::caller_tool_enabled(
                 &self.resources,
                 TenantId::from_uuid(tenant),
+                user_uuid,
                 tool_name,
             )
             .await

@@ -126,11 +126,11 @@ impl LlmProvider for BatchingProvider {
 
 fn advertised_tools() -> Tool {
     Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: "get_activities".to_owned(),
-            description: "Retrieve the athlete's activities".to_owned(),
-            parameters: Some(json!({ "type": "object", "properties": {} })),
-        }],
+        function_declarations: vec![FunctionDeclaration::new(
+            "get_activities".to_owned(),
+            "Retrieve the athlete's activities".to_owned(),
+            Some(json!({ "type": "object", "properties": {} })),
+        )],
     }
 }
 

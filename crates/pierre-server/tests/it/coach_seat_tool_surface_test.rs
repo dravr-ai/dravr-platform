@@ -30,6 +30,7 @@ use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_mcp_server::mcp::resources::tool_surface::{HostedToolBridge, TurnToolSurface};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::{TurnSeat, ATHLETE_THREAD_ERROR_CODE, COACH_SEAT_ERROR_CODE};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -67,6 +68,7 @@ fn surface(
         turn_agent_id: None,
         budget: 64,
         seat,
+        switched_off: &SwitchedOff::default(),
     })
 }
 

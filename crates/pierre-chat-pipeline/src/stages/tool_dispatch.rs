@@ -16,7 +16,7 @@ use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::ChatMessage;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
-use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
+use pierre_tool_runtime::chat_catalogue::{self, measure_catalogue, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
@@ -100,6 +100,15 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// in their athlete thread. There the coach's own reads stay declared, and
     /// read the coach's own data when called.
     pub seat: TurnSeat,
+    /// The tools an operator switched off for the sender, resolved once per
+    /// turn. Left out of the declarations and the loopback listing, as
+    /// `tools/list` leaves them out.
+    pub switched_off: &'a SwitchedOff,
+    /// Whether the tools beyond the loaded core go out deferred: the
+    /// operator's `ChatToolSettings::defer_tools` and a model
+    /// `chat_catalogue::defers_on` names. The tail re-loads them for a tier
+    /// whose model does not defer.
+    pub defer_tools: bool,
 }
 
 /// What the dispatch stage hands back to the pipeline.
@@ -161,6 +170,8 @@ pub(crate) async fn dispatch_llm_with_tools(
         peer_roster,
         turn_agent_id,
         seat,
+        switched_off,
+        defer_tools,
     } = inputs;
     // Whose activities the prefetches may put in front of the model: the
     // sender's, unless the sender is coaching — a group from its coach's
@@ -331,6 +342,7 @@ pub(crate) async fn dispatch_llm_with_tools(
                         turn_agent_id,
                         budget: max_iterations,
                         seat,
+                        switched_off,
                     })
                     .await
             }
@@ -345,43 +357,56 @@ pub(crate) async fn dispatch_llm_with_tools(
         .map(ToolSession::mcp_servers)
         .unwrap_or_default();
 
-    // Stage 13: the coaching tool surface. Every turn sees the full
-    // chat-callable set (`ToolRegistry::chat_callable_schemas`), so a capable
-    // agent model routes natively over all coaching tools — no per-turn
-    // narrowing that could starve a turn of a tool it needs.
-    //
-    // LIMITATION(registre#406): `build_mcp_tools` publishes the whole
-    // chat-callable set on every native call, so the catalogue is re-sent in
-    // each iteration's prefix. That width is deliberate, not an oversight --
+    // Stage 13: the coaching tool surface. Every turn is offered the whole
+    // chat-callable set it may call (`chat_catalogue::offered_schemas`), so a
+    // capable agent model routes natively over all coaching tools — no
+    // per-turn narrowing that could starve a turn of a tool it needs.
     // c89da2396 deleted the keyword prefilter after it dropped `search_recipes`
     // from a meal question and the agent invented a dinner, and an LLM
-    // classifier in its place was rejected. What remains registered is the cost
-    // of that trade, not a missing narrowing step.
+    // classifier in its place was rejected.
     //
-    // The iteration half is not open at all: `max_iterations` bounds the
-    // agent's own loop too, spent per call in `TurnToolSurface::call`, which
-    // is why registre#103 closed and only the width above stayed registered.
+    // Offering a tool is not loading it. Outside `LOADED_CORE` every tool is
+    // sent deferred when `defer_tools` says so (`ChatToolSettings::defer_tools`
+    // and a model `chat_catalogue::defers_on` names): a provider with
+    // on-demand loading (Anthropic's tool search) still receives it but loads
+    // it into the model's context only when the model looks it up by the name
+    // the prompt's index gives, and every other provider sends it loaded. So
+    // the model's context holds the core rather than the whole width, and no
+    // tool leaves the set (carnet#406).
+    //
+    // The iteration half is bounded too: `max_iterations` bounds the agent's
+    // own loop, spent per call in `TurnToolSurface::call` (registre#103).
     //
     // A guided flow does not narrow this set. Withholding `save_training_plan`
     // during a walk changed the tools block, which Anthropic caches ahead of the
     // system prompt, so every walk start and end re-wrote the whole 1h prefix
     // (carnet#1256). The walk directive forbids the save and
     // `SaveTrainingPlanTool::execute` refuses it; neither moves the prefix.
-    let mut tools = build_mcp_tools(&ctx.tool_registry);
-    // The coach's seats: the tools the seat withholds are left out, in
-    // lockstep with the prose index and the loopback surface — on the coach's
-    // seat every tool that would read or write the coach's own data
-    // (carnet#742), in their athlete thread every tool that would write it
-    // (carnet#1070). The executor refuses them as well.
-    if !seat.sender_is_subject() {
-        let before = tools.function_declarations.len();
-        tools
-            .function_declarations
-            .retain(|decl| !seat.withholds(&ctx.tool_registry, &decl.name));
+    //
+    // The set is the one the prose index and the loopback surface read too.
+    // It leaves out what the seat withholds — on the coach's seat every tool
+    // that would read or write the coach's own data (carnet#742), in their
+    // athlete thread every tool that would write it (carnet#1070) — and what
+    // an operator switched off for the sender. The executor refuses the
+    // seat's withholds as well.
+    let mut tools = chat_catalogue::declarations(chat_catalogue::offered_schemas(
+        &ctx.tool_registry,
+        seat,
+        switched_off,
+    ));
+    if defer_tools {
+        chat_catalogue::defer_beyond_core(&mut tools);
+    }
+    if !seat.sender_is_subject() || !switched_off.is_empty() {
         info!(
-            withheld = before.saturating_sub(tools.function_declarations.len()),
+            withheld = ctx
+                .tool_registry
+                .chat_callable_schemas()
+                .len()
+                .saturating_sub(tools.function_declarations.len()),
+            switched_off = switched_off.len(),
             seat = ?seat,
-            "coach's seat: withholding the coach's own data tools from the turn"
+            "chat tools: the turn offers less than the chat-callable set"
         );
     }
     let tool_params = ToolLoopParams {
@@ -413,6 +438,9 @@ pub(crate) async fn dispatch_llm_with_tools(
         tools_bytes = catalogue.bytes,
         tools_estimated_tokens = catalogue.estimated_tokens,
         tools_digest = %catalogue.digest,
+        tools_deferred = catalogue.deferred_count,
+        tools_loaded_bytes = catalogue.loaded_bytes,
+        tools_loaded_estimated_tokens = catalogue.loaded_estimated_tokens,
         "Chat pipeline dispatch starting tool loop"
     );
     let loop_start = Instant::now();

@@ -987,12 +987,16 @@ impl ServerContext {
     /// Anthropic count it off the boot path (carnet#1196).
     ///
     /// Two surfaces: the athlete's own turn, which sends every chat-callable
-    /// tool, and the coach's seat, which withholds the coach's own data tools.
+    /// tool — and, with the rest deferred, holds only the loaded core in
+    /// context — and the coach's seat, which withholds the coach's own data
+    /// tools.
     /// The contremaitre overlay has not synced yet at this point, so this is
     /// the compiled-in text; every turn's dispatch line carries the size and
     /// digest it actually sent.
     fn report_tool_catalogue_size(registry: &ToolRegistry, chain: &LlmChain) {
-        use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
+        use pierre_tool_runtime::chat_catalogue::{
+            build_mcp_tools, defer_beyond_core, measure_catalogue,
+        };
         use pierre_tool_runtime::coach_seat::TurnSeat;
 
         /// How many of the largest tools the line names
@@ -1000,6 +1004,11 @@ impl ServerContext {
 
         let mut tools = build_mcp_tools(registry);
         let chat = measure_catalogue(&tools);
+        // What a turn holds in context when the rest is deferred, on a
+        // provider with tool search (carnet#406).
+        let mut deferred = tools.clone();
+        defer_beyond_core(&mut deferred);
+        let loaded = measure_catalogue(&deferred);
         // The detached count owns its copy: the coach-seat filter below
         // narrows `tools` in place.
         Self::spawn_tool_catalogue_token_count(
@@ -1020,6 +1029,9 @@ impl ServerContext {
             bytes = chat.bytes,
             estimated_tokens = chat.estimated_tokens,
             digest = %chat.digest,
+            loaded_tool_count = loaded.tool_count - loaded.deferred_count,
+            loaded_bytes = loaded.loaded_bytes,
+            loaded_estimated_tokens = loaded.loaded_estimated_tokens,
             coach_seat_tool_count = coach_seat.tool_count,
             coach_seat_bytes = coach_seat.bytes,
             coach_seat_estimated_tokens = coach_seat.estimated_tokens,

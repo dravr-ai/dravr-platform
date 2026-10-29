@@ -20,6 +20,7 @@
 
 use embacle_tool_host::ToolSession;
 use pierre_core::models::{ConversationTurnId, TenantId};
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 
 /// The turn a tool session is opened for.
@@ -46,6 +47,10 @@ use pierre_tool_runtime::coach_seat::TurnSeat;
 /// [`TurnSeat::AthleteThread`] in a coach's thread about one athlete, where
 /// every tool that would write the coach's own data is withheld and refused
 /// (carnet#1070).
+///
+/// `switched_off` is what an operator switched off for the caller, resolved
+/// once for the turn: the session's listing leaves it out, exactly as the
+/// turn's declarations and its prompt index do.
 #[derive(Debug, Clone, Copy)]
 pub struct ToolSessionTurn<'a> {
     /// The caller every tool runs as.
@@ -62,6 +67,9 @@ pub struct ToolSessionTurn<'a> {
     pub budget: usize,
     /// Whose data the turn's tools run against.
     pub seat: TurnSeat,
+    /// The tools an operator switched off for the caller: the session's
+    /// listing leaves them out, as the turn's declarations do.
+    pub switched_off: &'a SwitchedOff,
 }
 
 /// Opens the turn-scoped tool session an ACP-managed provider calls into.

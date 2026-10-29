@@ -36,6 +36,8 @@ pub use crate::goal_management::GoalManagementConfig;
 pub use crate::guardian::GuardianSettings;
 // Request-path time bounds
 pub use crate::timeouts::ServerTimeouts;
+// How a chat turn sends its tool catalogue
+pub use crate::chat_tools::ChatToolSettings;
 // Inbound webhook secrets
 pub use crate::webhooks::WebhookSecrets;
 // Logging
@@ -142,6 +144,8 @@ pub struct ServerConfig {
     pub guardian: GuardianSettings,
     /// Request-path time bounds the operator retuned
     pub timeouts: ServerTimeouts,
+    /// How a chat turn sends its tool catalogue
+    pub chat_tools: ChatToolSettings,
     /// What inbound provider and messaging webhooks are verified against
     pub webhooks: WebhookSecrets,
 }
@@ -202,6 +206,7 @@ impl ServerConfig {
             llm_chain: LlmChain::from_env(),
             guardian: GuardianSettings::from_env(),
             timeouts: ServerTimeouts::from_env(),
+            chat_tools: ChatToolSettings::from_env(),
             webhooks: WebhookSecrets::from_env(),
         };
 

@@ -33,7 +33,9 @@
 //! - (i) the same for a Copilot head on the headless loop;
 //! - (j) an API head that faults for any reason but quota starts no cooldown:
 //!   the tail serves that turn, and the head is asked again on the next one;
-//! - (k) the same for a Copilot head on the headless loop.
+//! - (k) the same for a Copilot head on the headless loop;
+//! - (l) an Opus head sent deferred tools hands a Haiku tier every tool loaded,
+//!   and an Opus tier behind it keeps them deferred (carnet#406).
 
 mod common;
 
@@ -65,6 +67,7 @@ use pierre_llm::{
     HeadlessToolResponse, HeadlessTurnProvider, McpServerConfig, McpTransport, ObservedToolCall,
     QuotaCooldowns, Tool,
 };
+use pierre_tool_runtime::chat_catalogue;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use pierre_tool_runtime::tool_execution::run_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, PLATFORM_MCP_SERVER_NAME};
@@ -111,6 +114,8 @@ struct ScriptedApi {
     calls_with_tools: AtomicUsize,
     /// The tool-result feedback messages the last call carried.
     tool_results_seen: Mutex<Vec<String>>,
+    /// Per call, whether any tool it was handed was deferred.
+    deferred_seen: Mutex<Vec<bool>>,
     models: Vec<String>,
 }
 
@@ -126,6 +131,17 @@ impl ScriptedApi {
     }
 
     fn scripted(name: &'static str, script: Vec<Step>, then: Option<Step>) -> Arc<Self> {
+        Self::scripted_on(name, script, then, "claude-haiku-5-5")
+    }
+
+    /// A tier whose model is `model`, which decides whether it is sent
+    /// deferred tools.
+    fn scripted_on(
+        name: &'static str,
+        script: Vec<Step>,
+        then: Option<Step>,
+        model: &str,
+    ) -> Arc<Self> {
         Arc::new(Self {
             name,
             script: Mutex::new(script.into_iter().collect()),
@@ -133,7 +149,8 @@ impl ScriptedApi {
             calls: AtomicUsize::new(0),
             calls_with_tools: AtomicUsize::new(0),
             tool_results_seen: Mutex::new(Vec::new()),
-            models: vec!["claude-haiku-5-5".to_owned()],
+            deferred_seen: Mutex::new(Vec::new()),
+            models: vec![model.to_owned()],
         })
     }
 }
@@ -167,6 +184,12 @@ impl EmbacleLlmProvider for ScriptedApi {
         if request.tools.as_ref().is_some_and(|t| !t.is_empty()) {
             self.calls_with_tools.fetch_add(1, Ordering::SeqCst);
         }
+        self.deferred_seen.lock().unwrap().push(
+            request
+                .tools
+                .as_ref()
+                .is_some_and(|tools| tools.iter().any(|tool| tool.defer_loading)),
+        );
         *self.tool_results_seen.lock().unwrap() = request
             .messages
             .iter()
@@ -407,11 +430,11 @@ impl TurnContext {
                 .with_turn_token("fallback-turn".to_owned()),
         );
         let tools = Tool {
-            function_declarations: vec![FunctionDeclaration {
-                name: ROUND_TRIP_TOOL.to_owned(),
-                description: "Report which fitness providers are connected".to_owned(),
-                parameters: Some(json!({ "type": "object", "properties": {} })),
-            }],
+            function_declarations: vec![FunctionDeclaration::new(
+                ROUND_TRIP_TOOL.to_owned(),
+                "Report which fitness providers are connected".to_owned(),
+                Some(json!({ "type": "object", "properties": {} })),
+            )],
         };
         Self {
             executor,
@@ -422,10 +445,19 @@ impl TurnContext {
 
     /// Run one turn of the production tool loop on `chain`.
     async fn run(&self, chain: &ChatProvider) -> (ToolLoopResult, Vec<ChatMessage>) {
+        self.run_with(chain, &self.tools).await
+    }
+
+    /// Run one turn of the production tool loop on `chain`, handing it `tools`.
+    async fn run_with(
+        &self,
+        chain: &ChatProvider,
+        tools: &Tool,
+    ) -> (ToolLoopResult, Vec<ChatMessage>) {
         let params = ToolLoopParams {
             provider: chain,
             executor: Arc::clone(&self.executor),
-            tools: &self.tools,
+            tools,
             model: chain.default_model(),
             user_id: &self.user,
             tenant_id: TenantId::from_uuid(Uuid::new_v4()),
@@ -1218,5 +1250,99 @@ async fn a_text_tool_call_from_the_copilot_sdk_runs_the_tool_instead_of_falling_
                 .content
                 .contains("<tool_result name=\"get_connection_status\">"))),
         "the final ask carries the tool's result"
+    );
+}
+
+/// The tools an Opus head was sent, the round-trip tool deferred beside a
+/// loaded one, as the dispatch stage defers them.
+fn deferred_tools(ctx: &TurnContext) -> Tool {
+    let mut tools = ctx.tools.clone();
+    tools.function_declarations.push(FunctionDeclaration::new(
+        "get_activities".to_owned(),
+        "Recent activities".to_owned(),
+        Some(json!({ "type": "object", "properties": {} })),
+    ));
+    chat_catalogue::defer_beyond_core(&mut tools);
+    assert!(
+        tools
+            .function_declarations
+            .iter()
+            .any(|decl| decl.defer_loading),
+        "premise: the round-trip tool is outside the core and deferred"
+    );
+    tools
+}
+
+/// (l) Haiku answered rare-tool turns without loading the tool when sent
+/// deferred tools, so a Haiku tier behind an Opus head is handed every tool
+/// loaded, while an Opus tier keeps the deferral the head was sent.
+#[tokio::test]
+async fn a_tier_whose_model_does_not_defer_gets_every_tool_loaded() {
+    let head = ScriptedApi::scripted_on(
+        "anthropic",
+        vec![Step::CreditSpent],
+        None,
+        "claude-opus-5-5",
+    );
+    let haiku = ScriptedApi::scripted_on(
+        "anthropic#2",
+        vec![Step::CallsTool, Step::Answers("Strava est connecté.")],
+        None,
+        "claude-haiku-5-5",
+    );
+    let chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(
+            vec![api_tier(&head), api_tier(&haiku)],
+            QuotaCooldowns::default(),
+        )
+        .unwrap(),
+    );
+    let ctx = TurnContext::new().await;
+    let tools = deferred_tools(&ctx);
+
+    let (result, _) = ctx.run_with(&chain, &tools).await;
+
+    assert_eq!(
+        *head.deferred_seen.lock().unwrap(),
+        [true],
+        "the Opus head is sent the deferred tools"
+    );
+    assert_eq!(
+        *haiku.deferred_seen.lock().unwrap(),
+        [false, false],
+        "the Haiku tier is sent every tool loaded on every round"
+    );
+    assert_eq!(
+        result.tools_called,
+        vec![ROUND_TRIP_TOOL.to_owned()],
+        "the Haiku tier runs the tool it was handed loaded"
+    );
+
+    let opus_head = ScriptedApi::scripted_on(
+        "anthropic",
+        vec![Step::CreditSpent],
+        None,
+        "claude-opus-5-5",
+    );
+    let opus_tail = ScriptedApi::scripted_on(
+        "anthropic#2",
+        vec![Step::Answers("Strava est connecté.")],
+        None,
+        "claude-opus-5-5",
+    );
+    let opus_chain = ChatProvider::Embacle(
+        EmbacleProvider::chain(
+            vec![api_tier(&opus_head), api_tier(&opus_tail)],
+            QuotaCooldowns::default(),
+        )
+        .unwrap(),
+    );
+
+    ctx.run_with(&opus_chain, &tools).await;
+
+    assert_eq!(
+        *opus_tail.deferred_seen.lock().unwrap(),
+        [true],
+        "an Opus tier keeps the deferral"
     );
 }

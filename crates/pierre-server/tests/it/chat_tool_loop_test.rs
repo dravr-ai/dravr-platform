@@ -177,10 +177,10 @@ fn test_strip_preserves_no_tool_calls() {
 #[test]
 fn test_generate_tool_catalog_has_tools() {
     let declarations = vec![
-        FunctionDeclaration {
-            name: "get_activities".to_owned(),
-            description: "Get user's recent fitness activities".to_owned(),
-            parameters: Some(serde_json::json!({
+        FunctionDeclaration::new(
+            "get_activities".to_owned(),
+            "Get user's recent fitness activities".to_owned(),
+            Some(serde_json::json!({
                 "type": "object",
                 "properties": {
                     "provider": {"type": "string"},
@@ -188,18 +188,18 @@ fn test_generate_tool_catalog_has_tools() {
                 },
                 "required": ["provider"]
             })),
-        },
-        FunctionDeclaration {
-            name: "get_athlete".to_owned(),
-            description: "Get user's athlete profile".to_owned(),
-            parameters: Some(serde_json::json!({
+        ),
+        FunctionDeclaration::new(
+            "get_athlete".to_owned(),
+            "Get user's athlete profile".to_owned(),
+            Some(serde_json::json!({
                 "type": "object",
                 "properties": {
                     "provider": {"type": "string"}
                 },
                 "required": ["provider"]
             })),
-        },
+        ),
     ];
 
     let catalog = generate_tool_catalog(&declarations);

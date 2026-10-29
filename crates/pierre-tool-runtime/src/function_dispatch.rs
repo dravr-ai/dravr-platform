@@ -134,9 +134,10 @@ async fn execute_mcp_tool(
                 inner
             },
         );
-    // The tenant tool-disable allowlist (formerly enforced here, chat-only) now
-    // runs inside `UniversalExecutor::execute_tool` via the Guardian, so every
-    // transport — not just chat — honours it. See `guardian::tenant_tool_enabled`.
+    // The tool-disable allowlist (formerly enforced here, chat-only) now runs
+    // inside `UniversalExecutor::execute_tool` via the Guardian, so every
+    // transport — not just chat — honours it, per tenant and per user. See
+    // `guardian::caller_tool_enabled`.
     let request = UniversalRequest {
         tool_name: function_call.name.clone(),
         parameters,

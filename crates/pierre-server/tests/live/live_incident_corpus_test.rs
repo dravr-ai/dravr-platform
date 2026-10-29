@@ -132,7 +132,7 @@ use axum::{Json, Router};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use pierre_chat_pipeline::stages::introduction::reply_names_agent;
-use pierre_config::environment::ServerConfig;
+use pierre_config::environment::{ChatToolSettings, ServerConfig};
 use pierre_core::models::{TenantId, WITHHELD_REPLY_FINISH_REASON};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_llm::config::LlmChain;
@@ -144,6 +144,7 @@ use serde::Deserialize;
 use serde_json::json;
 use serial_test::serial;
 use sha2::Sha256;
+use std::collections::HashSet;
 use std::env;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -153,6 +154,9 @@ use tokio::time::sleep;
 
 /// Poll interval while waiting for the delivered message to land.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How many polls a turn's `llm_usage` rows get to settle after the reply.
+const USAGE_SETTLE_POLLS: usize = 10;
 
 /// How much of a delivered reply the failure report quotes. Enough to see
 /// what the athlete actually got; short enough that eleven of them stay
@@ -333,6 +337,89 @@ struct Delivered {
     /// The `content_blocks` rail of the assistant row this turn produced.
     /// A chart lives here, not in the prose.
     blocks: Option<String>,
+    /// The tools the model asked for during the turn, in call order.
+    tools: Vec<String>,
+}
+
+/// What the model did during one turn, from the `llm_usage` rows it added.
+struct TurnUsage {
+    /// Every tool a call of the turn asked for, in call order.
+    tools: Vec<String>,
+    /// How many model calls the turn made.
+    calls: usize,
+    /// Prompt tokens over those calls: what deferral is meant to shrink.
+    prompt_tokens: i64,
+}
+
+/// The ids of the tenant's `llm_usage` rows so far.
+async fn usage_ids(resources: &Arc<ServerContext>, tenant: TenantId) -> HashSet<String> {
+    usage_rows(resources, tenant)
+        .await
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect()
+}
+
+/// Every `llm_usage` row of the tenant as `(id, tools_called, prompt_tokens)`.
+async fn usage_rows(
+    resources: &Arc<ServerContext>,
+    tenant: TenantId,
+) -> Vec<(String, String, i64)> {
+    const SQL: &str = "SELECT id, tools_called, CAST(prompt_tokens AS BIGINT) FROM llm_usage \
+                       WHERE tenant_id = $1 ORDER BY created_at";
+    let tenant = tenant.to_string();
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_as(SQL)
+            .bind(&tenant)
+            .fetch_all(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_as(SQL)
+            .bind(&tenant)
+            .fetch_all(pg.pool())
+            .await
+            .unwrap(),
+    }
+}
+
+/// What the turn's model calls were, from the rows added since `before`.
+///
+/// The rows are written on a drained background task, so the reply can land
+/// first: read until two reads a poll apart agree.
+async fn turn_usage(
+    resources: &Arc<ServerContext>,
+    tenant: TenantId,
+    before: &HashSet<String>,
+) -> TurnUsage {
+    let mut last = 0;
+    for _ in 0..USAGE_SETTLE_POLLS {
+        sleep(POLL_INTERVAL).await;
+        let count = usage_rows(resources, tenant)
+            .await
+            .iter()
+            .filter(|(id, _, _)| !before.contains(id))
+            .count();
+        if count == last && count > 0 {
+            break;
+        }
+        last = count;
+    }
+    let added: Vec<(String, String, i64)> = usage_rows(resources, tenant)
+        .await
+        .into_iter()
+        .filter(|(id, _, _)| !before.contains(id))
+        .collect();
+    TurnUsage {
+        tools: added
+            .iter()
+            .flat_map(|(_, tools, _)| {
+                serde_json::from_str::<Vec<String>>(tools).unwrap_or_default()
+            })
+            .collect(),
+        calls: added.len(),
+        prompt_tokens: added.iter().map(|(_, _, tokens)| tokens).sum(),
+    }
 }
 
 /// Who wrote the reply the athlete read.
@@ -535,7 +622,11 @@ async fn drive_turn(
                     body,
                 });
             }
-            return Ok(Answered::Model(Delivered { body, blocks }));
+            return Ok(Answered::Model(Delivered {
+                body,
+                blocks,
+                tools: Vec::new(),
+            }));
         }
         sleep(POLL_INTERVAL).await;
     }
@@ -649,6 +740,16 @@ async fn check(
                 )
             })
         }
+        Expect::Calls(wanted) => (!delivered
+            .tools
+            .iter()
+            .any(|tool| wanted.contains(&tool.as_str())))
+        .then(|| {
+            format!(
+                "the model called none of {wanted:?}; it called {:?}",
+                delivered.tools
+            )
+        }),
         Expect::NoRawVizFence => lower
             .contains("```dravr-viz")
             .then(|| "raw dravr-viz fence survived into the delivered body".to_owned()),
@@ -803,6 +904,9 @@ async fn live_incident_corpus_holds() {
             ServerConfig {
                 llm_chain: chain.clone(),
                 timeouts: lane_timeouts(),
+                // `PIERRE_CHAT_DEFER_TOOLS=off` runs the lane with every tool
+                // loaded, the baseline a deferral run is compared against.
+                chat_tools: ChatToolSettings::from_env(),
                 ..test_server_config_with_sciotte(&scraper_url)
             },
         )
@@ -827,7 +931,8 @@ async fn live_incident_corpus_holds() {
                 let baseline = outbound_count(&resources, fixture.athlete_tenant).await;
                 let assistant_baseline =
                     assistant_row_count(&resources, fixture.athlete_tenant).await;
-                let delivered = match drive_turn(
+                let usage_before = usage_ids(&resources, fixture.athlete_tenant).await;
+                let mut delivered = match drive_turn(
                     &resources,
                     &fixture,
                     channel,
@@ -862,6 +967,12 @@ async fn live_incident_corpus_holds() {
                     }
                 };
                 turns_run += 1;
+                let usage = turn_usage(&resources, fixture.athlete_tenant, &usage_before).await;
+                println!(
+                    "    tools {:?} over {} call(s), {} prompt tokens",
+                    usage.tools, usage.calls, usage.prompt_tokens
+                );
+                delivered.tools = usage.tools;
                 println!(
                     "    delivered {} chars{}",
                     delivered.body.chars().count(),

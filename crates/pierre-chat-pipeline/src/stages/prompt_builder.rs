@@ -585,9 +585,9 @@ pub async fn build_provider_context(data: &DataContext, user_id: Uuid) -> String
 /// it and then listed every one of them — the same shape of false sentence as
 /// the one above, pointing the other way. What is actually missing from the
 /// prompt is what each tool does and what it takes, which the index says of
-/// itself ("Names only — call one to see its parameters"), so that is what this
-/// now claims. It stays true whether or not the index renders, and it still
-/// names no tool.
+/// itself ("Names only — call one to see its parameters", or, with deferred
+/// loading, how to load one by name), so that is what this now claims. It
+/// stays true whether or not the index renders, and it still names no tool.
 pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the ones your tool surface offers. This prompt does not \
      describe what they do or what parameters they take, so look a tool up \
      before answering a question about what you can do. Never tell the athlete \
@@ -613,10 +613,9 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
 /// sources, so it advertised agent CRUD and config writes the agent could not
 /// call. Deleting it was right.
 ///
-/// This is not that list. It is generated from `chat_callable_schemas()` — the
-/// same set the tool layer serves — so there is one source and nothing to drift
-/// against. It carries names only: no descriptions, no schemas, no prose. Call
-/// a tool to learn its parameters.
+/// This is not that list. It is generated from `offered_schemas` — the same
+/// set the tool layer serves — so there is one source and nothing to drift
+/// against. It carries names only: no descriptions, no schemas, no prose.
 ///
 /// ## Why the model needs it at all
 ///
@@ -628,27 +627,45 @@ pub const TOOL_BOUNDARY: &str = "## Tool boundary\n\n     Your tools are the one
 /// unprompted minutes earlier — but a question about what it can do was
 /// answered from a prompt that named nothing.
 ///
-/// Anthropic's own tool-search API refuses this configuration outright: the
-/// search tool may not set `defer_loading`, and at least one tool must stay
-/// non-deferred, or the request is rejected with
-/// `All tools have defer_loading set`. A fully deferred catalogue is not a
-/// tuning choice, it is an invalid one. This index is the non-deferred floor.
+/// ## Why it tells the model to load a tool by name
+///
+/// With `on_demand`, every tool outside `chat_catalogue::LOADED_CORE` is sent
+/// deferred, so the model holds the parameters of a few tools and sees the
+/// rest only here. Probed live on 2026-10-29: given the index alone, Haiku
+/// called deferred tools without loading them and guessed their arguments,
+/// and a keyword search for a French dinner question matched nothing, so the
+/// model told the athlete it had no recipe tool — the dinner incident again.
+/// Told to load by exact name with a regex search, Haiku and Opus loaded the
+/// right tool and called it with its real schema. The sentence is conditional
+/// on what the model can see, so a fallback provider that sent every tool
+/// loaded reads it as a no-op.
 ///
 /// Names are sorted so the block is byte-stable across turns: a prompt prefix
 /// that reorders cannot be cached, and this one sits ahead of the conversation.
 #[must_use]
-pub fn render_tool_index(names: &[String]) -> String {
+pub fn render_tool_index(names: &[String], on_demand: bool) -> String {
     if names.is_empty() {
         return String::new();
     }
     let mut sorted: Vec<&str> = names.iter().map(String::as_str).collect();
     sorted.sort_unstable();
     sorted.dedup();
+    let parameters = if on_demand {
+        "Many load on demand: when a tool's parameters are not in your context, \
+         load it with your tool search by its exact name before calling it (for \
+         example the pattern ^search_recipes$, or several at once with \
+         ^(name_a|name_b)$); never guess its parameters. When the athlete asks for \
+         something one of these tools does — an estimate, a prediction, an analysis, \
+         a search, a routine — load that tool and answer from what it returns, \
+         never from your own reckoning."
+    } else {
+        "Names only — call one to see its parameters."
+    };
     format!(
-        "\n\n## Your tools\n\n     These are the tools you can call, by name. Names only — call one to \
-         see its parameters. This list is generated from the same set your tool \
-         surface serves, so a name here is callable and a capability question is \
-         answered by reading it, never by guessing.\n\n     {}\n",
+        "\n\n## Your tools\n\n     These are the tools you can call, by name. {parameters} This list is \
+         generated from the same set your tool surface serves, so a name here is \
+         callable and a capability question is answered by reading it, never by \
+         guessing.\n\n     {}\n",
         sorted.join(", ")
     )
 }

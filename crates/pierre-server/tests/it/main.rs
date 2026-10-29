@@ -174,6 +174,7 @@ mod chat_scenario_test;
 mod chat_slash_commands_test;
 mod chat_sse_turn_drain_test;
 mod chat_tool_loop_test;
+mod chat_tools_switched_off_test;
 mod chat_turn_stop_test;
 mod chat_turn_stream_test;
 mod check_in_api_test;

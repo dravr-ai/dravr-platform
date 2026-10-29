@@ -26,6 +26,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::llm::is_llm_provider_fault;
 use pierre_llm::{ChatMessage, ChatProvider};
 
+use crate::chat_catalogue;
 use crate::tool_execution::{run_api_tool_loop, run_headless_tool_loop, run_tool_loop};
 use crate::tool_loop_io::{HeadlessRoute, ToolLoopParams, ToolLoopResult};
 use crate::tool_loop_telemetry::{note_tool_loop_cooldown_skip, note_tool_loop_fallback};
@@ -201,10 +202,26 @@ async fn run_on_tail(
     llm_messages: &mut Vec<ChatMessage>,
     prior: Option<ToolLoopResult>,
 ) -> Result<ToolLoopResult, AppError> {
+    // A tier whose model is not sent deferred tools gets every tool loaded,
+    // whatever the head was sent (`chat_catalogue::defers_on`): Haiku behind
+    // an Opus head would otherwise answer a rare-tool turn without the tool.
+    let loaded;
+    let tools = if params
+        .tools
+        .function_declarations
+        .iter()
+        .any(|decl| decl.defer_loading)
+        && !chat_catalogue::defers_on(tail.default_model())
+    {
+        loaded = chat_catalogue::all_loaded(params.tools);
+        &loaded
+    } else {
+        params.tools
+    };
     let fallback_params = ToolLoopParams {
         provider: tail,
         executor: Arc::clone(&params.executor),
-        tools: params.tools,
+        tools,
         // The tail picks its own model: the head's model (e.g. Copilot's
         // `claude-sonnet-5.5`) is meaningless to the Anthropic API or Gemini.
         // Mirrors `ResponsePolicy::strict().own_model_per_tier` clearing the

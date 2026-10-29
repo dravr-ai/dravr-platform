@@ -1112,7 +1112,7 @@ async fn a_disabled_tool_in_the_athletes_tenant_refuses_the_cross_tenant_write()
     )
     .await;
     assert!(
-        error_text(&saved).contains("disabled for this tenant"),
+        error_text(&saved).contains("disabled for this tenant or this user"),
         "got: {saved}"
     );
     assert_eq!(

@@ -31,6 +31,8 @@ pub mod api_providers;
 pub mod cache;
 /// Configuration parameter catalog and schema definitions
 pub mod catalog;
+/// How a chat turn sends its tool catalogue, captured at startup
+pub mod chat_tools;
 /// Application constants and runtime server config holder (`SERVER_CONFIG` `OnceLock`)
 pub mod constants;
 /// Database configuration (`DatabaseUrl`, pools, backups, `SQLx`)

@@ -20,10 +20,11 @@
 //!
 //! ## A guided walk does not change the listing
 //!
-//! Each `tools/list` is built from the registry and the turn's seat, and
-//! nothing else. A guided walk is deliberately not an input — the
-//! listing is the same whether or not one is running, so the agent's cached
-//! prefix survives a walk starting and ending (carnet#1256), and
+//! Each `tools/list` is built from the registry, the turn's seat and what an
+//! operator switched off for the caller, and nothing else. A guided walk is
+//! deliberately not an input — the listing is the same whether or not one is
+//! running, so the agent's cached prefix survives a walk starting and ending
+//! (carnet#1256), and
 //! `save_training_plan` refuses the mid-walk save itself.
 
 use std::fmt;
@@ -42,6 +43,7 @@ use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -118,6 +120,9 @@ pub struct TurnToolSurface {
     /// (carnet#1070) — are left out of the listing, and the executor this
     /// surface calls through refuses them as well.
     seat: TurnSeat,
+    /// What an operator switched off for the caller, left out of the listing
+    /// as the turn's declarations leave it out.
+    switched_off: SwitchedOff,
 }
 
 impl fmt::Debug for TurnToolSurface {
@@ -130,6 +135,7 @@ impl fmt::Debug for TurnToolSurface {
             .field("budget", &self.budget)
             .field("calls", &self.calls)
             .field("seat", &self.seat)
+            .field("switched_off", &self.switched_off.len())
             .finish_non_exhaustive()
     }
 }
@@ -144,6 +150,7 @@ impl TurnToolSurface {
         tenant_id: TenantId,
         budget: usize,
         seat: TurnSeat,
+        switched_off: SwitchedOff,
     ) -> Self {
         Self {
             tool_registry,
@@ -153,28 +160,29 @@ impl TurnToolSurface {
             budget,
             calls: AtomicUsize::new(0),
             seat,
+            switched_off,
         }
     }
 }
 
 #[async_trait]
 impl ToolSurface for TurnToolSurface {
-    /// LIMITATION(registre#406): `list_tools` publishes every chat-callable
-    /// tool on every turn, so each native call carries the whole catalogue in
-    /// its prefix. Deliberate: narrowing by message keyword was deleted in
-    /// c89da2396 for starving turns of tools they needed. The iteration budget
-    /// this marker used to name alongside it is enforced in `call`, so
-    /// registre#103 closed and the width kept its own issue.
+    /// The turn's whole offered set (`chat_catalogue::offered_schemas`), with
+    /// no deferral: the agents that call in over this surface — the Copilot
+    /// runtime and the Claude Code CLI on the chain's fallback tiers — load MCP
+    /// tools by their own rules. The Copilot runtime's own tool search is off
+    /// (embacle sets it explicitly), so it sees every tool the turn offers
+    /// rather than an unannounced subset (carnet#406). Narrowing by message
+    /// keyword was deleted in c89da2396 for starving turns of tools they
+    /// needed; the iteration budget is enforced in `call` (registre#103).
     ///
     /// A guided walk does not narrow it: the listing is the same whether or
     /// not one is running, so the agent's cached prefix survives the walk
     /// starting and ending (carnet#1256). `save_training_plan` refuses the
     /// mid-walk save itself.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
-        self.tool_registry
-            .chat_callable_schemas()
+        chat_catalogue::offered_schemas(&self.tool_registry, self.seat, &self.switched_off)
             .into_iter()
-            .filter(|s| !self.seat.withholds(&self.tool_registry, &s.name))
             .map(|s| McpToolDefinition {
                 name: s.name,
                 description: s.description,
@@ -451,6 +459,7 @@ impl HostedToolBridge {
             turn.tenant_id,
             turn.budget,
             turn.seat,
+            turn.switched_off.clone(),
         )
     }
 }

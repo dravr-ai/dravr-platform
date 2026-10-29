@@ -206,6 +206,22 @@ pub struct EffectiveTool {
     pub min_plan: TenantPlan,
 }
 
+impl EffectiveTool {
+    /// Whether every surface that lists tools — `tools/list` and a chat
+    /// turn's declarations, index and loopback alike — leaves this one out.
+    ///
+    /// It is left out when an operator switched it off — globally, for the
+    /// tenant, or for this user, or off by catalogue default — because that
+    /// is what the deployment offers. It is not left out when the tenant's
+    /// plan does not cover it: the plan is the athlete's current state, and
+    /// the list a client builds against must not change when it does. The
+    /// call path refuses that tool until the plan covers it.
+    #[must_use]
+    pub fn is_switched_off(&self) -> bool {
+        !self.is_enabled && self.source != ToolEnablementSource::PlanRestriction
+    }
+}
+
 /// Request to set a tool override for a tenant
 #[derive(Debug, Clone, Deserialize)]
 pub struct SetToolOverrideRequest {

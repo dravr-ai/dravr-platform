@@ -61,11 +61,11 @@ fn wrap(config: OpenAiCompatibleConfig) -> ChatProvider {
 /// Build a single-function Tool wrapper used by the fitness tool catalog below.
 fn pierre_tool(name: &str, description: &str, parameters: serde_json::Value) -> Tool {
     Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: name.to_owned(),
-            description: description.to_owned(),
-            parameters: Some(parameters),
-        }],
+        function_declarations: vec![FunctionDeclaration::new(
+            name.to_owned(),
+            description.to_owned(),
+            Some(parameters),
+        )],
     }
 }
 
@@ -512,11 +512,11 @@ fn build_registry() -> ToolRegistry {
 fn tool_from_registry(schema: &ToolSchema) -> Tool {
     let parameters = serde_json::to_value(&schema.input_schema).ok();
     Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: schema.name.clone(),
-            description: schema.description.clone(),
+        function_declarations: vec![FunctionDeclaration::new(
+            schema.name.clone(),
+            schema.description.clone(),
             parameters,
-        }],
+        )],
     }
 }
 

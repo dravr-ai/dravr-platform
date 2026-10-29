@@ -21,10 +21,11 @@
 //! enforced. The complete fix is the Phase 3 plan-then-verify layer.
 //!
 //! Two kinds of gate live here:
-//! - **Tenant tool-disable** ([`tenant_tool_enabled`]) — a tenant admin
-//!   explicitly disabled a tool; this is configuration, always enforced
-//!   regardless of [`GuardianMode`]. Absorbed from the former chat-only
-//!   `enforce_tool_allowlist` so every transport now honours it.
+//! - **Tool-disable** ([`caller_tool_enabled`], [`tenant_tool_enabled`]) — an
+//!   operator explicitly disabled a tool, for the tenant or for the caller;
+//!   this is configuration, always enforced regardless of [`GuardianMode`].
+//!   Absorbed from the former chat-only `enforce_tool_allowlist` so every
+//!   transport honours it.
 //! - **Taint / budget / egress** ([`Guardian::decide`]) — security heuristics,
 //!   gated by [`GuardianMode`]: `observe` logs would-be denials, `enforce`
 //!   blocks.
@@ -52,7 +53,7 @@ pub use workflow::{ArgValue, PlanParseError, StepId, SymRef, Workflow, WorkflowS
 
 use std::sync::Arc;
 
-use pierre_core::errors::ErrorCode;
+use pierre_core::errors::{AppResult, ErrorCode};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -246,7 +247,8 @@ impl Guardian {
     ///
     /// Pure and synchronous. The decision is mode-independent; the caller
     /// applies [`GuardianMode`] (observe logs, enforce blocks). The separate
-    /// tenant tool-disable gate ([`tenant_tool_enabled`]) is always enforced.
+    /// tool-disable gate ([`caller_tool_enabled`] at the dispatch chokepoint,
+    /// [`tenant_tool_enabled`] inside a tool) is always enforced.
     #[must_use]
     pub fn decide(
         &self,
@@ -314,7 +316,8 @@ pub const TENANT_DISABLED_ERROR_CODE: &str = "tool_disabled";
 /// `reason` a tenant tool-disable refusal carries beside its error code.
 pub const TENANT_DISABLED_REASON: &str = "tenant_disabled";
 
-/// The message answered when a tenant has disabled `tool_name` by configuration.
+/// The message answered when `tool_name` is disabled by configuration, for the
+/// tenant or for the calling user.
 ///
 /// A nudge to pick another tool, not an incident — and one wording whether
 /// the refusal is raised at the dispatch chokepoint or inside a tool that
@@ -322,14 +325,17 @@ pub const TENANT_DISABLED_REASON: &str = "tenant_disabled";
 #[must_use]
 pub fn tenant_disabled_message(tool_name: &str) -> String {
     format!(
-        "Tool '{tool_name}' is disabled for this tenant. Choose a different tool or answer from what you already know."
+        "Tool '{tool_name}' is disabled for this tenant or this user. Choose a different tool or answer from what you already know."
     )
 }
 
 /// Whether `tool_name` is enabled for `tenant` (the absorbed tenant tool-disable allowlist).
 ///
 /// Always enforced regardless of [`GuardianMode`] — it is a tenant's explicit
-/// configuration, not a Guardian heuristic.
+/// configuration, not a Guardian heuristic. For the caller's own call, the
+/// dispatch chokepoint asks [`caller_tool_enabled`] instead, which also honours
+/// a per-user override; this tenant-only form is for a tool acting under a
+/// tenant other than the caller's, which honours that tenant's configuration.
 ///
 /// On a lookup error the behavior splits (S3): an **uncatalogued** tool
 /// (`ResourceNotFound` — e.g. a feature-flag tool deliberately absent from the
@@ -343,11 +349,44 @@ pub async fn tenant_tool_enabled(
     tenant: TenantId,
     tool_name: &str,
 ) -> bool {
-    match resources
-        .tool_selection()
-        .is_tool_enabled(tenant, tool_name)
-        .await
-    {
+    settle_enablement(
+        resources
+            .tool_selection()
+            .is_tool_enabled(tenant, tool_name)
+            .await,
+        tenant,
+        tool_name,
+    )
+}
+
+/// Whether `tool_name` is enabled for `user` calling under `tenant`: the
+/// tenant's decision with the user's own override above it, the precedence
+/// `tools/list` and a chat turn's listings apply (carnet#406).
+///
+/// A tool switched off for one user is refused when they call it by name, not
+/// only hidden from their listings.
+///
+/// Errors settle as in [`tenant_tool_enabled`].
+pub async fn caller_tool_enabled(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant: TenantId,
+    user: Uuid,
+    tool_name: &str,
+) -> bool {
+    settle_enablement(
+        resources
+            .tool_selection()
+            .is_tool_enabled_for_user(tenant, user, tool_name)
+            .await,
+        tenant,
+        tool_name,
+    )
+}
+
+/// An enablement lookup's answer as a gate: an uncatalogued tool is allowed,
+/// a genuine failure fails closed.
+fn settle_enablement(lookup: AppResult<bool>, tenant: TenantId, tool_name: &str) -> bool {
+    match lookup {
         Ok(enabled) => enabled,
         // Uncatalogued tool (e.g. a feature-flag tool deliberately absent from
         // `tool_catalog`): the lookup returns `ResourceNotFound`, which is not a

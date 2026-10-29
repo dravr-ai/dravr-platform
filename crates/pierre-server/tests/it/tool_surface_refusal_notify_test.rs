@@ -40,6 +40,7 @@ use helpers::notify_capture::{capture_notify, named, only};
 use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
@@ -73,6 +74,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
         turn_agent_id: None,
         budget: BUDGET_OF_ONE,
         seat: TurnSeat::Subject,
+        switched_off: &SwitchedOff::default(),
     });
 
     // Installed after the fixtures, before the code under test: the capture is

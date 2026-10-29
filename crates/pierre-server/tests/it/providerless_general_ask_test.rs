@@ -139,11 +139,11 @@ async fn a_providerless_general_ask_keeps_the_answer_and_names_no_provider() {
             .with_turn_token("providerless-turn".to_owned()),
     );
     let tools = Tool {
-        function_declarations: vec![FunctionDeclaration {
-            name: "get_activities".to_owned(),
-            description: "Retrieve the athlete's activities".to_owned(),
-            parameters: Some(json!({ "type": "object", "properties": {} })),
-        }],
+        function_declarations: vec![FunctionDeclaration::new(
+            "get_activities".to_owned(),
+            "Retrieve the athlete's activities".to_owned(),
+            Some(json!({ "type": "object", "properties": {} })),
+        )],
     };
     let user_id_str = user_id.to_string();
     let params = ToolLoopParams {

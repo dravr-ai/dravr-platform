@@ -29,6 +29,7 @@ use embacle_tool_host::ToolSurface;
 use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
@@ -66,6 +67,7 @@ fn surface_with_budget(
         tenant,
         budget,
         TurnSeat::Subject,
+        SwitchedOff::default(),
     )
 }
 

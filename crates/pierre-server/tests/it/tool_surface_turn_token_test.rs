@@ -34,6 +34,7 @@ use pierre_chat_pipeline::ToolSessionTurn;
 use pierre_config::environment::GuardianSettings;
 use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
+use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -112,6 +113,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         turn_agent_id: None,
         budget: AMPLE_BUDGET,
         seat: TurnSeat::Subject,
+        switched_off: &SwitchedOff::default(),
     });
 
     // Call 1: the untrusted read. It must not itself be a Guardian block —
@@ -168,6 +170,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         turn_agent_id: None,
         budget: AMPLE_BUDGET,
         seat: TurnSeat::Subject,
+        switched_off: &SwitchedOff::default(),
     });
     let fresh = next_turn
         .call(DESTRUCTIVE, &json!({ "provider": "strava" }))
