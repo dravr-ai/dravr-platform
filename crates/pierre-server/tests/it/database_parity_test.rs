@@ -20,6 +20,10 @@ use pierre_core::models::{
     A2AClient, A2AUsage, ApiKey, ApiKeyTier, ApiKeyUsage, DataSource, DeviceType,
     StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, WindowUsage,
 };
+use pierre_core::models::{
+    FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelItemCarried, FuelItemEntry,
+    NewFuelProposal, ProposalSource, ProposalStatus,
+};
 use pierre_core::models::{Tenant, TenantId, TenantPlan, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
@@ -28,6 +32,7 @@ use pierre_database::{
     repository_registry::RepositoryRegistry,
 };
 use pierre_test_support::db::{create_sqlite_test_db, create_test_db};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -1165,6 +1170,149 @@ async fn test_parity_recipe_ingredient_fdc_id_roundtrip() {
         );
         assert_eq!(read.ingredients[0].name, "Rolled oats", "{backend}: name");
     }
+}
+
+/// A gel label both backends store: 40 g serving, 25 g carbs, 1:0.8.
+fn parity_gel_facts() -> FuelFacts {
+    FuelFacts {
+        serving_label: Some("1 gel (40 g)".to_owned()),
+        serving_g: Some(40.0),
+        carbs_g: Some(25.0),
+        sugars_g: Some(12.0),
+        sodium_mg: Some(50.0),
+        caffeine_mg: Some(100.0),
+        glucose_fructose_ratio: Some(0.8),
+        ..FuelFacts::default()
+    }
+}
+
+fn parity_fuel_proposal(source_kind: ProposalSource, proposer: Option<Uuid>) -> NewFuelProposal {
+    NewFuelProposal {
+        product_id: None,
+        brand: "Parity".to_owned(),
+        name: format!("Gel {}", Uuid::new_v4()),
+        variant: "Citrus".to_owned(),
+        form: FuelForm::Gel,
+        gtin: None,
+        source_kind,
+        source_url: None,
+        source_image: None,
+        source_hash: None,
+        facts: parity_gel_facts(),
+        provenance: BTreeMap::new(),
+        gate_flags: Vec::new(),
+        proposed_by_user_id: proposer,
+    }
+}
+
+/// An athlete's fuel items — a catalogue product and a proposal under review —
+/// round-trip identically on both backends: ids, note, the product's current
+/// facts and the pending proposal's status (carnet#155).
+#[tokio::test]
+async fn test_parity_athlete_fuel_items_roundtrip() {
+    let (sqlite_db, pg_db) = create_both_databases().await;
+
+    let mut listings = Vec::new();
+    for (backend, db) in [("SQLite", &sqlite_db), ("PostgreSQL", &pg_db)] {
+        let repos = db.repositories();
+        let (user_id, tenant_id) = create_test_user(repos).await;
+
+        let approved_id = repos
+            .fuel_catalogue
+            .create_fuel_proposal(&parity_fuel_proposal(ProposalSource::Admin, None))
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: proposal must queue: {e}"));
+        let FuelApprovalOutcome::Approved(product) = repos
+            .fuel_catalogue
+            .approve_fuel_proposal(approved_id, user_id, &FuelFactOverrides::default())
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: approval must not error: {e}"))
+        else {
+            panic!("{backend}: the gel label must be approved");
+        };
+        let carried = repos
+            .athlete_fuel_items
+            .add_fuel_product_item(tenant_id, user_id, product.product.id, Some("2 per hour"))
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: carrying the product must succeed: {e}"));
+        assert!(
+            matches!(carried, FuelItemCarried::Added(_)),
+            "{backend}: {carried:?}"
+        );
+        assert_eq!(
+            repos
+                .athlete_fuel_items
+                .add_fuel_product_item(tenant_id, user_id, product.product.id, None)
+                .await
+                .unwrap_or_else(|e| panic!("{backend}: a second add must not error: {e}")),
+            FuelItemCarried::AlreadyCarried(carried.id()),
+            "{backend}: a second add finds the first item"
+        );
+
+        let pending_id = repos
+            .fuel_catalogue
+            .create_fuel_proposal(&parity_fuel_proposal(
+                ProposalSource::Athlete,
+                Some(user_id),
+            ))
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: athlete proposal must queue: {e}"));
+        let pending = repos
+            .athlete_fuel_items
+            .add_pending_fuel_item(tenant_id, user_id, pending_id, None)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: carrying the proposal must succeed: {e}"));
+
+        let items = repos
+            .athlete_fuel_items
+            .list_fuel_items(tenant_id, user_id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: listing must not error: {e}"));
+        assert_eq!(items.len(), 2, "{backend}: two live items");
+        assert_eq!(items[0].id, carried.id(), "{backend}: oldest first");
+        assert_eq!(items[0].note.as_deref(), Some("2 per hour"), "{backend}");
+        let FuelItemEntry::Catalogue(listed) = &items[0].entry else {
+            panic!("{backend}: the carried product lists as catalogue");
+        };
+        assert_eq!(listed.product.id, product.product.id, "{backend}");
+        assert_eq!(listed.current.facts, parity_gel_facts(), "{backend}: facts");
+        assert_eq!(items[1].id, pending.id(), "{backend}");
+        let FuelItemEntry::Pending(proposal) = &items[1].entry else {
+            panic!("{backend}: the proposal lists as pending");
+        };
+        assert_eq!(proposal.status, ProposalStatus::Pending, "{backend}");
+        assert_eq!(proposal.facts, parity_gel_facts(), "{backend}");
+
+        assert!(
+            repos
+                .athlete_fuel_items
+                .remove_fuel_item(tenant_id, user_id, pending.id())
+                .await
+                .unwrap_or_else(|e| panic!("{backend}: removal must not error: {e}")),
+            "{backend}: the athlete carried it"
+        );
+        let after = repos
+            .athlete_fuel_items
+            .list_fuel_items(tenant_id, user_id)
+            .await
+            .unwrap_or_else(|e| panic!("{backend}: listing must not error: {e}"));
+        listings.push(
+            after
+                .iter()
+                .map(|item| {
+                    (
+                        item.note.clone(),
+                        matches!(item.entry, FuelItemEntry::Catalogue(_)),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_eq!(
+        listings[0], listings[1],
+        "both backends list the same items"
+    );
+    assert_eq!(listings[0], vec![(Some("2 per hour".to_owned()), true)]);
 }
 
 /// `get_top_tools_analysis` averages `response_time_ms` (INTEGER): PG's
