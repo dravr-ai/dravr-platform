@@ -396,7 +396,8 @@ module "backend" {
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider chain (JF, 2026-10-01; Anthropic head 2026-10-19,
-      # carnet#875; Opus head 2026-10-20, carnet#1108): one ordered list,
+      # carnet#875; Opus head 2026-10-20, carnet#1108; Sonnet 5.5 on every
+      # Anthropic account 2026-10-29, JF): one ordered list,
       # PIERRE_LLM_CHAIN, each entry `provider=model`
       # (crates/pierre-llm/src/config.rs, LlmChain). The first entry serves
       # every turn; a provider fault or an empty answer moves the turn to the
@@ -413,18 +414,19 @@ module "backend" {
       # 1. anthropic = the Anthropic Messages API, over a pool of
       #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
       #    ANTHROPIC_API_KEY_3), each with its own prepaid credit under a
-      #    $199/month Console spend limit. The first organization serves the
-      #    reply on claude-opus-5-5; the second (anthropic#2) stays on
-      #    claude-haiku-5-5; the third (anthropic#3) is pinned to
-      #    claude-haiku-5-5 too, as a last resort. A spent credit
+      #    $199/month Console spend limit. All three serve the reply on
+      #    claude-sonnet-5-5 (JF, 2026-10-29), so a spent account hands the
+      #    turn to the same model rather than a smaller one. Sonnet is sent
+      #    every tool outside the loaded core deferred (chat_catalogue.rs,
+      #    defers_on): on the live incident corpus it gave 3 findings
+      #    deferred against 6 with every tool loaded. A spent credit
       #    answers HTTP 402, which embacle maps to RateLimit, so it falls
       #    through like a quota: to anthropic#2, then anthropic#3, then
       #    copilot_sdk. Any quota answer fires
       #    dravr-llm-tier-rate-limited and more than three skips in five
       #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
-      #    Tool-loop iterations that only pick the next tool stay on
-      #    claude-haiku-5-5, the model PIERRE_LLM_MODEL_TOOL_ITERATION defaults
-      #    to on anthropic (carnet#888); Opus writes the reply.
+      #    Tool-loop iterations run on the turn's own model
+      #    (PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit" below).
       # 2. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
       #    jfarcand Copilot account, serving claude-sonnet-5.5. Its monthly
       #    credits reset on the 1st and have no overage (carnet#478). A whole
@@ -454,15 +456,15 @@ module "backend" {
       # reads it is the Gemini provider built with no model of its own — a
       # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
       # model (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,anthropic#3=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
+      PIERRE_LLM_CHAIN         = "anthropic=claude-sonnet-5-5,anthropic#2=claude-sonnet-5-5,anthropic#3=claude-sonnet-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
       PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
 
-      # Every tool-loop iteration runs on the turn's own model (Opus), not on
+      # Every tool-loop iteration runs on the turn's own model (Sonnet), not on
       # the Haiku default the code picks for an `anthropic` head. Measured on
-      # a plan turn (carnet#1193): Haiku's first call of each turn writes the
-      # whole 62–97k prefix into its own cache, and only 41% of its iteration
-      # answers were kept since 2026-10-20, so inheriting charged ~49% less
-      # quota for ~8% more USD. JF's call, 2026-10-26.
+      # a plan turn behind an Opus head (carnet#1193): Haiku's first call of
+      # each turn writes the whole 62–97k prefix into its own cache, and only
+      # 41% of its iteration answers were kept since 2026-10-20, so inheriting
+      # charged ~49% less quota for ~8% more USD. JF's call, 2026-10-26.
       PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit"
 
       # The synthetic LLM probe runs once per instance start and never again:

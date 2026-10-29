@@ -109,6 +109,7 @@ use pierre_core::models::{
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_llm::config::LlmProviderType;
 use pierre_llm::health::LlmHealthStatus;
 use pierre_llm::ChatMessage;
 use pierre_providers::ai_scope;
@@ -503,8 +504,8 @@ const fn persisted_finish_reason<'a>(
 
 /// The turn's tool offer: the tools an operator switched off for its sender,
 /// under the tenant its tools run in, and whether the tools beyond the loaded
-/// core go out deferred (the operator's switch, on a model
-/// `chat_catalogue::defers_on` names). A sender id that does not parse
+/// core go out deferred (the operator's switch, on an Anthropic head whose
+/// model `chat_catalogue::defers_on` names). A sender id that does not parse
 /// switches nothing off; the executor refuses whatever it must on its own.
 async fn turn_tool_offer(
     ctx: &ChatPipelineContext,
@@ -522,7 +523,12 @@ async fn turn_tool_offer(
         }
         Err(_) => SwitchedOff::default(),
     };
-    let defer_tools = ctx.config.chat_tools.defer_tools && chat_catalogue::defers_on(model);
+    // Only the Anthropic API loads a deferred tool on demand. A chain led by
+    // Copilot on a Claude model id would otherwise tell its agent to use a
+    // tool search it does not have.
+    let defer_tools = ctx.config.chat_tools.defer_tools
+        && ctx.config.llm_chain.head().provider == LlmProviderType::Anthropic
+        && chat_catalogue::defers_on(model);
     (switched_off, defer_tools)
 }
 

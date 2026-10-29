@@ -128,12 +128,21 @@ pub fn declarations(schemas: Vec<ToolSchema>) -> Tool {
 /// Model families that are sent deferred tools: those the live incident
 /// corpus found reach a deferred tool as reliably as a loaded one.
 ///
-/// Opus 5.5 did, and did better deferred than loaded (2026-10-29, 0 findings
-/// against 3 with every tool loaded). Haiku 5.5, dev's fallback tier, did
-/// not: deferred, it answered rare-tool turns from its own reckoning without
-/// loading the tool (6 of 8 against 8 of 8 loaded), so it gets every tool
-/// loaded. A family joins only on the same evidence.
-const DEFERRING_MODEL_PREFIXES: &[&str] = &["claude-opus"];
+/// Opus 5.5 and Sonnet 5.5 did, and did better deferred than loaded
+/// (2026-10-29: Opus 0 findings against 3 with every tool loaded, Sonnet 3
+/// against 6). Haiku 5.5 did not: deferred, it answered rare-tool turns from
+/// its own reckoning without loading the tool (6 of 8 against 8 of 8
+/// loaded), so it gets every tool loaded. A family joins only on the same
+/// evidence.
+///
+/// A prefix names a family, not a provider, so Copilot's ids for the same
+/// models (`claude-sonnet-5.5`, `claude-opus-4.8`) match too. The
+/// declarations it is then handed are inert there: only the Anthropic
+/// provider reads `defer_loading`, and Copilot takes every tool loaded over
+/// its MCP loopback with its own tool search switched off. The chat pipeline
+/// defers a turn only when the chain's head is the Anthropic API, so a
+/// Copilot-led turn reads the plain index.
+const DEFERRING_MODEL_PREFIXES: &[&str] = &["claude-opus", "claude-sonnet"];
 
 /// Whether a turn answered by `model` is sent deferred tools.
 #[must_use]
@@ -505,14 +514,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_opus_family_is_sent_deferred_tools() {
+    fn only_opus_and_sonnet_are_sent_deferred_tools() {
         assert!(defers_on("claude-opus-5-5"), "Opus 5.5 defers");
-        for model in [
-            "claude-haiku-5-5",
-            "claude-sonnet-5-5",
-            "gemini-flash-lite-latest",
-            "",
-        ] {
+        assert!(defers_on("claude-sonnet-5-5"), "Sonnet 5.5 defers");
+        for model in ["claude-haiku-5-5", "gemini-flash-lite-latest", ""] {
             assert!(
                 !defers_on(model),
                 "{model:?} must be sent every tool loaded"

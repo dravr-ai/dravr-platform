@@ -43,7 +43,7 @@
 #
 # The lane sent 186 prompts a night at three passes (run 35502201927). Those were
 # Copilot premium requests while copilot_sdk led the chain; with the anthropic head
-# they are Haiku calls against the organizations' prepaid credit, and Copilot is
+# they are calls on the head's model against the organizations' prepaid credit, and Copilot is
 # spent only on a turn Anthropic could not serve. With one pass the reproduce rule
 # (a finding reds only when it reproduces in a majority of passes) is one of one, so
 # every gating finding reds. A dispatch with attempts=3 is the way to tell a defect from a draw.

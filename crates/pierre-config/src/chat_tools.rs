@@ -15,7 +15,7 @@ pub const DEFER_TOOLS_VAR: &str = "PIERRE_CHAT_DEFER_TOOLS";
 pub struct ChatToolSettings {
     /// `PIERRE_CHAT_DEFER_TOOLS`: send every tool outside the loaded core as
     /// deferred, on a model the tool runtime names as one that reaches a
-    /// deferred tool reliably (Opus today), for Anthropic's tool search to
+    /// deferred tool reliably (Opus, Sonnet), for Anthropic's tool search to
     /// load when the model looks it up by name. Every other model is sent
     /// every tool loaded either way. On unless the variable says `off`,
     /// `false` or `0`, so a typo never turns it off.

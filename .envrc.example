@@ -575,7 +575,7 @@ export MONITORING_DISK_WARNING_THRESHOLD="85.0"     # Warn at 85% disk usage
 # 4. Catalog defaults (tool_catalog.is_enabled_by_default)
 #
 # Deferred tool loading - on by default. A chat turn sends a ten-tool core
-# loaded and every other tool deferred when the turn runs on an Opus model,
+# loaded and every other tool deferred when the turn runs on Opus or Sonnet,
 # which loads one by name through Anthropic's tool search. Every other model
 # and provider is sent every tool loaded.
 # Set to off, false or 0 to send every tool loaded on every provider.

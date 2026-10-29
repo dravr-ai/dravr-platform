@@ -204,7 +204,8 @@ async fn run_on_tail(
 ) -> Result<ToolLoopResult, AppError> {
     // A tier whose model is not sent deferred tools gets every tool loaded,
     // whatever the head was sent (`chat_catalogue::defers_on`): Haiku behind
-    // an Opus head would otherwise answer a rare-tool turn without the tool.
+    // an Opus or Sonnet head would otherwise answer a rare-tool turn without
+    // the tool.
     let loaded;
     let tools = if params
         .tools
