@@ -43,8 +43,8 @@ language-detection = ["dep:lingua"]
 
 [dependencies]
 # TokenCounts for the per-call cost the recorder prices through the registry.
-embacle = { version = "0.43.0" }
-embacle-tool-host = "0.43.0"
+embacle = { version = "0.44.0" }
+embacle-tool-host = "0.44.0"
 pierre-agui = { version = "0.3.0", path = "../pierre-agui" }
 # The shared cache a proposed route's line is read back from by its route_ref.
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }

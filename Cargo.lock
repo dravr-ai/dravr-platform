@@ -1662,9 +1662,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.43.0"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed4bd7650636dd060ebb64d3473f7cca53023c3bbccf1a8609637143f98ce4b9"
+checksum = "f2835a86e8ca7da028ce59f2ea659fe7af207cba8f04878273591022a2ff77ca"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1685,9 +1685,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.43.0"
+version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d37ca1a79b4392a57b1284e392e8d9ee30a9da9046f6302a20f555a6ab3abac"
+checksum = "6081c1b32e0fcfc4b9c3cdd704478ab2dae595fe7f6d244d8373a0a59db42b0e"
 dependencies = [
  "async-trait",
  "axum",
@@ -4987,7 +4987,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5025,7 +5025,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -6403,7 +6403,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
