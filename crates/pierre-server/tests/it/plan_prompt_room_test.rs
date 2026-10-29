@@ -468,12 +468,7 @@ async fn the_headless_tool_surface_authors_a_save_as_the_turns_agent() {
     .await;
 
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let bridge = HostedToolBridge::new(
-        true,
-        resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
-        tool_runtime,
-    );
+    let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
     let surface = bridge.turn_surface(ToolSessionTurn {
         user_id: &user.to_string(),
         tenant_id: tenant,

@@ -1,4 +1,4 @@
-// ABOUTME: Room guided walks — /calibrate in a shared room binds its subject, and the withhold follows
+// ABOUTME: Room guided walks — /calibrate in a shared room binds its subject, and the save refusal follows
 // ABOUTME: Content-asserting on real rows: state under the channel tenant, subject binding, predicate scope
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -21,10 +21,10 @@
 //!    silent failure the pre-room handler would have had in a room).
 //! 2. **The state binds subject and audience.** A default-audience state walks
 //!    DM-only topics room-visibly; an unbound one advances on anyone's turn.
-//! 3. **The withhold follows the walker, and only the walker.** The predicate
-//!    must see the walk through the conversation-tenant fallback — the
-//!    execute-refusal path runs under the walker's HOME tenant, where the
-//!    room's row does not resolve — and must NOT withhold from other members.
+//! 3. **The save refusal follows the walker, and only the walker.** The
+//!    predicate must see the walk through the conversation-tenant fallback —
+//!    the execute-refusal path runs under the walker's HOME tenant, where the
+//!    room's row does not resolve — and must NOT refuse other members.
 
 use anyhow::Result;
 use pierre_commands::calibration::CalibrateHandler;
@@ -204,7 +204,7 @@ async fn calibrate_in_a_room_binds_subject_audience_and_conversation_tenant() ->
 }
 
 #[tokio::test]
-async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
+async fn the_save_refusal_binds_the_walking_member_alone() -> Result<()> {
     let fix = setup().await?;
     CalibrateHandler.execute(&room_ctx(&fix)).await?;
     let repos = &fix.resources.common.repos;
@@ -219,7 +219,7 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
         .await?
         .expect("room conversation");
 
-    // With the conversation in hand: withheld for the walker, free for the
+    // With the conversation in hand: refused for the walker, free for the
     // watching agent — refusing the agent a plan save because their athlete
     // is calibrating would be the wrong refusal.
     assert!(
@@ -232,7 +232,7 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
         )
         .await?
         .is_some(),
-        "the walker is mid-interview; save_training_plan must be withheld"
+        "the walker is mid-interview; save_training_plan must be refused"
     );
     assert!(
         active_guided_flow(
@@ -244,13 +244,13 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
         )
         .await?
         .is_none(),
-        "the walk binds its subject alone — other members are not withheld"
+        "the walk binds its subject alone — other members are not refused"
     );
 
     // The execute-refusal path: the tool runs under the walker's HOME tenant,
     // where the room's row does not resolve, and recovers the walk through the
     // conversation-tenant fallback. Before that fallback existed this returned
-    // false and the withhold silently never fired on room walks.
+    // false and the refusal silently never fired on room walks.
     assert!(
         active_guided_flow(
             repos,
@@ -273,7 +273,7 @@ async fn the_withhold_binds_the_walking_member_alone() -> Result<()> {
         )
         .await?
         .is_none(),
-        "the fallback must not withhold from a member who owns no walk on that row"
+        "the fallback must not refuse a member who owns no walk on that row"
     );
     Ok(())
 }
@@ -320,7 +320,7 @@ async fn a_bare_mcp_call_sees_the_room_walk_through_the_channel_link() -> Result
         )
         .await?,
         Some(GuidedFlow::Calibration),
-        "with no conversation in scope, the room walk under the channel tenant must still withhold"
+        "with no conversation in scope, the room walk under the channel tenant must still refuse"
     );
 
     // Same channel tenant, same scan — but the scan reads only the caller's

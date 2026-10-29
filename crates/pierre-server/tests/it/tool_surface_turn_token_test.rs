@@ -101,12 +101,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
 
-    let bridge = HostedToolBridge::new(
-        true,
-        resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
-        tool_runtime,
-    );
+    let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
 
     let turn = ConversationTurnId(Uuid::new_v4());
     let surface = bridge.turn_surface(ToolSessionTurn {

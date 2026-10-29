@@ -374,7 +374,6 @@ fn loopback_surface(
 ) -> TurnToolSurface {
     TurnToolSurface::new(
         resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
         loopback_executor(resources),
         user_id.to_string(),
         tenant,

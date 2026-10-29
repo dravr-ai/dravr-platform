@@ -803,8 +803,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // so week selection and the race countdown match their calendar, not the
     // server's UTC clock.
     //
-    // One decision, three consumers below plus the write-tool withhold in
-    // `flow_withholds_writes`: an interview gets none of the plan context, a
+    // One decision, three consumers below plus the plan-save refusal in
+    // `flow_refuses_plan_save`: an interview gets none of the plan context, a
     // flow that exists to write a plan gets all of it.
     let interview_owns_turn = onboarding.is_some_and(|turn| turn.state.flow.is_interview());
 

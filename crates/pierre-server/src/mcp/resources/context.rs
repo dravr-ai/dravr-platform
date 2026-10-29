@@ -326,7 +326,6 @@ impl ServerContext {
         let mcp_bridge: Option<Arc<dyn McpBridgeProvider>> = Some(Arc::new(HostedToolBridge::new(
             mcp_bridge_enabled,
             self.mcp.tool_registry.clone(),
-            self.common.repos.clone(),
             tool_runtime.clone(),
         )));
         let command_ctx: Arc<dyn pierre_runtime_context::CommandCtx> = Arc::<Self>::clone(self);

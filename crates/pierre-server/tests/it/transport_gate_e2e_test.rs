@@ -686,21 +686,17 @@ async fn mcp_over_http_is_external_whatever_credential_reaches_it() {
 /// from the loopback listener's task, where no task-local survives.
 fn copilot_surface(resources: &Arc<ServerContext>, rider: &Rider) -> TurnToolSurface {
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
-    HostedToolBridge::new(
-        true,
-        resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
-        tool_runtime,
+    HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime).turn_surface(
+        ToolSessionTurn {
+            user_id: &rider.user_id.to_string(),
+            tenant_id: rider.tenant,
+            conversation_id: "transport-gate-turn",
+            turn_id: ConversationTurnId(Uuid::new_v4()),
+            turn_agent_id: None,
+            budget: 64,
+            seat: TurnSeat::Subject,
+        },
     )
-    .turn_surface(ToolSessionTurn {
-        user_id: &rider.user_id.to_string(),
-        tenant_id: rider.tenant,
-        conversation_id: "transport-gate-turn",
-        turn_id: ConversationTurnId(Uuid::new_v4()),
-        turn_agent_id: None,
-        budget: 64,
-        seat: TurnSeat::Subject,
-    })
 }
 
 #[tokio::test]

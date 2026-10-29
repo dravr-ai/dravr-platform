@@ -183,7 +183,7 @@ pub async fn resolve(
     // member's own turns. Everyone else in the thread — an agent watching, a
     // participant on a shared in-app thread — gets an ordinary coaching turn:
     // no probe, no directive, no interview stamp on their extraction, and no
-    // write-tool withhold, all of which follow from returning Inactive here.
+    // plan-save refusal, all of which follow from returning Inactive here.
     // Messaging rooms are per-member rows so the gate is defense-in-depth
     // there; on a shared in-app thread it is the enforcement.
     if state

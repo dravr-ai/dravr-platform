@@ -64,12 +64,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
 
-    let bridge = HostedToolBridge::new(
-        true,
-        resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
-        tool_runtime,
-    );
+    let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
     let surface = bridge.turn_surface(ToolSessionTurn {
         user_id: &user_id.to_string(),
         tenant_id: tenant,

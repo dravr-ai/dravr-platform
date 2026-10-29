@@ -365,21 +365,6 @@ fn test_every_tool_name_constant_is_registered() {
     );
 }
 
-/// The tools a guided flow withholds must exist, or the withholding is a no-op
-/// that still reads as protection.
-#[cfg(feature = "tools-all")]
-#[test]
-fn test_guided_flow_withholds_only_registered_tools() {
-    use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
-    let registered = registered_names();
-    for name in GUIDED_FLOW_WITHHELD_TOOLS {
-        assert!(
-            registered.contains(*name),
-            "GUIDED_FLOW_WITHHELD_TOOLS names `{name}`, which no tool registers"
-        );
-    }
-}
-
 /// Each A2A agent-card skill is invoked as a tool call by its id, so an id with
 /// no registered tool advertises a skill every client call would fail.
 #[cfg(all(feature = "tools-all", feature = "protocol-a2a"))]

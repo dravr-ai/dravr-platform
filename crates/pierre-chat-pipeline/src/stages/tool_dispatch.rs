@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::GuidedFlow;
 use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::MessageRecord;
@@ -19,7 +18,6 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
 use pierre_tool_runtime::chat_catalogue::{build_mcp_tools, measure_catalogue};
 use pierre_tool_runtime::coach_seat::TurnSeat;
-use pierre_tool_runtime::implementations::guided_flow::is_withheld_during_guided_flow;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
@@ -77,14 +75,10 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// The turn clock ([`super::turn_clock::format_current_date`]), sent just
     /// before the athlete's message after Tier-1 compaction.
     pub turn_clock: &'a str,
-    /// The guided flow that owns this turn, when one does.
-    ///
-    /// The flow itself, not a flag: what a walk withholds is a property of
-    /// that walk, and an interview and a walk that exists to write a plan
-    /// cannot answer the same way. The rest of what this stage does with it —
-    /// suppressing activity injection — is true of any guided interview and
-    /// reads only whether one is running.
-    pub guided_flow: Option<GuidedFlow>,
+    /// Whether a guided flow owns this turn. It suppresses activity injection;
+    /// it does not narrow the advertised tools, which stay byte-identical so
+    /// the cached prefix survives a walk starting or ending (carnet#1256).
+    pub guided_flow_active: bool,
     /// Group roster snapshots (empty outside a group conversation). A turn
     /// whose inbound message names a roster member gets that member's real
     /// activities injected before dispatch — the deterministic half of the
@@ -163,7 +157,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         history,
         source_ids,
         turn_clock,
-        guided_flow,
+        guided_flow_active,
         peer_roster,
         turn_agent_id,
         seat,
@@ -210,7 +204,7 @@ pub(crate) async fn dispatch_llm_with_tools(
             agent_ctx,
             &input.user_id,
             input.tool_tenant_id,
-            guided_flow.is_some(),
+            guided_flow_active,
         )
         .await;
 
@@ -240,7 +234,7 @@ pub(crate) async fn dispatch_llm_with_tools(
                 agent_ctx,
                 user_id: &input.user_id,
                 tenant_id: input.tool_tenant_id,
-                guided_flow_active: guided_flow.is_some(),
+                guided_flow_active,
             },
             llm_messages,
         )
@@ -368,21 +362,12 @@ pub(crate) async fn dispatch_llm_with_tools(
     // agent's own loop too, spent per call in `TurnToolSurface::call`, which
     // is why registre#103 closed and only the width above stayed registered.
     //
-    // The one exception is a guided flow: a profile interview withholds the
-    // plan-writing tool for its duration, in lockstep with the Stage 7a.2 prose
-    // list, so the model neither sees it advertised nor finds it callable.
+    // A guided flow does not narrow this set. Withholding `save_training_plan`
+    // during a walk changed the tools block, which Anthropic caches ahead of the
+    // system prompt, so every walk start and end re-wrote the whole 1h prefix
+    // (carnet#1256). The walk directive forbids the save and
+    // `SaveTrainingPlanTool::execute` refuses it; neither moves the prefix.
     let mut tools = build_mcp_tools(&ctx.tool_registry);
-    if let Some(flow) = guided_flow {
-        let before = tools.function_declarations.len();
-        tools
-            .function_declarations
-            .retain(|decl| !is_withheld_during_guided_flow(flow, &decl.name));
-        info!(
-            withheld = before.saturating_sub(tools.function_declarations.len()),
-            flow = ?flow,
-            "guided flow active: withholding write tools from the turn"
-        );
-    }
     // The coach's seats: the tools the seat withholds are left out, in
     // lockstep with the prose index and the loopback surface — on the coach's
     // seat every tool that would read or write the coach's own data
@@ -413,7 +398,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         temperature: agent_ctx.and_then(|c| c.temperature),
         mcp_servers,
     };
-    // The tool block as this turn sends it: overlay applied, seat and flow
+    // The tool block as this turn sends it: overlay applied, the seat's
     // withholds taken out. A digest that differs from the previous turn's is
     // a cache miss on every model before the system prompt is even read
     // (carnet#1196).

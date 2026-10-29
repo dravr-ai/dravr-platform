@@ -105,7 +105,7 @@ use chrono::{DateTime, Utc};
 use pierre_agui::AgUiEvent;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    AddMessageParams, AgentRuntimeContext, CoachingPersona, GuidedFlow, MemberFitnessSnapshot,
+    AddMessageParams, AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -216,9 +216,9 @@ struct DispatchStageArgs<'a> {
     source_ids: &'a [Option<String>],
     /// The turn clock, inserted before the athlete's message after compaction.
     turn_clock: &'a str,
-    /// Which guided conversational flow owns this turn, when one does (see
-    /// `DispatchLlmInputs::guided_flow`).
-    guided_flow: Option<GuidedFlow>,
+    /// Whether a guided conversational flow owns this turn (see
+    /// `DispatchLlmInputs::guided_flow_active`).
+    guided_flow_active: bool,
     /// Group roster (empty outside a group conversation) for peer grounding.
     peer_roster: &'a [MemberFitnessSnapshot],
     /// The agent the turn answers as, bound on the tool executor.
@@ -245,7 +245,7 @@ async fn dispatch_stage(
             history: args.history,
             source_ids: args.source_ids,
             turn_clock: args.turn_clock,
-            guided_flow: args.guided_flow,
+            guided_flow_active: args.guided_flow_active,
             peer_roster: args.peer_roster,
             turn_agent_id: args.turn_agent_id,
             seat: args.seat,
@@ -669,7 +669,7 @@ async fn run_turn(
             history: &history,
             source_ids: &source_ids,
             turn_clock: &turn_clock,
-            guided_flow: onboarding_turn.as_ref().map(|turn| turn.state.flow),
+            guided_flow_active: onboarding_turn.is_some(),
             peer_roster: &group_roster,
             turn_agent_id: input.turn_agent_id(&conv),
             seat,

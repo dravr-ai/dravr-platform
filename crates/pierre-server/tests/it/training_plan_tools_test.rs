@@ -1236,11 +1236,10 @@ async fn get_flags_goal_stale_when_the_linked_goal_is_gone() -> Result<()> {
 
 /// A conversation mid guided pillar walk refuses `save_training_plan` outright.
 ///
-/// The pipeline already withholds the tool from the prompt's "Available Tools"
-/// list and from the native function declarations for the duration of the walk,
-/// but neither covers the native-MCP path (an ACP subprocess reads `tools/list`
-/// straight off `/mcp`) or a direct MCP call. This is the enforcement half: no
-/// plan is written, and the same call succeeds once the walk ends.
+/// Every surface advertises the tool during a walk, so the cached prompt prefix
+/// survives the walk starting and ending (carnet#1256). This refusal is what
+/// keeps an interview from writing a plan (the 2026-07-24 derail): no plan is
+/// written, and the same call succeeds once the walk ends.
 #[tokio::test]
 async fn save_refuses_while_the_conversation_is_mid_profile_walk() -> Result<()> {
     let executor = create_executor().await?;

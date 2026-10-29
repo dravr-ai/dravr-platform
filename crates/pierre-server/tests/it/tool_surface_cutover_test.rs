@@ -1,5 +1,5 @@
 // ABOUTME: The tool surface the platform publishes to an ACP agent through embacle
-// ABOUTME: Listing is re-asked per call, so a guided walk withholds mid-session
+// ABOUTME: A guided walk leaves the listing byte-identical, so the agent's cached prefix survives it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,12 +13,11 @@
 //! may see and what running one means — and both are exercised here without
 //! needing an agent, because the surface is a plain trait.
 //!
-//! The withholding test is the one that matters. A `/pillars` walk withholds
-//! plan-writing for its duration, and that state can change between the
-//! agent's `tools/list` and its `tools/call`. Answering from a snapshot taken
-//! when the session opened would let an agent mid-interview reach a tool it was
-//! meant to be denied — the same defect as an advertisement filter that
-//! silently no-ops on the path nobody exercises.
+//! A `/pillars` walk does not narrow the listing. The tools block heads the
+//! agent's cached prefix, so a listing that changed on the walk's first and
+//! last turn re-wrote the whole prefix on each (carnet#1256);
+//! `save_training_plan` refuses the mid-walk save itself
+//! (`training_plan_tools_test.rs`).
 
 use crate::common;
 
@@ -31,12 +30,14 @@ use pierre_core::models::{GuidedFlow, OnboardingState, TenantId};
 use pierre_mcp_server::mcp::resources::tool_surface::TurnToolSurface;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
 use pierre_tool_runtime::protocol::UniversalToolExecutor;
 use serde_json::json;
 use uuid::Uuid;
 
-/// A tool a guided walk must withhold, and one it must not.
-const WITHHELD: &str = "save_training_plan";
+/// The tool a guided walk refuses to run, listed during the walk all the same.
+const PLAN_WRITE: &str = "save_training_plan";
+/// A read tool every turn is offered.
 const ALWAYS_VISIBLE: &str = "get_activities";
 
 /// A budget high enough that the existing cases never reach it — they are
@@ -60,7 +61,6 @@ fn surface_with_budget(
     );
     TurnToolSurface::new(
         resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
         executor,
         user_id.to_string(),
         tenant,
@@ -137,10 +137,13 @@ async fn an_unknown_tool_is_refused_not_faked() {
     );
 }
 
-/// THE ONE THAT MATTERS: a guided walk withholds plan-writing, and the surface
-/// is asked again rather than answering from when the session opened.
+/// A guided walk starting mid-session leaves the listing byte-identical.
+///
+/// The surface is asked again on every `tools/list`, so a walk that narrowed
+/// it would change the agent's tools block on the walk's first turn and again
+/// on its last, and every model would miss its cached prefix twice.
 #[tokio::test]
-async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
+async fn a_guided_walk_leaves_the_listing_unchanged() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _) = create_test_user(&resources.agent.database)
         .await
@@ -148,11 +151,10 @@ async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
     let surface = surface_for(&resources, user_id, tenant);
 
-    // No walk yet: the write tool is offered.
     let before = surface.list_tools().await;
     assert!(
-        before.iter().any(|t| t.name == WITHHELD),
-        "{WITHHELD} should be visible outside a guided walk"
+        before.iter().any(|t| t.name == PLAN_WRITE),
+        "{PLAN_WRITE} should be listed outside a guided walk"
     );
 
     // A walk starts — mid-session, after the surface was already listed once.
@@ -181,17 +183,39 @@ async fn a_guided_walk_withholds_the_write_tool_on_a_later_listing() {
         )
         .await
         .expect("walk starts");
-
-    // Asked again, the surface must reflect it.
-    let during = surface.list_tools().await;
-    assert!(
-        !during.iter().any(|t| t.name == WITHHELD),
-        "{WITHHELD} must be withheld while a guided walk owns the turn — \
-         listing is re-asked, not snapshotted at session open"
+    assert_eq!(
+        active_guided_flow(
+            &resources.common.repos,
+            None,
+            None,
+            tenant,
+            &user_id.to_string()
+        )
+        .await
+        .expect("walk lookup"),
+        Some(GuidedFlow::Pillars),
+        "fixture bug: the walk must be active, or the listing below proves nothing"
     );
-    assert!(
-        during.iter().any(|t| t.name == ALWAYS_VISIBLE),
-        "read tools stay available so the athlete can still be answered"
+
+    let during = surface.list_tools().await;
+    assert_eq!(
+        serde_json::to_string(&before).unwrap(),
+        serde_json::to_string(&during).unwrap(),
+        "a guided walk must leave the listing byte-identical — names, \
+         descriptions and schemas are all in the agent's cached prefix"
+    );
+    let names = |tools: &[embacle::McpToolDefinition]| -> Vec<String> {
+        tools.iter().map(|t| t.name.clone()).collect()
+    };
+    assert_eq!(
+        names(&before),
+        names(&during),
+        "a guided walk must not change which tools are listed"
+    );
+    assert_eq!(
+        serde_json::to_string(&before.iter().map(|t| &t.input_schema).collect::<Vec<_>>()).unwrap(),
+        serde_json::to_string(&during.iter().map(|t| &t.input_schema).collect::<Vec<_>>()).unwrap(),
+        "nor the schemas the agent caches"
     );
 }
 

@@ -49,9 +49,6 @@ use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
 use pierre_tool_runtime::context::AuthMethod;
-use pierre_tool_runtime::implementations::guided_flow::{
-    active_guided_flow, is_withheld_tool, turn_withholds_writes,
-};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
@@ -698,7 +695,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         record_caller(ctx);
         let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
         let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
-        let mut schemas = match (tenant_id, user_id) {
+        let schemas = match (tenant_id, user_id) {
             // `tools/call` refuses a caller with no user or no tenant
             // (`run_dispatch`), so such a caller — the stdio transport, which
             // carries no bearer — is offered nothing to invoke.
@@ -711,35 +708,10 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             }
         };
 
-        // A guided flow withholds plan-writing for its duration, and this is the
-        // surface the model actually reads on the native ACP path — tool
-        // visibility there comes from `tools/list`, not from `build_mcp_tools`.
-        // Filtering only the latter was correct while
-        // COPILOT_HEADLESS_MCP_TOOL_CALLING was false and became a silent no-op
-        // the moment it was re-enabled, which is exactly the drift the shared
-        // `active_guided_flow` lookup exists to prevent: discovery and
-        // execution now answer the question the same way instead of one quietly
-        // covering for the other.
-        //
-        // Fails closed. An unreadable onboarding state withholds rather than
-        // advertises: showing the tool during a walk is what derails it, and the
-        // server-side refusal would reject the call anyway.
-        if let Some(tenant_id) = ctx.tenant_id.as_deref().and_then(parse_tenant_id) {
-            if let Some(user_id) = ctx.user_id.as_deref() {
-                let lookup = active_guided_flow(
-                    &self.resources.common.repos,
-                    None,
-                    None,
-                    tenant_id,
-                    user_id,
-                )
-                .await;
-                if turn_withholds_writes(&lookup) {
-                    schemas.retain(|s| !is_withheld_tool(&s.name));
-                }
-            }
-        }
-
+        // A guided flow does not narrow this listing: it is the same whether or
+        // not a walk is running, so the agent's cached prefix survives the walk
+        // starting and ending (carnet#1256). `save_training_plan` refuses a
+        // mid-walk save on every path, this one included.
         schemas.into_iter().map(schema_to_tool).collect()
     }
 

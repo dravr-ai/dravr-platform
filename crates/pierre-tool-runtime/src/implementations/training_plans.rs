@@ -82,7 +82,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 
-use crate::implementations::guided_flow::{active_guided_flow, flow_withholds_writes};
+use crate::implementations::guided_flow::{active_guided_flow, flow_refuses_plan_save};
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
 
@@ -812,15 +812,16 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             let tenant_id = tenant.to_string();
             let user_id = scope.user_id.to_string();
 
-            // Enforcement half of the guided-flow tool withhold. The pipeline
-            // already drops this tool from the prompt's tool list and from the
-            // native function declarations while a profile walk is active, but
-            // neither covers the native-MCP path, where an ACP subprocess reads
-            // `tools/list` straight off the `/mcp` endpoint. That path carries
-            // no conversation, so the walk is resolved from the athlete there
-            // (see `active_guided_flow`) and the withhold holds on every
-            // surface, including a direct MCP call. Self scope only: an agent
-            // saving for an athlete is not inside that athlete's profile walk.
+            // The guard that keeps an interview from writing a plan. Every
+            // surface advertises this tool during a walk too, so the cached
+            // prompt prefix survives the walk starting and ending
+            // (carnet#1256); the walk directive tells the model not to call
+            // it, and this refuses the call when it does. A call over the
+            // native-MCP path carries no conversation, so the walk is resolved
+            // from the athlete there (see `active_guided_flow`) and the refusal
+            // holds on every surface, including a direct MCP call. Self scope
+            // only: an agent saving for an athlete is not inside that
+            // athlete's profile walk.
             // Asks the walk, not merely whether one is running: an interview
             // must not write a plan, and a walk whose purpose is to write one
             // must be allowed to.
@@ -832,7 +833,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 &user_id,
             )
             .await?;
-            if scope.acting_for.is_none() && walk.is_some_and(flow_withholds_writes) {
+            if scope.acting_for.is_none() && walk.is_some_and(flow_refuses_plan_save) {
                 return Err(AppError::invalid_input(
                     "this conversation is building the athlete's profile one topic at a time — \
                      finish the profile walk before saving a training plan",

@@ -58,12 +58,7 @@ fn surface(
     seat: TurnSeat,
 ) -> TurnToolSurface {
     let tool_runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let bridge = HostedToolBridge::new(
-        true,
-        resources.mcp.tool_registry.clone(),
-        resources.common.repos.clone(),
-        tool_runtime,
-    );
+    let bridge = HostedToolBridge::new(true, resources.mcp.tool_registry.clone(), tool_runtime);
     bridge.turn_surface(ToolSessionTurn {
         user_id: &user_id.to_string(),
         tenant_id: tenant,

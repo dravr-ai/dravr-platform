@@ -1,5 +1,5 @@
 // ABOUTME: Pins that the MCP server advertises only what it implements, and lists only what a caller may call
-// ABOUTME: Capabilities, the methods it leaves to -32601, resource templates/not-found, and tools/list per caller
+// ABOUTME: Capabilities, the methods it leaves to -32601, resource templates/not-found, and tools/list per caller and per walk
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,8 +23,10 @@ use std::sync::Arc;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tool::ToolContext;
+use pierre_core::models::{GuidedFlow, OnboardingState};
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::implementations::guided_flow::active_guided_flow;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 
@@ -198,4 +200,76 @@ async fn an_admin_is_not_listed_a_tool_disabled_for_their_tenant() {
         "a tool tools/call would refuse is not listed, even to an admin"
     );
     assert_eq!(after.len(), before.len() - 1);
+}
+
+/// A guided walk leaves `tools/list` byte-identical (carnet#1256).
+///
+/// The listing heads the agent's cached prefix, so one that dropped
+/// `save_training_plan` on a walk's first turn and restored it on the last
+/// re-wrote that prefix twice per walk. The mid-walk save is refused by the
+/// tool itself (`training_plan_tools_test.rs`), not by hiding it here.
+#[tokio::test]
+async fn a_guided_walk_leaves_tools_list_byte_identical() {
+    let (resources, server) = server().await;
+    let (user, _token) = common::create_test_tenant(&resources, "surface-walker@example.com")
+        .await
+        .unwrap();
+    let tenant = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(user.id)
+        .await
+        .unwrap()
+        .remove(0);
+    let athlete = ToolContext::new()
+        .with_user(user.id.to_string())
+        .with_tenant(tenant.id.to_string());
+
+    let before = call(&server, "tools/list", json!({}), &athlete).await;
+    assert!(
+        tool_names(&before)
+            .iter()
+            .any(|name| name == "save_training_plan"),
+        "save_training_plan is listed outside a walk: {before}"
+    );
+
+    let repos = &resources.common.repos;
+    let conversation = repos
+        .chat
+        .create_conversation(
+            &user.id.to_string(),
+            tenant.id,
+            "walk",
+            "test-model",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    repos
+        .chat
+        .set_conversation_onboarding_state(
+            &conversation.id,
+            Some(&OnboardingState::start_now_column(GuidedFlow::Pillars)),
+            tenant.id,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        active_guided_flow(repos, None, None, tenant.id, &user.id.to_string())
+            .await
+            .unwrap(),
+        Some(GuidedFlow::Pillars),
+        "fixture bug: the walk must be active, or the listing below proves nothing"
+    );
+
+    let during = call(&server, "tools/list", json!({}), &athlete).await;
+    assert_eq!(
+        serde_json::to_string(&before["result"]["tools"]).unwrap(),
+        serde_json::to_string(&during["result"]["tools"]).unwrap(),
+        "a guided walk must not change tools/list — names, descriptions and \
+         schemas are all in the agent's cached prefix"
+    );
 }

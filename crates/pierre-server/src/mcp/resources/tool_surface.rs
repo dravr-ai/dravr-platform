@@ -18,14 +18,13 @@
 //! here is the part that was always ours: which tools this turn may see, and
 //! what running one means.
 //!
-//! ## Listing is answered per call
+//! ## A guided walk does not change the listing
 //!
-//! Not fixed when the session opens. A guided `/pillars` walk withholds
-//! plan-writing for its duration, and that state can change between the
-//! agent's `tools/list` and its `tools/call`. Answering from a snapshot would
-//! reintroduce the defect where an advertisement filter silently stops
-//! applying — the same shape as a filter that no-ops on the path nobody
-//! exercises.
+//! Each `tools/list` is built from the registry and the turn's seat, and
+//! nothing else. A guided walk is deliberately not an input — the
+//! listing is the same whether or not one is running, so the agent's cached
+//! prefix survives a walk starting and ending (carnet#1256), and
+//! `save_training_plan` refuses the mid-walk save itself.
 
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -44,10 +43,6 @@ use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::coach_seat::TurnSeat;
-use pierre_tool_runtime::implementations::guided_flow::GUIDED_FLOW_WITHHELD_TOOLS;
-use pierre_tool_runtime::implementations::guided_flow::{
-    active_guided_flow, turn_withholds_writes,
-};
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
@@ -59,7 +54,6 @@ use tracing::{info, warn};
 
 use crate::mcp::tool_handlers;
 
-use pierre_database::RepositoryRegistry;
 use pierre_tool_runtime::registry::ToolRegistry;
 
 /// What this surface calls itself to the rest of the platform.
@@ -99,7 +93,6 @@ const LOOPBACK_TOOL_TIMEOUT: Duration = Duration::from_secs(90);
 /// it is built while that context is assembling its pipeline view.
 pub struct TurnToolSurface {
     tool_registry: Arc<ToolRegistry>,
-    repos: Arc<RepositoryRegistry>,
     /// Carries this turn's conversation and Guardian turn token, so a tool that
     /// starts detached work can route its result back and taint accumulates
     /// against the right turn.
@@ -146,7 +139,6 @@ impl TurnToolSurface {
     #[must_use]
     pub const fn new(
         tool_registry: Arc<ToolRegistry>,
-        repos: Arc<RepositoryRegistry>,
         executor: Arc<UniversalToolExecutor>,
         user_id: String,
         tenant_id: TenantId,
@@ -155,7 +147,6 @@ impl TurnToolSurface {
     ) -> Self {
         Self {
             tool_registry,
-            repos,
             executor,
             user_id,
             tenant_id,
@@ -163,19 +154,6 @@ impl TurnToolSurface {
             calls: AtomicUsize::new(0),
             seat,
         }
-    }
-
-    /// Whether the walk that owns this athlete's turn withholds the write
-    /// tools.
-    ///
-    /// Fails closed: an unreadable answer withholds rather than advertising,
-    /// because the cost of withholding one turn is an agent that says "let me
-    /// finish the interview first", and the cost of advertising is a plan
-    /// written mid-interview.
-    async fn walk_withholds_writes(&self) -> bool {
-        let lookup =
-            active_guided_flow(&self.repos, None, None, self.tenant_id, &self.user_id).await;
-        turn_withholds_writes(&lookup)
     }
 }
 
@@ -187,12 +165,15 @@ impl ToolSurface for TurnToolSurface {
     /// c89da2396 for starving turns of tools they needed. The iteration budget
     /// this marker used to name alongside it is enforced in `call`, so
     /// registre#103 closed and the width kept its own issue.
+    ///
+    /// A guided walk does not narrow it: the listing is the same whether or
+    /// not one is running, so the agent's cached prefix survives the walk
+    /// starting and ending (carnet#1256). `save_training_plan` refuses the
+    /// mid-walk save itself.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
-        let withhold = self.walk_withholds_writes().await;
         self.tool_registry
             .chat_callable_schemas()
             .into_iter()
-            .filter(|s| !(withhold && GUIDED_FLOW_WITHHELD_TOOLS.contains(&s.name.as_str())))
             .filter(|s| !self.seat.withholds(&self.tool_registry, &s.name))
             .map(|s| McpToolDefinition {
                 name: s.name,
@@ -361,7 +342,6 @@ pub struct HostedToolBridge {
     host: OnceCell<ToolHost>,
     enabled: bool,
     tool_registry: Arc<ToolRegistry>,
-    repos: Arc<RepositoryRegistry>,
     tool_runtime: Arc<dyn ToolRuntime>,
 }
 
@@ -380,14 +360,12 @@ impl HostedToolBridge {
     pub const fn new(
         enabled: bool,
         tool_registry: Arc<ToolRegistry>,
-        repos: Arc<RepositoryRegistry>,
         tool_runtime: Arc<dyn ToolRuntime>,
     ) -> Self {
         Self {
             host: OnceCell::const_new(),
             enabled,
             tool_registry,
-            repos,
             tool_runtime,
         }
     }
@@ -468,7 +446,6 @@ impl HostedToolBridge {
         );
         TurnToolSurface::new(
             self.tool_registry.clone(),
-            self.repos.clone(),
             executor,
             turn.user_id.to_owned(),
             turn.tenant_id,
