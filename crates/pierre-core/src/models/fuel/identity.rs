@@ -29,14 +29,15 @@ pub fn normalize_gtin(raw: &str) -> Option<String> {
     (check.first() == Some(&expected)).then_some(padded)
 }
 
-/// One identity part as the natural key compares it: trimmed, whitespace
-/// collapsed, lowercased, the separator taken out.
+/// One identity part as the natural key compares it: the separator taken
+/// out, then trimmed, whitespace collapsed and lowercased — in that order, so
+/// "a | b" and "a|b" are one spelling.
 fn key_part(part: &str) -> String {
-    part.split_whitespace()
+    part.replace('|', " ")
+        .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
-        .replace('|', " ")
 }
 
 /// The key that makes a brand, name and variant one product: each part
@@ -117,6 +118,11 @@ mod tests {
         assert_ne!(
             fuel_natural_key("a|b", "c", ""),
             fuel_natural_key("a", "b|c", "")
+        );
+        // A separator in a part is whitespace, however it is spaced.
+        assert_eq!(
+            fuel_natural_key("Brand", "Gel | Citrus", ""),
+            fuel_natural_key("brand", "gel|citrus", "")
         );
     }
 

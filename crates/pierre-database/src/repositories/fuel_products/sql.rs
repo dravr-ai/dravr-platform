@@ -114,6 +114,15 @@ pub(crate) const CLAIM_PROPOSAL_SQL: &str = r"
             WHERE id = $1 AND status = 'pending'
             ";
 
+/// Lock pending proposal `$1` without changing it, for the length of an item
+/// write. Zero rows means it was decided; on Postgres a concurrent approval's
+/// claim waits for this transaction, and this one for the approval's.
+pub(crate) const HOLD_PENDING_PROPOSAL_SQL: &str = r"
+            UPDATE fuel_product_proposals
+            SET status = status
+            WHERE id = $1 AND status = 'pending'
+            ";
+
 /// The status of proposal `$1`.
 pub(crate) const PROPOSAL_STATUS_SQL: &str =
     "SELECT status FROM fuel_product_proposals WHERE id = $1";

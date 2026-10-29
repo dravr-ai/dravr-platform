@@ -50,11 +50,12 @@ pub(crate) use rows::{
 pub(crate) use sql::{
     CLAIM_PROPOSAL_SQL, COUNT_LIVE_ITEMS_SQL, COUNT_PRODUCT_SQL, COUNT_PROPOSALS_BY_HASH_SQL,
     FIND_LIVE_PENDING_ITEM_SQL, FIND_LIVE_PRODUCT_ITEM_SQL, GET_PRODUCT_BY_GTIN_SQL,
-    GET_PRODUCT_SQL, GET_PROPOSAL_SQL, INSERT_ITEM_SQL, INSERT_PRODUCT_SQL, INSERT_PROPOSAL_SQL,
-    INSERT_VERSION_SQL, LIST_ITEMS_SQL, LIST_PROPOSALS_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL,
-    PRODUCT_IDENTITY_BY_ID_SQL, PRODUCT_IDENTITY_BY_KEY_SQL, PROPOSAL_LINK_SQL,
-    PROPOSAL_STATUS_SQL, RECORD_APPROVAL_SQL, REJECT_PROPOSAL_SQL, RELINK_PENDING_ITEMS_SQL,
-    REMOVE_ITEM_SQL, RETIRE_DUPLICATE_PENDING_ITEMS_SQL, SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL,
+    GET_PRODUCT_SQL, GET_PROPOSAL_SQL, HOLD_PENDING_PROPOSAL_SQL, INSERT_ITEM_SQL,
+    INSERT_PRODUCT_SQL, INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_ITEMS_SQL,
+    LIST_PROPOSALS_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL, PRODUCT_IDENTITY_BY_ID_SQL,
+    PRODUCT_IDENTITY_BY_KEY_SQL, PROPOSAL_LINK_SQL, PROPOSAL_STATUS_SQL, RECORD_APPROVAL_SQL,
+    REJECT_PROPOSAL_SQL, RELINK_PENDING_ITEMS_SQL, REMOVE_ITEM_SQL,
+    RETIRE_DUPLICATE_PENDING_ITEMS_SQL, SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL,
     SUPERSEDE_CURRENT_VERSION_SQL,
 };
 
@@ -409,9 +410,21 @@ macro_rules! impl_fuel_product_repositories {
                 Ok(())
             }
 
+            /// Open the transaction an athlete's item is written in. On
+            /// `SQLite` it takes the write lock first, so the cap count, the
+            /// duplicate check and the insert see one state.
+            async fn begin_fuel_item_write(
+                &self,
+            ) -> AppResult<sqlx::Transaction<'static, <$row as sqlx::Row>::Database>> {
+                self.pool()
+                    .begin_with($begin)
+                    .await
+                    .map_err(|e| fuel_error("begin an item write in", e))
+            }
+
             /// Insert an item unless the athlete is at the cap.
             async fn insert_fuel_item(
-                &self,
+                tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 tenant_id: TenantId,
                 user_id: Uuid,
                 product_id: Option<Uuid>,
@@ -421,7 +434,7 @@ macro_rules! impl_fuel_product_repositories {
                 let live: i64 = sqlx::query_scalar(COUNT_LIVE_ITEMS_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
-                    .fetch_one(self.pool())
+                    .fetch_one(&mut **tx)
                     .await
                     .map_err(|e| fuel_error("count items in", e))?;
                 if live >= MAX_FUEL_ITEMS_PER_ATHLETE {
@@ -438,7 +451,7 @@ macro_rules! impl_fuel_product_repositories {
                     .bind($ids::bind_opt(proposal_id))
                     .bind(note)
                     .bind(Utc::now())
-                    .execute(self.pool())
+                    .execute(&mut **tx)
                     .await
                     .map_err(|e| fuel_error("add an item to", e))?;
                 Ok(id)
@@ -446,7 +459,7 @@ macro_rules! impl_fuel_product_repositories {
 
             /// The live item of the athlete a lookup selects, if any.
             async fn find_live_fuel_item(
-                &self,
+                tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 sql: &'static str,
                 tenant_id: TenantId,
                 user_id: Uuid,
@@ -456,7 +469,7 @@ macro_rules! impl_fuel_product_repositories {
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind($ids::bind(key))
-                    .fetch_optional(self.pool())
+                    .fetch_optional(&mut **tx)
                     .await
                     .map_err(|e| fuel_error("find an item in", e))?;
                 row.map(|row| $ids::read(&row, "id")).transpose()
@@ -715,22 +728,33 @@ macro_rules! impl_fuel_product_repositories {
                 product_id: Uuid,
                 note: Option<&str>,
             ) -> AppResult<Uuid> {
+                let mut tx = self.begin_fuel_item_write().await?;
                 let exists: i64 = sqlx::query_scalar(COUNT_PRODUCT_SQL)
                     .bind($ids::bind(product_id))
-                    .fetch_one(self.pool())
+                    .fetch_one(&mut *tx)
                     .await
                     .map_err(|e| fuel_error("look up a product in", e))?;
                 if exists == 0 {
                     return Err(AppError::not_found(format!("Fuel product {product_id}")));
                 }
-                if let Some(held) = self
-                    .find_live_fuel_item(FIND_LIVE_PRODUCT_ITEM_SQL, tenant_id, user_id, product_id)
-                    .await?
+                if let Some(held) = Self::find_live_fuel_item(
+                    &mut tx,
+                    FIND_LIVE_PRODUCT_ITEM_SQL,
+                    tenant_id,
+                    user_id,
+                    product_id,
+                )
+                .await?
                 {
                     return Ok(held);
                 }
-                self.insert_fuel_item(tenant_id, user_id, Some(product_id), None, note)
+                let id =
+                    Self::insert_fuel_item(&mut tx, tenant_id, user_id, Some(product_id), None, note)
+                        .await?;
+                tx.commit()
                     .await
+                    .map_err(|e| fuel_error("commit an item to", e))?;
+                Ok(id)
             }
 
             async fn add_pending_fuel_item(
@@ -762,19 +786,50 @@ macro_rules! impl_fuel_product_repositories {
                         "An approved fuel proposal names no product",
                     )),
                     (ProposalStatus::Pending, _) => {
-                        if let Some(held) = self
-                            .find_live_fuel_item(
-                                FIND_LIVE_PENDING_ITEM_SQL,
-                                tenant_id,
-                                user_id,
-                                proposal_id,
-                            )
-                            .await?
-                        {
-                            return Ok(held);
-                        }
-                        self.insert_fuel_item(tenant_id, user_id, None, Some(proposal_id), note)
+                        let mut tx = self.begin_fuel_item_write().await?;
+                        // Hold the proposal while the item is written: an
+                        // approval claims it with an UPDATE, so it waits for
+                        // this commit and its relink then sees the item. Had
+                        // it been decided since the read above, nothing is
+                        // written and the decided proposal is carried instead.
+                        let held = sqlx::query(HOLD_PENDING_PROPOSAL_SQL)
+                            .bind($ids::bind(proposal_id))
+                            .execute(&mut *tx)
                             .await
+                            .map_err(|e| fuel_error("hold a proposal in", e))?
+                            .rows_affected();
+                        if held != 1 {
+                            drop(tx);
+                            return self
+                                .add_pending_fuel_item(tenant_id, user_id, proposal_id, note)
+                                .await;
+                        }
+                        let id = match Self::find_live_fuel_item(
+                            &mut tx,
+                            FIND_LIVE_PENDING_ITEM_SQL,
+                            tenant_id,
+                            user_id,
+                            proposal_id,
+                        )
+                        .await?
+                        {
+                            Some(held) => held,
+                            None => {
+                                Self::insert_fuel_item(
+                                    &mut tx,
+                                    tenant_id,
+                                    user_id,
+                                    None,
+                                    Some(proposal_id),
+                                    note,
+                                )
+                                .await?
+                            }
+                        };
+                        tx.commit()
+                            .await
+                            .map_err(|e| fuel_error("commit an item to", e))?;
+                        Ok(id)
                     }
                 }
             }

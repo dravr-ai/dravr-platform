@@ -171,13 +171,16 @@ pub struct FuelFacts {
 impl FuelFacts {
     /// These facts with every field `overrides` states put over them, and the
     /// stored names of the fields it changed — an operator's edit before an
-    /// approval. A field `overrides` leaves `None` keeps this value.
+    /// approval. A field `overrides` leaves `None` keeps this value, and one it
+    /// restates unchanged is not a change: a review form that sends every
+    /// field back must not relabel the label's own values as operator edits.
     #[must_use]
     pub fn merged_with(&self, overrides: &Self) -> (Self, Vec<&'static str>) {
         let mut merged = self.clone();
         let mut changed = Vec::new();
         let mut take = |name: &'static str, slot: &mut Option<f64>, value: Option<f64>| {
-            if value.is_some() {
+            // Compared bit for bit: an override is a typed value, not a computation.
+            if value.is_some() && value.map(f64::to_bits) != slot.map(f64::to_bits) {
                 *slot = value;
                 changed.push(name);
             }
@@ -239,7 +242,7 @@ impl FuelFacts {
             &mut merged.glucose_fructose_ratio,
             overrides.glucose_fructose_ratio,
         );
-        if overrides.serving_label.is_some() {
+        if overrides.serving_label.is_some() && overrides.serving_label != merged.serving_label {
             merged.serving_label.clone_from(&overrides.serving_label);
             changed.push("serving_label");
         }
@@ -641,6 +644,18 @@ mod tests {
         assert_eq!(merged.sugars_g, Some(12.0));
         assert_eq!(merged.serving_label.as_deref(), Some("1 sachet"));
         assert_eq!(changed, vec!["carbs_g", "serving_label"]);
+    }
+
+    #[test]
+    fn an_override_restating_a_value_is_not_an_edit() {
+        let restated = FuelFacts {
+            carbs_g: Some(25.0),
+            sugars_g: Some(11.0),
+            ..gel()
+        };
+        let (merged, changed) = gel().merged_with(&restated);
+        assert_eq!(merged.sugars_g, Some(11.0));
+        assert_eq!(changed, vec!["sugars_g"]);
     }
 
     #[test]

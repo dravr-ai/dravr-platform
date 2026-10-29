@@ -18,6 +18,7 @@ use pierre_core::models::{
     normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldProvenance,
     FuelApprovalOutcome, FuelFacts, FuelForm, FuelItemEntry, FuelRejectReason, NewFuelProposal,
     PlausibilityViolation, ProposalSource, ProposalSourceImage, ProposalStatus, TenantId, User,
+    MAX_FUEL_ITEMS_PER_ATHLETE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -668,4 +669,89 @@ async fn a_rejected_proposal_cannot_be_carried() {
         .add_pending_fuel_item(TenantId::generate(), athlete, id, None)
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn search_folds_unicode_and_never_wildcards_the_query() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let mut new = proposal("Näak", gel_facts());
+    new.name = "Ultra_Energy 100%".to_owned();
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&new)
+        .await
+        .unwrap();
+    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let hits = |query: &'static str| async move {
+        repos
+            .fuel_catalogue
+            .search_fuel_products(query, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|p| p.product.id)
+            .collect::<Vec<_>>()
+    };
+
+    // Case is folded past ASCII, and every word must match.
+    assert_eq!(hits("NÄAK ultra").await, vec![product.product.id]);
+    assert_eq!(hits("ultra_energy 100%").await, vec![product.product.id]);
+    assert_eq!(hits("näak maurten").await, Vec::<Uuid>::new());
+    // `%`, `_` and `\` are matched as written, never as LIKE wildcards: as
+    // wildcards, "y_1" would match "energy 100" and "ultra%100" the name.
+    assert_eq!(hits("y_1").await, Vec::<Uuid>::new());
+    assert_eq!(hits("ultra%100").await, Vec::<Uuid>::new());
+    assert_eq!(hits("ultra\\").await, Vec::<Uuid>::new());
+}
+
+#[tokio::test]
+async fn an_athlete_carries_at_most_the_cap() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let cap = usize::try_from(MAX_FUEL_ITEMS_PER_ATHLETE).unwrap();
+    let mut items = Vec::with_capacity(cap);
+    for _ in 0..cap {
+        let id = repos
+            .fuel_catalogue
+            .create_fuel_proposal(&proposal("Cap", gel_facts()))
+            .await
+            .unwrap();
+        items.push(
+            repos
+                .athlete_fuel_items
+                .add_pending_fuel_item(tenant, athlete, id, None)
+                .await
+                .unwrap(),
+        );
+    }
+    let one_more = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("Cap", gel_facts()))
+        .await
+        .unwrap();
+    assert!(repos
+        .athlete_fuel_items
+        .add_pending_fuel_item(tenant, athlete, one_more, None)
+        .await
+        .is_err());
+    // The cap is per athlete and tenant, and removing an item frees a slot.
+    repos
+        .athlete_fuel_items
+        .add_pending_fuel_item(TenantId::generate(), athlete, one_more, None)
+        .await
+        .unwrap();
+    assert!(repos
+        .athlete_fuel_items
+        .remove_fuel_item(tenant, athlete, items[0])
+        .await
+        .unwrap());
+    repos
+        .athlete_fuel_items
+        .add_pending_fuel_item(tenant, athlete, one_more, None)
+        .await
+        .unwrap();
 }
