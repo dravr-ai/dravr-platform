@@ -2498,6 +2498,9 @@
     "requestAccessDeclined": "Ta dernière demande a été refusée. Tu peux redemander.",
     "requestAccessFailed": "Impossible d'envoyer ta demande. Réessaie.",
     "reply_corrected": "{0} a corrigé la réponse de Dravr à {1} (« {2} ») :\n\n{3}",
+    "planPublishedRoomPost": "{0} a publié une mise à jour de ton plan : {1}.",
+    "planPublishedRoomPostMore": "+{0} de plus",
+    "planPublishedRoomPostNew": "{0} a publié ton nouveau plan.",
     "planThread": {
       "open": "Travailler sur le plan de {{name}}",
       "subtitle": "Plan · {{name}}",
@@ -2523,6 +2526,21 @@
       "empty": "{{name}} n’a pas encore de plan publié.",
       "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan n’est pas affiché.",
       "loadError": "Impossible de charger ce plan. Réessaie."
+    },
+    "privateLane": {
+      "divider": "Ce qui suit n’est visible que par toi et {{agent}}",
+      "replyTag": "Pour toi seulement",
+      "audiencePrivate": "{{agent}} seulement",
+      "audienceRoom": "Tout le monde",
+      "audiencePrivateAria": "Envoi à {{agent}} seulement. Basculer vers tout le monde",
+      "audienceRoomAria": "Envoi à tout le monde. Basculer vers {{agent}} seulement",
+      "placeholderPrivate": "Demande à {{agent}} de modifier le plan de {{name}}. {{name}} ne le verra pas.",
+      "placeholderRoom": "Écris à {{name}} et à {{agent}}. Tape / pour les commandes",
+      "adjustFromMessage": "Ajuster le plan à partir de ce message",
+      "quoteChip": "Tiré du message de {{name}}",
+      "quoteRemove": "Retirer la citation",
+      "bubbleAria": "Ce message n’est visible que par toi et {{agent}}",
+      "quoteUnavailable": "Ce message ne peut plus être utilisé pour le plan."
     },
     "shareTraining": "Partager mon entraînement avec mon coach",
     "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Ne s’applique qu’à ce groupe.",

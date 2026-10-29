@@ -2498,6 +2498,9 @@
     "requestAccessDeclined": "Your last request was declined. You can ask again.",
     "requestAccessFailed": "We couldn't send your request. Please try again.",
     "reply_corrected": "{0} corrected Dravr's reply to {1} (“{2}”):\n\n{3}",
+    "planPublishedRoomPost": "{0} published an update to your plan: {1}.",
+    "planPublishedRoomPostMore": "+{0} more",
+    "planPublishedRoomPostNew": "{0} published your new plan.",
     "planThread": {
       "open": "Work on {{name}}'s plan",
       "subtitle": "Plan · {{name}}",
@@ -2523,6 +2526,21 @@
       "empty": "{{name}} has no published plan yet.",
       "consentRevoked": "{{name}} stopped sharing with you, so their plan isn't shown.",
       "loadError": "We couldn't load this plan. Please try again."
+    },
+    "privateLane": {
+      "divider": "Only you and {{agent}} see what follows",
+      "replyTag": "Only you",
+      "audiencePrivate": "Only {{agent}}",
+      "audienceRoom": "Everyone",
+      "audiencePrivateAria": "Sending to {{agent}} only. Switch to everyone",
+      "audienceRoomAria": "Sending to everyone. Switch to {{agent}} only",
+      "placeholderPrivate": "Ask {{agent}} to change {{name}}'s plan. {{name}} won't see this.",
+      "placeholderRoom": "Message {{name}} and {{agent}}. Type / for commands",
+      "adjustFromMessage": "Adjust plan from this",
+      "quoteChip": "From {{name}}'s message",
+      "quoteRemove": "Remove quote",
+      "bubbleAria": "Only you and {{agent}} can see this message",
+      "quoteUnavailable": "This message can no longer be used for the plan."
     },
     "shareTraining": "Share my training with my coach",
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",
