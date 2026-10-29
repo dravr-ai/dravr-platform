@@ -1336,7 +1336,227 @@ export const adminApi = {
   async deleteEvalFixture(name: string): Promise<void> {
     await axios.delete(`/api/admin/evals/fixtures/${encodeURIComponent(name)}`);
   },
+
+  // ==================== FUEL-PRODUCT REVIEW (super-admin, global catalogue) ====================
+  /** Proposals in one review status, oldest first, without their images. */
+  async listFuelProposals(
+    status: FuelProposalStatus,
+    limit = 50,
+    offset = 0,
+  ): Promise<FuelProposalListResponse> {
+    const query = new URLSearchParams({ status, limit: String(limit), offset: String(offset) });
+    const response = await axios.get(`/api/admin/fuel-products/proposals?${query.toString()}`);
+    return response.data;
+  },
+
+  /** One proposal as the reviewer opens it, with the size of its stored label image. */
+  async getFuelProposal(proposalId: string): Promise<FuelProposalDetailResponse> {
+    const response = await axios.get(
+      `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}`,
+    );
+    return response.data;
+  },
+
+  /**
+   * The stored label image as a `data:` URL. Fetched through the API client
+   * (session and CSRF interceptors) rather than linked: the console's CSP
+   * loads images from `'self'` and `data:` only, never `blob:` or a brand CDN.
+   */
+  async getFuelProposalSourceImage(proposalId: string): Promise<string> {
+    const response = await axios.get<Blob>(
+      `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}/source-image`,
+      { responseType: 'blob' },
+    );
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read the label image'));
+      reader.readAsDataURL(response.data);
+    });
+  },
+
+  /**
+   * Approve a proposal, with the operator's edits: a field left out keeps the
+   * proposed value, a number sets it, `null` clears it. Every outcome comes
+   * back as a value — the server gives each its own status (approved 200,
+   * implausible 422, not_pending 410, identity_conflict 409, not_found 404)
+   * and an `outcome` code, which is what the caller branches on.
+   */
+  async approveFuelProposal(
+    proposalId: string,
+    overrides: FuelFactOverrides = {},
+  ): Promise<FuelApprovalResult> {
+    const response = await axios.post(
+      `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}/approve`,
+      { overrides },
+      { validateStatus: (status) => FUEL_REVIEW_OUTCOME_STATUSES.includes(status) },
+    );
+    return response.data;
+  },
+
+  /** Reject a pending proposal; `other` needs a note. */
+  async rejectFuelProposal(
+    proposalId: string,
+    reason: FuelRejectReason,
+    note?: string,
+  ): Promise<FuelRejectResult> {
+    const response = await axios.post(
+      `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}/reject`,
+      { reason, note: note?.trim() ? note.trim() : undefined },
+      { validateStatus: (status) => FUEL_REVIEW_OUTCOME_STATUSES.includes(status) },
+    );
+    return response.data;
+  },
+
+  /** The live catalogue: each product with its current facts and version count. */
+  async listFuelCatalogue(limit = 100, offset = 0): Promise<FuelCatalogueListResponse> {
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    const response = await axios.get(`/api/admin/fuel-products?${query.toString()}`);
+    return response.data;
+  },
 };
+
+// ==================== FUEL-PRODUCT REVIEW WIRE TYPES ====================
+
+/** Statuses a review write answers with a body the console reads, not an error. */
+const FUEL_REVIEW_OUTCOME_STATUSES = [200, 404, 409, 410, 422];
+
+export type FuelForm = 'gel' | 'drink_mix' | 'bar' | 'chew' | 'capsule' | 'tablet' | 'other';
+export type FuelProposalStatus = 'pending' | 'approved' | 'rejected';
+export type FuelProposalSource = 'shopify_ocr' | 'athlete' | 'admin';
+export type FuelFactSource = 'label_ocr' | 'athlete' | 'admin_edit' | 'brand_page';
+/** The `fuel_product_proposals.reject_reason` CHECK list. */
+export type FuelRejectReason =
+  | 'illegible'
+  | 'wrong_product'
+  | 'implausible'
+  | 'duplicate'
+  | 'not_fuel'
+  | 'other';
+
+/** A label's facts; a field the label does not state is absent, never zero. */
+export interface FuelFacts {
+  serving_label?: string;
+  serving_g?: number;
+  energy_kcal?: number;
+  carbs_g?: number;
+  sugars_g?: number;
+  protein_g?: number;
+  fat_g?: number;
+  sodium_mg?: number;
+  potassium_mg?: number;
+  caffeine_mg?: number;
+  fluid_ml?: number;
+  carbs_g_per_100g?: number;
+  sugars_g_per_100g?: number;
+  protein_g_per_100g?: number;
+  fat_g_per_100g?: number;
+  sodium_mg_per_100g?: number;
+  salt_g_per_100g?: number;
+  glucose_fructose_ratio?: number;
+}
+
+/** An approval's edits: absent keeps, a value sets, `null` clears. */
+export type FuelFactOverrides = { [K in keyof FuelFacts]?: FuelFacts[K] | null };
+
+export interface FuelFieldProvenance {
+  source: FuelFactSource;
+  source_url?: string;
+  confidence?: number;
+}
+
+export interface FuelProductProposal {
+  id: string;
+  product_id: string | null;
+  brand: string;
+  name: string;
+  variant: string;
+  form: FuelForm;
+  gtin: string | null;
+  source_kind: FuelProposalSource;
+  source_url: string | null;
+  has_source_image: boolean;
+  source_image_mime: string | null;
+  source_hash: string | null;
+  facts: FuelFacts;
+  provenance: Record<string, FuelFieldProvenance>;
+  /** Gate codes the facts tripped when they were proposed. */
+  gate_flags: string[];
+  status: FuelProposalStatus;
+  proposed_by_user_id: string | null;
+  reviewed_by_user_id: string | null;
+  reviewed_at: string | null;
+  reject_reason: FuelRejectReason | null;
+  reject_note: string | null;
+  approved_version_id: string | null;
+  created_at: string;
+}
+
+export interface FuelProposalListResponse {
+  proposals: FuelProductProposal[];
+  status: FuelProposalStatus;
+  limit: number;
+  offset: number;
+}
+
+export interface FuelProposalDetailResponse {
+  proposal: FuelProductProposal;
+  source_image_bytes: number | null;
+}
+
+export interface FuelProduct {
+  id: string;
+  gtin: string | null;
+  brand: string;
+  name: string;
+  variant: string;
+  form: FuelForm;
+  created_at: string;
+}
+
+export interface FuelProductVersion {
+  id: string;
+  product_id: string;
+  valid_from: string;
+  superseded_by: string | null;
+  facts: FuelFacts;
+  provenance: Record<string, FuelFieldProvenance>;
+  approved_by_user_id: string | null;
+  approved_at: string | null;
+  created_at: string;
+}
+
+export interface CatalogueFuelProduct {
+  product: FuelProduct;
+  current: FuelProductVersion;
+}
+
+export interface FuelCatalogueRow extends CatalogueFuelProduct {
+  version_count: number;
+}
+
+export interface FuelCatalogueListResponse {
+  products: FuelCatalogueRow[];
+  limit: number;
+  offset: number;
+}
+
+export interface FuelGateViolation {
+  code: string;
+  message: string;
+}
+
+export type FuelApprovalResult =
+  | { outcome: 'approved'; product: CatalogueFuelProduct }
+  | { outcome: 'implausible'; error: string; violations: FuelGateViolation[] }
+  | { outcome: 'not_pending'; error: string; status: FuelProposalStatus }
+  | { outcome: 'identity_conflict'; error: string; product_id: string }
+  | { outcome: 'not_found'; error: string };
+
+export type FuelRejectResult =
+  | { outcome: 'rejected'; proposal: FuelProductProposal }
+  | { outcome: 'not_pending'; error: string; status: FuelProposalStatus }
+  | { outcome: 'not_found'; error: string };
 
 /** Per-case summary row from the eval fixture browser. */
 export interface EvalFixtureCaseSummary {

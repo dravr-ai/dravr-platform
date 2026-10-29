@@ -30,6 +30,10 @@ vi.mock('../ImpersonationLogTab', () => ({
   default: () => <div data-testid="impersonation-log-tab">Impersonation log surface</div>,
 }));
 
+vi.mock('../FuelProductReviewTab', () => ({
+  default: () => <div data-testid="fuel-products-tab">Fuel product review surface</div>,
+}));
+
 vi.mock('../ConnectProviderBanner', () => ({
   ConnectProviderBanner: () => null,
 }));
@@ -66,7 +70,7 @@ describe('Dashboard super-admin tabs', () => {
     window.history.replaceState(null, '', '/');
   });
 
-  it.each(['#impersonation-log', '#admin-tokens'])(
+  it.each(['#impersonation-log', '#admin-tokens', '#fuel-products'])(
     'resolves a plain admin %s deep link to Users on first load',
     async (hash) => {
       auth.role = 'admin';
@@ -78,6 +82,7 @@ describe('Dashboard super-admin tabs', () => {
 
       expect(await screen.findByTestId('users-tab')).toBeInTheDocument();
       expect(screen.queryByTestId('impersonation-log-tab')).toBeNull();
+      expect(screen.queryByTestId('fuel-products-tab')).toBeNull();
       expect(window.location.hash).toBe('#users');
     },
   );
@@ -107,5 +112,17 @@ describe('Dashboard super-admin tabs', () => {
 
     expect(await screen.findByTestId('impersonation-log-tab')).toBeInTheDocument();
     expect(window.location.hash).toBe('#impersonation-log');
+  });
+
+  it('opens the fuel-product review for a super admin', async () => {
+    auth.role = 'super_admin';
+    window.history.replaceState(null, '', '/#fuel-products');
+
+    await act(async () => {
+      renderDashboard();
+    });
+
+    expect(await screen.findByTestId('fuel-products-tab')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#fuel-products');
   });
 });

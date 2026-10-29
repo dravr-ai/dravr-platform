@@ -50,6 +50,11 @@ const ADMIN_SURFACES = [
   'Agent Notes Audit',
 ] as const;
 
+// Tabs only a super admin is offered: the global catalogues. Swept under that
+// role, since a plain admin's sidebar never shows them and the sweep would
+// only log them as missed.
+const SUPER_ADMIN_SURFACES = ['Fuel products'] as const;
+
 const THEMES = ['light', 'dark'] as const;
 
 async function setTheme(page: Page, theme: (typeof THEMES)[number]) {
@@ -68,7 +73,7 @@ async function setTheme(page: Page, theme: (typeof THEMES)[number]) {
 
 async function sweep(
   page: Page,
-  opts: { role: 'user' | 'admin'; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
+  opts: { role: 'user' | 'admin' | 'super_admin'; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
 ) {
   const { role, surfaces, theme } = opts;
   await setupDashboardMocks(page, { role });
@@ -426,6 +431,10 @@ test.describe('design sweep', () => {
 
     test(`admin surfaces render in ${theme}`, async ({ page }) => {
       await sweep(page, { role: 'admin', surfaces: ADMIN_SURFACES, theme });
+    });
+
+    test(`super-admin surfaces render in ${theme}`, async ({ page }) => {
+      await sweep(page, { role: 'super_admin', surfaces: SUPER_ADMIN_SURFACES, theme });
     });
   }
 });

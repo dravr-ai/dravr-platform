@@ -39,7 +39,7 @@ const ADMIN_ONLY_TABS = new Set([
   'platform-settings', 'claim-verdicts', 'harness-config', 'guardian-config',
   'memory-worker', 'agent-followups', 'agent-notes-audit', 'myth-busting',
   'agent-grading', 'eval-harness', 'activity', 'engagement', 'connections',
-  'analytics', 'admin-tokens', 'billing', 'impersonation-log',
+  'analytics', 'admin-tokens', 'billing', 'impersonation-log', 'fuel-products',
 ]);
 
 /**
@@ -61,7 +61,7 @@ const RETIRED_TABS = new Set(['insights', 'my-coaches', 'groups']);
  * `#impersonation-log` would otherwise mount the pane for an admin and show
  * the server's refusal where the page should be.
  */
-const SUPER_ADMIN_ONLY_TABS = new Set(['admin-tokens', 'impersonation-log']);
+const SUPER_ADMIN_ONLY_TABS = new Set(['admin-tokens', 'impersonation-log', 'fuel-products']);
 
 /**
  * Tabs behind a feature gate this build has off. The render switch draws
@@ -111,6 +111,7 @@ const MemoryExtractionMonitorTab = lazy(() => import('./MemoryExtractionMonitorT
 const CoachFollowupsTab = lazy(() => import('./CoachFollowupsTab'));
 const CoachNotesAuditTab = lazy(() => import('./CoachNotesAuditTab'));
 const ImpersonationLogTab = lazy(() => import('./ImpersonationLogTab'));
+const FuelProductReviewTab = lazy(() => import('./FuelProductReviewTab'));
 const MythBustingTab = lazy(() => import('./MythBustingTab'));
 const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
 const EvalHarnessTab = lazy(() => import('./EvalHarnessTab'));
@@ -573,6 +574,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
   // Super admin tabs extend admin tabs with admin token management
   const superAdminTabs: TabDefinition[] = useMemo(() => [
     ...adminTabs,
+    // The fuel-product catalogue is global, so its review is super-admin only.
+    { id: 'fuel-products', name: t('shell.navFuelProducts'), section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3h6m-5 0v3.5a2 2 0 01-.4 1.2L7.4 10.6A2 2 0 007 11.8V19a2 2 0 002 2h6a2 2 0 002-2v-7.2a2 2 0 00-.4-1.2l-2.2-2.9a2 2 0 01-.4-1.2V3M7 14h10" />
+      </svg>
+    ) },
     { id: 'impersonation-log', name: t('shell.navImpersonationLog'), section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1113,6 +1120,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'impersonation-log' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <ImpersonationLogTab />
+          </Suspense>
+        )}
+        {activeTab === 'fuel-products' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <FuelProductReviewTab />
           </Suspense>
         )}
         {activeTab === 'myth-busting' && (

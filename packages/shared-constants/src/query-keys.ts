@@ -214,6 +214,15 @@ export const QUERY_KEYS = {
     rejected: () => ['admin-store-rejected'] as const,
   },
 
+  // ==================== ADMIN - FUEL PRODUCTS ====================
+  adminFuelProducts: {
+    all: ['admin-fuel-products'] as const,
+    proposals: (status: string) => ['admin-fuel-products', 'proposals', status] as const,
+    proposal: (id: string) => ['admin-fuel-products', 'proposal', id] as const,
+    image: (id: string) => ['admin-fuel-products', 'image', id] as const,
+    catalogue: () => ['admin-fuel-products', 'catalogue'] as const,
+  },
+
   // ==================== ADMIN - COACHES ====================
   adminCoaches: {
     all: ['admin-coaches'] as const,

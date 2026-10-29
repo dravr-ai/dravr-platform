@@ -540,6 +540,79 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
+  // Mock the fuel-product review (super-admin tab): one pending proposal with
+  // a stored label image, and a live catalogue of one product. The image is a
+  // 1x1 PNG so the drawer's served-image path renders.
+  await page.route('**/api/admin/fuel-products**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/source-image')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/png',
+        body: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+          'base64',
+        ),
+      });
+      return;
+    }
+    const proposal = {
+      id: '0b9f7c1e-5a3d-4e2f-9c8b-1a2b3c4d5e6f',
+      product_id: null,
+      brand: 'Maurten',
+      name: 'Gel 100',
+      variant: '',
+      form: 'gel',
+      gtin: '07350053630050',
+      source_kind: 'shopify_ocr',
+      source_url: 'https://shop.example/products/gel-100',
+      has_source_image: true,
+      source_image_mime: 'image/png',
+      source_hash: 'sweep',
+      facts: { serving_label: '1 gel (40 g)', serving_g: 40, energy_kcal: 100, carbs_g: 25, sugars_g: 12, glucose_fructose_ratio: 0.8 },
+      provenance: { carbs_g: { source: 'label_ocr', confidence: 0.93 } },
+      gate_flags: [],
+      status: 'pending',
+      proposed_by_user_id: null,
+      reviewed_by_user_id: null,
+      reviewed_at: null,
+      reject_reason: null,
+      reject_note: null,
+      approved_version_id: null,
+      created_at: '2026-10-29T12:00:00Z',
+    };
+    let body: unknown;
+    if (url.pathname.endsWith('/api/admin/fuel-products')) {
+      body = {
+        limit: 100,
+        offset: 0,
+        products: [
+          {
+            product: { id: 'p-sweep', gtin: null, brand: 'SiS', name: 'Beta Fuel', variant: 'Orange', form: 'drink_mix', created_at: '2026-10-01T00:00:00Z' },
+            current: {
+              id: 'v-sweep',
+              product_id: 'p-sweep',
+              valid_from: '2026-10-20T00:00:00Z',
+              superseded_by: null,
+              facts: { carbs_g: 80, glucose_fructose_ratio: 0.8 },
+              provenance: {},
+              approved_by_user_id: 'user-123',
+              approved_at: '2026-10-20T00:00:00Z',
+              created_at: '2026-10-20T00:00:00Z',
+            },
+            version_count: 2,
+          },
+        ],
+      };
+    } else if (url.pathname.endsWith('/proposals')) {
+      const status = url.searchParams.get('status') ?? 'pending';
+      body = { proposals: status === 'pending' ? [proposal] : [], status, limit: 100, offset: 0 };
+    } else {
+      body = { proposal, source_image_bytes: 68 };
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+
   // Mock usage status endpoint (used by UsageWarningBanner in chat)
   await page.route('**/api/usage/status', async (route) => {
     await route.fulfill({

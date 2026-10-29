@@ -147,6 +147,23 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     expect(Array.isArray(body.env_pinned)).toBe(true);
   });
 
+  test('fuel-product review queue and live catalogue return 200', async () => {
+    // Super-admin only: the seeded operator is super_admin (the setup script
+    // passes --super-admin), and the catalogue is global, so no tenant_id.
+    const { ctx } = await loginAndAuthedRequest();
+    const queue = await ctx.get('/api/admin/fuel-products/proposals?status=pending&limit=10');
+    expect(queue.status()).toBe(200);
+    const queueBody = await queue.json();
+    expect(Array.isArray(queueBody.proposals)).toBe(true);
+    expect(queueBody.status).toBe('pending');
+
+    const live = await ctx.get('/api/admin/fuel-products?limit=10');
+    expect(live.status()).toBe(200);
+    const liveBody = await live.json();
+    expect(Array.isArray(liveBody.products)).toBe(true);
+    await ctx.dispose();
+  });
+
   test('cookie-auth rejects unauthenticated requests with 401', async () => {
     const anon = await apiRequest.newContext({ baseURL: PIERRE_URL });
     const r = await anon.get('/api/admin/claim-verdicts?limit=10');
