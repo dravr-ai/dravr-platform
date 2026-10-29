@@ -16,7 +16,7 @@ use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
-use super::{active_tenant, distinct_rows, served_rows, workouts};
+use super::{active_tenant, served_rows, workouts};
 use crate::mcp::resources::ServerContext;
 use crate::services::training_volume::{
     day_start_utc, monday_of, volume_from_sessions, window_start, TrainingVolume, VolumeCoverage,
@@ -80,8 +80,7 @@ pub(super) async fn get_training_volume(
         }
     };
 
-    let distinct = distinct_rows(rows);
-    let merged = workouts(&distinct);
+    let merged = workouts(&rows);
     let garmin_days: Vec<(NaiveDate, bool)> = merged
         .iter()
         .map(|w| {

@@ -66,7 +66,9 @@ use crate::implementations::analytics::output::{
 use crate::implementations::analytics::recommendations_output::RecommendationsResult;
 use crate::implementations::handler_bridge;
 use crate::protocol::auth::AuthService;
-use crate::protocol::provider_helpers::{resolve_provider_for_tool, NO_PROVIDER_CONNECTED_TEXT};
+use crate::protocol::provider_helpers::{
+    by_id_reader, resolve_provider_for_tool, NO_PROVIDER_CONNECTED_TEXT,
+};
 use crate::protocol::types::META_NO_PROVIDER_CONNECTED;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
@@ -440,7 +442,31 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
             Err(result) => return Ok(result),
         };
 
-        let activity = match provider.get_activity(activity_id).await {
+        // The copy standing for the workout answers: an export or upload the
+        // athlete brought in carries the start position a date-only capture
+        // of the same ride lacks.
+        let tenant_id = context.tenant_id.map(|id| id.to_string());
+        let reader = match by_id_reader(
+            &context.resources,
+            context.user_id,
+            &provider_name,
+            tenant_id.as_deref(),
+            activity_id,
+        )
+        .await
+        {
+            Ok(reader) => reader,
+            Err(e) => {
+                warn!(provider = %provider_name, error = %e, "activity reader failed");
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Failed to fetch activity: {}", e.tool_message()),
+                    "activity_id": activity_id,
+                    "provider": backend_resolver::user_facing_name(&provider_name)
+                })));
+            }
+        };
+        let target = reader.as_ref().map_or_else(|| provider.as_ref(), |(_, p)| p.as_ref());
+        let activity = match target.get_activity(activity_id).await {
             Ok(a) => a,
             Err(e) => {
                 warn!(provider = %provider_name, error = %e, "activity read failed");

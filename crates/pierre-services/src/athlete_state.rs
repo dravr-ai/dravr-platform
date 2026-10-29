@@ -36,6 +36,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::serving_backends;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use uuid::Uuid;
 
@@ -187,9 +188,16 @@ fn stage_at(created_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Stage {
     }
 }
 
-/// Distinct ISO weeks among `activities`, saturating at `u8::MAX`.
-fn distinct_weeks(activities: &[Activity]) -> u8 {
-    let weeks: BTreeSet<(i32, u32)> = activities
+/// Distinct ISO weeks the athlete trained in among `activities`, saturating
+/// at `u8::MAX`.
+///
+/// Read off the workouts, not the copies: each workout's copies are merged
+/// into one session ([`merge_duplicates`]) first, so a ride captured date-only
+/// on a Sunday and held in the export at its real start past midnight UTC is
+/// one week of training, not two.
+fn distinct_weeks(activities: Vec<Activity>) -> u8 {
+    let (sessions, _) = merge_duplicates(activities, &DedupConfig::from_env());
+    let weeks: BTreeSet<(i32, u32)> = sessions
         .iter()
         .map(|activity| {
             let week = activity.start_date().iso_week();
@@ -249,7 +257,9 @@ async fn read_untracked(
         )
         .await?;
     let recent = ai_scope::filter_activities(registry.as_ref(), recent);
-    let activities = if recent.is_empty() {
+    let none_recent = recent.is_empty();
+    let weeks_of_data = distinct_weeks(recent);
+    let activities = if none_recent {
         let older = repos
             .activity_cache
             .get_cached_activities(user_id, &tenant, None, DateTime::UNIX_EPOCH, now, 1)
@@ -303,7 +313,7 @@ async fn read_untracked(
         stage: stage_at(created_at, now),
         has_provider: !real.is_empty(),
         activities,
-        weeks_of_data: distinct_weeks(&recent),
+        weeks_of_data,
         dossier: dossier_coverage(repos, tenant, user_id).await?,
         season_set: plan.is_some(),
         plan_active,
@@ -413,6 +423,41 @@ mod tests {
         };
         assert!(armed.holds(Predicate::CheckInOn));
         assert!(!state().holds(Predicate::CheckInOn));
+    }
+
+    #[test]
+    fn a_ride_held_live_and_in_the_export_is_one_week_of_data() {
+        use chrono::TimeZone;
+        use pierre_core::constants::oauth_providers::{SCIOTTE, STRAVA, STRAVA_ARCHIVE};
+        use pierre_core::models::{ActivityBuilder, SportType};
+
+        // Sunday 2026-08-09, read date-only by the usr/pwd capture; the
+        // export holds its real start, Monday 01:30 UTC: another ISO week.
+        let sunday = Utc.with_ymd_and_hms(2026, 8, 9, 0, 0, 0).unwrap();
+        let capture = ActivityBuilder::new(
+            "16012345678",
+            "Ride",
+            SportType::Ride,
+            sunday,
+            2_700,
+            SCIOTTE,
+        )
+        .source(STRAVA)
+        .build();
+        let export = ActivityBuilder::new(
+            "16012345678",
+            "Ride",
+            SportType::Ride,
+            sunday + Duration::hours(25) + Duration::minutes(30),
+            2_700,
+            STRAVA_ARCHIVE,
+        )
+        .build();
+        assert_eq!(
+            distinct_weeks(vec![capture, export]),
+            1,
+            "one ride is one week of data"
+        );
     }
 
     #[test]

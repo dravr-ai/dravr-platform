@@ -1,5 +1,5 @@
 // ABOUTME: A Strava workout held live (API or usr/pwd capture) and in the imported Strava export is one session
-// ABOUTME: The agent's activity list and the training-load rollup count it once, the export standing for a date-only capture
+// ABOUTME: Lists and the training-load rollup count it once; a by-id read of it returns the copy standing for it, samples included
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -29,14 +29,22 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use pierre_core::config::profiles::FitnessLevel;
-use pierre_core::constants::oauth_providers::{SCIOTTE, STRAVA, STRAVA_ARCHIVE};
+use pierre_core::constants::oauth_providers::{
+    GARMIN, SCIOTTE, SCIOTTE_GARMIN, STRAVA, STRAVA_ARCHIVE, UPLOAD,
+};
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, DailyTrainingState, SportType, ThresholdProvenance,
-    UserPhysiologicalProfile,
+    TimeSeriesData, UserOAuthToken, UserPhysiologicalProfile,
 };
-use pierre_core::transport::TransportPolicy;
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_database::repositories::{ActivityStreamsWrite, StreamOrigin};
 use pierre_fitness_compute::training_history_compute::CTL_WINDOW_DAYS;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::protocol::provider_helpers::{
+    by_id_provider, by_id_reader, fetch_activity_from_provider,
+};
+use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::{
     compute_and_persist_history, fetch_history_rows,
@@ -347,5 +355,326 @@ async fn a_ride_captured_and_imported_scores_once() {
     assert!(
         load_on(&merged, export_day) > 0.0,
         "the ride scores once, at the export's real start on {export_day}"
+    );
+}
+
+// ============================================================================
+// By-id reads (carnet#1243)
+// ============================================================================
+
+/// The export's recorded samples of the ride.
+fn export_samples() -> TimeSeriesData {
+    TimeSeriesData {
+        timestamps: vec![0, 1, 2, 3],
+        heart_rate: Some(vec![Some(131), Some(134), None, Some(139)]),
+        power: Some(vec![Some(190), Some(205), Some(212), Some(220)]),
+        cadence: None,
+        speed: None,
+        altitude: None,
+        temperature: None,
+        gps_coordinates: Some(vec![
+            Some((45.50, -73.60)),
+            Some((45.5001, -73.60)),
+            Some((45.5002, -73.60)),
+            Some((45.5003, -73.60)),
+        ]),
+        distance: None,
+    }
+}
+
+/// Hold `rows` under the provider `key` the way the export's projection does:
+/// the cached copy, and its samples in the one per-activity sample store.
+async fn hold_with_samples(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    key: &str,
+    copy: Activity,
+    origin: StreamOrigin,
+) {
+    let repos = &resources.common.repos;
+    repos
+        .activity_streams
+        .upsert_activity_streams(&ActivityStreamsWrite {
+            tenant_id: &athlete.tenant,
+            user_id: athlete.user_id,
+            provider: key,
+            activity_id: copy.id(),
+            origin,
+            source_ref: None,
+            streams: &export_samples(),
+            synced_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    repos
+        .activity_cache
+        .upsert_activities(athlete.user_id, &athlete.tenant, key, &[copy])
+        .await
+        .unwrap();
+}
+
+/// The export's copy of the ride: its real start.
+fn exported(start: DateTime<Utc>) -> Activity {
+    ActivityBuilder::new(
+        RIDE_ID.to_owned(),
+        "Sortie du soir".to_owned(),
+        SportType::Ride,
+        start,
+        u64::from(RIDE_SECONDS),
+        STRAVA_ARCHIVE.to_owned(),
+    )
+    .distance_meters(21_600.0)
+    .build()
+}
+
+#[tokio::test]
+async fn a_by_id_read_of_a_ride_the_export_stands_for_returns_the_export_samples() {
+    let resources = create_test_server_resources_with_archive_imports(
+        imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS)).0,
+    )
+    .await
+    .unwrap();
+    let athlete = seed_athlete(&resources, "strava-twin-by-id").await;
+    // The usr/pwd capture holds the ride date-only, without samples; no
+    // scraper answers, so a read that reached it would fail.
+    store_capture(&resources, &athlete, true).await;
+    hold_with_samples(
+        &resources,
+        &athlete,
+        STRAVA_ARCHIVE,
+        exported(evening_start()),
+        StreamOrigin::Archive,
+    )
+    .await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = athlete.tenant.to_string();
+
+    assert_eq!(
+        by_id_provider(&runtime, athlete.user_id, STRAVA, Some(&tenant), RIDE_ID).await,
+        STRAVA_ARCHIVE,
+        "the export stands for the ride the capture read date-only"
+    );
+    let ride =
+        fetch_activity_from_provider(&runtime, athlete.user_id, STRAVA, Some(&tenant), RIDE_ID)
+            .await
+            .expect("the ride is read by its id");
+    assert_eq!(ride.provider(), STRAVA_ARCHIVE, "the export's copy is read");
+    assert_eq!(
+        ride.time_series_data(),
+        Some(&export_samples()),
+        "the export's stored samples ride with it"
+    );
+
+    // An activity only the connection holds still reads from it.
+    let only_captured = format!("1500000{:04}", RIDE_DAYS_AGO + 2);
+    assert_eq!(
+        by_id_provider(
+            &runtime,
+            athlete.user_id,
+            STRAVA,
+            Some(&tenant),
+            &only_captured
+        )
+        .await,
+        STRAVA,
+    );
+}
+
+#[tokio::test]
+async fn a_by_id_read_of_a_garmin_activity_stays_with_garmin() {
+    let resources = create_test_server_resources_with_archive_imports(
+        imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS)).0,
+    )
+    .await
+    .unwrap();
+    let athlete = seed_athlete(&resources, "garmin-by-id").await;
+    let start = evening_start();
+    let pushed = ActivityBuilder::new(
+        "19876543210".to_owned(),
+        "Pushed Ride".to_owned(),
+        SportType::Ride,
+        start,
+        u64::from(RIDE_SECONDS),
+        GARMIN.to_owned(),
+    )
+    .source(GARMIN)
+    .distance_meters(21_600.0)
+    .build();
+    let captured = ActivityBuilder::new(
+        "19876543210".to_owned(),
+        "Captured Ride".to_owned(),
+        SportType::Ride,
+        ride_day(),
+        u64::from(RIDE_SECONDS),
+        SCIOTTE.to_owned(),
+    )
+    .source(GARMIN)
+    .distance_meters(21_600.0)
+    .build();
+    hold_with_samples(&resources, &athlete, GARMIN, pushed, StreamOrigin::Push).await;
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            athlete.user_id,
+            &athlete.tenant,
+            SCIOTTE_GARMIN,
+            &[captured],
+        )
+        .await
+        .unwrap();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = athlete.tenant.to_string();
+
+    assert_eq!(
+        by_id_provider(
+            &runtime,
+            athlete.user_id,
+            GARMIN,
+            Some(&tenant),
+            "19876543210"
+        )
+        .await,
+        GARMIN,
+        "the API's copy of a Garmin activity is read where it always was"
+    );
+}
+
+#[tokio::test]
+async fn an_old_ride_the_export_holds_alone_still_reads_from_the_strava_api() {
+    // The cache prunes the API's rows past its retention and never the
+    // export's, so an old ride can find the export as its only cached copy.
+    // The athlete holds a Strava API token: the API stands for its own
+    // activity (API > export > capture), whatever the cache still holds.
+    let resources = create_test_server_resources_with_archive_imports(
+        imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS)).0,
+    )
+    .await
+    .unwrap();
+    let athlete = seed_athlete(&resources, "strava-api-over-export").await;
+    hold_with_samples(
+        &resources,
+        &athlete,
+        STRAVA_ARCHIVE,
+        exported(evening_start()),
+        StreamOrigin::Archive,
+    )
+    .await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = athlete.tenant.to_string();
+    assert_eq!(
+        by_id_provider(&runtime, athlete.user_id, STRAVA, Some(&tenant), RIDE_ID).await,
+        STRAVA_ARCHIVE,
+        "without a Strava API connection the export is the best copy there is"
+    );
+
+    let token = UserOAuthToken::new(
+        athlete.user_id,
+        tenant.clone(),
+        STRAVA.to_owned(),
+        "acc".to_owned(),
+        Some("ref".to_owned()),
+        Some(Utc::now() + Duration::hours(6)),
+        Some("read".to_owned()),
+    );
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .upsert_token(&token)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        by_id_provider(&runtime, athlete.user_id, STRAVA, Some(&tenant), RIDE_ID).await,
+        STRAVA,
+        "the Strava API outranks the export of its own activity"
+    );
+    assert!(
+        by_id_reader(&runtime, athlete.user_id, STRAVA, Some(&tenant), RIDE_ID)
+            .await
+            .unwrap()
+            .is_none(),
+        "the read stays with the elected connection"
+    );
+}
+
+/// Run `tool_name` for `athlete` the way a turn dispatches it.
+async fn run_tool(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    tool_name: &str,
+    parameters: Value,
+) -> Value {
+    let response = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
+        .execute_tool(UniversalRequest {
+            tool_name: tool_name.to_owned(),
+            parameters,
+            user_id: athlete.user_id.to_string(),
+            protocol: "mcp".to_owned(),
+            tenant_id: Some(athlete.tenant.to_string()),
+        })
+        .await
+        .expect("the tool dispatches");
+    assert!(response.success, "{tool_name} ran: {:?}", response.error);
+    response.result.expect("the tool returned a payload")
+}
+
+#[tokio::test]
+async fn the_per_activity_tools_read_an_uploaded_workout_by_its_id() {
+    // Connected to Strava through the usr/pwd capture, whose scraper knows
+    // nothing of the file the athlete uploaded: the tools that answer about
+    // one activity read the upload's own copy, as the sample tools do.
+    let scraper = spawn_mock_scraper_with_activity(date_only_capture_json()).await;
+    let resources = create_test_server_resources_with_archive_imports_and_config(
+        imports_serving(one_ride_export(RIDE_ID, evening_start(), RIDE_SECONDS)).0,
+        Some(test_server_config_with_sciotte(&scraper)),
+    )
+    .await
+    .unwrap();
+    let athlete = seed_athlete(&resources, "upload-by-id").await;
+    connect_capture(&resources, &athlete).await;
+    let upload_id = "9f2c4a1be0d3-0";
+    let uploaded = ActivityBuilder::new(
+        upload_id.to_owned(),
+        "Uploaded Ride".to_owned(),
+        SportType::Ride,
+        evening_start() - Duration::days(1),
+        u64::from(RIDE_SECONDS),
+        UPLOAD.to_owned(),
+    )
+    .distance_meters(25_000.0)
+    .average_heart_rate(147)
+    .build();
+    hold_with_samples(&resources, &athlete, UPLOAD, uploaded, StreamOrigin::Upload).await;
+
+    let intelligence = run_tool(
+        &resources,
+        &athlete,
+        "get_activity_intelligence",
+        json!({ "activity_id": upload_id }),
+    )
+    .await;
+    assert!(
+        intelligence["auto_selected"].is_null(),
+        "the upload itself is analysed, not a substitute: {intelligence}"
+    );
+    assert_eq!(intelligence["activity_id"], upload_id, "{intelligence}");
+
+    let metrics = run_tool(
+        &resources,
+        &athlete,
+        "calculate_metrics",
+        json!({ "activity_id": upload_id, "provider": STRAVA }),
+    )
+    .await;
+    // 25 km in 45 minutes: 108 s/km, the upload's own figures.
+    assert_eq!(
+        metrics["pace"].as_f64(),
+        Some(108.0),
+        "metrics are computed from the upload's copy: {metrics}"
     );
 }

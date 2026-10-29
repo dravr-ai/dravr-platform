@@ -8,6 +8,7 @@ use crate::implementations::analytics::output::{ActivityMetricsResult, MetricsIn
 use crate::implementations::configuration::configured_max_hr_algorithm;
 use crate::implementations::stored_physiology::stored_profile;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
+use crate::protocol::provider_helpers::by_id_reader;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use dravr_cageux::metrics::distance_per_climb_score;
@@ -295,8 +296,26 @@ async fn fetch_and_calculate_metrics(
         Err(response) => return Ok(*response),
     };
 
-    // Fetch activity from provider
-    let activity = provider.get_activity(activity_id).await.map_err(|e| {
+    // Read it from the copy standing for its workout: an export or upload
+    // the athlete brought in answers its own ids.
+    let reader = by_id_reader(
+        &executor.resources,
+        user_uuid,
+        provider_name,
+        request.tenant_id.as_deref(),
+        activity_id,
+    )
+    .await
+    .map_err(|e| {
+        ProtocolError::ExecutionFailed(format!(
+            "Failed to fetch activity {activity_id}: {}",
+            e.tool_message()
+        ))
+    })?;
+    let target = reader
+        .as_ref()
+        .map_or_else(|| provider.as_ref(), |(_, p)| p.as_ref());
+    let activity = target.get_activity(activity_id).await.map_err(|e| {
         warn!(error = %e, %activity_id, "activity read for activity metrics failed");
         ProtocolError::ExecutionFailed(format!(
             "Failed to fetch activity {activity_id}: {}",

@@ -22,6 +22,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use serde_json::{from_value, json, Value};
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -221,6 +222,13 @@ async fn load_user_profile(
     }
 }
 
+/// The workouts among a provider's `activities`: each workout's recordings
+/// (an auto-split, a watch and a bike computer) merged into one session
+/// ([`merge_duplicates`]), so a goal's progress counts and sums workouts.
+fn sessions(activities: Vec<Activity>) -> Vec<Activity> {
+    merge_duplicates(activities, &DedupConfig::from_env()).0
+}
+
 /// Fetch activities for goal suggestions; returns empty vec if auth/fetch fails.
 async fn fetch_suggestion_activities(
     context: &ToolExecutionContext,
@@ -238,7 +246,7 @@ async fn fetch_suggestion_activities(
             .get_activities(Some(GOAL_SUGGESTION_ACTIVITY_LIMIT), None)
             .await
         {
-            activities = provider_activities;
+            activities = sessions(provider_activities);
         }
     }
     activities
@@ -261,7 +269,7 @@ async fn fetch_feasibility_activities(
             .get_activities(Some(PROGRESS_TRACKING_ACTIVITY_LIMIT), None)
             .await
         {
-            activities = provider_activities;
+            activities = sessions(provider_activities);
         }
     }
     activities
@@ -281,10 +289,12 @@ async fn fetch_progress_activities(
     {
         Ok(provider) => {
             debug!("Provider authenticated for progress tracking");
-            Ok(provider
-                .get_activities(Some(PROGRESS_TRACKING_ACTIVITY_LIMIT), None)
-                .await
-                .unwrap_or_default())
+            Ok(sessions(
+                provider
+                    .get_activities(Some(PROGRESS_TRACKING_ACTIVITY_LIMIT), None)
+                    .await
+                    .unwrap_or_default(),
+            ))
         }
         Err(response) => {
             debug!("Authentication failed for progress tracking");

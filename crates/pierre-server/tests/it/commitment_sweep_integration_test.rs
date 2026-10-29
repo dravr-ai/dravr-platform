@@ -613,3 +613,65 @@ async fn a_future_window_is_left_alone() {
     assert_eq!(outcome.labeled, 0);
     assert_eq!(reporter.delivered(), []);
 }
+
+/// carnet#1243: a ride the usr/pwd capture read date-only (midnight UTC of
+/// the athlete's day) and the same ride in the athlete's imported export, at
+/// its real start past midnight UTC, are one workout: the sweep counts it once.
+#[tokio::test]
+async fn a_ride_held_live_and_in_the_export_counts_once() {
+    let (db, user, tenant) = fixture().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+
+    let c = closed_window_commitment(tenant, user, Some("bike_ride"), 2, 7);
+    repos.commitments.insert_commitment(&c).await.unwrap();
+
+    let day = (Utc::now() - Duration::days(3)).date_naive();
+    let midnight = day.and_hms_opt(0, 0, 0).unwrap().and_utc();
+    let capture = ActivityBuilder::new(
+        "16012345678".to_owned(),
+        "Evening Ride".to_owned(),
+        SportType::Ride,
+        midnight,
+        2_700,
+        "sciotte".to_owned(),
+    )
+    .source("strava")
+    .distance_meters(30_000.0)
+    .build();
+    let export = ActivityBuilder::new(
+        "16012345678".to_owned(),
+        "Evening Ride".to_owned(),
+        SportType::Ride,
+        midnight + Duration::hours(25) + Duration::minutes(30),
+        2_700,
+        "strava_archive".to_owned(),
+    )
+    .distance_meters(30_000.0)
+    .build();
+    for (key, copy) in [("sciotte", capture), ("strava_archive", export)] {
+        repos
+            .activity_cache
+            .upsert_activities(user, &tenant, key, &[copy])
+            .await
+            .unwrap();
+    }
+
+    let reporter = RecordingReporter::open();
+    let outcome = tick(&repos, Some(&reporter), None, Utc::now(), 50)
+        .await
+        .unwrap();
+
+    assert_eq!(outcome.labeled, 1, "{outcome:?}");
+    let delivered = reporter.delivered();
+    assert_eq!(delivered.len(), 1, "one commitment reported");
+    assert_eq!(
+        delivered[0].completed_sessions,
+        Some(1),
+        "two copies of one ride are one session"
+    );
+    assert_eq!(
+        delivered[0].outcome,
+        Some(CommitmentOutcome::Partial),
+        "one workout of two committed is partial"
+    );
+}

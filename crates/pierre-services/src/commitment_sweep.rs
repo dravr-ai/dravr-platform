@@ -54,6 +54,7 @@ use pierre_database::repositories::SweptVerdict;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::commitments::{Commitment, CommitmentOutcome};
 use pierre_providers::ai_scope;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -90,13 +91,6 @@ pub const REPORT_STALENESS_SECS: i64 = 7 * 24 * 3600;
 /// Minimum gap between two commitment verdicts reaching the same athlete.
 pub const REPORT_CADENCE_SECS: i64 = 24 * 3600;
 
-/// Two activity starts closer together than this are treated as one session.
-///
-/// An athlete with two providers connected has the same run cached twice — once
-/// from Strava, once from Garmin — under different provider rows. Counting rows
-/// would report three runs for a week that held two.
-pub const DUPLICATE_SESSION_WINDOW_SECS: i64 = 600;
-
 /// What a sweep concluded from the counted sessions.
 ///
 /// Pure and total. A zero target cannot reach here through the tool, which
@@ -114,26 +108,23 @@ pub fn commitment_outcome(completed: u32, target: u32) -> CommitmentOutcome {
     }
 }
 
-/// Count distinct sessions from activity start times, collapsing near-duplicates.
+/// How many workouts `activities` holds, of the sport `want` names when it
+/// names one.
 ///
-/// `starts` need not be sorted. Two starts within [`DUPLICATE_SESSION_WINDOW_SECS`]
-/// of each other count once; a morning and an evening run on the same day count
-/// twice.
-#[must_use]
-pub fn count_sessions(starts: &[DateTime<Utc>]) -> u32 {
-    let mut sorted: Vec<i64> = starts.iter().map(DateTime::timestamp).collect();
-    sorted.sort_unstable();
-
-    let mut counted: u32 = 0;
-    let mut last: Option<i64> = None;
-    for ts in sorted {
-        if last.is_some_and(|prev| ts - prev < DUPLICATE_SESSION_WINDOW_SECS) {
-            continue;
-        }
-        counted = counted.saturating_add(1);
-        last = Some(ts);
-    }
-    counted
+/// An athlete with two providers connected, or a connection and an imported
+/// export, holds the same run cached once per copy; counting rows would report
+/// three runs for a week that held two. The copies are merged into one session
+/// each by [`merge_duplicates`], the one duplicate-workout merge every reader
+/// shares, before the sport is read off the session that stands for them: a
+/// copy the athlete relabelled must not count as a second workout of the other
+/// sport.
+fn count_sessions(activities: Vec<Activity>, want: Option<&SportType>) -> u32 {
+    let (sessions, _) = merge_duplicates(activities, &DedupConfig::from_env());
+    let counted = sessions
+        .iter()
+        .filter(|session| want.is_none_or(|sport| session.sport_type() == sport))
+        .count();
+    u32::try_from(counted).unwrap_or(u32::MAX)
 }
 
 /// Whether the activity cache is fresh enough to read a shortfall as real.
@@ -191,8 +182,8 @@ pub trait CommitmentReporter: Send + Sync {
 /// Implemented in `pierre-server`, where the provider fetch machinery lives;
 /// this crate can read the activity cache but cannot reach a provider. The
 /// implementation fetches the window from **every** provider the athlete has
-/// connected through the same authenticated path a chat turn uses, owns its
-/// own de-duplication, and writes through to the cache — the warmed cache
+/// connected through the same authenticated path a chat turn uses, starts no
+/// second refresh while one runs, and writes through to the cache — the warmed cache
 /// (and its fetch-freshness mark) is what lets a later tick label the row
 /// instead of deferring it into expiry.
 #[async_trait]
@@ -300,12 +291,7 @@ async fn count_matching_sessions(
         .sport
         .as_deref()
         .map(SportType::from_internal_string);
-    let starts: Vec<DateTime<Utc>> = activities
-        .iter()
-        .filter(|a| want.as_ref().is_none_or(|w| a.sport_type() == w))
-        .map(Activity::start_date)
-        .collect();
-    Some(count_sessions(&starts))
+    Some(count_sessions(activities, want.as_ref()))
 }
 
 /// What to do with a commitment whose count came in under its target.
@@ -681,4 +667,134 @@ pub fn spawn_commitment_sweep(
             }
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Duration, TimeZone};
+    use pierre_core::constants::oauth_providers::{GARMIN, SCIOTTE, STRAVA, STRAVA_ARCHIVE};
+    use pierre_core::models::ActivityBuilder;
+
+    use super::*;
+
+    fn morning() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap()
+    }
+
+    fn row(
+        id: &str,
+        sport: SportType,
+        start: DateTime<Utc>,
+        provider: &str,
+        source: &str,
+    ) -> Activity {
+        ActivityBuilder::new(id, "Session", sport, start, 2_700, provider)
+            .source(source)
+            .distance_meters(10_000.0)
+            .build()
+    }
+
+    #[test]
+    fn distinct_sessions_count_each() {
+        let rows = vec![
+            row("1", SportType::Run, morning(), STRAVA, STRAVA),
+            row(
+                "2",
+                SportType::Run,
+                morning() + Duration::days(2),
+                STRAVA,
+                STRAVA,
+            ),
+            row(
+                "3",
+                SportType::Run,
+                morning() + Duration::days(4),
+                STRAVA,
+                STRAVA,
+            ),
+        ];
+        assert_eq!(count_sessions(rows, None), 3, "three runs on three days");
+        assert_eq!(
+            count_sessions(Vec::new(), None),
+            0,
+            "an empty window counts nothing"
+        );
+    }
+
+    #[test]
+    fn two_providers_recording_one_run_count_once() {
+        let rows = vec![
+            row("s1", SportType::Run, morning(), STRAVA, STRAVA),
+            row(
+                "g1",
+                SportType::Run,
+                morning() + Duration::seconds(45),
+                GARMIN,
+                GARMIN,
+            ),
+        ];
+        assert_eq!(count_sessions(rows, None), 1, "one run, two recordings");
+    }
+
+    #[test]
+    fn a_double_day_still_counts_twice() {
+        let rows = vec![
+            row("1", SportType::Run, morning(), STRAVA, STRAVA),
+            row(
+                "2",
+                SportType::Run,
+                morning() + Duration::hours(11),
+                STRAVA,
+                STRAVA,
+            ),
+        ];
+        assert_eq!(count_sessions(rows, None), 2, "two runs eleven hours apart");
+    }
+
+    /// The ride the usr/pwd capture read date-only (midnight UTC of the
+    /// athlete's day) and the export holds at its real evening start, past
+    /// midnight UTC, relabelled on Strava since: one workout, of the sport
+    /// the export (which stands for it) names.
+    #[test]
+    fn a_date_only_capture_and_its_export_are_one_session() {
+        let day = Utc.with_ymd_and_hms(2026, 8, 10, 0, 0, 0).unwrap();
+        let rows = vec![
+            row("16012345678", SportType::VirtualRide, day, SCIOTTE, STRAVA),
+            row(
+                "16012345678",
+                SportType::Ride,
+                day + Duration::hours(25) + Duration::minutes(30),
+                STRAVA_ARCHIVE,
+                STRAVA,
+            ),
+        ];
+        assert_eq!(
+            count_sessions(rows.clone(), None),
+            1,
+            "one ride, two copies"
+        );
+        assert_eq!(
+            count_sessions(rows.clone(), Some(&SportType::Ride)),
+            1,
+            "the export's sport names the ride"
+        );
+        assert_eq!(
+            count_sessions(rows, Some(&SportType::VirtualRide)),
+            0,
+            "the capture's label is not a second workout"
+        );
+    }
+
+    #[test]
+    fn a_garmin_activity_read_by_the_api_and_the_capture_is_one_session() {
+        let rows = vec![
+            row("19876543210", SportType::Ride, morning(), GARMIN, GARMIN),
+            row("19876543210", SportType::Ride, morning(), SCIOTTE, GARMIN),
+        ];
+        assert_eq!(
+            count_sessions(rows, Some(&SportType::Ride)),
+            1,
+            "one ride, whatever its copies are labelled"
+        );
+    }
 }

@@ -581,6 +581,7 @@ pub(crate) mod tests {
     use chrono::{DateTime, NaiveTime};
     use pierre_core::ai_policy::SourcePolicy;
     use pierre_core::config::profiles::FitnessLevel;
+    use pierre_core::constants::oauth_providers;
     use pierre_core::models::{
         ActivityBuilder, ConnectionType, SportType, ThresholdProvenance, UserPhysiologicalProfile,
     };
@@ -682,7 +683,57 @@ pub(crate) mod tests {
             .build()
     }
 
+    /// Strava's id for the ride [`Athlete::cache_strava_twins`] holds twice.
+    pub(crate) const TWIN_RIDE_ID: &str = "16012345678";
+
+    /// The ride the usr/pwd capture read date-only (`sciotte`, source
+    /// `strava`, at midnight UTC of the day `days_ago`) and the athlete's
+    /// imported export holds at its real evening start, 01:30 UTC the next
+    /// day: two copies of one workout, keyed by one Strava activity id.
+    pub(crate) fn strava_twins(days_ago: i64) -> [(&'static str, Activity); 2] {
+        let day = Utc::now().date_naive() - Duration::days(days_ago);
+        let midnight = Utc.from_utc_datetime(&day.and_time(NaiveTime::MIN));
+        let capture = ActivityBuilder::new(
+            TWIN_RIDE_ID,
+            "Evening Ride",
+            SportType::Ride,
+            midnight,
+            2_700,
+            oauth_providers::SCIOTTE,
+        )
+        .source(oauth_providers::STRAVA)
+        .distance_meters(30_000.0)
+        .build();
+        let export = ActivityBuilder::new(
+            TWIN_RIDE_ID,
+            "Evening Ride",
+            SportType::Ride,
+            midnight + Duration::hours(25) + Duration::minutes(30),
+            2_700,
+            oauth_providers::STRAVA_ARCHIVE,
+        )
+        .distance_meters(30_000.0)
+        .average_heart_rate(150)
+        .build();
+        [
+            (oauth_providers::SCIOTTE, capture),
+            (oauth_providers::STRAVA_ARCHIVE, export),
+        ]
+    }
+
     impl Athlete {
+        /// Cache both copies of [`strava_twins`], each under its own key.
+        pub(crate) async fn cache_strava_twins(&self, days_ago: i64) {
+            for (key, copy) in strava_twins(days_ago) {
+                self.db
+                    .repositories()
+                    .activity_cache
+                    .upsert_activities(self.user_id, &self.tenant, key, &[copy])
+                    .await
+                    .unwrap();
+            }
+        }
+
         pub(crate) async fn cache(&self, activities: &[Activity]) {
             self.db
                 .repositories()

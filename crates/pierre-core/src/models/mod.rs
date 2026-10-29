@@ -120,7 +120,7 @@ pub use sleep::{SleepSession, SleepStage, SleepStageType};
 pub use health::{HealthMetrics, RecoveryMetrics};
 
 // Data source domain (from dravr-equilibre)
-pub use data_source::{DataSource, DevicePriority, DeviceType, ProviderPriority};
+pub use data_source::{DataSource, DeviceType};
 
 // Provider data refresh domain
 pub use refresh::{

@@ -8,7 +8,7 @@ use crate::implementations::analytics::output::{
     CompareActivitiesResult, MetricComparison, PersonalRecordComparison,
 };
 use crate::protocol::format::{apply_format_typed, extract_output_format};
-use crate::protocol::provider_helpers::resolve_provider_for_request;
+use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -51,6 +51,7 @@ fn empty_comparison() -> CompareActivitiesResult {
 /// Execute activity comparison with authenticated provider
 async fn execute_activity_comparison(
     provider: Box<dyn FitnessProvider>,
+    reader: Option<Box<dyn FitnessProvider>>,
     activity_id: &str,
     comparison_type: &str,
     compare_activity_id: Option<&str>,
@@ -59,7 +60,10 @@ async fn execute_activity_comparison(
 ) -> Result<UniversalResponse, ProtocolError> {
     use DEFAULT_ACTIVITY_LIMIT;
 
-    match provider.get_activity(activity_id).await {
+    // The target is read from the copy standing for its workout; the set it
+    // is compared against is the connection's merged list.
+    let target = reader.as_deref().unwrap_or_else(|| provider.as_ref());
+    match target.get_activity(activity_id).await {
         Ok(target_activity) => {
             let raw_activities = provider
                 .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
@@ -681,8 +685,26 @@ pub(crate) fn handle_compare_activities(
             .await
         {
             Ok(provider) => {
+                let reader = match by_id_reader(
+                    &executor.resources,
+                    user_uuid,
+                    &provider_name,
+                    request.tenant_id.as_deref(),
+                    activity_id,
+                )
+                .await
+                {
+                    Ok(reader) => reader.map(|(_, reader)| reader),
+                    Err(e) => {
+                        return Err(ProtocolError::ExecutionFailed(format!(
+                            "Failed to fetch activity {activity_id}: {}",
+                            e.tool_message()
+                        )))
+                    }
+                };
                 let result = execute_activity_comparison(
                     provider,
+                    reader,
                     activity_id,
                     comparison_type,
                     compare_activity_id,

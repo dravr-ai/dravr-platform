@@ -614,7 +614,7 @@ async fn recent_workouts(
             .get_cached_activity_rows(user_id, tenant_id, since, now, read)
             .await?;
         let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
-        let workouts = home_activities(served_rows(resources, rows), limit, sport);
+        let workouts = home_activities(&served_rows(resources, rows), limit, sport);
         if workouts.len() >= limit || exhausted {
             return Ok(workouts);
         }
@@ -646,15 +646,12 @@ fn copies_per_workout(connections: usize) -> i64 {
 /// The Home rows for cached rows, newest first, one per workout, at most
 /// `limit` of them, of `sport` alone when one is named.
 ///
-/// Two passes, both over the rows already read:
-///
-/// 1. Identity: a mirror backend and the provider it mirrors can both hold a
-///    copy of the same activity; both read as the same user-facing provider
-///    and id, so the first, the newest-stored, is kept.
-/// 2. Workout: every recording of one workout across providers (a ride a
-///    watch synced to Strava, Garmin and COROS) merges into one session
-///    through [`merge_duplicates`] under [`DedupConfig::from_env`], exactly
-///    as the chat turn's activity list merges them.
+/// Every copy of one workout among the rows already read — a ride a watch
+/// synced to Strava, Garmin and COROS, the API's copy and the usr/pwd
+/// capture of the same activity, the live copy and the imported export —
+/// merges into one session through [`merge_duplicates`] under
+/// [`DedupConfig::from_env`], exactly as the chat turn's activity list merges
+/// them.
 ///
 /// A merged workout's name and numbers are the merger's canonical row, the
 /// one chat lists — the copy carrying a GPS trace, then a distance, then the
@@ -664,12 +661,11 @@ fn copies_per_workout(connections: usize) -> i64 {
 /// over a manual entry of the same workout. Either is one of the athlete's
 /// own cached rows, so the route endpoint serves its provider and id.
 fn home_activities(
-    rows: Vec<CachedActivityRow>,
+    rows: &[CachedActivityRow],
     limit: usize,
     sport: Option<&str>,
 ) -> Vec<HomeActivity> {
-    let distinct = distinct_rows(rows);
-    workouts(&distinct)
+    workouts(rows)
         .iter()
         .filter(|workout| sport.is_none_or(|sport| volume_sport(&workout.session) == sport))
         .take(limit)
@@ -743,30 +739,14 @@ impl<'a> Workout<'a> {
     }
 }
 
-/// The rows with one copy per activity: a mirror backend and the provider it
-/// mirrors can both hold a copy of the same activity; both read as the same
-/// user-facing provider and id, so the first, the newest-stored, is kept.
-fn distinct_rows(rows: Vec<CachedActivityRow>) -> Vec<CachedActivityRow> {
-    let mut distinct: Vec<CachedActivityRow> = Vec::with_capacity(rows.len());
-    for row in rows {
-        let facing = user_facing_name(&row.provider);
-        if !distinct.iter().any(|seen| {
-            user_facing_name(&seen.provider) == facing && seen.activity.id() == row.activity.id()
-        }) {
-            distinct.push(row);
-        }
-    }
-    distinct
-}
-
-/// The workouts `distinct` holds, newest first: every recording of one
+/// The workouts `rows` holds, newest first: every recording of one
 /// workout across providers merged into one session through
 /// [`merge_duplicates`] under [`DedupConfig::from_env`], exactly as the chat
 /// turn's activity list merges them.
-fn workouts(distinct: &[CachedActivityRow]) -> Vec<Workout<'_>> {
+fn workouts(rows: &[CachedActivityRow]) -> Vec<Workout<'_>> {
     // The merger consumes its input and rewrites the canonical copy, while
     // each row's stored key and route read are still needed to project it.
-    let recordings: Vec<Activity> = distinct.iter().map(|row| row.activity.clone()).collect();
+    let recordings: Vec<Activity> = rows.iter().map(|row| row.activity.clone()).collect();
     let (mut sessions, report) = merge_duplicates(recordings, &DedupConfig::from_env());
     // A merged workout sits where its canonical copy was read, which need not
     // be where its newest copy was; the list is newest first by the session.
@@ -774,7 +754,7 @@ fn workouts(distinct: &[CachedActivityRow]) -> Vec<Workout<'_>> {
     sessions
         .into_iter()
         .filter_map(|session| {
-            let canonical = distinct
+            let canonical = rows
                 .iter()
                 .find(|row| is_copy_of(&row.activity, &session))?;
             let copies = report
@@ -783,7 +763,7 @@ fn workouts(distinct: &[CachedActivityRow]) -> Vec<Workout<'_>> {
                 .find(|group| group.canonical_id == session.id())
                 .into_iter()
                 .flat_map(|group| {
-                    distinct.iter().filter(move |row| {
+                    rows.iter().filter(move |row| {
                         group.fragment_ids.iter().any(|id| id == row.activity.id())
                             && group.window_start <= row.activity.start_date()
                             && row.activity.start_date() <= group.window_end
@@ -992,9 +972,9 @@ async fn activity_view(
             DETAIL_MERGE_ROW_LIMIT,
         )
         .await?;
-    let distinct = distinct_rows(served_rows(resources, rows));
+    let rows = served_rows(resources, rows);
     let facing = user_facing_name(asked.provider);
-    let all = workouts(&distinct);
+    let all = workouts(&rows);
     let workout = all
         .iter()
         .find(|workout| workout.holds(facing, asked.activity_id))

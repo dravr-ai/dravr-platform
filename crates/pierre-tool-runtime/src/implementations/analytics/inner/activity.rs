@@ -12,7 +12,7 @@ use crate::implementations::analytics::output::{
 use crate::implementations::last_known::{self, LiveRead};
 use crate::implementations::stored_physiology::stored_hr_zones;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
-use crate::protocol::provider_helpers::resolve_provider_for_request;
+use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
 use crate::protocol::{
     auth_required_provider, UniversalRequest, UniversalResponse, UniversalToolExecutor,
 };
@@ -29,6 +29,7 @@ use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_formatters::OutputFormat;
 use pierre_providers::core::FitnessProvider;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::{ai_scope, backend_resolver};
 use serde_json::{json, Value};
 use tracing::warn;
@@ -184,6 +185,8 @@ fn create_intelligence_response(
 ///
 /// # Arguments
 /// * `provider` - Configured activity provider
+/// * `reader` - The reader of the copy standing for the activity's workout,
+///   when it is not `provider` (an export or upload the athlete brought in)
 /// * `activity_id` - Activity identifier to fetch
 /// * `user_uuid` - User UUID for response metadata
 /// * `tenant_id` - Optional tenant identifier
@@ -192,13 +195,15 @@ fn create_intelligence_response(
 /// `UniversalResponse` with intelligence or error
 async fn fetch_and_analyze_activity(
     provider: Box<dyn FitnessProvider>,
+    reader: Option<Box<dyn FitnessProvider>>,
     activity_id: &str,
     user_uuid: Uuid,
     tenant_id: Option<String>,
     hr_zones: &AthleteHrZones,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
-    match provider.get_activity(activity_id).await {
+    let target = reader.as_deref().unwrap_or_else(|| provider.as_ref());
+    match target.get_activity(activity_id).await {
         Ok(activity) => {
             let (analysis, metadata) = create_intelligence_response(
                 &activity,
@@ -222,7 +227,13 @@ async fn fetch_and_analyze_activity(
             // Handle NotFound by auto-fetching recent activities
             if e.code == ErrorCode::ResourceNotFound {
                 // Activity not found - fetch recent activities to show valid IDs
-                match provider.get_activities(Some(5), None).await {
+                // The connection's recent workouts, each recording of one
+                // merged into its session as the activity list shows it.
+                let recent = provider
+                    .get_activities(Some(5), None)
+                    .await
+                    .map(|rows| merge_duplicates(rows, &DedupConfig::from_env()).0);
+                match recent {
                     Ok(activities) if !activities.is_empty() => {
                         let activity_list: Vec<String> = activities
                             .iter()
@@ -359,6 +370,25 @@ pub(crate) fn handle_get_activity_intelligence(
             .await
         {
             Ok(provider) => {
+                // The copy standing for the workout answers, live and cached.
+                let (reader_name, reader) = match by_id_reader(
+                    &executor.resources,
+                    user_uuid,
+                    &provider_name,
+                    request.tenant_id.as_deref(),
+                    activity_id,
+                )
+                .await
+                {
+                    Ok(Some((name, reader))) => (name, Some(reader)),
+                    Ok(None) => (provider_name.clone(), None),
+                    Err(e) => {
+                        return Ok(last_known::provider_failure(
+                            &format!("Failed to fetch activity {activity_id}"),
+                            &e,
+                        ))
+                    }
+                };
                 // The live read gets the refresh budget; late or failed, the
                 // activity's cached row answers, with a caveat.
                 let read = {
@@ -367,6 +397,7 @@ pub(crate) fn handle_get_activity_intelligence(
                     async move {
                         fetch_and_analyze_activity(
                             provider,
+                            reader,
                             &id,
                             user_uuid,
                             tenant,
@@ -386,7 +417,7 @@ pub(crate) fn handle_get_activity_intelligence(
                     }
                     LiveRead::Missed(reason, failed) => {
                         let cached = CachedRead {
-                            provider: &provider_name,
+                            provider: &reader_name,
                             activity_id,
                             user_uuid,
                             tenant_id: request.tenant_id,
@@ -556,9 +587,14 @@ pub(crate) async fn process_activity_analysis(
 mod tests {
     use std::error::Error;
 
-    use chrono::Utc;
+    use async_trait::async_trait;
+    use chrono::{Duration, Utc};
+    use pierre_core::errors::{AppError, AppResult};
     use pierre_core::models::activity::ActivityBuilder;
-    use pierre_core::models::SportType;
+    use pierre_core::models::{Athlete, SportType, Stats};
+    use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials, ProviderConfig};
+    use pierre_providers::pagination::{CursorPage, PaginationParams};
+    use pierre_providers::CoreFitnessProvider;
 
     use super::*;
 
@@ -609,6 +645,122 @@ mod tests {
         assert_eq!(
             analysis.intelligence.hr_zones_unavailable,
             Some(missing.reason())
+        );
+    }
+
+    /// A connection whose by-id read always misses, listing a Garmin
+    /// auto-split: a 2-minute warm-up piece and the 58-minute session it
+    /// belongs to, back to back, warm-up first (newest first).
+    struct AutoSplitOnly {
+        config: ProviderConfig,
+    }
+
+    #[async_trait]
+    impl CoreFitnessProvider for AutoSplitOnly {
+        fn name(&self) -> &'static str {
+            "garmin"
+        }
+
+        fn config(&self) -> &ProviderConfig {
+            &self.config
+        }
+
+        async fn set_credentials(&self, _: OAuth2Credentials) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn is_authenticated(&self) -> bool {
+            true
+        }
+
+        async fn refresh_token_if_needed(&self) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn get_athlete(&self) -> AppResult<Athlete> {
+            Err(AppError::internal("not read by this test"))
+        }
+
+        async fn get_activities_with_params(
+            &self,
+            _: &ActivityQueryParams,
+        ) -> AppResult<Vec<Activity>> {
+            let start = Utc::now() - Duration::hours(3);
+            let main = ActivityBuilder::new(
+                "main",
+                "Morning Run",
+                SportType::Run,
+                start,
+                3_480,
+                "garmin",
+            )
+            .distance_meters(11_000.0)
+            .build();
+            let warm_up = ActivityBuilder::new(
+                "warm-up",
+                "Morning Run",
+                SportType::Run,
+                start + Duration::seconds(3_482),
+                120,
+                "garmin",
+            )
+            .distance_meters(300.0)
+            .build();
+            Ok(vec![warm_up, main])
+        }
+
+        async fn get_activities_cursor(
+            &self,
+            _: &PaginationParams,
+        ) -> AppResult<CursorPage<Activity>> {
+            Err(AppError::internal("not read by this test"))
+        }
+
+        async fn get_activity(&self, id: &str) -> AppResult<Activity> {
+            Err(AppError::not_found(format!("activity {id}")))
+        }
+
+        async fn get_stats(&self) -> AppResult<Stats> {
+            Err(AppError::internal("not read by this test"))
+        }
+    }
+
+    /// When the asked id misses, the recent workouts offered instead are the
+    /// merged sessions the activity list shows, and the one analysed is a
+    /// whole session, never a piece of one.
+    #[tokio::test]
+    async fn a_missed_id_offers_whole_sessions_not_their_pieces() {
+        let provider = AutoSplitOnly {
+            config: ProviderConfig {
+                name: "garmin".to_owned(),
+                auth_url: String::new(),
+                token_url: String::new(),
+                api_base_url: String::new(),
+                revoke_url: None,
+                default_scopes: Vec::new(),
+            },
+        };
+        let response = fetch_and_analyze_activity(
+            Box::new(provider),
+            None,
+            "unknown",
+            Uuid::new_v4(),
+            None,
+            &Err(HrZonesUnavailable::MissingHeartRates {
+                resting_hr: true,
+                max_hr: true,
+            }),
+            OutputFormat::Json,
+        )
+        .await
+        .unwrap();
+        let result = response.result.expect("the substitute is analysed");
+        let auto = &result["auto_selected"];
+        assert_eq!(auto["selected_activity"], "main", "{result}");
+        assert_eq!(
+            auto["available_activities"].as_array().map(Vec::len),
+            Some(1),
+            "{result}"
         );
     }
 }

@@ -12,10 +12,15 @@ use crate::protocol::types::{
 };
 use crate::runtime::ToolRuntime;
 use pierre_config::environment::default_provider;
+use pierre_core::constants::oauth_providers::{
+    is_user_provided, STRAVA, STRAVA_ARCHIVE, USER_PROVIDED_PROVIDERS,
+};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::activity_source::resolve_activity_source;
+use pierre_providers::backend_resolver::serving_backends;
 use pierre_providers::core::FitnessProvider;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
@@ -284,6 +289,8 @@ pub async fn fetch_activity_from_provider(
     tenant_id: Option<&str>,
     activity_id: &str,
 ) -> Result<Activity, AppError> {
+    let provider_name =
+        &by_id_provider(resources, user_id, provider_name, tenant_id, activity_id).await;
     let provider = configured_provider(resources, user_id, provider_name, tenant_id).await?;
 
     provider
@@ -298,6 +305,139 @@ pub async fn fetch_activity_from_provider(
                 ))
             }
         })
+}
+
+/// The reader of `activity_id` when it is not `elected`'s, with its key.
+///
+/// [`by_id_provider`] decides, and the copy the athlete brought in is read
+/// through the same chokepoint as every other provider
+/// ([`configured_provider`]), which serves their stored rows and samples.
+/// `None` when the read stays with `elected`, so a tool that already holds
+/// `elected`'s provider reads through it.
+///
+/// The tools that answer about one activity (its metrics, intelligence,
+/// comparison, weather) read its summary here, and the sample tools read it
+/// through [`fetch_activity_from_provider`]: one routing for every by-id read.
+///
+/// # Errors
+///
+/// Returns [`AppError`] when the reader of the standing copy cannot be built.
+pub async fn by_id_reader(
+    resources: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    elected: &str,
+    tenant_id: Option<&str>,
+    activity_id: &str,
+) -> Result<Option<(String, Box<dyn FitnessProvider>)>, AppError> {
+    let read_from = by_id_provider(resources, user_id, elected, tenant_id, activity_id).await;
+    if read_from == elected {
+        return Ok(None);
+    }
+    let reader = configured_provider(resources, user_id, &read_from, tenant_id).await?;
+    Ok(Some((read_from, reader)))
+}
+
+/// The provider a by-id read of `activity_id` goes to: the key of the copy
+/// that stands for its workout.
+///
+/// The athlete's workout can be held more than once — by the connection
+/// `elected` names (its API or its usr/pwd capture), and by what they brought
+/// in themselves (an imported export, an uploaded file). The copies of it the
+/// cache holds under this id are merged by [`merge_duplicates`], the one
+/// duplicate-workout merge every list reader shares, and when the copy that
+/// stands for the workout is one the athlete brought in, the read goes to its
+/// key: the authentication chokepoint answers it with the reader of their own
+/// stored rows and samples (`activity_streams`). Otherwise — the connection's
+/// copy stands, or no copy is cached (an activity older than the cache still
+/// reaches the provider) — the read goes to `elected`, as before.
+///
+/// The cache alone cannot rank the export against the Strava API: the API's
+/// rows are pruned past the cache's retention while the export's never are,
+/// so an old ride can find the export as its only cached copy. When the
+/// athlete holds a Strava API token and `elected` is served by it, the API
+/// stands for its own activity whatever the cache still holds — the export
+/// outranks only the usr/pwd capture.
+///
+/// A failed cache or token read is logged and leaves the read with `elected`.
+pub async fn by_id_provider(
+    resources: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    elected: &str,
+    tenant_id: Option<&str>,
+    activity_id: &str,
+) -> String {
+    let Some(tenant) = tenant_id.and_then(|t| TenantId::parse_str(t).ok()) else {
+        return elected.to_owned();
+    };
+    let cache = &resources.repos().activity_cache;
+    let mut copies = Vec::new();
+    let keys = serving_backends(elected)
+        .into_iter()
+        .chain(USER_PROVIDED_PROVIDERS.iter().map(|key| (*key).to_owned()));
+    for key in keys {
+        match cache
+            .get_cached_activity(user_id, &tenant, &key, activity_id)
+            .await
+        {
+            Ok(Some(copy)) => copies.push(copy),
+            Ok(None) => {}
+            Err(e) => {
+                warn!(
+                    user_id = %user_id,
+                    provider = %key,
+                    error = %e,
+                    "by-id read: cached copy lookup failed; reading the elected provider"
+                );
+                return elected.to_owned();
+            }
+        }
+    }
+    let (sessions, _) = merge_duplicates(copies, &DedupConfig::from_env());
+    let standing: Vec<&str> = sessions
+        .iter()
+        .filter(|session| session.id() == activity_id)
+        .map(Activity::provider)
+        .collect();
+    match standing.as_slice() {
+        [key]
+            if *key == STRAVA_ARCHIVE
+                && holds_strava_api(resources, user_id, &tenant, elected).await =>
+        {
+            elected.to_owned()
+        }
+        [key] if is_user_provided(key) => (*key).to_owned(),
+        _ => elected.to_owned(),
+    }
+}
+
+/// Whether `elected` is served by the Strava API for this athlete: it names a
+/// provider the Strava API serves, and the athlete holds a Strava token row
+/// (the row whose presence routes `strava` to the API, valid or stale).
+async fn holds_strava_api(
+    resources: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant: &TenantId,
+    elected: &str,
+) -> bool {
+    if !serving_backends(elected).iter().any(|key| key == STRAVA) {
+        return false;
+    }
+    match resources
+        .repos()
+        .oauth_tokens
+        .get_token(user_id, *tenant, STRAVA)
+        .await
+    {
+        Ok(token) => token.is_some(),
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                error = %e,
+                "by-id read: Strava token lookup failed; reading the elected provider"
+            );
+            true
+        }
+    }
 }
 
 /// Build the authenticated provider both fetch helpers above read through.

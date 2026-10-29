@@ -6,6 +6,7 @@
 
 use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::ai_scope;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -83,14 +84,17 @@ async fn fetch_window_activities(
 ) -> AppResult<Vec<Activity>> {
     let provider_name = resolve_provider_for_user(resources, user_id, tenant_id).await?;
     let tenant_str = tenant_id.to_string();
-    fetch_activities_from_provider(
+    let activities = fetch_activities_from_provider(
         resources,
         user_id,
         &provider_name,
         Some(tenant_str.as_str()),
         Some(MAX_ACTIVITIES_PER_CALL),
     )
-    .await
+    .await?;
+    // Workouts, not recordings: an auto-split or a second device's copy of a
+    // session is one session to estimate thresholds and volume from.
+    Ok(merge_duplicates(activities, &DedupConfig::from_env()).0)
 }
 
 /// Resolve the user's active provider for non-LLM read paths (REST routes, MCP

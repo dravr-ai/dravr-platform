@@ -637,6 +637,104 @@ fn a_date_only_scrape_pairs_with_the_timed_record_of_its_day() {
 }
 
 #[test]
+fn two_same_day_runs_captured_date_only_stay_two_beside_their_timed_rows() {
+    // Garmin through its API (timed) and Strava through the usr/pwd capture
+    // (date-only, midnight UTC), two 8 km runs at 07:00 and 18:00. Each
+    // capture matches both timed runs by day and distance; the merge must
+    // still pair each capture with one run, never chain all four into one.
+    let day = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let activities = vec![
+        provider_activity(
+            "g-am",
+            "garmin",
+            SportType::Run,
+            day + Duration::hours(7),
+            2_400,
+        )
+        .distance_meters(8_000.0)
+        .build(),
+        provider_activity(
+            "g-pm",
+            "garmin",
+            SportType::Run,
+            day + Duration::hours(18),
+            2_400,
+        )
+        .distance_meters(8_000.0)
+        .build(),
+        provider_activity("s-1", "sciotte", SportType::Run, day, 2_400)
+            .source("strava")
+            .distance_meters(8_000.0)
+            .build(),
+        provider_activity("s-2", "sciotte", SportType::Run, day, 2_400)
+            .source("strava")
+            .distance_meters(8_000.0)
+            .build(),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(merged.len(), 2, "two runs, each held twice: {merged:?}");
+    assert_eq!(report.groups.len(), 2, "one group per run: {report:?}");
+    for group in &report.groups {
+        assert_eq!(
+            group.fragment_ids.len(),
+            2,
+            "each run held twice: {group:?}"
+        );
+    }
+}
+
+#[test]
+fn a_date_only_capture_pairs_with_the_run_of_its_distance() {
+    // Same day, two timed runs of different lengths; one capture of each.
+    // Each capture lands on the run whose distance it carries.
+    let day = Utc.with_ymd_and_hms(2026, 5, 28, 0, 0, 0).unwrap();
+    let activities = vec![
+        provider_activity(
+            "g-short",
+            "garmin",
+            SportType::Run,
+            day + Duration::hours(7),
+            1_800,
+        )
+        .distance_meters(5_000.0)
+        .build(),
+        provider_activity(
+            "g-long",
+            "garmin",
+            SportType::Run,
+            day + Duration::hours(18),
+            3_600,
+        )
+        .distance_meters(5_300.0)
+        .build(),
+        provider_activity("s-long", "sciotte", SportType::Run, day, 3_600)
+            .source("strava")
+            .distance_meters(5_300.0)
+            .build(),
+        provider_activity("s-short", "sciotte", SportType::Run, day, 1_800)
+            .source("strava")
+            .distance_meters(5_000.0)
+            .build(),
+    ];
+    let (_, report) = merge_duplicates(activities, &DedupConfig::default());
+    let pairs: BTreeSet<BTreeSet<&str>> = report
+        .groups
+        .iter()
+        .map(|g| g.fragment_ids.iter().map(String::as_str).collect())
+        .collect();
+    let expected: BTreeSet<BTreeSet<&str>> = [
+        ["g-short", "s-short"].into_iter().collect(),
+        ["g-long", "s-long"].into_iter().collect(),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        pairs, expected,
+        "each capture joins the run of its distance"
+    );
+}
+
+#[test]
 fn a_report_scoped_to_a_page_keeps_only_that_page_s_groups_and_counts() {
     let t = base_time();
     let activities = vec![
@@ -1003,4 +1101,55 @@ fn an_archive_id_matches_no_other_service() {
         report.groups.is_empty(),
         "ids are compared within one service only: {report:?}"
     );
+}
+
+#[test]
+fn every_service_read_both_ways_keys_its_twins_by_its_own_id() {
+    // The API's copy and the usr/pwd capture of one TrainingPeaks or COROS
+    // activity, captured date-only and a day apart in UTC: one workout, the
+    // API's copy standing for it. A capture cached under the dedicated mirror
+    // backend name (`sciotte_garmin`) is Garmin's like a `sciotte` row with
+    // source `garmin`.
+    let start = Utc.with_ymd_and_hms(2026, 5, 21, 23, 30, 0).unwrap();
+    let midnight = Utc.with_ymd_and_hms(2026, 5, 22, 0, 0, 0).unwrap();
+    for (api, capture) in [
+        (
+            ActivityBuilder::new("901", "Api", SportType::Ride, start, 3600, "trainingpeaks")
+                .build(),
+            ActivityBuilder::new("901", "Captured", SportType::Run, midnight, 0, "sciotte")
+                .source("trainingpeaks")
+                .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+                .build(),
+        ),
+        (
+            ActivityBuilder::new("902", "Api", SportType::Ride, start, 3600, "coros").build(),
+            ActivityBuilder::new("902", "Captured", SportType::Run, midnight, 0, "sciotte")
+                .source("coros")
+                .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+                .build(),
+        ),
+        (
+            garmin_api_row("903", start, 3600),
+            ActivityBuilder::new(
+                "903",
+                "Captured",
+                SportType::Run,
+                midnight,
+                0,
+                "sciotte_garmin",
+            )
+            .summary_polyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@".to_owned())
+            .build(),
+        ),
+    ] {
+        let service = api.provider().to_owned();
+        let (merged, report) = merge_duplicates(vec![capture, api], &DedupConfig::default());
+        assert_eq!(merged.len(), 1, "{service}: {merged:?}");
+        assert_eq!(merged[0].provider(), service, "the API's copy stands");
+        assert_eq!(
+            report.groups[0].providers,
+            vec![service.clone()],
+            "{service}: both copies are named by the service"
+        );
+    }
 }

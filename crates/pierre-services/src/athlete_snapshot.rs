@@ -52,6 +52,7 @@ use pierre_evals::personalized_recovery::BASELINE_DAYS;
 use pierre_evals::{AthleteMetrics, NightlyMetric, RecoveryReadings, StoredMetric};
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
 use pierre_providers::ai_scope;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use uuid::Uuid;
 
 use crate::stored_health;
@@ -183,8 +184,13 @@ pub async fn build_athlete_metrics(
         }
     };
     // The metrics judge what a model said, so they read what it may see
-    // (carnet#723).
-    let activities = ai_scope::filter_activities(policies, activities);
+    // (carnet#723), one session per workout: a ride held under two providers,
+    // or live and in the athlete's export, loads the form once and trains on
+    // one day.
+    let (activities, _) = merge_duplicates(
+        ai_scope::filter_activities(policies, activities),
+        &DedupConfig::from_env(),
+    );
 
     // data_days = distinct calendar days with an activity — the density signal
     // gating whether the personalized layer trusts the snapshot enough to contradict an agent.
@@ -381,6 +387,8 @@ mod tests {
     use pierre_providers::ai_scope::ai_read;
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
+
+    use crate::training_history_read::tests::athlete;
 
     fn night(
         source: &str,
@@ -619,6 +627,18 @@ mod tests {
             user_id,
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn a_ride_held_live_and_in_the_export_trains_on_one_day() {
+        let fx = athlete().await;
+        fx.cache_strava_twins(3).await;
+
+        let metrics = snapshot(fx.db.repositories(), fx.tenant, fx.user_id).await;
+
+        // The capture sits at midnight UTC of its day and the export past
+        // midnight UTC of the next: read as two copies they were two days.
+        assert_eq!(metrics.data_days, 1, "one workout, one day");
     }
 
     #[tokio::test]

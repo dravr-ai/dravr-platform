@@ -210,11 +210,13 @@ pub async fn build_athlete_record(
             average_hr_bpm: a.average_heart_rate().map(f64::from),
         }
     };
-    let held: Vec<RecordedActivity> = activities.iter().map(recorded).collect();
     let by_source = sessions_by_source(&activities, recorded);
-    // A total counts each workout once: the copies two providers hold of one
-    // ride are merged the way the activity tools merge what the model reads.
+    // Each workout is held once, per activity and in every total: the copies
+    // two providers hold of one ride are merged the way the activity tools
+    // merge what the model reads, so a claim naming that ride matches one
+    // activity rather than two copies of it.
     let (sessions, _) = merge_duplicates(activities, &DedupConfig::from_env());
+    let held: Vec<RecordedActivity> = sessions.iter().map(recorded).collect();
     let (coverage, block_start) = tokio::join!(
         live_source_coverage(sources),
         current_block_start(sources, today),
@@ -536,5 +538,37 @@ mod tests {
             .collect();
 
         assert_eq!(sources, ["garmin", "whoop"]);
+    }
+
+    /// The ride the usr/pwd capture and the imported export both hold, under
+    /// one title, is one activity a claim can name: two copies of it read as
+    /// two activities of that name, which the per-activity check gives up on.
+    #[tokio::test]
+    async fn a_ride_held_live_and_in_the_export_is_one_held_activity() {
+        use crate::training_history_read::tests::{athlete, NolioTerms};
+
+        let fx = athlete().await;
+        fx.cache_strava_twins(1).await;
+        let sources = AthleteSources {
+            repos: fx.db.repositories(),
+            policies: &NolioTerms,
+            tenant_id: fx.tenant,
+            user_id: fx.user_id,
+        };
+
+        let record = build_athlete_record(&sources, None)
+            .await
+            .expect("a connected athlete has a record");
+        let named: Vec<&RecordedActivity> = record
+            .activities
+            .iter()
+            .filter(|held| held.name == "Evening Ride")
+            .collect();
+        assert_eq!(named.len(), 1, "{:?}", record.activities);
+        assert_eq!(
+            named[0].average_hr_bpm,
+            Some(150.0),
+            "the export's copy stands for the ride"
+        );
     }
 }

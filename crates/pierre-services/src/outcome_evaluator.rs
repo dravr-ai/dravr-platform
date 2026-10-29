@@ -54,6 +54,7 @@ use pierre_llm::stage::LlmStage;
 use pierre_llm::ChatProvider;
 use pierre_memory::playbooks::{LabelSource, OutcomeLabel, OutcomeMetric, PendingAdvice};
 use pierre_providers::ai_scope;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use serde::Deserialize;
 use tokio_util::task::TaskTracker;
 use tracing::{debug, error, info, warn};
@@ -236,8 +237,10 @@ impl EvalCtx<'_> {
         self.inputs.repos
     }
 
-    /// The athlete's stored activities over the window, as the judge may see
-    /// them. `None` on a read failure.
+    /// The athlete's workouts over the window, as the judge may see them: the
+    /// stored copies the provider terms let it see, each workout's copies
+    /// merged into one session ([`merge_duplicates`]) so a ride held live and
+    /// in the athlete's export is judged once. `None` on a read failure.
     async fn window_activities(&self) -> Option<Vec<Activity>> {
         match self
             .repos()
@@ -252,7 +255,13 @@ impl EvalCtx<'_> {
             )
             .await
         {
-            Ok(acts) => Some(ai_scope::filter_activities(self.inputs.terms, acts)),
+            Ok(acts) => Some(
+                merge_duplicates(
+                    ai_scope::filter_activities(self.inputs.terms, acts),
+                    &DedupConfig::from_env(),
+                )
+                .0,
+            ),
             Err(e) => {
                 warn!(error = %e, "activity read failed; will retry");
                 None
@@ -834,6 +843,27 @@ mod tests {
             "only the permitted session is counted: {summary}"
         );
         assert!(asked.iter().all(|m| !m.contains("zepp")));
+    }
+
+    #[tokio::test]
+    async fn the_judge_counts_a_ride_held_live_and_in_the_export_once() {
+        let fx = athlete().await;
+        fx.cache_strava_twins(3).await;
+
+        let advice = advice(&fx, OutcomeMetric::Consistency { window_days: 7 });
+        let (resolution, asked) = judge_reads(&fx, &advice).await;
+
+        // Two copies would meet the two-a-week target outright; one workout
+        // is short of it, so the case is ambiguous and reaches the judge.
+        assert_eq!(
+            resolution,
+            AdviceResolution::Labeled(OutcomeLabel::Neutral, LabelSource::LlmJudge)
+        );
+        let summary = asked.last().expect("the judge was asked");
+        assert!(
+            summary.contains("sessions: 1.0 -> 2.0"),
+            "the capture and the export are one session: {summary}"
+        );
     }
 
     #[tokio::test]

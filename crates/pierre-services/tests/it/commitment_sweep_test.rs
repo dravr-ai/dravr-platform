@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for the commitment sweep's pure decision functions
-// ABOUTME: Verdict thresholds, duplicate-session collapsing, and the data-freshness guard
+// ABOUTME: Verdict thresholds and the data-freshness guard
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,7 @@
 
 use chrono::{Duration, TimeZone, Utc};
 use pierre_memory::commitments::CommitmentOutcome;
-use pierre_services::commitment_sweep::{
-    commitment_outcome, count_sessions, data_covers_window, DUPLICATE_SESSION_WINDOW_SECS,
-};
+use pierre_services::commitment_sweep::{commitment_outcome, data_covers_window};
 
 #[test]
 fn verdict_thresholds() {
@@ -35,60 +33,6 @@ fn zero_target_cannot_accuse_the_athlete() {
     // A corrupt or unvalidated row must not read as "missed" — that would tell
     // someone they failed a promise they never made.
     assert_eq!(commitment_outcome(0, 0), CommitmentOutcome::Met);
-}
-
-#[test]
-fn sessions_are_counted_not_summed_from_rows() {
-    let base = Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap();
-    let starts = vec![base, base + Duration::days(2), base + Duration::days(4)];
-    assert_eq!(count_sessions(&starts), 3);
-    assert_eq!(count_sessions(&[]), 0, "an empty window counts nothing");
-}
-
-#[test]
-fn two_providers_recording_one_run_count_once() {
-    let base = Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap();
-    // Strava and Garmin both cached the same morning run, seconds apart.
-    let starts = vec![base, base + Duration::seconds(45)];
-    assert_eq!(
-        count_sessions(&starts),
-        1,
-        "the same run from two providers is one session, not two"
-    );
-}
-
-#[test]
-fn a_double_day_still_counts_twice() {
-    let base = Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap();
-    let starts = vec![base, base + Duration::hours(11)];
-    assert_eq!(
-        count_sessions(&starts),
-        2,
-        "a genuine morning and evening session are two"
-    );
-}
-
-#[test]
-fn dedup_boundary_is_exclusive() {
-    let base = Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap();
-    let inside = vec![
-        base,
-        base + Duration::seconds(DUPLICATE_SESSION_WINDOW_SECS - 1),
-    ];
-    let outside = vec![
-        base,
-        base + Duration::seconds(DUPLICATE_SESSION_WINDOW_SECS),
-    ];
-    assert_eq!(count_sessions(&inside), 1);
-    assert_eq!(count_sessions(&outside), 2);
-}
-
-#[test]
-fn unsorted_starts_still_collapse() {
-    let base = Utc.with_ymd_and_hms(2026, 8, 10, 7, 0, 0).unwrap();
-    // Cached activities come back newest-first, so the input is not ascending.
-    let starts = vec![base + Duration::days(2), base + Duration::seconds(30), base];
-    assert_eq!(count_sessions(&starts), 2);
 }
 
 #[test]

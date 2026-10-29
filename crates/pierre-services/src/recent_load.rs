@@ -27,6 +27,7 @@ use pierre_core::models::{Activity, LoadSnapshot, SportFamily, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::ai_scope;
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use uuid::Uuid;
 
 /// How many weeks of history the snapshot averages over.
@@ -63,9 +64,17 @@ pub async fn recent_load_snapshot(
         .await?;
     // The snapshot is quoted to a model; inside a read for one it sums only
     // what each provider's terms let it see (carnet#723), and is stamped with
-    // what it summed (carnet#769).
-    let (window, transport_policy) =
-        ai_scope::derived(async { ai_scope::filter_activities(policies, window) }).await;
+    // what it summed (carnet#769). It sums workouts, not copies: a ride held
+    // under two providers, or live and in the athlete's export, is merged
+    // into one session first.
+    let (window, transport_policy) = ai_scope::derived(async {
+        merge_duplicates(
+            ai_scope::filter_activities(policies, window),
+            &DedupConfig::from_env(),
+        )
+        .0
+    })
+    .await;
     let families = SportFamily::distinct(window.iter().map(Activity::sport_type));
     Ok(snapshot_from_durations(
         &window
@@ -114,4 +123,36 @@ pub fn snapshot_from_durations(durations_seconds: &[u64], weeks: u32) -> Option<
         // Nor provenance; the fetching caller stamps what it summed.
         transport_policy: TransportPolicy::AnyTransport,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::training_history_read::tests::{athlete, NolioTerms};
+
+    #[tokio::test]
+    async fn a_ride_held_live_and_in_the_export_is_one_session_of_load() {
+        let fx = athlete().await;
+        fx.cache_strava_twins(3).await;
+
+        let snapshot = recent_load_snapshot(
+            fx.db.repositories().activity_cache.as_ref(),
+            &NolioTerms,
+            fx.user_id,
+            &fx.tenant,
+        )
+        .await
+        .unwrap()
+        .expect("the window holds a ride");
+
+        let weeks = f64::from(SNAPSHOT_WEEKS);
+        assert!(
+            (snapshot.sessions_per_week - 1.0 / weeks).abs() < 1e-9,
+            "one workout, not two copies: {snapshot:?}"
+        );
+        assert!(
+            (snapshot.weekly_hours - 0.75 / weeks).abs() < 1e-9,
+            "its 45 minutes summed once: {snapshot:?}"
+        );
+    }
 }

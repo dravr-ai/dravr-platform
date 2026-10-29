@@ -14,6 +14,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
+use std::mem;
 
 use chrono::{DateTime, Duration, NaiveTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -138,13 +139,18 @@ impl FragmentReport {
 ///   [`CROSS_SPORT_OVERLAP_FRACTION`] of the shorter one.
 ///
 /// Rows with no real start time never match on overlap: every midnight row
-/// "overlaps" every other, which would fold distinct sessions together.
+/// "overlaps" every other, which would fold distinct sessions together. A
+/// date-only row pairs with one recording of its day, never with all of them:
+/// a pairing is refused when it would put two distinct activities of one
+/// provider in one group, so two same-day runs captured date-only stay two
+/// workouts beside the two timed rows of another connection.
 ///
 /// Whatever their times and sports, rows that carry one service's own
 /// activity id are one workout ([`native_activity_id`]): the Garmin API's row
 /// and the usr/pwd capture of the same Garmin activity (carnet#1155); the
 /// Strava API's row, the usr/pwd capture and the athlete's imported export of
-/// the same Strava activity (carnet#1242). The API row stands for it, then the
+/// the same Strava activity (carnet#1242); likewise for TrainingPeaks and
+/// COROS, the other services read both ways. The API row stands for it, then the
 /// export, then the capture, whatever the ranking below says, and it takes
 /// the fields it lacks from the others.
 ///
@@ -246,7 +252,7 @@ fn covers_session(peer: &Activity, canonical: &Activity) -> bool {
 /// which twins of one activity stand for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum TwinPath {
-    /// The service's API (`garmin`, `strava`).
+    /// The service's API (`garmin`, `strava`, ...).
     Api,
     /// The athlete's export of the service (`strava_archive`): the original
     /// recording and its real start, but not the edits made since.
@@ -259,25 +265,28 @@ enum TwinPath {
 /// The service whose own activity id a row is keyed by, the id, and the path
 /// the row came in by.
 ///
-/// Garmin: the Garmin API's row (`garmin`) and the row the connection using
-/// usr/pwd captured (`sciotte`, source `garmin`), both keyed by Garmin's
-/// `activityId` (carnet#1155). Strava: the Strava API's row (`strava`), the
-/// usr/pwd capture (`sciotte`, source `strava`) and the athlete's imported
-/// export (`strava_archive`, keyed by its `Activity ID`), all keyed by
+/// Every service Dravr reads both through its API and through the connection
+/// using usr/pwd (the mirror pairs [`backend_resolver`] holds: Strava, Garmin,
+/// TrainingPeaks, COROS) keys both rows by its own activity id: the API's row
+/// under the service's name, the capture under the mirror backend with the
+/// service as its source. Garmin's API row and capture share Garmin's
+/// `activityId` (carnet#1155); Strava's API row, capture and the athlete's
+/// imported export (`strava_archive`, keyed by its `Activity ID`) share
 /// Strava's activity id (carnet#1242). Within one service the same id is the
 /// same workout. `None` for every other row, whose ids name nothing in common.
-fn native_activity_id(activity: &Activity) -> Option<(&'static str, &str, TwinPath)> {
-    let (service, path) = match (activity.provider(), activity.source()) {
-        (oauth_providers::GARMIN, _) => (oauth_providers::GARMIN, TwinPath::Api),
-        (oauth_providers::STRAVA, _) => (oauth_providers::STRAVA, TwinPath::Api),
-        (oauth_providers::STRAVA_ARCHIVE, _) => (oauth_providers::STRAVA, TwinPath::Archive),
-        (oauth_providers::SCIOTTE, Some(oauth_providers::GARMIN)) => {
-            (oauth_providers::GARMIN, TwinPath::Credentials)
-        }
-        (oauth_providers::SCIOTTE, Some(oauth_providers::STRAVA)) => {
-            (oauth_providers::STRAVA, TwinPath::Credentials)
-        }
-        _ => return None,
+fn native_activity_id(activity: &Activity) -> Option<(&str, &str, TwinPath)> {
+    let provider = activity.provider();
+    let (service, path) = if provider == oauth_providers::STRAVA_ARCHIVE {
+        (oauth_providers::STRAVA, TwinPath::Archive)
+    } else if backend_resolver::is_mirror_backend(provider) {
+        (
+            backend_resolver::activity_origin(provider, activity.source()),
+            TwinPath::Credentials,
+        )
+    } else if backend_resolver::mirror_backend_for(provider).is_some() {
+        (provider, TwinPath::Api)
+    } else {
+        return None;
     };
     Some((service, activity.id(), path))
 }
@@ -373,6 +382,10 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             }
         }
     }
+    // Date-only pairings wait until every timed pairing has formed its
+    // groups, then join closest distance first, so each lands on the
+    // recording it describes rather than on whichever came first.
+    let mut date_only: Vec<(f64, usize, usize)> = Vec::new();
     for (pos, &i) in order.iter().enumerate() {
         let a = &activities[i];
         let horizon = activity_end(a) + slack;
@@ -385,9 +398,25 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
             {
                 break;
             }
-            if same_workout(a, b, config) {
-                sets.union(i, j);
+            match workout_match(a, b, config) {
+                Match::Timed => sets.union(i, j),
+                Match::DateOnly => date_only.push((distance_gap(a, b), i, j)),
+                Match::None => {}
             }
+        }
+    }
+    date_only.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(Ordering::Equal));
+    for (_, i, j) in date_only {
+        let (root_i, root_j) = (sets.find(i), sets.find(j));
+        if root_i != root_j
+            && !holds_two_activities_of_one_provider(
+                activities,
+                &sets.members[root_i],
+                &sets.members[root_j],
+                config,
+            )
+        {
+            sets.union(i, j);
         }
     }
 
@@ -398,16 +427,64 @@ fn group_members(activities: &[Activity], config: &DedupConfig) -> Vec<Vec<usize
     by_root.into_values().filter(|m| m.len() > 1).collect()
 }
 
+/// How two rows matched under the rules documented on [`merge_duplicates`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Match {
+    /// Not one workout.
+    None,
+    /// One workout by their real start times.
+    Timed,
+    /// One workout by day and distance, one side carrying only the day.
+    DateOnly,
+}
+
 /// The matching rules documented on [`merge_duplicates`].
-fn same_workout(a: &Activity, b: &Activity, config: &DedupConfig) -> bool {
+fn workout_match(a: &Activity, b: &Activity, config: &DedupConfig) -> Match {
     let two_providers = a.provider() != b.provider();
     let both_timed = has_known_time(a) && has_known_time(b);
-    if sport_key(a.sport_type()) == sport_key(b.sport_type()) {
+    let matched = if sport_key(a.sport_type()) == sport_key(b.sport_type()) {
         (both_timed && windows_touch(a, b, config.overlap_tolerance_secs))
             || (two_providers && starts_and_distances_agree(a, b, config))
     } else {
         two_providers && both_timed && overlaps_substantially(a, b)
+    };
+    match (matched, both_timed) {
+        (false, _) => Match::None,
+        (true, true) => Match::Timed,
+        (true, false) => Match::DateOnly,
     }
+}
+
+/// How far apart two rows' distances sit, `0` when either lacks one: the
+/// order date-only pairings are tried in.
+fn distance_gap(a: &Activity, b: &Activity) -> f64 {
+    match (a.distance_meters(), b.distance_meters()) {
+        (Some(da), Some(db)) => (da - db).abs(),
+        _ => 0.0,
+    }
+}
+
+/// Whether joining groups `left` and `right` would put two distinct
+/// activities of one provider in one group: two of its rows with different
+/// ids that are not pieces of one recording (both timed, windows touching).
+/// A provider lists each of its workouts once, so two such rows are two
+/// workouts, and a date-only row that matches both cannot make them one.
+fn holds_two_activities_of_one_provider(
+    activities: &[Activity],
+    left: &[usize],
+    right: &[usize],
+    config: &DedupConfig,
+) -> bool {
+    left.iter().any(|&x| {
+        right.iter().any(|&y| {
+            let (a, b) = (&activities[x], &activities[y]);
+            a.provider() == b.provider()
+                && a.id() != b.id()
+                && !(has_known_time(a)
+                    && has_known_time(b)
+                    && windows_touch(a, b, config.overlap_tolerance_secs))
+        })
+    })
 }
 
 /// Same-sport windows intersect within `tolerance_secs` of each other.
@@ -482,15 +559,19 @@ fn activity_end(activity: &Activity) -> DateTime<Utc> {
     activity.start_date() + duration
 }
 
-/// Minimal union-find over activity indices, path-halving on `find`.
+/// Minimal union-find over activity indices, path-halving on `find`, that
+/// also keeps each root's members (what a date-only pairing is checked
+/// against).
 struct DisjointSets {
     parent: Vec<usize>,
+    members: Vec<Vec<usize>>,
 }
 
 impl DisjointSets {
     fn new(len: usize) -> Self {
         Self {
             parent: (0..len).collect(),
+            members: (0..len).map(|index| vec![index]).collect(),
         }
     }
 
@@ -505,7 +586,10 @@ impl DisjointSets {
     fn union(&mut self, a: usize, b: usize) {
         let (root_a, root_b) = (self.find(a), self.find(b));
         if root_a != root_b {
-            self.parent[root_b.max(root_a)] = root_a.min(root_b);
+            let (root, child) = (root_a.min(root_b), root_a.max(root_b));
+            self.parent[child] = root;
+            let moved = mem::take(&mut self.members[child]);
+            self.members[root].extend(moved);
         }
     }
 }
