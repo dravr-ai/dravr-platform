@@ -9,7 +9,8 @@
 //! A turn makes more LLM calls than the reply the athlete reads: the turn's
 //! language, the facts worth remembering, a summary of old history, a verdict
 //! on each claim, the advice to follow up, and later whether that advice
-//! worked. None of them is read by the athlete, and each is a separate
+//! worked — and, outside any turn, the ingestion job's transcription of a
+//! fuel label. None of them is read by the athlete, and each is a separate
 //! Copilot session billed at its model's multiplier, so each can run on a
 //! cheaper model than the reply without the athlete reading the difference.
 //! "A match statement, not a classifier": the stage a call serves decides its
@@ -143,17 +144,21 @@ pub enum LlmStage {
     AdviceCapture,
     /// Whether advice worked, once its observation window has closed.
     OutcomeEvaluation,
+    /// A fuel product's label facts, transcribed from its photos by the
+    /// ingestion job (carnet#155). Needs a head that reads images.
+    FuelPanelExtraction,
 }
 
 impl LlmStage {
     /// Every stage, in declaration order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::LanguageClassification,
         Self::MemoryExtraction,
         Self::CompactionSummary,
         Self::ClaimJudge,
         Self::AdviceCapture,
         Self::OutcomeEvaluation,
+        Self::FuelPanelExtraction,
     ];
 
     /// The `call_type` of the `llm_usage` row this stage's calls write, so its
@@ -167,6 +172,7 @@ impl LlmStage {
             Self::ClaimJudge => "claim_judge",
             Self::AdviceCapture => "advice_capture",
             Self::OutcomeEvaluation => "outcome_eval",
+            Self::FuelPanelExtraction => "fuel_panel_extraction",
         }
     }
 
@@ -180,6 +186,7 @@ impl LlmStage {
             Self::ClaimJudge => "PIERRE_LLM_MODEL_CLAIM_JUDGE",
             Self::AdviceCapture => "PIERRE_LLM_MODEL_ADVICE_CAPTURE",
             Self::OutcomeEvaluation => "PIERRE_LLM_MODEL_OUTCOME_EVAL",
+            Self::FuelPanelExtraction => "PIERRE_LLM_MODEL_FUEL_PANEL_EXTRACTION",
         }
     }
 
@@ -192,6 +199,7 @@ impl LlmStage {
             Self::ClaimJudge => 3,
             Self::AdviceCapture => 4,
             Self::OutcomeEvaluation => 5,
+            Self::FuelPanelExtraction => 6,
         }
     }
 }
@@ -205,7 +213,7 @@ impl LlmStage {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StageModels {
     /// Boxed because every provider carries one, routed or not: inline, the
-    /// six slots would grow `ChatProvider::Embacle` by 144 bytes.
+    /// seven slots would grow `ChatProvider::Embacle` by 168 bytes.
     models: Box<[Option<String>; LlmStage::ALL.len()]>,
     /// The model a turn's tool-calling iterations run on
     /// ([`TOOL_ITERATION_ENV`]), `None` for the turn's own model.

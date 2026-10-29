@@ -36,7 +36,7 @@ use crate::errors::{AppError, ErrorCode};
 // Re-exporting here preserves the `pierre_core::llm::*` import paths.
 
 pub use embacle::types::{
-    ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, McpHeader, McpServerConfig,
+    ChatMessage, ChatRequest, ChatResponse, ImagePart, LlmCapabilities, McpHeader, McpServerConfig,
     McpTransport, MessageRole, StreamChunk, TokenUsage, ToolStreamEvent,
 };
 

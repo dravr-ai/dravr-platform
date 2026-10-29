@@ -25,7 +25,7 @@ pub use pierre_core::models;
 
 // Re-export LLM types from pierre-core (canonical definitions live there)
 pub use pierre_core::llm::{
-    ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
+    ChatMessage, ChatRequest, ChatResponse, ChatStream, ImagePart, LlmCapabilities, LlmProvider,
     LlmProviderRegistry, McpHeader, McpServerConfig, McpTransport, MessageRole, StreamChunk,
     TokenUsage, ToolStreamEvent, ToolTurnStream,
 };

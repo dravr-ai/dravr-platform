@@ -126,6 +126,13 @@ pub const OUTCOME_JUDGE_PROMPT: &str = system::OUTCOME_JUDGE;
 /// judges a claim against sports-science consensus.
 pub const CLAIM_JUDGE_PROMPT: &str = system::CLAIM_JUDGE;
 
+/// Fuel-panel extraction prompt — transcribes a sports-fuel label photo.
+///
+/// Instructs the ingestion job's call that reads a label into the catalogue's
+/// facts as strict JSON, never estimating a value the label does not print
+/// (carnet#155).
+pub const FUEL_PANEL_EXTRACTION_PROMPT: &str = system::FUEL_PANEL_EXTRACTION;
+
 /// Natural-language instructions the MCP server advertises in `initialize` —
 /// what an external agent reads as its system layer for this server.
 pub const MCP_SERVER_INSTRUCTIONS_PROMPT: &str = system::MCP_SERVER_INSTRUCTIONS;
