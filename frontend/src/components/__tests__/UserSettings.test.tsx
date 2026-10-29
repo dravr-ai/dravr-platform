@@ -13,6 +13,7 @@ import { ThemeProvider } from '../../hooks/useTheme';
 import { ToastProvider } from '../ui';
 import { userApi } from '../../services/api';
 import { i18n } from '@pierre/i18n';
+import { OAUTH_RESULT_FRESH_MS, OAUTH_RESULT_KEY } from '../../utils/oauthReturn';
 
 // Mock lazy-loaded components
 vi.mock('../A2AClientList', () => ({
@@ -198,9 +199,26 @@ function renderUserSettings(props: Parameters<typeof UserSettings>[0] = {}) {
   );
 }
 
+// A connect leaves for the provider in this tab, so `location.assign` is the
+// navigation to assert; `window.open` is stubbed only to prove no new tab opens.
+function stubConnectNavigation() {
+  const assign = vi.fn();
+  vi.stubGlobal('location', { ...window.location, assign });
+  vi.stubGlobal('open', vi.fn());
+  return assign;
+}
+
 describe('UserSettings Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  // A connect's result outlives the test that left it (a grant is left in
+  // place for the open thread), and so do the navigation stubs.
+  afterEach(() => {
+    localStorage.removeItem(OAUTH_RESULT_KEY);
+    sessionStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   // These assert translated copy rather than English chrome, which is the
@@ -735,9 +753,10 @@ describe('UserSettings Component', () => {
       consent_required,
     });
 
+    let assign: ReturnType<typeof vi.fn>;
     beforeEach(() => {
       localStorage.clear();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+      assign = stubConnectNavigation();
     });
 
     it('asks for the authorization instead of reading Connected, and reconnects with it', async () => {
@@ -755,13 +774,14 @@ describe('UserSettings Component', () => {
       await user.click(screen.getByTestId('provider-connect-whoop'));
       const dialog = await screen.findByRole('dialog');
       expect(within(dialog).getByRole('note')).toHaveTextContent('Before you connect WHOOP');
-      expect(window.open).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
 
       await user.click(within(dialog).getByRole('checkbox'));
       await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
 
       expect(authorizeUrl).toHaveBeenCalledWith('whoop', { tosConsent: true });
-      expect(window.open).toHaveBeenCalled();
+      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop');
+      expect(window.open).not.toHaveBeenCalled();
     });
 
     it('reads Connected with a Disconnect once the authorization is given', async () => {
@@ -810,9 +830,10 @@ describe('UserSettings Component', () => {
       oauth_callback_url: 'https://app.dravr.ai/api/oauth/callback/whoop',
     });
 
+    let assign: ReturnType<typeof vi.fn>;
     beforeEach(() => {
       localStorage.clear();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+      assign = stubConnectNavigation();
     });
 
     it('asks for the athlete\'s own app first, then the owner authorization, then starts the flow', async () => {
@@ -827,7 +848,7 @@ describe('UserSettings Component', () => {
         'https://app.dravr.ai/api/oauth/callback/whoop',
       );
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(window.open).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
 
       await user.click(screen.getByText('own-app-save'));
       const dialog = await screen.findByRole('dialog');
@@ -836,7 +857,8 @@ describe('UserSettings Component', () => {
       await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
 
       expect(authorizeUrl).toHaveBeenCalledWith('whoop', { tosConsent: true });
-      expect(window.open).toHaveBeenCalled();
+      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop');
+      expect(window.open).not.toHaveBeenCalled();
     });
 
     it('goes to the owner authorization with no setup while an app of the server can authorize it', async () => {
@@ -866,9 +888,10 @@ describe('UserSettings Component', () => {
       ...overrides,
     });
 
+    let assign: ReturnType<typeof vi.fn>;
     beforeEach(() => {
       localStorage.clear();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+      assign = stubConnectNavigation();
     });
 
     async function openConnect() {
@@ -885,12 +908,13 @@ describe('UserSettings Component', () => {
       const user = await openConnect();
 
       expect(await screen.findByTestId('intervals-authorize-choice')).toBeInTheDocument();
-      expect(window.open).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
 
       await user.click(screen.getByTestId('intervals-authorize'));
 
       expect(authorizeUrl).toHaveBeenCalledWith('intervals_icu', { tosConsent: false });
-      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu', '_blank');
+      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu');
+      expect(window.open).not.toHaveBeenCalled();
     });
 
     it('reconnects a key-linked card through the key form, never the authorization', async () => {
@@ -901,7 +925,7 @@ describe('UserSettings Component', () => {
 
       expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
       expect(screen.queryByTestId('intervals-authorize-choice')).not.toBeInTheDocument();
-      expect(window.open).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
     });
 
     it('reconnects an authorized card straight through the authorization', async () => {
@@ -910,7 +934,8 @@ describe('UserSettings Component', () => {
       });
       await openConnect();
 
-      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu', '_blank');
+      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu');
+      expect(window.open).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
@@ -936,9 +961,10 @@ describe('UserSettings Component', () => {
       seats_left: recommended_backend === 'oauth' ? 3 : 0,
     });
 
+    let assign: ReturnType<typeof vi.fn>;
     beforeEach(() => {
       localStorage.clear();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+      assign = stubConnectNavigation();
     });
 
     it('launches Strava OAuth (not Sciotte) while seats remain', async () => {
@@ -951,11 +977,10 @@ describe('UserSettings Component', () => {
       const connect = await screen.findByRole('button', { name: 'Connect' });
       await user.click(connect);
 
-      // Asserting the URL, not merely that a window opened: opening
-      // `about:blank` and filling it in later is the regression this replaced.
-      await waitFor(() =>
-        expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank'),
-      );
+      // Asserting the URL this tab goes to, and that no other tab opens: the
+      // connect returns to the page it started from, never a second dashboard.
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava'));
+      expect(window.open).not.toHaveBeenCalled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
@@ -970,6 +995,7 @@ describe('UserSettings Component', () => {
       await user.click(connect);
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
     });
 
@@ -993,9 +1019,8 @@ describe('UserSettings Component', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Connect' }));
 
-      await waitFor(() =>
-        expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'),
-      );
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      expect(window.open).not.toHaveBeenCalled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
@@ -1008,9 +1033,8 @@ describe('UserSettings Component', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
-      await waitFor(() =>
-        expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'),
-      );
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+      expect(window.open).not.toHaveBeenCalled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
 
@@ -1024,6 +1048,7 @@ describe('UserSettings Component', () => {
       await user.click(await screen.findByRole('button', { name: 'Connect' }));
 
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
     });
 
@@ -1042,12 +1067,103 @@ describe('UserSettings Component', () => {
       // The healthy "Connected" badge must NOT be shown for a dead session.
       expect(screen.queryByText('Connected')).not.toBeInTheDocument();
     });
+  });
 
-    // The failure-fallback path (a failed `pierre_oauth_result` reopening the
-    // Sciotte modal) is exercised deterministically by the ProviderConnectionCards
-    // and mobile ConnectionsScreen/OnboardingConnectScreen suites; UserSettings
-    // routes it through the same handleConnectProvider poll, which cannot be
-    // isolated reliably here because that poll's interval outlives unmount.
+  describe('Data Providers — the result a connect came back with', () => {
+    // The connect ran in this tab, so Settings learns how it went when it
+    // mounts again: from the result `settleOAuthReturn` left in localStorage.
+    const card = (provider: string, display_name: string) => ({
+      provider,
+      display_name,
+      requires_oauth: true,
+      connected: false,
+      needs_reauth: false,
+      capabilities: ['activities'],
+      consent_required: false,
+    });
+    const leaveResult = (provider: string, overrides: Record<string, unknown> = {}) =>
+      localStorage.setItem(
+        OAUTH_RESULT_KEY,
+        JSON.stringify({
+          type: 'oauth_completed',
+          provider,
+          success: false,
+          hasError: true,
+          tombstoned: false,
+          timestamp: Date.now(),
+          ...overrides,
+        }),
+      );
+
+    let assign: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      localStorage.clear();
+      assign = stubConnectNavigation();
+      getProvidersStatus.mockResolvedValue({
+        providers: [card('sciotte_garmin', 'Garmin'), card('whoop', 'WHOOP')],
+      });
+    });
+
+    async function openProviders() {
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+      expect(await screen.findByText('WHOOP')).toBeInTheDocument();
+    }
+
+    it('opens the Garmin credential login for a refused Garmin grant, and reads it once', async () => {
+      leaveResult('garmin');
+      await openProviders();
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it('opens the Strava credential login for a refused Strava grant', async () => {
+      leaveResult('strava');
+      await openProviders();
+
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
+    });
+
+    it('names the provider a refused grant of any other provider failed for', async () => {
+      leaveResult('whoop');
+      await openProviders();
+
+      expect(await screen.findByText('Failed to connect WHOOP')).toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
+    });
+
+    it('announces a grant by the card\'s name, once', async () => {
+      leaveResult('whoop', { success: true, hasError: false });
+      await openProviders();
+
+      expect(await screen.findByText('WHOOP connected successfully!')).toBeInTheDocument();
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      // Settings remounts on every section change: a grant left in place was
+      // announced again on each one for five minutes.
+      expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
+    });
+
+    it('ignores a result older than a connect the athlete just made', async () => {
+      leaveResult('garmin', { timestamp: Date.now() - OAUTH_RESULT_FRESH_MS - 60_000 });
+      await openProviders();
+
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(screen.queryByText(/connected successfully|Failed to connect/)).not.toBeInTheDocument();
+    });
+
+    it('offers no other way in for a tombstoned refusal, which the callback page resolved', async () => {
+      leaveResult('garmin', { tombstoned: true });
+      await openProviders();
+
+      expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+      expect(screen.queryByText(/connected successfully|Failed to connect/)).not.toBeInTheDocument();
+      expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
+    });
   });
 
   describe('Data Providers — TrainingPeaks through a coach', () => {
@@ -1224,8 +1340,9 @@ describe('UserSettings Component', () => {
       consent_required: !connected,
     });
 
+    let assign: ReturnType<typeof vi.fn>;
     beforeEach(() => {
-      vi.stubGlobal('open', vi.fn());
+      assign = stubConnectNavigation();
     });
 
     it('opens the TrainingPeaks login with its notice, never an OAuth window', async () => {
@@ -1242,6 +1359,7 @@ describe('UserSettings Component', () => {
       const modal = await screen.findByTestId('sciotte-modal');
       expect(modal).toHaveTextContent('trainingpeaks');
       expect(modal).toHaveAttribute('data-consent', 'true');
+      expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
     });
 
@@ -1278,9 +1396,10 @@ describe('UserSettings Component', () => {
       ...overrides,
     });
 
+    let assign: ReturnType<typeof vi.fn>;
     beforeEach(() => {
       localStorage.clear();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false, location: { href: '' } }));
+      assign = stubConnectNavigation();
     });
 
     it('renders the single Strava card as Connected with a Disconnect control', async () => {
@@ -1333,7 +1452,6 @@ describe('UserSettings Component', () => {
         providers: [stravaCard({ connected_backend: 'sciotte', needs_reauth: true })],
       });
       const user = userEvent.setup();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
 
       await act(async () => {
         renderUserSettings({ initialTab: 'connections', hideTabNav: true });
@@ -1342,8 +1460,8 @@ describe('UserSettings Component', () => {
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
       expect(await screen.findByText('Switch Provider')).toBeInTheDocument();
-      // The guard short-circuits the connect, so no launch window is opened.
-      expect(window.open).not.toHaveBeenCalled();
+      // The guard short-circuits the connect, so this tab does not leave yet.
+      expect(assign).not.toHaveBeenCalled();
     });
 
     it('re-auths the backend that already holds the grant without a switch prompt', async () => {
@@ -1351,7 +1469,6 @@ describe('UserSettings Component', () => {
         providers: [stravaCard({ connected_backend: 'strava', needs_reauth: true })],
       });
       const user = userEvent.setup();
-      vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
 
       await act(async () => {
         renderUserSettings({ initialTab: 'connections', hideTabNav: true });
@@ -1360,7 +1477,9 @@ describe('UserSettings Component', () => {
       await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
 
       expect(screen.queryByText('Switch Provider')).not.toBeInTheDocument();
-      expect(window.open).toHaveBeenCalledTimes(1);
+      expect(assign).toHaveBeenCalledTimes(1);
+      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava');
+      expect(window.open).not.toHaveBeenCalled();
     });
 
     // carnet#1207: the switch dialog names the two Strava connections by their
@@ -1390,12 +1509,13 @@ describe('UserSettings Component', () => {
       expect(within(dialog).getByText(message)).toBeInTheDocument();
       const dialogText = dialog.textContent ?? '';
       expect(dialogText).not.toMatch(/\bsciotte\b/);
-      expect(window.open).not.toHaveBeenCalled();
+      expect(assign).not.toHaveBeenCalled();
 
       await user.click(within(dialog).getByRole('button', { name: i18n.t('app.switch') }));
 
       await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('strava'));
       expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
+      expect(assign).not.toHaveBeenCalled();
       expect(window.open).not.toHaveBeenCalled();
       expect(
         await screen.findByText(i18n.t('app.providerDisconnected', { provider: i18n.t('shell.sciotteTargetStrava') })),
@@ -1445,11 +1565,18 @@ describe('UserSettings Component', () => {
         disconnecting: i18n.t('providers.stravaSciotte'),
       });
       expect(within(dialog).getByText(message)).toBeInTheDocument();
+      expect(assign).not.toHaveBeenCalled();
 
       await user.click(within(dialog).getByRole('button', { name: i18n.t('app.switch') }));
 
+      // This tab leaves only once the old backend is gone: the disconnect
+      // is awaited, then the authorization opens here, never in a new tab.
       await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('sciotte'));
-      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank');
+      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava'));
+      expect(assign.mock.invocationCallOrder[0]).toBeGreaterThan(
+        disconnectProvider.mock.invocationCallOrder[0],
+      );
+      expect(window.open).not.toHaveBeenCalled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
   });

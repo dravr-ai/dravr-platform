@@ -12,7 +12,6 @@ import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   PROVIDER_LINK_POLL_INTERVAL_MS,
-  SCIOTTE_LOGIN_PRESETS,
   intervalsConnectPath,
   noticeRequired,
   providerGlyphInk,
@@ -26,6 +25,12 @@ import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 import { ProviderNoticeDialog } from './ProviderNotice';
 import ImportOwnDataLink from './import/ImportOwnDataLink';
+import {
+  OAUTH_RESULT_FRESH_MS,
+  OAUTH_RESULT_KEY,
+  refusalOpensCredentialLogin,
+  startOAuthInThisTab,
+} from '../utils/oauthReturn';
 import { useTranslation } from '@pierre/i18n';
 import { useTheme } from '../hooks/useTheme';
 
@@ -91,20 +96,8 @@ export const ProviderIcon = ({ providerId, className }: { providerId: string; cl
 };
 
 interface ProviderConnectionCardsProps {
-  /**
-   * Starts the OAuth flow instead of the cards' own launch. `tosConsent` is
-   * true when the athlete just accepted the provider's notice (WHOOP's owner
-   * authorization), and must ride the start.
-   */
-  onConnectProvider?: (providerName: string, tosConsent: boolean) => void;
-  connectingProvider?: string | null;
   onSkip?: () => void;
   isSkipPending?: boolean;
-  /**
-   * Forwarded from `SciotteLoginModal` when the BYO Strava OAuth popup opens,
-   * with the provider's brand.
-   */
-  onOAuthLaunched?: (providerName: string) => void;
   /**
    * Shows only these providers (by `provider` name), in the server's order.
    * The connect step of a coach who does not train passes the coaching
@@ -114,11 +107,8 @@ interface ProviderConnectionCardsProps {
 }
 
 export default function ProviderConnectionCards({
-  onConnectProvider,
-  connectingProvider,
   onSkip,
   isSkipPending,
-  onOAuthLaunched,
   onlyProviders,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
@@ -144,43 +134,42 @@ export default function ProviderConnectionCards({
 
   // Fetch providers from server (includes OAuth and non-OAuth providers).
   //
-  // The 5s poll is transient by intent: an OAuth grant completes in a *second
-  // tab*, so this one can only learn about it by asking. It therefore runs
-  // while there is an answer to wait for — an attempt in flight, or no
-  // connection landed yet — and stops the moment one arrives, rather than
-  // ticking for as long as the screen is mounted. A second provider connected
-  // later re-arms it through `connectingProvider`.
+  // The 5s poll is transient by intent: a connection can land somewhere this
+  // screen does not see — the hosted connect page a chat link opens, on
+  // another device — so it asks while no connection has landed yet, and stops
+  // the moment one arrives rather than ticking for as long as the screen is
+  // mounted. A connect started here returns to this tab, which reloads the
+  // status.
   const { data: providersData, isLoading, refetch } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
     refetchInterval: query => {
-      if (connectingProvider) return PROVIDER_LINK_POLL_INTERVAL_MS;
       const landed = query.state.data?.providers?.some(p => p.connected) ?? false;
       return landed ? false : PROVIDER_LINK_POLL_INTERVAL_MS;
     },
   });
 
-  // OAuth-first with a Sciotte fallback: the `sciotte` card launches real Strava
-  // OAuth while shared-app seats remain. If that OAuth attempt fails — the
+  // OAuth-first with a usr/pwd fallback: the Strava and Garmin cards launch
+  // their provider's OAuth while seats remain. If that attempt fails — the
   // athlete cap was actually exceeded in a seat-count race, or the provider
-  // rejected the grant — we don't strand the user. The OAuth callback tab writes
-  // `pierre_oauth_result` (firing a `storage` event here in the opener); on a
-  // failed Strava result we open the Sciotte credential login for the same data.
-  // Only *failed* Strava results are consumed — successful results are left
+  // rejected the grant — we don't strand the user. The connect returns to this
+  // tab and leaves `pierre_oauth_result`; on a failed Strava or Garmin result
+  // we open the credential login for the same data.
+  // Only *failed* results are consumed — successful results are left
   // untouched for the success handlers in useOAuthCompletion and UserSettings.
   useEffect(() => {
-    const consumeFailedStrava = () => {
+    const consumeFailedOAuth = () => {
       let stored: string | null;
       try {
-        stored = localStorage.getItem('pierre_oauth_result');
+        stored = localStorage.getItem(OAUTH_RESULT_KEY);
       } catch {
         return;
       }
       if (!stored) return;
       try {
         const result = JSON.parse(stored);
-        const fresh = result?.timestamp && Date.now() - result.timestamp < 30_000;
-        // A grant that landed in the OAuth tab: the poll stops once any
+        const fresh = result?.timestamp && Date.now() - result.timestamp < OAUTH_RESULT_FRESH_MS;
+        // A grant the connect came back with: the poll stops once any
         // provider is connected, so a second connection is picked up here.
         // The onboarding status is refetched too, so this tab leaves the
         // connect gate and reaches the coach proposal (carnet#1042).
@@ -190,36 +179,38 @@ export default function ProviderConnectionCards({
           void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           return;
         }
-        // A tombstoned account is resolved in the OAuth tab, which offers to
-        // start fresh; the credential login would be refused the same way.
-        if (fresh && result.provider === 'strava' && result.success === false && !result.tombstoned) {
-          localStorage.removeItem('pierre_oauth_result');
-          setSciotteModalTarget('strava');
+        // A tombstoned account is resolved on the callback page, which offers
+        // to start fresh; the credential login would be refused the same way.
+        if (
+          fresh &&
+          refusalOpensCredentialLogin(result.provider) &&
+          result.success === false &&
+          !result.tombstoned
+        ) {
+          localStorage.removeItem(OAUTH_RESULT_KEY);
+          setSciotteModalTarget(result.provider);
         }
       } catch {
         // Ignore parse errors — leave the entry for other consumers.
       }
     };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'pierre_oauth_result' && e.newValue) consumeFailedStrava();
+      if (e.key === OAUTH_RESULT_KEY && e.newValue) consumeFailedOAuth();
     };
     window.addEventListener('storage', onStorage);
-    window.addEventListener('focus', consumeFailedStrava);
-    document.addEventListener('visibilitychange', consumeFailedStrava);
-    consumeFailedStrava();
+    window.addEventListener('focus', consumeFailedOAuth);
+    document.addEventListener('visibilitychange', consumeFailedOAuth);
+    consumeFailedOAuth();
     return () => {
       window.removeEventListener('storage', onStorage);
-      window.removeEventListener('focus', consumeFailedStrava);
-      document.removeEventListener('visibilitychange', consumeFailedStrava);
+      window.removeEventListener('focus', consumeFailedOAuth);
+      document.removeEventListener('visibilitychange', consumeFailedOAuth);
     };
   }, [refetch, queryClient]);
 
-  // Launch the OAuth authorization flow for a provider. Prefers the parent's
-  // callback (onboarding shows an "awaiting consent" overlay); otherwise opens
-  // the server's launch route, which 302s to the provider. Opening a real
-  // same-origin URL keeps the window inside Safari's user-gesture stack without
-  // the old `about:blank`-then-assign dance, which left the popup empty for the
-  // whole authorize-URL round trip.
+  // Launch the OAuth authorization flow for a provider: go, in this tab, to
+  // the server's launch route, which 302s to the provider and returns here
+  // (`startOAuthInThisTab`).
   const connectViaOAuth = (providerName: string, tosConsent = false) => {
     const card = providersData?.providers?.find((p) => p.provider === providerName);
     const devPortalUrl = ownAppDevPortal(providerName);
@@ -232,16 +223,7 @@ export default function ProviderConnectionCards({
 
   const launchOAuth = (providerName: string, tosConsent: boolean) => {
     track({ name: 'feature_engaged', props: { feature: 'provider_connect_started' } });
-    if (onConnectProvider) {
-      onConnectProvider(providerName, tosConsent);
-      return;
-    }
-    const url = oauthApi.authorizeUrl(providerName, { tosConsent });
-    if (!window.open(url, '_blank')) {
-      // Popup blocked outright — same-tab navigation is the documented
-      // fallback; the callback records the result either way.
-      window.location.href = url;
-    }
+    startOAuthInThisTab(oauthApi.authorizeUrl(providerName, { tosConsent }));
   };
 
   // Handle provider card click
@@ -336,7 +318,6 @@ export default function ProviderConnectionCards({
         // canvas; elsewhere — and for a provider with no brand colour — the
         // glyph takes the body ink. `PROVIDER_GLYPH_INK` holds both halves.
         const glyphInk = providerGlyphInk(provider.provider, scheme);
-        const isConnecting = connectingProvider === provider.provider;
         const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte') && provider.provider !== 'intervals_icu';
         const owesAuthorization = syncAuthorizationOwed(provider.provider, provider.connected, provider.consent_required);
         const isActionable = !provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu');
@@ -346,7 +327,7 @@ export default function ProviderConnectionCards({
             key={provider.provider}
             type="button"
             onClick={() => handleConnect(provider)}
-            disabled={(provider.connected && !owesAuthorization) || isConnecting || !!connectingProvider}
+            disabled={provider.connected && !owesAuthorization}
             className={`${ROW_CLASS} disabled:cursor-default`}
             aria-label={
               owesAuthorization
@@ -364,11 +345,7 @@ export default function ProviderConnectionCards({
               className={`flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface ${isNonOAuth ? 'opacity-60' : ''}`}
               style={glyphInk ? { color: glyphInk } : undefined}
             >
-              {isConnecting ? (
-                <div className="pierre-spinner h-5 w-5"></div>
-              ) : (
-                <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
-              )}
+              <ProviderIcon providerId={provider.provider} className="h-5 w-5" />
             </span>
             <span className={`flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 ${isNonOAuth ? 'opacity-60' : ''}`}>
               <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
@@ -438,9 +415,6 @@ export default function ProviderConnectionCards({
       <SciotteLoginModal
         isOpen={sciotteModalTarget !== null}
         onClose={() => setSciotteModalTarget(null)}
-        onOAuthLaunched={
-          onOAuthLaunched && ((target) => onOAuthLaunched(t(SCIOTTE_LOGIN_PRESETS[target].labelKey)))
-        }
         onConnected={() => {
           refetch();
           // Sciotte completes in-process (no OAuth callback URL), so we have to

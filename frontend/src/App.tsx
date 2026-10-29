@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+// ABOUTME: Root of the web app: reads the links a page load arrives on (OAuth return, invitation, confirmation, signup)
+// ABOUTME: Gates on authentication and account status, then renders onboarding or the dashboard inside the app providers
+
 import { useState, useEffect } from 'react';
-import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
 import ForgotPassword from './components/ForgotPassword';
@@ -26,24 +29,19 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
-import { QUERY_KEYS } from './constants/queryKeys';
 import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
 import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
-import { importTombstoneFromReturn, type ImportTombstoneRefusal } from '@pierre/ui-logic';
+import { importTombstoneFromReturn } from '@pierre/ui-logic';
+import { returnToConnectStart, settleOAuthReturn, type OAuthCallbackParams } from './utils/oauthReturn';
 import { queryClient } from './services/queryClient';
 import './App.css';
 
 /**
  * Check if the current URL has OAuth callback parameters
  */
-function getOAuthCallbackParams(): {
-  provider: string;
-  success: boolean;
-  error?: string;
-  tombstone?: ImportTombstoneRefusal;
-} | null {
+function getOAuthCallbackParams(): OAuthCallbackParams | null {
   const urlParams = new URLSearchParams(window.location.search);
   const provider = urlParams.get('provider');
   const success = urlParams.get('success');
@@ -110,7 +108,13 @@ function AppContent() {
   // Read once, before the effect below cleans the create-account link.
   const [signupCodeFromLink] = useState<string | null>(getSignupCodeParam);
   const [resetEmail, setResetEmail] = useState<string>('');
-  const [oauthCallback, setOauthCallback] = useState<ReturnType<typeof getOAuthCallbackParams>>(null);
+  // A connect returns to the app root, in the tab it started from. Settled
+  // before the first render, so the dashboard opens on the route the connect
+  // started from rather than on the root it came back to; only a refusal with
+  // something to say keeps the callback page.
+  const [oauthCallback, setOauthCallback] = useState<OAuthCallbackParams | null>(() =>
+    settleOAuthReturn(getOAuthCallbackParams()),
+  );
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   // The confirmation token, read once from the link's fragment. `undefined`
   // when this page load is not a confirmation link.
@@ -122,7 +126,6 @@ function AppContent() {
   const [invitationToken, setInvitationToken] = useState<string | null | undefined>(() =>
     isAcceptInvitationPath() ? parseLinkToken(window.location.hash) : undefined,
   );
-  const localQueryClient = useQueryClient();
 
   // Adopt the viewer's language for the whole app, not just the screen that
   // owns the picker. The restore effect lives in the switcher hook, and the
@@ -172,22 +175,6 @@ function AppContent() {
       cancelled = true;
     };
   }, [user?.id, user?.analytics_consent]);
-
-  // Check for OAuth callback params on mount
-  useEffect(() => {
-    const params = getOAuthCallbackParams();
-    if (params) {
-      setOauthCallback(params);
-      // Invalidate OAuth status queries to refresh connection state.
-      // Also invalidate onboarding-status so a first-run connect advances the
-      // onboarding flow from the connect step to the dashboard without a page
-      // reload.
-      localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.status() });
-      localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.connections() });
-      localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
-      localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
-    }
-  }, [localQueryClient]);
 
   // Clean the create-account link once the form is chosen, so a reload after
   // switching to sign-in does not reopen it and a signed-in user lands on '/'.
@@ -268,18 +255,10 @@ function AppContent() {
     return (
       <OAuthCallback
         provider={oauthCallback.provider}
-        success={oauthCallback.success}
         error={oauthCallback.error}
         tombstone={oauthCallback.tombstone}
         onClose={() => {
-          // Dispatch event for the chat thread (useOAuthCompletion) to detect OAuth completion
-          window.postMessage({
-            type: 'oauth_completed',
-            provider: oauthCallback.provider,
-            success: oauthCallback.success,
-          }, window.location.origin);
-          // Clear URL params and close the callback view
-          window.history.replaceState({}, document.title, window.location.pathname);
+          returnToConnectStart();
           setOauthCallback(null);
         }}
       />

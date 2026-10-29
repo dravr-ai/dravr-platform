@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
@@ -12,6 +12,13 @@ import { useTranslation } from '@pierre/i18n';
 import { userApi, pierreApi, oauthApi, importsApi } from '../services/api';
 import ImportOwnDataLink from './import/ImportOwnDataLink';
 import { openImportWindow } from './import/openImportWindow';
+import {
+  OAUTH_RESULT_FRESH_MS,
+  OAUTH_RESULT_KEY,
+  refusalOpensCredentialLogin,
+  startOAuthInThisTab,
+  type OAuthResult,
+} from '../utils/oauthReturn';
 import type { ProviderStatus } from '../services/api';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import { STRAVA_ARCHIVE_SOURCE } from '@pierre/shared-types';
@@ -445,14 +452,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   const stravaBackendLabel = (backend: StravaBackend): string =>
     backend === 'sciotte' ? t('providers.stravaSciotte') : t('shell.sciotteTargetStrava');
 
-  // The name a connect result shows for the backend it launched: the card's
-  // display name, with native `strava` (whose row the server withholds) read
-  // as the Strava card's.
-  const connectedProviderName = (providerId: string): string =>
-    providerId === 'strava'
-      ? t('shell.sciotteTargetStrava')
-      : (fitnessProviders.find(p => p.provider === providerId)?.display_name ?? providerId);
-
   // The Connect button's start: an app of the athlete's own first when no app
   // of the server's can authorize the provider for them, then the provider's
   // notice while it is owed, then the OAuth flow.
@@ -484,68 +483,59 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
 
   const handleConnectProvider = (providerId: string, tosConsent = false) => {
-    // Open the server's launch route, which 302s to the provider. A real
-    // same-origin URL opens synchronously inside Safari's user-gesture stack,
-    // so no window is ever left blank and no popup handle has to be threaded
-    // through callers that already burned the gesture. `tosConsent` carries
-    // the provider notice the athlete just accepted (WHOOP's owner
-    // authorization).
-    const url = oauthApi.authorizeUrl(providerId, { tosConsent });
-    const popup = window.open(url, '_blank');
-
+    // Go, in this tab, to the server's launch route, which 302s to the
+    // provider and returns here; the result is read when Settings mounts
+    // again (below). `tosConsent` carries the provider notice the athlete just
+    // accepted (WHOOP's owner authorization).
     setConnectingProvider(providerId);
     setProviderMessage(null);
+    startOAuthInThisTab(oauthApi.authorizeUrl(providerId, { tosConsent }));
+  };
 
-    if (!popup) {
-      // Popup blocked even when opened synchronously (strict mobile Safari).
-      // Same-tab navigation is the fallback; OAuthCallback writes
-      // pierre_oauth_result to localStorage regardless of tab, so the
-      // storage-event listener picks the result up when the user returns.
-      window.location.href = url;
+  // The result a connect started here came back with (`settleOAuthReturn`).
+  // Settings answers it and removes it — a grant with its message, a refusal
+  // with the way in that is left — so a later remount within the freshness
+  // window (Settings remounts on every section change) does not repeat it.
+  // Read once, as Settings opens on the connect's return, after the provider
+  // list has answered so the message names the provider by its card.
+  const oauthReturnRead = useRef(false);
+  useEffect(() => {
+    if (oauthReturnRead.current || isLoadingProviders) return;
+    oauthReturnRead.current = true;
+    let result: OAuthResult;
+    try {
+      const stored = localStorage.getItem(OAUTH_RESULT_KEY);
+      if (!stored) return;
+      result = JSON.parse(stored);
+    } catch {
       return;
     }
-
-    // Listen for the OAuth callback result stored in localStorage by OAuthCallback
-    const checkInterval = setInterval(() => {
-      try {
-        const resultStr = localStorage.getItem('pierre_oauth_result');
-        if (resultStr) {
-          const result = JSON.parse(resultStr);
-          // Only process results less than 30 seconds old
-          if (result.timestamp && Date.now() - result.timestamp < 30000 && result.provider === providerId) {
-            localStorage.removeItem('pierre_oauth_result');
-            clearInterval(checkInterval);
-            setConnectingProvider(null);
-
-            if (result.success) {
-              setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: connectedProviderName(providerId) }) });
-              refetchProviders();
-            } else if (result.tombstoned) {
-              // The account belonged to a deleted Dravr account: the OAuth
-              // tab words it and offers to start fresh. Another way in to the
-              // same account would only be refused the same way.
-            } else if (providerId === 'strava' || providerId === 'garmin') {
-              // Strava or Garmin OAuth failed (athlete cap actually exceeded
-              // in a seat-count race, or the provider rejected the grant).
-              // Fall back to the credential login — same data — instead of
-              // leaving the user on an error message.
-              setSciotteModalTarget(providerId);
-            } else {
-              setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: connectedProviderName(providerId) }) });
-            }
-          }
-        }
-      } catch {
-        // Ignore localStorage parse errors
-      }
-    }, 500);
-
-    // Safety timeout: stop checking after 5 minutes
-    setTimeout(() => {
-      clearInterval(checkInterval);
-      setConnectingProvider(null);
-    }, 300000);
-  };
+    if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
+    // The card's display name for the backend the connect launched, with
+    // native `strava` (whose row the server withholds) read as the Strava card's.
+    const name =
+      result.provider === 'strava'
+        ? t('shell.sciotteTargetStrava')
+        : (providersResponse?.providers?.find((p) => p.provider === result.provider)?.display_name ?? result.provider);
+    localStorage.removeItem(OAUTH_RESULT_KEY);
+    if (result.success) {
+      setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });
+      return;
+    }
+    if (result.tombstoned) {
+      // The account belonged to a deleted Dravr account: the callback page
+      // worded it and offered to start fresh. Another way in to the same
+      // account would only be refused the same way.
+    } else if (refusalOpensCredentialLogin(result.provider)) {
+      // Strava or Garmin OAuth failed (athlete cap actually exceeded in a
+      // seat-count race, or the provider rejected the grant). Fall back to the
+      // credential login — same data — instead of leaving the user on an
+      // error message.
+      setSciotteModalTarget(result.provider);
+    } else {
+      setProviderMessage({ type: 'error', text: t('frag.failedConnectProvider', { provider: name }) });
+    }
+  }, [isLoadingProviders, providersResponse, t]);
 
   // Disconnect a fitness provider
   const handleDisconnectProvider = async (providerId: string, displayName: string) => {
@@ -969,9 +959,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                   // OAuth (named by the card's target) while seats remain (server
                                   // recommends `oauth`); once the athlete cap is reached it
                                   // recommends `mirror` and we open the credential login. If the
-                                  // OAuth attempt itself fails, handleConnectProvider falls back to
-                                  // it. TrainingPeaks is always the credential flow, after its
-                                  // notice while the account has not accepted it.
+                                  // OAuth attempt itself fails, the connect's return opens it too
+                                  // (`refusalOpensCredentialLogin`). TrainingPeaks is always the
+                                  // credential flow, after its notice while the account has not
+                                  // accepted it.
                                   const target = sciotteTargetForBackend(provider.provider);
                                   const backend =
                                     target && provider.recommended_backend === 'oauth'
@@ -984,7 +975,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                                     void handleConnectProvider(backend);
                                   } else {
                                     setSciotteConsentRequired(provider.consent_required);
-                                    setSciotteModalTarget(sciotteTargetForBackend(provider.provider));
+                                    setSciotteModalTarget(target);
                                   }
                                 }}
                               >
@@ -1841,19 +1832,14 @@ Authorization: Bearer <your-token-here>`}
         onConfirm={async () => {
           if (!providerConflict) return;
           const { connecting, disconnecting } = providerConflict;
-          // The disconnect await consumes the click's user gesture, so open the
-          // launch window BEFORE it. It goes straight to the server's redirect
-          // route, so there is no blank window to hold open across the await
-          // and no popup handle to thread onward. Sciotte uses a credential
-          // modal rather than an OAuth window, so it opens nothing here.
-          const launch =
-            connecting === 'sciotte' ? null : window.open(oauthApi.authorizeUrl(connecting), '_blank');
+          // Disconnect first, then connect the other way: Sciotte through its
+          // credential modal, anything else through its OAuth, in this tab.
           await handleDisconnectProvider(disconnecting, stravaBackendLabel(disconnecting));
           setProviderConflict(null);
           if (connecting === 'sciotte') {
             setSciotteModalTarget('strava');
-          } else if (!launch) {
-            window.location.href = oauthApi.authorizeUrl(connecting);
+          } else {
+            startOAuthInThisTab(oauthApi.authorizeUrl(connecting));
           }
         }}
         title={t('providers.switchProvider')}

@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-Sciotte-fallback behavior
-// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin), the mirror path, the failed-OAuth fallback, the own-app setup and Intervals.icu's two paths
+// ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin) started in this tab, the mirror path, the failed-OAuth fallback, the own-app setup and Intervals.icu's two paths
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,6 +15,20 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 
 const authorizeUrl = vi.fn((provider: string) => `/api/oauth/authorize/${provider}`);
 const getProvidersStatus = vi.fn();
+// A connect goes to the server's launch route in this tab
+// (`startOAuthInThisTab`); this stands in for the navigation.
+const assign = vi.fn();
+
+function stubNavigation() {
+  // A live fake window, so the import window's "popup blocked" same-tab
+  // fallback is not taken.
+  vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+  vi.stubGlobal('location', { ...window.location, assign });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 vi.mock('../../services/api', () => ({
   providersApi: { getProvidersStatus: (...args: unknown[]) => getProvidersStatus(...args) },
@@ -24,25 +38,20 @@ vi.mock('../../services/api', () => ({
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 
 // Render the Sciotte modal as a testid carrying its target so a fallback that
-// opens it (target="strava") is observable.
+// opens it (target="strava" or "garmin") is observable.
 vi.mock('../SciotteLoginModal', () => ({
   default: ({
     isOpen,
     target,
     consentRequired,
-    onOAuthLaunched,
   }: {
     isOpen: boolean;
     target: string;
     consentRequired?: boolean;
-    onOAuthLaunched?: (target: string) => void;
   }) =>
     isOpen ? (
       <div data-testid="sciotte-modal" data-consent={String(Boolean(consentRequired))}>
         {target}
-        <button type="button" onClick={() => onOAuthLaunched?.(target)}>
-          oauth-launched
-        </button>
       </div>
     ) : null,
 }));
@@ -104,14 +113,11 @@ function garminCard(recommended_backend: 'oauth' | 'mirror') {
   };
 }
 
-function renderCards(
-  props: { onOAuthLaunched?: (providerName: string) => void } = {},
-  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-) {
+function renderCards(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ProviderConnectionCards {...props} />
+        <ProviderConnectionCards />
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -207,7 +213,7 @@ describe('ProviderConnectionCards — TrainingPeaks', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('open', vi.fn());
+    stubNavigation();
   });
 
   it('opens the TrainingPeaks login, carrying whether its notice is still owed', async () => {
@@ -220,7 +226,7 @@ describe('ProviderConnectionCards — TrainingPeaks', () => {
     const modal = await screen.findByTestId('sciotte-modal');
     expect(modal).toHaveTextContent('trainingpeaks');
     expect(modal).toHaveAttribute('data-consent', 'true');
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('does not ask again once the account has accepted it', async () => {
@@ -238,9 +244,8 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    // The card opens the server's launch route directly; return a live fake so
-    // the "popup blocked" same-tab fallback is not taken.
-    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+    sessionStorage.clear();
+    stubNavigation();
   });
 
   it('launches Strava OAuth (not the Sciotte modal) while seats remain', async () => {
@@ -251,11 +256,10 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     const button = await screen.findByLabelText('Connect to Strava');
     await user.click(button);
 
-    // Asserting the URL, not just that something was opened: a window opened on
-    // `about:blank` is exactly the regression this replaced.
-    await waitFor(() =>
-      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank'),
-    );
+    // Asserting the URL, not just that something navigated: and in this tab —
+    // a second tab is the copy of the app the athlete was left with.
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava'));
+    expect(window.open).not.toHaveBeenCalled();
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
   });
 
@@ -268,7 +272,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     await user.click(button);
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('launches Garmin OAuth (not the credential login) while Garmin seats remain', async () => {
@@ -278,9 +282,8 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
 
     await user.click(await screen.findByLabelText('Connect to Garmin'));
 
-    await waitFor(() =>
-      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank'),
-    );
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    expect(window.open).not.toHaveBeenCalled();
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
   });
 
@@ -292,20 +295,19 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     await user.click(await screen.findByLabelText('Connect to Garmin'));
 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
   });
 
-  it('reports a launched OAuth window by the brand, never the target id', async () => {
-    // The awaiting overlay printed the id it was handed, capitalised in code.
-    getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
-    const onOAuthLaunched = vi.fn();
+  it('keeps the route the connect started from, for the return to this tab', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    vi.stubGlobal('location', { ...window.location, hash: '#/settings/connections', assign });
     const user = userEvent.setup();
-    renderCards({ onOAuthLaunched });
+    renderCards();
 
-    await user.click(await screen.findByLabelText('Connect to Strava'));
-    await user.click(await screen.findByText('oauth-launched'));
+    await user.click(await screen.findByLabelText('Connect to Garmin'));
 
-    expect(onOAuthLaunched).toHaveBeenCalledWith('Strava');
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
+    expect(sessionStorage.getItem('pierre_oauth_return')).toBe('/settings/connections');
   });
 
   it('falls back to the Sciotte modal when a Strava OAuth attempt fails', async () => {
@@ -313,7 +315,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     renderCards();
     await screen.findByLabelText('Connect to Strava');
 
-    // Simulate the OAuth callback tab reporting a failed Strava connection.
+    // A result left by a connect finished elsewhere: a failed Strava connection.
     const failed = JSON.stringify({
       type: 'oauth_completed',
       provider: 'strava',
@@ -328,6 +330,26 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('strava');
     // The failed result is consumed so other observers don't double-handle it.
     expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
+  });
+
+  it('opens the Garmin credential login when the connect comes back refused', async () => {
+    // The return to this tab leaves the result before the cards mount, so
+    // they read it on mount rather than from a `storage` event.
+    const failed = JSON.stringify({
+      type: 'oauth_completed',
+      provider: 'garmin',
+      success: false,
+      hasError: true,
+      tombstoned: false,
+      timestamp: Date.now(),
+    });
+    localStorage.setItem('pierre_oauth_result', failed);
+    getProvidersStatus.mockResolvedValue({ providers: [garminCard('oauth')] });
+    renderCards();
+
+    expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+    expect(localStorage.getItem('pierre_oauth_result')).toBeNull();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('does NOT consume a successful OAuth result (leaves it for the success handlers)', async () => {
@@ -350,11 +372,11 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(localStorage.getItem('pierre_oauth_result')).toBe(ok);
   });
 
-  it('refetches the onboarding status when a grant lands in the OAuth tab (carnet#1042)', async () => {
+  it('refetches the onboarding status when a connect comes back with a grant (carnet#1042)', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-    renderCards({}, queryClient);
+    renderCards(queryClient);
     await screen.findByLabelText('Connect to Strava');
 
     const ok = JSON.stringify({
@@ -382,7 +404,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       vi.useRealTimers();
     });
 
-    it('keeps asking while no grant has landed — the callback lands in another tab', async () => {
+    it('keeps asking while no grant has landed — one can land where this screen does not see', async () => {
       getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
       renderCards();
       await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(1));
@@ -398,7 +420,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       renderCards();
       await waitFor(() => expect(getProvidersStatus).toHaveBeenCalledTimes(1));
 
-      // The grant completes in the other tab; the next poll sees it.
+      // The grant completes elsewhere (a chat's hosted connect page); the next poll sees it.
       getProvidersStatus.mockResolvedValue({
         providers: [{ ...stravaCard('oauth'), connected: true }],
       });
@@ -431,7 +453,7 @@ describe('ProviderConnectionCards — an app of the athlete\'s own', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+    stubNavigation();
   });
 
   it('asks for the athlete\'s own app before the OAuth start while no app of the server can authorize it', async () => {
@@ -444,10 +466,11 @@ describe('ProviderConnectionCards — an app of the athlete\'s own', () => {
     expect(await screen.findByTestId('own-app-setup')).toHaveTextContent(
       'https://app.dravr.ai/api/oauth/callback/whoop',
     );
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
 
     await user.click(screen.getByText('own-app-save'));
-    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/whoop', '_blank');
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop');
+    expect(window.open).not.toHaveBeenCalled();
   });
 
   it('starts the OAuth flow directly while an app of the server can authorize it', async () => {
@@ -457,7 +480,8 @@ describe('ProviderConnectionCards — an app of the athlete\'s own', () => {
 
     await user.click(await screen.findByLabelText('Connect to WHOOP'));
 
-    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/whoop', '_blank');
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop');
+    expect(window.open).not.toHaveBeenCalled();
     expect(screen.queryByTestId('own-app-setup')).toBeNull();
   });
 });
@@ -477,7 +501,7 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+    stubNavigation();
   });
 
   it('leads with the authorization while the server offers it, and starts it from the dialog', async () => {
@@ -488,11 +512,12 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     await user.click(await screen.findByLabelText('Connect to Intervals.icu'));
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'true');
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
 
     await user.click(screen.getByText('intervals-authorize'));
 
-    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu', '_blank');
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/intervals_icu');
+    expect(window.open).not.toHaveBeenCalled();
     expect(screen.queryByTestId('intervals-modal')).toBeNull();
   });
 
@@ -505,7 +530,7 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
     expect(screen.queryByTestId('own-app-setup')).toBeNull();
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
   });
 });
 
@@ -517,7 +542,7 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    vi.stubGlobal('open', vi.fn().mockReturnValue({ closed: false }));
+    stubNavigation();
   });
 
   it('keeps the Strava and Garmin credential logins when the seats are gone, with the import link below them', async () => {
@@ -547,6 +572,7 @@ describe('ProviderConnectionCards — importing your own data sits beside the cr
     await user.click(await screen.findByTestId('import-own-data-link'));
 
     expect(window.open).toHaveBeenCalledWith('/import', '_blank');
+    expect(assign).not.toHaveBeenCalled();
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
   });
 });

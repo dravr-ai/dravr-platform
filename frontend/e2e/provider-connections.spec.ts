@@ -191,53 +191,91 @@ test.describe('Provider Connections - OAuth Flow', () => {
     await setupProviderMocks(page);
   });
 
-  test('clicking disconnected OAuth provider triggers authorization flow', async ({ page }) => {
-    let authUrlCalled = false;
-    await page.route('**/api/oauth/garmin/authorize', async (route) => {
-      authUrlCalled = true;
-      await route.fulfill({
+  // The connect runs in the athlete's own tab: the launch route 302s to the
+  // provider, and the provider back to the app root with the result. Here the
+  // launch route stands in for both hops and lands on the root directly.
+  async function mockGarminRoundTrip(page: Page, outcome: string) {
+    // Garmin's OAuth seats remain, so its card connects through Garmin's own OAuth.
+    await page.route('**/api/providers', (route) =>
+      route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          authorization_url: 'https://connect.garmin.com/oauth2Confirm',
+          providers: mockProviders.providers.map((p) =>
+            p.provider === 'sciotte_garmin' ? { ...p, recommended_backend: 'oauth', seats_left: 3 } : p,
+          ),
         }),
-      });
-    });
+      }),
+    );
+    await page.route('**/api/oauth/authorize/garmin', (route) =>
+      route.fulfill({ status: 302, headers: { location: `/?provider=garmin&${outcome}` } }),
+    );
+    // The return is a page load of its own: the session is restored on it the
+    // way every reload restores one.
+    await page.route('**/api/auth/session', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          access_token: 'test-jwt-token',
+          csrf_token: 'test-csrf-token',
+          user: {
+            id: 'user-123',
+            user_id: 'user-123',
+            email: 'alice@acme.com',
+            display_name: 'Alice Test',
+            role: 'user',
+            is_admin: false,
+            user_status: 'active',
+            tier: 'professional',
+            tenant_id: 'user-123',
+          },
+        }),
+      }),
+    );
+  }
 
-    await page.route('**/api/chat/conversations', async (route, request) => {
-      if (request.method() === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
-        });
-      } else {
-        await route.fallback();
-      }
-    });
+  test('a granted connect comes back to the tab and route it started from', async ({ page }) => {
+    // Regression this turns red: the connect opening the provider in a new tab
+    // again, or its return showing a callback page with a way "to the
+    // dashboard" — a second copy of the app — instead of the route it left.
+    await mockGarminRoundTrip(page, 'success=true');
+    const popups: string[] = [];
+    page.on('popup', (popup) => popups.push(popup.url()));
 
     await loginToDashboard(page);
-    await openHome(page);
-    await page.waitForTimeout(1000);
+    await page.goto('/#settings/connections');
+    const garminRow = page.getByTestId('provider-row-sciotte_garmin');
+    await expect(garminRow).toBeVisible({ timeout: 10000 });
 
-    // Click on Garmin provider card (disconnected)
-    const garminCard = page.getByText('Garmin');
-    if (await garminCard.isVisible().catch(() => false)) {
-      // Intercept popup to prevent actual navigation
-      page.on('popup', async (popup) => {
-        await popup.close();
-      });
-      await garminCard.click();
-      await page.waitForTimeout(500);
-    }
+    const launch = page.waitForRequest((request) => new URL(request.url()).pathname === '/api/oauth/authorize/garmin');
+    await garminRow.getByRole('button', { name: 'Connect' }).click();
+    await launch;
 
-    // Verify the auth URL endpoint was called (may or may not trigger depending on UI flow)
-    // The page should remain functional regardless
-    await expect(page.locator('main')).toBeVisible();
-    // Use authUrlCalled for assertion if the flow triggered the API
-    if (authUrlCalled) {
-      expect(authUrlCalled).toBe(true);
-    }
+    await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
+    await expect(page.getByText('Garmin connected successfully!')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Connection Failed' })).toHaveCount(0);
+    expect(popups).toEqual([]);
+    expect(page.context().pages()).toHaveLength(1);
+  });
+
+  test('a refused Garmin connect comes back to the same route and offers the credential login', async ({ page }) => {
+    // A refused Garmin grant (a seat-count race, or Garmin said no) has nothing
+    // to say on a callback page: the athlete is put back where they were, with
+    // the usr/pwd login for the same data.
+    await mockGarminRoundTrip(page, 'success=false&error=access_denied');
+
+    await loginToDashboard(page);
+    await page.goto('/#settings/connections');
+    const garminRow = page.getByTestId('provider-row-sciotte_garmin');
+    await expect(garminRow).toBeVisible({ timeout: 10000 });
+
+    await garminRow.getByRole('button', { name: 'Connect' }).click();
+
+    await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: 20000 });
+    await expect(page.getByRole('dialog', { name: /Garmin/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Connection Failed' })).toHaveCount(0);
+    expect(page.context().pages()).toHaveLength(1);
   });
 });
 

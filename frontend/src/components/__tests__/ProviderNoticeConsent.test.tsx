@@ -42,12 +42,12 @@ function whoopCard(consent_required: boolean, connected = false) {
   };
 }
 
-function renderCards(onConnectProvider?: (provider: string, tosConsent: boolean) => void) {
+function renderCards() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ProviderConnectionCards onConnectProvider={onConnectProvider} />
+        <ProviderConnectionCards />
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -60,12 +60,17 @@ async function clickWhoop() {
 }
 
 describe('ProviderConnectionCards — WHOOP owner authorization', () => {
+  // The connect goes to WHOOP in this tab, never a new one.
+  const assign = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    vi.spyOn(window, 'open');
+    vi.stubGlobal('location', { ...window.location, assign });
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -79,19 +84,20 @@ describe('ProviderConnectionCards — WHOOP owner authorization', () => {
     const notice = within(dialog).getByRole('note');
     expect(notice).toHaveTextContent('Before you connect WHOOP');
     expect(notice).toHaveTextContent('GDPR Article 20 and the EU Data Act');
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
 
     const cont = within(dialog).getByRole('button', { name: 'Continue' });
     expect(cont).toBeDisabled();
     await user.click(cont);
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByLabelText(OWNER_AUTHORIZATION));
     expect(cont).toBeEnabled();
     await user.click(cont);
 
     expect(authorizeUrl).toHaveBeenCalledWith('whoop', { tosConsent: true });
-    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/whoop?tos_consent=true', '_blank');
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop?tos_consent=true');
+    expect(window.open).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -103,21 +109,7 @@ describe('ProviderConnectionCards — WHOOP owner authorization', () => {
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(window.open).not.toHaveBeenCalled();
-  });
-
-  it('hands the acceptance to the onboarding launch it defers to', async () => {
-    getProvidersStatus.mockResolvedValue({ providers: [whoopCard(true)] });
-    const onConnectProvider = vi.fn();
-    renderCards(onConnectProvider);
-
-    const user = await clickWhoop();
-    const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByLabelText(OWNER_AUTHORIZATION));
-    await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
-
-    expect(onConnectProvider).toHaveBeenCalledWith('whoop', true);
-    expect(window.open).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('goes straight to WHOOP once the account has accepted the notice', async () => {
@@ -128,7 +120,8 @@ describe('ProviderConnectionCards — WHOOP owner authorization', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(authorizeUrl).toHaveBeenCalledWith('whoop', { tosConsent: false });
-    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/whoop', '_blank');
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop');
+    expect(window.open).not.toHaveBeenCalled();
   });
 
   it('asks a connected WHOOP that owes the authorization to give it, then reconnects with it', async () => {
@@ -144,7 +137,7 @@ describe('ProviderConnectionCards — WHOOP owner authorization', () => {
     await user.click(within(dialog).getByLabelText(OWNER_AUTHORIZATION));
     await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
 
-    expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/whoop?tos_consent=true', '_blank');
+    expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/whoop?tos_consent=true');
   });
 
   it('leaves a connected WHOOP that gave it as Connected, with nothing to do', async () => {

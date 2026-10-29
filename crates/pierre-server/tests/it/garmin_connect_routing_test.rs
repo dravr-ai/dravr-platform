@@ -628,3 +628,84 @@ async fn a_garmin_api_users_read_serves_the_pushes_and_never_calls_garmin() {
         "the read does not restamp the pushes as a fresh sync"
     );
 }
+
+/// Mark the user's `provider` connection dead, as a failed scrape or refresh does.
+async fn mark_dead(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    provider: &str,
+) {
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            provider,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+}
+
+/// An athlete whose usr/pwd session died reconnects through Garmin's OAuth:
+/// the API now serves the card, so the dead session beside it must not keep
+/// the card, and with it the reconnect banner, saying "reconnect". The flag
+/// follows the backend that serves the card, so a dead API grant still asks.
+#[tokio::test]
+async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_session() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, user, tenant) =
+        user_and_tenant(&resources, "garmin-reconnect-oauth@example.com").await;
+    connect(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        None,
+    )
+    .await;
+    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
+
+    let cards_before = cards(&resources, &user).await;
+    let before = card(&cards_before, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        before["needs_reauth"], true,
+        "bug: a dead usr/pwd session must ask for a reconnect: {before}"
+    );
+
+    connect(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::GARMIN,
+        Some("garmin-user-reconnect"),
+    )
+    .await;
+    let cards_after = cards(&resources, &user).await;
+    let after = card(&cards_after, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        after["connected"], true,
+        "bug: the Garmin card must read connected through its OAuth grant: {after}"
+    );
+    assert_eq!(
+        after["connected_backend"],
+        oauth_providers::GARMIN,
+        "bug: the live Garmin OAuth grant must serve the card ahead of the dead usr/pwd session: {after}"
+    );
+    assert_eq!(
+        after["needs_reauth"], false,
+        "bug: the dead usr/pwd session kept the reconnect up beside a live Garmin OAuth grant: {after}"
+    );
+
+    mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
+    let cards_dead = cards(&resources, &user).await;
+    let dead = card(&cards_dead, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        dead["needs_reauth"], true,
+        "bug: a dead Garmin OAuth grant must ask for a reconnect: {dead}"
+    );
+}

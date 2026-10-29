@@ -60,6 +60,7 @@ import { PrivateReplyTag } from './PrivateLane';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { feedbackReplyRoute } from '../feedback/feedbackRoute';
 import { useTranslation } from '@pierre/i18n';
+import { startOAuthInNewTab } from '../../utils/oauthReturn';
 
 interface MessageItemProps {
   /**
@@ -445,6 +446,13 @@ const MessageItem = memo(function MessageItem({
               href={block.url}
               target="_blank"
               rel="noopener noreferrer"
+              // A click opens the reconnect in a tab of the app's own, which
+              // closes itself when the connect comes back, so the athlete is
+              // back in this thread; the attributes cover a middle-click.
+              onClick={(event) => {
+                event.preventDefault();
+                startOAuthInNewTab(block.url);
+              }}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary no-underline transition-colors hover:bg-primary/90"
             >
               <RefreshCw className="h-4 w-4" />

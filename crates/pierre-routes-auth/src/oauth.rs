@@ -641,16 +641,21 @@ pub(crate) async fn compute_providers_status(
             // Determine connection status from the provider_connections table,
             // coalescing the card's two possible backends (see `card_is_connected`).
             let connected = card_is_connected(provider_name, &connected_providers);
-            // A connected provider whose session died (dead scrape / failed OAuth
-            // refresh) is flagged so the UI prompts a reconnect instead of showing
-            // a healthy "Connected". Only meaningful while `connected` is true.
-            let needs_reauth = connected && card_is_connected(provider_name, &reauth_providers);
             // Which backend's row is behind a connected card, in the order
             // `resolve_backend` routes by — the Strava card may be served by
             // the native OAuth grant or by the mirror session.
             let connected_backend = backend_resolver::serving_backends(provider_name)
                 .into_iter()
                 .find(|backend| connected_providers.contains(backend.as_str()));
+            // A connected provider whose session died (dead scrape / failed OAuth
+            // refresh) is flagged so the UI prompts a reconnect instead of showing
+            // a healthy "Connected". Only the backend that serves the card counts:
+            // a dead usr/pwd session left beside a live Garmin OAuth grant serves
+            // nothing, and flagging it kept the reconnect banner up after the
+            // athlete had just reconnected through OAuth.
+            let needs_reauth = connected_backend
+                .as_deref()
+                .is_some_and(|backend| reauth_providers.contains(backend));
             // How that backend's connection was made. A connected backend with
             // no link of the user's own is served by a confirmed delegation.
             let connection_type = connected_backend.as_deref().map(|backend| {

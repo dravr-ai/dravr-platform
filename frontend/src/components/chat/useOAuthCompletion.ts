@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Hears a provider connection finishing in another window and says so in the open thread
-// ABOUTME: Reads the OAuth callback's hand-off (a message, a storage write, or the result left for a returning tab) and reopens the thread the flow started from
+// ABOUTME: Hears a provider connection finishing and says so in the open thread
+// ABOUTME: Reads the result a connect left on its return (or a message, or a storage write from another tab) and reopens the thread the flow started from
 
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ProvidersStatusResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import type { OAuthNotification } from './types';
+import { OAUTH_RESULT_FRESH_MS, OAUTH_RESULT_KEY } from '../../utils/oauthReturn';
 
 /** What the open thread shows once a provider connection completes, and how it is dismissed. */
 export interface OAuthCompletion {
@@ -19,9 +20,10 @@ export interface OAuthCompletion {
 /**
  * Listen for a completed provider OAuth flow.
  *
- * The callback page reports by `postMessage`, by a `pierre_oauth_result`
- * storage entry another tab sees, or by leaving that entry for this tab to
- * read when it regains focus. Whichever arrives first wins; the conversation
+ * A connect returns to the tab it started from and leaves a
+ * `pierre_oauth_result` entry (`settleOAuthReturn`), read when the thread
+ * mounts; a connect finished in another tab of the app reaches this one as a
+ * storage event, or on focus. Whichever arrives first wins; the conversation
  * the flow started from (`pierre_oauth_conversation`) is reopened.
  */
 export function useOAuthCompletion(onSelectConversation: (id: string | null) => void): OAuthCompletion {
@@ -32,13 +34,13 @@ export function useOAuthCompletion(onSelectConversation: (id: string | null) => 
     let isProcessingOAuth = false;
 
     const extractOAuthData = () => {
-      const stored = localStorage.getItem('pierre_oauth_result');
+      const stored = localStorage.getItem(OAUTH_RESULT_KEY);
       if (!stored) return null;
-      localStorage.removeItem('pierre_oauth_result');
+      localStorage.removeItem(OAUTH_RESULT_KEY);
 
       try {
         const result = JSON.parse(stored);
-        const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+        const fiveMinutesAgo = Date.now() - OAUTH_RESULT_FRESH_MS;
 
         if (result.type === 'oauth_completed' && result.success && result.timestamp > fiveMinutesAgo) {
           const savedConversation = sessionStorage.getItem('pierre_oauth_conversation');
@@ -58,6 +60,9 @@ export function useOAuthCompletion(onSelectConversation: (id: string | null) => 
       isProcessingOAuth = true;
 
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.status() });
+      // The provider cards and the reconnect banner read this one: a reconnect
+      // finished in the tab the chat opened clears the banner here.
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.profile() });
 
       // The brand the provider's card shows, from the status the thread already
@@ -100,7 +105,7 @@ export function useOAuthCompletion(onSelectConversation: (id: string | null) => 
     };
 
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'pierre_oauth_result' && event.newValue) {
+      if (event.key === OAUTH_RESULT_KEY && event.newValue) {
         const data = extractOAuthData();
         if (data) {
           processOAuthData(data);

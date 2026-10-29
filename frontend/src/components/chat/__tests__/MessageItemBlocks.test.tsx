@@ -50,6 +50,25 @@ describe('MessageItem reply-block switch', () => {
     expect(screen.queryByText(RECONNECT_URL)).not.toBeInTheDocument();
   });
 
+  it('opens the reconnect in a tab the app opened, so it can close itself on the return', async () => {
+    const tab = { opener: window as unknown } as Window;
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab);
+    try {
+      const blocks: ReplyBlock[] = [
+        { type: 'reconnect', provider: 'garmin', display_name: 'Garmin', url: RECONNECT_URL, text: 'Reconnect Garmin.' },
+      ];
+      render(<MessageItem message={assistantMessage()} blocks={blocks} />);
+
+      await userEvent.click(screen.getByRole('link', { name: /Reconnect Garmin/ }));
+
+      expect(open).toHaveBeenCalledWith(RECONNECT_URL, '_blank');
+      // The provider's pages never reach back into the thread's tab.
+      expect(tab.opener).toBeNull();
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it('renders the controls the actions block carried, with its own group title', async () => {
     const user = userEvent.setup();
     const onActionClick = vi.fn();

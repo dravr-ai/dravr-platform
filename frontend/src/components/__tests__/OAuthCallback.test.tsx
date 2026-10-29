@@ -34,95 +34,69 @@ describe('OAuthCallback', () => {
     localStorage.clear()
   })
 
-  it('should render success state for successful connection', () => {
-    render(<OAuthCallback provider="strava" success={true} />)
+  it('should render error state for failed connection', () => {
+    render(<OAuthCallback provider="strava" onClose={vi.fn()} />)
 
-    expect(screen.getByText('Strava connected successfully!')).toBeInTheDocument()
-    expect(
-      screen.getByText('Your Strava account has been successfully connected to Dravr.'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Connection Failed')).toBeInTheDocument()
   })
 
-  it('says the whole success sentence in French, provider name inside it', async () => {
-    // The body used to be a translated "Your" in front of an English sentence
-    // — "Ton Strava account has been successfully connected to Dravr."
+  it('says the whole failure sentence in French, provider name inside it', async () => {
     await i18n.changeLanguage('fr')
     try {
-      render(<OAuthCallback provider="strava" success={true} />)
+      render(<OAuthCallback provider="strava" onClose={vi.fn()} />)
 
-      expect(screen.getByText('Strava connecté !')).toBeInTheDocument()
-      expect(screen.getByText('Ton compte Strava est bien connecté à Dravr.')).toBeInTheDocument()
+      expect(screen.getByText('La connexion a échoué')).toBeInTheDocument()
+      expect(screen.getByText('Impossible de connecter ton compte Strava. Réessaie.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Continuer' })).toBeInTheDocument()
     } finally {
       await i18n.changeLanguage('en')
     }
   })
 
-  it('should render error state for failed connection', () => {
-    render(<OAuthCallback provider="strava" success={false} />)
-
-    expect(screen.getByText('Connection Failed')).toBeInTheDocument()
-  })
-
   it('should display custom error message when provided', () => {
-    render(<OAuthCallback provider="garmin" success={false} error="Invalid token" />)
+    render(<OAuthCallback provider="garmin" error="Invalid token" onClose={vi.fn()} />)
 
     expect(screen.getByText('Invalid token')).toBeInTheDocument()
   })
 
   it('should display default error message when no error provided', () => {
-    render(<OAuthCallback provider="strava" success={false} />)
+    render(<OAuthCallback provider="strava" onClose={vi.fn()} />)
 
     expect(screen.getByText(/Failed to connect your Strava account/)).toBeInTheDocument()
   })
 
   it('should capitalize provider name', () => {
-    render(<OAuthCallback provider="strava" success={true} />)
+    render(<OAuthCallback provider="whoop" onClose={vi.fn()} />)
 
-    expect(screen.getByText('Strava connected successfully!')).toBeInTheDocument()
+    expect(screen.getByText(/Failed to connect your Whoop account/)).toBeInTheDocument()
   })
 
-  it('should show Continue button when onClose is provided', async () => {
+  it('goes back to where the connect started through onClose, in this same tab', async () => {
     const onClose = vi.fn()
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
     const user = userEvent.setup()
+    try {
+      render(<OAuthCallback provider="whoop" error="access_denied" onClose={onClose} />)
 
-    render(<OAuthCallback provider="strava" success={true} onClose={onClose} />)
-
-    const button = screen.getByText('Continue to Dashboard')
-    expect(button).toBeInTheDocument()
-
-    await user.click(button)
-    expect(onClose).toHaveBeenCalledTimes(1)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(onClose).toHaveBeenCalledTimes(1)
+      // No second copy of the app: the button neither opens a tab nor names a dashboard.
+      expect(open).not.toHaveBeenCalled()
+      expect(screen.queryByText(/Dashboard/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/close this tab/)).not.toBeInTheDocument()
+    } finally {
+      open.mockRestore()
+    }
   })
 
-  it('should show close tab message when onClose is not provided', () => {
-    render(<OAuthCallback provider="strava" success={true} />)
+  it('leaves the result to settleOAuthReturn and writes nothing itself', () => {
+    render(<OAuthCallback provider="garmin" error="Token expired" onClose={vi.fn()} />)
 
-    expect(screen.getByText(/You can close this tab/)).toBeInTheDocument()
-    expect(screen.queryByText('Continue to Dashboard')).not.toBeInTheDocument()
-  })
-
-  it('should store OAuth result in localStorage on success', () => {
-    render(<OAuthCallback provider="strava" success={true} />)
-
-    const stored = JSON.parse(localStorage.getItem('pierre_oauth_result') || '{}')
-    expect(stored.type).toBe('oauth_completed')
-    expect(stored.provider).toBe('strava')
-    expect(stored.success).toBe(true)
-    expect(stored.hasError).toBe(false)
-  })
-
-  it('should store OAuth result in localStorage on failure', () => {
-    render(<OAuthCallback provider="garmin" success={false} error="Token expired" />)
-
-    const stored = JSON.parse(localStorage.getItem('pierre_oauth_result') || '{}')
-    expect(stored.type).toBe('oauth_completed')
-    expect(stored.provider).toBe('garmin')
-    expect(stored.success).toBe(false)
-    expect(stored.hasError).toBe(true)
+    expect(localStorage.getItem('pierre_oauth_result')).toBeNull()
   })
 
   it('words a tombstoned account with its deletion date and offers to start fresh', async () => {
-    render(<OAuthCallback provider="strava" success={false} error="import_tombstoned" tombstone={TOMBSTONE} />)
+    render(<OAuthCallback provider="strava" error="import_tombstoned" tombstone={TOMBSTONE} onClose={vi.fn()} />)
 
     expect(
       await screen.findByText(
@@ -144,7 +118,7 @@ describe('OAuthCallback', () => {
     })
     try {
       const user = userEvent.setup()
-      render(<OAuthCallback provider="strava" success={false} error="import_tombstoned" tombstone={TOMBSTONE} />)
+      render(<OAuthCallback provider="strava" error="import_tombstoned" tombstone={TOMBSTONE} onClose={vi.fn()} />)
 
       await user.click(screen.getByRole('button', { name: 'Start fresh and connect' }))
 
@@ -155,16 +129,8 @@ describe('OAuthCallback', () => {
     }
   })
 
-  it('marks a tombstoned result so the opener does not fall back to another way in', () => {
-    render(<OAuthCallback provider="strava" success={false} error="import_tombstoned" tombstone={TOMBSTONE} />)
-
-    const stored = JSON.parse(localStorage.getItem('pierre_oauth_result') || '{}')
-    expect(stored.success).toBe(false)
-    expect(stored.tombstoned).toBe(true)
-  })
-
   it('should show Dravr branding', () => {
-    render(<OAuthCallback provider="strava" success={true} />)
+    render(<OAuthCallback provider="strava" onClose={vi.fn()} />)
 
     expect(screen.getByText('Dravr')).toBeInTheDocument()
   })

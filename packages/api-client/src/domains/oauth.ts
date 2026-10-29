@@ -106,12 +106,12 @@ export function createOAuthApi(axios: AxiosInstance) {
     /**
      * URL a browser can be navigated to in order to start the OAuth flow.
      *
-     * Synchronous by design: `window.open(authorizeUrl(p), '_blank')` inside the
-     * click handler opens a real same-origin page that redirects onward, so the
-     * popup is never blank and stays inside Safari's user-gesture window.
-     * Fetching an authorization URL first and assigning `location.href` after
-     * the await leaves the popup empty for the whole round trip — which iPhone
-     * users reported as a broken connect.
+     * Synchronous by design: it names a real same-origin page that redirects
+     * onward, so the click handler can navigate to it at once (the web app
+     * goes there in its own tab) with nothing awaited first. Fetching an
+     * authorization URL first and navigating after the await left the window
+     * empty for the whole round trip — which iPhone users reported as a
+     * broken connect.
      */
     authorizeUrl(provider: string, options: OAuthStartOptions = {}): string {
       const base = (axios.defaults.baseURL ?? '').replace(/\/$/, '');

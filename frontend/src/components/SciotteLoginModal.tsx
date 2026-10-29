@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useId, useState } from 'react';
 import { oauthApi } from '../services/api';
+import { startOAuthInThisTab } from '../utils/oauthReturn';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { formatTimeout } from './sciotteLoginCopy';
 import { useTranslation } from '@pierre/i18n';
@@ -40,14 +41,6 @@ interface SciotteLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConnected: () => void;
-  /**
-   * Fired after the official OAuth popup is launched (Strava BYO-OAuth path).
-   * Lets the parent show an "awaiting consent" state with timeout/cancel.
-   * Connection success is still observed at the App level via the OAuth
-   * callback URL — this is purely UI bookkeeping for the in-flight window.
-   * Carries the target whose authorization window opened.
-   */
-  onOAuthLaunched?: (target: SciotteTarget) => void;
   /** Target platform: "strava", "garmin", "trainingpeaks" or "coros" */
   target?: SciotteTarget;
   /**
@@ -71,7 +64,6 @@ export default function SciotteLoginModal({
   isOpen,
   onClose,
   onConnected,
-  onOAuthLaunched,
   target = 'strava',
   consentRequired = false,
 }: SciotteLoginModalProps) {
@@ -713,33 +705,19 @@ export default function SciotteLoginModal({
       <OAuthAppSetupModal
         isOpen={showOAuthSetup}
         onClose={() => setShowOAuthSetup(false)}
-        onSaved={async () => {
+        onSaved={() => {
           setShowOAuthSetup(false);
-          // Kick off the official Strava OAuth flow now that BYO credentials
-          // are stored. Same window.open dance ProviderConnectionCards uses
-          // for the OAuth providers — must fire from a click-adjacent stack
-          // so popup blockers stay quiet on Safari.
+          // Start the official Strava OAuth flow now that BYO credentials are
+          // stored, in this tab: it returns to the page it started from.
           //
           // NOTE: we deliberately do NOT call `onConnected()` here. The user
-          // has only just been redirected into Strava's consent screen; they
-          // haven't authorized yet. Connection is confirmed at the App level
-          // when the OAuth callback comes back and `App.tsx` invalidates the
-          // onboarding-status query (see `getOAuthCallbackParams` there).
+          // is only being sent to Strava's consent screen; they haven't
+          // authorized yet. Connection is confirmed when the connect comes
+          // back and the page reloads its provider and onboarding status.
           // Calling `onConnected()` prematurely flashed "Provider connected
           // — preparing your dashboard…" before the user had even seen the
           // consent screen.
-          const url = oauthApi.authorizeUrl('strava');
-          if (!window.open(url, '_blank')) {
-            window.location.href = url;
-            return;
-          }
-          // Close the Sciotte modal so the user lands back on the onboarding
-          // cards while the window handles Strava consent. The redirect (or its
-          // absence) is the source of truth.
-          onClose();
-          // Tell the parent an OAuth window is in flight so it can render an
-          // "awaiting consent" state with a cancel + timeout escape hatch.
-          onOAuthLaunched?.('strava');
+          startOAuthInThisTab(oauthApi.authorizeUrl('strava'));
         }}
         provider="strava"
         displayName="Strava"
