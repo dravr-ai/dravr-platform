@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 122
+// Tool count: 126
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -20,6 +20,65 @@ export interface ActivateAgentParams {
 
   /** ID of the agent to activate */
   agent_id: string;
+}
+
+
+/**
+ * Add a gel, drink mix or bar to the athlete's fuel list: a product_id, or brand, name, form and label facts for one not in the catalogue, filed for review and unused until approved.
+ */
+export interface AddFuelItemParams {
+
+  /** New product only. */
+  brand?: string;
+
+  /** Per serving, as printed; never estimate. */
+  facts?: {
+
+  /** mg */
+  caffeine_mg?: number;
+
+  /** g */
+  carbs_g?: number;
+
+  /** kcal */
+  energy_kcal?: number;
+
+  /** ml */
+  fluid_ml?: number;
+
+  /** 1:0.8 is 0.8 */
+  glucose_fructose_ratio?: number;
+
+  /** g */
+  serving_g?: number;
+
+  /** '1 gel (40 g)' */
+  serving_label?: string;
+
+  /** mg */
+  sodium_mg?: number;
+
+  /** g */
+  sugars_g?: number;
+};
+
+  /** One of: gel, drink_mix, bar, chew, capsule, tablet, other. */
+  form?: string;
+
+  /** Barcode, if known. */
+  gtin?: string;
+
+  /** Product name. */
+  name?: string;
+
+  /** How they use it. */
+  note?: string;
+
+  /** A search_fuel_products product_id. */
+  product_id?: string;
+
+  /** Flavour. */
+  variant?: string;
 }
 
 
@@ -1311,6 +1370,12 @@ export interface ListFitnessConfigsParams {
 
 
 /**
+ * The gels, drink mixes and bars on the athlete's fuel list: approved ones with label facts, others pending review or rejected (facts not used).
+ */
+export interface ListFuelItemsParams {}
+
+
+/**
  * List all hidden agents
  */
 export interface ListHiddenAgentsParams {
@@ -1646,6 +1711,16 @@ export interface RememberFactParams {
 
 
 /**
+ * Take a product off the athlete's fuel list.
+ */
+export interface RemoveFuelItemParams {
+
+  /** A list_fuel_items item_id. */
+  item_id: string;
+}
+
+
+/**
  * Save a validated recipe to your collection
  */
 export interface SaveRecipeParams {
@@ -1872,6 +1947,9 @@ export interface SaveTrainingPlanParams {
   /** Planned minutes; omit for rest days and when steps are given (summed from them). */
   duration_min?: number;
 
+  /** The athlete's fuel products for this session: approved product_ids from list_fuel_items. */
+  fuel_product_ids?: string[];
+
   /** In-session intake, for any session long enough to need fuelling. For an athlete with a medical/PAR-Q flag on file, omit it (a save carrying it is refused): their clinician sets amounts, so describe fuelling in the workout in words — what and when, no amounts. */
   fueling?: {
 
@@ -2007,6 +2085,16 @@ export interface SearchFoodParams {
   page_size?: number;
 
   /** Search query for food items */
+  query: string;
+}
+
+
+/**
+ * Find a gel, drink mix, bar or chew in the fuel catalogue by name or barcode: approved label facts per serving (carbs, sodium, caffeine, glucose:fructose) with each fact's source.
+ */
+export interface SearchFuelProductsParams {
+
+  /** Brand and product words ('maurten 160'), or a barcode. */
   query: string;
 }
 
@@ -2409,6 +2497,7 @@ export interface McpErrorResponse {
  */
 export const TOOL_NAMES = [
   "activate_agent",
+  "add_fuel_item",
   "admin_assign_agent",
   "admin_create_system_agent",
   "admin_delete_system_agent",
@@ -2492,6 +2581,7 @@ export const TOOL_NAMES = [
   "list_coaching_playbooks",
   "list_data_sources",
   "list_fitness_configs",
+  "list_fuel_items",
   "list_hidden_agents",
   "list_recipes",
   "list_stretching_exercises",
@@ -2507,11 +2597,13 @@ export const TOOL_NAMES = [
   "recommend_plan_flavour",
   "refresh_provider_data",
   "remember_fact",
+  "remove_fuel_item",
   "save_recipe",
   "save_training_plan",
   "search_agent_store",
   "search_agents",
   "search_food",
+  "search_fuel_products",
   "search_recipes",
   "set_fitness_config",
   "set_goal",
@@ -2542,6 +2634,7 @@ export type ToolName = (typeof TOOL_NAMES)[number];
  */
 export interface ToolParamsMap {
   "activate_agent": ActivateAgentParams;
+  "add_fuel_item": AddFuelItemParams;
   "admin_assign_agent": AdminAssignAgentParams;
   "admin_create_system_agent": AdminCreateSystemAgentParams;
   "admin_delete_system_agent": AdminDeleteSystemAgentParams;
@@ -2625,6 +2718,7 @@ export interface ToolParamsMap {
   "list_coaching_playbooks": ListCoachingPlaybooksParams;
   "list_data_sources": ListDataSourcesParams;
   "list_fitness_configs": ListFitnessConfigsParams;
+  "list_fuel_items": ListFuelItemsParams;
   "list_hidden_agents": ListHiddenAgentsParams;
   "list_recipes": ListRecipesParams;
   "list_stretching_exercises": ListStretchingExercisesParams;
@@ -2640,11 +2734,13 @@ export interface ToolParamsMap {
   "recommend_plan_flavour": RecommendPlanFlavourParams;
   "refresh_provider_data": RefreshProviderDataParams;
   "remember_fact": RememberFactParams;
+  "remove_fuel_item": RemoveFuelItemParams;
   "save_recipe": SaveRecipeParams;
   "save_training_plan": SaveTrainingPlanParams;
   "search_agent_store": SearchAgentStoreParams;
   "search_agents": SearchAgentsParams;
   "search_food": SearchFoodParams;
+  "search_fuel_products": SearchFuelProductsParams;
   "search_recipes": SearchRecipesParams;
   "set_fitness_config": SetFitnessConfigParams;
   "set_goal": SetGoalParams;
