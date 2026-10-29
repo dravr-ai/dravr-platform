@@ -387,7 +387,7 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 
             // The member is Dravr data, matched before any roster is read.
             let matched =
-                match match_coached_member(&context.resources.data(), context.user_id, query)
+                match match_coached_member(context.resources.repos(), context.user_id, query, None)
                     .await?
                 {
                     Ok(matched) => matched,

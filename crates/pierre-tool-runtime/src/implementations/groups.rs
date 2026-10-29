@@ -51,6 +51,7 @@ use pierre_tools_core::ToolResult;
 use uuid::Uuid;
 
 use super::athlete_link::ProposeAthleteLinkTool;
+use super::group_member_plan::GetGroupMemberPlanStatusTool;
 use super::group_roster::GetRosterOverviewTool;
 use super::provider_roster::GetProviderRosterTool;
 use crate::activity_fetch::fetch_provider_activities;
@@ -74,6 +75,7 @@ const MAX_PEER_ACTIVITY_LIMIT: usize = 100;
 pub fn create_group_tools() -> Vec<Box<dyn RuntimeTool>> {
     vec![
         Box::new(GetGroupMemberActivitiesTool),
+        Box::new(GetGroupMemberPlanStatusTool),
         Box::new(GetRosterOverviewTool),
         Box::new(GetProviderRosterTool),
         Box::new(ProposeAthleteLinkTool),

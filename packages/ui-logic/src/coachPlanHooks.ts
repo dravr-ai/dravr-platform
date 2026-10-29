@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: React Query hooks behind a coach's plan thread on both clients — open it from Group info, then publish or discard the draft
+// ABOUTME: React Query hooks behind a coach's plan thread on both clients — open it from Group info, read the live plan, publish or discard the draft
 // ABOUTME: What a plan card's draft controls show is decided here once, so web and the phone draw the same state (carnet#1069/#1070)
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,6 +11,7 @@ import type { ChatApi } from '@pierre/api-client';
 import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, type PlanDraftConflict, type Translate } from '@pierre/chat-utils';
 import {
   instantMs,
+  type AthletePlanResponse,
   type Conversation,
   type DraftState,
   type PlanPublishConflict,
@@ -23,6 +24,7 @@ export interface CoachPlanApis {
   chatApi: Pick<
     ChatApi,
     | 'openAthleteThread'
+    | 'getAthletePlan'
     | 'getSubjectPlan'
     | 'publishSubjectPlan'
     | 'discardSubjectPlanDraft'
@@ -71,6 +73,25 @@ export function openThreadRefusalText(error: unknown, name: string, t: Translate
 export type SubjectPlanRead =
   | { status: 'ok'; plan: SubjectPlanResponse }
   | { status: 'consentRevoked' };
+
+/**
+ * What the read-only athlete plan came to (carnet#1244). An athlete who
+ * stopped sharing with the coach is an answer the sheet states, as the
+ * subject-plan read does.
+ */
+export type AthletePlanRead =
+  | { status: 'ok'; plan: AthletePlanResponse }
+  | { status: 'consentRevoked' };
+
+/** What `useAthletePlan` hands the read-only plan sheet. */
+export interface UseAthletePlanResult {
+  /** The read; `undefined` while it loads, and after it failed. */
+  read: AthletePlanRead | undefined;
+  isLoading: boolean;
+  /** The read failed for a reason other than revoked consent. */
+  isError: boolean;
+  refetch: () => void;
+}
 
 /** What the last Publish or Discard on a card came to, as far as the card shows it. */
 export type PlanDraftOutcome =
@@ -223,6 +244,35 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
     return {
       openThread: (athleteUserId, groupId) => mutation.mutateAsync({ athleteUserId, groupId }),
       pendingAthleteId: mutation.isPending ? (mutation.variables?.athleteUserId ?? null) : null,
+    };
+  }
+
+  /**
+   * A coached athlete's live plan, read-only, for the sheet Group info opens
+   * from a member row. Nothing is read until the sheet names an athlete.
+   */
+  function useAthletePlan(athleteUserId: string | null, groupId: string | null): UseAthletePlanResult {
+    const query = useQuery({
+      queryKey: QUERY_KEYS.chat.athletePlan(athleteUserId, groupId),
+      queryFn: async (): Promise<AthletePlanRead> => {
+        try {
+          return {
+            status: 'ok',
+            plan: await chatApi.getAthletePlan(athleteUserId as string, groupId as string),
+          };
+        } catch (error) {
+          if (planRefusalCode(error) === COACH_SHARING_REVOKED) return { status: 'consentRevoked' };
+          throw error;
+        }
+      },
+      enabled: athleteUserId !== null && groupId !== null,
+      staleTime: SUBJECT_PLAN_STALE_MS,
+    });
+    return {
+      read: query.data,
+      isLoading: query.isLoading,
+      isError: query.isError,
+      refetch: () => void query.refetch(),
     };
   }
 
@@ -396,5 +446,5 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
     };
   }
 
-  return { useOpenAthleteThread, usePlanDraftCard };
+  return { useOpenAthleteThread, useAthletePlan, usePlanDraftCard };
 }

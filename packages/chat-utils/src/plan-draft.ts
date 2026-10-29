@@ -43,6 +43,22 @@ export const PLAN_DRAFT_KEYS = {
   consentRevoked: 'humanCoach.planDraft.consentRevoked',
 } as const;
 
+/** The catalogue keys of the read-only plan a coach opens from Group info (carnet#1244). */
+export const PLAN_VIEW_KEYS = {
+  /** "View {{name}}'s plan" — the member row action. */
+  open: 'humanCoach.planView.open',
+  /** "{{name}}'s plan" — the sheet's title. */
+  title: 'humanCoach.planView.title',
+  /** The line saying the plan is the one the athlete sees, and cannot be edited here. */
+  readOnly: 'humanCoach.planView.readOnly',
+  /** The athlete has no published plan. */
+  empty: 'humanCoach.planView.empty',
+  /** The athlete stopped sharing with the coach, so nothing is shown. */
+  consentRevoked: 'humanCoach.planView.consentRevoked',
+  /** The plan could not be read. */
+  loadError: 'humanCoach.planView.loadError',
+} as const;
+
 /** What a refused publish collided with: the weeks both sides changed, and a re-laid season. */
 export interface PlanDraftConflict {
   /** The Mondays (`YYYY-MM-DD`) of the weeks both the draft and the athlete changed. */

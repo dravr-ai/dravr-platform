@@ -9,6 +9,7 @@ import { createElement, type ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type {
+  AthletePlanResponse,
   Conversation,
   ConversationParticipant,
   DraftState,
@@ -73,6 +74,7 @@ function participants(ownerId: string): ConversationParticipant[] {
 function fakeChatApi() {
   return {
     openAthleteThread: vi.fn<(athleteUserId: string, groupId: string) => Promise<Conversation>>(),
+    getAthletePlan: vi.fn<(athleteUserId: string, groupId: string) => Promise<AthletePlanResponse>>(),
     getSubjectPlan: vi.fn<(conversationId: string) => Promise<SubjectPlanResponse>>(),
     publishSubjectPlan: vi.fn<
       (conversationId: string, request: { overwrite_athlete_changes: boolean }) => Promise<PublishSubjectPlanResult>
@@ -250,6 +252,50 @@ describe('useOpenAthleteThread', () => {
     const { result } = renderHook(() => hooks.useOpenAthleteThread(), { wrapper });
 
     await expect(result.current.openThread(ATHLETE_ID, 'group-1')).rejects.toThrow('403');
+  });
+});
+
+describe('useAthletePlan', () => {
+  const athletePlan: AthletePlanResponse = {
+    athlete: { user_id: ATHLETE_ID, display_name: 'Alice Runner' },
+    today: '2026-10-28',
+    live: null,
+  };
+
+  it('reads nothing until an athlete is named, then reads them in the group', async () => {
+    const { api, wrapper, hooks } = setup();
+    api.getAthletePlan.mockResolvedValue(athletePlan);
+    const { result, rerender } = renderHook(
+      ({ athlete }: { athlete: string | null }) => hooks.useAthletePlan(athlete, 'group-1'),
+      { wrapper, initialProps: { athlete: null as string | null } },
+    );
+    expect(api.getAthletePlan).not.toHaveBeenCalled();
+
+    rerender({ athlete: ATHLETE_ID });
+    await waitFor(() => expect(result.current.read).toEqual({ status: 'ok', plan: athletePlan }));
+    expect(api.getAthletePlan).toHaveBeenCalledWith(ATHLETE_ID, 'group-1');
+  });
+
+  it('answers an athlete who stopped sharing as revoked, not as a failure', async () => {
+    const { api, wrapper, hooks } = setup();
+    api.getAthletePlan.mockRejectedValue(
+      refusal(403, { code: 'PermissionDenied', details: { reason: COACH_SHARING_REVOKED } }),
+    );
+    const { result } = renderHook(() => hooks.useAthletePlan(ATHLETE_ID, 'group-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.read).toEqual({ status: 'consentRevoked' }));
+    expect(result.current.isError).toBe(false);
+  });
+
+  it('fails the read on any other refusal', async () => {
+    const { api, wrapper, hooks } = setup();
+    api.getAthletePlan.mockRejectedValue(
+      refusal(403, { code: 'PermissionDenied', details: { reason: 'plans_disabled' } }),
+    );
+    const { result } = renderHook(() => hooks.useAthletePlan(ATHLETE_ID, 'group-1'), { wrapper });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.read).toBeUndefined();
   });
 });
 

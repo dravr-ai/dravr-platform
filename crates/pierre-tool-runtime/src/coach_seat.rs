@@ -138,7 +138,10 @@ pub const ATHLETE_THREAD_ERROR_CODE: &str = "athlete_thread_withheld";
 
 /// Whether `tool_name` is withheld while the sender holds the coach's seat.
 ///
-/// LIMITATION(registre#1244): `is_withheld_on_coach_seat` withholds `get_training_plan` in a group the sender coaches, and nothing there points the coach at the athlete's plan thread or their own conversation with Dravr, where they can read that athlete's plan.
+/// The plan tools are among them: an athlete's plan is never posted in the
+/// group. `get_group_member_plan_status`, a `groups` tool, stays callable and
+/// says whether the athlete has a published plan and where their coach reads
+/// it (carnet#1244).
 fn is_withheld_on_coach_seat(registry: &ToolRegistry, tool_name: &str) -> bool {
     let Some(tool) = registry.get(tool_name) else {
         return false;
@@ -174,9 +177,11 @@ fn coach_seat_message(tool_name: &str) -> String {
     format!(
         "'{tool_name}' is not available here: you are talking to this group's coach, and \
          their own data is never read in the group. For an athlete in the group, call \
-         get_group_member_activities with that athlete's name. If the coach asks about their \
-         own training, tell them to ask in their own conversation with Dravr, or in a group \
-         where they train as an athlete."
+         get_group_member_activities with that athlete's name for their sessions, or \
+         get_group_member_plan_status for whether they have a published plan and where their \
+         coach reads it — the plan itself is never posted in the group. If the coach asks \
+         about their own training, tell them to ask in their own conversation with Dravr, or \
+         in a group where they train as an athlete."
     )
 }
 
@@ -204,6 +209,19 @@ mod tests {
     }
 
     #[test]
+    fn the_coach_seat_refusal_points_a_plan_request_at_the_plan_status() {
+        let message = coach_seat_message("get_training_plan");
+        assert!(
+            message.contains("get_group_member_plan_status"),
+            "the refusal names the plan-status tool a coach seat keeps: {message}"
+        );
+        assert!(
+            message.contains("the plan itself is never posted in the group"),
+            "the refusal says the plan stays out of the room: {message}"
+        );
+    }
+
+    #[test]
     fn the_athlete_thread_refusal_says_nothing_is_saved_to_the_coach() {
         let message = athlete_thread_message("remember_fact");
         assert!(message.starts_with("'remember_fact' is not available here"));
@@ -222,6 +240,32 @@ mod tests {
             "properties": { "athlete_notes": { "type": "string" } },
         })));
         assert!(!takes_athlete_argument(&json!({ "type": "object" })));
+    }
+
+    #[cfg(feature = "tools-groups")]
+    mod with_the_plan_status {
+        use std::sync::Arc;
+
+        use super::super::*;
+        use crate::implementations::group_member_plan::GetGroupMemberPlanStatusTool;
+        use crate::implementations::training_plans::create_training_plan_tools;
+
+        #[test]
+        fn the_coach_seat_keeps_the_plan_status_and_withholds_the_plan() {
+            let mut registry = ToolRegistry::new();
+            registry.register_with_category(Arc::new(GetGroupMemberPlanStatusTool), "groups");
+            for tool in create_training_plan_tools() {
+                registry.register_with_category(Arc::from(tool), "memory");
+            }
+            assert!(
+                !TurnSeat::Coach.withholds(&registry, "get_group_member_plan_status"),
+                "a groups tool stays callable on the coach seat"
+            );
+            assert!(
+                TurnSeat::Coach.withholds(&registry, "get_training_plan"),
+                "the plan itself stays withheld on the coach seat"
+            );
+        }
     }
 
     #[cfg(feature = "tools-memory")]

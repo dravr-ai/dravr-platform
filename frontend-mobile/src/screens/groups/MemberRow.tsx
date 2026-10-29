@@ -7,7 +7,7 @@
 import React, { useMemo } from 'react';
 import { Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { avatarSlot, initialsFor, PLAN_THREAD_KEYS } from '@pierre/chat-utils';
+import { avatarSlot, initialsFor, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { RosterRow } from './RosterRow';
@@ -47,6 +47,11 @@ export interface MemberRowProps {
   onWorkOnPlan?: (member: GroupMember) => void;
   /** This member's plan thread is being opened. */
   isOpeningPlan?: boolean;
+  /**
+   * Read the member's live plan without opening the thread (carnet#1244).
+   * Passed exactly where `onWorkOnPlan` is.
+   */
+  onViewPlan?: (member: GroupMember) => void;
 }
 
 /**
@@ -66,6 +71,7 @@ export function MemberRow({
   last = false,
   onWorkOnPlan,
   isOpeningPlan = false,
+  onViewPlan,
 }: MemberRowProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -90,6 +96,17 @@ export function MemberRow({
       testID={`group-member-${member.user_id}`}
       trailing={
         <>
+          {onViewPlan && (
+            <TouchableOpacity
+              className="p-2"
+              onPress={() => onViewPlan(member)}
+              accessibilityRole="button"
+              accessibilityLabel={t(PLAN_VIEW_KEYS.open, { name: displayName })}
+              testID={`member-view-plan-${member.user_id}`}
+            >
+              <Feather name="eye" size={18} color={colors.tokens.primary} />
+            </TouchableOpacity>
+          )}
           {onWorkOnPlan && (
             <TouchableOpacity
               className="p-2"

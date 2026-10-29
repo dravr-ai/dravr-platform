@@ -62,6 +62,8 @@ export const ENDPOINTS = {
     PERSONAL_TOPICS: '/api/chat/personal/topics',
     /** Open or reopen (POST) the coach's plan thread for one athlete of a group they coach */
     ATHLETE_THREAD: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/thread`,
+    /** A coached athlete's live plan, read-only, as their coach reads it from Group info */
+    ATHLETE_PLAN: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/plan`,
     /** The plan thread's athlete: their live plan and the coach's draft over it */
     SUBJECT_PLAN: (conversationId: string) => `/api/chat/conversations/${conversationId}/subject-plan`,
     /** Publish (POST) the coach's draft as the athlete's live plan */

@@ -219,6 +219,9 @@ pub mod goals_spec;
 /// A human coach proposes a coaching-platform link to a member from chat (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
 pub mod athlete_link;
+/// A coached athlete's plan status, readable in the coach's room (`tools-groups` feature).
+#[cfg(feature = "tools-groups")]
+pub mod group_member_plan;
 /// The coach's roster overview across the groups they coach (`tools-groups` feature).
 #[cfg(feature = "tools-groups")]
 pub mod group_roster;

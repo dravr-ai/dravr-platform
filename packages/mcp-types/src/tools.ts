@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 121
+// Tool count: 122
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -951,6 +951,16 @@ export interface GetGroupMemberActivitiesParams {
 
   /** Sport filter, e.g. 'ride'. */
   sport_type?: string;
+}
+
+
+/**
+ * Whether an athlete you COACH has a published plan: goal race, season, phase, and `where_to_read`. Never the weeks: relay `where_to_read`.
+ */
+export interface GetGroupMemberPlanStatusParams {
+
+  /** The athlete's roster name. */
+  member: string;
 }
 
 
@@ -2457,6 +2467,7 @@ export const TOOL_NAMES = [
   "get_fitness_config",
   "get_food_details",
   "get_group_member_activities",
+  "get_group_member_plan_status",
   "get_health_snapshots",
   "get_heart_rate_series",
   "get_nutrient_timing",
@@ -2589,6 +2600,7 @@ export interface ToolParamsMap {
   "get_fitness_config": GetFitnessConfigParams;
   "get_food_details": GetFoodDetailsParams;
   "get_group_member_activities": GetGroupMemberActivitiesParams;
+  "get_group_member_plan_status": GetGroupMemberPlanStatusParams;
   "get_health_snapshots": GetHealthSnapshotsParams;
   "get_heart_rate_series": GetHeartRateSeriesParams;
   "get_nutrient_timing": GetNutrientTimingParams;

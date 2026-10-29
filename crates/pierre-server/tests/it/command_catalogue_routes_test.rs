@@ -232,7 +232,7 @@ async fn catalogue_entries_carry_the_frontmatter_verbatim() {
         .expect("/plan is ungated and must always be listed");
     assert_eq!(plan.name, "plan");
     assert_eq!(plan.domain, "training");
-    assert_eq!(plan.args.as_deref(), Some("[week|today]"));
+    assert_eq!(plan.args.as_deref(), Some("[athlete] [week|today]"));
     // The description is read in the caller's locale (fr, the default) from
     // the five-locale registry, so it is the French line, not the English
     // frontmatter the catalogue file carries.

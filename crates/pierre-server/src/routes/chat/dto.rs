@@ -293,6 +293,31 @@ pub(super) struct OpenSubjectThreadRequest {
     pub group_id: Uuid,
 }
 
+/// Query of `GET /api/chat/athletes/{athlete_user_id}/plan` (carnet#1244).
+#[derive(Debug, Deserialize)]
+pub(super) struct AthletePlanQuery {
+    /// The group the coach coaches the athlete in: its membership and the
+    /// athlete's consent there are what let the coach read the plan.
+    pub group_id: Uuid,
+    /// The locale the plan's labels render in; an unsupported or absent
+    /// value falls back to the coach's stored locale, then to the default.
+    #[serde(default)]
+    pub locale: Option<String>,
+}
+
+/// `GET /api/chat/athletes/{athlete_user_id}/plan`: a coached athlete's live
+/// plan as their coach reads it, outside the plan thread (carnet#1244).
+#[derive(Debug, Serialize)]
+pub(super) struct AthletePlanResponse {
+    /// Whose plan it is.
+    pub athlete: PlanSubject,
+    /// The athlete's civil date the plan is projected on, `YYYY-MM-DD`.
+    pub today: NaiveDate,
+    /// The athlete's live plan, as `GET /api/me/training-plan` shapes it;
+    /// `null` when they have none.
+    pub live: Option<PlanCard>,
+}
+
 /// `GET /api/chat/conversations/{id}/subject-plan`: the thread's athlete's
 /// live plan and the coach's draft over it, as the coach reads them
 /// (carnet#1069).

@@ -190,6 +190,51 @@ struct RosterEntry {
     status: RosterAthleteStatus,
 }
 
+/// Where a coach's call was made, as the tools that read their athletes see it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum CallRoom {
+    /// No conversation, or one private to the caller.
+    Private,
+    /// A group's room, read by every member: the group's id.
+    Group(String),
+    /// A conversation that does not resolve for the caller. It may be any
+    /// room, so nothing about an athlete is published into it.
+    Unresolved,
+}
+
+/// The room `context`'s conversation is, resolved under the conversation's
+/// own tenant (a shared room's row lives under the bot tenant).
+///
+/// # Errors
+///
+/// Returns the repository error from the conversation lookup.
+pub(super) async fn call_room(context: &ToolExecutionContext) -> AppResult<CallRoom> {
+    let Some(conversation_id) = context.conversation_id.as_deref() else {
+        return Ok(CallRoom::Private);
+    };
+    let tenant = context
+        .conversation_ref()
+        .map(|(_, tenant)| tenant)
+        .or_else(|| context.tenant_id.map(TenantId::from_uuid));
+    let conversation = match tenant {
+        Some(tenant) => {
+            context
+                .resources
+                .repos()
+                .chat
+                .get_conversation(conversation_id, &context.user_id.to_string(), tenant)
+                .await?
+        }
+        None => None,
+    };
+    Ok(match conversation {
+        None => CallRoom::Unresolved,
+        Some(conversation) => conversation
+            .group_id
+            .map_or(CallRoom::Private, CallRoom::Group),
+    })
+}
+
 /// The groups the call covers, or the refusal that explains why it covers none.
 ///
 /// The outer `Err` is a repository failure; the inner `Err` is the refusal.
@@ -216,30 +261,18 @@ async fn covered_groups(
         )));
     }
 
-    if let Some(conversation_id) = context.conversation_id.as_deref() {
-        let tenant = context
-            .conversation_ref()
-            .map(|(_, tenant)| tenant)
-            .or_else(|| context.tenant_id.map(TenantId::from_uuid));
-        let conversation = match tenant {
-            Some(tenant) => {
-                repos
-                    .chat
-                    .get_conversation(conversation_id, &requester.to_string(), tenant)
-                    .await?
-            }
-            None => None,
-        };
+    match call_room(context).await? {
+        CallRoom::Private => {}
         // A conversation the caller cannot resolve may be any room: fail
         // closed rather than publish a roster into it.
-        let Some(conversation) = conversation else {
+        CallRoom::Unresolved => {
             return Ok(Err(refusal(
                 "room_unresolved",
                 "Review your roster from your own conversation with Dravr — this conversation \
                  could not be confirmed as private to you.",
             )));
-        };
-        if let Some(room_group) = conversation.group_id.as_deref() {
+        }
+        CallRoom::Group(room_group) => {
             groups.retain(|g| g.id.to_string() == room_group);
             if groups.is_empty() {
                 return Ok(Err(refusal(

@@ -58,11 +58,23 @@
 //! A write into a tenant other than the requester's also honours that
 //! tenant's tool-disable configuration, which the dispatch chokepoint checked
 //! against the requester's tenant only.
+//!
+//! ## A coach reading a published plan
+//!
+//! Outside the plan tools a coach reads an athlete's live plan read-only —
+//! Group info's view, `/plan <athlete>` answered to them alone, and the plan
+//! status the coach's room may see (carnet#1244). None of those is a tool
+//! call the chokepoint checked, so [`coached_plan_read_access`] runs gates 2
+//! to 4 and the athlete's tenant allowing `get_training_plan`. Gate 1 is each
+//! surface's own: the view and the private reply reach the coach alone, and
+//! the room's status carries no week of the plan.
+
+use std::sync::Arc;
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
-use pierre_runtime_context::DataContext;
+use pierre_database::RepositoryRegistry;
 use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
@@ -78,6 +90,7 @@ use crate::guardian::{
     tenant_disabled_message, tenant_tool_enabled, TENANT_DISABLED_ERROR_CODE,
     TENANT_DISABLED_REASON,
 };
+use crate::runtime::ToolRuntime;
 
 /// Whose plan a training-plan tool reads or writes, and who is writing.
 #[derive(Debug)]
@@ -130,13 +143,14 @@ pub struct PlanScopeRequest<'a> {
 
 /// The one coached member a name query matched, with the group row that
 /// authorizes acting for them.
-pub(crate) struct CoachedMatch {
+#[derive(Debug)]
+pub struct CoachedMatch {
     /// A group the requester coaches the member in: one where the member
     /// shares with them when any does, so a refusal names the most permissive
     /// row; else the first.
-    pub(crate) group: CoachingGroup,
+    pub group: CoachingGroup,
     /// The member.
-    pub(crate) user_id: Uuid,
+    pub user_id: Uuid,
     /// Their display name ([`fetch_user_display_name`]).
     pub(crate) display_name: String,
     /// Whether the member shares with the requester in `group`.
@@ -144,7 +158,8 @@ pub(crate) struct CoachedMatch {
 }
 
 /// Why a name query matched no one coached member.
-pub(crate) enum MemberMiss {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberMiss {
     /// The query matched only the requester.
     Requester,
     /// No live member of a group the requester coaches matched.
@@ -177,7 +192,8 @@ impl MemberMiss {
 /// display name contains `query`, case aside.
 ///
 /// Walked from the groups the requester is attached to as their coach, never
-/// from the groups they merely belong to. The same athlete in two coached
+/// from the groups they merely belong to; `within` narrows the walk to one of
+/// them — the room a reply would be read in. The same athlete in two coached
 /// groups is one person; the requester is never their own athlete.
 ///
 /// The outer `Err` is a repository failure; the inner `Err` says why no one
@@ -186,24 +202,24 @@ impl MemberMiss {
 /// # Errors
 ///
 /// Returns the repository error from the group or member lookups.
-pub(crate) async fn match_coached_member(
-    data: &DataContext,
+pub async fn match_coached_member(
+    repos: &RepositoryRegistry,
     requester: Uuid,
     query: &str,
+    within: Option<Uuid>,
 ) -> AppResult<Result<CoachedMatch, MemberMiss>> {
-    let repos = data.repos();
     let query_lower = query.to_lowercase();
     let mut matches: Vec<CoachedMatch> = Vec::new();
     let mut requester_matched = false;
     for group in repos.groups.list_groups_coached_by(requester).await? {
-        if !group.is_active {
+        if !group.is_active || within.is_some_and(|pin| pin != group.id) {
             continue;
         }
         for member in repos.groups.list_members(&group.id.to_string()).await? {
             if member.left_at.is_some() {
                 continue;
             }
-            let display_name = fetch_user_display_name(data.repos(), member.user_id).await;
+            let display_name = fetch_user_display_name(repos, member.user_id).await;
             if !display_name.to_lowercase().contains(&query_lower) {
                 continue;
             }
@@ -237,6 +253,51 @@ pub(crate) async fn match_coached_member(
     }
     let at = matches.iter().position(|m| m.consented).unwrap_or(0);
     Ok(Ok(matches.swap_remove(at)))
+}
+
+/// The tool whose tenant configuration governs a coach's read of an
+/// athlete's plan outside a tool call.
+const PLAN_READ_TOOL: &str = "get_training_plan";
+
+/// Why a group's human coach may not read a coached athlete's live plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CoachedPlanRefusal {
+    /// A coaching gate refused: the coach attachment, the membership, the
+    /// athlete's consent, or their one home tenant.
+    Coaching(CoachedAthleteRefusal),
+    /// The athlete's tenant has `get_training_plan` turned off.
+    PlansDisabled {
+        /// The athlete's roster name.
+        athlete: String,
+    },
+}
+
+/// Whether `coach` may read `athlete`'s live plan as the human coach of
+/// `group_id`: the coaching gates ([`coached_athlete_access`]), then the
+/// athlete's tenant allowing `get_training_plan`.
+///
+/// The outer `Err` is a repository failure; the inner `Err` is the refusal,
+/// which each surface words its own way.
+///
+/// # Errors
+///
+/// Returns the repository error from the group, member or tenant lookups.
+pub async fn coached_plan_read_access(
+    resources: &Arc<dyn ToolRuntime>,
+    coach: Uuid,
+    athlete: Uuid,
+    group_id: Uuid,
+) -> AppResult<Result<CoachedAthleteAccess, CoachedPlanRefusal>> {
+    let access = match coached_athlete_access(resources.repos(), coach, athlete, group_id).await? {
+        Ok(access) => access,
+        Err(refused) => return Ok(Err(CoachedPlanRefusal::Coaching(refused))),
+    };
+    if !tenant_tool_enabled(resources, access.tenant, PLAN_READ_TOOL).await {
+        return Ok(Err(CoachedPlanRefusal::PlansDisabled {
+            athlete: access.display_name,
+        }));
+    }
+    Ok(Ok(access))
 }
 
 /// An honest refusal in the tool's own error shape.
@@ -300,7 +361,7 @@ pub async fn resolve_plan_scope(
 
     // The name, resolved to one live member of a group the requester is
     // attached to as its coach — never one they merely belong to.
-    let resolved = match match_coached_member(&data, requester, query).await? {
+    let resolved = match match_coached_member(data.repos(), requester, query, None).await? {
         Ok(resolved) => resolved,
         Err(miss) => {
             return Ok(Err(refusal(
@@ -371,7 +432,7 @@ async fn resolve_subject_scope(
             .contains(&query.to_lowercase())
         {
             let name = &access.display_name;
-            let own = match match_coached_member(&data, requester, query).await? {
+            let own = match match_coached_member(data.repos(), requester, query, None).await? {
                 Ok(other) => {
                     return Ok(Err(refusal(&format!(
                         "This thread works on {name}'s plan — open {}'s own thread from Group \
@@ -410,7 +471,15 @@ async fn resolve_subject_scope(
 /// What the model relays for a gate refusal. `unreached` words the two that
 /// fail before the athlete is shown to be the requester's — those name nobody.
 fn gate_refusal(refused: &CoachedAthleteRefusal, unreached: impl FnOnce() -> String) -> ToolResult {
-    let message = match refused {
+    refusal(&gate_message(refused, unreached))
+}
+
+/// The words of [`gate_refusal`], for a tool that answers in its own shape.
+pub(super) fn gate_message(
+    refused: &CoachedAthleteRefusal,
+    unreached: impl FnOnce() -> String,
+) -> String {
+    match refused {
         CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember => unreached(),
         CoachedAthleteRefusal::CoachSharingRevoked { athlete, group } => format!(
             "{athlete} has stopped sharing their data with you, the coach of '{group}'. They can \
@@ -423,8 +492,7 @@ fn gate_refusal(refused: &CoachedAthleteRefusal, unreached: impl FnOnce() -> Str
             "{athlete} belongs to several tenants — acting on their plan is not supported, \
              because the plan would be visible on one of their surfaces and missing on another."
         ),
-    };
-    refusal(&message)
+    }
 }
 
 /// The scope of a call the gates let act for `access`'s athlete, once the

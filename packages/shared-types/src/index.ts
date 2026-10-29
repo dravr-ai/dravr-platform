@@ -174,6 +174,7 @@ export type {
   DraftState,
   PlanSubject,
   SubjectPlanResponse,
+  AthletePlanResponse,
   PublishSubjectPlanRequest,
   PublishedSubjectPlan,
   PlanPublishConflict,
@@ -183,6 +184,7 @@ export {
   parseDraftState,
   parsePlanSubject,
   parseSubjectPlanResponse,
+  parseAthletePlanResponse,
   parsePublishedSubjectPlan,
   parsePlanPublishConflict,
 } from './coach-plan.js';

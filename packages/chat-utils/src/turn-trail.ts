@@ -144,6 +144,7 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   recommend_plan_flavour: 'choosePlanApproach',
   get_training_plan: 'readPlan',
   get_planned_workouts: 'readPlan',
+  get_group_member_plan_status: 'readPlan',
   list_workout_templates: 'pickWorkouts',
   save_training_plan: 'savePlan',
   publish_training_plan: 'savePlan',

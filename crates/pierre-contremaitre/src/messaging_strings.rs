@@ -960,6 +960,27 @@ pub const KEY_PLAN_STALE_GOAL: &str = "commands.plan.stale_goal";
 /// `{0}` = the caller's display name, HTML-escaped by the handler because the
 /// reply is rich text.
 pub const KEY_PLAN_SHARED_HEADER: &str = "commands.plan.shared_header";
+/// Key: `/plan <athlete>` header naming whose plan a group's human coach is
+/// reading. `{0}` = the athlete's roster name, markdown-escaped by the handler.
+pub const KEY_PLAN_ATHLETE_HEADER: &str = "commands.plan.athlete_header";
+/// Key: `/plan <athlete>` when the athlete has no published plan. `{0}` = the
+/// athlete's roster name.
+pub const KEY_PLAN_ATHLETE_EMPTY: &str = "commands.plan.athlete_empty";
+/// Key: `/plan <athlete>` when no athlete the caller coaches matches. `{0}` =
+/// what the caller typed.
+pub const KEY_PLAN_ATHLETE_NO_MATCH: &str = "commands.plan.athlete_no_match";
+/// Key: `/plan <athlete>` when several athletes the caller coaches match.
+/// `{0}` = what the caller typed, `{1}` = the matching roster names.
+pub const KEY_PLAN_ATHLETE_AMBIGUOUS: &str = "commands.plan.athlete_ambiguous";
+/// Key: `/plan <athlete>` when the athlete stopped sharing with their coach.
+/// `{0}` = the athlete's roster name.
+pub const KEY_PLAN_ATHLETE_NOT_SHARING: &str = "commands.plan.athlete_not_sharing";
+/// Key: `/plan <athlete>` when the athlete belongs to several tenants, so their
+/// plan has no one home. `{0}` = the athlete's roster name.
+pub const KEY_PLAN_ATHLETE_SEVERAL_TENANTS: &str = "commands.plan.athlete_several_tenants";
+/// Key: `/plan <athlete>` when the athlete's tenant turned the plan read off.
+/// `{0}` = the athlete's roster name.
+pub const KEY_PLAN_ATHLETE_PLANS_DISABLED: &str = "commands.plan.athlete_plans_disabled";
 
 // ── /group command keys ───────────────────────────────────────────────────
 

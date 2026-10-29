@@ -12435,6 +12435,123 @@
       }
     },
     {
+      "name": "get_group_member_plan_status",
+      "description": "Whether an athlete you COACH has a published plan: goal race, season, phase, and `where_to_read`. Never the weeks: relay `where_to_read`.",
+      "inputSchema": {
+        "properties": {
+          "member": {
+            "description": "The athlete's roster name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "PlanGoalRace": {
+            "description": "The goal race a published season is aimed at.",
+            "properties": {
+              "date": {
+                "description": "The race day, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "days_out": {
+                "description": "Days from the athlete's today to the race; absent when the date does\nnot parse.",
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The race's name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "date",
+              "days_out"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `get_group_member_plan_status` answers with.",
+        "properties": {
+          "current_phase": {
+            "description": "The phase the athlete is in today, when one covers it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal_race": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PlanGoalRace"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The race the season is aimed at; absent without a published plan."
+          },
+          "group": {
+            "description": "The group the caller coaches them in.",
+            "type": "string"
+          },
+          "member": {
+            "description": "The athlete, by roster name — never their account identifier.",
+            "type": "string"
+          },
+          "published": {
+            "description": "Whether the athlete has a published plan, the one they see.",
+            "type": "boolean"
+          },
+          "season_end": {
+            "description": "Day after the season's last, when the plan states one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "season_start": {
+            "description": "First day of the season, when the plan states one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "where_to_read": {
+            "description": "Where their coach reads the plan, changes it, or builds one: relay it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "member",
+          "group",
+          "published",
+          "goal_race",
+          "season_start",
+          "season_end",
+          "current_phase",
+          "where_to_read"
+        ],
+        "title": "GroupMemberPlanStatus",
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_health_snapshots",
       "description": "Get stored health snapshots (body composition, vitals)",
       "inputSchema": {

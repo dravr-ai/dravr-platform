@@ -30,7 +30,11 @@ use crate::common;
 /// (88 tools, ~44k estimated tokens) on 2026-10-27; carnet#1196 rewrote every
 /// long description to its purpose, routing and rules, against a target of a
 /// fifth under that, about 90,000. The test prints the current size.
-const CATALOGUE_BUDGET_BYTES: usize = 94_750;
+///
+/// 2026-10-28: 94,750 → 95,100 for `get_group_member_plan_status` (carnet#1244),
+/// the coach seat's one plan read, kept to a single argument and a two-line
+/// description (~330 bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 95_100;
 
 /// How far under budget the catalogue may fall before the budget follows it down.
 const RATCHET_SLACK_BYTES: usize = 4 * 1024;

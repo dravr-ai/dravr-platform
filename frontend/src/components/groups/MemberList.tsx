@@ -6,13 +6,13 @@
 
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Shield, User, ChevronUp, ChevronDown, Trash2, Clipboard, ArrowUp, ArrowDown } from 'lucide-react';
+import { Shield, User, ChevronUp, ChevronDown, Trash2, Clipboard, Eye, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button, ConfirmDialog, Select, useErrorToast, useSuccessToast } from '../ui';
 import RoleBadge from './RoleBadge';
 import { useRemoveMember, useUpdateMemberRole } from '../../hooks/useGroups';
 import type { GroupMember, GroupRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { formatDate, PLAN_THREAD_KEYS } from '@pierre/chat-utils';
+import { formatDate, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
 
 interface MemberListProps {
@@ -30,6 +30,12 @@ interface MemberListProps {
   onWorkOnPlan?: (member: GroupMember) => void;
   /** The member whose plan thread is being opened, while one is. */
   openingPlanFor?: string | null;
+  /**
+   * Read a member's live plan without opening the thread (carnet#1244).
+   * Passed only for the group's coach, and never on their own row, like
+   * `onWorkOnPlan`.
+   */
+  onViewPlan?: (member: GroupMember) => void;
 }
 
 /**
@@ -66,6 +72,7 @@ export default function MemberList({
   isLoading,
   onWorkOnPlan,
   openingPlanFor = null,
+  onViewPlan,
 }: MemberListProps) {
   const { t, i18n } = useTranslation();
   const [sortField, setSortField] = useState<SortField>('role');
@@ -78,7 +85,7 @@ export default function MemberList({
 
   const canManageMembers = currentUserRole === 'owner' || currentUserRole === 'admin';
   const isOwner = currentUserRole === 'owner';
-  const hasActions = canManageMembers || onWorkOnPlan !== undefined;
+  const hasActions = canManageMembers || onWorkOnPlan !== undefined || onViewPlan !== undefined;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -223,6 +230,7 @@ export default function MemberList({
               const canChangeRole = isOwner && !isSelf && member.role !== 'owner';
               const memberName = member.display_name ?? t('groups.memberFallback');
               const workOnPlanLabel = t(PLAN_THREAD_KEYS.open, { name: memberName });
+              const viewPlanLabel = t(PLAN_VIEW_KEYS.open, { name: memberName });
 
               return (
                 <tr
@@ -262,6 +270,18 @@ export default function MemberList({
                   {hasActions && (
                     <td className="py-2.5 px-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {onViewPlan && !isSelf && (
+                          <Button
+                            variant="tertiary"
+                            size="sm"
+                            onClick={() => onViewPlan(member)}
+                            title={viewPlanLabel}
+                            aria-label={viewPlanLabel}
+                            data-testid={`member-view-plan-${member.user_id}`}
+                          >
+                            <Eye className="w-4 h-4" aria-hidden="true" />
+                          </Button>
+                        )}
                         {onWorkOnPlan && !isSelf && (
                           <Button
                             variant="tertiary"

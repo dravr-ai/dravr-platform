@@ -98,6 +98,7 @@ jest.mock('../src/services/api', () => ({
   },
   chatApi: {
     openAthleteThread: jest.fn(),
+    getAthletePlan: jest.fn(),
   },
 }));
 
@@ -676,6 +677,61 @@ describe('GroupInfoSheet', () => {
     expect((await findByTestId('member-work-on-plan-user-phil')).props.accessibilityLabel).toBe("Work on Phil's plan");
     expect(getByTestId('group-member-user-owner')).toBeTruthy();
     expect(queryByTestId('member-work-on-plan-user-owner')).toBeNull();
+  });
+
+  describe("reading a member's live plan, read-only (carnet#1244)", () => {
+    beforeEach(() => {
+      mockCallerId = 'user-coach';
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+      (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    });
+
+    it('shows the coach the plan the athlete sees in place of the roster, and comes back', async () => {
+      (chatApi.getAthletePlan as jest.Mock).mockResolvedValue({
+        athlete: { user_id: 'user-phil', display_name: 'Phil' },
+        today: '2026-10-28',
+        live: {
+          goal_race: { name: 'Harricana 65K', date: '2027-09-11', discipline: 'trail', priority: 'A' },
+          phases: [],
+          weeks: [],
+          weeks_deferred: 0,
+        },
+      });
+      const { findByTestId, findByText, getByTestId, queryByTestId } = renderSheet();
+
+      const view = await findByTestId('member-view-plan-user-phil');
+      expect(view.props.accessibilityLabel).toBe("View Phil's plan");
+      await act(async () => {
+        fireEvent.press(view);
+      });
+
+      expect(await findByText('Read-only: the plan Phil sees.')).toBeTruthy();
+      expect(await findByText('Harricana 65K')).toBeTruthy();
+      expect(chatApi.getAthletePlan).toHaveBeenCalledWith('user-phil', 'group-1');
+      expect(queryByTestId('group-info-sheet')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('athlete-plan-back'));
+      });
+      expect(await findByTestId('group-info-sheet')).toBeTruthy();
+    });
+
+    it('says the athlete stopped sharing, and offers no way into the thread', async () => {
+      (chatApi.getAthletePlan as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const { findByTestId, findByText, queryByTestId } = renderSheet();
+
+      await act(async () => {
+        fireEvent.press(await findByTestId('member-view-plan-user-phil'));
+      });
+
+      expect(await findByText("Phil stopped sharing with you, so their plan isn't shown.")).toBeTruthy();
+      expect(queryByTestId('athlete-plan-work-on')).toBeNull();
+    });
   });
 
   describe('when the server refuses the plan thread', () => {

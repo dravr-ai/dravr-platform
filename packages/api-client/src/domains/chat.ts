@@ -6,6 +6,7 @@
 
 import { AxiosError, type AxiosInstance } from 'axios';
 import type {
+  AthletePlanResponse,
   AwaitingReply,
   ChatMessageAction,
   ClaimVerdict,
@@ -25,6 +26,7 @@ import type {
   UseCaseStarter,
 } from '@pierre/shared-types';
 import {
+  parseAthletePlanResponse,
   parsePlanPublishConflict,
   parsePublishedSubjectPlan,
   parseSubjectPlanResponse,
@@ -43,6 +45,7 @@ import { readHeader, recoverFromRefusal } from '../core/auth-challenge';
 
 // Re-export types for consumers
 export type {
+  AthletePlanResponse,
   ChatMessageAction,
   ClaimVerdict,
   CommandCatalogueResponse,
@@ -361,6 +364,19 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         group_id: groupId,
       });
       return response.data;
+    },
+
+    /**
+     * A coached athlete's live plan as their coach reads it from Group info,
+     * read-only and without opening the plan thread (carnet#1244). `live` is
+     * `null` when the athlete has no published plan. The coaching-link
+     * refusals (403 / 404 / 409) reject, and so does 403 `plans_disabled`
+     * when the athlete's workspace turned plans off.
+     */
+    async getAthletePlan(athleteUserId: string, groupId: string): Promise<AthletePlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.ATHLETE_PLAN(athleteUserId);
+      const response = await axios.get<unknown>(endpoint, { params: { group_id: groupId } });
+      return requireShape(parseAthletePlanResponse(response.data), endpoint);
     },
 
     /**

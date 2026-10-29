@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070): Group info → Work on <name>'s plan → the thread → Publish
+// ABOUTME: E2E for a coach's per-athlete plan thread (carnet#1069/#1070): Group info → Work on <name>'s plan → the thread → Publish; and View <name>'s plan, read-only (carnet#1244)
 // ABOUTME: Every route is mocked; the draft card is read back from the persisted transcript row, the way a reload draws it
 
 import { test, expect, type Page } from '@playwright/test';
@@ -204,6 +204,8 @@ const coachMembership = {
 interface Sent {
   opened: Array<{ path: string; body: unknown }>;
   published: unknown[];
+  /** The read-only plan reads Group info made, with the group each named. */
+  viewed: Array<{ path: string; groupId: string | null }>;
 }
 
 /** How the mocked server is set up beyond the default coach with no membership row. */
@@ -217,7 +219,7 @@ interface PlanThreadMockOptions {
 }
 
 async function setupPlanThreadMocks(page: Page, options: PlanThreadMockOptions = {}): Promise<Sent> {
-  const sent: Sent = { opened: [], published: [] };
+  const sent: Sent = { opened: [], published: [], viewed: [] };
   let threadOpened = false;
   let published = false;
   const roster = options.coachIsMember
@@ -272,6 +274,15 @@ async function setupPlanThreadMocks(page: Page, options: PlanThreadMockOptions =
     }
     threadOpened = true;
     return route.fulfill(json(planConversation));
+  });
+
+  // Alice's live plan, read-only, as Group info reads it (carnet#1244).
+  await page.route(`**/api/chat/athletes/${ATHLETE_ID}/plan*`, (route) => {
+    const url = new URL(route.request().url());
+    sent.viewed.push({ path: url.pathname, groupId: url.searchParams.get('group_id') });
+    return route.fulfill(
+      json({ athlete: { user_id: ATHLETE_ID, display_name: 'Alice Runner' }, today: '2026-10-16', live: draftPlan }),
+    );
   });
 
   await page.route(`**/api/chat/conversations/${PLAN_CONVERSATION_ID}/subject-plan`, (route) =>
@@ -344,9 +355,41 @@ test.describe("A coach's plan thread for one athlete", () => {
     await expect(page.getByRole('button', { name: 'Discard draft' })).toHaveCount(0);
   });
 
+  test("Group info → View the plan → the athlete's live plan, read-only → the thread from there", async ({
+    page,
+  }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    const sent = await setupPlanThreadMocks(page);
+    await loginToDashboard(page);
+    await openGroups(page);
+
+    const groupRow = page.locator('[data-testid="conversation-row"]', { hasText: 'Marathon Training 2026' });
+    await groupRow.getByRole('button').first().click();
+    await page.getByTestId('conversation-header-title').click();
+    await expect(page.getByTestId('group-info-panel')).toBeVisible({ timeout: 10000 });
+
+    // Reading the plan opens no thread.
+    await page.getByRole('button', { name: "View Alice Runner's plan" }).click();
+
+    await expect(page.getByText('Read-only: the plan Alice Runner sees.')).toBeVisible();
+    await expect(page.getByTestId('athlete-plan').getByText('Harricana 65K')).toBeVisible();
+    expect(sent.viewed).toEqual([{ path: `/api/chat/athletes/${ATHLETE_ID}/plan`, groupId: GROUP_ID }]);
+    expect(sent.opened).toEqual([]);
+    // The read-only plan carries no draft control.
+    await expect(page.getByRole('button', { name: 'Publish to Alice Runner' })).toHaveCount(0);
+
+    // From the plan, the coach opens the thread where it changes.
+    await page.getByTestId('athlete-plan-work-on').click();
+    await expect.poll(() => sent.opened.length).toBe(1);
+    await page.waitForURL(new RegExp(`#chat/${PLAN_CONVERSATION_ID}$`));
+    await expect(page.getByTestId('athlete-plan')).toHaveCount(0);
+    await expect(page.getByTestId('thread-title')).toHaveText('Alice Runner');
+  });
+
   // At 1440 px the members table overflowed the Group info panel and cut the
   // Actions column off (carnet#1191). The widest row is an owner coach's: a
-  // plan, a role change and a removal on every other member.
+  // plan view, a plan thread, a role change and a removal on every other
+  // member.
   test('Group info fits the members table, Actions column included, at 1440 px', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await setupDashboardMocks(page, { role: 'user' });
@@ -371,8 +414,8 @@ test.describe("A coach's plan thread for one athlete", () => {
     expect(panel).not.toBeNull();
     const aliceRow = list.locator('tr', { hasText: 'Alice Runner' });
     const actions = aliceRow.getByRole('button');
-    await expect(actions).toHaveCount(3);
-    for (const index of [0, 1, 2]) {
+    await expect(actions).toHaveCount(4);
+    for (const index of [0, 1, 2, 3]) {
       const box = await actions.nth(index).boundingBox();
       expect(box).not.toBeNull();
       if (box && panel) {

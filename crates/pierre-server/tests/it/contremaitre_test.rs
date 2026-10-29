@@ -804,6 +804,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "get_fitness_config",
     "get_food_details",
     "get_group_member_activities",
+    "get_group_member_plan_status",
     "get_health_snapshots",
     "get_heart_rate_series",
     "get_nutrient_timing",

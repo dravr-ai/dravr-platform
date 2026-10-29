@@ -1,4 +1,4 @@
-// ABOUTME: Handlers for /plan and /plan share — deterministic read-only display of the athlete's stored training plan
+// ABOUTME: Handlers for /plan and /plan share — deterministic read-only display of a stored training plan, the caller's own or, for a group's coach, a coached athlete's
 // ABOUTME: Bare = goal + countdown + today & tomorrow; `week` = current week; `today` = today only; share posts it to the room
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,22 +9,29 @@ use chrono::{NaiveDate, Utc};
 use dravr_canot::commands::CommandResponse;
 use dravr_canot::rich_text::escape_markdown;
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_PLAN_DAY_LINE, KEY_PLAN_EMPTY, KEY_PLAN_GOAL_LINE,
-    KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION, KEY_PLAN_PHASE_LINE, KEY_PLAN_REST,
-    KEY_PLAN_RESUMES, KEY_PLAN_SHARED_HEADER, KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY,
-    KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
+    MessagingStringsRegistry, KEY_PLAN_ATHLETE_AMBIGUOUS, KEY_PLAN_ATHLETE_EMPTY,
+    KEY_PLAN_ATHLETE_HEADER, KEY_PLAN_ATHLETE_NOT_SHARING, KEY_PLAN_ATHLETE_NO_MATCH,
+    KEY_PLAN_ATHLETE_PLANS_DISABLED, KEY_PLAN_ATHLETE_SEVERAL_TENANTS, KEY_PLAN_DAY_LINE,
+    KEY_PLAN_EMPTY, KEY_PLAN_GOAL_LINE, KEY_PLAN_NO_COVERAGE, KEY_PLAN_NO_SESSION,
+    KEY_PLAN_PHASE_LINE, KEY_PLAN_REST, KEY_PLAN_RESUMES, KEY_PLAN_SHARED_HEADER,
+    KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
 };
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppError;
-use pierre_core::models::User;
+use pierre_core::models::{TenantId, User};
 use pierre_memory::training_plans::{
     parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
 use pierre_providers::ai_scope;
+use pierre_services::athlete_clock;
+use pierre_services::coached_athlete::CoachedAthleteRefusal;
 use pierre_services::training_plan_render::{
     plan_goal_is_stale, select_active_weeks, SelectedWeek, ACTIVE_WEEKS,
 };
+use pierre_tool_runtime::implementations::plan_scope::{self, CoachedPlanRefusal, MemberMiss};
 use std::fmt::Write as _;
+use tracing::info;
+use uuid::Uuid;
 
 use crate::{CallerGroupStanding, CommandHandler, PlatformCommandContext};
 
@@ -40,12 +47,73 @@ enum PlanView {
 }
 
 impl PlanView {
-    /// Parse the subcommand; anything unrecognized reads as the compact view.
-    fn parse(arg: Option<&str>) -> Self {
-        match arg {
-            Some("week") => Self::Week,
-            Some("today") => Self::Today,
-            _ => Self::Compact,
+    /// The view a token names, if it names one.
+    fn named(token: &str) -> Option<Self> {
+        match token.to_lowercase().as_str() {
+            "week" => Some(Self::Week),
+            "today" => Some(Self::Today),
+            _ => None,
+        }
+    }
+}
+
+/// What `/plan` was asked for: a view, and whose plan when the caller named
+/// an athlete.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PlanRequest {
+    view: PlanView,
+    /// The words before the view, joined: an athlete's name, which only a
+    /// group's human coach can resolve (`/plan JF week`).
+    athlete: Option<String>,
+}
+
+impl PlanRequest {
+    /// A trailing `week` or `today` is the view; any words before it name an
+    /// athlete. With no view word, the whole argument names the athlete and
+    /// the view is compact.
+    fn parse(args: &[String]) -> Self {
+        let tokens: Vec<&str> = args
+            .iter()
+            .map(|arg| arg.trim())
+            .filter(|arg| !arg.is_empty())
+            .collect();
+        let (view, name) = match tokens.split_last() {
+            Some((last, rest)) => {
+                PlanView::named(last).map_or((PlanView::Compact, &tokens[..]), |view| (view, rest))
+            }
+            None => (PlanView::Compact, &tokens[..]),
+        };
+        let athlete = (!name.is_empty()).then(|| name.join(" "));
+        Self { view, athlete }
+    }
+}
+
+/// Who reads a rendered plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PlanReader {
+    /// The athlete whose plan it is.
+    Owner,
+    /// A group's human coach reading a coached athlete's plan: lines
+    /// addressed to the athlete stay off their reply.
+    Coach,
+}
+
+/// Whose plan a reply renders: under which tenant it lives, whose it is, and
+/// who reads it.
+#[derive(Debug, Clone, Copy)]
+struct PlanOwner {
+    tenant: TenantId,
+    user_id: Uuid,
+    reader: PlanReader,
+}
+
+impl PlanOwner {
+    /// The caller's own plan, under their active tenant.
+    const fn caller(ctx: &PlatformCommandContext) -> Self {
+        Self {
+            tenant: ctx.tenant_id,
+            user_id: ctx.user_id,
+            reader: PlanReader::Owner,
         }
     }
 }
@@ -328,22 +396,23 @@ fn caller_display_name(user: Option<&User>) -> String {
     )
 }
 
-/// Render the caller's stored plan in the requested view, or `None` when
-/// nothing is saved. Shared by `/plan` and `/plan share`: one body, two
-/// deliveries.
+/// Render `owner`'s stored plan in the requested view, or `None` when
+/// nothing is saved. Shared by `/plan`, `/plan <athlete>` and `/plan share`:
+/// one body, three deliveries.
 ///
 /// The plan is the athlete's one season under their own tenant, whichever
 /// agent laid it, so a DM, a room and the home screen all read the same plan
 /// whatever agent the conversation binds or the athlete has selected.
 async fn render_plan_reply(
     ctx: &PlatformCommandContext,
+    owner: PlanOwner,
     view: PlanView,
     today: NaiveDate,
 ) -> Result<Option<String>, AppError> {
     let reg = ctx.ctx.messaging_strings_registry();
     let repos = ctx.ctx.repos();
-    let user = ctx.user_id.to_string();
-    let tenant = ctx.tenant_id.to_string();
+    let user = owner.user_id.to_string();
+    let tenant = owner.tenant.to_string();
 
     let Some(plan) = repos.training_plans.get_active_plan(&tenant, &user).await? else {
         return Ok(None);
@@ -372,18 +441,22 @@ async fn render_plan_reply(
     ));
 
     // Flag a plan whose goal fact has since been superseded, using the same
-    // predicate `get_training_plan` reports `goal_stale` from.
-    if let Some(fact_id) = plan.goal_fact_id.as_deref() {
-        if plan_goal_is_stale(repos, ctx.tenant_id, &user, fact_id).await? {
-            body.push_str(&reg.render(KEY_PLAN_STALE_GOAL, &ctx.locale, &[]));
+    // predicate `get_training_plan` reports `goal_stale` from. The note asks
+    // the athlete to have their agent refresh it, so it reaches the athlete
+    // alone.
+    if owner.reader == PlanReader::Owner {
+        if let Some(fact_id) = plan.goal_fact_id.as_deref() {
+            if plan_goal_is_stale(repos, owner.tenant, &user, fact_id).await? {
+                body.push_str(&reg.render(KEY_PLAN_STALE_GOAL, &ctx.locale, &[]));
+            }
         }
     }
     Ok(Some(body))
 }
 
-/// The view the caller asked for, from the first argument.
-fn requested_view(ctx: &PlatformCommandContext) -> PlanView {
-    PlanView::parse(ctx.args.first().map(|s| s.trim().to_lowercase()).as_deref())
+/// What the caller asked for, from the arguments.
+fn requested(ctx: &PlatformCommandContext) -> PlanRequest {
+    PlanRequest::parse(&ctx.args)
 }
 
 /// The empty-state line: what every surface answers when nothing is saved.
@@ -393,17 +466,152 @@ fn empty_plan_notice(ctx: &PlatformCommandContext) -> String {
         .render(KEY_PLAN_EMPTY, &ctx.locale, &[])
 }
 
-/// The plan body, or the empty-state line when nothing is saved.
-async fn plan_body(ctx: &PlatformCommandContext, today: NaiveDate) -> Result<String, AppError> {
-    let rendered = render_plan_reply(ctx, requested_view(ctx), today).await?;
+/// The caller's own plan body, or the empty-state line when nothing is saved.
+async fn plan_body(
+    ctx: &PlatformCommandContext,
+    view: PlanView,
+    today: NaiveDate,
+) -> Result<String, AppError> {
+    let rendered = render_plan_reply(ctx, PlanOwner::caller(ctx), view, today).await?;
     Ok(rendered.unwrap_or_else(|| empty_plan_notice(ctx)))
+}
+
+/// `/plan <athlete>` from a group's human coach: the coached athlete's plan,
+/// or the line saying why it is not shown.
+///
+/// `None` when the name is not the coach's to resolve — the caller coaches no
+/// active group, or named themself — and the caller's own plan answers, as
+/// `/plan` with an argument does for anyone who coaches no group.
+///
+/// The reply is private on every surface: bare `/plan` is not a room-visible
+/// command, so a room delivers it to the caller alone. The athlete's plan is
+/// read through the gates every coach read of a plan runs
+/// ([`plan_scope::coached_plan_read_access`]), and projected on the athlete's
+/// own today.
+async fn coached_athlete_plan(
+    ctx: &PlatformCommandContext,
+    query: &str,
+    view: PlanView,
+) -> Result<Option<String>, AppError> {
+    let repos = ctx.ctx.repos();
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = &ctx.locale;
+    let coaches_a_group = repos
+        .groups
+        .list_groups_coached_by(ctx.user_id)
+        .await?
+        .iter()
+        .any(|group| group.is_active);
+    if !coaches_a_group {
+        return Ok(None);
+    }
+
+    // Every name in a reply is user-set free text in rich text, so escaped.
+    let typed = escape_markdown(query);
+    let found = match plan_scope::match_coached_member(repos, ctx.user_id, query, None).await? {
+        Ok(found) => found,
+        Err(MemberMiss::Requester) => return Ok(None),
+        Err(MemberMiss::NoMatch) => {
+            return Ok(Some(reg.render(
+                KEY_PLAN_ATHLETE_NO_MATCH,
+                locale,
+                &[&typed],
+            )));
+        }
+        Err(MemberMiss::Ambiguous(names)) => {
+            let names: Vec<String> = names.iter().map(|name| escape_markdown(name)).collect();
+            return Ok(Some(reg.render(
+                KEY_PLAN_ATHLETE_AMBIGUOUS,
+                locale,
+                &[&typed, &names.join(", ")],
+            )));
+        }
+    };
+    let access = match plan_scope::coached_plan_read_access(
+        &ctx.tool_runtime,
+        ctx.user_id,
+        found.user_id,
+        found.group.id,
+    )
+    .await?
+    {
+        Ok(access) => access,
+        Err(refused) => return Ok(Some(refusal_line(ctx, &refused, &typed))),
+    };
+
+    let name = escape_markdown(&access.display_name);
+    let today = athlete_clock::athlete_today(repos, access.athlete_user_id).await;
+    let owner = PlanOwner {
+        tenant: access.tenant,
+        user_id: access.athlete_user_id,
+        reader: PlanReader::Coach,
+    };
+    let reply = render_plan_reply(ctx, owner, view, today)
+        .await?
+        .map_or_else(
+            || reg.render(KEY_PLAN_ATHLETE_EMPTY, locale, &[&name]),
+            |body| {
+                let header = reg.render(KEY_PLAN_ATHLETE_HEADER, locale, &[&name]);
+                format!("{header}\n{body}")
+            },
+        );
+    info!(
+        coach_user_id = %ctx.user_id,
+        athlete_user_id = %access.athlete_user_id,
+        group_id = %access.group.id,
+        "/plan: coach read a coached athlete's plan"
+    );
+    Ok(Some(reply))
+}
+
+/// The line `/plan <athlete>` answers with when the coach may not read the
+/// plan. `typed` is what the coach typed, escaped.
+fn refusal_line(ctx: &PlatformCommandContext, refused: &CoachedPlanRefusal, typed: &str) -> String {
+    let reg = ctx.ctx.messaging_strings_registry();
+    let locale = &ctx.locale;
+    match refused {
+        // Only a membership that changed since the match fails these two,
+        // and that reads as no match.
+        CoachedPlanRefusal::Coaching(
+            CoachedAthleteRefusal::NotGroupCoach | CoachedAthleteRefusal::NotAMember,
+        ) => reg.render(KEY_PLAN_ATHLETE_NO_MATCH, locale, &[typed]),
+        CoachedPlanRefusal::Coaching(CoachedAthleteRefusal::CoachSharingRevoked {
+            athlete,
+            ..
+        }) => reg.render(
+            KEY_PLAN_ATHLETE_NOT_SHARING,
+            locale,
+            &[&escape_markdown(athlete)],
+        ),
+        // An athlete with no tenant has nowhere to keep a plan: they have none.
+        CoachedPlanRefusal::Coaching(CoachedAthleteRefusal::NoTenant { athlete }) => {
+            reg.render(KEY_PLAN_ATHLETE_EMPTY, locale, &[&escape_markdown(athlete)])
+        }
+        CoachedPlanRefusal::Coaching(CoachedAthleteRefusal::SeveralTenants { athlete }) => reg
+            .render(
+                KEY_PLAN_ATHLETE_SEVERAL_TENANTS,
+                locale,
+                &[&escape_markdown(athlete)],
+            ),
+        CoachedPlanRefusal::PlansDisabled { athlete } => reg.render(
+            KEY_PLAN_ATHLETE_PLANS_DISABLED,
+            locale,
+            &[&escape_markdown(athlete)],
+        ),
+    }
 }
 
 #[async_trait]
 impl CommandHandler for PlanShowHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let request = requested(ctx);
+        if let Some(query) = request.athlete.as_deref() {
+            if let Some(reply) = coached_athlete_plan(ctx, query, request.view).await? {
+                return Ok(CommandResponse::rich_text(reply));
+            }
+        }
         let user = caller_record(ctx).await;
-        let body = plan_body(ctx, caller_today(user.as_ref())).await?;
+        let body = plan_body(ctx, request.view, caller_today(user.as_ref())).await?;
         // The whole plan, however long. A body past what one message on this
         // channel carries is split into ordered messages by the egress
         // (`messaging_ingress::block_render::fan_out`), so a twelve-week plan
@@ -424,7 +632,9 @@ impl CommandHandler for PlanShareHandler {
         // room — delivery is the command's, decided by name at the ingress —
         // and hangs off the caller's own `/plan share` line, which is what
         // attributes it.
-        let Some(body) = render_plan_reply(ctx, requested_view(ctx), today).await? else {
+        // Only ever the caller's own plan: a name after `share` is not read.
+        let view = requested(ctx).view;
+        let Some(body) = render_plan_reply(ctx, PlanOwner::caller(ctx), view, today).await? else {
             return Ok(CommandResponse::rich_text(empty_plan_notice(ctx)));
         };
         // The header renders only where the reply is actually posted to a
@@ -456,5 +666,60 @@ impl CommandHandler for PlanShareHandler {
     /// predicate exists for listing coherence alone.
     fn is_available(&self, standing: &CallerGroupStanding) -> bool {
         !standing.is_direct_message
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| (*w).to_owned()).collect()
+    }
+
+    #[test]
+    fn bare_plan_is_the_callers_compact_view() {
+        let request = PlanRequest::parse(&args(&[]));
+        assert_eq!(request.view, PlanView::Compact, "bare /plan is compact");
+        assert_eq!(request.athlete, None, "bare /plan names no athlete");
+    }
+
+    #[test]
+    fn a_view_word_alone_names_no_athlete() {
+        for (word, view) in [("week", PlanView::Week), ("Today", PlanView::Today)] {
+            let request = PlanRequest::parse(&args(&[word]));
+            assert_eq!(request.view, view, "'{word}' names a view");
+            assert_eq!(request.athlete, None, "'{word}' alone names no athlete");
+        }
+    }
+
+    #[test]
+    fn the_words_before_a_view_name_the_athlete() {
+        let request = PlanRequest::parse(&args(&["JF", "Test", "week"]));
+        assert_eq!(
+            request.view,
+            PlanView::Week,
+            "the trailing word is the view"
+        );
+        assert_eq!(
+            request.athlete.as_deref(),
+            Some("JF Test"),
+            "the words before the view are joined into one name"
+        );
+    }
+
+    #[test]
+    fn a_name_with_no_view_reads_compact() {
+        let request = PlanRequest::parse(&args(&["  JF ", ""]));
+        assert_eq!(
+            request.view,
+            PlanView::Compact,
+            "no view word reads as the compact view"
+        );
+        assert_eq!(
+            request.athlete.as_deref(),
+            Some("JF"),
+            "the name is trimmed and blank words dropped"
+        );
     }
 }

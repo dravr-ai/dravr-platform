@@ -214,7 +214,7 @@ export { formatList } from './list-format';
 
 // A coach's plan thread for one athlete and the draft card in it: the
 // catalogue keys, and how a refused publish names what it collided with
-export { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, planConflictText } from './plan-draft';
+export { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS, planConflictText } from './plan-draft';
 export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
 
 // Singular or plural catalogue key for a count, per locale (no Intl.PluralRules).

@@ -21,6 +21,7 @@
 //! - [`chat::dto`] — request/response shapes shared across the handlers
 //! - [`chat::common`] — auth / tenant resolution shared by every handler
 
+mod athlete_plan;
 mod common;
 mod conversations;
 mod dto;
@@ -105,6 +106,12 @@ impl ChatRoutes {
             .route(
                 "/api/chat/athletes/{athlete_user_id}/thread",
                 post(subject_thread::open_subject_thread),
+            )
+            // The same coach reads that athlete's live plan read-only, from
+            // Group info, without opening the thread (carnet#1244)
+            .route(
+                "/api/chat/athletes/{athlete_user_id}/plan",
+                get(athlete_plan::get_athlete_plan),
             )
             // In that thread, the coach's draft of the athlete's plan: read
             // it beside the live plan, publish it, or throw it away

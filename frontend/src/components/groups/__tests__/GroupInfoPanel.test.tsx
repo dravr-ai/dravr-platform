@@ -10,7 +10,13 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GroupInfoPanel from '../GroupInfoPanel';
 import { ToastProvider } from '../../ui';
-import type { CoachConsentsResponse, CoachingGroup, DelegatedConnection, GroupMember } from '@pierre/shared-types';
+import type {
+  CoachConsentsResponse,
+  CoachingGroup,
+  DelegatedConnection,
+  GroupMember,
+  WorkoutPlan,
+} from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 import { UnitsContext } from '@pierre/ui-logic';
 import type { DistanceUnit } from '@pierre/chat-utils';
@@ -99,6 +105,7 @@ vi.mock('../../../services/api', () => ({
   },
   chatApi: {
     openAthleteThread: vi.fn(),
+    getAthletePlan: vi.fn(),
   },
 }));
 
@@ -820,6 +827,96 @@ describe('GroupInfoPanel', () => {
     expect(screen.getByTestId(`member-work-on-plan-${OTHER_ID}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`member-work-on-plan-${CALLER_ID}`)).toBeNull();
     expect(screen.queryByRole('button', { name: "Work on Caller's plan" })).toBeNull();
+  });
+
+  describe("reading a member's live plan, read-only (carnet#1244)", () => {
+    const PLAN: WorkoutPlan = {
+      goal_race: { name: 'Harricana 65K', date: '2027-09-11', discipline: 'trail', priority: 'A' },
+      phases: [],
+      weeks: [],
+      weeks_deferred: 0,
+    };
+
+    function coachOf(display_name = 'Alice Runner') {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({
+        members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name })],
+      });
+      vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    }
+
+    it('shows the coach the plan the athlete sees, and works on it from there', async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePlan).mockResolvedValue({
+        athlete: { user_id: OTHER_ID, display_name: 'Alice Runner' },
+        today: '2026-10-28',
+        live: PLAN,
+      });
+      vi.mocked(chatApi.openAthleteThread).mockResolvedValue({
+        id: 'conv-plan-alice',
+        title: 'Alice Runner',
+        message_count: 0,
+        created_at: '2026-10-16T12:00:00Z',
+        updated_at: '2026-10-16T12:00:00Z',
+      });
+      const user = userEvent.setup();
+      const { onOpenConversation } = renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: "View Alice Runner's plan" }));
+
+      expect(await screen.findByText('Read-only: the plan Alice Runner sees.')).toBeInTheDocument();
+      expect(screen.getByText('Harricana 65K')).toBeInTheDocument();
+      expect(chatApi.getAthletePlan).toHaveBeenCalledWith(OTHER_ID, GROUP_ID);
+      expect(chatApi.openAthleteThread).not.toHaveBeenCalled();
+
+      await user.click(screen.getByTestId('athlete-plan-work-on'));
+      await waitFor(() => expect(onOpenConversation).toHaveBeenCalledWith('conv-plan-alice'));
+    });
+
+    it('says the athlete has no published plan', async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePlan).mockResolvedValue({
+        athlete: { user_id: OTHER_ID, display_name: 'Alice Runner' },
+        today: '2026-10-28',
+        live: null,
+      });
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: "View Alice Runner's plan" }));
+
+      expect(await screen.findByText('Alice Runner has no published plan yet.')).toBeInTheDocument();
+    });
+
+    it('says the athlete stopped sharing, and offers no way into the thread', async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePlan).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: "View Alice Runner's plan" }));
+
+      expect(
+        await screen.findByText("Alice Runner stopped sharing with you, so their plan isn't shown."),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId('athlete-plan-work-on')).toBeNull();
+    });
+
+    it('never offers a member the view', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+      renderPanel();
+
+      expect(await screen.findByText('Other')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /View .* plan/ })).toBeNull();
+      expect(chatApi.getAthletePlan).not.toHaveBeenCalled();
+    });
   });
 
   describe('when the server refuses the plan thread', () => {

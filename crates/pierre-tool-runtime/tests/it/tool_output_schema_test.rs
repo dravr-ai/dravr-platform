@@ -117,6 +117,9 @@ use pierre_tool_runtime::implementations::goals_output::{
     FeasibilityAnalysis, FeasibilityHistoricalContext, GoalFeasibilityResult, GoalSuggestionEntry,
     ProgressSummary, SetGoalResult, SuggestGoalsResult, TrackProgressResult,
 };
+use pierre_tool_runtime::implementations::group_member_plan::{
+    GetGroupMemberPlanStatusTool, GroupMemberPlanStatus, PlanGoalRace,
+};
 use pierre_tool_runtime::implementations::group_roster::{
     GetRosterOverviewTool, RosterAthleteStatus, RosterOverviewActivity, RosterOverviewAthlete,
     RosterOverviewGroup, RosterOverviewResult, RosterTraining,
@@ -3578,6 +3581,13 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
             output_schema_for::<GroupMemberActivitiesResult>(),
         ),
         (
+            "get_group_member_plan_status",
+            <GetGroupMemberPlanStatusTool as McpTool<dyn ToolRuntime>>::definition(
+                &GetGroupMemberPlanStatusTool,
+            ),
+            output_schema_for::<GroupMemberPlanStatus>(),
+        ),
+        (
             "get_roster_overview",
             <GetRosterOverviewTool as McpTool<dyn ToolRuntime>>::definition(&GetRosterOverviewTool),
             output_schema_for::<RosterOverviewResult>(),
@@ -4295,6 +4305,65 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
         value["athletes"][1].get("training").is_none(),
         "a withheld athlete must carry no training key at all"
     );
+}
+
+/// The plan status a coach's room may read carries the plan's goal, season
+/// and phase, never a week of it (carnet#1244).
+#[test]
+fn the_plan_status_schema_carries_no_week_of_the_plan() {
+    let schema = output_schema_for::<GroupMemberPlanStatus>();
+    let mut declared: Vec<String> = schema["properties"]
+        .as_object()
+        .expect("the status declares its properties")
+        .keys()
+        .cloned()
+        .collect();
+    declared.sort();
+    assert_eq!(
+        declared,
+        [
+            "current_phase",
+            "goal_race",
+            "group",
+            "member",
+            "published",
+            "season_end",
+            "season_start",
+            "where_to_read",
+        ],
+        "the plan status changed: a room reads every field it carries"
+    );
+
+    let validator = jsonschema::validator_for(&schema).expect("compiles");
+    for status in [
+        GroupMemberPlanStatus {
+            member: "JF".to_owned(),
+            group: "Coacher JF".to_owned(),
+            published: true,
+            goal_race: Some(PlanGoalRace {
+                name: "Demi de Montréal".to_owned(),
+                date: "2027-02-14".to_owned(),
+                days_out: Some(109),
+            }),
+            season_start: Some("2026-10-26".to_owned()),
+            season_end: None,
+            current_phase: Some("base".to_owned()),
+            where_to_read: "JF's plan is never posted in a group.".to_owned(),
+        },
+        GroupMemberPlanStatus {
+            member: "JF".to_owned(),
+            group: "Coacher JF".to_owned(),
+            published: false,
+            goal_race: None,
+            season_start: None,
+            season_end: None,
+            current_phase: None,
+            where_to_read: "JF has no published plan.".to_owned(),
+        },
+    ] {
+        let value = serde_json::to_value(status).expect("serializes");
+        assert!(validator.is_valid(&value), "plan status:\n{value:#}");
+    }
 }
 
 // ============================================================================

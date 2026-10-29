@@ -39,6 +39,7 @@ import {
   useSuccessToast,
 } from '../ui';
 import MemberList from './MemberList';
+import AthletePlanModal from './AthletePlanModal';
 import GroupLeads from './GroupLeads';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
@@ -180,6 +181,8 @@ export default function GroupInfoPanel({
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRemoveCoach, setConfirmRemoveCoach] = useState(false);
+  // The member whose live plan the coach is reading, read-only (carnet#1244).
+  const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
 
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
@@ -292,6 +295,7 @@ export default function GroupInfoPanel({
     if (!onOpenConversation) return;
     try {
       const thread = await openThread(member.user_id, groupId);
+      setViewingPlanFor(null);
       onOpenConversation(thread.id);
     } catch (err) {
       showError(openThreadRefusalText(err, member.display_name ?? t('groups.memberFallback'), t));
@@ -445,8 +449,19 @@ export default function GroupInfoPanel({
           // own row; a member's view of the roster never carries the action.
           onWorkOnPlan={isGroupCoach && onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
           openingPlanFor={pendingAthleteId}
+          // The same coach reads a member's live plan without opening the
+          // thread (carnet#1244); the server checks the coaching link by id.
+          onViewPlan={isGroupCoach ? setViewingPlanFor : undefined}
         />
       </Section>
+
+      <AthletePlanModal
+        member={viewingPlanFor}
+        groupId={groupId}
+        onClose={() => setViewingPlanFor(null)}
+        onWorkOnPlan={onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
+        isOpeningThread={viewingPlanFor !== null && pendingAthleteId === viewingPlanFor.user_id}
+      />
 
       {/* Which side of the links the caller is on is the server's answer:
           a coach who is also a member is still the group's coach. */}

@@ -37,6 +37,21 @@ describe('chatApi plan-thread calls', () => {
     expect(thread.id).toBe(CONVERSATION_ID);
   });
 
+  it("reads a coached athlete's plan in the group named, and refuses a body that breaks its contract", async () => {
+    const body = {
+      athlete: { user_id: 'user-alice', display_name: 'Alice Runner' },
+      today: '2026-10-28',
+      live: null,
+    };
+    const get = vi.spyOn(pierreApi.axios, 'get').mockResolvedValueOnce(answer(body));
+
+    await expect(chatApi.getAthletePlan('user-alice', 'group-1')).resolves.toEqual(body);
+    expect(get).toHaveBeenCalledWith('/api/chat/athletes/user-alice/plan', { params: { group_id: 'group-1' } });
+
+    get.mockResolvedValueOnce(answer({ athlete: { user_id: 'user-alice', display_name: 'Alice' }, today: '28/10' }));
+    await expect(chatApi.getAthletePlan('user-alice', 'group-1')).rejects.toThrow('does not match its contract');
+  });
+
   it('reads the subject plan and refuses a body that breaks its contract', async () => {
     const body = {
       athlete: { user_id: 'user-alice', display_name: 'Alice Runner' },

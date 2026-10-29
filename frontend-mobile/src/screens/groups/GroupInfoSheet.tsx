@@ -46,6 +46,7 @@ import { GroupInsightsSection } from './GroupInsightsSection';
 import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
+import { AthletePlanView } from './AthletePlanView';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
 import { CoachConsentsSection } from './CoachConsentsSection';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
@@ -172,6 +173,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
   const { openThread, pendingAthleteId } = useOpenAthleteThread();
+  // The member whose live plan the coach is reading, drawn in place of the
+  // roster (carnet#1244).
+  const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
 
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);
@@ -442,6 +446,18 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     );
   }
 
+  if (viewingPlanFor) {
+    return (
+      <AthletePlanView
+        member={viewingPlanFor}
+        groupId={groupId}
+        onBack={() => setViewingPlanFor(null)}
+        onWorkOnPlan={(picked) => void handleWorkOnPlan(picked)}
+        isOpeningThread={pendingAthleteId === viewingPlanFor.user_id}
+      />
+    );
+  }
+
   return (
     <ScrollView testID="group-info-sheet" keyboardShouldPersistTaps="handled">
       <Text className="text-lg font-bold text-text-primary" testID="group-info-name">
@@ -496,6 +512,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     : undefined
                 }
                 isOpeningPlan={pendingAthleteId === member.user_id}
+                onViewPlan={isGroupCoach && member.user_id !== user?.id ? setViewingPlanFor : undefined}
               />
             ))
           )}

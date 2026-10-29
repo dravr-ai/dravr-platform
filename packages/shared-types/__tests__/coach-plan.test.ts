@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PLAN_PUBLISH_CONFLICT,
+  parseAthletePlanResponse,
   parseDraftState,
   parsePlanPublishConflict,
   parsePlanSubject,
@@ -67,6 +68,30 @@ describe('parsePlanSubject', () => {
     expect(parsePlanSubject({ user_id: '', display_name: 'Alice' })).toBeNull();
     expect(parsePlanSubject({ user_id: 'user-alice' })).toBeNull();
     expect(parsePlanSubject('user-alice')).toBeNull();
+  });
+});
+
+describe('parseAthletePlanResponse', () => {
+  const body = {
+    athlete: { user_id: 'user-alice', display_name: 'Alice Runner' },
+    today: '2026-10-28',
+    live: plan,
+  };
+
+  it("reads a coached athlete's live plan, and an athlete with none", () => {
+    expect(parseAthletePlanResponse(body)?.live?.goal_race.name).toBe('Harricana 65K');
+    expect(parseAthletePlanResponse({ ...body, live: null })).toEqual({
+      athlete: body.athlete,
+      today: '2026-10-28',
+      live: null,
+    });
+  });
+
+  it('refuses a body whose plan, day or athlete breaks its shape', () => {
+    expect(parseAthletePlanResponse({ ...body, live: { weeks: [] } })).toBeNull();
+    expect(parseAthletePlanResponse({ ...body, today: 'today' })).toBeNull();
+    expect(parseAthletePlanResponse({ ...body, athlete: null })).toBeNull();
+    expect(parseAthletePlanResponse(null)).toBeNull();
   });
 });
 

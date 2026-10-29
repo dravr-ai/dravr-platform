@@ -49,6 +49,17 @@ export interface SubjectPlanResponse {
   draft_state: DraftState | null;
 }
 
+/**
+ * `GET /api/chat/athletes/{id}/plan?group_id=`: a coached athlete's live
+ * plan as their coach reads it from Group info, read-only (carnet#1244).
+ */
+export interface AthletePlanResponse {
+  athlete: PlanSubject;
+  /** The athlete's today, `YYYY-MM-DD`, the day the plan was projected for. */
+  today: string;
+  live: WorkoutPlan | null;
+}
+
 /** `POST …/subject-plan/publish` body. */
 export interface PublishSubjectPlanRequest {
   /** Publish over the weeks the athlete changed, and over a re-laid season. */
@@ -165,6 +176,19 @@ export function parseSubjectPlanResponse(body: unknown): SubjectPlanResponse | n
     return null;
   }
   return { athlete, today: body.today, live, draft, draft_state: draftState };
+}
+
+/** The coach's read-only athlete plan, or `null` when the body breaks its contract. */
+export function parseAthletePlanResponse(body: unknown): AthletePlanResponse | null {
+  if (!isRecord(body) || typeof body.today !== 'string' || !CIVIL_DATE.test(body.today)) {
+    return null;
+  }
+  const athlete = parsePlanSubject(body.athlete);
+  const live = nullablePlan(body.live);
+  if (athlete === null || live === undefined) {
+    return null;
+  }
+  return { athlete, today: body.today, live };
 }
 
 /** A publish's 200 body, or `null` when it breaks its contract. */

@@ -161,6 +161,9 @@ export const QUERY_KEYS = {
     starters: () => ['chat', 'starters'] as const,
     /** A coach's plan thread: its athlete's live plan and the coach's draft over it. */
     subjectPlan: (conversationId: string | null) => ['chat', 'subject-plan', conversationId] as const,
+    /** A coached athlete's live plan, read-only, as their coach reads it from Group info. */
+    athletePlan: (athleteUserId: string | null, groupId: string | null) =>
+      ['chat', 'athlete-plan', athleteUserId, groupId] as const,
   },
 
   // ==================== COACHES ====================

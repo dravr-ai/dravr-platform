@@ -75,6 +75,7 @@ crates/pierre-routes-groups/src/groups.rs:Owner cannot leave the group. Transfer
 crates/pierre-routes-groups/src/groups.rs:Owner role required for this operation
 crates/pierre-routes-web-admin/src/lib.rs:Admin is not permitted to view this user's financial data
 crates/pierre-routes-web-admin/src/lib.rs:Super-admin privileges required to export platform-wide billing
+crates/pierre-server/src/routes/chat/athlete_plan.rs:Training plans are turned off in {athlete}'s workspace
 crates/pierre-server/src/routes/chat/common.rs:Cannot attach conversation to a group you don't belong to
 crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's owner can delete it
 crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is not a member of this conversation's tenant

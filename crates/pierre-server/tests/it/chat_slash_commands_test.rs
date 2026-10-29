@@ -1913,7 +1913,7 @@ async fn help_shows_argument_options_localized_headings_and_stable_order() {
         "/group consent [coach] yes|no",
         "/group respond mentions|all",
         "/group coach agent-name",
-        "/plan [week|today]",
+        "/plan [athlete] [week|today]",
         // Named, not a `pillar` placeholder: the athlete must be able to type
         // one of these without knowing the internal DB slugs.
         "/pillars [full|training|fuelling|sleep|mental|community|substances]",
