@@ -548,7 +548,9 @@ mod tests {
         use crate::training_history_read::tests::{athlete, NolioTerms};
 
         let fx = athlete().await;
-        fx.cache_strava_twins(1).await;
+        // Three days back, so the export's start (01:30 UTC the day after the
+        // capture's) is in the window at any hour this runs.
+        fx.cache_strava_twins(3).await;
         let sources = AthleteSources {
             repos: fx.db.repositories(),
             policies: &NolioTerms,
