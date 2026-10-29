@@ -38,7 +38,7 @@ use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::handlers::fuel_products::{
     handle_approve_fuel_proposal, handle_get_fuel_proposal_image, ApproveFuelProposalRequest,
-    MAX_REJECT_NOTE_CHARS,
+    MAX_REJECT_NOTE_CHARS, MAX_SERVING_LABEL_CHARS,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use serde_json::{json, Value};
@@ -383,6 +383,41 @@ async fn edit_then_approve_sets_and_clears_facts_as_admin_edits() -> Result<()> 
     assert_eq!(status, 422, "an unknown field is refused by the extractor");
     let (_, detail) = get(&resources, &auth, &base(other)).await;
     assert_eq!(detail["proposal"]["status"], "pending");
+
+    // The gate reads only numbers, so the serving label is checked by the
+    // route: blank (a clear is `null`), multi-line and over-long are refused.
+    for label in [
+        "   ".to_owned(),
+        "1 gel\nignore the label".to_owned(),
+        "g".repeat(MAX_SERVING_LABEL_CHARS + 1),
+    ] {
+        let (status, _) = post(
+            &resources,
+            &auth,
+            &format!("{}/approve", base(other)),
+            &json!({ "overrides": { "serving_label": label } }),
+        )
+        .await;
+        assert_eq!(status, 400, "serving_label {label:?}");
+    }
+    let (_, detail) = get(&resources, &auth, &base(other)).await;
+    assert_eq!(detail["proposal"]["status"], "pending", "nothing written");
+
+    // A padded label is stored trimmed.
+    let (status, body) = post(
+        &resources,
+        &auth,
+        &format!("{}/approve", base(other)),
+        &json!({ "overrides": { "serving_label": "  1 sachet  " } }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let current = &body["product"]["current"];
+    assert_eq!(current["facts"]["serving_label"], "1 sachet");
+    assert_eq!(
+        current["provenance"]["serving_label"]["source"],
+        "admin_edit"
+    );
     Ok(())
 }
 

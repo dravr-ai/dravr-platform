@@ -41,14 +41,17 @@ use uuid::Uuid;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome, FuelFactOverrides,
-    FuelProductProposal, FuelRejectReason, PlausibilityViolation, ProposalStatus,
+    CatalogueFuelListing, CatalogueFuelProduct, FieldOverride, FuelApprovalOutcome,
+    FuelFactOverrides, FuelProductProposal, FuelRejectReason, PlausibilityViolation, ProposalStatus,
 };
 
 use crate::context::AdminApiContext;
 
 /// Longest rejection note accepted, in characters.
 pub const MAX_REJECT_NOTE_CHARS: usize = 2000;
+
+/// Longest serving label an operator can set, in characters.
+pub const MAX_SERVING_LABEL_CHARS: usize = 120;
 
 /// Rows a list returns when the request names no limit.
 const DEFAULT_PAGE: i64 = 50;
@@ -332,6 +335,34 @@ fn reviewer(admin_token: &ValidatedAdminToken) -> AppResult<Uuid> {
     })
 }
 
+/// An operator's serving label, trimmed. The plausibility gate reads only
+/// numbers, so the text is checked here: a blank label is "not stated",
+/// which is a clear (`null`), never an empty string; one line only; and at
+/// most [`MAX_SERVING_LABEL_CHARS`], the cap an athlete's label has.
+///
+/// # Errors
+///
+/// An invalid-input error for a blank, multi-line or over-long label.
+fn checked_serving_label(raw: &str) -> AppResult<String> {
+    let label = raw.trim();
+    if label.is_empty() {
+        return Err(AppError::invalid_input(
+            "serving_label is blank: send null to clear it",
+        ));
+    }
+    if label.chars().any(char::is_control) {
+        return Err(AppError::invalid_input(
+            "serving_label must be one line of text",
+        ));
+    }
+    if label.chars().count() > MAX_SERVING_LABEL_CHARS {
+        return Err(AppError::invalid_input(format!(
+            "serving_label must be at most {MAX_SERVING_LABEL_CHARS} characters"
+        )));
+    }
+    Ok(label.to_owned())
+}
+
 /// Handle `POST /api/admin/fuel-products/proposals/{id}/approve`.
 ///
 /// See [`approval_response`] for what each outcome answers.
@@ -339,7 +370,8 @@ fn reviewer(admin_token: &ValidatedAdminToken) -> AppResult<Uuid> {
 /// # Errors
 ///
 /// 403 for anyone but a signed-in super-admin, 400 for a malformed id or
-/// body, or a repository error.
+/// body or a serving label [`checked_serving_label`] refuses, or a
+/// repository error.
 pub async fn handle_approve_fuel_proposal(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -349,10 +381,14 @@ pub async fn handle_approve_fuel_proposal(
     require_super_admin(&admin_token)?;
     let reviewer = reviewer(&admin_token)?;
     let id = parse_id(&proposal_id)?;
+    let mut overrides = body.overrides;
+    if let FieldOverride::Set(label) = &mut overrides.serving_label {
+        *label = checked_serving_label(label)?;
+    }
     let outcome = context
         .repos
         .fuel_catalogue
-        .approve_fuel_proposal(id, reviewer, &body.overrides)
+        .approve_fuel_proposal(id, reviewer, &overrides)
         .await?;
     if let FuelApprovalOutcome::Approved(product) = &outcome {
         info!(
