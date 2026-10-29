@@ -32,6 +32,8 @@ pub mod device_web;
 #[cfg(feature = "tools-verification")]
 pub mod eval_harness;
 pub mod feature_flags;
+/// Super-admin review of the global fuel-product catalogue (carnet#155).
+pub mod fuel_products;
 /// Admin endpoints for the Guardian security-policy configuration.
 pub mod guardian_config;
 pub mod harness_config;

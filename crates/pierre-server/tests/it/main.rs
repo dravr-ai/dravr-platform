@@ -53,6 +53,7 @@ mod admin_config_null_tenant_test;
 mod admin_config_routes_authz_test;
 mod admin_config_scopes_test;
 mod admin_cookie_handlers_tenant_access_test;
+mod admin_fuel_product_review_test;
 mod admin_functionality_test;
 mod admin_jwt_test;
 mod admin_models_test;

@@ -29,8 +29,9 @@ use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, agent_followups, agent_grading, agent_notes, api_keys,
     claim_verdicts, coach_access, deletion_ledger, device_auth, device_web, feature_flags,
-    guardian_config, harness_config, memory_worker, myth_busting, provider_clone, provider_data,
-    settings, setup, signup_codes, strava_pool, tokens, user_removal, users, website,
+    fuel_products, guardian_config, harness_config, memory_worker, myth_busting, provider_clone,
+    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
+    website,
 };
 
 /// Admin routes implementation (Axum).
@@ -154,6 +155,7 @@ impl AdminRoutes {
         );
 
         let claim_verdict_routes = Self::claim_verdict_routes(context.clone());
+        let fuel_product_routes = Self::fuel_product_routes(context.clone());
         let memory_worker_routes = Self::memory_worker_routes(context.clone());
         let agent_followup_routes = Self::agent_followup_routes(context.clone());
         let agent_note_routes = Self::agent_note_routes(context.clone());
@@ -168,6 +170,7 @@ impl AdminRoutes {
 
         let human_admin = Router::new()
             .merge(claim_verdict_routes)
+            .merge(fuel_product_routes)
             .merge(memory_worker_routes)
             .merge(agent_followup_routes)
             .merge(agent_note_routes)
@@ -304,6 +307,40 @@ impl AdminRoutes {
             .route(
                 "/api/admin/claim-verdicts/{verdict_id}/disposition",
                 put(claim_verdicts::handle_set_verdict_disposition),
+            )
+            .with_state(context)
+    }
+
+    /// Fuel-product review routes (cookie auth, super-admin only).
+    ///
+    /// The catalogue is global, so none of these is tenant-scoped; see
+    /// [`fuel_products`]. `proposals` is a static segment beside nothing it
+    /// could be mistaken for: the catalogue list has no id capture.
+    fn fuel_product_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/api/admin/fuel-products",
+                get(fuel_products::handle_list_fuel_catalogue),
+            )
+            .route(
+                "/api/admin/fuel-products/proposals",
+                get(fuel_products::handle_list_fuel_proposals),
+            )
+            .route(
+                "/api/admin/fuel-products/proposals/{proposal_id}",
+                get(fuel_products::handle_get_fuel_proposal),
+            )
+            .route(
+                "/api/admin/fuel-products/proposals/{proposal_id}/source-image",
+                get(fuel_products::handle_get_fuel_proposal_image),
+            )
+            .route(
+                "/api/admin/fuel-products/proposals/{proposal_id}/approve",
+                post(fuel_products::handle_approve_fuel_proposal),
+            )
+            .route(
+                "/api/admin/fuel-products/proposals/{proposal_id}/reject",
+                post(fuel_products::handle_reject_fuel_proposal),
             )
             .with_state(context)
     }
