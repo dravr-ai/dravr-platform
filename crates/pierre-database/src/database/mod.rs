@@ -68,6 +68,9 @@ pub mod firebase_identity_deletions;
 pub mod first_run_progress;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
+/// The fuel-product bank (`SQLite`) backing `FuelCatalogueRepository` and
+/// `AthleteFuelItemRepository`.
+pub mod fuel_products;
 /// Every batch Garmin pushes, written before the 200 and worked under a lease (`SQLite`)
 pub mod garmin_push_inbox;
 /// Guardian pending actions (`SQLite`) backing `GuardianPendingActionsRepository`.

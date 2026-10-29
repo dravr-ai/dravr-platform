@@ -91,6 +91,8 @@ pub mod firebase_identity_deletions;
 pub mod first_run_progress;
 /// Repository traits for fitness configuration persistence.
 pub mod fitness_config;
+/// Repository traits for the fuel-product bank (carnet#155).
+pub mod fuel_products;
 /// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
 pub mod garmin_push_inbox;
 /// Shared statements for group invites, run by the coaching-group repository body.
@@ -289,6 +291,7 @@ pub use firebase_identity_deletions::{
 };
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
+pub use fuel_products::{AthleteFuelItemRepository, FuelCatalogueRepository};
 pub use garmin_push_inbox::*;
 pub use guardian_actions::*;
 pub use harness_memory::*;

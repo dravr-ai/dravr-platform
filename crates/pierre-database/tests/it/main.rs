@@ -22,6 +22,7 @@ mod debug_redaction_test;
 mod dek_versioning_test;
 mod first_run_progress_test;
 mod fitness_config_repository_test;
+mod fuel_product_bank_test;
 mod harness_memory_repository_test;
 mod home_preferences_test;
 mod impersonation_test;

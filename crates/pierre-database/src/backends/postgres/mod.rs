@@ -72,6 +72,9 @@ pub mod firebase_identity_deletions;
 pub mod first_run_progress;
 /// Fitness configuration — tenant- and user-scoped training settings
 pub mod fitness_config;
+/// The fuel-product bank (`Postgres`) backing `FuelCatalogueRepository` and
+/// `AthleteFuelItemRepository`.
+pub mod fuel_products;
 /// Every batch Garmin pushes, written before the 200 and worked under a lease (Postgres)
 pub mod garmin_push_inbox;
 /// Guardian pending actions (`Postgres`) backing `GuardianPendingActionsRepository`.

@@ -1,0 +1,671 @@
+// ABOUTME: Covers the fuel-product bank storage against whichever backend DATABASE_URL names
+// ABOUTME: Proposal review, version supersede, the plausibility gate on approval, pending-item relink and athlete isolation (carnet#155)
+
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! The catalogue (`fuel_products`, `fuel_product_versions`), its review queue
+//! (`fuel_product_proposals`) and the athlete's list (`athlete_fuel_items`).
+//! The statements are written once and emitted for both backends;
+//! `create_test_db` opens whichever `DATABASE_URL` names, so the same
+//! assertions cover `SQLite` and `PostgreSQL`.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::collections::BTreeMap;
+
+use pierre_core::models::{
+    normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldProvenance,
+    FuelApprovalOutcome, FuelFacts, FuelForm, FuelItemEntry, FuelRejectReason, NewFuelProposal,
+    PlausibilityViolation, ProposalSource, ProposalSourceImage, ProposalStatus, TenantId, User,
+};
+use pierre_database::RepositoryRegistry;
+use pierre_test_support::db::create_test_db;
+use uuid::Uuid;
+
+/// A distinct user per call; the reviewer and item foreign keys need the row.
+async fn fresh_user(repos: &RepositoryRegistry) -> Uuid {
+    let user = User::new(
+        format!("fuel-{}@example.com", Uuid::new_v4()),
+        "argon2-hash-placeholder".to_owned(),
+        Some("Fuel Bank Tester".to_owned()),
+    );
+    repos.users.create(&user).await.unwrap()
+}
+
+/// A consistent gel label: 40 g serving, 25 g carbs, 1:0.8.
+fn gel_facts() -> FuelFacts {
+    FuelFacts {
+        serving_label: Some("1 gel (40 g)".to_owned()),
+        serving_g: Some(40.0),
+        energy_kcal: Some(100.0),
+        carbs_g: Some(25.0),
+        sugars_g: Some(12.0),
+        sodium_mg: Some(34.0),
+        carbs_g_per_100g: Some(62.5),
+        sodium_mg_per_100g: Some(85.0),
+        salt_g_per_100g: Some(0.21),
+        glucose_fructose_ratio: Some(0.8),
+        ..FuelFacts::default()
+    }
+}
+
+/// A proposal with a distinct name, so tests sharing a database never meet.
+fn proposal(brand: &str, facts: FuelFacts) -> NewFuelProposal {
+    let url = format!("https://shop.example/{}", Uuid::new_v4());
+    let image = b"\x89PNG label panel".to_vec();
+    let mut provenance = BTreeMap::new();
+    provenance.insert(
+        "carbs_g".to_owned(),
+        FieldProvenance {
+            source: FactSource::LabelOcr,
+            source_url: Some(url.clone()),
+            confidence: Some(0.93),
+        },
+    );
+    NewFuelProposal {
+        product_id: None,
+        brand: brand.to_owned(),
+        name: format!("Gel {}", Uuid::new_v4()),
+        variant: String::new(),
+        form: FuelForm::Gel,
+        gtin: None,
+        source_kind: ProposalSource::ShopifyOcr,
+        source_hash: Some(proposal_source_hash(Some(&url), &image)),
+        source_url: Some(url),
+        source_image: Some(ProposalSourceImage {
+            mime: "image/png".to_owned(),
+            bytes: image,
+        }),
+        facts,
+        provenance,
+        gate_flags: Vec::new(),
+        proposed_by_user_id: None,
+    }
+}
+
+async fn approve(
+    repos: &RepositoryRegistry,
+    proposal_id: Uuid,
+    reviewer: Uuid,
+    overrides: &FuelFacts,
+) -> CatalogueFuelProduct {
+    match repos
+        .fuel_catalogue
+        .approve_fuel_proposal(proposal_id, reviewer, overrides)
+        .await
+        .unwrap()
+    {
+        FuelApprovalOutcome::Approved(product) => *product,
+        other => panic!("expected an approval, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn an_approved_proposal_becomes_the_current_version() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let new = proposal("Maurten", gel_facts());
+
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&new)
+        .await
+        .unwrap();
+    assert!(repos
+        .fuel_catalogue
+        .fuel_proposal_exists_by_hash(new.source_hash.as_deref().unwrap())
+        .await
+        .unwrap());
+    let queued = repos
+        .fuel_catalogue
+        .list_fuel_proposals(ProposalStatus::Pending, 100, 0)
+        .await
+        .unwrap();
+    let listed = queued.iter().find(|p| p.id == id).unwrap();
+    assert!(listed.has_source_image);
+    assert_eq!(listed.facts, gel_facts());
+    let detail = repos
+        .fuel_catalogue
+        .get_fuel_proposal(id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        detail.source_image.as_ref().map(|i| i.mime.as_str()),
+        Some("image/png")
+    );
+    assert_eq!(
+        detail.source_image.map(|i| i.bytes),
+        Some(b"\x89PNG label panel".to_vec())
+    );
+
+    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    assert_eq!(product.product.brand, "Maurten");
+    assert_eq!(product.current.facts, gel_facts());
+    assert_eq!(product.current.superseded_by, None);
+    assert_eq!(product.current.approved_by_user_id, Some(reviewer));
+    assert_eq!(
+        product.current.provenance["carbs_g"].source,
+        FactSource::LabelOcr
+    );
+
+    let after = repos
+        .fuel_catalogue
+        .get_fuel_proposal(id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal;
+    assert_eq!(after.status, ProposalStatus::Approved);
+    assert_eq!(after.approved_version_id, Some(product.current.id));
+    assert_eq!(after.product_id, Some(product.product.id));
+    assert_eq!(after.reviewed_by_user_id, Some(reviewer));
+
+    let found = repos
+        .fuel_catalogue
+        .search_fuel_products(&format!("maurten {}", product.product.name), 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        found.iter().map(|p| p.product.id).collect::<Vec<_>>(),
+        vec![product.product.id]
+    );
+
+    // A proposal is reviewed once.
+    let again = repos
+        .fuel_catalogue
+        .approve_fuel_proposal(id, reviewer, &FuelFacts::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        again,
+        FuelApprovalOutcome::NotPending(ProposalStatus::Approved)
+    );
+}
+
+#[tokio::test]
+async fn a_second_approval_supersedes_the_current_version() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let first = proposal("Precision Fuel", gel_facts());
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&first)
+        .await
+        .unwrap();
+    let v1 = approve(repos, id, reviewer, &FuelFacts::default()).await;
+
+    // The same product proposed again by name, the label now with caffeine;
+    // the operator corrects the sodium at review.
+    let mut second = proposal(
+        "Precision Fuel",
+        FuelFacts {
+            caffeine_mg: Some(100.0),
+            ..gel_facts()
+        },
+    );
+    second.name.clone_from(&first.name);
+    let id2 = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&second)
+        .await
+        .unwrap();
+    let overrides = FuelFacts {
+        sodium_mg: Some(35.0),
+        ..FuelFacts::default()
+    };
+    let v2 = approve(repos, id2, reviewer, &overrides).await;
+
+    assert_eq!(v2.product.id, v1.product.id);
+    assert_ne!(v2.current.id, v1.current.id);
+    assert_eq!(v2.current.facts.caffeine_mg, Some(100.0));
+    assert_eq!(v2.current.facts.sodium_mg, Some(35.0));
+    assert_eq!(
+        v2.current.provenance["sodium_mg"].source,
+        FactSource::AdminEdit
+    );
+    let current = repos
+        .fuel_catalogue
+        .get_fuel_product(v1.product.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(current.current.id, v2.current.id);
+    let many = repos
+        .fuel_catalogue
+        .get_fuel_products_current(&[v1.product.id, Uuid::new_v4()])
+        .await
+        .unwrap();
+    assert_eq!(
+        many.iter().map(|p| p.current.id).collect::<Vec<_>>(),
+        vec![v2.current.id]
+    );
+}
+
+#[tokio::test]
+async fn a_gtin_proposal_lands_on_its_barcode_and_conflicts_are_refused() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    // A unique valid GTIN-14 per run: 13 random digits and their check digit.
+    let body: String = Uuid::new_v4()
+        .as_u128()
+        .to_string()
+        .chars()
+        .take(13)
+        .collect();
+    let gtin = (0..=9)
+        .map(|d| format!("{body}{d}"))
+        .find(|candidate| normalize_gtin(candidate).as_deref() == Some(candidate))
+        .unwrap();
+
+    let mut with_gtin = proposal("SiS", gel_facts());
+    with_gtin.gtin = Some(gtin.clone());
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&with_gtin)
+        .await
+        .unwrap();
+    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let by_gtin = repos
+        .fuel_catalogue
+        .get_fuel_product_by_gtin(&gtin)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(by_gtin.product.id, product.product.id);
+    let searched = repos
+        .fuel_catalogue
+        .search_fuel_products(&gtin, 10)
+        .await
+        .unwrap();
+    assert_eq!(searched.len(), 1);
+
+    // Another product's name with this barcode: refused, nothing written.
+    let mut clash = proposal("SiS", gel_facts());
+    clash.gtin = Some(gtin);
+    let other = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("SiS", gel_facts()))
+        .await
+        .unwrap();
+    approve(repos, other, reviewer, &FuelFacts::default()).await;
+    let other_name = repos
+        .fuel_catalogue
+        .get_fuel_proposal(other)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .name;
+    clash.name = other_name;
+    let clash_id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&clash)
+        .await
+        .unwrap();
+    let outcome = repos
+        .fuel_catalogue
+        .approve_fuel_proposal(clash_id, reviewer, &FuelFacts::default())
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, FuelApprovalOutcome::IdentityConflict { .. }),
+        "{outcome:?}"
+    );
+    let still = repos
+        .fuel_catalogue
+        .get_fuel_proposal(clash_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal;
+    assert_eq!(still.status, ProposalStatus::Pending);
+
+    // A barcode not in its GTIN-14 form never reaches the queue.
+    let mut bad = proposal("SiS", gel_facts());
+    bad.gtin = Some("036000291452".to_owned());
+    assert!(repos
+        .fuel_catalogue
+        .create_fuel_proposal(&bad)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn a_rejected_proposal_reaches_no_catalogue() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let new = proposal("Neversecond", gel_facts());
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&new)
+        .await
+        .unwrap();
+
+    assert!(repos
+        .fuel_catalogue
+        .reject_fuel_proposal(id, reviewer, FuelRejectReason::Illegible, Some("blurred"))
+        .await
+        .unwrap());
+    let rejected = repos
+        .fuel_catalogue
+        .get_fuel_proposal(id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal;
+    assert_eq!(rejected.status, ProposalStatus::Rejected);
+    assert_eq!(rejected.reject_reason, Some(FuelRejectReason::Illegible));
+    assert_eq!(rejected.reject_note.as_deref(), Some("blurred"));
+    assert_eq!(rejected.reviewed_by_user_id, Some(reviewer));
+    assert!(!repos
+        .fuel_catalogue
+        .reject_fuel_proposal(id, reviewer, FuelRejectReason::Other, None)
+        .await
+        .unwrap());
+    assert_eq!(
+        repos
+            .fuel_catalogue
+            .approve_fuel_proposal(id, reviewer, &FuelFacts::default())
+            .await
+            .unwrap(),
+        FuelApprovalOutcome::NotPending(ProposalStatus::Rejected)
+    );
+    assert_eq!(
+        repos
+            .fuel_catalogue
+            .search_fuel_products(&new.name, 10)
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn the_gate_refuses_implausible_merged_facts() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("Gu", gel_facts()))
+        .await
+        .unwrap();
+
+    // The operator's edit makes sugars exceed carbs: refused, not clamped.
+    let overrides = FuelFacts {
+        sugars_g: Some(30.0),
+        ..FuelFacts::default()
+    };
+    let outcome = repos
+        .fuel_catalogue
+        .approve_fuel_proposal(id, reviewer, &overrides)
+        .await
+        .unwrap();
+    let FuelApprovalOutcome::Implausible(violations) = outcome else {
+        panic!("expected the gate to refuse, got {outcome:?}");
+    };
+    let codes: Vec<&str> = violations.iter().map(PlausibilityViolation::code).collect();
+    assert!(codes.contains(&"sugars_exceed_carbs"), "{codes:?}");
+    let still = repos
+        .fuel_catalogue
+        .get_fuel_proposal(id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal;
+    assert_eq!(still.status, ProposalStatus::Pending);
+    assert_eq!(still.approved_version_id, None);
+
+    // A gel label with no carbs per serving is refused as stated.
+    let no_carbs = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal(
+            "Gu",
+            FuelFacts {
+                carbs_g: None,
+                ..gel_facts()
+            },
+        ))
+        .await
+        .unwrap();
+    let outcome = repos
+        .fuel_catalogue
+        .approve_fuel_proposal(no_carbs, reviewer, &FuelFacts::default())
+        .await
+        .unwrap();
+    assert!(
+        matches!(&outcome, FuelApprovalOutcome::Implausible(v) if v.iter().any(|v| v.code() == "carbs_missing")),
+        "{outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_pending_item_is_relinked_when_its_proposal_is_approved() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("Spring", gel_facts()))
+        .await
+        .unwrap();
+
+    let item = repos
+        .athlete_fuel_items
+        .add_pending_fuel_item(tenant, athlete, id, Some("2 per hour"))
+        .await
+        .unwrap();
+    // Adding it twice keeps one item.
+    assert_eq!(
+        repos
+            .athlete_fuel_items
+            .add_pending_fuel_item(tenant, athlete, id, None)
+            .await
+            .unwrap(),
+        item
+    );
+    let listed = repos
+        .athlete_fuel_items
+        .list_fuel_items(tenant, athlete)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    let FuelItemEntry::Pending(pending) = &listed[0].entry else {
+        panic!("expected a pending item, got {:?}", listed[0].entry);
+    };
+    assert_eq!(pending.proposal_id, id);
+    assert_eq!(pending.status, ProposalStatus::Pending);
+    assert_eq!(listed[0].note.as_deref(), Some("2 per hour"));
+
+    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let listed = repos
+        .athlete_fuel_items
+        .list_fuel_items(tenant, athlete)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, item);
+    let FuelItemEntry::Catalogue(carried) = &listed[0].entry else {
+        panic!("expected the relinked product, got {:?}", listed[0].entry);
+    };
+    assert_eq!(carried.product.id, product.product.id);
+    assert_eq!(carried.current.id, product.current.id);
+    // Carrying the product now returns the relinked item.
+    assert_eq!(
+        repos
+            .athlete_fuel_items
+            .add_fuel_product_item(tenant, athlete, product.product.id, None)
+            .await
+            .unwrap(),
+        item
+    );
+}
+
+#[tokio::test]
+async fn relinking_onto_a_product_already_carried_keeps_one_item() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let first = proposal("Enervit", gel_facts());
+    let first_id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&first)
+        .await
+        .unwrap();
+    let product = approve(repos, first_id, reviewer, &FuelFacts::default()).await;
+    let carried = repos
+        .athlete_fuel_items
+        .add_fuel_product_item(tenant, athlete, product.product.id, None)
+        .await
+        .unwrap();
+
+    // An update to the same product, carried while pending.
+    let mut update = proposal("Enervit", gel_facts());
+    update.product_id = Some(product.product.id);
+    update.name.clone_from(&first.name);
+    let update_id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&update)
+        .await
+        .unwrap();
+    repos
+        .athlete_fuel_items
+        .add_pending_fuel_item(tenant, athlete, update_id, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        repos
+            .athlete_fuel_items
+            .list_fuel_items(tenant, athlete)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let v2 = approve(repos, update_id, reviewer, &FuelFacts::default()).await;
+    let listed = repos
+        .athlete_fuel_items
+        .list_fuel_items(tenant, athlete)
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, carried);
+    let FuelItemEntry::Catalogue(current) = &listed[0].entry else {
+        panic!("expected the product, got {:?}", listed[0].entry);
+    };
+    assert_eq!(current.current.id, v2.current.id);
+}
+
+#[tokio::test]
+async fn athlete_items_are_isolated_by_tenant_and_user() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let athlete = fresh_user(repos).await;
+    let other_athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let other_tenant = TenantId::generate();
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("Maurten", gel_facts()))
+        .await
+        .unwrap();
+    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+
+    let item = repos
+        .athlete_fuel_items
+        .add_fuel_product_item(tenant, athlete, product.product.id, Some("race day"))
+        .await
+        .unwrap();
+
+    // Another athlete in the tenant, and the athlete in another tenant, see nothing.
+    for (t, u) in [(tenant, other_athlete), (other_tenant, athlete)] {
+        assert_eq!(
+            repos
+                .athlete_fuel_items
+                .list_fuel_items(t, u)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+        assert!(!repos
+            .athlete_fuel_items
+            .remove_fuel_item(t, u, item)
+            .await
+            .unwrap());
+    }
+    assert_eq!(
+        repos
+            .athlete_fuel_items
+            .list_fuel_items(tenant, athlete)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    assert!(repos
+        .athlete_fuel_items
+        .remove_fuel_item(tenant, athlete, item)
+        .await
+        .unwrap());
+    assert_eq!(
+        repos
+            .athlete_fuel_items
+            .list_fuel_items(tenant, athlete)
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
+    // A removed item can be carried again as a new item.
+    let again = repos
+        .athlete_fuel_items
+        .add_fuel_product_item(tenant, athlete, product.product.id, None)
+        .await
+        .unwrap();
+    assert_ne!(again, item);
+
+    // A product the catalogue does not hold cannot be carried.
+    assert!(repos
+        .athlete_fuel_items
+        .add_fuel_product_item(tenant, athlete, Uuid::new_v4(), None)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn a_rejected_proposal_cannot_be_carried() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let athlete = fresh_user(repos).await;
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&proposal("Huma", gel_facts()))
+        .await
+        .unwrap();
+    repos
+        .fuel_catalogue
+        .reject_fuel_proposal(id, reviewer, FuelRejectReason::WrongProduct, None)
+        .await
+        .unwrap();
+    assert!(repos
+        .athlete_fuel_items
+        .add_pending_fuel_item(TenantId::generate(), athlete, id, None)
+        .await
+        .is_err());
+}

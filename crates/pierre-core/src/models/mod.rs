@@ -41,6 +41,9 @@ pub mod delegated_connection;
 /// Endurance athlete dossier composed at read time from physiology, goals,
 /// zones and nutrition slots.
 pub mod dossier;
+/// The fuel-product bank: catalogue products, versioned label facts, the
+/// review queue, what an athlete carries, and the plausibility gate.
+pub mod fuel;
 /// The athlete's gear ledger: declared shoes, per-activity attribution and
 /// the default pair a new activity accrues to.
 pub mod gear;
@@ -170,6 +173,15 @@ pub use user::{
 // Endurance zones + dossier + training-history + workout-template domain
 pub use calibration::{CalibrationConditions, CalibrationTopic, LONG_SESSION_MIN};
 pub use dossier::{Dossier, DossierFact};
+pub use fuel::{
+    check_plausibility, fuel_natural_key, normalize_gtin, proposal_source_hash, AthleteFuelItem,
+    CatalogueFuelProduct, FactBasis, FactProvenance, FactSource, FieldProvenance,
+    FuelApprovalOutcome, FuelFacts, FuelForm, FuelItemEntry, FuelProduct, FuelProductProposal,
+    FuelProductVersion, FuelProposalDetail, FuelRejectReason, NewFuelProposal, PendingFuelItem,
+    PlausibilityViolation, ProposalSource, ProposalSourceImage, ProposalStatus,
+    MAX_CAFFEINE_MG_PER_SERVING, MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
+    MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
+};
 pub use gear::{
     default_pair, parse_shoe_sport, shoe_sport_slug, ActivityGearKey, AthleteGear,
     AttributionSource, GearAttribution, GearDeclaration, GearKind,
