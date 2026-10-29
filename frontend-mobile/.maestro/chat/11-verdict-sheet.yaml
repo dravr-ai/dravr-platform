@@ -176,17 +176,38 @@ appId: ai.dravr.app
     notVisible:
       id: "verdict-sheet"
     timeout: 45000
-- assertNotVisible: "Could not open link|Impossible d'ouvrir le lien"
 - takeScreenshot: "verdict-study-browser"
 # Back in the app the sheet is where it was: it did not close, the browser
 # covered it — which is what tells the hand-off from a sheet that closed.
+#
+# On iOS the way back has a deadline. iOS ends a backgrounded Expo Go about
+# 30 s after Safari takes the screen (runningboard times out Expo Go's own
+# background task, code 0x2182BAD2), and Expo Go then reopens on its home
+# screen with the project gone. Safari's first snapshots of the study page
+# can stall the driver for 15-30 s, and `launchApp` adds 7-13 s more, which
+# kept the app in the background about 28 s on a pass and more than 45 s on
+# the run that failed (40876476634). So nothing else is asserted while Safari is in front, and
+# the return is the status bar's "◀ Expo Go" link, which takes about 2 s.
+# `launchApp` remains the fallback when that tap does not bring the app back.
 - runFlow:
     when:
       platform: iOS
     commands:
-      - launchApp:
-          appId: host.exp.Exponent
-          stopApp: false
+      - tapOn:
+          point: "6%,4%"
+      - extendedWaitUntil:
+          visible:
+            id: "verdict-sheet"
+          timeout: 5000
+          optional: true
+      - runFlow:
+          when:
+            notVisible:
+              id: "verdict-sheet"
+          commands:
+            - launchApp:
+                appId: host.exp.Exponent
+                stopApp: false
 # On Android, relaunching Expo Go opens its own home screen rather than the
 # project it was showing, so the way back is the system Back key. A fresh
 # Chrome may first show its own prompt (notifications) and the DOI redirects
@@ -211,3 +232,4 @@ appId: ai.dravr.app
     timeout: 20000
 - assertVisible:
     id: "verdict-study-link"
+- assertNotVisible: "Could not open link|Impossible d'ouvrir le lien"
