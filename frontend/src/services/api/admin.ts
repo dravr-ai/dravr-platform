@@ -1391,7 +1391,7 @@ export const adminApi = {
       { overrides },
       { validateStatus: (status) => FUEL_REVIEW_OUTCOME_STATUSES.includes(status) },
     );
-    return response.data;
+    return fuelReviewOutcome<FuelApprovalResult>(response.status, response.data, FUEL_APPROVAL_OUTCOMES);
   },
 
   /** Reject a pending proposal; `other` needs a note. */
@@ -1405,7 +1405,7 @@ export const adminApi = {
       { reason, note: note?.trim() ? note.trim() : undefined },
       { validateStatus: (status) => FUEL_REVIEW_OUTCOME_STATUSES.includes(status) },
     );
-    return response.data;
+    return fuelReviewOutcome<FuelRejectResult>(response.status, response.data, FUEL_REJECT_OUTCOMES);
   },
 
   /** The live catalogue: each product with its current facts and version count. */
@@ -1420,6 +1420,23 @@ export const adminApi = {
 
 /** Statuses a review write answers with a body the console reads, not an error. */
 const FUEL_REVIEW_OUTCOME_STATUSES = [200, 404, 409, 410, 422];
+const FUEL_APPROVAL_OUTCOMES = ['approved', 'implausible', 'not_pending', 'identity_conflict', 'not_found'];
+const FUEL_REJECT_OUTCOMES = ['rejected', 'not_pending', 'not_found'];
+
+/**
+ * A review write's body when it carries one of the outcome codes the route
+ * answers with. A 404 or 422 without one is not an outcome — a missing route,
+ * or a body the server's extractor refused in plain text — so it is thrown as
+ * an error rather than read as a result with no message.
+ */
+function fuelReviewOutcome<T>(status: number, data: unknown, outcomes: readonly string[]): T {
+  const outcome =
+    typeof data === 'object' && data !== null ? (data as { outcome?: unknown }).outcome : undefined;
+  if (typeof outcome === 'string' && outcomes.includes(outcome)) return data as T;
+  throw new Error(
+    `The review request failed (HTTP ${status})${typeof data === 'string' && data.trim() ? `: ${data.trim()}` : ''}`,
+  );
+}
 
 export type FuelForm = 'gel' | 'drink_mix' | 'bar' | 'chew' | 'capsule' | 'tablet' | 'other';
 export type FuelProposalStatus = 'pending' | 'approved' | 'rejected';
