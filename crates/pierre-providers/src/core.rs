@@ -526,8 +526,9 @@ pub trait FitnessProvider: Send + Sync {
     /// has a sample source behind it.
     ///
     /// `false` by default, and for every integration that inherits the
-    /// streams-less default below: WHOOP, COROS and Terra serve an activity
-    /// without samples, whatever it recorded (registre#6 tracks the roster). A caller that needs a track asks this
+    /// streams-less default below: WHOOP serves no per-sample data upstream,
+    /// and COROS (registre#1265) and Terra (registre#1264) are not wired to
+    /// theirs. A caller that needs a track asks this
     /// before spending a detail read that can never carry one — the Home
     /// route read settles such an activity as having no track to draw instead
     /// of retrying a read that cannot succeed.
@@ -545,7 +546,7 @@ pub trait FitnessProvider: Send + Sync {
     /// `extract_activity_streams`, `export_intervals`) need it. The default
     /// delegates to the detail fetch — an activity whose
     /// [`Activity::time_series_data`] is `None`, which is the honest result
-    /// for a provider with no stream source (registre#6 tracks the roster).
+    /// for a provider with no stream source.
     /// [`crate::models::TimeSeriesData`] cannot be attached to a built
     /// [`Activity`], so overrides populate it on the builder inside their
     /// own fetch.

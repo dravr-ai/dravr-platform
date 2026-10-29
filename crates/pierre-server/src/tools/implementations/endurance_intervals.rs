@@ -221,12 +221,14 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-            // LIMITATION(registre#6): streams arrive via get_activity_with_streams
-            // from Strava, Intervals.icu, Wahoo, uploaded files, the Garmin API
-            // (the samples its activity details or FIT file pushed, stored in
+            // Streams arrive via get_activity_with_streams from Strava,
+            // Intervals.icu, Wahoo, uploaded files, the Garmin API (the samples
+            // its activity details or FIT file pushed, stored in
             // activity_streams; an activity whose details have not arrived has
-            // none yet) and sciotte (except TrainingPeaks); on the COROS, WHOOP
-            // and Terra integrations this branch always fires — no sample source.
+            // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
+            // per-sample data upstream, so this branch always fires there.
+            // LIMITATION(registre#1264): Terra samples are parsed then dropped.
+            // LIMITATION(registre#1265): COROS has no sample source wired.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -342,12 +344,14 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             let activity_id = activity_id_arg(&args)?;
             let activity =
                 fetch_activity(&context.resources, tenant_id, user_id, &activity_id).await?;
-            // LIMITATION(registre#6): streams arrive via get_activity_with_streams
-            // from Strava, Intervals.icu, Wahoo, uploaded files, the Garmin API
-            // (the samples its activity details or FIT file pushed, stored in
+            // Streams arrive via get_activity_with_streams from Strava,
+            // Intervals.icu, Wahoo, uploaded files, the Garmin API (the samples
+            // its activity details or FIT file pushed, stored in
             // activity_streams; an activity whose details have not arrived has
-            // none yet) and sciotte (except TrainingPeaks); on the COROS, WHOOP
-            // and Terra integrations this branch always fires — no sample source.
+            // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
+            // per-sample data upstream, so this branch always fires there.
+            // LIMITATION(registre#1264): Terra samples are parsed then dropped.
+            // LIMITATION(registre#1265): COROS has no sample source wired.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;
