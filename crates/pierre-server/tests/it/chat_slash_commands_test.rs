@@ -574,6 +574,7 @@ async fn seed_coaching_exchange(
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .unwrap();
@@ -1556,6 +1557,7 @@ async fn slash_command_turn_is_persisted_to_history_and_kept_out_of_the_prompt()
         &user_id.to_string(),
         tenant_id,
         50,
+        &[],
     )
     .await
     .unwrap();

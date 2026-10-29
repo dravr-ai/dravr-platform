@@ -150,6 +150,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
             first_message_id: "m1",
             last_message_id: "m9",
             transport_policy: TransportPolicy::AnyTransport,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -164,6 +165,7 @@ async fn a_compaction_block_reads_back_in_conversation_order() {
             first_message_id: "m10",
             last_message_id: "m15",
             transport_policy: TransportPolicy::AnyTransport,
+            about_user_id: None,
         })
         .await
         .unwrap();

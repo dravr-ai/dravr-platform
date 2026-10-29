@@ -17,6 +17,7 @@
 //! — onto that accounting, so the five shapes are written once instead of once
 //! per loop.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ use pierre_services::chat_stream::TurnEventSink;
 use pierre_core::errors::AppError;
 use pierre_core::llm::is_llm_provider_fault;
 use pierre_core::models::TenantId;
+use uuid::Uuid;
 
 use crate::protocol::UniversalExecutor;
 use crate::tool_loop_telemetry::accumulate_optional;
@@ -47,6 +49,9 @@ pub struct ToolRoundRecord {
     /// Formatted tool result the loop pushes back to the model as a user
     /// turn (e.g. `"[Tool Result for get_activities]: ..."`). Always set.
     pub tool_result_text: String,
+    /// The group members whose data the round's calls read under their
+    /// consent (carnet#1174): what its rows are about.
+    pub members_read: BTreeSet<Uuid>,
 }
 
 /// Sink that receives one [`ToolRoundRecord`] per tool dispatch round.

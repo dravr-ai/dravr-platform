@@ -75,6 +75,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
 use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
@@ -301,6 +302,9 @@ pub async fn coached_plan_read_access(
             athlete: access.display_name,
         }));
     }
+    // What the caller derives from here on carries the athlete's plan
+    // (carnet#1174).
+    ai_scope::note_member_read(access.athlete_user_id);
     Ok(Ok(access))
 }
 
@@ -528,6 +532,9 @@ async fn acting_for(
         subject_thread = request.conversation.and_then(ConversationRecord::subject).is_some(),
         "coach acting on a coached athlete's training plan"
     );
+    // What the call reads and writes from here on is the athlete's
+    // (carnet#1174).
+    ai_scope::note_member_read(access.athlete_user_id);
     Ok(Ok(PlanScope {
         tenant: access.tenant,
         user_id: access.athlete_user_id,

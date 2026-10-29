@@ -61,9 +61,11 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::athlete_display_name::fetch_user_display_name;
+use pierre_services::member_reads::{self, GroupReader};
 
 /// Number of peer activities returned when `limit` is omitted.
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
@@ -249,19 +251,26 @@ fn resolve_unique_peer<'a>(
 ///
 /// The group's human coach reads by the member's coach consent alone; any
 /// other requester needs the group's peer switch and the member's peer
-/// consent.
+/// consent ([`member_reads::member_read_allowed`], the rule a turn replays a
+/// stamped row under too).
 fn read_refusal(resolved: &MemberMatch) -> Option<Value> {
+    let reader = if resolved.requester_is_coach {
+        GroupReader::Coach
+    } else {
+        GroupReader::Peer
+    };
+    if member_reads::member_read_allowed(reader, resolved.group_allows_sharing, &resolved.member) {
+        return None;
+    }
     if resolved.requester_is_coach {
-        return (!resolved.member.coach_sharing_consent).then(|| {
-            json!({
-                "reason": "no_coach_consent",
-                "error": format!(
-                    "{} has stopped sharing their data with you, the coach of '{}'. \
-                     They can share it again with `/group consent coach yes`.",
-                    resolved.display_name, resolved.group_name
-                )
-            })
-        });
+        return Some(json!({
+            "reason": "no_coach_consent",
+            "error": format!(
+                "{} has stopped sharing their data with you, the coach of '{}'. \
+                 They can share it again with `/group consent coach yes`.",
+                resolved.display_name, resolved.group_name
+            )
+        }));
     }
     if !resolved.group_allows_sharing {
         return Some(json!({
@@ -272,15 +281,13 @@ fn read_refusal(resolved: &MemberMatch) -> Option<Value> {
             )
         }));
     }
-    (!resolved.member.peer_sharing_consent).then(|| {
-        json!({
-            "reason": "no_consent",
-            "error": format!(
-                "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
-                resolved.display_name
-            )
-        })
-    })
+    Some(json!({
+        "reason": "no_consent",
+        "error": format!(
+            "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
+            resolved.display_name
+        )
+    }))
 }
 
 /// Project an activity to the compact shape the agent reasons over. Mirrors the
@@ -511,6 +518,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 as_coach = resolved.requester_is_coach,
                 "get_group_member_activities: authorized consent-gated member fetch"
             );
+            // What the turn derives from here on carries this member's data
+            // (carnet#1174).
+            ai_scope::note_member_read(peer_id);
 
             // Query params.
             let limit = args

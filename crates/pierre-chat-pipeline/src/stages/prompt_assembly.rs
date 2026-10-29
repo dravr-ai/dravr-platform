@@ -30,6 +30,7 @@ use pierre_llm::prompts::unsubstituted_placeholders;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
 use tracing::error;
+use uuid::Uuid;
 
 use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
@@ -530,6 +531,9 @@ pub(crate) struct PromptTurn<'a> {
     /// The turn's standing in a coach's thread about one athlete, resolved
     /// once with the history it trims; `None` for every other conversation.
     pub subject_turn: Option<SubjectTurn>,
+    /// The group members whose rows the turn may replay (carnet#1174): a
+    /// compaction summary about any other member is withheld, as its rows are.
+    pub readable_about: &'a [Uuid],
 }
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -582,6 +586,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         history,
         onboarding,
         subject_turn,
+        readable_about,
     } = turn;
     // Stage 7a: Build the base prompt in two layers — platform contract, then
     // persona.
@@ -1107,6 +1112,13 @@ pub(crate) async fn assemble_prompt_and_messages(
             // A summary of first-party-only turns is withheld from an external
             // turn, which then reads the raw rows it is served (carnet#769).
             ai_scope::retain_admitted(&mut blocks, |block| block.transport_policy);
+            // A summary of a group member's rows replays only while their rows
+            // do: the sender may still read that member (carnet#1174).
+            blocks.retain(|block| {
+                block
+                    .about_user_id
+                    .is_none_or(|member| readable_about.contains(&member))
+            });
             blocks
         }
         Err(e) => {

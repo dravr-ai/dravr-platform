@@ -662,6 +662,13 @@ pub struct MessageRecord {
     /// a divider, a platform post — and for rows written before it existed.
     #[serde(default)]
     pub channel_type: Option<String>,
+    /// The group member whose data this row carries, when it carries one
+    /// member's (carnet#1174): a tool round that read them, a coach's question
+    /// quoting their room words (carnet#1249), or the reply drawn from either.
+    /// A turn replays it only while the reader may still read that member, and
+    /// it goes with the member's account. `None` for every other row.
+    #[serde(default, skip_serializing)]
+    pub about_user_id: Option<Uuid>,
 }
 
 // The content is the athlete's message or the reply, and the blocks are lifted
@@ -684,6 +691,7 @@ impl fmt::Debug for MessageRecord {
             .field("created_at", &self.created_at)
             .field("transport_policy", &self.transport_policy)
             .field("channel_type", &self.channel_type)
+            .field("about_user_id", &self.about_user_id)
             .finish()
     }
 }
@@ -950,6 +958,9 @@ pub struct AddMessageParams<'a> {
     /// The channel the turn writing this row came over, as its wire word; see
     /// [`MessageRecord::channel_type`]. `None` for a row no turn writes.
     pub channel_type: Option<&'a str>,
+    /// The one group member whose data the row carries; see
+    /// [`MessageRecord::about_user_id`].
+    pub about_user_id: Option<Uuid>,
 }
 
 // The content is the athlete's message or the reply: only lengths are printed.
@@ -968,6 +979,7 @@ impl fmt::Debug for AddMessageParams<'_> {
             .field("content_blocks_len", &self.content_blocks.map(str::len))
             .field("transport_policy", &self.transport_policy)
             .field("channel_type", &self.channel_type)
+            .field("about_user_id", &self.about_user_id)
             .finish()
     }
 }

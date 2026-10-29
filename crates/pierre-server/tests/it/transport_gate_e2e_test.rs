@@ -904,6 +904,7 @@ async fn write_row(
             content_blocks: None,
             transport_policy,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1044,6 +1045,7 @@ async fn a_stamped_message_is_withheld_and_an_unstamped_one_served_over_an_api_k
                 &owner,
                 rider.tenant,
                 50,
+                &[],
             )),
         )
     };

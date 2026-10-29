@@ -247,6 +247,7 @@ fn a_compaction_block_prints_the_size_of_its_summary_never_the_summary() {
         first_message_id: "msg-1",
         last_message_id: "msg-9",
         transport_policy: TransportPolicy::AnyTransport,
+        about_user_id: None,
     };
     let printed = printed_without(&params, &["sentinel-summary-7f3a", "achilles"]);
     assert!(

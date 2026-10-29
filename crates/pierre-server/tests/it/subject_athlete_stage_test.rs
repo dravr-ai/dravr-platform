@@ -49,7 +49,7 @@ use pierre_core::models::{
     Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::InsertAgentNoteParams;
+use pierre_database::repositories::{InsertAgentNoteParams, InsertCompactionBlockParams};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
@@ -746,6 +746,74 @@ async fn a_revoked_consent_replays_none_of_the_threads_history() {
     }
 }
 
+/// carnet#1168 with carnet#1174: a summary of the thread's earlier turns is
+/// history too, so once the athlete stops sharing it reaches the model no more
+/// than the rows it covers. It is seeded naming no member, as a summary
+/// written before rows named the member they read.
+#[tokio::test]
+async fn a_revoked_consent_replays_no_summary_of_the_thread() {
+    const SUMMARY: &str = "Earlier: Mira's long runs held 5:10/km.";
+    const LATER_ASK: &str = "Et maintenant, que faire ?";
+    const LAST_ASK: &str = "Et ensuite ?";
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    fx.thread_turn(PLAIN_ASK).await;
+    let anchor = fx
+        .repos()
+        .chat
+        .get_messages(&fx.thread, &fx.coach.id.to_string(), fx.coach.tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.role == "user" && row.content == PLAIN_ASK)
+        .expect("the coach's question is stored")
+        .id;
+    fx.repos()
+        .memory
+        .insert_compaction_block(&InsertCompactionBlockParams {
+            tenant_id: fx.coach.tenant,
+            conversation_id: &fx.thread,
+            summary: SUMMARY,
+            summary_tokens: 10,
+            original_tokens: 40,
+            first_message_id: &anchor,
+            last_message_id: &anchor,
+            transport_policy: TransportPolicy::AnyTransport,
+            about_user_id: None,
+        })
+        .await
+        .unwrap();
+    let granted_from = fx.model.calls();
+    fx.thread_turn(LATER_ASK).await;
+    let granted = fx.model.conversation_since(granted_from);
+    assert!(
+        granted.contains(SUMMARY),
+        "premise: a granted turn replays the thread's summary: {granted}"
+    );
+
+    assert!(
+        fx.repos()
+            .groups
+            .update_coach_sharing_consent(&fx.group.id.to_string(), fx.subject.id, false)
+            .await
+            .unwrap(),
+        "premise: the athlete's membership takes the revocation"
+    );
+    let refused_from = fx.model.calls();
+    let (prompt, _) = fx.thread_turn(LAST_ASK).await;
+
+    assert!(prompt.contains(REFUSED_MARKER), "premise: the gates refuse");
+    let refused = fx.model.conversation_since(refused_from);
+    assert!(
+        refused.contains(LAST_ASK),
+        "the coach's new message is the turn: {refused}"
+    );
+    assert!(
+        !refused.contains(SUMMARY),
+        "a summary from before the withdrawal reached the model: {refused}"
+    );
+}
+
 #[tokio::test]
 async fn a_member_who_left_is_refused_without_being_named() {
     let fx = Fixture::new().await;
@@ -985,6 +1053,7 @@ async fn an_old_stored_card_reads_back_unchanged() {
             content_blocks: Some(&stored),
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();

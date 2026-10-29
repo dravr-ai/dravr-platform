@@ -33,6 +33,7 @@ fn record(role: &str, content: &str) -> MessageRecord {
         created_at: "2026-05-15T15:10:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     }
 }
 
@@ -207,6 +208,7 @@ fn record_id(id: &str, role: &str, content: &str) -> MessageRecord {
         created_at: "2026-05-15T15:10:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     }
 }
 
@@ -223,6 +225,7 @@ fn block(id: &str, first_id: &str, last_id: &str, summary: &str) -> CompactionBl
         last_message_id: last_id.to_owned(),
         created_at: Utc.with_ymd_and_hms(2026, 5, 15, 12, 0, 0).unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
+        about_user_id: None,
     }
 }
 

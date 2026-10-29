@@ -216,6 +216,7 @@ async fn add_row(
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap()
@@ -657,6 +658,7 @@ async fn a_command_turn_is_read_by_its_author_and_new_to_the_other_participant()
         &fx.owner_id.to_string(),
         fx.tenant_id,
         50,
+        &[],
     )
     .await
     .unwrap();

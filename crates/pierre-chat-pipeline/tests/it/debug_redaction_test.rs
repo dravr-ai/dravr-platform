@@ -129,6 +129,7 @@ fn a_persisted_user_message_prints_its_size_never_its_text() {
             created_at: "2026-10-23T21:00:00Z".to_owned(),
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         },
         conversation: ConversationRecord {
             id: "conv-1".to_owned(),

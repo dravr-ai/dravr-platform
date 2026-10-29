@@ -28,7 +28,7 @@ use pierre_llm::call_record::LlmCallRecorder;
 use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolMessageRecorder, ToolRoundRecord};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{ChatPipelineContext, TurnInput};
 
@@ -87,6 +87,9 @@ pub(crate) fn usage_sink(ctx: &ChatPipelineContext) -> LlmUsageSink {
 /// be stored ([`Self::persist_held`]): such a reply may be withheld, and a
 /// withheld post writes nothing to the athlete's thread — not even the tool
 /// preamble that led up to it (carnet#831).
+///
+/// A round's rows name the one group member it read, if any; a round that
+/// read several is not kept (carnet#1174).
 #[derive(Debug)]
 pub struct ChatRepoToolMessageRecorder {
     rows: ToolRoundRows,
@@ -135,6 +138,19 @@ impl ChatRepoToolMessageRecorder {
 
 impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
     fn record(&self, record: ToolRoundRecord) {
+        // A round's rows name the one group member it read, so a member who
+        // withdraws or deletes their account takes them out of every later
+        // prompt (carnet#1174). A round that read several cannot name them
+        // all in one row: it is kept for no later turn, which then reads the
+        // members again under their consent of the moment. This turn's model
+        // has already consumed it.
+        if record.members_read.len() > 1 {
+            info!(
+                members = record.members_read.len(),
+                "tool round read several group members; not kept for later turns"
+            );
+            return;
+        }
         // Stamped here, inside the turn's provenance: neither the spawned
         // write nor a held one runs inside what the round was derived from.
         let transport_policy = ai_scope::derived_policy();
@@ -182,6 +198,8 @@ impl ToolRoundRows {
         // pure scaffolding reduces to empty and is skipped.
         let assistant_text = chat_tool_loop::strip_simulation_artifacts(&record.assistant_text);
         let tool_result_text = chat_tool_loop::strip_simulation_artifacts(&record.tool_result_text);
+        // The member the round read, on both of its rows (carnet#1174).
+        let about_user_id = ai_scope::sole(&record.members_read);
         if !assistant_text.is_empty() {
             let params = AddMessageParams {
                 tenant_id: self.tenant_id,
@@ -196,6 +214,7 @@ impl ToolRoundRows {
                 content_blocks: None,
                 transport_policy,
                 channel_type: None,
+                about_user_id,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_call message: {e}");
@@ -216,6 +235,7 @@ impl ToolRoundRows {
                 content_blocks: None,
                 transport_policy,
                 channel_type: None,
+                about_user_id,
             };
             if let Err(e) = self.chat.add_message(&params).await {
                 warn!("Failed to persist tool_result message: {e}");

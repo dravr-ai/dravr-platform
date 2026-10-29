@@ -324,6 +324,7 @@ mod get_activities_dead_primary_test;
 mod get_activities_multi_provider_test;
 mod get_planned_workouts_tool_test;
 mod google_id_token_test;
+mod group_chat_member_rows_test;
 mod group_coach_seat_test;
 mod group_coach_test;
 mod group_context_injection_test;

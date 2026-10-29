@@ -11,6 +11,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::transport::TransportPolicy;
 
 use pierre_core::models::{Pillar, TenantId};
+use uuid::Uuid;
 
 /// A restatement merging into the fact it restates.
 ///
@@ -118,6 +119,9 @@ pub struct InsertCompactionBlockParams<'a> {
     pub last_message_id: &'a str,
     /// The stamp of the turns it summarizes (carnet#769).
     pub transport_policy: TransportPolicy,
+    /// The one group member the summarized rows read (carnet#1174); see
+    /// [`CompactionBlock::about_user_id`](pierre_memory::CompactionBlock::about_user_id).
+    pub about_user_id: Option<Uuid>,
 }
 
 // The summary condenses the athlete's conversation: only its length prints.
@@ -132,6 +136,7 @@ impl fmt::Debug for InsertCompactionBlockParams<'_> {
             .field("first_message_id", &self.first_message_id)
             .field("last_message_id", &self.last_message_id)
             .field("transport_policy", &self.transport_policy)
+            .field("about_user_id", &self.about_user_id)
             .finish()
     }
 }

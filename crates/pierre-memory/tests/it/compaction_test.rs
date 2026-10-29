@@ -22,6 +22,7 @@ fn block(original: i32, summary: i32) -> CompactionBlock {
         last_message_id: "m5".into(),
         created_at: Utc::now(),
         transport_policy: TransportPolicy::AnyTransport,
+        about_user_id: None,
     }
 }
 

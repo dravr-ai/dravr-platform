@@ -960,6 +960,64 @@ async fn a_quoting_row_carries_the_quoted_entrys_stamp() {
     );
 }
 
+/// The coach's quoting row, and the reply drawn from it, name the athlete
+/// whose words they carry (carnet#1174): they replay only while the coach may
+/// still read her, and go with her account. A question that quotes nothing
+/// names no one.
+#[tokio::test]
+async fn a_quoting_row_and_its_reply_name_the_quoted_athlete() {
+    let fx = Fixture::new(None).await;
+    let (status, body) = fx
+        .send(&fx.thread, &fx.coach, json!({ "content": COACH_LATER }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let entry = room_entry(
+        fx.repos(),
+        &fx.group,
+        &fx.subject,
+        TranscriptSpeaker::Member,
+        ATHLETE_WORDS,
+    )
+    .await;
+    let (status, body) = fx
+        .send(
+            &fx.thread,
+            &fx.coach,
+            json!({ "content": COACH_ASK, "quote_entry_id": entry }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let rows = fx
+        .repos()
+        .chat
+        .get_messages(&fx.thread, &fx.coach.id.to_string(), fx.coach.tenant)
+        .await
+        .unwrap();
+    // Each question with the member it and its reply are about.
+    let about = |question: &str| {
+        let at = rows
+            .iter()
+            .position(|m| m.role == "user" && m.content == question)
+            .unwrap_or_else(|| panic!("the coach's question {question:?}: {rows:?}"));
+        let reply = rows[at..]
+            .iter()
+            .find(|m| m.role == "assistant")
+            .unwrap_or_else(|| panic!("the reply to {question:?}: {rows:?}"));
+        (rows[at].about_user_id, reply.about_user_id)
+    };
+    assert_eq!(
+        about(COACH_ASK),
+        (Some(fx.subject.id), Some(fx.subject.id)),
+        "the quoting row and the reply drawn from it name the quoted athlete"
+    );
+    assert_eq!(
+        about(COACH_LATER).0,
+        None,
+        "a question that quotes nothing carries no one's words"
+    );
+}
+
 /// The athlete's room words are written under the group's tenant (its bound
 /// chat) or under her own (her in-app room conversation); an entry of the
 /// group written under any other tenant is no entry to quote.

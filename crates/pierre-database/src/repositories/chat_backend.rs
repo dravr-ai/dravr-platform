@@ -29,6 +29,9 @@ macro_rules! impl_chat_repository {
         $crate::repositories::chat_rows::impl_chat_row_parsers!($row, $ids);
         $crate::repositories::chat_subject::impl_chat_subject_open!($ty, $ids, $begin);
         $crate::repositories::chat_windows::impl_chat_windows!($ty, $ids);
+        $crate::repositories::chat_member_rows::impl_chat_member_rows!($ty, $ids);
+        $crate::repositories::chat_feedback::impl_chat_feedback!($ty, $ids);
+        $crate::repositories::chat_participants::impl_chat_participants!($ty, $ids);
 
         impl $ty {
             /// Open the transaction every decision that can take one of a
@@ -389,6 +392,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.content_blocks)
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(params.channel_type)
+                    .bind($ids::bind_opt(params.about_user_id))
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -439,6 +443,7 @@ macro_rules! impl_chat_repository {
                     created_at: now.to_rfc3339(),
                     transport_policy: params.transport_policy,
                     channel_type: params.channel_type.map(ToOwned::to_owned),
+                    about_user_id: params.about_user_id,
                 })
             }
 
@@ -486,6 +491,36 @@ macro_rules! impl_chat_repository {
                 Ok(messages)
             }
 
+            async fn get_recent_prompt_messages(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                limit: i64,
+                readable: TransportPolicy,
+                readable_about: &[Uuid],
+            ) -> AppResult<Vec<MessageRecord>> {
+                self.prompt_messages(
+                    conversation_id,
+                    user_id,
+                    tenant_id,
+                    limit,
+                    readable,
+                    readable_about,
+                )
+                .await
+            }
+
+            async fn list_message_subjects(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Vec<Uuid>> {
+                self.message_subjects(conversation_id, user_id, tenant_id)
+                    .await
+            }
+
             async fn list_assistant_messages_after(
                 &self,
                 tenant_id: TenantId,
@@ -529,39 +564,7 @@ macro_rules! impl_chat_repository {
                 &self,
                 params: &UpsertMessageFeedbackParams<'_>,
             ) -> AppResult<MessageFeedbackRecord> {
-                let id = Uuid::new_v4().to_string();
-                let now = Utc::now();
-                let user = $ids::bind_text(params.user_id)?;
-                let tenant = params.tenant_id.to_string();
-
-                sqlx::query(UPSERT_FEEDBACK_SQL)
-                    .bind(&id)
-                    .bind(params.message_id)
-                    .bind(params.conversation_id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .bind(params.rating)
-                    .bind(params.comment)
-                    .bind(now)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to upsert message feedback: {e}"))
-                    })?;
-
-                let row = sqlx::query(GET_FEEDBACK_SQL)
-                    .bind(params.message_id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to read back message feedback: {e}"))
-                    })?;
-                row.as_ref()
-                    .map(feedback_from_row)
-                    .transpose()?
-                    .ok_or_else(|| AppError::not_found("Message not found or access denied"))
+                self.upsert_feedback(params).await
             }
 
             async fn delete_message_feedback(
@@ -570,16 +573,7 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
-                let result = sqlx::query(DELETE_FEEDBACK_SQL)
-                    .bind(message_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete message feedback: {e}"))
-                    })?;
-                Ok(result.rows_affected() > 0)
+                self.delete_feedback(message_id, user_id, tenant_id).await
             }
 
             async fn get_conversation_feedback(
@@ -588,16 +582,8 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<Vec<MessageFeedbackRecord>> {
-                let rows = sqlx::query(CONVERSATION_FEEDBACK_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .fetch_all(self.pool())
+                self.conversation_feedback(conversation_id, user_id, tenant_id)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get conversation feedback: {e}"))
-                    })?;
-                rows.iter().map(feedback_from_row).collect()
             }
 
             async fn count_conversations(
@@ -702,31 +688,8 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 added_by: &str,
             ) -> AppResult<ConversationParticipant> {
-                let user = $ids::bind_text(user_id)?;
-                let tenant = tenant_id.to_string();
-
-                sqlx::query(ADD_PARTICIPANT_SQL)
-                    .bind(conversation_id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .bind(ParticipantRole::Member.as_str())
-                    .bind($ids::bind_text(added_by)?)
-                    .bind(Utc::now())
-                    .execute(self.pool())
+                self.insert_participant(conversation_id, tenant_id, user_id, added_by)
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to add participant: {e}")))?;
-
-                let row = sqlx::query(GET_PARTICIPANT_SQL)
-                    .bind(conversation_id)
-                    .bind(&user)
-                    .bind(&tenant)
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to read participant: {e}")))?;
-                row.as_ref()
-                    .map(participant_from_row)
-                    .transpose()?
-                    .ok_or_else(|| AppError::not_found("Conversation not found"))
             }
 
             async fn remove_participant(
@@ -735,17 +698,8 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
                 user_id: &str,
             ) -> AppResult<bool> {
-                let result = sqlx::query(REMOVE_PARTICIPANT_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .bind(ParticipantRole::Member.as_str())
-                    .execute(self.pool())
+                self.delete_participant(conversation_id, tenant_id, user_id)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to remove participant: {e}"))
-                    })?;
-                Ok(result.rows_affected() > 0)
             }
 
             async fn list_participants(
@@ -753,13 +707,7 @@ macro_rules! impl_chat_repository {
                 conversation_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<Vec<ConversationParticipant>> {
-                let rows = sqlx::query(LIST_PARTICIPANTS_SQL)
-                    .bind(conversation_id)
-                    .bind(tenant_id.to_string())
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to list participants: {e}")))?;
-                rows.iter().map(participant_from_row).collect()
+                self.select_participants(conversation_id, tenant_id).await
             }
 
             async fn get_recent_conversations_admin(
@@ -1112,6 +1060,7 @@ macro_rules! impl_chat_repository {
                     .bind(params.content_blocks)
                     .bind(params.transport_policy.is_first_party_only())
                     .bind(params.channel_type)
+                    .bind($ids::bind_opt(params.about_user_id))
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -1142,6 +1091,7 @@ macro_rules! impl_chat_repository {
                     created_at: now.to_rfc3339(),
                     transport_policy: params.transport_policy,
                     channel_type: params.channel_type.map(ToOwned::to_owned),
+                    about_user_id: params.about_user_id,
                 }))
             }
         }

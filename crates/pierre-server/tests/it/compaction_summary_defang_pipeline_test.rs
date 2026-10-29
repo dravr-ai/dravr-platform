@@ -220,6 +220,7 @@ async fn long_conversation(fx: &Fixture) -> String {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();

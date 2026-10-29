@@ -50,6 +50,7 @@ fn a_message_write_prints_the_size_of_its_content_never_the_content() {
         content_blocks: Some(blocks),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: Some("web"),
+        about_user_id: None,
     };
     let compact = format!("{params:?}");
     let pretty = format!("{params:#?}");
@@ -200,6 +201,7 @@ fn message_record(content: &str, blocks: &str) -> MessageRecord {
         created_at: "2026-10-24T00:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: Some("web".to_owned()),
+        about_user_id: None,
     }
 }
 

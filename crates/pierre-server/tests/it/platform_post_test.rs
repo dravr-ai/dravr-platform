@@ -513,6 +513,7 @@ async fn a_platform_reply_stays_unread_and_out_of_the_room() {
         content_blocks: None,
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     };
 
     persist_assistant_response(

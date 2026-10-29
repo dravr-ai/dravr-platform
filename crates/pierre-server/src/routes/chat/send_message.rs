@@ -679,6 +679,7 @@ async fn write_interrupted_notice(egress: &TurnEgress, locale: &str) {
         // Platform text that quotes nothing the turn read.
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     };
     if let Err(e) = persist_assistant_response(
         repos.chat.as_ref(),

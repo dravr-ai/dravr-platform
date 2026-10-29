@@ -43,12 +43,20 @@
 //! `Arc`, so an executor built inside the turn carries it onto the task its
 //! calls run on (the Copilot loop's loopback listener) and marks the turn's
 //! own flag from there.
+//!
+//! The same accumulator records whose data was read when it is a group
+//! member's (carnet#1174): a tool that reads a member under their consent, or
+//! a coach's message quoting their room words (carnet#1249), calls
+//! [`note_member_read`], and a row derived from that one member is
+//! stamped with them ([`derived_member`]), so a member who withdraws or
+//! deletes their account takes the row out of every later prompt. A tool
+//! round's rows are stamped from the calls of that round alone
+//! ([`reading_members`]).
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pierre_core::ai_policy::{
     filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
@@ -67,11 +75,14 @@ use tokio::task::LocalKey;
 mod consent;
 /// The decorator that applies the provider-terms filters to every read.
 mod governed;
+/// The provenance accumulator, and the group members it records (carnet#1174).
+mod provenance;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
 
 pub use consent::{ai_consent_withheld, consented_read, with_ai_consent};
 pub use governed::AiGovernedProvider;
+pub use provenance::{derived_member, note_member_read, reading_members, sole, Provenance};
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
 tokio::task_local! {
@@ -93,76 +104,6 @@ tokio::task_local! {
     static SERVED_ITEMS: Arc<AtomicBool>;
 }
 
-/// Whether a turn, or any other derivation, has served data whose terms keep
-/// it first-party (carnet#769).
-///
-/// A positive accumulator: it starts clear and only ever gets set. Cloning
-/// shares the flag — the `Arc` is what lets an executor built inside a turn
-/// mark the turn's own flag from the task its calls run on.
-#[derive(Debug, Clone, Default)]
-pub struct Provenance {
-    /// Set once anything first-party-only was served. Shared between the turn
-    /// and every executor and nested derivation it hands a clone to.
-    served_first_party_only: Arc<AtomicBool>,
-    /// The attributions of what was served (`"Garmin"` for Garmin
-    /// device-sourced data): what a reply derived from it must say it drew on
-    /// (carnet#521). Shared the same way as the flag.
-    attributions: Arc<Mutex<BTreeSet<&'static str>>>,
-    /// Set once a tool call served the athlete's provider items to the model:
-    /// their own data was put in front of whatever this derivation produces.
-    /// Read by the chat turn as `chat.answer_delivered`'s `grounded`
-    /// (carnet#828). Set by the dispatch chokepoint when a call's
-    /// [`serving_items`] scope served an item, and handed up to the enclosing
-    /// derivation.
-    served_provider_data: Arc<AtomicBool>,
-}
-
-impl Provenance {
-    /// A clear accumulator.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Record that first-party-only data was served.
-    pub fn mark(&self) {
-        self.served_first_party_only.store(true, Ordering::Release);
-    }
-
-    /// Record that data carrying `attribution` was served.
-    pub fn attribute(&self, attribution: &'static str) {
-        if let Ok(mut attributions) = self.attributions.lock() {
-            attributions.insert(attribution);
-        }
-    }
-
-    /// Record that a provider-backed read was served.
-    pub fn mark_provider_data(&self) {
-        self.served_provider_data.store(true, Ordering::Release);
-    }
-
-    /// Whether a tool call served provider items to the model so far.
-    #[must_use]
-    pub fn served_provider_data(&self) -> bool {
-        self.served_provider_data.load(Ordering::Acquire)
-    }
-
-    /// The attributions of everything served so far.
-    #[must_use]
-    pub fn attributions(&self) -> BTreeSet<&'static str> {
-        self.attributions
-            .lock()
-            .map(|attributions| attributions.clone())
-            .unwrap_or_default()
-    }
-
-    /// The policy a row derived from what was served so far is stamped with.
-    #[must_use]
-    pub fn policy(&self) -> TransportPolicy {
-        TransportPolicy::from_first_party_only(self.served_first_party_only.load(Ordering::Acquire))
-    }
-}
-
 /// Run `fut` accumulating what it serves into `provenance`.
 ///
 /// Whatever the enclosing derivation was accumulating is marked too when
@@ -181,6 +122,9 @@ pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
         }
         for attribution in provenance.attributions() {
             enclosing.attribute(attribution);
+        }
+        for member in provenance.members_read() {
+            enclosing.note_member(member);
         }
     }
     output
@@ -567,6 +511,8 @@ pub fn first_party_only_read(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
     use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
     use crate::provider_terms::{NOLIO, NOLIO_TRANSPORT};

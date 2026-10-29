@@ -442,14 +442,34 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
             .any(|copy| copy.starts_with("posthog_person:")),
         "{not_deleted:?}"
     );
-    // What a coach's own group chat holds about the account is named, not
-    // claimed deleted (carnet#1168).
-    assert!(
-        not_deleted
-            .iter()
-            .any(|copy| copy.starts_with("coach_group_chats:")),
-        "{not_deleted:?}"
+    // The rows of a coach's own group chat that name the account go with it
+    // (carnet#1174); the copies there that name no single member are named,
+    // each of them, not claimed deleted (carnet#1255).
+    let group_chats: Vec<&String> = not_deleted
+        .iter()
+        .filter(|copy| copy.starts_with("coach_group_chats:"))
+        .collect();
+    assert_eq!(
+        group_chats.len(),
+        1,
+        "the receipt names the coach's group chats once: {not_deleted:?}"
     );
+    assert!(
+        group_chats[0].contains("the rows drawn from the account alone go with it"),
+        "the entry says what the deletion did reach: {group_chats:?}"
+    );
+    for kept in [
+        "the coach's own questions stay",
+        "a reply from a turn that read several members",
+        "a reply restating the member summaries",
+        "copied into the group's room transcript",
+        "rows written before the chat recorded which member a row is about",
+    ] {
+        assert!(
+            group_chats[0].contains(kept),
+            "the entry names {kept:?} as a copy left behind: {group_chats:?}"
+        );
+    }
     let first_tombstones: Vec<String> = serde_json::from_str(&a.tombstone_ids).unwrap();
     assert_eq!(
         first_tombstones.len(),

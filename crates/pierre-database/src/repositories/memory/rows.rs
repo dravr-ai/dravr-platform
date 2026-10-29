@@ -21,6 +21,7 @@ use pierre_memory::{
     FactKind, FactSource, FactStatus, FollowupStatus, MemoryScope, PredicateCode, SessionStatus,
     UserFact, UserFactMetrics,
 };
+use uuid::Uuid;
 
 /// Clamp a signed row count to `u64`, folding impossible negatives to `0`.
 /// Counts from aggregate queries are domain-guaranteed non-negative but
@@ -60,11 +61,15 @@ where
     column(row, "first_party_only").map(TransportPolicy::from_first_party_only)
 }
 
-/// Decode one `compaction_blocks` row.
+/// Decode one `compaction_blocks` row, whose `about_user_id` the backend's
+/// uuid codec read (its column type differs per engine).
 ///
 /// # Errors
 /// Returns a database error naming the first column that cannot be decoded.
-pub(crate) fn compaction_block_from_row<R>(row: &R) -> AppResult<CompactionBlock>
+pub(crate) fn compaction_block_from_row<R>(
+    row: &R,
+    about_user_id: Option<Uuid>,
+) -> AppResult<CompactionBlock>
 where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
@@ -84,6 +89,7 @@ where
         last_message_id: column(row, "last_message_id")?,
         created_at: column(row, "created_at")?,
         transport_policy: transport_policy_column(row)?,
+        about_user_id,
     })
 }
 

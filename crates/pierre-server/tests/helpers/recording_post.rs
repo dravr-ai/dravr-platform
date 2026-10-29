@@ -77,6 +77,7 @@ impl PlatformPost for RecordingPost {
                     transport_policy: TransportPolicy::AnyTransport,
                     created_at: Utc::now().to_rfc3339(),
                     channel_type: None,
+                    about_user_id: None,
                 },
                 blocks: vec![ReplyBlock::Prose {
                     text: REPLY.to_owned(),

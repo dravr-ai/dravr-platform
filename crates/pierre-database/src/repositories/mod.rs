@@ -47,6 +47,12 @@ pub mod athlete_gear;
 /// Repository traits for chat conversation persistence.
 pub mod chat;
 pub(crate) mod chat_backend;
+/// A participant's thumbs on one reply: its statements and the bodies behind them.
+pub(crate) mod chat_feedback;
+/// A thread's rows about a group member: the prompt read that keeps only the readable ones.
+pub(crate) mod chat_member_rows;
+/// Who belongs to a conversation: its membership statements and the bodies behind them.
+pub(crate) mod chat_participants;
 /// The row parsers `chat_backend` emits per backend.
 pub(crate) mod chat_rows;
 /// A coach's thread bound to one athlete: its row, statements and open attempt.

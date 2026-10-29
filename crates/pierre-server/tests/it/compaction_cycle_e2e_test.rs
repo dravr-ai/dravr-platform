@@ -223,6 +223,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .expect("message should be added");
@@ -277,6 +278,7 @@ async fn compaction_cycle_summarizes_persists_and_reconstructs() {
         tenant_id,
         conversation_id: &conversation.id,
         source_ids: &source_ids,
+        source_members: &vec![None; source_ids.len()],
         llm_messages: &mut llm_messages,
         summary_for_prompt: mark_for_prompt,
     };
@@ -529,6 +531,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .expect("message should be added");
@@ -554,6 +557,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
                 first_message_id: &history[first].id,
                 last_message_id: &history[last].id,
                 transport_policy: TransportPolicy::AnyTransport,
+                about_user_id: None,
             })
             .await
             .expect("block should insert");
@@ -582,6 +586,7 @@ async fn the_jammed_shape_summarizes_instead_of_raw_dropping() {
             tenant_id,
             conversation_id: &conversation.id,
             source_ids: &source_ids,
+            source_members: &vec![None; source_ids.len()],
             llm_messages: &mut llm_messages,
             summary_for_prompt: str::to_owned,
         })
@@ -652,6 +657,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .expect("message should be added");
@@ -675,6 +681,7 @@ async fn a_block_whose_first_row_scrolled_out_is_clamped_not_dropped() {
             first_message_id: &history[0].id,
             last_message_id: &history[3].id,
             transport_policy: TransportPolicy::AnyTransport,
+            about_user_id: None,
         })
         .await
         .expect("block should insert");

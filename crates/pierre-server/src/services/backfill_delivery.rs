@@ -255,6 +255,7 @@ impl InAppDelivery<'_> {
             content_blocks: None,
             transport_policy,
             channel_type: None,
+            about_user_id: None,
         };
         if let Err(e) = self.repos.chat.add_message(&params).await {
             warn!(error = %e, "Backfill push: failed to persist the in-app completion turn");

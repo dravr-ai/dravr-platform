@@ -124,6 +124,7 @@ pub(super) async fn stop_turn(
         // The stop notice is platform text, quoting nothing the turn read.
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     };
     persist_assistant_response(
         repos.chat.as_ref(),

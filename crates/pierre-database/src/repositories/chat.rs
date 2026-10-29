@@ -14,6 +14,7 @@ use pierre_core::models::{ConversationPage, ConversationParticipant, Conversatio
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 use pierre_core::models::{MessagePage, ThreadTopic};
 use pierre_core::transport::TransportPolicy;
+use uuid::Uuid;
 
 use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread};
 use super::user_onboarding::personal_conversation;
@@ -264,6 +265,31 @@ pub trait ChatRepository: Send + Sync {
         limit: i64,
         readable: TransportPolicy,
     ) -> AppResult<Vec<MessageRecord>>;
+
+    /// [`Self::get_recent_messages`] for a turn's prompt: a row about a group
+    /// member ([`MessageRecord::about_user_id`]) is returned only when that
+    /// member is in `readable_about` (carnet#1174). Both rules are in the
+    /// statement itself, so `limit` counts only rows the turn may replay. A
+    /// row about nobody is always returned.
+    async fn get_recent_prompt_messages(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        limit: i64,
+        readable: TransportPolicy,
+        readable_about: &[Uuid],
+    ) -> AppResult<Vec<MessageRecord>>;
+
+    /// Every group member a conversation's rows are about, for a participant
+    /// (carnet#1174): the members whose consent decides what of the thread a
+    /// turn may replay.
+    async fn list_message_subjects(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<Uuid>>;
 
     /// Every assistant message in `tenant_id`, oldest first, from `since`
     /// on and past the `after_message_id` cursor when it names a stored
@@ -614,23 +640,15 @@ macro_rules! conversation_columns {
 }
 pub(crate) use conversation_columns;
 
-/// The twelve columns every message read returns.
+/// The thirteen columns every message read returns.
 macro_rules! message_columns {
     () => {
         "m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, \
          m.model, m.finish_reason, m.content_blocks, m.created_at, m.first_party_only, \
-         m.channel_type"
+         m.channel_type, m.about_user_id"
     };
 }
 pub(crate) use message_columns;
-
-/// The nine columns every feedback read returns.
-macro_rules! feedback_columns {
-    () => {
-        "id, message_id, conversation_id, user_id, tenant_id, rating, comment, \
-         created_at, updated_at"
-    };
-}
 
 /// The membership predicate every participant-scoped read shares: the
 /// caller has a participant row on the conversation in the conversation's
@@ -838,8 +856,8 @@ pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
-    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15
     WHERE EXISTS (
         SELECT 1 FROM chat_conversations c
         JOIN conversation_participants p ON p.conversation_id = c.id
@@ -882,48 +900,6 @@ pub(crate) const GET_RECENT_MESSAGES_SQL: &str = concat!(
     participant_scope!(),
     " ORDER BY m.created_at DESC, m.id DESC \
      LIMIT $4"
-);
-
-/// Insert keyed on (`message_id`, `user_id`); on a repeat rating, overwrite the
-/// rating + comment and bump `updated_at`. The WHERE EXISTS gate lands the row
-/// only when the message belongs to a conversation the caller participates
-/// in, in this tenant — a forged `message_id` never inserts.
-pub(crate) const UPSERT_FEEDBACK_SQL: &str = r"
-    INSERT INTO chat_message_feedback
-        (id, message_id, conversation_id, user_id, tenant_id, rating, comment, created_at, updated_at)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $8
-    WHERE EXISTS (
-        SELECT 1 FROM chat_messages m
-        JOIN chat_conversations c ON m.conversation_id = c.id
-        JOIN conversation_participants p ON p.conversation_id = c.id
-        WHERE m.id = $2 AND m.conversation_id = $3 AND p.user_id = $4 AND p.tenant_id = $5 AND c.tenant_id = $5
-    )
-    ON CONFLICT (message_id, user_id) DO UPDATE SET
-        rating = EXCLUDED.rating,
-        comment = EXCLUDED.comment,
-        updated_at = EXCLUDED.updated_at";
-
-/// The caller's feedback on one message: the canonical row, read back after
-/// an upsert because on conflict the stored id and `created_at` stay the
-/// original values.
-pub(crate) const GET_FEEDBACK_SQL: &str = concat!(
-    "SELECT ",
-    feedback_columns!(),
-    " FROM chat_message_feedback \
-     WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3"
-);
-
-/// Delete the caller's feedback on a message (thumbs toggle-off).
-pub(crate) const DELETE_FEEDBACK_SQL: &str = r"
-    DELETE FROM chat_message_feedback
-    WHERE message_id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// All of the caller's feedback rows for a conversation.
-pub(crate) const CONVERSATION_FEEDBACK_SQL: &str = concat!(
-    "SELECT ",
-    feedback_columns!(),
-    " FROM chat_message_feedback \
-     WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3"
 );
 
 /// A user's own active conversations in a tenant (owner semantics): the rows
@@ -1106,37 +1082,6 @@ pub(crate) const RECORD_AGENT_INTRODUCTION_SQL: &str = r"
     INSERT INTO agent_introductions (tenant_id, thread_id, agent_id, created_at)
     VALUES ($1, $2, $3, $4)
     ON CONFLICT DO NOTHING";
-
-/// Add a member, idempotently. `ON CONFLICT DO NOTHING` keeps an existing
-/// row (the owner's included) untouched; the WHERE EXISTS gate refuses a
-/// conversation outside this tenant instead of writing a dangling
-/// membership.
-pub(crate) const ADD_PARTICIPANT_SQL: &str = r"
-    INSERT INTO conversation_participants
-        (conversation_id, user_id, tenant_id, role, added_by, added_at)
-    SELECT $1, $2, $3, $4, $5, $6
-    WHERE EXISTS (
-        SELECT 1 FROM chat_conversations WHERE id = $1 AND tenant_id = $3
-    )
-    ON CONFLICT (conversation_id, user_id) DO NOTHING";
-
-/// One membership row.
-pub(crate) const GET_PARTICIPANT_SQL: &str = r"
-    SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
-    FROM conversation_participants
-    WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// Remove a member; the owner's row is never removed.
-pub(crate) const REMOVE_PARTICIPANT_SQL: &str = r"
-    DELETE FROM conversation_participants
-    WHERE conversation_id = $1 AND user_id = $2 AND tenant_id = $3 AND role = $4";
-
-/// Every participant of a conversation, owner first.
-pub(crate) const LIST_PARTICIPANTS_SQL: &str = r"
-    SELECT conversation_id, user_id, tenant_id, role, added_by, added_at
-    FROM conversation_participants
-    WHERE conversation_id = $1 AND tenant_id = $2
-    ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, added_at ASC, user_id ASC";
 
 /// The error one column read raises.
 pub(crate) fn chat_column_error(column: &str, e: &sqlx::Error) -> AppError {

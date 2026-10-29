@@ -261,6 +261,7 @@ async fn agent_reply(
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -861,6 +862,7 @@ async fn deleting_the_athletes_account_reaches_what_their_coach_holds_about_them
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();

@@ -484,6 +484,7 @@ mod tests {
             created_at: created_at.to_owned(),
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         }
     }
 

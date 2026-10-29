@@ -613,6 +613,7 @@ async fn platform_rows_do_not_stand_in_for_the_introduction() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();

@@ -13,11 +13,15 @@
 //! actual summarization logic; this stage is the harness that decides
 //! when to invoke it.
 
+use std::collections::HashMap;
+
+use pierre_database::database::MessageRecord;
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider};
 use pierre_services::conversation_compaction::{
     CompactionContext, CompactionOutcome, ConversationCompactor,
 };
+use uuid::Uuid;
 
 use crate::recorders::turn_call_recorder;
 use crate::stages::prompt_builder::replayable_summary;
@@ -32,9 +36,19 @@ pub async fn apply_tier1_compaction(
     ctx: &ChatPipelineContext,
     provider: &ChatProvider,
     input: &TurnInput,
+    history: &[MessageRecord],
     source_ids: &[Option<String>],
     llm_messages: &mut Vec<ChatMessage>,
 ) {
+    // The member each emitted row is about, beside its id (carnet#1174).
+    let members: HashMap<&str, Uuid> = history
+        .iter()
+        .filter_map(|row| row.about_user_id.map(|member| (row.id.as_str(), member)))
+        .collect();
+    let source_members: Vec<Option<Uuid>> = source_ids
+        .iter()
+        .map(|id| id.as_deref().and_then(|id| members.get(id).copied()))
+        .collect();
     // Read the active compaction tunables from the harness config registry
     // so admin updates via `PUT /admin/settings/harness` apply on the next
     // turn without a server restart.
@@ -49,6 +63,7 @@ pub async fn apply_tier1_compaction(
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
         source_ids,
+        source_members: &source_members,
         llm_messages,
         summary_for_prompt: replayable_summary,
     };

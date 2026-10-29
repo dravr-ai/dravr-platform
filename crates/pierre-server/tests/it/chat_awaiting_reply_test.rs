@@ -143,6 +143,7 @@ impl Fixture {
                 content_blocks: marker.as_deref(),
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: Some("web"),
+                about_user_id: None,
             })
             .await
             .unwrap()

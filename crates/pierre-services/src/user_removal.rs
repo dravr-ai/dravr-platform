@@ -666,11 +666,13 @@ fn copies_not_deleted(
     copies.push(
         "posthog_person: no PostHog person-deletion call is wired; events already captured under the account's hashed id stay in PostHog".to_owned(),
     );
-    // The coach's thread about the account, their flags and corrections, and
-    // the account's room transcript go with it (`SQLITE_USER_PURGE`).
-    // LIMITATION(registre#1174): `coach_group_chats` — a coach's own copy of a group's chat records no member per row, so this account's tool results there cannot be told apart and stay.
+    // The coach's thread about the account, their flags and corrections, the
+    // account's room transcript, and the rows of a coach's own group chat that
+    // name the account go with it (`SQLITE_USER_PURGE`); the rows naming no
+    // single member do not.
+    // LIMITATION(registre#1255): `coach_group_chats` — a reply from a turn that read several members, a reply restating the group prompt's member summaries, the agent's replies copied into the room transcript, and rows written before the chat recorded which member a row is about name no member, so the deletion cannot find them.
     copies.push(
-        "coach_group_chats: what an agent told a human coach about the account inside the coach's own copy of a group's chat (their questions, tool results and replies there) is the coach's record, not keyed to the account, and stays until removed on request".to_owned(),
+        "coach_group_chats: in a human coach's own copy of a group's chat, the rows drawn from the account alone go with it; the coach's own questions stay, and four kinds of copy name no single member and stay until removed on request: a reply from a turn that read several members, a reply restating the member summaries the coach's group prompt carries, the agent's replies to the coach as copied into the group's room transcript, and rows written before the chat recorded which member a row is about".to_owned(),
     );
     copies.push(
         "process_caches: the response cache and the notify-event email cache are evicted after the commit, the email cache on this instance only; other instances keep their copy until they restart".to_owned(),

@@ -179,6 +179,7 @@ pub(crate) fn withheld_platform_reply(
         transport_policy: ai_scope::derived_policy(),
         created_at: Utc::now().to_rfc3339(),
         channel_type: None,
+        about_user_id: None,
     };
     let envelope = build_envelope(
         profile,

@@ -127,7 +127,8 @@ pub(crate) async fn fan_out_to_group_transcript(
 /// - Conversation must exist and belong to the user/tenant
 /// - Message is persisted before LLM dispatch (crash-safe)
 /// - The room words the message quotes ride its own row, stamped no less
-///   strictly than they are (carnet#1249)
+///   strictly than they are (carnet#1249), and the row and the turn name the
+///   athlete who wrote them (carnet#1174)
 /// - Group-bound conversations fan the row out to the shared room transcript
 /// - Returns both message and conversation (for model/prompt access in LLM step)
 ///
@@ -165,6 +166,17 @@ pub async fn persist_user_message(
         .quote
         .as_ref()
         .map_or(own, |quote| own.strictest(quote.transport_policy));
+    // A quote is the athlete's words, read under the coaching gates the
+    // surface ran: the row carrying them is about her, and so is whatever the
+    // turn derives from them (carnet#1174).
+    let about_user_id = input
+        .quote
+        .as_ref()
+        .map(|quote| parse_uuid(&quote.author_user_id))
+        .transpose()?;
+    if let Some(athlete) = about_user_id {
+        ai_scope::note_member_read(athlete);
+    }
     let user_msg_params = AddMessageParams {
         tenant_id,
         conversation_id,
@@ -178,6 +190,7 @@ pub async fn persist_user_message(
         content_blocks: blocks.as_deref(),
         transport_policy,
         channel_type: Some(channel),
+        about_user_id,
     };
     let message = database.add_message(&user_msg_params).await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
@@ -293,6 +306,7 @@ pub async fn resolve_platform_turn(
         transport_policy: TransportPolicy::AnyTransport,
         created_at: Utc::now().to_rfc3339(),
         channel_type: None,
+        about_user_id: None,
     };
 
     Ok(UserMessageResult {
@@ -324,6 +338,11 @@ pub async fn resolve_platform_turn(
 /// A compaction summary of an earlier topic falls out with the rows it
 /// covers, since a block is spliced only when its last row is in the window.
 ///
+/// Nor does a row about a group member outside `readable_about` — the
+/// members the turn's sender may still read, as `history_scope` resolves
+/// them (carnet#1174). That rule is in the statement, so `limit` counts only
+/// rows the turn may replay.
+///
 /// # Errors
 ///
 /// Returns database errors on message retrieval failure.
@@ -333,14 +352,16 @@ pub async fn get_conversation_history(
     user_id: &str,
     tenant_id: TenantId,
     limit: i64,
+    readable_about: &[Uuid],
 ) -> AppResult<Vec<MessageRecord>> {
     let mut history = database
-        .get_recent_messages(
+        .get_recent_prompt_messages(
             conversation_id,
             user_id,
             tenant_id,
             limit,
             ai_scope::readable_policy(),
+            readable_about,
         )
         .await?;
     since_last_divider(&mut history);
@@ -439,6 +460,7 @@ mod tests {
             created_at: String::new(),
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         }
     }
 

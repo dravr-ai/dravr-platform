@@ -140,6 +140,7 @@ async fn add_row(
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: row.channel,
+            about_user_id: None,
         })
         .await
         .unwrap()

@@ -186,6 +186,7 @@ mod dm_routing {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: channel,
+                about_user_id: None,
             })
             .await
             .unwrap();

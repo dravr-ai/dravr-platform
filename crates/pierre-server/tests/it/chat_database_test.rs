@@ -158,6 +158,7 @@ async fn add_row(
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap()
@@ -868,6 +869,7 @@ async fn test_add_message() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -911,6 +913,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -954,6 +957,7 @@ async fn test_get_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -971,6 +975,7 @@ async fn test_get_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -988,6 +993,7 @@ async fn test_get_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1038,6 +1044,7 @@ async fn test_get_recent_messages() {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .unwrap();
@@ -1097,6 +1104,7 @@ async fn test_message_updates_conversation_tokens() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1114,6 +1122,7 @@ async fn test_message_updates_conversation_tokens() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1161,6 +1170,7 @@ async fn test_cascade_delete_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1178,6 +1188,7 @@ async fn test_cascade_delete_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1241,6 +1252,7 @@ async fn test_persist_tool_round_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1262,6 +1274,7 @@ async fn test_persist_tool_round_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1280,6 +1293,7 @@ async fn test_persist_tool_round_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1330,6 +1344,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1348,6 +1363,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1367,6 +1383,7 @@ async fn test_persist_tool_round_with_assistant_preamble() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1417,6 +1434,7 @@ async fn seed_conversation_with_message(
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1673,6 +1691,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await;
     assert!(refused.is_err());
@@ -1724,6 +1743,7 @@ async fn test_added_participant_reads_and_posts_like_the_owner() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -2320,6 +2340,7 @@ async fn assistant_messages_walk_in_order_past_the_cursor() {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .unwrap();

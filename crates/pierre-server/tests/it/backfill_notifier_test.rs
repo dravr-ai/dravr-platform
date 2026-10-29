@@ -563,6 +563,7 @@ impl PlatformPost for FakePost {
                     created_at: "2026-09-22T20:22:00Z".to_owned(),
                     transport_policy: TransportPolicy::AnyTransport,
                     channel_type: None,
+                    about_user_id: None,
                 },
                 blocks,
                 finish_reason: Some("stop".to_owned()),
@@ -611,6 +612,7 @@ async fn push_sends_the_chart_and_never_its_marker() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -736,6 +738,7 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -849,6 +852,7 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
                 content_blocks: None,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await
             .unwrap();
@@ -941,6 +945,7 @@ async fn push_prepends_activity_list_to_agent_reply() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1044,6 +1049,7 @@ async fn push_caps_long_activity_list_for_small_screens() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1494,6 +1500,7 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1582,6 +1589,7 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -1747,6 +1755,7 @@ async fn push_answers_in_an_adopted_personal_thread_when_asked_in_the_app() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: Some("web"),
+            about_user_id: None,
         })
         .await
         .unwrap();

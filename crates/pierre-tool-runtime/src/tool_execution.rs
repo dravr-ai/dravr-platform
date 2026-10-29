@@ -110,6 +110,7 @@ pub(crate) async fn run_api_tool_loop(
                     guardian_denied,
                     guardian_confirm,
                     executed,
+                    members_read,
                 } = execute_function_calls(
                     &params.executor,
                     function_calls,
@@ -198,6 +199,7 @@ pub(crate) async fn run_api_tool_loop(
                     recorder.record(ToolRoundRecord {
                         assistant_text: assistant_round_text,
                         tool_result_text: round_responses.combined_text,
+                        members_read,
                     });
                 }
                 continue;
@@ -227,6 +229,7 @@ pub(crate) async fn run_api_tool_loop(
                 guardian_denied,
                 guardian_confirm,
                 executed,
+                members_read,
             } = execute_function_calls(
                 &params.executor,
                 &text_tool_calls,
@@ -279,6 +282,7 @@ pub(crate) async fn run_api_tool_loop(
                 recorder.record(ToolRoundRecord {
                     assistant_text: assistant_round_text,
                     tool_result_text: round_responses.combined_text,
+                    members_read,
                 });
             }
             continue;
@@ -418,6 +422,7 @@ pub async fn run_cli_tool_loop(
             guardian_denied,
             guardian_confirm,
             executed,
+            members_read,
         } = execute_function_calls(
             &params.executor,
             &parsed_tool_calls,
@@ -487,6 +492,7 @@ pub async fn run_cli_tool_loop(
             recorder.record(ToolRoundRecord {
                 assistant_text,
                 tool_result_text: tool_results_text,
+                members_read,
             });
         }
     }

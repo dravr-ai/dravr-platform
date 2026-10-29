@@ -7,6 +7,7 @@
 use chrono::{DateTime, Utc};
 use pierre_core::transport::TransportPolicy;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// A compaction summary of one or more earlier conversation turns.
 ///
@@ -43,6 +44,11 @@ pub struct CompactionBlock {
     /// was derived from was. Rows written before the stamp read as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// The one group member the summarized rows read (carnet#1174): a turn
+    /// replays it only while its reader may still read that member, and it
+    /// goes with the member's account. `None` for a summary about nobody.
+    #[serde(default, skip_serializing)]
+    pub about_user_id: Option<Uuid>,
 }
 
 impl CompactionBlock {

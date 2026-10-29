@@ -24,7 +24,7 @@
 //! its closing frame says so ([`TOOL_STATUS_NOT_RUN`]) instead of checking it
 //! off.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -32,6 +32,7 @@ use uuid::Uuid;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_llm::{FunctionCall, FunctionResponse};
+use pierre_providers::ai_scope;
 use pierre_services::chat_stream::{
     TurnEvent, TurnEventSink, TurnProgress, TOOL_STATUS_COMPLETED, TOOL_STATUS_FAILED,
     TOOL_STATUS_IN_PROGRESS, TOOL_STATUS_NOT_RUN,
@@ -75,6 +76,9 @@ pub struct ExecutedFunctionCalls {
     /// visuals checks a cited `source_tool` against this, and a citation met by
     /// a merely-attempted call is not evidence.
     pub executed: Vec<String>,
+    /// The group members whose data the batch read under their consent
+    /// (carnet#1174): what the round's rows are about.
+    pub members_read: BTreeSet<Uuid>,
 }
 
 /// Lift a provider-emitted `{"parameters": {...}}` envelope off a tool call's
@@ -272,6 +276,28 @@ pub async fn execute_function_calls(
     tenant_id: TenantId,
     sink: Option<&TurnEventSink>,
 ) -> Result<ExecutedFunctionCalls, AppError> {
+    let (executed, members_read) = ai_scope::reading_members(run_function_calls(
+        executor,
+        function_calls,
+        user_id,
+        tenant_id,
+        sink,
+    ))
+    .await;
+    let mut executed = executed?;
+    executed.members_read = members_read;
+    Ok(executed)
+}
+
+/// [`execute_function_calls`]' body, inside the scope that collects the
+/// members the batch read.
+async fn run_function_calls(
+    executor: &UniversalExecutor,
+    function_calls: &[FunctionCall],
+    user_id: &str,
+    tenant_id: TenantId,
+    sink: Option<&TurnEventSink>,
+) -> Result<ExecutedFunctionCalls, AppError> {
     let mut responses = Vec::with_capacity(function_calls.len());
     let mut executed: Vec<String> = Vec::new();
     let mut dead_provider: Option<String> = None;
@@ -351,6 +377,7 @@ pub async fn execute_function_calls(
         guardian_denied,
         guardian_confirm,
         executed,
+        members_read: BTreeSet::new(),
     })
 }
 

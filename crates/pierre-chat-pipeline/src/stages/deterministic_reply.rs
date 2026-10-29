@@ -180,6 +180,7 @@ pub async fn deliver(
         content_blocks: content_blocks.as_deref(),
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
+        about_user_id: None,
     };
     let (assistant_message, updated_conversation) = persist_assistant_response(
         ctx.repos.chat.as_ref(),

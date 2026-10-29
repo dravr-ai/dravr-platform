@@ -346,6 +346,7 @@ async fn seed_card_reply(
                 content_blocks,
                 transport_policy: TransportPolicy::AnyTransport,
                 channel_type: None,
+                about_user_id: None,
             })
             .await?;
     }

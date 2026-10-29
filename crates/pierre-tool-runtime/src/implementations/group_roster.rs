@@ -54,6 +54,7 @@ use pierre_core::models::groups::{CoachingGroup, GroupMember, MemberFitnessSnaps
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
+use pierre_providers::ai_scope;
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::refusal;
@@ -443,6 +444,11 @@ async fn build_overview(
 
     let fallback_tenant = TenantId::from_uuid(context.require_tenant()?);
     let ids: Vec<Uuid> = readable.iter().map(|e| e.user_id).collect();
+    // Each athlete whose training is read: what the round is about
+    // (carnet#1174). The others are named with their status, no data.
+    for &athlete in &ids {
+        ai_scope::note_member_read(athlete);
+    }
     // One snapshot per id, in the order asked: `join_all` keeps it.
     let snapshots = fetch_member_snapshots(runtime, &ids, fallback_tenant).await;
 

@@ -309,6 +309,7 @@ mod tests {
                     created_at: "2026-09-22T20:22:00Z".to_owned(),
                     transport_policy: TransportPolicy::AnyTransport,
                     channel_type: None,
+                    about_user_id: None,
                 },
                 blocks: vec![ReplyBlock::Prose {
                     text: SENTINEL.to_owned(),

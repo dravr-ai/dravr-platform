@@ -601,12 +601,23 @@ async fn run_turn(
             .clamp(80, 500),
     )
     .unwrap_or(160);
+    // The group members whose rows the turn may replay: those its sender may
+    // still read (carnet#1174). Every other member's rows, and summaries of
+    // them, stay out of the prompt.
+    let readable_about = stages::history_scope::readable_about(
+        &ctx.repos,
+        &conv,
+        &input.user_id,
+        input.conversation_tenant_id,
+    )
+    .await;
     let mut history = get_conversation_history(
         database,
         &input.conversation_id,
         &input.user_id,
         input.conversation_tenant_id,
         history_load_limit,
+        &readable_about,
     )
     .await?;
 
@@ -646,6 +657,7 @@ async fn run_turn(
             history: &history,
             onboarding: onboarding_turn.as_ref(),
             subject_turn,
+            readable_about: &readable_about,
         },
     )
     .await?;
@@ -790,6 +802,10 @@ async fn run_turn(
         // Stamped with what the turn served so far (carnet#769).
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
+        // A reply drawn from one group member's data restates it, so it names
+        // them as their tool rows do (carnet#1174). A turn that read several
+        // members writes a reply about nobody.
+        about_user_id: ai_scope::derived_member(),
     };
     if let Some(stopped) = turn_stop::stopped_before_reply(ctx, hooks, profile, &input).await? {
         return Ok(stopped);

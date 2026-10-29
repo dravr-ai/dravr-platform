@@ -236,6 +236,7 @@ impl CommandHandler for PillarsHandler {
             content_blocks: None,
             transport_policy: ai_scope::derived_policy(),
             channel_type: None,
+            about_user_id: None,
         };
         if let Err(e) = repos.chat.add_message(&opener).await {
             // The walk is already active and re-derives coverage from the

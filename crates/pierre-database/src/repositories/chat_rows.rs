@@ -146,6 +146,7 @@ macro_rules! impl_chat_row_parsers {
                         .map_err(|e| chat_column_error("first_party_only", &e))?,
                 ),
                 channel_type: opt("channel_type")?,
+                about_user_id: $ids::read_opt(row, "about_user_id")?,
             })
         }
 

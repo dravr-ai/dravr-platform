@@ -55,6 +55,9 @@ pub mod athlete_display_name;
 /// Whether a group's human coach may act for one athlete, by id (carnet#1070).
 pub mod coached_athlete;
 
+/// Whether a group member's data may be read by another person now: the coach by coach consent, a peer by peer consent (carnet#1174).
+pub mod member_reads;
+
 /// A human coach's draft of an athlete's plan: the view, publish and discard (carnet#1069).
 pub mod coach_plan_draft;
 

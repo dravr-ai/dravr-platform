@@ -101,6 +101,7 @@ fn message(id: &str, role: &str, content: &str, blocks: Option<&str>) -> Message
         created_at: "2026-08-24T00:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     }
 }
 

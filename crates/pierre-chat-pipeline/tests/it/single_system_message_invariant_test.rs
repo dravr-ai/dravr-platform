@@ -171,6 +171,7 @@ fn row(id: &str, role: &str, content: &str) -> MessageRecord {
         created_at: "2026-07-30T09:00:00Z".to_owned(),
         transport_policy: TransportPolicy::AnyTransport,
         channel_type: None,
+        about_user_id: None,
     }
 }
 
@@ -285,6 +286,7 @@ fn the_platforms_own_replayed_summary_keeps_its_framing() {
         last_message_id: "m2".to_owned(),
         created_at: Utc.with_ymd_and_hms(2026, 7, 30, 8, 0, 0).unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
+        about_user_id: None,
     }];
 
     let (messages, _) = build_llm_messages_with_blocks(None, &history, &blocks);

@@ -215,7 +215,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     let provider_name = provider.name().to_owned();
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.
-    apply_tier1_compaction(ctx, provider, input, source_ids, llm_messages).await;
+    apply_tier1_compaction(ctx, provider, input, history, source_ids, llm_messages).await;
 
     // Stage 12a: The turn clock. After compaction for the reason 12b gives, and
     // out of the system prompt so the cached prefix survives the turn boundary.

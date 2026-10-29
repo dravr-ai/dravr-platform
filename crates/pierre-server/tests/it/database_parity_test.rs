@@ -409,6 +409,7 @@ async fn test_parity_chat_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         };
         sqlite_repos
             .chat
@@ -429,6 +430,7 @@ async fn test_parity_chat_messages() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         };
         pg_repos
             .chat

@@ -107,6 +107,7 @@ async fn deliver_a_reply_on(channel: &str, chat_id: &str, channel_user_id: &str)
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();

@@ -172,7 +172,10 @@ macro_rules! user_owned_tables {
         /// the athlete's room transcript, the agent's replies to them included
         /// (`group_transcript_entries`), all cascade from the account; they
         /// are named here so the delete states it, the survivor read proves
-        /// it, and the receipt counts them.
+        /// it, and the receipt counts them. So do the rows of a coach's own
+        /// group chat about the athlete (carnet#1174): each tool round that
+        /// read them, the reply drawn from it, and a summary of those
+        /// (`chat_messages` and `compaction_blocks` by `about_user_id`).
         ///
         /// A coaching group the user owns and archived goes too (carnet#1161),
         /// once their own conversations are gone and while no other user's
@@ -215,6 +218,8 @@ user_owned_tables!(
     "messaging_resumable_turns",
     "activity_conversations",
     "chat_conversations" where "CAST(user_id AS TEXT) = $1 OR CAST(subject_user_id AS TEXT) = $1",
+    "chat_messages" where "CAST(about_user_id AS TEXT) = $1",
+    "compaction_blocks" where "CAST(about_user_id AS TEXT) = $1",
     "coach_reply_reviews" where "CAST(athlete_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
     "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1",
     "coaching_groups" where "CAST(owner_id AS TEXT) = $1 AND is_active = FALSE AND NOT EXISTS (SELECT 1 FROM chat_conversations c WHERE c.group_id = coaching_groups.id OR c.subject_group_id = coaching_groups.id)",

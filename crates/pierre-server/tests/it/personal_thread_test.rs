@@ -192,6 +192,7 @@ async fn say(
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
@@ -444,6 +445,7 @@ async fn plus_opens_a_topic_and_never_a_second_rule_on_an_empty_one() {
         &user_id.to_string(),
         tenant_id,
         160,
+        &[],
     )
     .await
     .unwrap();

@@ -618,6 +618,7 @@ impl GroupJoinHandler {
                     // Names and the group title only, built from no provider data.
                     transport_policy: TransportPolicy::AnyTransport,
                     channel_type: None,
+                    about_user_id: None,
                 })
                 .await?;
             delivered += 1;

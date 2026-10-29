@@ -702,6 +702,7 @@ mod tests {
             created_at: String::new(),
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         }
     }
 

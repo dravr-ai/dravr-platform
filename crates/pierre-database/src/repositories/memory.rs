@@ -44,16 +44,16 @@ pub(crate) const INSERT_COMPACTION_BLOCK_SQL: &str = r"
             INSERT INTO compaction_blocks (
                 id, tenant_id, conversation_id, summary, summary_tokens,
                 original_tokens, first_message_id, last_message_id, created_at,
-                first_party_only
+                first_party_only, about_user_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ";
 
 /// A conversation's compaction blocks, oldest first.
 pub(crate) const LIST_COMPACTION_BLOCKS_SQL: &str = r"
             SELECT id, tenant_id, conversation_id, summary, summary_tokens,
                    original_tokens, first_message_id, last_message_id, created_at,
-                   first_party_only
+                   first_party_only, about_user_id
             FROM compaction_blocks
             WHERE conversation_id = $1 AND tenant_id = $2
             ORDER BY created_at ASC
@@ -371,12 +371,14 @@ pub(crate) const TOUCH_AGENT_SESSION_SQL: &str = r"
 /// Emit the whole `HarnessMemoryRepository` implementation for one backend type.
 ///
 /// The body is written once here; each backend's shell invokes it with its
-/// own type, and sqlx resolves the driver from `self.pool()` per expansion.
+/// own type and its uuid codec from [`super::uuid_columns`] (a compaction
+/// block's `about_user_id` is `uuid` on Postgres, `TEXT` on `SQLite`), and
+/// sqlx resolves the driver from `self.pool()` per expansion.
 ///
 /// The body names its consts, helpers and types unqualified, so the invoking
 /// shell must `use` every one of them.
 macro_rules! impl_harness_memory_repository {
-    ($ty:ty) => {
+    ($ty:ty, $ids:ident) => {
         #[async_trait::async_trait]
         impl HarnessMemoryRepository for $ty {
             async fn insert_compaction_block(
@@ -396,6 +398,7 @@ macro_rules! impl_harness_memory_repository {
                     .bind(params.last_message_id)
                     .bind(now)
                     .bind(params.transport_policy.is_first_party_only())
+                    .bind($ids::bind_opt(params.about_user_id))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -413,6 +416,7 @@ macro_rules! impl_harness_memory_repository {
                     last_message_id: params.last_message_id.to_owned(),
                     created_at: now,
                     transport_policy: params.transport_policy,
+                    about_user_id: params.about_user_id,
                 })
             }
 
@@ -430,7 +434,11 @@ macro_rules! impl_harness_memory_repository {
                         AppError::database(format!("Failed to list compaction blocks: {e}"))
                     })?;
 
-                rows.iter().map(compaction_block_from_row).collect()
+                rows.iter()
+                    .map(|row| {
+                        compaction_block_from_row(row, $ids::read_opt(row, "about_user_id")?)
+                    })
+                    .collect()
             }
 
             async fn upsert_user_fact(

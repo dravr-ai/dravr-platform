@@ -31,9 +31,10 @@ use crate::repositories::memory::{
     MARK_FOLLOWUP_DELIVERED_SQL, MERGE_USER_FACT_SQL, PROPOSE_USER_FACT_SQL,
     SET_AGENT_NOTE_SUPPRESSED_SQL, TOUCH_AGENT_SESSION_SQL,
 };
+use crate::repositories::uuid_columns::TextUuid;
 use crate::repositories::{
     ApproveFactOutcome, HarnessMemoryRepository, InsertAgentFollowupParams, InsertAgentNoteParams,
     InsertCompactionBlockParams, MergeUserFactParams, UpsertUserFactParams,
 };
 
-impl_harness_memory_repository!(Database);
+impl_harness_memory_repository!(Database, TextUuid);

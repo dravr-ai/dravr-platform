@@ -201,6 +201,7 @@ async fn the_first_landing_posts_once_into_the_athletes_own_thread() {
             content_blocks: None,
             transport_policy: TransportPolicy::AnyTransport,
             channel_type: None,
+            about_user_id: None,
         })
         .await
         .unwrap();
