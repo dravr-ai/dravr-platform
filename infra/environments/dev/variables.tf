@@ -449,28 +449,22 @@ variable "backend_sciotte_iam" {
 
 variable "archive_fetch_hosts" {
   description = <<-EOT
-    The exact hosts an athlete's export link may be fetched from (carnet#1218),
-    matched without wildcards; every redirect hop is held to the same list.
-    Empty refuses every link.
+    Where an athlete's export link may be fetched from (carnet#1218): each
+    entry a host matched exactly, without wildcards, optionally followed by a
+    path prefix the URL's path must lie under, compared on whole
+    percent-decoded segments (carnet#1247). Every redirect hop is held to the
+    same list before it is sent. Empty refuses every link.
 
     The Strava export spike (carnet#1215) recorded the chain a real export link
     follows: the link in Strava's email is a click tracker on email.strava.com,
     which answers 302 to a presigned S3 URL, path-style, on s3.amazonaws.com
     (https://s3.amazonaws.com/strava.portability/athlete/<id>/export/live/...,
-    valid 7 days). Both hosts are therefore needed.
-
-    Trade-off, accepted: s3.amazonaws.com serves every public bucket path-style,
-    so the allowlist alone admits any public S3 object, not only Strava's. It
-    stays bounded because the fetch is https only, refuses credentials in the
-    URL, pins the connection to the resolved address and refuses private and
-    metadata ranges, caps bytes and time, and the archive fetched is the
-    athlete's own, imported into their own history only: a link to someone
-    else's bucket can at most import that file for the athlete who pasted it.
-    Narrowing to the strava.portability bucket needs a path rule the guard
-    does not have.
+    valid 7 days). email.strava.com is listed as a host; s3.amazonaws.com only
+    under Strava's strava.portability bucket, so a link or a redirect into any
+    other bucket is refused without a byte being read.
   EOT
   type        = list(string)
-  default     = ["email.strava.com", "s3.amazonaws.com"]
+  default     = ["email.strava.com", "s3.amazonaws.com/strava.portability/"]
 }
 
 

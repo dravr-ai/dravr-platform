@@ -362,10 +362,14 @@ async fn a_refused_link_answers_with_its_refusal_code() {
     );
 }
 
+/// A reason as `ArchiveImports::from_env` words a malformed fetch allowlist.
+const DISABLED_REASON: &str = "export fetch client: ARCHIVE_FETCH_HOSTS: allowlist entry \
+                               `s3.amazonaws.com/a/../b/` has an invalid path prefix";
+
 #[tokio::test]
 async fn a_server_without_imports_says_so_to_the_hosted_page() {
     let resources = common::create_test_server_resources_with_archive_imports(
-        ArchiveImports::disabled("not configured in this test"),
+        ArchiveImports::disabled(DISABLED_REASON),
     )
     .await
     .expect("a server context");
@@ -375,6 +379,15 @@ async fn a_server_without_imports_says_so_to_the_hosted_page() {
     let (status, body) = call(&resources, "GET", CURRENT, &token, None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["enabled"], false, "{body}");
+
+    // Starting one is refused, and the operator's configuration that disabled
+    // imports stays in the boot log: the athlete reads no part of it.
+    let (status, body) = call(&resources, "POST", START, &token, None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(
+        !body.to_string().contains("ARCHIVE_FETCH_HOSTS"),
+        "the disabled reason reached the athlete: {body}"
+    );
 
     // The picker offers no import, and the page says imports do not run here.
     let connect = connect_token(&resources, athlete.user_id, athlete.tenant);

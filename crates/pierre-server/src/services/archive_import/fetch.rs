@@ -8,8 +8,9 @@
 //!
 //! The link is the athlete's, so the fetch is held to tronc's
 //! [`FetchPolicy::archive_fetch`]: `https` on the default port only, no
-//! credentials in the URL, a host on an exact allowlist, every redirect hop
-//! held to the same rules, the connection made to the address the name
+//! credentials in the URL, a host on an exact allowlist (an entry may confine
+//! its host to a path prefix, such as one S3 bucket), every redirect hop held
+//! to the same rules before it is sent, the connection made to the address the name
 //! resolved to and checked against the deny list, and byte, idle and total
 //! time caps. The allowlist is the deployment's
 //! ([`ENV_ARCHIVE_FETCH_HOSTS`]); with none set, every link is refused, so a
@@ -20,6 +21,7 @@
 //! it, and callers log the link's digest.
 
 use std::env;
+use std::error::Error;
 use std::fmt;
 use std::time::Duration;
 
@@ -29,14 +31,21 @@ use dravr_barrage::import::archive::ArchiveLimits;
 use dravr_barrage::{BarrageError, FailureCode};
 use dravr_tronc::http_client::guard::{
     FetchLimits, FetchPolicy, GuardError, GuardedClient, GuardedResponse, HostAllowlist,
+    InvalidAllowlistEntry,
 };
 use futures_util::future;
 use futures_util::stream::{self, BoxStream, StreamExt};
 use reqwest::header::{HeaderValue, CONTENT_LENGTH, CONTENT_RANGE, RANGE};
 use reqwest::{Method, StatusCode};
 
-/// The hosts an export link may be fetched from, comma-separated and matched
-/// exactly. Unset or empty, no link is fetched.
+/// Where an export link may be fetched from, as comma-separated entries.
+///
+/// Each entry is a host matched exactly, optionally followed by a path prefix
+/// the URL's path must lie under (`s3.amazonaws.com/strava.portability/`).
+/// Unset or empty, no link is fetched; an entry that cannot be read or could
+/// never match (a port or whitespace in the host, a prefix with no host, a
+/// bare host beside its own prefixed entry) stops the server from building
+/// the fetcher rather than being dropped.
 pub const ENV_ARCHIVE_FETCH_HOSTS: &str = "ARCHIVE_FETCH_HOSTS";
 
 /// The largest export downloaded: the archive barrage spools, never less. A
@@ -56,7 +65,8 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(18);
 pub enum LinkRefusal {
     /// Not an `https` URL on the default port without credentials.
     Invalid,
-    /// Its host is not one exports are fetched from.
+    /// It is not on a host, or under a host's path prefix, exports are
+    /// fetched from.
     HostNotAllowed,
     /// The service no longer serves the export behind it.
     Expired,
@@ -78,7 +88,7 @@ impl LinkRefusal {
 
     fn of_guard(error: &GuardError) -> Self {
         match error {
-            GuardError::HostNotAllowed => Self::HostNotAllowed,
+            GuardError::HostNotAllowed | GuardError::PathNotAllowed => Self::HostNotAllowed,
             GuardError::InvalidUrl
             | GuardError::SchemeNotAllowed
             | GuardError::CredentialsInUrl
@@ -141,15 +151,48 @@ impl fmt::Debug for GuardedExportFetcher {
     }
 }
 
+/// Why the export fetcher could not be built.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FetcherSetupError {
+    /// An [`ENV_ARCHIVE_FETCH_HOSTS`] entry cannot be read or could never match.
+    Allowlist(InvalidAllowlistEntry),
+    /// The guarded client could not be built.
+    Client(GuardError),
+}
+
+impl fmt::Display for FetcherSetupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Allowlist(e) => write!(f, "{ENV_ARCHIVE_FETCH_HOSTS}: {e}"),
+            Self::Client(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl Error for FetcherSetupError {}
+
 impl GuardedExportFetcher {
-    /// A fetcher admitting the hosts in [`ENV_ARCHIVE_FETCH_HOSTS`].
+    /// A fetcher admitting what [`ENV_ARCHIVE_FETCH_HOSTS`] lists.
     ///
     /// # Errors
     ///
-    /// The guard's error when the client cannot be built.
-    pub fn try_from_env() -> Result<Self, GuardError> {
-        let hosts = env::var(ENV_ARCHIVE_FETCH_HOSTS).unwrap_or_default();
-        Self::try_new(HostAllowlist::from_comma_separated(&hosts))
+    /// As [`try_from_hosts`](Self::try_from_hosts).
+    pub fn try_from_env() -> Result<Self, FetcherSetupError> {
+        Self::try_from_hosts(&env::var(ENV_ARCHIVE_FETCH_HOSTS).unwrap_or_default())
+    }
+
+    /// A fetcher admitting `hosts`, read as [`ENV_ARCHIVE_FETCH_HOSTS`] is:
+    /// comma-separated `host` or `host/path-prefix/` entries.
+    ///
+    /// # Errors
+    ///
+    /// [`FetcherSetupError::Allowlist`] naming an entry that cannot be read
+    /// or could never match, or [`FetcherSetupError::Client`] when the client
+    /// cannot be built.
+    pub fn try_from_hosts(hosts: &str) -> Result<Self, FetcherSetupError> {
+        let hosts =
+            HostAllowlist::try_from_comma_separated(hosts).map_err(FetcherSetupError::Allowlist)?;
+        Self::try_new(hosts).map_err(FetcherSetupError::Client)
     }
 
     /// A fetcher admitting `hosts`.
@@ -294,6 +337,106 @@ mod tests {
                 .await,
             Err(LinkRefusal::Invalid),
             "credentials in the URL are refused"
+        );
+    }
+
+    /// The dev deployment's `archive_fetch_hosts`, as `main.tf` joins it.
+    const STRAVA_EXPORT_HOSTS: &str = "email.strava.com,s3.amazonaws.com/strava.portability/";
+
+    #[tokio::test]
+    async fn the_export_bucket_entry_admits_only_strava_s_bucket() {
+        let fetcher = GuardedExportFetcher::try_from_hosts(STRAVA_EXPORT_HOSTS).expect("client");
+        for link in [
+            "https://email.strava.com/ls/click?upn=token",
+            "https://s3.amazonaws.com/strava.portability/athlete/1/export/live/export_1.zip?X-Amz-Expires=604800",
+        ] {
+            assert!(
+                fetcher.client.check_url(link).is_ok(),
+                "the email link and the bucket it redirects to are admitted"
+            );
+        }
+        for link in [
+            "https://s3.amazonaws.com/another-bucket/export.zip",
+            "https://s3.amazonaws.com/strava.portabilityX/export.zip",
+            "https://s3.amazonaws.com/strava.portability/%2e%2e/another-bucket/export.zip",
+            "https://s3.amazonaws.com/strava.portability%2F..%2Fanother-bucket/export.zip",
+        ] {
+            assert_eq!(
+                fetcher.check(link).await,
+                Err(LinkRefusal::HostNotAllowed),
+                "a link outside Strava's bucket is refused before any fetch"
+            );
+        }
+    }
+
+    #[test]
+    fn hosts_are_read_as_host_or_host_and_prefix_entries() {
+        let fetcher = GuardedExportFetcher::try_from_hosts(
+            " export.example.com , cdn.example.com/exports/ ,",
+        )
+        .expect("both shapes read");
+        assert!(fetcher
+            .client
+            .check_url("https://export.example.com/any/path.zip")
+            .is_ok());
+        assert!(fetcher
+            .client
+            .check_url("https://cdn.example.com/exports/a.zip")
+            .is_ok());
+        assert_eq!(
+            fetcher
+                .client
+                .check_url("https://cdn.example.com/other/a.zip")
+                .err(),
+            Some(GuardError::PathNotAllowed)
+        );
+        assert!(
+            GuardedExportFetcher::try_from_hosts("").is_ok(),
+            "an empty list builds a fetcher that refuses everything"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_prefix_stops_the_fetcher_from_being_built() {
+        let refusal =
+            GuardedExportFetcher::try_from_hosts("email.strava.com, s3.amazonaws.com/a/../b/")
+                .expect_err("a dot segment in a prefix is refused");
+        assert!(
+            matches!(refusal, FetcherSetupError::Allowlist(_)),
+            "{refusal}"
+        );
+        assert!(
+            refusal.to_string().contains("s3.amazonaws.com/a/../b/"),
+            "the error names the entry the operator wrote: {refusal}"
+        );
+    }
+
+    #[test]
+    fn an_entry_that_could_never_match_stops_the_fetcher_from_being_built() {
+        for entry in [
+            "s3.amazonaws.com /strava.portability/",
+            "s3.amazonaws.com:443/strava.portability/",
+            "/strava.portability/",
+        ] {
+            let refusal =
+                GuardedExportFetcher::try_from_hosts(&format!("email.strava.com,{entry}"))
+                    .map(drop)
+                    .map_err(|refusal| refusal.to_string());
+            assert!(
+                refusal.as_ref().is_err_and(|text| text.contains(entry)),
+                "`{entry}` must stop the fetcher, naming the entry: {refusal:?}"
+            );
+        }
+        let refusal = GuardedExportFetcher::try_from_hosts(&format!(
+            "{STRAVA_EXPORT_HOSTS},s3.amazonaws.com"
+        ))
+        .map(drop)
+        .map_err(|refusal| refusal.to_string());
+        assert!(
+            refusal
+                .as_ref()
+                .is_err_and(|text| text.contains("s3.amazonaws.com/strava.portability/")),
+            "a bare s3.amazonaws.com would unscope the bucket entry: {refusal:?}"
         );
     }
 
