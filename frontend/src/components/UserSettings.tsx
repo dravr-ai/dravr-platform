@@ -511,12 +511,18 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
       return;
     }
     if (!result.timestamp || Date.now() - result.timestamp > OAUTH_RESULT_FRESH_MS) return;
-    // The card's display name for the backend the connect launched, with
-    // native `strava` (whose row the server withholds) read as the Strava card's.
+    // The card's display name for the backend the connect launched. The
+    // server withholds the raw card of a backend with a scrape mirror (native
+    // `garmin`), so that backend is matched to the card it serves through the
+    // card's `connected_backend`. Native `strava` reads as the Strava card's
+    // label, and a backend no card serves by its capitalised id.
+    const card = providersResponse?.providers?.find(
+      (p) => p.provider === result.provider || p.connected_backend === result.provider,
+    );
     const name =
       result.provider === 'strava'
         ? t('shell.sciotteTargetStrava')
-        : (providersResponse?.providers?.find((p) => p.provider === result.provider)?.display_name ?? result.provider);
+        : (card?.display_name ?? result.provider.charAt(0).toUpperCase() + result.provider.slice(1));
     localStorage.removeItem(OAUTH_RESULT_KEY);
     if (result.success) {
       setProviderMessage({ type: 'success', text: t('app.providerConnected', { provider: name }) });

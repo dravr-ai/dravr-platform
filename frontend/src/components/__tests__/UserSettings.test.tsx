@@ -1148,6 +1148,29 @@ describe('UserSettings Component', () => {
       expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
     });
 
+    it('names a Garmin grant by the card it serves, never by the bare backend id', async () => {
+      // The raw `garmin` row is withheld: the grant lights the
+      // `sciotte_garmin` card, which names it through `connected_backend`.
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          { ...card('sciotte_garmin', 'Garmin'), connected: true, connected_backend: 'garmin' },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      leaveResult('garmin', { success: true, hasError: false });
+      await openProviders();
+
+      expect(await screen.findByText('Garmin connected successfully!')).toBeInTheDocument();
+      expect(screen.queryByText('garmin connected successfully!')).not.toBeInTheDocument();
+    });
+
+    it('names a refused grant whose backend no card serves by its capitalised id', async () => {
+      leaveResult('wahoo');
+      await openProviders();
+
+      expect(await screen.findByText('Failed to connect Wahoo')).toBeInTheDocument();
+    });
+
     it('ignores a result older than a connect the athlete just made', async () => {
       leaveResult('garmin', { timestamp: Date.now() - OAUTH_RESULT_FRESH_MS - 60_000 });
       await openProviders();
