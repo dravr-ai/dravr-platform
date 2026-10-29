@@ -40,6 +40,19 @@ same file. Two consequences worth knowing before editing:
 - The mark cannot be rescaled beyond 1024px without resampling. Any future
   vectorization should replace `boreal-ripple-mark.png` and keep this pipeline.
 
+`boreal-ripple-mark.svg` covers the sizes above 1024px (print, a large
+marketing hero) until a hand-drawn master exists. It is a potrace trace of the
+raster on the same 1024 canvas, in one forest `#05331f` fill. Rendered back at
+1024px it matches the raster's ink to 98.4% IoU, and at 4096px its edges stay
+crisp where an upsample of the PNG blurs. It is derived from the PNG, not a
+master: neither generator reads it. A trace keeps the raster's generative
+texture and does nothing for the small sizes, so it does not replace the
+designer's vector or the reduced favicon mark. Regenerate it with:
+
+```bash
+python3 frontend-mobile/assets/sources/trace-mark.py   # needs Pillow and potrace
+```
+
 ## Known: the mark degrades below ~60px
 
 The dashed concentric arcs merge into a solid smudge at 48–60px, and the tree
