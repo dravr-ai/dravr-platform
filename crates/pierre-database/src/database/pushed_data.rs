@@ -14,9 +14,10 @@ use uuid::Uuid;
 use crate::database::Database;
 use crate::repositories::activity_cache::sport_type_string;
 use crate::repositories::pushed_data::{
-    impl_pushed_data_repository, PushedDataRepository, DROP_PUSHED_FILE_SQL,
-    DROP_STALE_PUSHED_FILES_SQL, KEEP_PUSHED_FILE_SQL, KEPT_PUSHED_FILE_SQL, MERGE_PUSHED_BODY_SQL,
-    MERGE_PUSHED_RECOVERY_SQL, UPSERT_PUSHED_ACTIVITY_SQL, UPSERT_PUSHED_SLEEP_SQL,
+    amended_activity_json, impl_pushed_data_repository, PushedDataRepository,
+    AMEND_PUSHED_ACTIVITY_SQL, DROP_PUSHED_FILE_SQL, DROP_STALE_PUSHED_FILES_SQL,
+    KEEP_PUSHED_FILE_SQL, KEPT_PUSHED_FILE_SQL, MERGE_PUSHED_BODY_SQL, MERGE_PUSHED_RECOVERY_SQL,
+    UPSERT_PUSHED_ACTIVITY_SQL, UPSERT_PUSHED_SLEEP_SQL,
 };
 
 impl_pushed_data_repository!(Database);

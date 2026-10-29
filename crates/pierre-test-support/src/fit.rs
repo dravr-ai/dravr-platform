@@ -61,6 +61,9 @@ pub struct FitWorkout {
     /// Seconds `[from, to)` whose samples recorded no fix: their position
     /// fields hold FIT's invalid value, as a device that lost its fix writes.
     pub fix_lost: Option<(u32, u32)>,
+    /// Whether its samples carry power, as a power meter records it
+    /// ([`power`]).
+    pub with_power: bool,
 }
 
 impl FitWorkout {
@@ -73,6 +76,16 @@ impl FitWorkout {
             sport: FitSport::Cycling,
             with_position: true,
             fix_lost: None,
+            with_power: false,
+        }
+    }
+
+    /// The same workout, its samples carrying power.
+    #[must_use]
+    pub const fn with_power(self) -> Self {
+        Self {
+            with_power: true,
+            ..self
         }
     }
 
@@ -212,6 +225,17 @@ fn heart_rate(second: u32) -> u8 {
     120 + u8::try_from(second % 20).unwrap_or(0)
 }
 
+/// The power the sample at `second` records, watts: 150 W for 30 s, then
+/// 250 W for 30 s, repeating, so its average and its normalized power differ.
+#[must_use]
+pub const fn power(second: u32) -> u16 {
+    if (second / 30).is_multiple_of(2) {
+        150
+    } else {
+        250
+    }
+}
+
 /// `file_id`: type, manufacturer (255, development), time created.
 fn file_id(data: &mut Vec<u8>, kind: u8, created: DateTime<Utc>) {
     define(data, 0, 0, &[(0, 1, ENUM), (1, 2, UINT16), (4, 4, UINT32)]);
@@ -221,7 +245,8 @@ fn file_id(data: &mut Vec<u8>, kind: u8, created: DateTime<Utc>) {
     data.extend_from_slice(&fit_time(created).to_le_bytes());
 }
 
-/// `record`: timestamp, position, altitude, heart rate, distance, speed.
+/// `record`: timestamp, position, altitude, heart rate, distance, speed, and
+/// power when the workout carries it.
 fn records(data: &mut Vec<u8>, workout: &FitWorkout) {
     let mut fields = vec![(253, 4, UINT32)];
     if workout.with_position {
@@ -233,6 +258,9 @@ fn records(data: &mut Vec<u8>, workout: &FitWorkout) {
         (5, 4, UINT32),
         (6, 2, UINT16),
     ]);
+    if workout.with_power {
+        fields.push((7, 2, UINT16));
+    }
     define(data, 1, 20, &fields);
     let speed = workout.sport.speed();
     for second in 0..workout.seconds {
@@ -257,6 +285,9 @@ fn records(data: &mut Vec<u8>, workout: &FitWorkout) {
         data.push(heart_rate(second));
         data.extend_from_slice(&scaled_u32(speed * f64::from(second), 100.0).to_le_bytes());
         data.extend_from_slice(&scaled_u16(speed, 1000.0, 0.0).to_le_bytes());
+        if workout.with_power {
+            data.extend_from_slice(&power(second).to_le_bytes());
+        }
     }
 }
 

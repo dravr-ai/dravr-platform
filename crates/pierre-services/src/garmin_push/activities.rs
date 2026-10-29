@@ -24,6 +24,15 @@
 //! A summary, its samples and its laps are each written only when no later
 //! push of them has landed: a batch retried after a newer one leaves the
 //! newer values standing.
+//!
+//! The activity's power is derived from its samples (`with_power`), so the
+//! row carries it whichever push brings them: the details' samples, a long
+//! activity's file, or — for a summary that arrives without either, as a
+//! re-send after them does — the samples already stored. Samples that land
+//! after a newer summary (a retried details batch, a file) amend the standing
+//! row in place (`amend_activity`) rather than going through the receipt
+//! guard that would refuse them, so a ride never keeps its samples and loses
+//! its power.
 
 use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::errors::AppResult;
@@ -37,7 +46,7 @@ use serde_json::Value;
 use tracing::{debug, info, warn};
 
 use super::mapping::{
-    activity_from_summary, laps_from_details, streams_from_samples, DETAILS_MAX_SECONDS,
+    activity_from_summary, laps_from_details, streams_from_samples, with_power, DETAILS_MAX_SECONDS,
 };
 use super::wire::{ActivityDetailsRecord, ActivityFileRecord, ActivitySummary};
 use super::{records_as, ActivityFile, BatchOutcome, OwnerBatch, Retry};
@@ -107,7 +116,25 @@ async fn store_streams(
         .map(|_| ())
 }
 
-/// `activities`: each summary upserts its cached row.
+/// The samples stored for the owner's activity `activity_id`, if any.
+async fn stored_streams(
+    batch: &OwnerBatch<'_>,
+    activity_id: &str,
+) -> AppResult<Option<TimeSeriesData>> {
+    batch
+        .repos
+        .activity_streams
+        .get_activity_streams(
+            &batch.owner.tenant_id,
+            batch.owner.user_id,
+            GARMIN,
+            activity_id,
+        )
+        .await
+}
+
+/// `activities`: each summary upserts its cached row, with the power of the
+/// samples already stored for it.
 pub(super) async fn write_summaries(
     batch: &OwnerBatch<'_>,
     records: Vec<Value>,
@@ -117,6 +144,10 @@ pub(super) async fn write_summaries(
     for summary in &summaries {
         match activity_from_summary(None, summary) {
             Ok(activity) => {
+                let activity = match stored_streams(batch, activity.id()).await? {
+                    Some(streams) => with_power(activity, &streams)?,
+                    None => activity,
+                };
                 if upsert(batch, &activity).await? {
                     outcome.stored += 1;
                 } else {
@@ -155,17 +186,27 @@ pub(super) async fn write_details(
                 continue;
             }
         };
-        // A later summary of the activity may already stand; the laps and
-        // samples below are still this push's, and the samples keep their own
-        // receipt order. The record counts as stored for what it brought.
-        upsert(batch, &activity).await?;
         let start = activity.start_date().timestamp();
         let duration = i64::try_from(activity.duration_seconds()).unwrap_or(i64::MAX);
+        let streams = streams_from_samples(start, &record.samples);
+        let activity = match &streams {
+            Some(streams) => with_power(activity, streams)?,
+            None => activity,
+        };
+        // A later summary of the activity may already stand; the laps and
+        // samples below are still this push's, and the samples keep their own
+        // receipt order, so the standing summary takes their power in place.
+        // The record counts as stored for what it brought.
+        if !upsert(batch, &activity).await? {
+            if let Some(streams) = &streams {
+                amend_power(batch, activity.id(), streams).await?;
+            }
+        }
         if let Some(laps) = laps_from_details(start, duration, &record.laps, &record.samples) {
             store_laps(batch, activity.id(), laps).await?;
         }
-        if let Some(streams) = streams_from_samples(start, &record.samples) {
-            store_streams(batch, activity.id(), &streams, None).await?;
+        if let Some(streams) = &streams {
+            store_streams(batch, activity.id(), streams, None).await?;
         }
         outcome.stored += 1;
     }
@@ -246,17 +287,7 @@ async fn plan_file(batch: &OwnerBatch<'_>, activity_id: &str) -> AppResult<FileP
     {
         return Ok(FilePlan::Kept(bytes));
     }
-    let stored = batch
-        .repos
-        .activity_streams
-        .get_activity_streams(
-            &batch.owner.tenant_id,
-            batch.owner.user_id,
-            GARMIN,
-            activity_id,
-        )
-        .await?;
-    Ok(if stored.is_some() {
+    Ok(if stored_streams(batch, activity_id).await?.is_some() {
         FilePlan::Skip
     } else {
         FilePlan::Fetch
@@ -392,6 +423,44 @@ async fn store_file(batch: &OwnerBatch<'_>, activity_id: &str, bytes: Vec<u8>) -
     if let Some(laps) = laps {
         store_laps(batch, activity_id, laps).await?;
     }
-    // Both landed: the kept copy has served its purpose.
+    // Its summary came first (a file waits for it) and carried no power.
+    amend_power(batch, activity_id, &streams).await?;
+    // All landed: the kept copy has served its purpose.
     drop_kept().await
+}
+
+/// Give the owner's standing cached activity `activity_id` the power of
+/// `streams`, leaving its receipt as it is: its own push carried no samples
+/// (a summary never does), so the power is the samples' to add whenever they
+/// land.
+async fn amend_power(
+    batch: &OwnerBatch<'_>,
+    activity_id: &str,
+    streams: &TimeSeriesData,
+) -> AppResult<()> {
+    let Some(activity) = batch
+        .repos
+        .activity_cache
+        .get_cached_activity(
+            batch.owner.user_id,
+            &batch.owner.tenant_id,
+            GARMIN,
+            activity_id,
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+    let amended = with_power(activity, streams)?;
+    batch
+        .repos
+        .pushed_data
+        .amend_activity(
+            batch.owner.user_id,
+            &batch.owner.tenant_id,
+            GARMIN,
+            &amended,
+        )
+        .await
+        .map(|_| ())
 }

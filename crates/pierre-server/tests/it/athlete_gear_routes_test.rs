@@ -241,6 +241,7 @@ fn fit_run(start: DateTime<Utc>) -> FitWorkout {
         sport: FitSport::Running,
         with_position: true,
         fix_lost: None,
+        with_power: false,
     }
 }
 

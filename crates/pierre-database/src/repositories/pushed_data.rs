@@ -45,11 +45,13 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
 use uuid::Uuid;
+
+use crate::repositories::activity_cache::stored_json::stored_activity_json;
 
 /// Writes for the data a provider pushes.
 #[async_trait]
@@ -68,6 +70,25 @@ pub trait PushedDataRepository: Send + Sync {
         provider: &str,
         activity: &Activity,
         received_at: DateTime<Utc>,
+    ) -> AppResult<bool>;
+
+    /// Rewrite the content of `activity`'s cached row under `provider`,
+    /// leaving the row's receipt (`synced_at`) as it stands. A figure derived
+    /// from data stored after the row's own push — a ride's power, from its
+    /// samples — belongs on whichever summary stands, including one received
+    /// after the data it was derived from, which [`Self::upsert_activity`]
+    /// would refuse to overwrite. The row's samples and laps stand beside it,
+    /// so the content written carries neither. Returns whether a row was there.
+    ///
+    /// # Errors
+    /// Returns a database error when the activity does not serialize or the
+    /// write fails.
+    async fn amend_activity(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        activity: &Activity,
     ) -> AppResult<bool>;
 
     /// Write a night's sleep, received at `received_at`, filed under the
@@ -172,6 +193,11 @@ pub(crate) const UPSERT_PUSHED_ACTIVITY_SQL: &str = r"
         data_json = EXCLUDED.data_json
     WHERE cached_activities.synced_at <= EXCLUDED.synced_at";
 
+/// Rewrite one cached activity row's content, leaving its receipt.
+pub(crate) const AMEND_PUSHED_ACTIVITY_SQL: &str = r"
+    UPDATE cached_activities SET data_json = $1
+    WHERE user_id = $2 AND tenant_id = $3 AND provider = $4 AND activity_id = $5";
+
 /// Write one night's sleep unless the stored night came from a later push,
 /// filed under the pushing connection's data source.
 pub(crate) const UPSERT_PUSHED_SLEEP_SQL: &str = r"
@@ -267,6 +293,19 @@ pub(crate) const DROP_PUSHED_FILE_SQL: &str = r"
 pub(crate) const DROP_STALE_PUSHED_FILES_SQL: &str =
     "DELETE FROM pushed_activity_files WHERE fetched_at < $1";
 
+/// The `data_json` [`PushedDataRepository::amend_activity`] writes: the
+/// activity as stored ([`stored_activity_json`]), without the laps a read
+/// filled in from beside the row.
+pub(crate) fn amended_activity_json(activity: &Activity) -> AppResult<String> {
+    let mut value: serde_json::Value = serde_json::from_str(&stored_activity_json(activity)?)
+        .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))?;
+    if let serde_json::Value::Object(object) = &mut value {
+        object.remove("laps");
+    }
+    serde_json::to_string(&value)
+        .map_err(|e| AppError::database(format!("Failed to serialize activity: {e}")))
+}
+
 /// Emit the whole [`PushedDataRepository`] implementation for one backend
 /// type. The body is written once here; each backend's shell invokes it with
 /// its own type, and sqlx resolves the driver from `self.pool()` per
@@ -302,6 +341,27 @@ macro_rules! impl_pushed_data_repository {
                     .map_err(|e| AppError::database(format!("upsert pushed activity: {e}")))?
                     .rows_affected();
                 Ok(written > 0)
+            }
+
+            async fn amend_activity(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                activity: &Activity,
+            ) -> AppResult<bool> {
+                let data_json = amended_activity_json(activity)?;
+                let amended = sqlx::query(AMEND_PUSHED_ACTIVITY_SQL)
+                    .bind(&data_json)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .bind(activity.id())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("amend pushed activity: {e}")))?
+                    .rows_affected();
+                Ok(amended > 0)
             }
 
             async fn upsert_sleep(

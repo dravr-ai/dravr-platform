@@ -13,18 +13,27 @@
 //! names its devices without it. Laps come from the lap starts an
 //! `activityDetails` record carries, measured over its samples; the samples
 //! become the activity's [`TimeSeriesData`].
+//!
+//! A summary carries no power: Garmin reports it only as the samples'
+//! `powerInWatts`. The activity's average, maximum and normalized power are
+//! therefore derived from its samples ([`with_power`]), normalized power by
+//! cageux's [`NormalizedPowerCalculator`], so a ride's intensity, efficiency
+//! and variability factors can be read off it like any provider's.
 
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::DataPoint;
 use dravr_sciotte::models::SportType as GarminSportKey;
 use pierre_core::constants::oauth_providers::{garmin_service_attribution, GARMIN};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ActivityBuilder, Lap, SportType, StoredHealthMetrics, StoredRecoveryMetrics,
     StoredSleepSession, StoredSleepStage, StoredSleepStageType, TimeSeriesData,
 };
 use pierre_providers::sciotte_provider::convert_sport_type;
+use serde_json::Value;
 
 use super::wire::{
     ActivityLap, ActivitySample, ActivitySummary, LevelRange, OffsetSeries, SleepRecord,
@@ -148,6 +157,81 @@ pub(crate) fn activity_from_summary(
             .start_longitude_opt(summary.starting_longitude_in_degree)
             .build(),
     )
+}
+
+/// The power an activity's samples carry: their mean, their maximum and
+/// their normalized power, each `None` when no sample carries power (or, for
+/// normalized power, fewer than one 30-second window does).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PowerFigures {
+    /// Mean of the samples' power, watts.
+    pub(crate) average: Option<u32>,
+    /// Highest sample, watts.
+    pub(crate) max: Option<u32>,
+    /// Normalized power, watts.
+    pub(crate) normalized: Option<u32>,
+}
+
+/// The power figures of `streams`.
+#[must_use]
+pub(crate) fn power_figures(streams: &TimeSeriesData) -> PowerFigures {
+    use dravr_cageux::visitor::TimeSeriesExt;
+
+    let watts: Vec<u32> = streams
+        .power
+        .iter()
+        .flatten()
+        .filter_map(|sample| *sample)
+        .collect();
+    if watts.is_empty() {
+        return PowerFigures::default();
+    }
+    let sum: u64 = watts.iter().map(|w| u64::from(*w)).sum();
+    #[allow(clippy::cast_precision_loss)]
+    let mean = sum as f64 / watts.len() as f64;
+    let mut calculator = NormalizedPowerCalculator::default();
+    streams.accept(&mut calculator);
+    PowerFigures {
+        average: whole(Some(mean)),
+        max: watts.iter().copied().max(),
+        normalized: whole(calculator.normalized_power()),
+    }
+}
+
+/// `activity` with the power its samples carry.
+///
+/// A built [`Activity`] takes no new figures, so they are set through its
+/// serialized form, under the fields the model serializes them as, as
+/// `cached_activity_reads::with_streams` attaches samples. A figure the
+/// samples do not carry leaves the activity's own standing.
+///
+/// # Errors
+///
+/// Returns an internal error when the activity does not round-trip through
+/// its serialized form.
+pub(crate) fn with_power(activity: Activity, streams: &TimeSeriesData) -> AppResult<Activity> {
+    let figures = power_figures(streams);
+    if figures == PowerFigures::default() {
+        return Ok(activity);
+    }
+    let mut value = serde_json::to_value(&activity)
+        .map_err(|e| AppError::internal(format!("serialize Garmin activity: {e}")))?;
+    let Value::Object(fields) = &mut value else {
+        return Err(AppError::internal(
+            "a Garmin activity does not serialize as an object",
+        ));
+    };
+    for (field, figure) in [
+        ("average_power", figures.average),
+        ("max_power", figures.max),
+        ("normalized_power", figures.normalized),
+    ] {
+        if let Some(watts) = figure {
+            fields.insert(field.to_owned(), Value::from(watts));
+        }
+    }
+    serde_json::from_value(value)
+        .map_err(|e| AppError::internal(format!("set Garmin activity power: {e}")))
 }
 
 /// One channel of the samples, `None` when no sample carries it, else one
@@ -946,6 +1030,108 @@ mod tests {
             sport_type(Some("INDOOR_CYCLING")),
             SportType::VirtualRide,
             "INDOOR_CYCLING reads as a virtual ride"
+        );
+    }
+
+    /// Samples a second apart for `seconds`, 150 W and 250 W in 30 s blocks.
+    fn powered(seconds: i64) -> Vec<ActivitySample> {
+        (0..seconds)
+            .map(|offset| ActivitySample {
+                power_in_watts: Some(if (offset / 30) % 2 == 0 { 150.0 } else { 250.0 }),
+                ..sample(offset, 140.0, None)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_rides_power_is_derived_from_its_samples_with_cageuxs_normalized_power() {
+        let streams = streams_from_samples(START, &powered(120)).unwrap();
+        let figures = power_figures(&streams);
+        assert_eq!(
+            figures.average,
+            Some(200),
+            "bug: the mean of 150 W and 250 W blocks"
+        );
+        assert_eq!(figures.max, Some(250), "bug: the highest sample");
+        let expected =
+            NormalizedPowerCalculator::from_power_stream(streams.power.as_deref().unwrap())
+                .unwrap();
+        assert_eq!(
+            figures.normalized,
+            whole(Some(expected)),
+            "bug: normalized power is cageux's, not one re-derived here"
+        );
+        assert!(
+            figures.normalized > figures.average,
+            "bug: a ride alternating 150 W and 250 W has an NP above its average"
+        );
+    }
+
+    #[test]
+    fn the_samples_power_is_set_on_the_activity_and_samples_without_it_leave_it_alone() {
+        let activity = activity_from_summary(None, &summary(|_| {})).unwrap();
+        assert_eq!(
+            activity.normalized_power(),
+            None,
+            "a summary carries no power"
+        );
+
+        let streams = streams_from_samples(START, &powered(120)).unwrap();
+        let figures = power_figures(&streams);
+        let ride = with_power(activity.clone(), &streams).unwrap();
+        assert_eq!(
+            ride.average_power(),
+            figures.average,
+            "bug: the samples' mean power is set on the activity"
+        );
+        assert_eq!(
+            ride.max_power(),
+            figures.max,
+            "bug: the samples' highest power is set on the activity"
+        );
+        assert_eq!(
+            ride.normalized_power(),
+            figures.normalized,
+            "bug: the samples' normalized power is set on the activity"
+        );
+        assert_eq!(
+            ride.id(),
+            activity.id(),
+            "bug: the rest of the activity stands"
+        );
+        assert_eq!(
+            ride.average_heart_rate(),
+            activity.average_heart_rate(),
+            "bug: setting power leaves the heart rate standing"
+        );
+
+        let unpowered =
+            streams_from_samples(START, &[sample(0, 140.0, None), sample(1, 141.0, None)]).unwrap();
+        assert_eq!(
+            power_figures(&unpowered),
+            PowerFigures::default(),
+            "bug: samples without power give no power figures"
+        );
+        let unchanged = with_power(activity, &unpowered).unwrap();
+        assert_eq!(
+            unchanged.average_power(),
+            None,
+            "bug: samples without power set none"
+        );
+    }
+
+    #[test]
+    fn a_ride_shorter_than_one_window_has_an_average_but_no_normalized_power() {
+        let streams = streams_from_samples(START, &powered(20)).unwrap();
+        let figures = power_figures(&streams);
+        assert_eq!(
+            figures.average,
+            Some(150),
+            "bug: 20 s at 150 W average 150 W"
+        );
+        assert_eq!(
+            figures.normalized, None,
+            "bug: NP needs one 30-second window"
         );
     }
 }

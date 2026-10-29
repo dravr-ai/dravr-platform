@@ -31,6 +31,7 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
 use chrono::{Duration as ChronoDuration, NaiveTime, Utc};
+use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
 use futures_util::stream::poll_fn;
 use pierre_core::models::{
@@ -44,7 +45,8 @@ use pierre_mcp_server::routes::garmin_webhook::process_garmin_inbox;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_providers::upload_provider::file_sha256;
-use pierre_test_support::fit::FitWorkout;
+use pierre_test_support::fit::{power as fit_power, FitWorkout};
+use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::time::sleep;
@@ -456,6 +458,88 @@ async fn activity_details_store_laps_and_samples_beside_the_row() {
         .expect("the samples are stored");
     assert_eq!(streams.timestamps.len(), 60);
     assert_eq!(streams.heart_rate.as_ref().map(Vec::len), Some(60));
+}
+
+/// Garmin `activityDetails` samples a second apart from `start`, recording
+/// 150 W and 250 W in 30-second blocks, as `FitWorkout`'s power does.
+fn powered_samples(start: i64, seconds: u32) -> Vec<Value> {
+    (0..seconds)
+        .map(|second| {
+            json!({
+                "startTimeInSeconds": start + i64::from(second),
+                "heartRate": 140,
+                "powerInWatts": fit_power(second),
+            })
+        })
+        .collect()
+}
+
+/// The normalized power cageux gives a ride of `seconds` of [`fit_power`].
+fn expected_np(seconds: u32) -> u32 {
+    let stream: Vec<Option<u32>> = (0..seconds)
+        .map(|second| Some(u32::from(fit_power(second))))
+        .collect();
+    let np = NormalizedPowerCalculator::from_power_stream(&stream).unwrap();
+    // A whole number of watts, as every provider maps it.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let np = np.round() as u32;
+    np
+}
+
+#[tokio::test]
+async fn a_pushed_rides_power_comes_from_its_samples_and_outlives_a_resent_summary() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let start = recent_start();
+    let ride = activity("955001", "Tempo", start, 600);
+    let details = json!([{
+        "userId": GARMIN_USER,
+        "summaryId": "955001-detail",
+        "activityId": 955_001,
+        "summary": ride,
+        "samples": powered_samples(start, 600),
+    }]);
+
+    push(&resources, "activityDetails", details).await;
+    let np = expected_np(600);
+    let check = |label: &str, cached: &[Activity]| {
+        let row = cached
+            .first()
+            .unwrap_or_else(|| panic!("{label}: the ride is cached"));
+        assert_eq!(
+            row.average_power(),
+            Some(200),
+            "bug: {label}: the samples' mean power"
+        );
+        assert_eq!(
+            row.max_power(),
+            Some(250),
+            "bug: {label}: the samples' highest power"
+        );
+        assert_eq!(
+            row.normalized_power(),
+            Some(np),
+            "bug: {label}: a pushed ride's NP is cageux's over its samples"
+        );
+        let summary = ActivitySummary::from(row);
+        assert_eq!(
+            summary.normalized_power,
+            Some(np),
+            "bug: {label}: the agent reads the ride's NP"
+        );
+    };
+    check(
+        "after its details",
+        &cached_garmin(&resources, user_id, &tenant_id).await,
+    );
+
+    // Garmin re-sends the summary, which carries no power: the row is
+    // rewritten from it, and the stored samples give the power back.
+    push(&resources, "activities", json!([ride])).await;
+    check(
+        "after a re-sent summary",
+        &cached_garmin(&resources, user_id, &tenant_id).await,
+    );
 }
 
 #[tokio::test]
@@ -905,6 +989,48 @@ async fn a_long_activitys_file_waits_for_its_summary_then_is_fetched_once() {
 }
 
 #[tokio::test]
+async fn a_long_rides_power_comes_from_its_file() {
+    let start = Utc::now() - ChronoDuration::days(3);
+    let file = FitWorkout::ride(start, 120).with_power().encode();
+    let (base, _hits) = mock_garmin_files(file).await;
+    let resources = context(Some(&base)).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    push(
+        &resources,
+        "activities",
+        json!([activity("991001", "Ultra", start.timestamp(), 26 * 3_600)]),
+    )
+    .await;
+    let callback = format!("{base}/wellness-api/rest/activityFile?id=1&token=one-shot");
+    push(
+        &resources,
+        "activityFiles",
+        json!([{
+            "userId": GARMIN_USER,
+            "summaryId": "991001-file",
+            "activityId": 991_001,
+            "fileType": "FIT",
+            "callbackURL": callback,
+            "manual": false,
+        }]),
+    )
+    .await;
+
+    let cached = cached_garmin(&resources, user_id, &tenant_id).await;
+    let row = cached.first().expect("the ultra is cached");
+    assert_eq!(
+        row.normalized_power(),
+        Some(expected_np(120)),
+        "bug: an activity longer than the details cover takes its power from its file"
+    );
+    assert_eq!(
+        row.max_power(),
+        Some(250),
+        "bug: an activity longer than the details cover takes its highest power from its file"
+    );
+}
+
+#[tokio::test]
 async fn a_file_whose_summary_never_lands_is_settled_not_failed_after_its_last_run() {
     let (base, hits) = mock_garmin_files(Vec::new()).await;
     let resources = context(Some(&base)).await;
@@ -1218,6 +1344,54 @@ async fn an_older_push_retried_after_a_newer_one_leaves_the_newer_values() {
     let rides = cached_garmin(&resources, user_id, &tenant_id).await;
     assert_eq!(rides.len(), 1);
     assert_eq!(rides[0].name(), "Renamed ride", "the later summary stands");
+}
+
+#[tokio::test]
+async fn a_details_batch_retried_after_a_newer_summary_still_gives_the_ride_its_power() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let start = recent_start();
+
+    // The renamed summary lands now; the details, received a minute earlier,
+    // only run afterwards, as a retried batch does.
+    push(
+        &resources,
+        "activities",
+        json!([activity("992001", "Renamed tempo", start, 600)]),
+    )
+    .await;
+    store_lapsed_push(
+        &resources,
+        "activityDetails",
+        json!([{
+            "userId": GARMIN_USER,
+            "summaryId": "992001-detail",
+            "activityId": 992_001,
+            "summary": activity("992001", "First name", start, 600),
+            "samples": powered_samples(start, 600),
+        }]),
+        Utc::now().timestamp_millis() - 60_000,
+    )
+    .await;
+    assert_eq!(process_garmin_inbox(&resources).await.unwrap(), 1);
+
+    let rides = cached_garmin(&resources, user_id, &tenant_id).await;
+    let ride = rides.first().expect("the ride is cached");
+    assert_eq!(
+        ride.name(),
+        "Renamed tempo",
+        "bug: the later summary still stands over the retried details' own"
+    );
+    assert_eq!(
+        ride.normalized_power(),
+        Some(expected_np(600)),
+        "bug: samples landing after a newer summary give it their power"
+    );
+    assert_eq!(
+        ride.max_power(),
+        Some(250),
+        "bug: the standing summary takes the samples' highest power"
+    );
 }
 
 #[tokio::test]
