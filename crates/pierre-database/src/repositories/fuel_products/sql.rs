@@ -52,6 +52,22 @@ pub(crate) const SEARCH_PRODUCTS_SQL: &str = concat!(
             "
 );
 
+/// The live catalogue, `$1` rows from `$2`: each product with its current
+/// version and how many versions it has had, in natural-key order.
+pub(crate) const LIST_CATALOGUE_SQL: &str = concat!(
+    "SELECT ",
+    catalogue_columns!(),
+    r",
+            (SELECT COUNT(*) FROM fuel_product_versions h WHERE h.product_id = p.id)
+                AS version_count
+            FROM fuel_products p
+            JOIN fuel_product_versions v
+              ON v.product_id = p.id AND v.superseded_by IS NULL
+            ORDER BY p.natural_key, p.id
+            LIMIT $1 OFFSET $2
+            "
+);
+
 /// One product by id `$1`.
 pub(crate) const GET_PRODUCT_SQL: &str = concat!(catalogue_select!(), "WHERE p.id = $1");
 

@@ -34,8 +34,9 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
-    AthleteFuelItem, CatalogueFuelProduct, FuelApprovalOutcome, FuelFacts, FuelProductProposal,
-    FuelProposalDetail, FuelRejectReason, NewFuelProposal, ProposalStatus, TenantId,
+    AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome,
+    FuelFactOverrides, FuelProductProposal, FuelProposalDetail, FuelRejectReason, NewFuelProposal,
+    ProposalStatus, TenantId,
 };
 use uuid::Uuid;
 
@@ -51,8 +52,8 @@ pub(crate) use sql::{
     CLAIM_PROPOSAL_SQL, COUNT_LIVE_ITEMS_SQL, COUNT_PRODUCT_SQL, COUNT_PROPOSALS_BY_HASH_SQL,
     FIND_LIVE_PENDING_ITEM_SQL, FIND_LIVE_PRODUCT_ITEM_SQL, GET_PRODUCT_BY_GTIN_SQL,
     GET_PRODUCT_SQL, GET_PROPOSAL_SQL, HOLD_PENDING_PROPOSAL_SQL, INSERT_ITEM_SQL,
-    INSERT_PRODUCT_SQL, INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_ITEMS_SQL,
-    LIST_PROPOSALS_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL, PRODUCT_IDENTITY_BY_ID_SQL,
+    INSERT_PRODUCT_SQL, INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_CATALOGUE_SQL,
+    LIST_ITEMS_SQL, LIST_PROPOSALS_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL, PRODUCT_IDENTITY_BY_ID_SQL,
     PRODUCT_IDENTITY_BY_KEY_SQL, PROPOSAL_LINK_SQL, PROPOSAL_STATUS_SQL, RECORD_APPROVAL_SQL,
     REJECT_PROPOSAL_SQL, RELINK_PENDING_ITEMS_SQL, REMOVE_ITEM_SQL,
     RETIRE_DUPLICATE_PENDING_ITEMS_SQL, SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL,
@@ -78,6 +79,15 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// The product a GTIN-14 names, with its current facts.
     async fn get_fuel_product_by_gtin(&self, gtin: &str)
         -> AppResult<Option<CatalogueFuelProduct>>;
+
+    /// A page of the live catalogue — `limit` (clamped to 1..=100) products
+    /// from `offset`, in brand/name/variant order — each with its current
+    /// facts and how many versions it has had.
+    async fn list_fuel_catalogue(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<CatalogueFuelListing>>;
 
     /// The products `product_ids` name, with their current facts, in the
     /// order asked; an id the catalogue does not hold is left out.
@@ -112,8 +122,9 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// status.
     async fn fuel_proposal_exists_by_hash(&self, source_hash: &str) -> AppResult<bool>;
 
-    /// Approve a pending proposal, with `overrides` put over its facts: each
-    /// field `overrides` states is recorded with provenance `admin_edit`. The
+    /// Approve a pending proposal, with `overrides` applied to its facts: each
+    /// field an override sets to a new value or clears is recorded with
+    /// provenance `admin_edit`. The
     /// merged facts must pass the plausibility gate. In one transaction the
     /// proposal's product is found (its `product_id`, else its GTIN, else its
     /// brand, name and variant) or created, the product's current version is
@@ -123,7 +134,7 @@ pub trait FuelCatalogueRepository: Send + Sync {
         &self,
         proposal_id: Uuid,
         reviewer_user_id: Uuid,
-        overrides: &FuelFacts,
+        overrides: &FuelFactOverrides,
     ) -> AppResult<FuelApprovalOutcome>;
 
     /// Reject a pending proposal. Returns whether it was pending.
@@ -521,6 +532,30 @@ macro_rules! impl_fuel_product_repositories {
                 row.map(|row| Self::fuel_catalogue_row(&row)).transpose()
             }
 
+            async fn list_fuel_catalogue(
+                &self,
+                limit: i64,
+                offset: i64,
+            ) -> AppResult<Vec<pierre_core::models::CatalogueFuelListing>> {
+                use sqlx::Row as _;
+                let rows = sqlx::query($crate::repositories::fuel_products::LIST_CATALOGUE_SQL)
+                    .bind(limit.clamp(1, MAX_FUEL_PAGE))
+                    .bind(offset.max(0))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("list the catalogue of", e))?;
+                rows.iter()
+                    .map(|row| {
+                        Ok(pierre_core::models::CatalogueFuelListing {
+                            product: Self::fuel_catalogue_row(row)?,
+                            version_count: row
+                                .try_get("version_count")
+                                .map_err(|e| fuel_error("decode a version count of", e))?,
+                        })
+                    })
+                    .collect()
+            }
+
             async fn get_fuel_products_current(
                 &self,
                 product_ids: &[Uuid],
@@ -630,7 +665,7 @@ macro_rules! impl_fuel_product_repositories {
                 &self,
                 proposal_id: Uuid,
                 reviewer_user_id: Uuid,
-                overrides: &FuelFacts,
+                overrides: &pierre_core::models::FuelFactOverrides,
             ) -> AppResult<FuelApprovalOutcome> {
                 let Some(detail) = self.get_fuel_proposal(proposal_id).await? else {
                     return Ok(FuelApprovalOutcome::NotFound);

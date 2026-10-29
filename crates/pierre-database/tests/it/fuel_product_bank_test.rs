@@ -15,10 +15,10 @@
 use std::collections::BTreeMap;
 
 use pierre_core::models::{
-    normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldProvenance,
-    FuelApprovalOutcome, FuelFacts, FuelForm, FuelItemEntry, FuelRejectReason, NewFuelProposal,
-    PlausibilityViolation, ProposalSource, ProposalSourceImage, ProposalStatus, TenantId, User,
-    MAX_FUEL_ITEMS_PER_ATHLETE,
+    normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldOverride,
+    FieldProvenance, FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelItemEntry,
+    FuelRejectReason, NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalSourceImage,
+    ProposalStatus, TenantId, User, MAX_FUEL_ITEMS_PER_ATHLETE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -89,7 +89,7 @@ async fn approve(
     repos: &RepositoryRegistry,
     proposal_id: Uuid,
     reviewer: Uuid,
-    overrides: &FuelFacts,
+    overrides: &FuelFactOverrides,
 ) -> CatalogueFuelProduct {
     match repos
         .fuel_catalogue
@@ -142,7 +142,7 @@ async fn an_approved_proposal_becomes_the_current_version() {
         Some(b"\x89PNG label panel".to_vec())
     );
 
-    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
     assert_eq!(product.product.brand, "Maurten");
     assert_eq!(product.current.facts, gel_facts());
     assert_eq!(product.current.superseded_by, None);
@@ -177,7 +177,7 @@ async fn an_approved_proposal_becomes_the_current_version() {
     // A proposal is reviewed once.
     let again = repos
         .fuel_catalogue
-        .approve_fuel_proposal(id, reviewer, &FuelFacts::default())
+        .approve_fuel_proposal(id, reviewer, &FuelFactOverrides::default())
         .await
         .unwrap();
     assert_eq!(
@@ -197,7 +197,7 @@ async fn a_second_approval_supersedes_the_current_version() {
         .create_fuel_proposal(&first)
         .await
         .unwrap();
-    let v1 = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let v1 = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
 
     // The same product proposed again by name, the label now with caffeine;
     // the operator corrects the sodium at review.
@@ -214,9 +214,9 @@ async fn a_second_approval_supersedes_the_current_version() {
         .create_fuel_proposal(&second)
         .await
         .unwrap();
-    let overrides = FuelFacts {
-        sodium_mg: Some(35.0),
-        ..FuelFacts::default()
+    let overrides = FuelFactOverrides {
+        sodium_mg: FieldOverride::Set(35.0),
+        ..FuelFactOverrides::default()
     };
     let v2 = approve(repos, id2, reviewer, &overrides).await;
 
@@ -270,7 +270,7 @@ async fn a_gtin_proposal_lands_on_its_barcode_and_conflicts_are_refused() {
         .create_fuel_proposal(&with_gtin)
         .await
         .unwrap();
-    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
     let by_gtin = repos
         .fuel_catalogue
         .get_fuel_product_by_gtin(&gtin)
@@ -293,7 +293,7 @@ async fn a_gtin_proposal_lands_on_its_barcode_and_conflicts_are_refused() {
         .create_fuel_proposal(&proposal("SiS", gel_facts()))
         .await
         .unwrap();
-    approve(repos, other, reviewer, &FuelFacts::default()).await;
+    approve(repos, other, reviewer, &FuelFactOverrides::default()).await;
     let other_name = repos
         .fuel_catalogue
         .get_fuel_proposal(other)
@@ -310,7 +310,7 @@ async fn a_gtin_proposal_lands_on_its_barcode_and_conflicts_are_refused() {
         .unwrap();
     let outcome = repos
         .fuel_catalogue
-        .approve_fuel_proposal(clash_id, reviewer, &FuelFacts::default())
+        .approve_fuel_proposal(clash_id, reviewer, &FuelFactOverrides::default())
         .await
         .unwrap();
     assert!(
@@ -372,7 +372,7 @@ async fn a_rejected_proposal_reaches_no_catalogue() {
     assert_eq!(
         repos
             .fuel_catalogue
-            .approve_fuel_proposal(id, reviewer, &FuelFacts::default())
+            .approve_fuel_proposal(id, reviewer, &FuelFactOverrides::default())
             .await
             .unwrap(),
         FuelApprovalOutcome::NotPending(ProposalStatus::Rejected)
@@ -400,9 +400,9 @@ async fn the_gate_refuses_implausible_merged_facts() {
         .unwrap();
 
     // The operator's edit makes sugars exceed carbs: refused, not clamped.
-    let overrides = FuelFacts {
-        sugars_g: Some(30.0),
-        ..FuelFacts::default()
+    let overrides = FuelFactOverrides {
+        sugars_g: FieldOverride::Set(30.0),
+        ..FuelFactOverrides::default()
     };
     let outcome = repos
         .fuel_catalogue
@@ -438,7 +438,7 @@ async fn the_gate_refuses_implausible_merged_facts() {
         .unwrap();
     let outcome = repos
         .fuel_catalogue
-        .approve_fuel_proposal(no_carbs, reviewer, &FuelFacts::default())
+        .approve_fuel_proposal(no_carbs, reviewer, &FuelFactOverrides::default())
         .await
         .unwrap();
     assert!(
@@ -487,7 +487,7 @@ async fn a_pending_item_is_relinked_when_its_proposal_is_approved() {
     assert_eq!(pending.status, ProposalStatus::Pending);
     assert_eq!(listed[0].note.as_deref(), Some("2 per hour"));
 
-    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
     let listed = repos
         .athlete_fuel_items
         .list_fuel_items(tenant, athlete)
@@ -524,7 +524,7 @@ async fn relinking_onto_a_product_already_carried_keeps_one_item() {
         .create_fuel_proposal(&first)
         .await
         .unwrap();
-    let product = approve(repos, first_id, reviewer, &FuelFacts::default()).await;
+    let product = approve(repos, first_id, reviewer, &FuelFactOverrides::default()).await;
     let carried = repos
         .athlete_fuel_items
         .add_fuel_product_item(tenant, athlete, product.product.id, None)
@@ -555,7 +555,7 @@ async fn relinking_onto_a_product_already_carried_keeps_one_item() {
         2
     );
 
-    let v2 = approve(repos, update_id, reviewer, &FuelFacts::default()).await;
+    let v2 = approve(repos, update_id, reviewer, &FuelFactOverrides::default()).await;
     let listed = repos
         .athlete_fuel_items
         .list_fuel_items(tenant, athlete)
@@ -583,7 +583,7 @@ async fn athlete_items_are_isolated_by_tenant_and_user() {
         .create_fuel_proposal(&proposal("Maurten", gel_facts()))
         .await
         .unwrap();
-    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
 
     let item = repos
         .athlete_fuel_items
@@ -683,7 +683,7 @@ async fn search_folds_unicode_and_never_wildcards_the_query() {
         .create_fuel_proposal(&new)
         .await
         .unwrap();
-    let product = approve(repos, id, reviewer, &FuelFacts::default()).await;
+    let product = approve(repos, id, reviewer, &FuelFactOverrides::default()).await;
     let hits = |query: &'static str| async move {
         repos
             .fuel_catalogue
@@ -754,4 +754,61 @@ async fn an_athlete_carries_at_most_the_cap() {
         .add_pending_fuel_item(tenant, athlete, one_more, None)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn an_operator_clears_a_value_and_the_catalogue_lists_its_history() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let first = proposal("Clearing Co", gel_facts());
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&first)
+        .await
+        .unwrap();
+
+    // OCR read a ratio the label does not print: the operator clears it.
+    let cleared = FuelFactOverrides {
+        glucose_fructose_ratio: FieldOverride::Clear,
+        // Clearing a value that is already empty is not an edit.
+        caffeine_mg: FieldOverride::Clear,
+        ..FuelFactOverrides::default()
+    };
+    let v1 = approve(repos, id, reviewer, &cleared).await;
+    assert_eq!(v1.current.facts.glucose_fructose_ratio, None);
+    assert_eq!(v1.current.facts.carbs_g, Some(25.0));
+    assert_eq!(
+        v1.current.provenance["glucose_fructose_ratio"].source,
+        FactSource::AdminEdit
+    );
+    assert!(!v1.current.provenance.contains_key("caffeine_mg"));
+
+    let mut second = proposal("Clearing Co", gel_facts());
+    second.name.clone_from(&first.name);
+    let id2 = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&second)
+        .await
+        .unwrap();
+    let v2 = approve(repos, id2, reviewer, &FuelFactOverrides::default()).await;
+    assert_eq!(v2.product.id, v1.product.id);
+
+    // Page through the live catalogue until the product shows up: other
+    // tests may share the database.
+    let mut offset = 0;
+    let listed = loop {
+        let page = repos
+            .fuel_catalogue
+            .list_fuel_catalogue(100, offset)
+            .await
+            .unwrap();
+        assert!(!page.is_empty(), "the approved product is not listed");
+        if let Some(found) = page.iter().find(|l| l.product.product.id == v1.product.id) {
+            break found.clone();
+        }
+        offset += 100;
+    };
+    assert_eq!(listed.version_count, 2);
+    assert_eq!(listed.product.current.id, v2.current.id);
 }

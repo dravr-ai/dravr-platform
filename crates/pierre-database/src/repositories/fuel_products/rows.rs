@@ -10,9 +10,9 @@ use std::fmt::Display;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    normalize_gtin, CatalogueFuelProduct, FactProvenance, FactSource, FieldProvenance, FuelFacts,
-    FuelForm, FuelProduct, FuelProductProposal, FuelProductVersion, FuelRejectReason,
-    ProposalSource, ProposalStatus,
+    normalize_gtin, CatalogueFuelProduct, FactProvenance, FactSource, FieldProvenance,
+    FuelFactOverrides, FuelFacts, FuelForm, FuelProduct, FuelProductProposal, FuelProductVersion,
+    FuelRejectReason, ProposalSource, ProposalStatus,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -65,10 +65,11 @@ pub(crate) fn parse_status(raw: &str) -> AppResult<ProposalStatus> {
 }
 
 /// The merged facts of an approval and their provenance: the proposal's,
-/// with every field the operator changed recorded as `admin_edit`.
+/// with every field the operator changed — set or cleared — recorded as
+/// `admin_edit`.
 pub(crate) fn merge_for_approval(
     proposal: &FuelProductProposal,
-    overrides: &FuelFacts,
+    overrides: &FuelFactOverrides,
 ) -> (FuelFacts, FactProvenance) {
     let (facts, changed) = proposal.facts.merged_with(overrides);
     let mut provenance = proposal.provenance.clone();

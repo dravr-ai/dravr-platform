@@ -27,12 +27,14 @@ use uuid::Uuid;
 
 mod gate;
 mod identity;
+mod overrides;
 
 pub use gate::{
     check_plausibility, FactBasis, PlausibilityViolation, MAX_CAFFEINE_MG_PER_SERVING,
     MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
 };
 pub use identity::{fuel_natural_key, normalize_gtin, proposal_source_hash};
+pub use overrides::{FieldOverride, FuelFactOverrides};
 
 /// The physical form a fuel product comes in. Stored as [`FuelForm::as_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -168,88 +170,6 @@ pub struct FuelFacts {
     pub glucose_fructose_ratio: Option<f64>,
 }
 
-impl FuelFacts {
-    /// These facts with every field `overrides` states put over them, and the
-    /// stored names of the fields it changed — an operator's edit before an
-    /// approval. A field `overrides` leaves `None` keeps this value, and one it
-    /// restates unchanged is not a change: a review form that sends every
-    /// field back must not relabel the label's own values as operator edits.
-    #[must_use]
-    pub fn merged_with(&self, overrides: &Self) -> (Self, Vec<&'static str>) {
-        let mut merged = self.clone();
-        let mut changed = Vec::new();
-        let mut take = |name: &'static str, slot: &mut Option<f64>, value: Option<f64>| {
-            // Compared bit for bit: an override is a typed value, not a computation.
-            if value.is_some() && value.map(f64::to_bits) != slot.map(f64::to_bits) {
-                *slot = value;
-                changed.push(name);
-            }
-        };
-        take("serving_g", &mut merged.serving_g, overrides.serving_g);
-        take(
-            "energy_kcal",
-            &mut merged.energy_kcal,
-            overrides.energy_kcal,
-        );
-        take("carbs_g", &mut merged.carbs_g, overrides.carbs_g);
-        take("sugars_g", &mut merged.sugars_g, overrides.sugars_g);
-        take("protein_g", &mut merged.protein_g, overrides.protein_g);
-        take("fat_g", &mut merged.fat_g, overrides.fat_g);
-        take("sodium_mg", &mut merged.sodium_mg, overrides.sodium_mg);
-        take(
-            "potassium_mg",
-            &mut merged.potassium_mg,
-            overrides.potassium_mg,
-        );
-        take(
-            "caffeine_mg",
-            &mut merged.caffeine_mg,
-            overrides.caffeine_mg,
-        );
-        take("fluid_ml", &mut merged.fluid_ml, overrides.fluid_ml);
-        take(
-            "carbs_g_per_100g",
-            &mut merged.carbs_g_per_100g,
-            overrides.carbs_g_per_100g,
-        );
-        take(
-            "sugars_g_per_100g",
-            &mut merged.sugars_g_per_100g,
-            overrides.sugars_g_per_100g,
-        );
-        take(
-            "protein_g_per_100g",
-            &mut merged.protein_g_per_100g,
-            overrides.protein_g_per_100g,
-        );
-        take(
-            "fat_g_per_100g",
-            &mut merged.fat_g_per_100g,
-            overrides.fat_g_per_100g,
-        );
-        take(
-            "sodium_mg_per_100g",
-            &mut merged.sodium_mg_per_100g,
-            overrides.sodium_mg_per_100g,
-        );
-        take(
-            "salt_g_per_100g",
-            &mut merged.salt_g_per_100g,
-            overrides.salt_g_per_100g,
-        );
-        take(
-            "glucose_fructose_ratio",
-            &mut merged.glucose_fructose_ratio,
-            overrides.glucose_fructose_ratio,
-        );
-        if overrides.serving_label.is_some() && overrides.serving_label != merged.serving_label {
-            merged.serving_label.clone_from(&overrides.serving_label);
-            changed.push("serving_label");
-        }
-        (merged, changed)
-    }
-}
-
 /// Where one stored fact came from. Stored as [`FactSource::as_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -329,6 +249,16 @@ pub struct CatalogueFuelProduct {
     pub product: FuelProduct,
     /// Its current version.
     pub current: FuelProductVersion,
+}
+
+/// A catalogue product as the review console lists it: its current facts and
+/// how many versions its label has had.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CatalogueFuelListing {
+    /// The product with its current version.
+    pub product: CatalogueFuelProduct,
+    /// Every version it has had, the current one included.
+    pub version_count: i64,
 }
 
 /// Where a proposal came from. Stored as [`ProposalSource::as_str`].
@@ -622,41 +552,6 @@ pub const MAX_FUEL_ITEMS_PER_ATHLETE: i64 = 200;
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn gel() -> FuelFacts {
-        FuelFacts {
-            serving_g: Some(40.0),
-            carbs_g: Some(25.0),
-            sugars_g: Some(12.0),
-            ..FuelFacts::default()
-        }
-    }
-
-    #[test]
-    fn overrides_replace_only_what_they_state() {
-        let overrides = FuelFacts {
-            carbs_g: Some(26.0),
-            serving_label: Some("1 sachet".to_owned()),
-            ..FuelFacts::default()
-        };
-        let (merged, changed) = gel().merged_with(&overrides);
-        assert_eq!(merged.carbs_g, Some(26.0));
-        assert_eq!(merged.sugars_g, Some(12.0));
-        assert_eq!(merged.serving_label.as_deref(), Some("1 sachet"));
-        assert_eq!(changed, vec!["carbs_g", "serving_label"]);
-    }
-
-    #[test]
-    fn an_override_restating_a_value_is_not_an_edit() {
-        let restated = FuelFacts {
-            carbs_g: Some(25.0),
-            sugars_g: Some(11.0),
-            ..gel()
-        };
-        let (merged, changed) = gel().merged_with(&restated);
-        assert_eq!(merged.sugars_g, Some(11.0));
-        assert_eq!(changed, vec!["sugars_g"]);
-    }
 
     #[test]
     fn stored_spellings_round_trip() {
