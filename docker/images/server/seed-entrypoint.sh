@@ -22,6 +22,15 @@ if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ]
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
+# The fuel-ingest Job (infra/environments/dev/fuel_ingest.tf) needs only the
+# DATABASE_URL built above: no contremaitre clone (its prompt is the one the
+# binary carries), no seed verb. Its flags pass through untouched.
+if [ "$1" = "fuel-ingest" ]; then
+    shift
+    echo "Running: pierre-cli fuel-ingest $*"
+    exec /app/pierre-cli fuel-ingest "$@"
+fi
+
 # Cloud Run job args historically pass DOMAIN as $1 (bootstrap | coaches |
 # mobility | synthetic-activities | ...) and the script prepends `seed`.
 # The drift-check Job is the one exception: it passes `check-drift` as $1

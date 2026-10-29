@@ -1219,6 +1219,16 @@ jobs:
             echo "::warning::${CANARY} does not exist (terraform not applied, or backend_sciotte_remote off); its image was not updated"
           fi
 
+          # fuel-ingest-job reads fuel labels into the review queue
+          # (infra/environments/dev/fuel_ingest.tf). Terraform creates it only
+          # on a manual apply, so a missing job is a warning, as above.
+          FUEL_INGEST="${SERVICE}-fuel-ingest-job"
+          if gcloud run jobs describe "${FUEL_INGEST}" --region="${REGION}" --format="value(name)" >/dev/null 2>&1; then
+            JOBS="$JOBS fuel-ingest-job"
+          else
+            echo "::warning::${FUEL_INGEST} does not exist (terraform not applied); its image was not updated"
+          fi
+
           for JOB in $JOBS; do
             echo "Updating ${SERVICE}-${JOB} image..."
             gcloud run jobs update "${SERVICE}-${JOB}" \
