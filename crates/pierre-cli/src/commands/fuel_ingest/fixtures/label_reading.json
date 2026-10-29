@@ -1,0 +1,33 @@
+{
+  "brand": "NÄAK",
+  "name": "ULTRA Energy Gel",
+  "variant": "Salted Maple",
+  "form": "gel",
+  "gtin": "4260512340018",
+  "serving_label": "1 gel (57 g)",
+  "serving_g": 57,
+  "per_serving": {
+    "energy_kcal": 110,
+    "carbs_g": 25,
+    "sugars_g": 12,
+    "protein_g": 0.5,
+    "fat_g": 0.2,
+    "sodium_mg": 150,
+    "potassium_mg": null,
+    "caffeine_mg": null,
+    "fluid_ml": null
+  },
+  "per_100g": {
+    "carbs_g": 43.9,
+    "sugars_g": 21,
+    "protein_g": 0.9,
+    "fat_g": 0.4,
+    "sodium_mg": 263,
+    "salt_g": 0.66
+  },
+  "ingredients_text": "Maple syrup, maltodextrin, water, sea salt",
+  "glucose_fructose_ratio": 0.8,
+  "multiple_transportable_stated": true,
+  "legible": true,
+  "notes": null
+}

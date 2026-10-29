@@ -34,6 +34,8 @@ e2e-seeded-sessions = [
 [dependencies]
 # Workspace crates
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+# `fuel-ingest` reads the fuel_panel_extraction prompt from the registry.
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
 # `user mint-session` (feature e2e-seeded-sessions) builds the server's
 # AuthService: its cache, configuration, provider registry and data context,
 # the way a booting server builds them.
@@ -53,6 +55,8 @@ pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime" }
 
+# `fuel-ingest` sends label photos to the LLM as base64 image parts.
+base64 = "0.22"
 bcrypt = "0.16"
 # The sciotte service client the credential-login canary signs in through.
 dravr-sciotte = { workspace = true, features = ["client"] }

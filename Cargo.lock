@@ -3799,6 +3799,7 @@ dependencies = [
 name = "pierre-cli"
 version = "0.3.0"
 dependencies = [
+ "base64 0.22.1",
  "bcrypt",
  "chrono",
  "clap",
@@ -3810,6 +3811,7 @@ dependencies = [
  "pierre-auth",
  "pierre-cache",
  "pierre-config",
+ "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
  "pierre-evals",

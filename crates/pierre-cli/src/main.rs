@@ -132,6 +132,9 @@ enum Command {
         action: commands::seed::SeedCommand,
     },
 
+    /// File fuel-product proposals from brands' storefronts, labels read by OCR
+    FuelIngest(commands::fuel_ingest::FuelIngestArgs),
+
     /// Canaries the scheduled Cloud Run jobs run against deployed services
     Canary {
         #[command(subcommand)]
@@ -838,6 +841,11 @@ async fn main() -> Result<()> {
         return commands::drift::dispatch(action, &database_url).await;
     }
 
+    // Fuel ingestion writes only the global catalogue's review queue.
+    if let Command::FuelIngest(args) = cli.command {
+        return commands::fuel_ingest::run(args, &database_url).await;
+    }
+
     // Key operations bootstrap their own key management (the re-wrap path must
     // initialize with the source KEK), so they dispatch before the standard init.
     if let Command::Key { action } = cli.command {
@@ -977,6 +985,7 @@ async fn main() -> Result<()> {
             unreachable!("CheckDrift is handled in the early return above")
         }
         Command::Canary { .. } => unreachable!("Canary is handled in the early return above"),
+        Command::FuelIngest(_) => unreachable!("FuelIngest is handled in the early return above"),
         Command::Key { .. } => unreachable!("Key is handled in the early return above"),
         Command::Auth { .. } => unreachable!("Auth is handled in the early return above"),
         Command::StravaPool { .. } => {

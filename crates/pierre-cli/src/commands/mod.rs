@@ -10,6 +10,7 @@ pub(crate) mod canary;
 pub(crate) mod config;
 pub(crate) mod deletion;
 pub(crate) mod drift;
+pub(crate) mod fuel_ingest;
 #[cfg(feature = "tools-verification")]
 pub(crate) mod harness;
 pub(crate) mod key;
