@@ -457,9 +457,9 @@ impl ServerContext {
                 publish_telegram_descriptions(&descriptions).await;
                 // Messenger has no group thread, so its menu is the DM list —
                 // the same one, unmarked.
-                // LIMITATION(registre#129): `publish_messenger_menu` and
-                // `publish_telegram_commands` are the only always-on menu
-                // publishers. WhatsApp has no persistent-menu API; Slack's
+                // `publish_messenger_menu` and `publish_telegram_commands` are
+                // the only always-on menu publishers, by decision: elsewhere
+                // `/help` is the menu. WhatsApp has no persistent-menu API; Slack's
                 // only programmatic path replaces the whole app config
                 // app-globally behind a 12h human-bootstrapped token, and its
                 // slash commands cannot be invoked in threads, where the
