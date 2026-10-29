@@ -26,9 +26,9 @@ use pierre_core::models::{
     FuelForm,
 };
 use pierre_core::redaction::redact_url;
-use pierre_llm::served_tier::observe_served_tier;
+use pierre_llm::served_tier::{observe_served_tier, ServedTier};
 use pierre_llm::stage::LlmStage;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ImagePart};
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ImagePart, LlmCapabilities};
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
@@ -360,12 +360,32 @@ pub(super) fn label_request(
     Ok(provider.routed(LlmStage::FuelPanelExtraction, request))
 }
 
-/// Send `request` and parse the answer, keeping it only when the tier that
-/// answered reads images.
+/// Who answered a label read and whether it could see the photos:
+/// `(provider, chain position, reads images)`.
 ///
-/// A solo provider reports no served tier; its own capabilities stand. A
-/// chain that answered without reporting its tier is treated as unknown and
-/// discarded rather than trusted.
+/// The served tier's own capabilities decide when the chain reported one. A
+/// solo provider reports no served tier; its own capabilities stand. A chain
+/// that answered without reporting its tier is unknown, so it reads as unable
+/// to see: its answer is discarded rather than trusted.
+fn answering_tier(
+    served: Option<ServedTier>,
+    solo: bool,
+    provider_name: &'static str,
+    provider_capabilities: LlmCapabilities,
+) -> (&'static str, Option<usize>, bool) {
+    match served {
+        Some(tier) => (
+            tier.provider,
+            Some(tier.position),
+            tier.capabilities.supports_vision(),
+        ),
+        None if solo => (provider_name, None, provider_capabilities.supports_vision()),
+        None => (provider_name, None, false),
+    }
+}
+
+/// Send `request` and parse the answer, keeping it only when the tier that
+/// answered reads images ([`answering_tier`]).
 pub(super) async fn read_label(
     provider: &ChatProvider,
     request: &ChatRequest,
@@ -373,20 +393,12 @@ pub(super) async fn read_label(
 ) -> Result<Reading, ReadFailure> {
     let (result, served) = observe_served_tier(provider.complete(request)).await;
     let response = result.map_err(ReadFailure::Provider)?;
-    let solo = provider.fallback_tail().is_none();
-    let (name, position, vision) = match served {
-        Some(tier) => (
-            tier.provider,
-            Some(tier.position),
-            tier.capabilities.supports_vision(),
-        ),
-        None if solo => (
-            provider.name(),
-            None,
-            provider.capabilities().supports_vision(),
-        ),
-        None => (provider.name(), None, false),
-    };
+    let (name, position, vision) = answering_tier(
+        served,
+        provider.fallback_tail().is_none(),
+        provider.name(),
+        provider.capabilities(),
+    );
     if !vision {
         warn!(
             provider = name,
@@ -478,6 +490,51 @@ mod tests {
                 .contains(&"sugars_exceed_carbs".to_owned()),
             "{:?}",
             mapped.gate_flags
+        );
+    }
+
+    fn tier(provider: &'static str, position: usize, capabilities: LlmCapabilities) -> ServedTier {
+        ServedTier {
+            provider,
+            position,
+            capabilities,
+        }
+    }
+
+    #[test]
+    fn only_a_tier_that_reads_images_is_trusted_with_a_label() {
+        let text = LlmCapabilities::text_only();
+        let vision = LlmCapabilities::full_featured();
+        // A chain that fell back to a text-only tier: discarded, even though
+        // its head reads images.
+        assert_eq!(
+            answering_tier(
+                Some(tier("claude_code", 4, text)),
+                false,
+                "anthropic",
+                vision
+            ),
+            ("claude_code", Some(4), false)
+        );
+        // The tier that answered reads images.
+        assert_eq!(
+            answering_tier(Some(tier("anthropic", 0, vision)), false, "anthropic", text),
+            ("anthropic", Some(0), true)
+        );
+        // A solo provider reports no tier; its own capabilities stand.
+        assert_eq!(
+            answering_tier(None, true, "claude_code", text),
+            ("claude_code", None, false)
+        );
+        assert_eq!(
+            answering_tier(None, true, "anthropic", vision),
+            ("anthropic", None, true)
+        );
+        // A chain that answered without naming its tier is not trusted, even
+        // when its head reads images.
+        assert_eq!(
+            answering_tier(None, false, "anthropic", vision),
+            ("anthropic", None, false)
         );
     }
 

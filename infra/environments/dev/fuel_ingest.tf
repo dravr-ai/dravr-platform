@@ -13,7 +13,8 @@
 #
 # The job's name ends in `-job`, so the dravr-mcp-server-job-failures alert
 # (monitoring.tf) already counts its failures: the command exits non-zero when
-# every label read failed or no brand storefront could be listed.
+# every label read failed, every candidate failed outside the read (database,
+# downloads), or no brand storefront could be listed.
 
 # -----------------------------------------------------------------------------
 # Cloud Run Job — fuel-ingest-job

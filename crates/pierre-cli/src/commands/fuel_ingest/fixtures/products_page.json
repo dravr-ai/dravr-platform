@@ -1,5 +1,5 @@
 {"products":[
-{"id":1,"title":"ULTRA™ Gel 200 · Salted Maple","handle":"ultra-gel-200-salted-maple","body_html":"<p>Gel</p>","vendor":"Näak","product_type":"Gels","tags":["Energy","Gels","Salted Maple","Ultra"],
+{"id":1,"title":"ULTRA™ Gel 200 · Salted Maple","handle":"ultra-gel-200-salted-maple","body_html":"<p>Gel</p>","vendor":"Näak","product_type":"Gels","tags":["CA","Energy","Gels","Maple syrup","Plant","Plant-Based","Plant-based Protein","Salted Maple","Semi-liquid","summer_sale","Ultra","Ultra Energy","UTMB"],
  "options":[{"name":"Size","position":1,"values":["Single"]}],
  "variants":[{"id":11,"title":"Single","option1":"Single","option2":null,"option3":null,"sku":"G200","available":true,"price":"3.50","grams":57}],
  "images":[{"id":1001,"src":"https://cdn.shopify.com/s/files/1/naak-gel-salted-maple-front.png?v=1711047522","position":1,"variant_ids":[],"width":2000,"height":2000},
@@ -28,6 +28,9 @@
            {"id":5006,"src":"https://cdn.shopify.com/s/files/1/tb-panel.png?v=1","position":6,"variant_ids":[101,102]},
            {"id":5007,"src":"https://cdn.shopify.com/s/files/1/mixed.png?v=1","position":7,"variant_ids":[201]},
            {"id":5008,"src":"https://cdn.shopify.com/s/files/1/sc-1.png?v=1","position":8,"variant_ids":[301]}]},
+{"id":7,"title":"Roctane Protein Recovery Drink Mix","handle":"gu-roctane-protein-recovery-drink-mix","product_type":"Drink","tags":["recovery","Roctane"],
+ "options":[],"variants":[{"id":71,"option1":"Default Title","option2":null,"option3":null}],
+ "images":[{"id":7001,"src":"https://cdn.shopify.com/s/files/1/recovery.png?v=1","position":1,"variant_ids":[]}]},
 {"id":6,"title":"GU Variety Energy Box","handle":"gu-variety-energy-box","product_type":"Gel","tags":[],
  "options":[],"variants":[{"id":61,"option1":"Default Title","option2":null,"option3":null}],
  "images":[{"id":6001,"src":"https://cdn.shopify.com/s/files/1/variety.png?v=1","position":1,"variant_ids":[]}]}

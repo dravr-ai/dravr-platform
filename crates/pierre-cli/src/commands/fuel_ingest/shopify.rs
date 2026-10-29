@@ -48,17 +48,24 @@ const IMAGE_WIDTH: &str = "1600";
 /// Photos sent per label candidate — the last ones, where the panel usually is.
 pub(super) const MAX_IMAGES_PER_CANDIDATE: usize = 4;
 
-/// The largest photo accepted, bytes. Anthropic refuses an image over 5 MB.
-const MAX_IMAGE_BYTES: usize = 4_500_000;
+/// The largest photo accepted, bytes. Anthropic refuses an image whose
+/// base64 encoding is over 5 MiB (5,242,880 bytes), and base64 grows a photo
+/// by 4/3: 3.9 MB encodes to 5.2 MB, just under.
+const MAX_IMAGE_BYTES: usize = 3_900_000;
 
 /// Media types a photo may have. GIF is refused: a label is never animated,
 /// and the readers that take images all take these three.
 const ALLOWED_IMAGE_TYPES: [&str; 3] = ["image/png", "image/jpeg", "image/webp"];
 
-/// Words that mark a listing as not one fuel package, whatever the brand:
-/// gear, bundles and variety packs (several labels in one photo), samples,
-/// recovery and protein products (not race fuel), and hidden listings.
-const EXCLUDED_WORDS: [&str; 30] = [
+/// Words in a listing's type or title that mark it as not one fuel package,
+/// whatever the brand: gear, bundles and variety packs (several labels in one
+/// photo), samples, recovery and protein products (not race fuel).
+///
+/// Matched against the type and title only, never the tags: a brand tags its
+/// fuel with what is in it, and Näak tags every ULTRA gel, drink mix, waffle,
+/// puree and bar "Plant-based Protein" (bars also "Recovery"), so a tag match
+/// dropped 25 of its 33 fuel listings (live, 2026-10-29).
+const EXCLUDED_WORDS: [&str; 27] = [
     "gear",
     "apparel",
     "accessories",
@@ -73,9 +80,6 @@ const EXCLUDED_WORDS: [&str; 30] = [
     "samples",
     "kit",
     "gift card",
-    "hide_product",
-    "hide_from_search",
-    "private",
     "cookbook",
     "cookbooks",
     "shirt",
@@ -90,6 +94,10 @@ const EXCLUDED_WORDS: [&str; 30] = [
     "rental",
     "subscription",
 ];
+
+/// Tags a storefront puts on a listing it hides from shoppers (internal,
+/// partner and retired products). Matched anywhere, tags included.
+const HIDDEN_MARKERS: [&str; 3] = ["hide_product", "hide_from_search", "private"];
 
 /// One `/products.json` page.
 #[derive(Debug, Deserialize)]
@@ -194,16 +202,19 @@ fn has_word(words: &str, keyword: &str) -> bool {
 }
 
 /// Whether `product` is one fuel package the brand's filter keeps: one of the
-/// brand's keywords in its type, tags or title, and none of
-/// [`EXCLUDED_WORDS`].
+/// brand's keywords in its type, tags or title, none of [`EXCLUDED_WORDS`] in
+/// its type or title, and none of [`HIDDEN_MARKERS`] anywhere.
 pub(super) fn is_fuel(brand: &Brand, product: &ShopifyProduct) -> bool {
+    let named = word_text(&format!("{} {}", product.product_type, product.title));
     let words = word_text(&format!(
         "{} {} {}",
         product.product_type,
         product.tags.join(" "),
         product.title
     ));
-    if EXCLUDED_WORDS.iter().any(|kw| has_word(&words, kw)) {
+    if EXCLUDED_WORDS.iter().any(|kw| has_word(&named, kw))
+        || HIDDEN_MARKERS.iter().any(|kw| has_word(&words, kw))
+    {
         return false;
     }
     brand.keywords.iter().any(|kw| has_word(&words, kw))
@@ -557,7 +568,7 @@ mod tests {
     #[test]
     fn a_products_page_parses_without_a_barcode() {
         let products = fixture();
-        assert_eq!(products.len(), 6);
+        assert_eq!(products.len(), 7);
         let gel = product("ULTRA™ Gel 200 · Salted Maple");
         assert_eq!(gel.handle, "ultra-gel-200-salted-maple");
         assert_eq!(gel.images.len(), 2);
@@ -575,7 +586,14 @@ mod tests {
     #[test]
     fn the_filter_keeps_fuel_and_drops_gear_bundles_and_hidden_listings() {
         let naak = brand("naak");
-        assert!(is_fuel(naak, &product("ULTRA™ Gel 200 · Salted Maple")));
+        // Its live tags include "Plant-based Protein": a tag says what is in
+        // the fuel, never that it is not fuel.
+        let gel = product("ULTRA™ Gel 200 · Salted Maple");
+        assert!(gel.tags.iter().any(|tag| tag == "Plant-based Protein"));
+        assert!(is_fuel(naak, &gel));
+        let mut recovery_tagged = gel;
+        recovery_tagged.tags.push("Recovery".to_owned());
+        assert!(is_fuel(naak, &recovery_tagged));
         assert!(!is_fuel(
             naak,
             &product("ULTRA Soft Flask · HydraPak® · 500ml")
@@ -589,6 +607,9 @@ mod tests {
         let gu = brand("gu");
         assert!(is_fuel(gu, &product("Original Energy Gel")));
         assert!(!is_fuel(gu, &product("GU Variety Energy Box")));
+        // A title that names recovery or protein is not race fuel, whatever
+        // keyword ("drink mix") it also carries.
+        assert!(!is_fuel(gu, &product("Roctane Protein Recovery Drink Mix")));
     }
 
     #[test]

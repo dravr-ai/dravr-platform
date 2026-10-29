@@ -29,8 +29,8 @@
 //!   the page URL on the proposal opens all of them.
 //!
 //! The run fails (non-zero exit, which the job-failure alert counts) when
-//! labels were sent and not one read came back, or when no brand could be
-//! listed.
+//! labels were sent and not one read came back, when every candidate failed
+//! outside the read, or when no brand could be listed.
 
 mod extraction;
 mod shopify;
@@ -163,7 +163,8 @@ struct Tally {
 
 impl Tally {
     /// The run's verdict: an error when labels were sent and none was read,
-    /// or when no brand could be listed.
+    /// when every candidate failed before or after its read (the database
+    /// down, every photo download refused), or when no brand could be listed.
     fn verdict(&self, brands: usize) -> AppResult<()> {
         let unread = self.discarded_no_vision + self.read_failed;
         if self.llm_calls > 0 && unread >= self.llm_calls {
@@ -172,6 +173,15 @@ impl Tally {
                 format!(
                     "every label read failed ({} sent, {} discarded for no vision, {} failed)",
                     self.llm_calls, self.discarded_no_vision, self.read_failed
+                ),
+            ));
+        }
+        if self.candidates > 0 && self.failed == self.candidates {
+            return Err(AppError::external_service(
+                "fuel-ingest",
+                format!(
+                    "every label candidate failed outside the read ({} of {}: downloads or the database)",
+                    self.failed, self.candidates
                 ),
             ));
         }
@@ -550,6 +560,7 @@ mod tests {
         assert!(tally.verdict(1).is_ok());
         // A download or database failure is not a failed read.
         assert!(Tally {
+            candidates: 5,
             llm_calls: 1,
             proposed: 1,
             failed: 4,
@@ -557,6 +568,15 @@ mod tests {
         }
         .verdict(1)
         .is_ok());
+        // But a run where every candidate failed (the database down: even the
+        // dedupe lookup errors, so no read is ever sent) filed nothing.
+        assert!(Tally {
+            candidates: 4,
+            failed: 4,
+            ..Tally::default()
+        }
+        .verdict(1)
+        .is_err());
         // Duplicates and illegible labels are not failures; no call is not one.
         assert!(Tally {
             skipped_duplicate: 5,
