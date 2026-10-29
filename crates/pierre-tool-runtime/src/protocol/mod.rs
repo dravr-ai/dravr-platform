@@ -12,6 +12,8 @@ pub(crate) mod coach_calendar;
 mod data_source;
 /// Whose session a `TrainingPeaks` read goes through; a coach account's own read is refused in words
 mod delegated_auth;
+/// The span every tool execution runs in: tool, protocol, user, tenant and outcome
+mod dispatch_span;
 /// `UniversalExecutor` dispatch surface that fans every protocol call onto the tool registry
 pub mod executor;
 /// Output format helpers (JSON / TOON envelopes) shared across handlers

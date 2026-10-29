@@ -21,6 +21,7 @@ pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context" }
 axum = { version = "0.8", features = ["macros", "ws"] }
 bitflags = "2"

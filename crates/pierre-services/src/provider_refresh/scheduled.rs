@@ -19,12 +19,14 @@ use dravr_equilibre_sync::{SyncResult, SyncStatus};
 use pierre_core::models::{DelegatedConnection, OAuthNotification, SmartScheduleWeights, TenantId};
 use pierre_database::repositories::WorkerRunRepository;
 use pierre_database::AuthRepos;
+use pierre_logging::record_identity;
 use pierre_providers::backend_resolver::{is_mirror_backend, sync_backend};
 use pierre_providers::registry::global_registry;
 use pierre_providers::request_budget::in_background;
 use tokio::task::AbortHandle;
 use tokio::time::timeout;
-use tracing::{debug, info, warn};
+use tracing::field::Empty;
+use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
 use super::{
@@ -224,6 +226,20 @@ pub async fn sync_delegated_members(
 /// One link's turn in the delegated pass: claimed when due, synced within
 /// `deadline`, then finished when the sync landed or held a full period when
 /// it did not.
+///
+/// Runs in its own span naming the member whose wellness lands and the
+/// tenant they confirmed in: a background pass has no request span above it.
+#[instrument(
+    skip_all,
+    name = "delegated_wellness_sync",
+    fields(
+        user_id = %link.member_user_id,
+        tenant_id = link.member_tenant_id.map(display),
+        provider = provider,
+        link_id = %link.id,
+        group_id = %link.group_id,
+    )
+)]
 async fn sync_delegated_member(
     storage: &PierreSyncStorage,
     orchestrator: &SyncOrchestrator,
@@ -372,6 +388,15 @@ async fn sync_provider_users(
 /// Sync a single user for a given provider within `deadline`. A sync still
 /// running then is dropped and counted as a failure, and the cycle moves on
 /// to the next athlete.
+///
+/// The athlete's sync is one span carrying who it is for: the cycle runs in
+/// the background, under no request span. The tenant is the token row's,
+/// recorded once [`sync_single_user`] has read it.
+#[instrument(
+    skip_all,
+    name = "scheduled_sync",
+    fields(user_id = %user.user_id, tenant_id = Empty, provider = provider_name)
+)]
 async fn sync_single_user_within(
     orchestrator: &Arc<SyncOrchestrator>,
     repos: &AuthRepos,
@@ -401,6 +426,10 @@ async fn sync_single_user_within(
 }
 
 /// Sync a single user for a given provider, recording metrics and sending notifications.
+///
+/// The tenant of the token row the sync reads is resolved first and recorded
+/// on the enclosing span, so every line the sync logs names it; the same
+/// tenant is the one a landed sync stamps and a failed one reports on.
 async fn sync_single_user(
     orchestrator: &Arc<SyncOrchestrator>,
     repos: &AuthRepos,
@@ -409,6 +438,10 @@ async fn sync_single_user(
     user: &ConnectedUser,
     provider_name: &str,
 ) {
+    let backend = sync_backend(provider_name);
+    let user_uuid = user.user_id.parse::<Uuid>().ok();
+    let tenant = sync_tenant(repos, user_uuid, &backend).await;
+    record_identity(&user.user_id, tenant);
     log_smart_schedule_interval(user, provider_name);
 
     let start = Instant::now();
@@ -426,8 +459,10 @@ async fn sync_single_user(
                 "Scheduled sync completed"
             );
 
-            if let Ok(user_uuid) = user.user_id.parse::<Uuid>() {
-                record_landed_sync(repos, notices, user_uuid, provider_name).await;
+            if let Some(user_uuid) = user_uuid {
+                if let Some(tenant) = tenant {
+                    record_landed_sync(repos, notices, user_uuid, tenant, &backend).await;
+                }
                 send_sync_notification(
                     sse_manager,
                     user_uuid,
@@ -447,47 +482,52 @@ async fn sync_single_user(
                 "Scheduled sync failed"
             );
             if health_sync_failure_is_told(&e) {
-                report_failed_sync(repos, notices, user, provider_name).await;
+                report_failed_sync(notices, user_uuid, tenant, &backend).await;
             }
         }
     }
 }
 
-/// Stamp `last_sync` on the token row a landed sync read and re-arm its
-/// sync-failure notice.
+/// The tenant of the athlete's `backend` token row, read once per sync;
+/// `None` for a user id that is not a UUID or an athlete with no such row.
+async fn sync_tenant(
+    repos: &AuthRepos,
+    user_uuid: Option<Uuid>,
+    backend: &str,
+) -> Option<TenantId> {
+    token_tenant(repos, user_uuid?, backend).await
+}
+
+/// Tell the athlete, once, that the scheduled sync of `backend` failed —
+/// when the sync knew whose token row it read.
+async fn report_failed_sync(
+    notices: &SyncFailureNotices,
+    user_uuid: Option<Uuid>,
+    tenant: Option<TenantId>,
+    backend: &str,
+) {
+    if let (Some(user_uuid), Some(tenant)) = (user_uuid, tenant) {
+        notices.sync_failed(user_uuid, tenant, backend).await;
+    }
+}
+
+/// Stamp `last_sync` on the `backend` token row of `tenant` a landed sync
+/// read and re-arm its sync-failure notice.
 async fn record_landed_sync(
     repos: &AuthRepos,
     notices: &SyncFailureNotices,
     user_uuid: Uuid,
-    provider_name: &str,
+    tenant: TenantId,
+    backend: &str,
 ) {
-    let backend = sync_backend(provider_name);
-    if let Some(tenant) = token_tenant(repos, user_uuid, &backend).await {
-        if let Err(e) = repos
-            .oauth_tokens
-            .update_provider_last_sync(user_uuid, tenant, &backend, Utc::now())
-            .await
-        {
-            warn!(%user_uuid, provider = %backend, error = %e, "could not stamp last_sync after a landed sync");
-        }
-        notices.sync_landed(user_uuid, tenant, &backend).await;
+    if let Err(e) = repos
+        .oauth_tokens
+        .update_provider_last_sync(user_uuid, tenant, backend, Utc::now())
+        .await
+    {
+        warn!(%user_uuid, provider = %backend, error = %e, "could not stamp last_sync after a landed sync");
     }
-}
-
-/// Tell the athlete, once, that the scheduled sync of `provider_name` failed.
-async fn report_failed_sync(
-    repos: &AuthRepos,
-    notices: &SyncFailureNotices,
-    user: &ConnectedUser,
-    provider_name: &str,
-) {
-    let Ok(user_uuid) = user.user_id.parse::<Uuid>() else {
-        return;
-    };
-    let backend = sync_backend(provider_name);
-    if let Some(tenant) = token_tenant(repos, user_uuid, &backend).await {
-        notices.sync_failed(user_uuid, tenant, &backend).await;
-    }
+    notices.sync_landed(user_uuid, tenant, backend).await;
 }
 
 /// Log the recommended smart-schedule interval for a user.
@@ -613,8 +653,16 @@ mod tests {
         StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, Tenant, UserOAuthToken,
     };
     use pierre_database::RepositoryRegistry;
+    use pierre_logging::span_fields::{SpanFieldStorage, SpanFields};
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
+    use serde_json::{Map, Value as Json};
+    use std::sync::PoisonError;
+    use tracing::instrument::WithSubscriber;
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing_subscriber::registry;
+    use tracing_subscriber::registry::LookupSpan;
 
     use super::*;
     use crate::health_sync::PierreSyncStorage;
@@ -833,5 +881,108 @@ mod tests {
             .await
             .unwrap();
         assert!(landed.is_some(), "the next athlete's sync landed");
+    }
+
+    /// Captures, for every event, the merged fields of its ancestor spans —
+    /// what the Cloud Logging formatter stamps onto a log line.
+    #[derive(Clone, Default)]
+    struct SpanCapture(Arc<Mutex<Vec<Map<String, Json>>>>);
+
+    impl<S> Layer<S> for SpanCapture
+    where
+        S: Subscriber + for<'a> LookupSpan<'a>,
+    {
+        fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
+            let mut merged = Map::new();
+            if let Some(scope) = ctx.event_scope(event) {
+                for span in scope.from_root() {
+                    if let Some(fields) = span.extensions().get::<SpanFields>() {
+                        merged.extend(fields.0.clone());
+                    }
+                }
+            }
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(merged);
+        }
+    }
+
+    // A background sync has no request span above it, so the athlete's own
+    // span is the only thing that makes its lines filterable per tenant.
+    #[tokio::test]
+    async fn every_line_of_an_athletes_scheduled_sync_names_their_tenant() {
+        let db = create_test_db().await.unwrap();
+        let repos = Arc::clone(db.repositories());
+        let (athlete, tenant) = whoop_athlete(&repos).await;
+
+        let storage = Arc::new(PierreSyncStorage::new(&repos));
+        let deps = Arc::new(SyncDeps {
+            sleep: storage.clone(),
+            recovery: storage.clone(),
+            health: storage.clone(),
+            time_series: storage.clone(),
+            data_sources: storage.clone(),
+            cursors: storage.clone(),
+            credentials: storage.clone(),
+            connections: storage,
+        });
+        let provider: Box<dyn SyncProvider> = Box::new(StallsFor {
+            stalled: String::new(),
+            read: Arc::new(Mutex::new(Vec::new())),
+        });
+        let providers = HashMap::from([("whoop".to_owned(), provider)]);
+        let orchestrator = Arc::new(SyncOrchestrator::new(
+            deps,
+            providers,
+            SyncConfig::from_env(),
+        ));
+        let auth_repos = repos.auth_repos();
+        let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
+        let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
+        let user = ConnectedUser {
+            user_id: athlete.to_string(),
+            provider: "whoop".to_owned(),
+            connected_at: Utc::now(),
+            is_active: true,
+        };
+
+        let capture = SpanCapture::default();
+        let subscriber = registry().with(SpanFieldStorage).with(capture.clone());
+        sync_single_user_within(
+            &orchestrator,
+            &auth_repos,
+            &notifier,
+            &notices,
+            &user,
+            "whoop",
+            Duration::from_secs(30),
+        )
+        .with_subscriber(subscriber)
+        .await;
+
+        let lines = capture
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        assert!(!lines.is_empty(), "the sync logged under its span");
+        for line in &lines {
+            assert_eq!(
+                line.get("user_id"),
+                Some(&Json::from(athlete.to_string())),
+                "bug: a sync line must name the athlete: {line:?}"
+            );
+            assert_eq!(
+                line.get("tenant_id"),
+                Some(&Json::from(tenant.to_string())),
+                "bug: a sync line must name the token row's tenant: {line:?}"
+            );
+            assert_eq!(
+                line.get("provider"),
+                Some(&Json::from("whoop")),
+                "bug: a sync line must name the provider: {line:?}"
+            );
+        }
     }
 }

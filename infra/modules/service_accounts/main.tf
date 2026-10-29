@@ -59,6 +59,18 @@ resource "google_project_iam_member" "app_artifact_reader" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+# Cloud Telemetry Traces Writer (Cloud Trace via the OpenTelemetry Collector
+# sidecar). Only `telemetry.traces.write`: the collector exports OTLP to
+# telemetry.googleapis.com, so the broader roles/cloudtrace.agent (which adds
+# the legacy cloudtrace.traces.patch) is not needed.
+resource "google_project_iam_member" "app_telemetry_traces_writer" {
+  count = var.enable_cloud_trace ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/telemetry.tracesWriter"
+  member  = "serviceAccount:${google_service_account.app.email}"
+}
+
 # -----------------------------------------------------------------------------
 # Deployer Service Account (used by GitHub Actions)
 # -----------------------------------------------------------------------------

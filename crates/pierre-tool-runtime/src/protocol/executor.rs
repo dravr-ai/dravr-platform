@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth::AuthService;
+use super::dispatch_span::{record_outcome, tool_call_span};
 use super::repeated_read;
 use super::tool_response::{
     is_unavailable_over_transport, protocol_error_from_raised, provider_auth_required_slug,
@@ -44,7 +45,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::{info, warn};
+use tracing::{info, warn, Instrument};
 use uuid::Uuid;
 
 /// The two facts the dispatch chokepoint needs to decide a provider refusal.
@@ -450,6 +451,19 @@ impl UniversalExecutor {
     /// `ProtocolError::InternalError` when the context cannot be built
     /// (e.g. malformed user id) or when tool execution returns `AppError`.
     pub async fn execute_tool(
+        &self,
+        request: UniversalRequest,
+    ) -> Result<UniversalResponse, ProtocolError> {
+        // The one span per tool call, opened here because every transport
+        // funnels through this function; see `dispatch_span`.
+        let span = tool_call_span(&request);
+        let result = self.dispatch(request).instrument(span.clone()).await;
+        record_outcome(&span, &result);
+        result
+    }
+
+    /// [`Self::execute_tool`]'s body, run inside its span.
+    async fn dispatch(
         &self,
         request: UniversalRequest,
     ) -> Result<UniversalResponse, ProtocolError> {

@@ -24,6 +24,8 @@ use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFie
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::span_fields::SpanFields;
+#[cfg(feature = "telemetry")]
+use crate::trace_link::TraceLink;
 
 /// Key used by tracing for the primary message field.
 const MESSAGE_FIELD: &str = "message";
@@ -34,6 +36,10 @@ const TIME_KEY: &str = "time";
 const SOURCE_LOCATION_KEY: &str = "logging.googleapis.com/sourceLocation";
 const LABELS_KEY: &str = "logging.googleapis.com/labels";
 const SPAN_ID_KEY: &str = "logging.googleapis.com/spanId";
+#[cfg(feature = "telemetry")]
+const TRACE_KEY: &str = "logging.googleapis.com/trace";
+#[cfg(feature = "telemetry")]
+const TRACE_SAMPLED_KEY: &str = "logging.googleapis.com/trace_sampled";
 
 /// Formatter emitting Cloud Logging-compatible JSON lines.
 #[derive(Debug)]
@@ -42,6 +48,9 @@ pub struct GcpFormatter {
     labels: BTreeMap<String, String>,
     /// Include `sourceLocation` for each event when true.
     include_source_location: bool,
+    /// Resolves the Cloud Trace ids of the current span, when tracing is on.
+    #[cfg(feature = "telemetry")]
+    trace_link: Option<TraceLink>,
 }
 
 impl GcpFormatter {
@@ -61,7 +70,18 @@ impl GcpFormatter {
         Self {
             labels,
             include_source_location,
+            #[cfg(feature = "telemetry")]
+            trace_link: None,
         }
+    }
+
+    /// Stamp each line with the Cloud Trace trace and span it was logged in,
+    /// so the console links a log line to its trace and back.
+    #[cfg(feature = "telemetry")]
+    #[must_use]
+    pub(crate) fn with_trace_link(mut self, link: TraceLink) -> Self {
+        self.trace_link = Some(link);
+        self
     }
 }
 
@@ -123,6 +143,18 @@ where
                 SPAN_ID_KEY.to_owned(),
                 Value::String(format!("{:016x}", span.id().into_u64())),
             );
+            // Under an OTel layer the trace's own span id replaces the local
+            // one, which Cloud Trace has never seen.
+            #[cfg(feature = "telemetry")]
+            if let Some(trace) = self
+                .trace_link
+                .as_ref()
+                .and_then(|link| link.fields(&span.id()))
+            {
+                entry.insert(TRACE_KEY.to_owned(), Value::String(trace.trace));
+                entry.insert(SPAN_ID_KEY.to_owned(), Value::String(trace.span_id));
+                entry.insert(TRACE_SAMPLED_KEY.to_owned(), Value::Bool(trace.sampled));
+            }
         }
 
         for (k, v) in visitor.fields {

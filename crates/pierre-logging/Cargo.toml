@@ -32,7 +32,6 @@ gethostname = "1"
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
-uuid = { version = "1.29", features = ["v4", "serde"] }
 
 # OpenTelemetry (optional, enabled by the `telemetry` feature). OTLP over HTTP/protobuf
 # reuses reqwest (blocking, rustls) instead of pulling tonic/gRPC, keeping the telemetry

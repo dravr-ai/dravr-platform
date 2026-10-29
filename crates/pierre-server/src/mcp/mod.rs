@@ -11,6 +11,8 @@ pub mod host_seams;
 pub mod multitenant;
 /// Curated, user-invokable analysis prompt templates (prompts/list + prompts/get)
 pub mod prompt_templates;
+/// One span per MCP JSON-RPC operation, installed on the tronc engine as its observer
+pub(crate) mod request_span;
 /// Agent marketplace catalog backing MCP resources/list + resources/read
 pub mod resource_catalog;
 /// Resource management for MCP

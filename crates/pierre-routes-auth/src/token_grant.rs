@@ -26,6 +26,7 @@ use pierre_auth::oauth2_server::mobile_attestation::{
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::security::cookies::{set_auth_cookie, set_csrf_cookie};
 use pierre_core::errors::AppError;
+use pierre_logging::record_identity;
 
 use pierre_auth::dto::auth::{
     LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
@@ -471,8 +472,5 @@ fn refused_code(refusal: &OAuth2Error) -> Response {
 fn record_signed_in_user(response: &LoginResponse) {
     // tenant_id is optional on UserInfo; only record when present so the
     // span shows an empty field rather than a literal "None".
-    Span::current().record("user_id", field::display(&response.user.user_id));
-    if let Some(tenant_id) = response.user.tenant_id.as_deref() {
-        Span::current().record("tenant_id", field::display(&tenant_id));
-    }
+    record_identity(&response.user.user_id, response.user.tenant_id.as_deref());
 }

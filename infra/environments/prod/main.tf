@@ -8,7 +8,8 @@
 module "project" {
   source = "../../modules/project"
 
-  project_id = var.project_id
+  project_id         = var.project_id
+  enable_cloud_trace = var.cloud_trace_enabled
 }
 
 # -----------------------------------------------------------------------------
@@ -99,6 +100,7 @@ module "service_accounts" {
   project_id           = var.project_id
   service_name         = var.service_name
   artifacts_project_id = var.artifacts_project_id
+  enable_cloud_trace   = var.cloud_trace_enabled
   tf_state_bucket      = "dravr-terraform-state"
 
   depends_on = [module.project]
@@ -202,6 +204,14 @@ module "backend" {
 
   health_check_path           = "/health"
   startup_probe_initial_delay = 10
+
+  # Cloud Trace (off until cloud_trace_enabled): an OpenTelemetry Collector
+  # sidecar forwards a sample of the API's traces. Runbook: dravr-vault
+  # Development/Runbooks/Enable Cloud Trace.md.
+  otel_collector = {
+    enabled            = var.cloud_trace_enabled
+    trace_sample_ratio = var.cloud_trace_sample_ratio
+  }
 
   labels = merge(var.labels, { component = "backend" })
 

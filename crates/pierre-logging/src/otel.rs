@@ -14,6 +14,17 @@
 //! global meter provider that HTTP middleware records against. Batch span and
 //! periodic metric exports run on SDK-owned background threads, so no async
 //! runtime handle is required.
+//!
+//! Each signal can be switched off on its own with the standard
+//! `OTEL_TRACES_EXPORTER=none` / `OTEL_METRICS_EXPORTER=none`, so traces can
+//! ship without paying for metrics ingestion (or the reverse). Unset, or
+//! `otlp`, keeps the signal on. Sampling is read by the SDK itself:
+//! `SdkTracerProvider::builder()` starts from `opentelemetry_sdk::trace::Config::default()`,
+//! which honours `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG`
+//! (`parentbased_traceidratio` with a ratio is the production setting). An
+//! `_ARG` that does not parse as a float makes the SDK fall back to ratio 1.0,
+//! i.e. every trace is kept; the startup line below echoes both values so
+//! that fallback is visible.
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{global, KeyValue};
@@ -36,35 +47,103 @@ const OTLP_TRACES_ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT";
 const OTLP_METRICS_ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT";
 /// Overrides the resource `service.name` independent of the logging config.
 const OTEL_SERVICE_NAME_ENV: &str = "OTEL_SERVICE_NAME";
+/// Per-signal exporter selection; `none` switches that signal off.
+const OTEL_TRACES_EXPORTER_ENV: &str = "OTEL_TRACES_EXPORTER";
+const OTEL_METRICS_EXPORTER_ENV: &str = "OTEL_METRICS_EXPORTER";
+/// Sampler selection, read by the SDK; echoed at startup only.
+const OTEL_TRACES_SAMPLER_ENV: &str = "OTEL_TRACES_SAMPLER";
+const OTEL_TRACES_SAMPLER_ARG_ENV: &str = "OTEL_TRACES_SAMPLER_ARG";
 
 /// Instrumentation scope name stamped on every span the subscriber layer
 /// emits through [`TelemetryHandle::tracer`].
 const INSTRUMENTATION_SCOPE: &str = "pierre-logging";
 
-/// Live OpenTelemetry providers. Held for the process lifetime so batch
-/// exporters keep flushing; [`TelemetryHandle::shutdown`] drains them on exit.
+/// What an `OTEL_<SIGNAL>_EXPORTER` value asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignalExporter {
+    /// Unset, empty or `otlp`: export the signal over OTLP.
+    Otlp,
+    /// `none`: the signal is not exported at all.
+    Disabled,
+    /// Any other value (`console`, `prometheus`, a typo): this pipeline
+    /// speaks OTLP only, so the signal stays on OTLP and startup says so.
+    Unsupported,
+}
+
+impl SignalExporter {
+    /// Whether the signal is exported over OTLP.
+    const fn exports(self) -> bool {
+        !matches!(self, Self::Disabled)
+    }
+}
+
+/// Parse an `OTEL_<SIGNAL>_EXPORTER` value. Case and surrounding whitespace
+/// are ignored, as the OpenTelemetry environment spec requires.
+fn parse_signal_exporter(value: Option<&str>) -> SignalExporter {
+    match value.map(str::trim) {
+        None | Some("") => SignalExporter::Otlp,
+        Some(v) if v.eq_ignore_ascii_case("otlp") => SignalExporter::Otlp,
+        Some(v) if v.eq_ignore_ascii_case("none") => SignalExporter::Disabled,
+        Some(_) => SignalExporter::Unsupported,
+    }
+}
+
+/// Read one signal's exporter selection, warning on stderr (the subscriber is
+/// not installed yet) when the value is one this pipeline cannot honour.
+fn signal_exporter_from_env(key: &str) -> SignalExporter {
+    let value = non_empty_env(key);
+    let exporter = parse_signal_exporter(value.as_deref());
+    if exporter == SignalExporter::Unsupported {
+        eprintln!(
+            "OpenTelemetry: {key}={} is not supported (only `otlp` or `none`); exporting over OTLP",
+            value.unwrap_or_default()
+        );
+    }
+    exporter
+}
+
+/// Human-readable sampler description for the startup line: the SDK's
+/// default when unset, otherwise `sampler` or `sampler:arg`.
+fn describe_sampler(sampler: Option<&str>, arg: Option<&str>) -> String {
+    match (sampler, arg) {
+        (None, _) => "parentbased_always_on (SDK default)".to_owned(),
+        (Some(s), None) => s.to_owned(),
+        (Some(s), Some(a)) => format!("{s}:{a}"),
+    }
+}
+
+/// Live OpenTelemetry providers, one per signal that is switched on. Held for
+/// the process lifetime so batch exporters keep flushing;
+/// [`TelemetryHandle::shutdown`] drains them on exit.
 #[derive(Debug)]
 pub struct TelemetryHandle {
-    tracer_provider: SdkTracerProvider,
-    meter_provider: SdkMeterProvider,
+    tracer_provider: Option<SdkTracerProvider>,
+    meter_provider: Option<SdkMeterProvider>,
 }
 
 impl TelemetryHandle {
     /// A tracer from the installed provider, used to build the
-    /// `tracing-opentelemetry` subscriber layer.
+    /// `tracing-opentelemetry` subscriber layer. `None` when
+    /// `OTEL_TRACES_EXPORTER=none` switched traces off.
     #[must_use]
-    pub fn tracer(&self) -> SdkTracer {
-        self.tracer_provider.tracer(INSTRUMENTATION_SCOPE)
+    pub fn tracer(&self) -> Option<SdkTracer> {
+        self.tracer_provider
+            .as_ref()
+            .map(|provider| provider.tracer(INSTRUMENTATION_SCOPE))
     }
 
-    /// Flush and shut down both providers. Batch span/metric exporters buffer
-    /// in the background, so skipping this on exit drops the final batch.
+    /// Flush and shut down the live providers. Batch span/metric exporters
+    /// buffer in the background, so skipping this on exit drops the final batch.
     pub fn shutdown(&self) {
-        if let Err(e) = self.tracer_provider.shutdown() {
-            tracing::warn!("OTel tracer provider shutdown error: {e}");
+        if let Some(provider) = &self.tracer_provider {
+            if let Err(e) = provider.shutdown() {
+                tracing::warn!("OTel tracer provider shutdown error: {e}");
+            }
         }
-        if let Err(e) = self.meter_provider.shutdown() {
-            tracing::warn!("OTel meter provider shutdown error: {e}");
+        if let Some(provider) = &self.meter_provider {
+            if let Err(e) = provider.shutdown() {
+                tracing::warn!("OTel meter provider shutdown error: {e}");
+            }
         }
     }
 }
@@ -72,7 +151,8 @@ impl TelemetryHandle {
 /// Build the OTLP traces + metrics pipeline when an endpoint is configured.
 ///
 /// Returns `Ok(None)` when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (the
-/// off-by-default path), so callers treat telemetry as a no-op.
+/// off-by-default path), or when both `OTEL_TRACES_EXPORTER` and
+/// `OTEL_METRICS_EXPORTER` are `none`, so callers treat telemetry as a no-op.
 ///
 /// # Errors
 ///
@@ -83,10 +163,15 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
         return Ok(None);
     };
 
-    let traces_endpoint =
-        non_empty_env(OTLP_TRACES_ENDPOINT_ENV).unwrap_or_else(|| join_path(&base, "v1/traces"));
-    let metrics_endpoint =
-        non_empty_env(OTLP_METRICS_ENDPOINT_ENV).unwrap_or_else(|| join_path(&base, "v1/metrics"));
+    let traces = signal_exporter_from_env(OTEL_TRACES_EXPORTER_ENV).exports();
+    let metrics = signal_exporter_from_env(OTEL_METRICS_EXPORTER_ENV).exports();
+    if !traces && !metrics {
+        eprintln!(
+            "OpenTelemetry OTLP pipeline not started: {OTLP_ENDPOINT_ENV} is set but \
+             {OTEL_TRACES_EXPORTER_ENV} and {OTEL_METRICS_EXPORTER_ENV} are both `none`"
+        );
+        return Ok(None);
+    }
 
     let resource = build_resource(config);
 
@@ -105,44 +190,72 @@ pub fn build_telemetry(config: &LoggingConfig) -> AppResult<Option<TelemetryHand
         eprintln!("OpenTelemetry OTLP pipeline: rustls CryptoProvider already installed by a peer; keeping it");
     }
 
-    let span_exporter = SpanExporter::builder()
-        .with_http()
-        .with_protocol(Protocol::HttpBinary)
-        .with_endpoint(traces_endpoint)
-        .build()
-        .map_err(|e| AppError::internal(format!("OTLP trace exporter init failed: {e}")))?;
+    let tracer_provider = if traces {
+        let endpoint = non_empty_env(OTLP_TRACES_ENDPOINT_ENV)
+            .unwrap_or_else(|| join_path(&base, "v1/traces"));
+        let span_exporter = SpanExporter::builder()
+            .with_http()
+            .with_protocol(Protocol::HttpBinary)
+            .with_endpoint(endpoint)
+            .build()
+            .map_err(|e| AppError::internal(format!("OTLP trace exporter init failed: {e}")))?;
+        // `builder()` reads OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG.
+        let provider = SdkTracerProvider::builder()
+            .with_batch_exporter(span_exporter)
+            .with_resource(resource.clone())
+            .build();
+        global::set_tracer_provider(provider.clone());
+        Some(provider)
+    } else {
+        None
+    };
 
-    let tracer_provider = SdkTracerProvider::builder()
-        .with_batch_exporter(span_exporter)
-        .with_resource(resource.clone())
-        .build();
-    global::set_tracer_provider(tracer_provider.clone());
-
-    let metric_exporter = MetricExporter::builder()
-        .with_http()
-        .with_protocol(Protocol::HttpBinary)
-        .with_endpoint(metrics_endpoint)
-        .build()
-        .map_err(|e| AppError::internal(format!("OTLP metric exporter init failed: {e}")))?;
-
-    let meter_provider = SdkMeterProvider::builder()
-        .with_periodic_exporter(metric_exporter)
-        .with_resource(resource)
-        .build();
-    global::set_meter_provider(meter_provider.clone());
+    let meter_provider = if metrics {
+        let endpoint = non_empty_env(OTLP_METRICS_ENDPOINT_ENV)
+            .unwrap_or_else(|| join_path(&base, "v1/metrics"));
+        let metric_exporter = MetricExporter::builder()
+            .with_http()
+            .with_protocol(Protocol::HttpBinary)
+            .with_endpoint(endpoint)
+            .build()
+            .map_err(|e| AppError::internal(format!("OTLP metric exporter init failed: {e}")))?;
+        let provider = SdkMeterProvider::builder()
+            .with_periodic_exporter(metric_exporter)
+            .with_resource(resource)
+            .build();
+        global::set_meter_provider(provider.clone());
+        Some(provider)
+    } else {
+        None
+    };
 
     // The tracing subscriber is not installed yet at this point in bootstrap,
     // so a tracing macro here would be dropped — emit to stderr like the rest
     // of the pre-subscriber startup path in the server binary.
+    let sampler = describe_sampler(
+        non_empty_env(OTEL_TRACES_SAMPLER_ENV).as_deref(),
+        non_empty_env(OTEL_TRACES_SAMPLER_ARG_ENV).as_deref(),
+    );
     eprintln!(
-        "OpenTelemetry OTLP pipeline enabled (traces + metrics): endpoint={base} service={}",
-        resolve_service_name(config)
+        "OpenTelemetry OTLP pipeline enabled: endpoint={base} service={} traces={} sampler={sampler} metrics={}",
+        resolve_service_name(config),
+        on_off(traces),
+        on_off(metrics),
     );
 
     Ok(Some(TelemetryHandle {
         tracer_provider,
         meter_provider,
     }))
+}
+
+/// `on` / `off` for the startup line.
+const fn on_off(enabled: bool) -> &'static str {
+    if enabled {
+        "on"
+    } else {
+        "off"
+    }
 }
 
 /// Resource attributes that tag every span and metric with service identity.
@@ -171,4 +284,78 @@ fn non_empty_env(key: &str) -> Option<String> {
 /// `http://host:4318/` produce a single-slash URL.
 fn join_path(base: &str, path: &str) -> String {
     format!("{}/{}", base.trim_end_matches('/'), path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{describe_sampler, parse_signal_exporter, SignalExporter};
+
+    #[test]
+    fn unset_or_empty_exporter_keeps_otlp() {
+        assert_eq!(
+            parse_signal_exporter(None),
+            SignalExporter::Otlp,
+            "unset must keep today's behaviour (export)"
+        );
+        assert_eq!(
+            parse_signal_exporter(Some("  ")),
+            SignalExporter::Otlp,
+            "a blank value counts as unset"
+        );
+    }
+
+    #[test]
+    fn otlp_exporter_is_case_and_space_insensitive() {
+        for value in ["otlp", "OTLP", " Otlp "] {
+            assert_eq!(
+                parse_signal_exporter(Some(value)),
+                SignalExporter::Otlp,
+                "{value:?} must select OTLP"
+            );
+        }
+    }
+
+    #[test]
+    fn none_exporter_disables_the_signal() {
+        for value in ["none", "NONE", " None\t"] {
+            let exporter = parse_signal_exporter(Some(value));
+            assert_eq!(exporter, SignalExporter::Disabled, "{value:?} must disable");
+            assert!(!exporter.exports(), "a disabled signal must not export");
+        }
+    }
+
+    #[test]
+    fn unsupported_exporter_falls_back_to_otlp() {
+        for value in ["console", "prometheus", "nnone", "otlp,console"] {
+            let exporter = parse_signal_exporter(Some(value));
+            assert_eq!(
+                exporter,
+                SignalExporter::Unsupported,
+                "{value:?} is not an exporter this pipeline has"
+            );
+            assert!(
+                exporter.exports(),
+                "an unsupported value must not silently drop the signal"
+            );
+        }
+    }
+
+    #[test]
+    fn sampler_description_names_the_sdk_default_and_the_ratio() {
+        assert_eq!(
+            describe_sampler(None, Some("0.1")),
+            "parentbased_always_on (SDK default)",
+            "an ARG without a sampler is ignored by the SDK"
+        );
+        assert_eq!(
+            describe_sampler(Some("parentbased_traceidratio"), Some("0.1")),
+            "parentbased_traceidratio:0.1",
+            "a ratio sampler must be echoed with its ratio"
+        );
+        assert_eq!(
+            describe_sampler(Some("always_off"), None),
+            "always_off",
+            "a sampler without an ARG is echoed alone"
+        );
+    }
 }

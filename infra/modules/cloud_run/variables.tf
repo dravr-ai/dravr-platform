@@ -210,3 +210,36 @@ variable "custom_audiences" {
   type        = list(string)
   default     = []
 }
+
+# -----------------------------------------------------------------------------
+# OpenTelemetry Collector sidecar (Cloud Trace)
+# -----------------------------------------------------------------------------
+
+variable "otel_collector" {
+  description = <<-EOT
+    Google-Built OpenTelemetry Collector as a sidecar that forwards the app's
+    OTLP traces to Cloud Trace (via the Telemetry API, telemetry.googleapis.com).
+    Off by default: with enabled = false the service is exactly what it is
+    without this variable. When on, the app container gets
+    OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318, the
+    parentbased_traceidratio sampler at trace_sample_ratio, and
+    OTEL_METRICS_EXPORTER=none, so only traces leave the instance. The service
+    account also needs roles/telemetry.tracesWriter and the Telemetry API on,
+    which the project and service_accounts modules grant behind the same flag.
+    The sidecar's cpu/memory are billed like the app's (always-on when the
+    service sets cpu_idle = false).
+  EOT
+  type = object({
+    enabled            = optional(bool, false)
+    image              = optional(string, "us-docker.pkg.dev/cloud-ops-agents-artifacts/google-cloud-opentelemetry-collector/otelcol-google:0.163.1")
+    trace_sample_ratio = optional(number, 0.1)
+    cpu                = optional(string, "1")
+    memory             = optional(string, "512Mi")
+  })
+  default = {}
+
+  validation {
+    condition     = var.otel_collector.trace_sample_ratio >= 0 && var.otel_collector.trace_sample_ratio <= 1
+    error_message = "otel_collector.trace_sample_ratio is a probability: 0 keeps no new trace, 1 keeps every one."
+  }
+}

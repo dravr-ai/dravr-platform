@@ -168,3 +168,10 @@ backend_photograveur = true
 # ignores image changes), so a fixed tag here would only describe the first revision
 # ever created while claiming to govern the service.
 photograveur_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/photograveur:latest"
+
+# Cloud Trace: off (no spend yet, few users). Flip to true + apply to add the
+# OpenTelemetry Collector sidecar, the Telemetry/Cloud Trace APIs and the
+# app SA's roles/telemetry.tracesWriter. Runbook: dravr-vault
+# Development/Runbooks/Enable Cloud Trace.md.
+cloud_trace_enabled      = false
+cloud_trace_sample_ratio = 0.1

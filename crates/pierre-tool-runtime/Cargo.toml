@@ -103,6 +103,9 @@ embacle = { version = "0.42.0" }
 # returns. Same version the chat pipeline validates structured replies with.
 jsonschema = { version = "0.46.10", default-features = false }
 tokio = { version = "1.54", features = ["macros", "rt-multi-thread"] }
+# The tool-call span's test reads its fields the way the GCP formatter does,
+# through pierre-logging's span field storage.
+pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 # Captures the line the guardian gate logs under the tainted-destructive `Log`
 # phase, so its unit test reads the fields the arming measurement groups by.
 # Same spec the chat pipeline's log-asserting tests use.

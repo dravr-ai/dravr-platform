@@ -116,7 +116,6 @@ use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
-use tracing::field::Empty;
 use tracing::{debug, info, warn};
 
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
@@ -266,37 +265,31 @@ pub(crate) fn call_type_for_profile(profile: &SurfaceProfile) -> &'static str {
 }
 
 /// Record the turn span's deferred `agent_id`/`group_id` fields (declared
-/// `Empty` on the `run` span) once the conversation record resolves them, so
-/// every log line for the rest of the turn names the agent answering it — the
-/// mentioned one on a `@handle` turn — and the group. A no-op when unset.
-fn record_turn_span_context(agent_id: Option<&str>, group_id: Option<&str>) {
-    let span = tracing::Span::current();
+/// `Empty` on the `chat.turn` span [`turn_service::execute`] opens) once the
+/// conversation record resolves them, so every log line for the rest of the
+/// turn names the agent answering it — the mentioned one on a `@handle` turn —
+/// and the group. A no-op when unset.
+///
+/// Written through [`pierre_logging::record_in_scope`], so the fields reach
+/// the `chat.turn` span however many spans sit between it and the caller.
+pub(crate) fn record_turn_span_context(agent_id: Option<&str>, group_id: Option<&str>) {
     if let Some(agent_id) = agent_id {
-        span.record("agent_id", agent_id);
+        pierre_logging::record_in_scope("agent_id", &agent_id);
     }
     if let Some(group_id) = group_id {
-        span.record("group_id", group_id);
+        pierre_logging::record_in_scope("group_id", &group_id);
     }
 }
 
 /// Run a single turn through the unified chat pipeline.
 ///
+/// Runs under the `chat.turn` span [`turn_service::execute`] opens, so the
+/// usage caps, slash commands and usage recording around the pipeline share
+/// one span with every stage, LLM call and tool call inside it.
+///
 /// # Errors
 ///
 /// Returns `AppError` variants produced by any stage.
-#[tracing::instrument(
-    skip_all,
-    fields(
-        turn_id = %input.turn_id,
-        channel = profile.surface.as_str(),
-        conversation_id = %input.conversation_id,
-        tenant_id = %input.conversation_tenant_id,
-        user_id = %input.user_id,
-        // Resolved mid-turn once the conversation record loads; recorded below.
-        agent_id = Empty,
-        group_id = Empty,
-    )
-)]
 pub async fn run(
     ctx: &ChatPipelineContext,
     input: TurnInput,
@@ -327,22 +320,7 @@ pub async fn run(
         "user asked a question"
     );
 
-    let snapshot = ctx.llm_health.snapshot().await;
-    if matches!(snapshot.status, LlmHealthStatus::Unhealthy) {
-        let provider = snapshot.provider.unwrap_or_else(|| "llm".to_owned());
-        let last_error = snapshot.error.unwrap_or_else(|| "unknown".to_owned());
-        warn!(
-            provider = %provider,
-            last_error = %last_error,
-            "LLM probe is Unhealthy — failing chat turn fast with 503"
-        );
-        return Err(AppError::new(
-            ErrorCode::ResourceUnavailable,
-            format!(
-                "Our AI provider ({provider}) is temporarily unavailable. We've been notified — please try again in a minute or two."
-            ),
-        ));
-    }
+    refuse_when_llm_unhealthy(ctx).await?;
 
     // A turn exists to feed a model, so every read its stages make is a read
     // for one: each provider's AI policy governs what the prompt builders see
@@ -390,29 +368,62 @@ pub async fn run(
             .await;
     }
 
-    if let Some(agui) = &hooks.agui {
-        match &outcome {
-            Ok(_) => {
-                agui.sink
-                    .emit(&AgUiEvent::run_finished(agui.run_id.clone()))
-                    .await;
-            }
-            Err(err) => {
-                // Never surface raw internal error detail to the client — use
-                // the sanitized, per-code message (generic for internal/auth/db
-                // errors, specific only for safe classes like validation).
-                agui.sink
-                    .emit(&AgUiEvent::run_error(
-                        agui.run_id.clone(),
-                        format!("{:?}", err.code),
-                        err.sanitized_message(),
-                    ))
-                    .await;
-            }
+    emit_run_outcome(hooks, &outcome).await;
+    outcome
+}
+
+/// Fail the turn fast with a 503 while the LLM health probe reads
+/// `Unhealthy`, rather than sending it to a provider known to be down.
+///
+/// # Errors
+///
+/// Returns [`ErrorCode::ResourceUnavailable`] naming the provider the probe
+/// found down.
+async fn refuse_when_llm_unhealthy(ctx: &ChatPipelineContext) -> AppResult<()> {
+    let snapshot = ctx.llm_health.snapshot().await;
+    if !matches!(snapshot.status, LlmHealthStatus::Unhealthy) {
+        return Ok(());
+    }
+    let provider = snapshot.provider.unwrap_or_else(|| "llm".to_owned());
+    let last_error = snapshot.error.unwrap_or_else(|| "unknown".to_owned());
+    warn!(
+        provider = %provider,
+        last_error = %last_error,
+        "LLM probe is Unhealthy — failing chat turn fast with 503"
+    );
+    Err(AppError::new(
+        ErrorCode::ResourceUnavailable,
+        format!(
+            "Our AI provider ({provider}) is temporarily unavailable. We've been notified — please try again in a minute or two."
+        ),
+    ))
+}
+
+/// Close the AG-UI run [`run`] opened, when the surface streams one: finished
+/// on a served turn, errored otherwise.
+async fn emit_run_outcome(hooks: &PipelineHooks<'_>, outcome: &AppResult<TurnEnvelope>) {
+    let Some(agui) = &hooks.agui else {
+        return;
+    };
+    match outcome {
+        Ok(_) => {
+            agui.sink
+                .emit(&AgUiEvent::run_finished(agui.run_id.clone()))
+                .await;
+        }
+        Err(err) => {
+            // Never surface raw internal error detail to the client — use
+            // the sanitized, per-code message (generic for internal/auth/db
+            // errors, specific only for safe classes like validation).
+            agui.sink
+                .emit(&AgUiEvent::run_error(
+                    agui.run_id.clone(),
+                    format!("{:?}", err.code),
+                    err.sanitized_message(),
+                ))
+                .await;
         }
     }
-
-    outcome
 }
 
 /// Record that a turn's reply was persisted (carnet#828).

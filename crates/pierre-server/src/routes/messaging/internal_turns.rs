@@ -30,6 +30,7 @@ use axum::{Extension, Json};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{ResumableTurnRepository, ResumableTurnRow, TurnClaim};
+use pierre_logging::record_identity;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::time::sleep;
@@ -89,6 +90,11 @@ pub async fn run_turn(
         Delivery::Run(row) => row,
         Delivery::Answer(status, outcome) => return Ok(answer(status, outcome)),
     };
+    // Cloud Tasks authenticates as the runner's service account, not as the
+    // athlete, so no auth layer named who this request is for. The claimed row
+    // does: the request span, and everything the turn logs beneath it, carry
+    // the athlete and the session tenant the conversation lives under.
+    record_identity(&row.user_id, Some(tenant_id));
     Ok(
         match run_recorded_turn(&resources, adapters.as_ref(), *row).await {
             Some(TurnClose::HandedOff) => {

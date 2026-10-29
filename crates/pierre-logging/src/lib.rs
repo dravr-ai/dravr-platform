@@ -6,7 +6,7 @@
 
 //! Production-ready logging configuration with structured output
 
-/// Tenant-aware logging utilities and context management
+/// Records request identity on every enclosing span that declares it
 pub mod tenant;
 
 /// Google Cloud Logging structured-JSON formatter
@@ -20,11 +20,15 @@ pub mod span_fields;
 #[cfg(feature = "telemetry")]
 pub mod otel;
 
+/// Log-to-trace correlation for the GCP formatter, compiled with `telemetry`.
+#[cfg(feature = "telemetry")]
+mod trace_link;
+
 /// Per-callsite throttle for repeated log lines
 mod throttle;
 
-/// Re-export tenant logging utilities
-pub use tenant::{record_performance_metrics, record_request_context, record_tenant_context};
+/// Record identity (user, tenant) across the current span scope
+pub use tenant::{record_identity, record_in_scope, TENANT_ID_FIELD, USER_ID_FIELD};
 
 use gcp::GcpFormatter;
 use span_fields::SpanFieldStorage;
@@ -311,13 +315,14 @@ impl LoggingConfig {
         }
         match otel::build_telemetry(self) {
             Ok(Some(handle)) => {
+                // `None` when OTEL_TRACES_EXPORTER=none left only metrics on.
                 let tracer = handle.tracer();
                 // `set` only errors if a handle is already installed (double
                 // init); the first pipeline stays authoritative.
                 if TELEMETRY_HANDLE.set(handle).is_err() {
                     debug!("telemetry handle already installed; keeping the first");
                 }
-                Some(tracer)
+                tracer
             }
             Ok(None) => None,
             Err(e) => {
@@ -481,16 +486,32 @@ impl LoggingConfig {
                 r.init();
             }
             LogFormat::Gcp => {
+                let formatter = GcpFormatter::new(
+                    &self.service_name,
+                    &self.service_version,
+                    &self.environment,
+                    self.output.location,
+                );
+                // Link each line to its Cloud Trace span once traces export
+                // and the project is known; otherwise the line is unchanged.
+                #[cfg(feature = "telemetry")]
+                let (formatter, dispatch_capture) = match env::var(trace_link::PROJECT_ENV)
+                    .ok()
+                    .filter(|project| otel_tracer.is_some() && !project.is_empty())
+                {
+                    Some(project) => {
+                        let (link, capture) = trace_link::TraceLink::new(project);
+                        (formatter.with_trace_link(link), Some(capture))
+                    }
+                    None => (formatter, None),
+                };
                 let gcp_layer = fmt::layer()
                     .with_writer(RedactingMakeWriter::new(io::stdout))
-                    .event_format(GcpFormatter::new(
-                        &self.service_name,
-                        &self.service_version,
-                        &self.environment,
-                        self.output.location,
-                    ))
+                    .event_format(formatter)
                     .with_filter(throttle.clone());
 
+                #[cfg(feature = "telemetry")]
+                let registry = registry.with(dispatch_capture);
                 let r = registry.with(gcp_layer).with(error_layer);
                 let r = r.with(notify_layer);
                 #[cfg(feature = "telemetry")]

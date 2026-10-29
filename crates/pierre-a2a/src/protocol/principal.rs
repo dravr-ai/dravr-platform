@@ -15,6 +15,7 @@ use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_r
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::a2a::A2AClient;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_logging::record_identity;
 use pierre_middleware::rate_limiting::{
     enforce_request_budget, report_a2a_client_request, report_request_budget,
     report_request_operation, A2AClientCall,
@@ -195,6 +196,11 @@ impl A2AServer {
         }
 
         Self::admit_client_call(&client, &scopes, method, resources, &request_id).await?;
+
+        // This credential never passes the auth middleware, which records the
+        // user on the request's spans for a user token; the tenant is resolved
+        // per tool call and carried by that call's own span.
+        record_identity(client.user_id, None::<Uuid>);
 
         Ok(AuthPrincipal {
             user_id: client.user_id,

@@ -473,3 +473,19 @@ variable "archive_fetch_hosts" {
   default     = ["email.strava.com", "s3.amazonaws.com"]
 }
 
+
+# -----------------------------------------------------------------------------
+# Cloud Trace
+# -----------------------------------------------------------------------------
+
+variable "cloud_trace_enabled" {
+  description = "Export a sample of the backend API's traces to Cloud Trace through an OpenTelemetry Collector sidecar. Turns on the Telemetry and Cloud Trace APIs, grants the app service account roles/telemetry.tracesWriter and adds the sidecar. Off: none of it exists and the OTLP pipeline in the binary stays dormant."
+  type        = bool
+  default     = false
+}
+
+variable "cloud_trace_sample_ratio" {
+  description = "Share of new traces kept when cloud_trace_enabled (parentbased_traceidratio: a request carrying a sampled traceparent is always kept). Cloud Trace bills per span ingested."
+  type        = number
+  default     = 0.1
+}

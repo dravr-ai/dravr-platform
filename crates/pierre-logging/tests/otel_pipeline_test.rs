@@ -17,7 +17,7 @@ use pierre_logging::otel::build_telemetry;
 use pierre_logging::LoggingConfig;
 use std::env;
 
-/// Both activation paths in one test: env mutation is process-global, so
+/// Every activation path in one test: env mutation is process-global, so
 /// sequencing inside a single test avoids cross-test races.
 ///
 /// Without `OTEL_EXPORTER_OTLP_ENDPOINT` the pipeline must stay inert
@@ -47,7 +47,10 @@ fn test_pipeline_inert_without_endpoint_and_builds_with_it() {
         .expect("endpoint set means the pipeline must activate");
 
     // The tracer must be usable for span emission (the subscriber layer's job).
-    let mut span = handle.tracer().start("otel-pipeline-test-probe");
+    let mut span = handle
+        .tracer()
+        .expect("traces are on when OTEL_TRACES_EXPORTER is unset")
+        .start("otel-pipeline-test-probe");
     span.end();
 
     // Shutdown drains both providers. The flush of the probe span hits the
@@ -55,5 +58,37 @@ fn test_pipeline_inert_without_endpoint_and_builds_with_it() {
     // which is exactly the degrade-gracefully contract.
     handle.shutdown();
 
+    // OTEL_TRACES_EXPORTER=none keeps metrics but hands out no tracer, so the
+    // subscriber layer is never installed and no span is exported.
+    env::set_var("OTEL_TRACES_EXPORTER", "none");
+    let metrics_only = build_telemetry(&config)
+        .expect("metrics-only build must succeed offline")
+        .expect("metrics still on means the pipeline must activate");
+    assert!(
+        metrics_only.tracer().is_none(),
+        "OTEL_TRACES_EXPORTER=none must leave no tracer"
+    );
+    metrics_only.shutdown();
+
+    // Both signals `none`: the endpoint alone must not start anything.
+    env::set_var("OTEL_METRICS_EXPORTER", "none");
+    let both_off = build_telemetry(&config).expect("both-off path must not error");
+    assert!(
+        both_off.is_none(),
+        "with every signal `none` the pipeline must stay inert"
+    );
+
+    // Traces only — the Cloud Trace sidecar setting: a tracer is handed out.
+    env::remove_var("OTEL_TRACES_EXPORTER");
+    let traces_only = build_telemetry(&config)
+        .expect("traces-only build must succeed offline")
+        .expect("traces on means the pipeline must activate");
+    assert!(
+        traces_only.tracer().is_some(),
+        "OTEL_METRICS_EXPORTER=none must keep the tracer"
+    );
+    traces_only.shutdown();
+
+    env::remove_var("OTEL_METRICS_EXPORTER");
     env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT");
 }

@@ -20,3 +20,9 @@ variable "tf_state_bucket" {
   description = "GCS bucket name used for Terraform state (grants terraform-runner objectAdmin on this bucket)"
   type        = string
 }
+
+variable "enable_cloud_trace" {
+  description = "Grant the app service account roles/telemetry.tracesWriter, so the cloud_run module's OpenTelemetry Collector sidecar can write spans to Cloud Trace through the Telemetry API. Off by default."
+  type        = bool
+  default     = false
+}

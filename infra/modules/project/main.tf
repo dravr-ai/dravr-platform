@@ -2,7 +2,7 @@
 # ABOUTME: APIs are enabled with disable_on_destroy = false for safety
 
 resource "google_project_service" "apis" {
-  for_each = toset([
+  for_each = toset(concat([
     "compute.googleapis.com",              # VPC, networking
     "sqladmin.googleapis.com",             # Cloud SQL
     "secretmanager.googleapis.com",        # Secrets
@@ -26,7 +26,15 @@ resource "google_project_service" "apis" {
     "billingbudgets.googleapis.com",     # google_billing_budget cost guardrail (billing.tf)
     "certificatemanager.googleapis.com", # Google-managed certificates + certificate map for the public hostnames (frontend_domain module)
     "playintegrity.googleapis.com",      # decodeIntegrityToken for the Android app's sign-in evidence (carnet#810)
-  ])
+    ],
+    # Cloud Trace through the OpenTelemetry Collector sidecar (cloud_run
+    # module, var.otel_collector): the collector writes OTLP to the Telemetry
+    # API, and the spans are stored and read in Cloud Trace.
+    var.enable_cloud_trace ? [
+      "telemetry.googleapis.com",
+      "cloudtrace.googleapis.com",
+    ] : [],
+  ))
 
   project            = var.project_id
   service            = each.value

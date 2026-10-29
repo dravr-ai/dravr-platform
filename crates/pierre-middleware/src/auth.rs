@@ -23,6 +23,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 // Trait methods dispatched through repos.api_keys / repos.messaging / repos.tenants / repos.usage / repos.users
 use pierre_database::RepositoryRegistry;
+use pierre_logging::{record_identity, record_in_scope};
 use std::sync::Arc;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
@@ -164,6 +165,14 @@ impl From<AppError> for Refused {
 /// One credential checked, before its outcome is the request's answer.
 type Checked = Result<Admitted, Refused>;
 
+/// Record who an admitted request is for on every enclosing span that
+/// declares `user_id` / `tenant_id` — the HTTP root span included — so the
+/// identity outlives this function's own span for every log line and trace
+/// that follows authentication.
+fn record_authenticated(auth: &AuthResult) {
+    record_identity(auth.user_id, auth.active_tenant_id);
+}
+
 /// Make one credential's outcome the request's answer, and report the budget
 /// that decided it to the response's `X-RateLimit-*` headers.
 ///
@@ -266,12 +275,8 @@ impl McpAuthMiddleware {
                 .await
             {
                 Ok(admitted) => {
-                    let span = tracing::Span::current();
-                    span.record("user_id", admitted.auth.user_id.to_string())
-                        .record("success", true);
-                    if let Some(tid) = admitted.auth.active_tenant_id {
-                        span.record("tenant_id", tid.to_string());
-                    }
+                    tracing::Span::current().record("success", true);
+                    record_authenticated(&admitted.auth);
                     info!(
                         "JWT cookie authentication successful for user: {}",
                         admitted.auth.user_id
@@ -402,12 +407,8 @@ impl McpAuthMiddleware {
             debug!("Attempting API key authentication");
             match settle(self.authenticate_api_key(auth_str).await) {
                 Ok(result) => {
-                    let span = tracing::Span::current();
-                    span.record("user_id", result.user_id.to_string())
-                        .record("success", true);
-                    if let Some(tid) = result.active_tenant_id {
-                        span.record("tenant_id", tid.to_string());
-                    }
+                    tracing::Span::current().record("success", true);
+                    record_authenticated(&result);
                     info!(
                         "API key authentication successful for user: {}",
                         result.user_id
@@ -431,12 +432,8 @@ impl McpAuthMiddleware {
             debug!("Attempting personal MCP token authentication");
             match settle(self.authenticate_user_mcp_token(token, policy).await) {
                 Ok(result) => {
-                    let span = tracing::Span::current();
-                    span.record("user_id", result.user_id.to_string())
-                        .record("success", true);
-                    if let Some(tid) = result.active_tenant_id {
-                        span.record("tenant_id", tid.to_string());
-                    }
+                    tracing::Span::current().record("success", true);
+                    record_authenticated(&result);
                     info!(
                         "MCP token authentication successful for user: {}",
                         result.user_id
@@ -456,12 +453,8 @@ impl McpAuthMiddleware {
             debug!("Attempting JWT token authentication");
             match settle(self.authenticate_jwt_token(token, policy).await) {
                 Ok(result) => {
-                    let span = tracing::Span::current();
-                    span.record("user_id", result.user_id.to_string())
-                        .record("success", true);
-                    if let Some(tid) = result.active_tenant_id {
-                        span.record("tenant_id", tid.to_string());
-                    }
+                    tracing::Span::current().record("success", true);
+                    record_authenticated(&result);
                     info!("JWT authentication successful for user: {}", result.user_id);
                     Ok(result)
                 }
@@ -952,7 +945,7 @@ impl McpAuthMiddleware {
                 AppError::auth_invalid("Impersonation session has ended")
             })?;
         let impersonator_id = session.impersonator_id.to_string();
-        tracing::Span::current().record("impersonator_id", impersonator_id.as_str());
+        record_in_scope("impersonator_id", &impersonator_id.as_str());
         info!(
             user_id = %user_id,
             impersonator_id = %impersonator_id,

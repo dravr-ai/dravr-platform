@@ -43,8 +43,6 @@ pub mod tenant_path;
 
 /// Tenant context extraction middleware
 pub mod tenant;
-/// Request tracing and context propagation
-pub mod tracing;
 
 // Admin authorization guard
 
@@ -119,17 +117,6 @@ pub use request_id::RequestId;
 pub use response_failure_log::response_failure_log_middleware;
 #[cfg(feature = "telemetry")]
 pub use telemetry::telemetry_middleware;
-
-// Request tracing and context management
-
-/// Create database operation span
-pub use tracing::create_database_span;
-/// Create MCP operation span
-pub use tracing::create_mcp_span;
-/// Create HTTP request span
-pub use tracing::create_request_span;
-/// Request context for tracing
-pub use tracing::RequestContext;
 
 // Tenant context middleware
 

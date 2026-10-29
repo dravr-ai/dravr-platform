@@ -27,11 +27,12 @@ use embacle::{
 };
 use futures_util::StreamExt;
 use pierre_core::http_client::llm_inner_client;
+use tracing::field::Empty;
 use tracing::{info, info_span, warn, Instrument, Span};
 
 use super::{
-    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, ToolStreamEvent,
-    ToolTurnStream,
+    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, TokenUsage,
+    ToolStreamEvent, ToolTurnStream,
 };
 use crate::chain_guard::copilot_headroom_checker;
 use crate::chain_observer::ChainObserver;
@@ -736,16 +737,24 @@ impl LlmProvider for EmbacleProvider {
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
+        let span = self.request_span("complete", request);
         let (result, served) = observe_served_tier(
-            EmbacleLlmProvider::complete(&*self.runner, request)
-                .instrument(self.request_span("complete", request)),
+            EmbacleLlmProvider::complete(&*self.runner, request).instrument(span.clone()),
         )
         .await;
         // The inner scope above shadows the caller's own `observe_served_tier`,
         // so the tier it saw is handed on — the caller still learns who served.
         if let Some(tier) = served {
             record_served_tier(tier);
+            span.record("served_provider", tier.provider);
+            span.record("fallback_position", tier.position);
         }
+        record_call_outcome(
+            &span,
+            result.as_ref().map_or(CallOutcome::Failed, |response| {
+                CallOutcome::Answered(response.usage.as_ref())
+            }),
+        );
         let mut response = result.map_err(AppError::from)?;
         let (provider, capabilities) = served.map_or_else(
             || (self.head.name(), self.head.capabilities()),
@@ -756,14 +765,25 @@ impl LlmProvider for EmbacleProvider {
     }
 
     async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
+        let span = self.request_span("complete_stream", request);
         let embacle_stream = EmbacleLlmProvider::complete_stream(&*self.runner, request)
-            .instrument(self.request_span("complete_stream", request))
+            .instrument(span.clone())
             .await
+            .inspect_err(|_| record_call_outcome(&span, CallOutcome::Failed))
             .map_err(AppError::from)?;
 
-        Ok(Box::pin(
-            embacle_stream.map(|result| result.map_err(AppError::from)),
-        ))
+        // The span moves into the stream so it stays open until the stream
+        // is dropped: its duration is the whole call, not just the open.
+        Ok(Box::pin(embacle_stream.map(move |result| {
+            match &result {
+                Ok(chunk) if chunk.is_final => {
+                    record_call_outcome(&span, CallOutcome::Answered(None));
+                }
+                Ok(_) => {}
+                Err(_) => record_call_outcome(&span, CallOutcome::Failed),
+            }
+            result.map_err(AppError::from)
+        })))
     }
 
     /// embacle's stream, its closing response carrying the same capability
@@ -774,22 +794,29 @@ impl LlmProvider for EmbacleProvider {
         &self,
         request: &ChatRequest,
     ) -> Result<ToolTurnStream, AppError> {
+        let span = self.request_span("complete_stream_with_tools", request);
         let embacle_stream = EmbacleLlmProvider::complete_stream_with_tools(&*self.runner, request)
-            .instrument(self.request_span("complete_stream_with_tools", request))
+            .instrument(span.clone())
             .await
+            .inspect_err(|_| record_call_outcome(&span, CallOutcome::Failed))
             .map_err(AppError::from)?;
         // Judged now rather than at `Done`: what is dropped depends on the
         // request alone, and the stream outlives the borrowed request — this
         // keeps the whole conversation from being cloned into the closure.
         let mut dropped = dropped_parameters(self.head.name(), self.head.capabilities(), request);
+        // The span moves into the stream so it stays open until the stream is
+        // dropped, and the closing response's usage lands on it.
         Ok(Box::pin(embacle_stream.map(move |item| {
-            item.map_err(AppError::from).map(|event| match event {
-                ToolStreamEvent::Done(mut response) => {
-                    attach_warnings(&mut response, mem::take(&mut dropped));
-                    ToolStreamEvent::Done(response)
-                }
-                other => other,
-            })
+            item.inspect_err(|_| record_call_outcome(&span, CallOutcome::Failed))
+                .map_err(AppError::from)
+                .map(|event| match event {
+                    ToolStreamEvent::Done(mut response) => {
+                        record_call_outcome(&span, CallOutcome::Answered(response.usage.as_ref()));
+                        attach_warnings(&mut response, mem::take(&mut dropped));
+                        ToolStreamEvent::Done(response)
+                    }
+                    other => other,
+                })
         })))
     }
 
@@ -810,6 +837,10 @@ impl EmbacleProvider {
     /// plain `reqwest::Client`, so the trace tree records the call here — by
     /// head provider and the model the request resolves to — rather than
     /// through client middleware.
+    ///
+    /// The rest is filled once the call answers: the chain tier that served
+    /// it (position `0` is the head, anything above it a fallback), whether it
+    /// succeeded, and the tokens it billed. Never the prompt or the reply.
     fn request_span(&self, op: &'static str, request: &ChatRequest) -> Span {
         info_span!(
             "llm.request",
@@ -819,7 +850,37 @@ impl EmbacleProvider {
                 .as_deref()
                 .unwrap_or_else(|| self.default_model()),
             op,
+            served_provider = Empty,
+            fallback_position = Empty,
+            outcome = Empty,
+            prompt_tokens = Empty,
+            completion_tokens = Empty,
         )
+    }
+}
+
+/// How an outbound LLM call ended, as its `llm.request` span records it.
+#[derive(Clone, Copy)]
+enum CallOutcome<'usage> {
+    /// The call answered, with the usage its response reported, if any.
+    Answered(Option<&'usage TokenUsage>),
+    /// The call, or the stream it opened, failed.
+    Failed,
+}
+
+/// Record on an `llm.request` span how its call ended.
+fn record_call_outcome(span: &Span, outcome: CallOutcome<'_>) {
+    match outcome {
+        CallOutcome::Answered(usage) => {
+            span.record("outcome", "ok");
+            if let Some(usage) = usage {
+                span.record("prompt_tokens", usage.prompt_tokens);
+                span.record("completion_tokens", usage.completion_tokens);
+            }
+        }
+        CallOutcome::Failed => {
+            span.record("outcome", "error");
+        }
     }
 }
 

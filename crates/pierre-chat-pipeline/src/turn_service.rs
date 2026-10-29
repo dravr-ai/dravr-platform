@@ -52,11 +52,11 @@ use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
 use pierre_services::provider_notice::under_ai_consent;
 use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
 use pierre_tool_runtime::context::TURN_LOCALE;
+use tracing::field::Empty;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::agent_welcome::{post_agent_welcome, PostedWelcome, WelcomeTarget};
-use crate::chat_provider_from_resources_arc;
 use crate::envelope::{ActionKind, QuotaState, TurnAction, TurnEnvelope};
 use crate::hooks::PipelineHooks;
 use crate::language::{resolve_turn_locale, LocaleClassifier};
@@ -75,6 +75,7 @@ use crate::usage_counters::{
     increment_usage_counters_scoped, quota_tokens_from_envelope, UsageIncrementScope,
 };
 use crate::ChatPipelineContext;
+use crate::{chat_provider_from_resources_arc, record_turn_span_context};
 
 mod suggestion_tap;
 use suggestion_tap::{resolve_suggestion_tap, TapOutcome};
@@ -333,6 +334,24 @@ impl fmt::Debug for SlashRequest<'_> {
 /// refuses the turn — the conversation cap included, when the turn would
 /// reactivate an archived thread at it — whatever the slash handler returned
 /// when a command fails, and whatever the pipeline returned otherwise.
+///
+/// The whole turn runs under one `chat.turn` span naming the tenant, user,
+/// conversation and turn, so every log line and child span beneath it — the
+/// pipeline's stages, each `llm.request`, each tool call — is attributable to
+/// them. The agent and group are recorded once the conversation resolves them.
+#[tracing::instrument(
+    name = "chat.turn",
+    skip_all,
+    fields(
+        turn_id = %request.turn_id,
+        channel = profile.surface.as_str(),
+        conversation_id = %request.conversation_id,
+        tenant_id = %request.conversation_tenant_id,
+        user_id = %request.user_id,
+        agent_id = Empty,
+        group_id = Empty,
+    )
+)]
 pub async fn execute(
     ctx: &ChatPipelineContext,
     request: TurnRequest<'_>,
@@ -374,6 +393,15 @@ async fn execute_turn(
         .ok()
         .flatten();
     let agent_id = conversation.as_ref().and_then(|conv| conv.agent_id.clone());
+    // Named now so a turn that ends before the pipeline — a refused cap, a
+    // slash command — still names its agent; the pipeline re-records the one
+    // a `@handle` mention routes the turn to.
+    record_turn_span_context(
+        agent_id.as_deref(),
+        conversation
+            .as_ref()
+            .and_then(|conv| conv.group_id.as_deref()),
+    );
 
     let quota = check_pre_chat_quotas_scoped(
         ctx,

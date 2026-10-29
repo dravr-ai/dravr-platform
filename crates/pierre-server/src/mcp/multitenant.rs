@@ -28,6 +28,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tower_http::LatencyUnit;
+use tracing::field::Empty;
 use tracing::{error, info, info_span, Level, Span};
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
@@ -71,6 +72,12 @@ use tokio::net::TcpListener;
 /// the raw URI, whose query carries `OAuth` codes and reset tokens; falls back
 /// to the bare path when no redaction layer is installed. Headers are recorded
 /// nowhere — `Authorization` and `Cookie` live there.
+///
+/// The identity fields start empty and are filled by authentication through
+/// `pierre_logging::record_identity`, which writes every enclosing span that
+/// declares them. `tracing` drops a record on an undeclared field, so these
+/// declarations are what put the user and tenant on every log line and trace
+/// of an authenticated request.
 fn http_request_span(request: &Request<Body>) -> Span {
     let uri = request
         .extensions()
@@ -81,6 +88,9 @@ fn http_request_span(request: &Request<Body>) -> Span {
         method = %request.method(),
         uri = %uri,
         version = ?request.version(),
+        user_id = Empty,
+        tenant_id = Empty,
+        impersonator_id = Empty,
     )
 }
 

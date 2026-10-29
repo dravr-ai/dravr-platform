@@ -59,10 +59,11 @@ use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
 use serde_json::{Map, Value};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::{sleep, timeout};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, Instrument};
 use uuid::Uuid;
 
 use super::prompt_templates::{self, PromptGetOutcome};
+use super::request_span::{record_caller, RequestSpanObserver};
 use super::resource_catalog;
 use super::resources::ServerContext;
 use super::task_signals::TaskSignals;
@@ -694,6 +695,7 @@ impl PierreToolDispatcher {
 #[async_trait]
 impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
     async fn list_tools(&self, _state: &Arc<dyn ToolRuntime>, ctx: &ToolContext) -> Vec<Tool> {
+        record_caller(ctx);
         let tenant_id = ctx.tenant_id.as_deref().and_then(parse_tenant_id);
         let user_id = ctx.user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
         let mut schemas = match (tenant_id, user_id) {
@@ -748,6 +750,7 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         ctx: &ToolContext,
         arguments: Value,
     ) -> CallToolOutcome {
+        record_caller(ctx);
         // A name no tool is registered under is MCP's unknown-tool protocol
         // error (-32602), which the engine frames. A registered tool this
         // caller may not run is still refused in-band by `run_dispatch`, as an
@@ -790,16 +793,21 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // costs nothing on the fast path and is the only way a later
         // tasks/cancel can reach a worker already in flight.
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        let mut work = tokio::spawn(scoped_with_cancel_flag(
-            cancel_flag.clone(),
-            run_dispatch(
-                self.resources.clone(),
-                state.clone(),
-                ctx.clone(),
-                name.to_owned(),
-                arguments,
-            ),
-        ));
+        // In the current span, so the detached work stays in this request's
+        // trace instead of starting a root of its own.
+        let mut work = tokio::spawn(
+            scoped_with_cancel_flag(
+                cancel_flag.clone(),
+                run_dispatch(
+                    self.resources.clone(),
+                    state.clone(),
+                    ctx.clone(),
+                    name.to_owned(),
+                    arguments,
+                ),
+            )
+            .in_current_span(),
+        );
         let budget = task_fast_path_budget(&self.resources.common.config.timeouts);
         match timeout(budget, &mut work).await {
             Ok(joined) => CallToolOutcome::Immediate(Box::new(join_to_response(joined))),
@@ -871,8 +879,9 @@ impl MethodHandler<dyn ToolRuntime> for PierreMethodHandler {
         id: Option<Value>,
         params: Option<Value>,
         _state: &Arc<dyn ToolRuntime>,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
     ) -> Option<JsonRpcResponse> {
+        record_caller(ctx);
         match method {
             "resources/list" => Some(self.handle_resources_list(id).await),
             "resources/read" => Some(self.handle_resources_read(id, params.as_ref()).await),
@@ -1094,7 +1103,8 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     }))
     .with_tool_dispatcher(Arc::new(dispatcher))
     .with_task_manager(task_manager)
-    .with_method_handler(Arc::new(PierreMethodHandler { resources }));
+    .with_method_handler(Arc::new(PierreMethodHandler { resources }))
+    .with_observer(Arc::new(RequestSpanObserver));
 
     Arc::new(server)
 }

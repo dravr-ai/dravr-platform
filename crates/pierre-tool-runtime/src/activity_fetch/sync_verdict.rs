@@ -24,7 +24,8 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRecord};
 use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
-use tracing::{info, warn};
+use tracing::field::Empty;
+use tracing::{info, instrument, warn, Span};
 use uuid::Uuid;
 
 use super::{
@@ -116,6 +117,15 @@ pub enum HeadVerdict {
 }
 
 impl HeadVerdict {
+    /// The verdict's name on the provider read's span.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Incomplete => "incomplete",
+            Self::EmptyOverCached { .. } => "empty_over_cached",
+        }
+    }
+
     /// The failure a verdict records, or `None` for a sync.
     const fn failure(self) -> Option<ActivityFetchFailure> {
         match self {
@@ -202,10 +212,25 @@ pub struct LiveRead<'a> {
 /// ([`connect_prefetch_answer`]), so a connect's reads never press one fresh
 /// session with two scrapes at once.
 ///
+/// Every live list read passes here — a turn's, Home's, the capture sweep's
+/// — so its span is the one per provider read: whose, which tenant, which
+/// provider, how many activities came back and the verdict on them.
+///
 /// # Errors
 ///
 /// Returns the provider's error when the read fails, after the
 /// coaching-platform refusal handling every read shares.
+#[instrument(
+    skip_all,
+    name = "provider_list_read",
+    fields(
+        user_id = %read.user_id,
+        tenant_id = read.tenant_id,
+        provider = read.provider_slug,
+        count = Empty,
+        verdict = Empty,
+    )
+)]
 pub async fn judge_live_read(
     runtime: &Arc<dyn ToolRuntime>,
     read: LiveRead<'_>,
@@ -233,6 +258,7 @@ pub async fn judge_live_read(
     let (activities, head_complete) = match read {
         Ok(answer) => answer,
         Err(e) => {
+            Span::current().record("verdict", "read_failed");
             if let Some(tenant_id) = tenant_id {
                 AuthService::new(Arc::clone(runtime))
                     .react_to_delegated_refusal(
@@ -260,6 +286,9 @@ pub async fn judge_live_read(
     } else {
         HeadVerdict::Complete
     };
+    let span = Span::current();
+    span.record("count", activities.len());
+    span.record("verdict", verdict.label());
 
     // The provider answered through the stored credential, which is what a
     // `needs_reauth` flag says it cannot do. A capture that is incomplete is

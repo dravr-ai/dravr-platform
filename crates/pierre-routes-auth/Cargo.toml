@@ -27,6 +27,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["billing
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups" }
+pierre-logging = { version = "0.3.0", path = "../pierre-logging" }
 pierre-mcp-transport = { version = "0.3.0", path = "../pierre-mcp-transport" }
 pierre-middleware = { version = "0.3.0", path = "../pierre-middleware" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }

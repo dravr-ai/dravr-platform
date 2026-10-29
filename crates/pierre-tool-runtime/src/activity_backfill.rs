@@ -52,7 +52,7 @@ use pierre_database::repositories::{ActivityBackfillJobRow, BackfillCoverage, Jo
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
@@ -793,6 +793,20 @@ async fn record_backfill_coverage(
 /// activities through to the durable cache, reporting the terminal outcome.
 /// All failures are logged and mapped — the detached spawn path settles its
 /// job row on the outcome, the inline path surfaces it to the caller.
+///
+/// Every path — the turn's spawn, the resume sweep's, the inline serve —
+/// runs here, in one span naming the athlete and tenant: the detached task
+/// inherits no span from the turn that asked for it.
+#[instrument(
+    skip_all,
+    name = "activity_backfill",
+    fields(
+        user_id = %job.user_id,
+        tenant_id = %job.tenant_id,
+        provider = %job.provider_name,
+        chat_triggered = job.pierre_conversation_id.is_some(),
+    )
+)]
 async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome {
     // Bound explicitly, not inherited: this path is reached from a detached
     // `tokio::spawn`, which a task-local does not cross. The job runs the

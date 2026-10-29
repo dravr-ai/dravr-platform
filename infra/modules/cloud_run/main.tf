@@ -1,5 +1,96 @@
 # ABOUTME: Creates a Cloud Run v2 service with configurable container, scaling, and networking
-# ABOUTME: Supports VPC connector, Cloud SQL, secret env vars, and health probes
+# ABOUTME: Supports VPC connector, Cloud SQL, secret env vars, health probes, and an optional OTel Collector sidecar
+
+locals {
+  otel_enabled = var.otel_collector.enabled
+
+  # The collector's name, which the app container's depends_on refers to.
+  otel_container_name = "otel-collector"
+
+  # Port of the collector's health_check extension; both of its probes hit it,
+  # and Cloud Run only honours the app's depends_on when the sidecar has one.
+  otel_health_port = 13133
+
+  # What the app needs to send traces to the sidecar. The SDK reads the first
+  # four (crates/pierre-logging/src/otel.rs): the endpoint switches the OTLP
+  # pipeline on, the sampler keeps trace_sample_ratio of new traces while a
+  # sampled parent always wins, and metrics stay off so turning traces on
+  # never adds Cloud Monitoring ingestion. GOOGLE_CLOUD_PROJECT lets the GCP
+  # log formatter stamp logging.googleapis.com/trace on each line
+  # (crates/pierre-logging/src/trace_link.rs), linking logs and traces.
+  otel_app_env = local.otel_enabled ? {
+    OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318"
+    OTEL_TRACES_SAMPLER         = "parentbased_traceidratio"
+    OTEL_TRACES_SAMPLER_ARG     = tostring(var.otel_collector.trace_sample_ratio)
+    OTEL_METRICS_EXPORTER       = "none"
+    GOOGLE_CLOUD_PROJECT        = var.project_id
+  } : {}
+
+  # Traces-only cut of Google's recommended Cloud Run collector config
+  # (google-built-opentelemetry-collector/docs/examples/configuration/config-standard.yaml):
+  # OTLP/HTTP in on localhost, GCP resource detection, memory limiter and
+  # batching, OTLP/gRPC out to the Telemetry API with the instance's ADC. It is
+  # handed over in an environment variable (`--config=env:`, a provider the
+  # image is built with) so no Secret Manager secret holds it. The project id
+  # is written in rather than read from ${GOOGLE_CLOUD_PROJECT}, which Cloud
+  # Run does not set. The collector's own metrics are off: they would be a
+  # second Cloud Monitoring bill for a pipeline that carries traces only.
+  otel_collector_config = yamlencode({
+    receivers = {
+      otlp = {
+        protocols = {
+          http = { endpoint = "localhost:4318" }
+        }
+      }
+    }
+    processors = {
+      memory_limiter = {
+        check_interval         = "1s"
+        limit_percentage       = 65
+        spike_limit_percentage = 20
+      }
+      resourcedetection = {
+        detectors = ["gcp"]
+        timeout   = "10s"
+      }
+      "resource/gcp_project_id" = {
+        attributes = [{ action = "insert", key = "gcp.project_id", value = var.project_id }]
+      }
+      batch = {
+        send_batch_max_size = 200
+        send_batch_size     = 200
+        timeout             = "5s"
+      }
+    }
+    exporters = {
+      otlp_grpc = {
+        endpoint      = "telemetry.googleapis.com:443"
+        balancer_name = "pick_first"
+        auth          = { authenticator = "googleclientauth" }
+      }
+    }
+    extensions = {
+      health_check = { endpoint = "0.0.0.0:${local.otel_health_port}" }
+      # Named, not left to ADC discovery: the quota and the destination project
+      # of every span are this one.
+      googleclientauth = { project = var.project_id }
+    }
+    service = {
+      extensions = ["health_check", "googleclientauth"]
+      pipelines = {
+        traces = {
+          receivers  = ["otlp"]
+          processors = ["resourcedetection", "resource/gcp_project_id", "memory_limiter", "batch"]
+          exporters  = ["otlp_grpc"]
+        }
+      }
+      telemetry = {
+        logs    = { level = "warn" }
+        metrics = { level = "none" }
+      }
+    }
+  })
+}
 
 resource "google_cloud_run_v2_service" "service" {
   name                = var.service_name
@@ -69,8 +160,14 @@ resource "google_cloud_run_v2_service" "service" {
       }
     }
 
+    # containers[0] is the app: the lifecycle block below ignores its image
+    # (the deploy pipeline owns it), and `gcloud run deploy --image` targets
+    # the ingress container, which is this one. Its name and depends_on are
+    # set only with the collector, so a service without it plans unchanged.
     containers {
-      image = var.container_image
+      name       = local.otel_enabled ? "app" : null
+      image      = var.container_image
+      depends_on = local.otel_enabled ? [local.otel_container_name] : null
 
       ports {
         container_port = var.container_port
@@ -85,9 +182,10 @@ resource "google_cloud_run_v2_service" "service" {
         startup_cpu_boost = var.startup_cpu_boost
       }
 
-      # Plain environment variables
+      # Plain environment variables (plus the OTLP settings when the
+      # collector sidecar is on)
       dynamic "env" {
-        for_each = var.env_vars
+        for_each = merge(var.env_vars, local.otel_app_env)
         content {
           name  = env.key
           value = env.value
@@ -146,6 +244,51 @@ resource "google_cloud_run_v2_service" "service" {
         period_seconds    = 30
         failure_threshold = 3
         timeout_seconds   = 3
+      }
+    }
+
+    # OpenTelemetry Collector sidecar (var.otel_collector). It serves no
+    # traffic, so it has no port; the app starts after its startup probe passes.
+    dynamic "containers" {
+      for_each = local.otel_enabled ? [1] : []
+      content {
+        name  = local.otel_container_name
+        image = var.otel_collector.image
+        args  = ["--config=env:OTELCOL_CONFIG"]
+
+        env {
+          name  = "OTELCOL_CONFIG"
+          value = local.otel_collector_config
+        }
+
+        resources {
+          limits = {
+            cpu    = var.otel_collector.cpu
+            memory = var.otel_collector.memory
+          }
+          cpu_idle          = var.cpu_idle
+          startup_cpu_boost = var.startup_cpu_boost
+        }
+
+        startup_probe {
+          http_get {
+            path = "/"
+            port = local.otel_health_port
+          }
+          period_seconds    = 2
+          failure_threshold = 30
+          timeout_seconds   = 1
+        }
+
+        liveness_probe {
+          http_get {
+            path = "/"
+            port = local.otel_health_port
+          }
+          period_seconds    = 30
+          failure_threshold = 3
+          timeout_seconds   = 3
+        }
       }
     }
   }
