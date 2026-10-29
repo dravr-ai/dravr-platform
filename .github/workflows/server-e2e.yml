@@ -28,6 +28,10 @@ on:
       - 'packages/eslint-config-pierre/testing/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/server-e2e.yml'
+      # The binary reuse every server build goes through (carnet#1258).
+      - '.github/actions/prebuilt-server/**'
+      - 'scripts/ci/server-build-key.sh'
+      - 'scripts/ci/proven-on-branch.sh'
   pull_request:
     branches: [ main ]
     paths:
@@ -41,6 +45,10 @@ on:
       - 'packages/eslint-config-pierre/testing/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/server-e2e.yml'
+      # The binary reuse every server build goes through (carnet#1258).
+      - '.github/actions/prebuilt-server/**'
+      - 'scripts/ci/server-build-key.sh'
+      - 'scripts/ci/proven-on-branch.sh'
   # Nightly on main: MCP compliance and the examples smoke, the two lanes that
   # had a cron of their own. It saves no cache: the build restores the one
   # mobile-e2e-android.yml writes (carnet#1114).
@@ -83,6 +91,9 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     timeout-minutes: 5  # path filtering only; no toolchain, no compile
+    permissions:
+      contents: read
+      actions: read  # proven-on-branch.sh reads this workflow's branch runs
     outputs:
       build: ${{ steps.decide.outputs.build }}
       playwright: ${{ steps.decide.outputs.playwright }}
@@ -109,6 +120,8 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/server-e2e.yml'
+              - '.github/actions/prebuilt-server/**'
+              - 'scripts/ci/server-build-key.sh'
             # The MCP path and the bridge the compliance run drives.
             # pierre-mcp-transport is in scope even though it is a separate
             # crate: it holds the MCP path's JWT validation and tenant
@@ -135,10 +148,41 @@ jobs:
               - 'Cargo.lock'
               - '.github/workflows/server-e2e.yml'
 
+      # A branch squashed onto an unchanged main lands the exact tree its
+      # feature/, features/ or claude/ run already took through these lanes,
+      # green: 12 main commits on Oct 22-29, 398 runner-minutes (carnet#1258).
+      # A lane whose every job passed there is off on main. A lookup that
+      # fails proves nothing, so every lane its filter selects runs.
+      - name: Read which lanes a full-lane branch passed on this exact tree
+        id: proven
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code=0
+          proven="$(./scripts/ci/proven-on-branch.sh server-e2e.yml)" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::warning title=Branch proof lookup failed::proven-on-branch.sh exited ${code}; running every lane the filter selects"
+            proven=""
+          fi
+          has() { grep -qxF "$1" <<<"$proven"; }
+          playwright=false; mcp=false; sdk=false
+          has "Playwright Integration Tests (Real Server)" && playwright=true
+          has "MCP Protocol Compliance" && mcp=true
+          has "SDK Test Suite" && has "SDK Types Up-to-Date" && sdk=true
+          {
+            echo "playwright=${playwright}"
+            echo "mcp=${mcp}"
+            echo "sdk=${sdk}"
+          } | tee -a "$GITHUB_OUTPUT"
+
       - name: Decide the lanes
         id: decide
         env:
           EVENT_NAME: ${{ github.event_name }}
+          PROVEN_PLAYWRIGHT: ${{ steps.proven.outputs.playwright }}
+          PROVEN_MCP: ${{ steps.proven.outputs.mcp }}
+          PROVEN_SDK: ${{ steps.proven.outputs.sdk }}
           PLAYWRIGHT: ${{ steps.filter.outputs.playwright }}
           MCP: ${{ steps.filter.outputs.mcp }}
           SDK: ${{ steps.filter.outputs.sdk }}
@@ -155,6 +199,16 @@ jobs:
               echo "::error::no lane plan for event '$EVENT_NAME'"
               exit 1 ;;
           esac
+          # Lanes a full-lane branch already passed on this exact tree.
+          if [ "$PROVEN_PLAYWRIGHT" = true ] && [ "$playwright" = true ]; then
+            playwright=false; echo "::notice title=Lane proven on a branch::Playwright passed on a branch run of this tree"
+          fi
+          if [ "$PROVEN_MCP" = true ] && [ "$mcp" = true ]; then
+            mcp=false; echo "::notice title=Lane proven on a branch::MCP compliance passed on a branch run of this tree"
+          fi
+          if [ "$PROVEN_SDK" = true ] && [ "$sdk" = true ]; then
+            sdk=false; echo "::notice title=Lane proven on a branch::the SDK suite passed on a branch run of this tree"
+          fi
           build=false
           for lane in "$playwright" "$mcp" "$sdk" "$examples"; do
             [ "$lane" = true ] && build=true
@@ -173,15 +227,34 @@ jobs:
     needs: changes
     if: needs.changes.outputs.build == 'true'
     timeout-minutes: 45  # a release build off the restored target/
+    permissions:
+      contents: read
+      actions: read  # the prebuilt-server artifact lookup
+    outputs:
+      artifact: ${{ steps.prebuilt.outputs.name }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      # A commit whose Rust inputs an earlier run already built downloads that
+      # run's binaries instead of compiling: 26 of 217 builds on Oct 22-29
+      # (carnet#1258). The size gate below still runs on what it downloaded.
+      - name: Reuse a server built from the same inputs
+        id: prebuilt
+        uses: ./.github/actions/prebuilt-server
+        with:
+          prefix: server-e2e-binaries
+          variant: ${{ runner.os }}-${{ runner.arch }}-release-default-features
+          extra-paths: .github/workflows/server-e2e.yml
+          path: target/release
+
       - name: Configure git for private deps
+        if: steps.prebuilt.outputs.hit != 'true'
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust
+        if: steps.prebuilt.outputs.hit != 'true'
         uses: dtolnay/rust-toolchain@1.99.1
 
       # Restore only. The build below is the one mobile-e2e-android.yml's server
@@ -196,6 +269,7 @@ jobs:
       # cannot share ci-backend.yml's release cache: that build is release-lto
       # linked with mold, this one is the plain release profile.
       - name: Restore Rust build cache
+        if: steps.prebuilt.outputs.hit != 'true'
         uses: actions/cache/restore@v6
         with:
           path: |
@@ -208,6 +282,7 @@ jobs:
             ${{ runner.os }}-cargo-mobile-server-1.99.1-
 
       - name: Build Pierre server and CLI (thin release)
+        if: steps.prebuilt.outputs.hit != 'true'
         run: cargo build --release
         env:
           CARGO_INCREMENTAL: 0
@@ -235,11 +310,13 @@ jobs:
             echo "::warning::Thin release binary ${BINARY_SIZE_MB}MB is within 5% of its ${MAX_SIZE_MB}MB ceiling."
           fi
 
+      # Named after the build key, so a later run with the same inputs finds it
+      # (the prebuilt step above). Three days, like server-binaries-<sha>.
       - name: Upload the server and CLI
         uses: actions/upload-artifact@v4
         with:
-          name: server-e2e-binaries
-          retention-days: 1
+          name: ${{ steps.prebuilt.outputs.name }}
+          retention-days: 3
           if-no-files-found: error
           # A re-run attempt sees the first attempt's artifact of this name in
           # the same run, and without this the upload fails on it (the same
@@ -282,7 +359,7 @@ jobs:
       - name: Download the server and CLI
         uses: actions/download-artifact@v4
         with:
-          name: server-e2e-binaries
+          name: ${{ needs.build-server.outputs.artifact }}
           path: target/release
 
       # An artifact does not keep the executable bit.
@@ -466,7 +543,7 @@ jobs:
       - name: Download the server and CLI
         uses: actions/download-artifact@v4
         with:
-          name: server-e2e-binaries
+          name: ${{ needs.build-server.outputs.artifact }}
           path: target/release
 
       # An artifact does not keep the executable bit.
@@ -546,7 +623,7 @@ jobs:
       - name: Download the server and CLI
         uses: actions/download-artifact@v4
         with:
-          name: server-e2e-binaries
+          name: ${{ needs.build-server.outputs.artifact }}
           path: target/release
 
       # An artifact does not keep the executable bit.
@@ -648,7 +725,7 @@ jobs:
       - name: Download the server and CLI
         uses: actions/download-artifact@v4
         with:
-          name: server-e2e-binaries
+          name: ${{ needs.build-server.outputs.artifact }}
           path: target/release
 
       # An artifact does not keep the executable bit.
@@ -738,7 +815,7 @@ jobs:
       - name: Download the server and CLI
         uses: actions/download-artifact@v4
         with:
-          name: server-e2e-binaries
+          name: ${{ needs.build-server.outputs.artifact }}
           path: target/release
 
       # An artifact does not keep the executable bit.

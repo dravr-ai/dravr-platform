@@ -1,0 +1,106 @@
+# ABOUTME: Finds the server binaries an earlier run built from identical inputs and downloads them, or says to build
+# ABOUTME: Reuse goes through artifacts named after scripts/ci/server-build-key.sh, never the 10 GB actions cache
+
+name: Prebuilt server
+description: >-
+  Computes the build key of the checked-out commit and looks for an unexpired
+  artifact named <prefix>-<key> from any earlier run. On a hit it downloads
+  the binaries into `path`; the caller skips its cargo build and uploads them
+  again under `name`, so this run's consumers find them by that name.
+
+  Artifacts, not actions/cache: the cache is a 10 GB pool shared with the
+  Rust dependency caches, saved by the nightly run only since carnet#1114,
+  and a binary entry per input change would evict them. Artifacts live
+  outside that pool. Needs `actions: read`.
+
+  Only artifacts a run of this repository uploaded count. A pull_request run
+  from a fork executes the fork's copy of the workflow, so it can upload any
+  bytes under any key; a hit on one would run them in this repository's jobs.
+
+  A build that saves a Rust cache (a nightly) does not use this action: it
+  must compile, or the cache it writes goes stale.
+
+inputs:
+  prefix:
+    description: Artifact name prefix, one per build flavour (e.g. server-e2e-binaries)
+    required: true
+  variant:
+    description: What the build is that no file at HEAD says (OS, arch, profile, features)
+    required: true
+  extra-paths:
+    description: Space-separated paths added to the key, normally the calling workflow
+    required: false
+    default: ''
+  path:
+    description: Where a hit's binaries are downloaded (the build's output directory)
+    required: true
+
+outputs:
+  name:
+    description: The artifact name for this commit's binaries, <prefix>-<key>
+    value: ${{ steps.lookup.outputs.name }}
+  hit:
+    description: "'true' when the binaries were downloaded and the build can be skipped"
+    value: ${{ steps.lookup.outputs.hit }}
+
+runs:
+  using: composite
+  steps:
+    # A key or lookup that fails builds, under a warning naming the error. A
+    # lookup that fails on every run (a lost permission) must not read as
+    # "never built" while every run pays the compile this exists to skip.
+    - name: Look for binaries built from the same inputs
+      id: lookup
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PREFIX: ${{ inputs.prefix }}
+        VARIANT: ${{ inputs.variant }}
+        EXTRA_PATHS: ${{ inputs.extra-paths }}
+        REPO_ID: ${{ github.repository_id }}
+      run: |
+        ERR="${RUNNER_TEMP}/prebuilt-server-lookup.err"
+        HIT=false
+        RUN_ID=""
+        # shellcheck disable=SC2086 # EXTRA_PATHS is a space-separated list of paths
+        if ! KEY="$(./scripts/ci/server-build-key.sh "$VARIANT" $EXTRA_PATHS 2>"$ERR")"; then
+          echo "::warning title=Server build key failed::building, since no key could be computed: $(head -c 300 "$ERR")"
+          KEY="nokey-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        fi
+        NAME="${PREFIX}-${KEY}"
+        if [[ "$KEY" != nokey-* ]]; then
+          if ! RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${NAME}&per_page=20" \
+                           --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_repository_id == '"${REPO_ID}"')] | sort_by(.created_at) | last | .workflow_run.id // empty' 2>"$ERR")"; then
+            RUN_ID=""
+            echo "::warning title=Prebuilt server lookup failed::building, since the artifact list for ${NAME} could not be read: $(head -c 300 "$ERR")"
+          elif [ -n "$RUN_ID" ]; then
+            HIT=true
+            echo "::notice title=Reusing a prebuilt server::run ${RUN_ID} built ${NAME} from the same inputs; skipping the compile"
+          else
+            echo "No unexpired ${NAME}; building"
+          fi
+        fi
+        {
+          echo "name=${NAME}"
+          echo "hit=${HIT}"
+          echo "run-id=${RUN_ID}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Download the prebuilt binaries
+      if: steps.lookup.outputs.hit == 'true'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ steps.lookup.outputs.name }}
+        run-id: ${{ steps.lookup.outputs.run-id }}
+        github-token: ${{ github.token }}
+        path: ${{ inputs.path }}
+
+    # upload-artifact drops the executable bit.
+    - name: Restore the executable bit
+      if: steps.lookup.outputs.hit == 'true'
+      shell: bash
+      env:
+        DIR: ${{ inputs.path }}
+      run: |
+        chmod +x "$DIR"/pierre-mcp-server "$DIR"/pierre-cli
+        ls -l "$DIR"/pierre-mcp-server "$DIR"/pierre-cli

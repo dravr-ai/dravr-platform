@@ -13,6 +13,13 @@ outputs:
   release-worthy:
     description: "'true' when the push touches an input of the fat-LTO link, so a branch builds it too"
     value: ${{ steps.decide.outputs.release-worthy }}
+  proven:
+    description: >-
+      JSON array of the job names a feature/, features/ or claude/ push run
+      passed on this exact tree, plus a "<job> -> <step>" entry for each step
+      that passed in them (scripts/ci/proven-on-branch.sh). Filled on a main
+      push only; '[]' everywhere else. A job named here skips on main.
+    value: ${{ steps.proven.outputs.proven }}
 
 runs:
   using: composite
@@ -104,3 +111,33 @@ runs:
         echo "rust=${RUST}" >> "$GITHUB_OUTPUT"
         echo "release-worthy=${RELEASE_WORTHY}" >> "$GITHUB_OUTPUT"
         echo "rust=${RUST} release-worthy=${RELEASE_WORTHY} (${EVENT_NAME})"
+
+    # A branch squashed onto an unchanged main lands the exact tree its
+    # feature/, features/ or claude/ run already compiled and tested, green: 14
+    # main commits on Oct 22-29, 671 runner-minutes in this workflow
+    # (carnet#1258). Jobs that passed there skip on main. Only jobs that
+    # passed count: one the branch run skipped (its filter diffed against the
+    # branch's previous push) still runs. A lookup that fails proves nothing.
+    # release-binary never consults this: main's run uploads the binaries the
+    # image ships, and fast-gate always runs.
+    - name: Read which jobs a full-lane branch passed on this exact tree
+      id: proven
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EVENT_NAME: ${{ github.event_name }}
+        PUSHED_REF: ${{ github.ref }}
+        RUST: ${{ steps.decide.outputs.rust }}
+      run: |
+        proven='[]'
+        if [ "$EVENT_NAME" = push ] && [ "$PUSHED_REF" = refs/heads/main ] && [ "$RUST" = true ]; then
+          code=0
+          names="$(./scripts/ci/proven-on-branch.sh ci-backend.yml)" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::warning title=Branch proof lookup failed::proven-on-branch.sh exited ${code}; every job runs"
+          else
+            proven="$(printf '%s' "$names" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+          fi
+        fi
+        echo "proven=${proven}" >> "$GITHUB_OUTPUT"
+        echo "proven on a branch: ${proven}"

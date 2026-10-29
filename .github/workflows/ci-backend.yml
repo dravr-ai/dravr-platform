@@ -227,7 +227,7 @@ jobs:
   # PHASE 0 (parallel, no inter-dependencies):
   #   fast-gate            — fmt + architectural + secret patterns (~30s, no compile)
   #   preflight-clippy     — per-crate clippy on changed leaf crates (~3-5 min)
-  #   clippy               — full-workspace clippy (~10-12 min, gates release-binary)
+  #   clippy               — full-workspace clippy (~10-12 min)
   #   security-audit       — cargo deny + dravr-* duplicate check (~3 min)
   #   dev-tests            — one dev-profile compile for the doctests + telemetry-feature tests,
   #                          the 4 platform<->contremaitre coupling tests and the pierre-server
@@ -236,8 +236,8 @@ jobs:
   #   backend-test-binaries, backend-tests
   #                        — SQLite shards, cron (or a dispatch asking for them): one build, four shards running its binaries
   #   leaf-crate-tests     — every non-pierre-server crate's tests/ dir and unit tests, plus pierre-server's unit tests, per push
-  # PHASE 1: release-binary (depends on clippy; main, or a branch push that
-  #          touches a link input; main pushes upload the binaries the image ships)
+  #   release-binary       — the fat-LTO server (~18 min); main, or a branch push that touches a
+  #                          link input; main pushes upload the binaries the image ships
   #
   # Every compile and test job skips on a push no Rust input touches (`rust` in
   # .github/actions/ci-backend-changes); fast-gate always runs, since its
@@ -257,6 +257,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.changes.outputs.rust }}
+      proven: ${{ steps.changes.outputs.proven }}
       release-worthy: ${{ steps.changes.outputs.release-worthy }}
     steps:
       - name: Checkout code
@@ -437,7 +438,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -479,6 +480,8 @@ jobs:
           ./scripts/ci/first-party-sign-in-smoke.test.sh
           ./scripts/ci/check-keep-warm-traffic.test.sh
           ./scripts/ci/resolve-push-base.test.sh
+          ./scripts/ci/server-build-key.test.sh
+          ./scripts/ci/proven-on-branch.test.sh
           ./scripts/setup/config-edit.test.sh
           ./scripts/ci/check-workflow-test-targets.test.sh
           ./scripts/ci/check-hosted-css.test.sh
@@ -535,7 +538,7 @@ jobs:
       # shellcheck ships on the ubuntu runner image, so this stays a local read
       # with no network step on the fastest gating job.
       - name: Shell lint (dev stack scripts)
-        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/carry-forward-frontend-assets.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/ci/first-party-sign-in-smoke.sh scripts/ci/check-keep-warm-traffic.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/config-edit.sh scripts/setup/config-edit.test.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
+        run: shellcheck -S warning bin/*.sh scripts/ci/*.test.sh scripts/ci/mobile-e2e-batch.sh scripts/ci/wait-cloud-run-service-ready.sh scripts/ci/tag-deployed-digest.sh scripts/ci/carry-forward-frontend-assets.sh scripts/ci/sweep-landed-branches.sh scripts/ci/strip-carnet-footer.sh scripts/ci/resolve-push-base.sh scripts/ci/server-build-key.sh scripts/ci/proven-on-branch.sh scripts/ci/first-party-sign-in-smoke.sh scripts/ci/check-keep-warm-traffic.sh scripts/setup/setup-claude-code-mcp.sh scripts/setup/config-edit.sh scripts/setup/config-edit.test.sh scripts/setup/check-gh-cli.sh scripts/sciotte-local.sh
 
   preflight-clippy:
     name: Preflight Clippy (per-crate, fast feedback)
@@ -682,15 +685,21 @@ jobs:
     name: Clippy Linting (full workspace)
     timeout-minutes: 45  # full-workspace clippy, ~10-12 min
     runs-on: ubuntu-latest
-    # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy.
-    # The release-binary job downstream still gates on this job so the
-    # release artifact is only produced after full-workspace clippy passes.
+    # No `needs` — fires immediately in parallel with fast-gate / preflight-clippy
+    # and release-binary. A red clippy still keeps its binaries from shipping:
+    # publish-images takes server-binaries-<sha> only from a Backend run that
+    # concluded success.
     #
     # It reads the same filters as detect-changes from inside the job rather
     # than through `needs: detect-changes`, which would put it back in the
     # runner queue after detect-changes: on a saturated pool that second wait
     # is minutes (p90 22 min on Oct 7-20), on the job that leads the critical
     # path. A push no Rust input touches checks out, decides, and stops.
+    #
+    # On main its steps also stop when a full-lane branch run linted this
+    # exact tree (proven in .github/actions/ci-backend-changes, carnet#1258).
+    # The proof is the lint STEP's success, not the job's: a branch push no
+    # Rust input touched concludes this job green having linted nothing.
 
     steps:
       - name: Checkout code
@@ -701,11 +710,11 @@ jobs:
         uses: ./.github/actions/ci-backend-changes
 
       - name: Configure git for private deps
-        if: steps.changes.outputs.rust == 'true'
+        if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        if: steps.changes.outputs.rust == 'true'
+        if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
         uses: ./.github/actions/rust-setup
         with:
           components: clippy
@@ -735,11 +744,11 @@ jobs:
       # throwaway crates, one deliberately broken, asserting that its dependent
       # is named and the crate beside it is not. ~5s.
       - name: Self-test the unevaluated-crate reporter
-        if: steps.changes.outputs.rust == 'true'
+        if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
         run: ./scripts/ci/clippy-workspace.test.sh
 
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
-        if: steps.changes.outputs.rust == 'true'
+        if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
         run: python3 scripts/ci/clippy-workspace.py
 
   security-audit:
@@ -751,6 +760,9 @@ jobs:
     # push no Rust input touches skips them (the list is in
     # .github/actions/ci-backend-changes); the daily cron still runs them all.
     needs: [fast-gate, detect-changes]
+    # Not skipped on main on a branch's proof: cargo deny reads an advisory
+    # database that moves daily, so a days-old branch pass does not vouch for
+    # today (carnet#1258).
     if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
@@ -806,6 +818,9 @@ jobs:
     timeout-minutes: 60  # the 45-min changed-files step plus build; the step bound cannot catch a hang before it
     runs-on: ubuntu-latest
     needs: [fast-gate, detect-changes]
+    # Not skipped on main on a branch's proof: on a branch it runs the test
+    # files of that push alone, on main those of the whole squash, so the
+    # branch run does not cover what main's would (carnet#1258).
     if: needs.detect-changes.outputs.rust == 'true'
 
     steps:
@@ -1004,7 +1019,13 @@ jobs:
     timeout-minutes: 40  # cargo check per feature profile
     runs-on: ubuntu-latest
     needs: [fast-gate, detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true'
+    # Skips on main when a full-lane branch passed both profiles on this exact
+    # tree (proven in .github/actions/ci-backend-changes, carnet#1258). A job
+    # `if` cannot read the matrix, so it is both or neither.
+    if: >-
+      needs.detect-changes.outputs.rust == 'true' &&
+      !(contains(fromJSON(needs.detect-changes.outputs.proven || '[]'), 'Feature Profile Check (production)') &&
+        contains(fromJSON(needs.detect-changes.outputs.proven || '[]'), 'Feature Profile Check (no-default-features)'))
     # Every other job here builds pierre_mcp_server with the default feature set
     # or with --all-features. Neither is what ships: the Dockerfile builds
     # --no-default-features with postgresql and WITHOUT sqlite, a combination
@@ -1250,7 +1271,11 @@ jobs:
     timeout-minutes: 80  # the 45-min test step, the 20-min mint-session step, plus build; the step bounds cannot catch a hang before them
     runs-on: ubuntu-latest
     needs: [fast-gate, detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true'
+    # Skips on main when a full-lane branch passed it on this exact tree
+    # (proven in .github/actions/ci-backend-changes, carnet#1258).
+    if: >-
+      needs.detect-changes.outputs.rust == 'true' &&
+      !contains(fromJSON(needs.detect-changes.outputs.proven || '[]'), 'Leaf-Crate Tests (every crate but pierre-server)')
 
     steps:
       - name: Checkout code
@@ -1382,7 +1407,11 @@ jobs:
     name: Release Binary Validation
     timeout-minutes: 90  # a full release build plus the size check
     runs-on: ubuntu-latest
-    needs: [clippy, detect-changes]
+    # Not behind clippy. Chained, the backend's wall was clippy's 8.5 min plus
+    # this job's 18 (median, Oct 22-29), and Backend (Rust) was the last lane
+    # to finish on 54 of 147 green commits. In parallel it costs one release
+    # build per red clippy: 4 that week (carnet#1258).
+    needs: [detect-changes]
     # Main builds it whenever a Rust input changed: it ships. A branch builds
     # it only when the push can change how it links (release-worthy in
     # .github/actions/ci-backend-changes); server-e2e sizes the thin

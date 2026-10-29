@@ -7,41 +7,12 @@
 name: "CI: Mobile E2E (iOS)"
 
 on:
-  push:
-    branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
-    paths:
-      - 'frontend-mobile/**'
-      # Only the shared packages frontend-mobile depends on. `packages/**` would put
-      # a macOS runner (billed at 10x) on every push to mcp-types, scene-types or the
-      # eslint/tsconfig configs, which the app does not consume.
-      - 'packages/api-client/**'
-      - 'packages/chat-utils/**'
-      - 'packages/domain-utils/**'
-      - 'packages/i18n/**'
-      - 'packages/shared-constants/**'
-      - 'packages/shared-types/**'
-      - 'packages/ui-logic/**'
-      - 'scripts/ci/mobile-e2e-batch.sh'
-      # The e2e job opens the app through this helper's ios_sim_open_in_expo_go.
-      - 'bin/ios-simulator.sh'
-      # The control process the onboarding group flow asks for coaches and the
-      # coach plan-thread flow for its seeded pairs, the scraper double it
-      # connects coaches through, and the seeders behind the verdict-sheet and
-      # coach plan-thread flows.
-      - 'frontend/e2e-real/sciotte-double.ts'
-      - 'frontend/e2e-real/home-sync-control.ts'
-      - 'frontend/e2e-real/onboarding-coach.ts'
-      - 'frontend/e2e-real/coach-plan-thread.ts'
-      # Every flow but login/ starts signed in with a session the control
-      # process mints through this CLI command (carnet#1201).
-      - 'frontend/e2e-real/pierre-cli.ts'
-      - 'frontend/e2e-real/seeded-session.ts'
-      - 'frontend/e2e-real/control-host.ts'
-      - 'crates/pierre-cli/src/commands/session.rs'
-      - 'crates/pierre-seeders/src/verdict_conversation.rs'
-      - 'crates/pierre-seeders/src/coach_plan_thread.rs'
-      - 'crates/pierre-seeders/src/coached_group.rs'
-      - '.github/workflows/mobile-e2e-ios.yml'
+  # Nightly on main only (carnet#1258). On push this lane ran on every
+  # matching branch and main commit: in the week of Oct 22-29 the two mobile
+  # lanes held 8,900 runner-minutes, and iOS alone added a median 37 minutes
+  # to a commit's verdict (66 with it, 29 without). The cron runs main's tip;
+  # a dispatch runs too, from main only (the build job's `if`), so a fix can be
+  # re-checked without waiting for the night.
   schedule:
     - cron: '4 6 * * *'  # 06:04 UTC nightly (02:04 EDT / 01:04 EST)
   workflow_dispatch:
@@ -52,9 +23,9 @@ concurrency:
   # ref and keep cancelling, where fast feedback beats a stale result. Without the
   # sha this lane would lose verdicts the moment it gained a push trigger: a burst
   # of mobile pushes would cancel each other's e2e run (carnet#169 on ci-postgres).
-  # `github.event_name` is in the group for the mirror-image reason: a scheduled or
-  # dispatched run on main carries the TIP's sha, so without it the 06:04 cron joins
-  # the tip's push-run group and kills that verdict mid-flight (ci-backend.yml records
+  # `github.event_name` is in the group for the mirror-image reason: a scheduled and
+  # a dispatched run on main both carry the TIP's sha, so without it a dispatch joins
+  # the 06:04 cron's group and kills that verdict mid-flight (ci-backend.yml records
   # the same collision on 2026-08-31).
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: true
@@ -71,6 +42,8 @@ env:
 jobs:
   build-server:
     name: Build Server (macOS)
+    # Main only: the cron always is; a dispatch from another ref skips the lane.
+    if: github.ref == 'refs/heads/main'
     # Pinned, not `macos-latest`: the e2e-tests job below needs an Xcode that
     # Maestro's XCUITest driver supports, and `macos-latest` rolled to
     # macos-26-arm64 (which ships no Xcode 16.x) on 2026-07-15, hanging the

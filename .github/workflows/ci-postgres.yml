@@ -31,6 +31,7 @@ on:
       # The build packs and the shards run through these.
       - 'scripts/ci/test-binaries.sh'
       - 'scripts/ci/server-suites.sh'
+      - 'scripts/ci/proven-on-branch.sh'
   pull_request:
     branches: [ main ]
     paths:
@@ -51,6 +52,7 @@ on:
       - '.github/actions/rust-setup/**'
       - 'scripts/ci/test-binaries.sh'
       - 'scripts/ci/server-suites.sh'
+      - 'scripts/ci/proven-on-branch.sh'
   schedule:
     # Daily full PostgreSQL validation (2:30 AM UTC). Daily, not weekly, because
     # this run is the only one that saves the postgres-tests Rust cache
@@ -121,6 +123,7 @@ jobs:
     timeout-minutes: 60
     outputs:
       lane: ${{ steps.lane.outputs.lane }}
+      skip: ${{ steps.proven.outputs.skip }}
 
     steps:
       - name: Checkout code
@@ -129,10 +132,41 @@ jobs:
           # The lane step below diffs this push's range on a short-lived ref.
           fetch-depth: 50
 
+      # A branch squashed onto an unchanged main lands the exact tree its
+      # feature/, features/ or claude/ run already took through this whole lane,
+      # green: 13 main commits on Oct 22-29, 734 runner-minutes (carnet#1258).
+      # Main then skips the lane. Only when that run passed the build and all
+      # four shards; anything less, or a lookup that fails, runs everything.
+      - name: Skip the lane when a full-suite branch passed this exact tree
+        id: proven
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          code=0
+          proven="$(./scripts/ci/proven-on-branch.sh ci-postgres.yml)" || code=$?
+          if [ "$code" -ne 0 ]; then
+            echo "::warning title=Branch proof lookup failed::proven-on-branch.sh exited ${code}; running the whole lane"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          skip=true
+          for job in "Build Test Binaries (PostgreSQL)" \
+                     "Database Tests (PostgreSQL 1/4)" "Database Tests (PostgreSQL 2/4)" \
+                     "Database Tests (PostgreSQL 3/4)" "Database Tests (PostgreSQL 4/4)"; do
+            grep -qxF "$job" <<<"$proven" || skip=false
+          done
+          if [ "$skip" = true ]; then
+            echo "::notice title=Lane proven on a branch::a full-suite branch run passed every job of this lane on tree $(git rev-parse 'HEAD^{tree}'); skipping it on main"
+          fi
+          echo "skip=${skip}" >> "$GITHUB_OUTPUT"
+
       - name: Configure git for private deps
+        if: steps.proven.outputs.skip != 'true'
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
+        if: steps.proven.outputs.skip != 'true'
         uses: ./.github/actions/rust-setup
         with:
           free-disk-space: 'true'
@@ -156,6 +190,7 @@ jobs:
 
       - name: Choose the lane (full suite or PostgreSQL smoke)
         id: lane
+        if: steps.proven.outputs.skip != 'true'
         # The full-suite refs get the full suite. On a short-lived prefix the
         # smoke used to be unconditional, so a fix/* push changing a crate the
         # server links ran no server suite at all: ci-backend.yml's dev-tests runs
@@ -216,6 +251,7 @@ jobs:
           fi
 
       - name: Assert disk headroom for the build
+        if: steps.proven.outputs.skip != 'true'
         # 22 G measured peak, 86 G measured available, so 40 G is a floor with
         # room either side: it cannot fire on today's runner and it fires well
         # before the build can exhaust the disk. Costs one df.
@@ -228,6 +264,7 @@ jobs:
           fi
 
       - name: Select, pack and build the lane's test binaries
+        if: steps.proven.outputs.skip != 'true'
         # Lane contract (carnet#154, decided 2026-08-31): main, schedule,
         # dispatch and feature/*, features/* or claude/* refs run EVERY test
         # file. claude/* is the prefix Claude Code sessions push on, and those
@@ -463,6 +500,7 @@ jobs:
           fi
 
       - name: Upload the lane's test binaries
+        if: steps.proven.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pg-test-binaries
@@ -488,6 +526,7 @@ jobs:
     name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     needs: build-tests
+    if: needs.build-tests.outputs.skip != 'true'
     # A backstop, not a performance budget. A shard runs its tests in 8-11 min
     # and compiles nothing; this only ever fires on a job that has stopped
     # making progress.
