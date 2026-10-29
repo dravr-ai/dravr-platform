@@ -200,10 +200,34 @@ describe('WorkoutPlanCard', () => {
     };
     render(<WorkoutPlanCard plan={flagged} />);
 
-    expect(screen.getByTestId('plan-day-fuel-products')).toHaveTextContent(
-      'Maurten Gel 100 (Caf 100) · Näak Drink Mix',
+    expect(screen.getByTestId('plan-day-fuel')).toHaveTextContent(
+      'Fuel amounts withheld: a medical flag is on file, so your clinician sets them · Maurten Gel 100 (Caf 100), Näak Drink Mix',
     );
     expect(screen.queryByText(/g\/h/)).not.toBeInTheDocument();
+  });
+
+  it("puts a day's rates and its fuel products on one Fuel row", () => {
+    const fuelled = plan();
+    fuelled.weeks[0].days[0] = {
+      date: '2026-09-15',
+      sport: 'run',
+      workout: 'long run',
+      duration_min: 120,
+      intensity: 'Z2',
+      rest: false,
+      fueling: { carbs_g_per_h: 60, fluid_ml_per_h: 600 },
+      fuel_products: [
+        { product_id: '7b0c0d3e-2f4b-4b9e-9b7e-1d2c3a4b5c6d', name: 'Maurten Gel 100' },
+        { product_id: '0d7f7a44-5d2c-4e57-8c5a-6b1a2e3f4d5c', name: 'Näak Drink Mix' },
+      ],
+    };
+    render(<WorkoutPlanCard plan={fuelled} />);
+
+    // One row, one Fuel label: the rates, then the products.
+    expect(screen.getByTestId('plan-day-fuel')).toHaveTextContent(
+      'Fuel 60 g/h carbs · 600 ml/h fluid · Maurten Gel 100, Näak Drink Mix',
+    );
+    expect(screen.getAllByText('Fuel')).toHaveLength(1);
   });
 
   it('shows the other races the athlete named', () => {

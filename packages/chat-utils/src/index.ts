@@ -181,7 +181,7 @@ export {
   secondsPerDistanceUnit,
 } from './units';
 export type { DistanceUnit } from './units';
-export { fuelParts, stepDuration } from './workout-plan';
+export { dayFuelLine, stepDuration } from './workout-plan';
 
 // A figure in the athlete's own decimal notation, for every figure both clients print
 export { formatCount, formatDecimal, formatMajorCurrency, formatMinorCurrency } from './number-format';

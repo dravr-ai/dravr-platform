@@ -212,8 +212,37 @@ describe('WorkoutPlanCard', () => {
     const { getByTestId } = render(<WorkoutPlanCard plan={flagged} />);
 
     const day = within(getByTestId('workout-plan-day-2026-09-15'));
-    expect(day.getByText(/Maurten Gel 100 \(Caf 100\) · Näak Drink Mix/)).toBeTruthy();
+    expect(
+      day.getByText(
+        /clinician sets them · Maurten Gel 100 \(Caf 100\), Näak Drink Mix$/,
+      ),
+    ).toBeTruthy();
     expect(day.queryByText(/g\/h/)).toBeNull();
+  });
+
+  it("puts a day's rates and its fuel products on one Fuel row", () => {
+    const fuelled = plan();
+    fuelled.weeks[0].days[0] = {
+      date: '2026-09-15',
+      sport: 'run',
+      workout: 'long run',
+      duration_min: 120,
+      intensity: 'Z2',
+      rest: false,
+      fueling: { carbs_g_per_h: 60, fluid_ml_per_h: 600 },
+      fuel_products: [
+        { product_id: '7b0c0d3e-2f4b-4b9e-9b7e-1d2c3a4b5c6d', name: 'Maurten Gel 100' },
+        { product_id: '0d7f7a44-5d2c-4e57-8c5a-6b1a2e3f4d5c', name: 'Näak Drink Mix' },
+      ],
+    };
+    const { getByTestId } = render(<WorkoutPlanCard plan={fuelled} />);
+
+    const day = within(getByTestId('workout-plan-day-2026-09-15'));
+    expect(day.getAllByTestId('plan-day-fuel')).toHaveLength(1);
+    expect(day.getAllByText('Fuel')).toHaveLength(1);
+    expect(
+      day.getByText(/60 g\/h carbs · 600 ml\/h fluid · Maurten Gel 100, Näak Drink Mix$/),
+    ).toBeTruthy();
   });
 
   it('shows the other races the athlete named', () => {

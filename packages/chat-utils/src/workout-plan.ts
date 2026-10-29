@@ -1,7 +1,7 @@
-// ABOUTME: The pure half of the workout-plan card — a step's compact duration and a day's fuelling fragments
-// ABOUTME: Both clients print the plan's figures from here, so a stride or a sodium line cannot read differently on the phone
+// ABOUTME: The pure half of the workout-plan card — a step's compact duration, a day's fuelling fragments and its one fuel line
+// ABOUTME: Both clients print the plan's figures from here, so a stride, a sodium line or a product cannot read differently on the phone
 
-import type { PlanFueling } from '@pierre/shared-types';
+import type { PlanDay, PlanFueling } from '@pierre/shared-types';
 
 import type { Translate } from './text';
 
@@ -28,4 +28,27 @@ export function fuelParts(fueling: PlanFueling, t: Translate): string[] {
     parts.push(t('chat.fuelSodiumLoss', { value: fueling.sodium_mg_per_h }));
   }
   return parts;
+}
+
+/**
+ * A day's one fuel line: its rates — or, under a medical flag, the statement
+ * that a clinician sets them — then the fuel products it names, as
+ * "60 g/h carbs · 600 ml/h · Maurten Gel 100, Näak Drink Mix". `null` when the
+ * day carries neither, so the card prints no Fuel row.
+ */
+export function dayFuelLine(
+  day: Pick<PlanDay, 'fueling' | 'fueling_withheld' | 'fuel_products'>,
+  t: Translate,
+): string | null {
+  const parts: string[] = [];
+  if (day.fueling) {
+    parts.push(...fuelParts(day.fueling, t));
+  } else if (day.fueling_withheld) {
+    parts.push(t('chat.fuelWithheld'));
+  }
+  const products = (day.fuel_products ?? []).map((product) => product.name);
+  if (products.length > 0) {
+    parts.push(products.join(', '));
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
 }

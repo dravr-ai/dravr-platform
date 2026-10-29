@@ -7,7 +7,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
-import { fuelParts, stepDuration } from '@pierre/chat-utils';
+import { dayFuelLine, stepDuration } from '@pierre/chat-utils';
 import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
 import type {
@@ -128,7 +128,7 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 /**
  * One day of the fortnight: the date, the sport, and the session — its text,
  * duration and intensity, then the steps, the template and the fuel it
- * carries. A rest day is the one word.
+ * carries — rates and products on one Fuel line. A rest day is the one word.
  *
  * A table row: the card lays a week out as a table, and the Home page's day
  * detail renders the same row in a one-row table, so a day reads the same in
@@ -140,6 +140,7 @@ export function DayRow({ day }: { day: PlanDay }) {
     (part): part is string => typeof part === 'string' && part.length > 0,
   );
   const steps = day.steps ?? [];
+  const fuelLine = dayFuelLine(day, t);
   return (
     <tr className="border-b ghost-border-faint align-top last:border-0">
       <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-xs text-on-surface-variant">
@@ -187,22 +188,9 @@ export function DayRow({ day }: { day: PlanDay }) {
             )}
           </div>
         )}
-        {day.fueling && (
-          <div className="mt-0.5 text-xs text-on-surface-variant">
-            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
-            {fuelParts(day.fueling, t).join(' · ')}
-          </div>
-        )}
-        {day.fueling_withheld && (
-          <div className="mt-0.5 text-xs text-on-surface-variant">
-            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
-            {t('chat.fuelWithheld')}
-          </div>
-        )}
-        {day.fuel_products && day.fuel_products.length > 0 && (
-          <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-fuel-products">
-            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
-            {day.fuel_products.map((product) => product.name).join(' · ')}
+        {fuelLine && (
+          <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-fuel">
+            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span> {fuelLine}
           </div>
         )}
       </td>

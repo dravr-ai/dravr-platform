@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { View, Text } from 'react-native';
-import { countKey, fuelParts, stepDuration } from '@pierre/chat-utils';
+import { countKey, dayFuelLine, stepDuration } from '@pierre/chat-utils';
 import { PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
 import type {
@@ -188,13 +188,14 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 /**
  * One day of the fortnight: the date, the sport, and the session — its text,
  * duration and intensity, then the steps, the template and the fuel it
- * carries. A rest day is the one word. Rows are separated by space, not by a
+ * carries — rates and products on one Fuel line. A rest day is the one word. Rows are separated by space, not by a
  * rule; the card's one hairline sits under its header. The Home tab draws its
  * selected and next-week days with this same row, so a day reads alike there.
  */
 export function DayRow({ day }: { day: PlanDay }) {
   const { t, language } = useTranslation();
   const steps = day.steps ?? [];
+  const fuelLine = dayFuelLine(day, t);
   return (
     <View className="flex-row mt-2" testID={`workout-plan-day-${day.date}`}>
       <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>
@@ -239,22 +240,9 @@ export function DayRow({ day }: { day: PlanDay }) {
               : ''}
           </Text>
         ) : null}
-        {day.fueling ? (
-          <Text className="text-sm text-text-secondary mt-0.5">
-            <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
-            {fuelParts(day.fueling, t).join(' · ')}
-          </Text>
-        ) : null}
-        {day.fueling_withheld ? (
-          <Text className="text-sm text-text-secondary mt-0.5">
-            <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
-            {t('chat.fuelWithheld')}
-          </Text>
-        ) : null}
-        {day.fuel_products && day.fuel_products.length > 0 ? (
-          <Text className="text-sm text-text-secondary mt-0.5" testID="plan-day-fuel-products">
-            <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text>{' '}
-            {day.fuel_products.map((product) => product.name).join(' · ')}
+        {fuelLine ? (
+          <Text className="text-sm text-text-secondary mt-0.5" testID="plan-day-fuel">
+            <Text className="font-semibold text-text-primary">{t('chat.fuelLabel')}</Text> {fuelLine}
           </Text>
         ) : null}
       </View>
