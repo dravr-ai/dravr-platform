@@ -397,12 +397,14 @@ impl KeyManager {
             Ok(value) => value,
             Err(e) if e.code == ErrorCode::ResourceNotFound => return Ok(1),
             Err(e) => {
-                error!(
-                    event = key_read_event(&e, DEK_READ_FAILED),
-                    error_code = ?e.code,
-                    error = %e,
-                    "Failed to read the active DEK version"
-                );
+                if let Some(event) = key_read_event(&e, DEK_READ_FAILED) {
+                    error!(
+                        event,
+                        error_code = ?e.code,
+                        error = %e,
+                        "Failed to read the active DEK version"
+                    );
+                }
                 return Err(e);
             }
         };
@@ -455,13 +457,15 @@ impl KeyManager {
             .get_system_secret(&Self::version_secret_name(version))
             .await
             .inspect_err(|e| {
-                error!(
-                    event = key_read_event(e, DEK_READ_FAILED),
-                    dek_version = version,
-                    error_code = ?e.code,
-                    error = %e,
-                    "Failed to read a stored DEK version"
-                );
+                if let Some(event) = key_read_event(e, DEK_READ_FAILED) {
+                    error!(
+                        event,
+                        dek_version = version,
+                        error_code = ?e.code,
+                        error = %e,
+                        "Failed to read a stored DEK version"
+                    );
+                }
             })?;
         let wrapped = Self::decode_encrypted_dek(&wrapped_base64).inspect_err(|e| {
             error!(
@@ -567,12 +571,7 @@ impl KeyManager {
                 self.store_first_dek(security).await?;
             }
             Err(e) => {
-                error!(
-                    event = key_read_event(&e, DEK_READ_FAILED),
-                    error_code = ?e.code,
-                    error = %e,
-                    "Failed to read the stored DEK; refusing to initialize key management"
-                );
+                Self::report_stored_dek_read_failure(&e);
                 return Err(e);
             }
         }
@@ -667,14 +666,22 @@ impl KeyManager {
                 )))
             }
             Err(e) => {
-                error!(
-                    event = key_read_event(&e, DEK_READ_FAILED),
-                    error_code = ?e.code,
-                    error = %e,
-                    "Failed to read the stored DEK; refusing to initialize key management"
-                );
+                Self::report_stored_dek_read_failure(&e);
                 Err(e)
             }
+        }
+    }
+
+    /// Log a failed read of the stored version-1 DEK row, unless the database
+    /// could not serve it (the boot's key-store queue reports that).
+    fn report_stored_dek_read_failure(e: &AppError) {
+        if let Some(event) = key_read_event(e, DEK_READ_FAILED) {
+            error!(
+                event,
+                error_code = ?e.code,
+                error = %e,
+                "Failed to read the stored DEK; refusing to initialize key management"
+            );
         }
     }
 
@@ -682,12 +689,14 @@ impl KeyManager {
     /// count refuses the mint, since the answer decides whether it is safe.
     async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
         security.count_encrypted_rows().await.inspect_err(|e| {
-            error!(
-                event = key_read_event(e, DEK_READ_FAILED),
-                error_code = ?e.code,
-                error = %e,
-                "Failed to count encrypted rows before storing a DEK; refusing to initialize key management"
-            );
+            if let Some(event) = key_read_event(e, DEK_READ_FAILED) {
+                error!(
+                    event,
+                    error_code = ?e.code,
+                    error = %e,
+                    "Failed to count encrypted rows before storing a DEK; refusing to initialize key management"
+                );
+            }
         })
     }
 

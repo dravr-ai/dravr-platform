@@ -261,7 +261,7 @@ case_quiesce_times_out_on_a_stuck_rollout() {
     && expect_out "${PREFIX}-sciotte: rolling sciotte-00004 created" && expect_no_out "Quiescent:"
 }
 
-# A pin nothing in flight will clear (deploy-cloudrun never touches traffic):
+# A pin nothing in flight will clear (only the API's deploy moves traffic):
 # blocking on it would fail every deploy, terraform's repair included.
 case_quiesce_lets_split_traffic_through_with_a_warning() {
   for s in frontend photograveur sciotte; do settled "${s}"; done
@@ -616,7 +616,10 @@ done
 # executes a dev Cloud Run job needs every roll job of its workflow; every wait
 # takes region and prefix from the dev vars; the quiesce before an API
 # deploy-cloudrun passes --db-headroom and the one before any other service's
-# does not (carnet#1129); and checkout runs before auth
+# does not (carnet#1129); a `no_traffic` deploy-cloudrun is followed by a
+# `--to-latest` traffic move on the same service that runs on a failed deploy
+# too, and that move is the second half of the same roll, so no quiesce sits
+# between them (carnet#1269); and checkout runs before auth
 # (actions/checkout cleans the workspace, deleting the credentials file
 # google-github-actions/auth wrote). The scan then runs against broken copies
 # of the workflows and must fail on each, so a scan that checks nothing cannot
@@ -646,6 +649,24 @@ def text(step):
 def is_roll(step):
     uses = step.get("uses") or ""
     return uses.startswith("google-github-actions/deploy-cloudrun") or bool(ROLL_RUN.search(step.get("run") or ""))
+
+def no_traffic_deploy(step):
+    uses = step.get("uses") or ""
+    return uses.startswith("google-github-actions/deploy-cloudrun") and str((step.get("with") or {}).get("no_traffic")).lower() == "true"
+
+def moves_traffic_to_latest(step, service):
+    # The traffic move that ends a no_traffic roll: --to-latest on the deployed
+    # service, never --to-revisions, which is the very pin it exists to clear.
+    run = step.get("run") or ""
+    return (re.search(r"gcloud\s+run\s+services\s+update-traffic\b", run) is not None
+            and "--to-latest" in run and "--to-revisions" not in run
+            and str((step.get("env") or {}).get("SERVICE")) == service)
+
+def runs_after_a_failure(step):
+    # A step behind a failed deploy runs only under a status function that is
+    # not success(); a pin left by no_traffic must never outlive the job.
+    cond = str(step.get("if") or "")
+    return re.search(r"\b(always|failure)\(\)|!\s*cancelled\(\)", cond) is not None
 
 def wait_re(mode):
     # An invocation, not a mention: the path followed by a mode.
@@ -693,7 +714,12 @@ def scan(workflows):
                     # step in between, or one inline ahead of the roll command.
                     inline_before = roll_at is not None and any(w.start() < roll_at for w in wait_re("quiesce").finditer(run))
                     guards = [i for i in uses_wait if waits(steps[i], "quiesce") and prev < i < r]
-                    if not inline_before and not guards:
+                    # The traffic move right after a no_traffic deploy finishes
+                    # that roll: a quiesce between them would wait on our own
+                    # pinned revision.
+                    second_half = prev >= 0 and no_traffic_deploy(steps[prev]) and moves_traffic_to_latest(
+                        steps[r], str((steps[prev].get("with") or {}).get("service")))
+                    if not inline_before and not guards and not second_half:
                         problems.append(f"{where}: no quiesce wait between the previous roll and '{steps[r].get('name')}'")
                     # Only the API holds Cloud SQL connections, so only its roll
                     # waits for free slots; a frontend redeploy never does.
@@ -708,6 +734,18 @@ def scan(workflows):
                     if not inline_after and not [i for i in uses_wait if i > r]:
                         problems.append(f"{where}: nothing waits for '{steps[r].get('name')}' to settle")
                     prev = r
+                # A no_traffic deploy pins traffic to the revision serving now
+                # (2026-05-25: a pin held 22 hours). The next roll must move it
+                # back to the latest revision, whatever the deploy's outcome.
+                for k, r in enumerate(rolls):
+                    if not no_traffic_deploy(steps[r]):
+                        continue
+                    service = str((steps[r].get("with") or {}).get("service"))
+                    nxt = steps[rolls[k + 1]] if k + 1 < len(rolls) else None
+                    if nxt is None or not moves_traffic_to_latest(nxt, service):
+                        problems.append(f"{where}: '{steps[r].get('name')}' deploys with no_traffic and the next roll does not move {service} traffic --to-latest")
+                    elif not runs_after_a_failure(nxt):
+                        problems.append(f"{where}: '{nxt.get('name')}' does not run after a failed deploy; the no_traffic pin would stick")
             for i in uses_wait:
                 t = text(steps[i])
                 for var in ("vars.GCP_DEV_CLOUD_RUN_REGION", "vars.GCP_DEV_SERVICE_NAME"):
@@ -759,6 +797,11 @@ def set_needs(wf, job, needs):
     assert job in wf["jobs"], f"no job {job}"
     wf["jobs"][job]["needs"] = needs
 
+def set_if(wf, job, name, cond):
+    step = next(s for s in wf["jobs"][job]["steps"] if s.get("name") == name)
+    step["if"] = cond
+
+MOVE_TRAFFIC = "Move traffic to the new revision"
 BEFORE_FRONTEND = "Wait until no dev Cloud Run service is mid-rollout (before the frontend)"
 BEFORE_API = "Wait until no dev Cloud Run service is mid-rollout (before the API)"
 BROKEN = [
@@ -772,6 +815,10 @@ BROKEN = [
      lambda wf: edit_run(wf, "deploy-dev", BEFORE_FRONTEND, " --timeout-seconds", " --db-headroom 6 --timeout-seconds")),
     ("deploy-gcp.yml", "deploy-gcp.yml:update-seed-jobs: runs Cloud Run jobs beside the roll of deploy-api deploy-frontend",
      lambda wf: set_needs(wf, "update-seed-jobs", "resolve-images")),
+    ("deploy-gcp.yml", "deploy-gcp.yml:deploy-api: 'Deploy backend API to Cloud Run' deploys with no_traffic and the next roll does not move",
+     lambda wf: drop_step(wf, "deploy-api", MOVE_TRAFFIC)),
+    ("publish-images.yml", f"publish-images.yml:deploy-dev: '{MOVE_TRAFFIC}' does not run after a failed deploy",
+     lambda wf: set_if(wf, "deploy-dev", MOVE_TRAFFIC, "needs.publish-server.result == 'success'")),
 ]
 for wf_name, expected, breaker in BROKEN:
     broken = copy.deepcopy(workflows)

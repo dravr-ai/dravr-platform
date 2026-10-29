@@ -15,10 +15,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::fmt::Debug as FmtDebug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
@@ -27,6 +28,10 @@ use pierre_database::repositories::{WorkerRun, WorkerRunRepository};
 use pierre_services::periodic::spawn_periodic;
 use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
+use tracing::field::{Field, Visit};
+use tracing::{subscriber, Event, Level, Subscriber};
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::Layer;
 
 const PERIOD: Duration = Duration::from_millis(20);
 
@@ -307,6 +312,107 @@ async fn an_erroring_then_panicking_tick_does_not_stop_the_worker() {
         "the worker must survive both a returned error and a panic; it ticked {seen} time(s)"
     );
     handle.abort();
+}
+
+/// Every "tick errored" line, as (worker, level), in the order logged.
+///
+/// The `Arc` is shared between the global subscriber's layer, which writes
+/// from every worker task, and the static handle the tests read.
+#[derive(Clone, Default)]
+struct TickErrors(Arc<Mutex<Vec<(String, Level)>>>);
+
+impl TickErrors {
+    /// The levels `worker` logged its failed ticks at.
+    fn levels(&self, worker: &str) -> Vec<Level> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(name, _)| name == worker)
+            .map(|(_, level)| *level)
+            .collect()
+    }
+}
+
+#[derive(Default)]
+struct TickErrorFields {
+    tick_error: bool,
+    worker: String,
+}
+
+impl Visit for TickErrorFields {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        if field.name() == "worker" {
+            value.clone_into(&mut self.worker);
+        }
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn FmtDebug) {
+        if field.name() == "message" {
+            self.tick_error |= format!("{value:?}").starts_with("tick errored");
+        }
+    }
+}
+
+impl<S: Subscriber> Layer<S> for TickErrors {
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let mut fields = TickErrorFields::default();
+        event.record(&mut fields);
+        if fields.tick_error {
+            self.0
+                .lock()
+                .unwrap()
+                .push((fields.worker, *event.metadata().level()));
+        }
+    }
+}
+
+/// The process-wide capture. A per-test `set_default` loses events here: a
+/// sibling test that hits the same callsite with no subscriber on its own
+/// thread caches it as uninteresting, so this one global subscriber records
+/// every tick error and each test reads its own worker's lines.
+fn tick_errors() -> &'static TickErrors {
+    static CAPTURED: OnceLock<TickErrors> = OnceLock::new();
+    CAPTURED.get_or_init(|| {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let captured = TickErrors::default();
+        subscriber::set_global_default(tracing_subscriber::registry().with(captured.clone()))
+            .expect("no other test in this binary installs a global subscriber");
+        captured
+    })
+}
+
+/// A single failed pass is retried next interval and logs at `WARN`; only a
+/// worker that fails twice in a row logs at `ERROR`, which pages Slack. On
+/// 2026-10-29 a rollout briefly filled every Postgres slot and two workers
+/// paged for passes the next tick ran fine (carnet#1269).
+#[tokio::test]
+async fn a_single_failed_tick_warns_and_a_repeated_failure_pages() {
+    const WORKER: &str = "escalation probe";
+    let captured = tick_errors();
+    let ticks = Arc::new(AtomicUsize::new(0));
+
+    let counter = Arc::clone(&ticks);
+    let handle = spawn_periodic(WORKER, PERIOD, ledger().await, move || {
+        let counter = Arc::clone(&counter);
+        async move {
+            // Fail, recover, then fail twice in a row.
+            match counter.fetch_add(1, Ordering::SeqCst) {
+                0 | 2 | 3 => Err(AppError::internal("database has no free connection")),
+                _ => Ok(()),
+            }
+        }
+    });
+
+    let seen = wait_for(&ticks, 5, Duration::from_secs(5)).await;
+    handle.abort();
+    assert!(seen >= 5, "the worker ticked only {seen} time(s)");
+    assert_eq!(
+        captured.levels(WORKER),
+        vec![Level::WARN, Level::WARN, Level::ERROR],
+        "a failure after a success warns; the second in a row is an ERROR"
+    );
 }
 
 #[tokio::test]

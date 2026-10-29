@@ -28,7 +28,8 @@ use std::collections::HashMap;
 use std::fmt::Debug as FmtDebug;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "postgresql")]
-use std::time::{Duration as StdDuration, Instant};
+use std::time::Duration as StdDuration;
+use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
@@ -43,6 +44,7 @@ use pierre_core::config::database::PostgresPoolConfig;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{Tenant, TenantId, TenantOAuthCredentials, UserOAuthToken};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::backends::shared::key_material::KeyStoreQueue;
 #[cfg(feature = "postgresql")]
 use pierre_test_support::db::create_test_db_url;
 use pierre_test_support::db::create_test_db_with_key;
@@ -813,6 +815,12 @@ async fn failed_ciphertext_count_before_a_keypair_mint_pages() {
 // restore the key from a point-in-time clone. The key was intact. A read the
 // database could not serve still refuses the boot and mints nothing, but it
 // logs under the database-capacity event, never under `key_material.`.
+//
+// The boot queues those reads (carnet#1129), and the queue reports the
+// failure once, when it gives up: on 2026-10-29 every queued retry also
+// logged it at the read site, paging Slack every 30 s per booting instance
+// (carnet#1269). The tests drive the reads through a queue whose window has
+// already closed, so they give up on the first failure.
 
 /// The event the database-capacity metric matches.
 ///
@@ -841,8 +849,8 @@ async fn close_pool(database: &Database) {
     }
 }
 
-/// Assert the boot logged one capacity event at `ERROR` and nothing the
-/// key-loss filter would page on.
+/// Assert the boot logged one capacity event at `ERROR`, nothing else at
+/// `ERROR`, and nothing the key-loss filter would page on.
 fn assert_capacity_not_key_loss(captured: &Captured) {
     let key_loss = alert_filter();
     let paged: Vec<CapturedEvent> = captured
@@ -864,13 +872,18 @@ fn assert_capacity_not_key_loss(captured: &Captured) {
         !key_loss.is_match(&event),
         "the capacity event {event:?} must stay outside the key-material filter"
     );
-    let capacity = captured.with_event(&event, Level::ERROR);
+    let errors: Vec<CapturedEvent> = captured
+        .all()
+        .into_iter()
+        .filter(|e| e.level == Level::ERROR)
+        .collect();
     assert_eq!(
-        capacity.len(),
+        captured.with_event(&event, Level::ERROR).len(),
         1,
         "expected one ERROR with event {event:?}, got: {:#?}",
         captured.all()
     );
+    assert_eq!(errors.len(), 1, "expected no other ERROR: {errors:#?}");
 }
 
 #[tokio::test]
@@ -881,10 +894,14 @@ async fn dek_read_on_an_unavailable_database_refuses_the_boot_without_paging_key
     let captured = Captured::start();
     let mut booting = booting_manager(7);
     let mut booting_database = database.clone();
-    let refused = booting
-        .complete_initialization(&mut booting_database)
-        .await
-        .expect_err("a DEK the database cannot serve must refuse the boot");
+    let mut queue = KeyStoreQueue::new(Some(Instant::now()), "dek");
+    let refused = loop {
+        match booting.complete_initialization(&mut booting_database).await {
+            Err(e) if queue.wait_after(&e).await => {}
+            done => break done,
+        }
+    }
+    .expect_err("a DEK the database cannot serve must refuse the boot");
 
     assert_eq!(refused.code, ErrorCode::ResourceUnavailable);
     assert_capacity_not_key_loss(&captured);
@@ -896,8 +913,13 @@ async fn signing_keypair_read_on_an_unavailable_database_refuses_without_paging_
     close_pool(&database).await;
 
     let captured = Captured::start();
-    let loaded =
-        load_or_store_first_keypair(database.as_security_repository(), TEST_RSA_BITS).await;
+    let mut queue = KeyStoreQueue::new(Some(Instant::now()), "rsa_keypairs");
+    let loaded = loop {
+        match load_or_store_first_keypair(database.as_security_repository(), TEST_RSA_BITS).await {
+            Err(e) if queue.wait_after(&e).await => {}
+            done => break done,
+        }
+    };
 
     let Err(refused) = loaded else {
         panic!("keypairs the database cannot serve must refuse the boot");

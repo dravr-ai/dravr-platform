@@ -89,21 +89,43 @@ jobs:
         # roll waits until no dev service (the list lives in the script) is
         # mid-rollout, then waits for its own service to settle. A timeout fails
         # the job rather than deploying into a rollout.
-        # carnet#1129: the API roll also waits for 6 free Cloud SQL slots
-        # (room for the 3 new instances to boot beside the old revision; the boot
-        # reads are sequential, so each needs one), so the new revision
-        # does not boot into the slots the old one still holds.
+        # carnet#1129: the API roll also waits for 6 free Cloud SQL slots, one
+        # pool's worth for the single pod the deploy below starts beside the old
+        # revision (carnet#1269).
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
         run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --db-headroom 6 --timeout-seconds 900
 
       - name: Deploy backend API to Cloud Run
+        id: deploy
         uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}
+          no_traffic: true
+
+      # The new revision boots ONE pod while the old revision keeps every request
+      # (carnet#1269). Rolled with traffic, Cloud Run started as many new pods as
+      # the old revision ran, all at once: on 2026-10-29 three new pods booted
+      # beside three old ones holding 18 of Cloud SQL's 22 slots, and two waited
+      # out their 150 s boot window and restarted. A revision is Ready only once
+      # its pod passes the startup probe, which follows the boot key read, so
+      # Ready is the proof that one pod reached the database. Then traffic moves,
+      # the old pods go idle and give their slots back, and the rest of the new
+      # pods start as load asks for them.
+      # Runs whatever the deploy's outcome, a cancelled job included:
+      # `no_traffic` pins traffic to the revision serving now, and a pin left
+      # behind holds until something moves traffic back (2026-05-25, 22 hours).
+      # `--to-latest` routes to the latest READY revision, so after a failed
+      # deploy it keeps the old one serving.
+      - name: Move traffic to the new revision
+        if: ${{ always() && steps.deploy.outcome != 'skipped' }}
+        env:
+          SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: gcloud run services update-traffic "${SERVICE}" --region "${REGION}" --to-latest --quiet
 
       - name: Wait for the API to settle
         env:

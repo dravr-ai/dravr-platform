@@ -66,7 +66,8 @@ pub const RSA_KEYPAIR_LOAD_FAILED: &str = "key_material.rsa_keypair_load_failed"
 pub const RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT: &str =
     "key_material.rsa_keypair_minted_over_ciphertext";
 
-/// The database could not serve a key-store read at boot.
+/// The database could not serve a boot key-store read before the boot
+/// deadline; [`KeyStoreQueue`] logs it once, when it gives up.
 ///
 /// No free connection slot, a closed pool, a lost connection: the key is not
 /// in question, so the event stays out of the `key_material.` namespace the
@@ -79,16 +80,18 @@ pub const RSA_KEYPAIR_MINTED_OVER_CIPHERTEXT: &str =
 /// restore the key from a point-in-time clone (carnet#1130).
 pub(crate) const KEY_STORE_UNAVAILABLE: &str = "database.key_store_unavailable";
 
-/// The event a failed key-store read logs under: `database.key_store_unavailable`
-/// when the database could not serve it, `key_event` for anything that puts
-/// the stored key itself in question.
+/// The event a failed key-store read logs under at its read site: `key_event`
+/// for anything that puts the stored key itself in question, nothing when the
+/// database could not serve the read.
+///
+/// That second case is the [`KeyStoreQueue`] retrying the read's job: it logs
+/// each wait at `WARN` and [`KEY_STORE_UNAVAILABLE`] at `ERROR` once, when it
+/// gives up. A read site that logged it too paged Slack on every queued retry,
+/// two booting instances every 30 s through the 2026-10-29 rollout
+/// (carnet#1269).
 #[must_use]
-pub fn key_read_event(error: &AppError, key_event: &'static str) -> &'static str {
-    if error.code == ErrorCode::ResourceUnavailable {
-        KEY_STORE_UNAVAILABLE
-    } else {
-        key_event
-    }
+pub fn key_read_event(error: &AppError, key_event: &'static str) -> Option<&'static str> {
+    (error.code != ErrorCode::ResourceUnavailable).then_some(key_event)
 }
 
 /// `SQLSTATE` 53300 `too_many_connections`: Postgres refused the connection
@@ -181,7 +184,9 @@ impl KeyStoreQueue {
     }
 
     /// Whether the read that failed with `error` should run again. When it
-    /// should, this has already logged [`KEY_STORE_QUEUED`] and slept.
+    /// should, this has already logged [`KEY_STORE_QUEUED`] and slept; when
+    /// the database still cannot serve it at the deadline, this logs
+    /// [`KEY_STORE_UNAVAILABLE`] once and the boot is refused.
     pub async fn wait_after(&mut self, error: &AppError) -> bool {
         if error.code != ErrorCode::ResourceUnavailable {
             return false;
@@ -190,6 +195,14 @@ impl KeyStoreQueue {
             at.saturating_duration_since(Instant::now())
         });
         if remaining.is_zero() {
+            error!(
+                event = KEY_STORE_UNAVAILABLE,
+                what = self.what,
+                attempts = self.attempt,
+                error_code = ?error.code,
+                error = %error,
+                "The database could not serve the boot key-store read; refusing to boot"
+            );
             return false;
         }
         warn!(
@@ -582,7 +595,7 @@ mod tests {
         }
     }
 
-    fn classified(error: &sqlx::Error) -> &'static str {
+    fn classified(error: &sqlx::Error) -> Option<&'static str> {
         key_read_event(
             &key_store_query_error("Database query failed", error),
             DEK_READ_FAILED,
@@ -599,7 +612,8 @@ mod tests {
             sqlx::Error::Database(Box::new(Sqlstate(CANNOT_CONNECT_NOW))),
         ];
         for error in &unavailable {
-            assert_eq!(classified(error), KEY_STORE_UNAVAILABLE, "{error}");
+            // The queue retrying the read reports it, not the read site.
+            assert_eq!(classified(error), None, "{error}");
             assert_eq!(
                 key_store_query_error("Database query failed", error).code,
                 ErrorCode::ResourceUnavailable,
@@ -617,7 +631,7 @@ mod tests {
             sqlx::Error::Database(Box::new(Sqlstate("42P01"))),
         ];
         for error in &answered {
-            assert_eq!(classified(error), DEK_READ_FAILED, "{error}");
+            assert_eq!(classified(error), Some(DEK_READ_FAILED), "{error}");
             assert_eq!(
                 key_store_query_error("Database query failed", error).code,
                 ErrorCode::DatabaseError,
@@ -633,7 +647,7 @@ mod tests {
         assert!(!KEY_STORE_UNAVAILABLE.starts_with("key_material."));
         assert_eq!(
             key_read_event(&AppError::not_found("System secret"), DEK_READ_FAILED),
-            DEK_READ_FAILED
+            Some(DEK_READ_FAILED)
         );
     }
 

@@ -64,6 +64,16 @@ const FIRST_TICK_CAP: Duration = Duration::from_secs(30);
 /// retries next minute, an hourly one within a quarter hour.
 const TICK_LEASE: Duration = Duration::from_mins(15);
 
+/// Consecutive failed ticks a worker logs at `WARN` before it logs at `ERROR`.
+///
+/// One failed pass is retried next interval, and its cause is usually a
+/// database that briefly had no free connection: on 2026-10-29 a rollout
+/// filled every Postgres slot for five minutes and two workers posted ERROR
+/// alerts for passes the next tick ran fine (carnet#1269). A worker that fails
+/// twice in a row is broken, not unlucky, and pages; for a long worker the
+/// retry comes within [`TICK_LEASE`], so the page is at most that late.
+const TICK_FAILURES_BEFORE_ERROR: u32 = 2;
+
 /// Run `tick` on a fixed period, in a spawned task, for as long as the
 /// process lives — resuming the schedule the ledger records rather than
 /// restarting it.
@@ -72,8 +82,9 @@ const TICK_LEASE: Duration = Duration::from_mins(15);
 /// finished tick on record, or within [`FIRST_TICK_CAP`] when there is no
 /// record or the worker is overdue. Every tick is claimed in the ledger
 /// before it runs, so across instances a due tick runs once. A tick that
-/// returns an error is logged and retried, and a tick that *panics* is
-/// caught, logged and retried too — the worker outliving one bad pass is
+/// returns an error is logged (at `WARN` until it fails
+/// [`TICK_FAILURES_BEFORE_ERROR`] times in a row) and retried, and a tick
+/// that *panics* is caught, logged and retried too — the worker outliving one bad pass is
 /// the whole point of a best-effort sweep. Neither outcome stamps the
 /// last-run time; both defer the worker by the shorter of `period` and
 /// [`TICK_LEASE`], so the retry is next interval for a short worker and
@@ -129,6 +140,7 @@ fn run_periodic(
             "periodic worker started"
         );
 
+        let mut failed_in_a_row: u32 = 0;
         loop {
             sleep(wait_until_due(name, period, period_ms, ledger.as_ref()).await).await;
 
@@ -162,10 +174,16 @@ fn run_periodic(
                     {
                         warn!(worker = name, error = %e, "worker ledger finish failed; the tick will repeat after its lease");
                     }
+                    failed_in_a_row = 0;
                     continue;
                 }
                 Ok(Err(e)) => {
-                    error!(worker = name, error = %e, "tick errored — retrying next interval ({name})");
+                    failed_in_a_row = failed_in_a_row.saturating_add(1);
+                    if failed_in_a_row < TICK_FAILURES_BEFORE_ERROR {
+                        warn!(worker = name, error = %e, failed_in_a_row, "tick errored — retrying next interval ({name})");
+                    } else {
+                        error!(worker = name, error = %e, failed_in_a_row, "tick errored — retrying next interval ({name})");
+                    }
                 }
                 // The default panic hook has already printed the payload and
                 // location to stderr; this line says which worker survived it.

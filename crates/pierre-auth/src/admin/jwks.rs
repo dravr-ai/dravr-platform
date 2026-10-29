@@ -535,12 +535,14 @@ async fn store_first_keypair(
 /// safe.
 async fn count_ciphertext_before_mint(security: &dyn SecurityRepository) -> AppResult<i64> {
     security.count_encrypted_rows().await.inspect_err(|e| {
-        error!(
-            event = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED),
-            error_code = ?e.code,
-            error = %e,
-            "Failed to count encrypted rows before storing the first RSA keypair"
-        );
+        if let Some(event) = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED) {
+            error!(
+                event,
+                error_code = ?e.code,
+                error = %e,
+                "Failed to count encrypted rows before storing the first RSA keypair"
+            );
+        }
     })
 }
 
@@ -594,12 +596,14 @@ async fn load_rsa_keypairs_or_page(
     security: &dyn SecurityRepository,
 ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
     security.load_rsa_keypairs().await.inspect_err(|e| {
-        error!(
-            event = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED),
-            error_code = ?e.code,
-            error = %e,
-            "Failed to read the persisted RSA keypairs"
-        );
+        if let Some(event) = key_read_event(e, RSA_KEYPAIR_LOAD_FAILED) {
+            error!(
+                event,
+                error_code = ?e.code,
+                error = %e,
+                "Failed to read the persisted RSA keypairs"
+            );
+        }
     })
 }
 

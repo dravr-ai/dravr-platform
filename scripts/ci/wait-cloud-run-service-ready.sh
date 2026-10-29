@@ -48,9 +48,14 @@
 #     revision block the very deploy that fixes it. Service mode fails at once,
 #     because that rollout was ours.
 #   - SPLIT: traffic pinned to an older revision (a diagnostic
-#     `update-traffic --to-revisions`). deploy-cloudrun never touches traffic, so
-#     no deploy clears it, and terraform apply-dev, which does, waits here too:
-#     blocking would wedge every deploy for good. Service mode keeps waiting and
+#     `update-traffic --to-revisions`, or a `no_traffic` deploy whose traffic
+#     move never ran). Only the API's deploy moves traffic, with
+#     `update-traffic --to-latest` right after its `no_traffic` deploy
+#     (carnet#1269); no other service's deploy clears a pin, and terraform
+#     apply-dev, which does, waits here too: blocking would wedge every deploy
+#     for good. Between the API's deploy and its traffic move the API reads as
+#     SPLIT for a few seconds, a window a quiesce can pass through like the
+#     jitter race below. Service mode keeps waiting and
 #     times out naming the remedy, because a deploy that lands without traffic
 #     shipped nothing.
 #
