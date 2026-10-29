@@ -18,8 +18,10 @@
 //! - **On read** every surface that shows a stored protocol shows, in its
 //!   place, that the amounts are withheld and why: `get_training_plan`
 //!   ([`FuelingDisclosure::redact_weeks`]), the plan card
-//!   ([`FuelingDisclosure::day_fueling`]), and the prompt's plan block and the
-//!   calendar note ([`FuelingDisclosure::clause`]). A protocol saved before the
+//!   ([`FuelingDisclosure::day_fueling`]), the prompt's plan block
+//!   ([`FuelingDisclosure::clause`]) and the calendar note
+//!   ([`FuelingDisclosure::day_line`], which names the day's fuel products
+//!   after the rates, as the card does). A protocol saved before the
 //!   flag was raised is withheld the same way, and the next push rewrites a
 //!   calendar note that still carries its rates.
 //!
@@ -36,6 +38,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::medical_flag::{nutrition_figures_gate, FiguresWithheld};
+use crate::plan_fuel_products::PlanFuelProducts;
 
 /// What a plan surface prints where a withheld protocol's rates would be:
 /// the prompt block's `fuel:` clause and the calendar note's fuelling line.
@@ -104,6 +107,31 @@ impl FuelingDisclosure {
             Self::Shown => protocol.summary(),
             Self::Withheld(_) => FUELING_WITHHELD_CLAUSE.to_owned(),
         }
+    }
+
+    /// A day's one fuel line, as the calendar note prints it and the plan
+    /// card composes it: the protocol's rates — or [`FUELING_WITHHELD_CLAUSE`]
+    /// — then the fuel products the day names, by name, as in
+    /// "60 g/h carbs · 600 ml/h fluid · Maurten Gel 100, Näak Drink Mix". A
+    /// product's name is not an amount, so it shows whether or not the rates
+    /// do. `None` for a day that carries neither.
+    #[must_use]
+    pub fn day_line(&self, day: &PlannedDay, products: &PlanFuelProducts) -> Option<String> {
+        let mut parts: Vec<String> = day
+            .fueling
+            .as_ref()
+            .map(|protocol| self.clause(protocol))
+            .into_iter()
+            .collect();
+        let named: Vec<String> = products
+            .day(day)
+            .into_iter()
+            .map(|product| product.name)
+            .collect();
+        if !named.is_empty() {
+            parts.push(named.join(", "));
+        }
+        (!parts.is_empty()).then(|| parts.join(" · "))
     }
 
     /// A day's fuelling as a card shows it: the protocol, or — for a day that

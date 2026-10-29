@@ -30,6 +30,7 @@ use pierre_services::medical_flag::FiguresWithheld;
 use pierre_services::parq;
 use pierre_services::plan_calendar_push::desired_entries;
 use pierre_services::plan_card::try_load_plan_card;
+use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::{FuelingDisclosure, FUELING_WITHHELD_CLAUSE};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -465,12 +466,17 @@ async fn the_calendar_note_carries_rates_unflagged_and_the_clause_flagged() -> R
         .await?;
     let from = NaiveDate::from_ymd_opt(2026, 7, 13).expect("a valid date");
     let ride_note = |disclosure: &FuelingDisclosure| {
-        desired_entries(athlete.user_id, &weeks, from, disclosure)
-            .into_iter()
-            .find(|entry| entry.session.date.format("%Y-%m-%d").to_string() == FUELLED_DATE)
-            .expect("the ride is a calendar entry")
-            .session
-            .notes
+        desired_entries(
+            athlete.user_id,
+            &weeks,
+            from,
+            (disclosure, &PlanFuelProducts::default()),
+        )
+        .into_iter()
+        .find(|entry| entry.session.date.format("%Y-%m-%d").to_string() == FUELLED_DATE)
+        .expect("the ride is a calendar entry")
+        .session
+        .notes
     };
 
     let shown = FuelingDisclosure::for_athlete(repos, athlete.tenant, athlete.user_id).await?;

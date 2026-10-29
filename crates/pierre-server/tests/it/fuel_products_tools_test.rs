@@ -13,6 +13,9 @@ use anyhow::Result;
 use pierre_core::models::{FuelRejectReason, ProposalSource, ProposalStatus, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_services::plan_calendar_push::desired_entries;
+use pierre_services::plan_fuel_products::PlanFuelProducts;
+use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
@@ -520,6 +523,39 @@ async fn a_plan_day_names_only_products_the_athlete_carries() -> Result<()> {
     assert!(
         prompt.contains("fuel products: Carried Gel ") && prompt.contains(&format!("[{carried}]")),
         "{prompt}"
+    );
+
+    // The calendar note carries one fuel line, as the plan card does: the
+    // rates, then the products by name.
+    let repos = executor.resources.repos();
+    let tenant_id = TenantId::parse_str(&tenant)?;
+    let stored = repos
+        .training_plans
+        .get_active_plan(&tenant, &athlete.to_string())
+        .await?
+        .expect("the saved plan");
+    let weeks = repos
+        .training_plans
+        .list_plan_weeks(&tenant, &athlete.to_string(), &stored.id, false)
+        .await?;
+    let disclosure = FuelingDisclosure::for_athlete(repos, tenant_id, athlete).await?;
+    let products = PlanFuelProducts::for_weeks(repos, &weeks).await?;
+    let note = desired_entries(
+        athlete,
+        &weeks,
+        chrono::NaiveDate::from_ymd_opt(2026, 7, 13).expect("valid date"),
+        (&disclosure, &products),
+    )
+    .into_iter()
+    .find(|entry| entry.session.date.to_string() == "2026-07-15")
+    .expect("the long ride is a calendar entry")
+    .session
+    .notes;
+    let line = note.lines().last().expect("a fuel line");
+    assert!(
+        line.starts_with("60 g/h carbs · 600 ml/h fluid · Carried Gel ")
+            && line.ends_with("(Citrus)"),
+        "{note}"
     );
     Ok(())
 }

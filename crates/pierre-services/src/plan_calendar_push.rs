@@ -47,6 +47,7 @@ use pierre_providers::ProviderRegistry;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::plan_fuel_products::PlanFuelProducts;
 use crate::plan_fueling::FuelingDisclosure;
 
 pub use crate::plan_calendar_render::{
@@ -357,9 +358,9 @@ fn cancel_requested(params: &PushPlanParams<'_>) -> bool {
 ///
 /// Returns `UnavailableOverTransport` when the plan is stamped
 /// first-party-only and the caller is an external transport. Returns an
-/// error when the athlete has no active plan, or when the ledger,
-/// the athlete's medical flag or the provider's calendar cannot be read at
-/// all. Per-entry write failures are reported in [`PushReport::failed`], not
+/// error when the athlete has no active plan, or when the ledger, the
+/// athlete's medical flag, the fuel catalogue or the provider's calendar
+/// cannot be read at all. Per-entry write failures are reported in [`PushReport::failed`], not
 /// raised.
 pub async fn push_active_plan(
     repos: &RepositoryRegistry,
@@ -393,8 +394,9 @@ pub async fn push_active_plan(
         .list_plan_weeks(&tenant_str, &user_str, &plan.id, false)
         .await?;
     let fueling = FuelingDisclosure::for_athlete(repos, params.tenant, params.user_id).await?;
+    let products = PlanFuelProducts::for_weeks(repos, &weeks).await?;
     let desired = for_calendar(
-        desired_entries(params.user_id, &weeks, params.from, &fueling),
+        desired_entries(params.user_id, &weeks, params.from, (&fueling, &products)),
         params.week_notes,
     );
     let live_rows: Vec<PrescribedWorkout> = repos

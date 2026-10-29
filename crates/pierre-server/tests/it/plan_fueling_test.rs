@@ -168,8 +168,13 @@ fn a_day_without_fuelling_writes_no_fuelling_key() {
 /// reaches the athlete on the day, off their phone, mid-ride.
 #[test]
 fn the_calendar_note_carries_the_fuelling_line() {
-    let session = plan_day_session(Uuid::new_v4(), &fuelled_day(), 0, &FuelingDisclosure::Shown)
-        .expect("a fuelled training day is not a rest day");
+    let session = plan_day_session(
+        Uuid::new_v4(),
+        &fuelled_day(),
+        0,
+        (&FuelingDisclosure::Shown, &PlanFuelProducts::default()),
+    )
+    .expect("a fuelled training day is not a rest day");
 
     assert!(
         session.notes.contains("90 g/h carbs"),
@@ -204,7 +209,13 @@ fn a_rest_day_produces_no_session_to_fuel() {
         template_params: None,
         template_source: None,
     };
-    assert!(plan_day_session(Uuid::new_v4(), &rest, 0, &FuelingDisclosure::Shown).is_none());
+    assert!(plan_day_session(
+        Uuid::new_v4(),
+        &rest,
+        0,
+        (&FuelingDisclosure::Shown, &PlanFuelProducts::default())
+    )
+    .is_none());
 }
 
 /// The agent reads its own prescription back on the next turn.

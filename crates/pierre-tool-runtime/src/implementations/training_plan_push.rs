@@ -20,6 +20,7 @@ use pierre_services::plan_calendar_push::{
     calendar_holds_week_notes, desired_entries, diff_against_ledger, for_calendar,
     push_active_plan, PushPlanParams, PushReport,
 };
+use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;
 use tracing::warn;
@@ -50,7 +51,8 @@ const PUSH_TOOL: &str = "push_training_plan";
 /// Each entry carries its `prescription_id` so a later turn can name it to
 /// `prescribe_workout`'s `replaces` or to `withdraw_prescribed_workout`, and
 /// its `source` so the model knows which entries belong to the plan instead.
-/// `fueling` is the disclosure a push would render the days with, so the
+/// `fueling` is the disclosure a push would render the days with, and the
+/// fuel products the days name are read here as the push reads them, so the
 /// pending counts match what the push would write. `scope` is whose plan it
 /// is and who reads it: an athlete reading the calendar their human coach's
 /// link holds is told the coach pushes it ([`CalendarBlock::pushed_by`]).
@@ -77,8 +79,9 @@ pub(super) async fn calendar_block(
     // An entry pushed from first-party-only data is withheld from an external
     // caller; the rest are served (carnet#769).
     ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
+    let products = PlanFuelProducts::for_weeks(repos, active_weeks).await?;
     let desired = for_calendar(
-        desired_entries(user_id, active_weeks, today, fueling),
+        desired_entries(user_id, active_weeks, today, (fueling, &products)),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),
     );
     let pending = diff_against_ledger(&desired, &live)?;
@@ -177,8 +180,12 @@ pub(super) async fn calendar_preview_after_save(
             .await,
         "plan weeks unreadable for the calendar preview",
     )?;
+    let products = best_effort(
+        PlanFuelProducts::for_weeks(repos, &weeks).await,
+        "fuel products unreadable for the calendar preview",
+    )?;
     let desired = for_calendar(
-        desired_entries(user_id, &weeks, today, fueling),
+        desired_entries(user_id, &weeks, today, (fueling, &products)),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),
     );
     let pending = best_effort(
