@@ -457,6 +457,8 @@ pub mod weather_backfill;
 
 /// Push an athlete's active training plan to a provider calendar and reconcile the ledger.
 pub mod plan_calendar_push;
+/// Render plan days and week focuses into the calendar sessions a push writes.
+pub mod plan_calendar_render;
 
 /// What kind of account a `TrainingPeaks` connection signed in with, and what a coach account is granted.
 pub mod trainingpeaks_accounts;
