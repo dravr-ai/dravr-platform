@@ -72,6 +72,11 @@ const SOURCE_LABELS: Record<string, string> = {
 /** One field's edit: untouched, a typed value, or cleared. */
 type FieldEdit = { mode: 'set'; text: string } | { mode: 'clear' };
 
+/** Whether a stored source URL is safe to open as a link: http(s) only, never `javascript:`. */
+function isWebLink(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim());
+}
+
 function productName(p: { brand: string; name: string; variant: string }): string {
   return [p.brand, p.name, p.variant].filter((part) => part.trim().length > 0).join(' · ');
 }
@@ -314,7 +319,12 @@ function ProposalDrawer({
             {proposal.form.replace('_', ' ')} · from {SOURCE_LABELS[proposal.source_kind] ?? proposal.source_kind}
             {proposal.gtin && ` · GTIN ${proposal.gtin}`}
           </p>
-          {proposal.source_url && (
+          {proposal.source_url && !isWebLink(proposal.source_url) && (
+            <p className="break-all text-xs text-on-surface-variant" data-testid="fuel-proposal-source-text">
+              Source: {proposal.source_url}
+            </p>
+          )}
+          {proposal.source_url && isWebLink(proposal.source_url) && (
             <a
               href={proposal.source_url}
               target="_blank"

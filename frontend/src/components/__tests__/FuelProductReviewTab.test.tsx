@@ -154,6 +154,16 @@ describe('FuelProductReviewTab', () => {
     expect(within(drawer).getByTestId('fuel-fact-sodium_mg')).toHaveTextContent('No recorded source');
   });
 
+  it('never renders a non-web source URL as a link', async () => {
+    vi.mocked(adminApi.getFuelProposal).mockResolvedValue({
+      proposal: proposal({ source_url: 'javascript:alert(1)' }),
+      source_image_bytes: 1234,
+    });
+    const drawer = await openDrawer();
+    expect(await within(drawer).findByTestId('fuel-proposal-source-text')).toHaveTextContent('javascript:alert(1)');
+    expect(within(drawer).queryByTestId('fuel-proposal-source-link')).toBeNull();
+  });
+
   it('sends a changed value and a cleared one with Save and approve', async () => {
     vi.mocked(adminApi.approveFuelProposal).mockResolvedValue({
       outcome: 'approved',
