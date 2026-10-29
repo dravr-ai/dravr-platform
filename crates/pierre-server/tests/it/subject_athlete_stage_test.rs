@@ -20,6 +20,7 @@
 
 use crate::common;
 use crate::helpers;
+use crate::helpers::fuel_fixtures;
 
 use std::sync::{Arc, Mutex};
 
@@ -92,6 +93,10 @@ const OWN_PROVIDERS_MARKER: &str = "Connected Fitness Data Providers";
 /// Heads the prompt's plan block.
 const PLAN_BLOCK: &str = "## Current training plan (persisted)";
 const WELLNESS_HEADING: &str = "Mira Subject's wellness, through the coach's";
+/// Heads the athlete's fuel-products block.
+const FUEL_BLOCK: &str = "## Fuel products the athlete carries";
+const SUBJECT_GEL: &str = "SubjectCarriedGel";
+const COACH_GEL: &str = "CoachOwnGel";
 
 /// Records every system prompt it is sent, and every call's other messages;
 /// on [`READ_ASK`] it reads the plan once, then answers in prose.
@@ -460,6 +465,29 @@ impl Fixture {
             )
             .await;
         assert_eq!(saved["draft"], true, "the coach's save is a draft: {saved}");
+    }
+
+    /// `who`'s save through the plan tool inside `conversation`, which must be
+    /// refused: what the refusal says.
+    async fn save_refused(&self, who: &Person, conversation: &str, args: Value) -> String {
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
+        let ctx = ToolContext::new()
+            .with_user(who.id.to_string())
+            .with_tenant(who.tenant.to_string())
+            .with_auth_method("jwt_bearer");
+        let refused = CONVERSATION_ID
+            .scope(Some(conversation.to_owned()), async {
+                SaveTrainingPlanTool
+                    .execute(&runtime, &ctx, args)
+                    .await
+                    .structured_content
+                    .expect("tool result carries structured content")
+            })
+            .await;
+        refused
+            .get("error")
+            .unwrap_or_else(|| panic!("the save must be refused: {refused}"))
+            .to_string()
     }
 
     /// One coach turn in `conversation`: the coaching call's system prompt,
@@ -906,6 +934,71 @@ async fn the_plan_block_shows_the_coachs_draft_over_the_live_season() {
         "the drafted week in place of the live one: {plan_block}"
     );
     assert!(!prompt.contains(COACH_RACE));
+}
+
+/// A week whose first day names `products`.
+fn week_naming(start: NaiveDate, products: &[Uuid]) -> Value {
+    let mut drafted = week(start, "coach week zero", COACH_WORKOUT);
+    drafted["days"][0]["fuel_product_ids"] = json!(products);
+    drafted
+}
+
+/// The athlete's fuel products reach the coach's thread through prompt
+/// assembly — the athlete's, never the coach's own — and a draft day naming a
+/// product the athlete does not carry is refused with the remedy the coach
+/// has: the fuel tools would act on the coach's own list, so the refusal
+/// names the athlete's list the thread shows instead.
+#[tokio::test]
+async fn the_athletes_fuel_products_reach_the_thread_and_bound_the_draft() {
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    let repos = fx.repos();
+    let subject_gel = fuel_fixtures::approved_gel(repos, fx.other.id, SUBJECT_GEL).await;
+    let coach_gel = fuel_fixtures::approved_gel(repos, fx.other.id, COACH_GEL).await;
+    for (who, gel) in [(&fx.subject, subject_gel), (&fx.coach, coach_gel)] {
+        repos
+            .athlete_fuel_items
+            .add_fuel_product_item(who.tenant, who.id, gel, None)
+            .await
+            .unwrap();
+    }
+
+    let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
+    let fuel = &prompt[prompt.find(FUEL_BLOCK).expect("the athlete's fuel block")..];
+    assert!(
+        fuel.contains(SUBJECT_GEL) && fuel.contains(&format!("product_id {subject_gel}")),
+        "the athlete's carried product: {fuel}"
+    );
+    assert!(
+        !prompt.contains(COACH_GEL),
+        "the coach's own list never reaches the athlete's thread"
+    );
+
+    let refusal = fx
+        .save_refused(
+            &fx.coach,
+            &fx.thread,
+            json!({ "weeks": [week_naming(monday(0), &[coach_gel])] }),
+        )
+        .await;
+    assert!(
+        refusal.contains("not on this athlete's fuel list")
+            && refusal.contains("the athlete's fuel products shown in this thread"),
+        "{refusal}"
+    );
+    assert!(
+        !refusal.contains("add_fuel_item") && !refusal.contains("list_fuel_items"),
+        "the fuel tools act on the coach's own list: {refusal}"
+    );
+
+    let saved = fx
+        .saves(
+            &fx.coach,
+            Some(&fx.thread),
+            json!({ "weeks": [week_naming(monday(0), &[subject_gel])] }),
+        )
+        .await;
+    assert_eq!(saved["draft"], true, "{saved}");
 }
 
 #[tokio::test]

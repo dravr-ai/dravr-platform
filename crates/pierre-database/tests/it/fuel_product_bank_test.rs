@@ -763,6 +763,81 @@ async fn an_athlete_carries_at_most_the_cap() {
         .unwrap();
 }
 
+#[tokio::test]
+async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let cap = usize::try_from(MAX_FUEL_ITEMS_PER_ATHLETE).unwrap();
+    let mut items = Vec::with_capacity(cap);
+    for _ in 0..cap {
+        items.push(
+            repos
+                .athlete_fuel_items
+                .file_and_carry_fuel_proposal(
+                    tenant,
+                    athlete,
+                    &proposal("Filed", gel_facts()),
+                    None,
+                )
+                .await
+                .unwrap(),
+        );
+    }
+
+    // At the cap the filing and the item are refused together: the proposal
+    // is not left in the review queue with no athlete carrying it.
+    let one_more = proposal("Filed", gel_facts());
+    let hash = one_more.source_hash.clone().expect("a source hash");
+    assert!(repos
+        .athlete_fuel_items
+        .file_and_carry_fuel_proposal(tenant, athlete, &one_more, Some("race day"))
+        .await
+        .is_err());
+    assert!(
+        !repos
+            .fuel_catalogue
+            .fuel_proposal_exists_by_hash(&hash)
+            .await
+            .unwrap(),
+        "a refused filing queues nothing"
+    );
+
+    // With a slot free the same filing lands, carried pending with its note.
+    assert!(repos
+        .athlete_fuel_items
+        .remove_fuel_item(tenant, athlete, items[0])
+        .await
+        .unwrap());
+    let item = repos
+        .athlete_fuel_items
+        .file_and_carry_fuel_proposal(tenant, athlete, &one_more, Some("race day"))
+        .await
+        .unwrap();
+    assert!(repos
+        .fuel_catalogue
+        .fuel_proposal_exists_by_hash(&hash)
+        .await
+        .unwrap());
+    let listed = repos
+        .athlete_fuel_items
+        .list_fuel_items(tenant, athlete)
+        .await
+        .unwrap();
+    let carried = listed
+        .iter()
+        .find(|listed| listed.id == item)
+        .expect("the filed item is carried");
+    assert_eq!(carried.note.as_deref(), Some("race day"));
+    match &carried.entry {
+        FuelItemEntry::Pending(pending) => assert_eq!(pending.status, ProposalStatus::Pending),
+        FuelItemEntry::Catalogue(product) => {
+            panic!("a filed product is carried pending: {product:?}")
+        }
+    }
+}
+
 /// How many adds race in [`concurrent_adds_keep_the_cap_and_one_item_per_product`].
 const RACERS: usize = 8;
 

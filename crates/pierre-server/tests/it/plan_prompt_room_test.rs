@@ -11,7 +11,7 @@
 //!
 //! - The plan block rides every direct turn's system prompt and no room
 //!   turn's: a room's reply is posted to every member, and the plan is the
-//!   speaker's own.
+//!   speaker's own. The fuel products the athlete carries go with it.
 //! - A `@taper` turn inside the endurance conversation writes as the taper
 //!   agent — the agent the athlete addressed — not the conversation's.
 //! - The headless tool surface an ACP agent calls back through carries the
@@ -31,6 +31,7 @@ use embacle::types::ToolCallRequest;
 use embacle_tool_host::ToolSurface;
 use futures_util::stream;
 use helpers::agent_fixtures::{install_catalogue_agent, publish_catalogue_agent};
+use helpers::fuel_fixtures;
 use pierre_chat_pipeline::stages::agent_mention::resolve_agent_mention;
 use pierre_chat_pipeline::{
     InputSource, PipelineHooks, QuotaState, SurfaceId, SurfaceProfile, SurfaceRequest,
@@ -61,6 +62,8 @@ const MODEL: &str = "plan-room-model";
 const ANSWER: &str = "On garde le cap sur ta saison.";
 /// The heading the plan block opens with in the system prompt.
 const PLAN_BLOCK: &str = "## Current training plan (persisted)";
+/// The heading the athlete's fuel-products block opens with.
+const FUEL_BLOCK: &str = "## Fuel products the athlete carries";
 
 /// Records every system prompt it is sent; calls `tool` once when given one.
 ///
@@ -327,6 +330,14 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
     let (user, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = athlete_tenant(&resources, user).await;
     lay_season(&resources, user, tenant, PlanAuthor::none()).await;
+    let gel = fuel_fixtures::approved_gel(&resources.common.repos, user, "RoomGel").await;
+    resources
+        .common
+        .repos
+        .athlete_fuel_items
+        .add_fuel_product_item(tenant, user, gel, None)
+        .await
+        .unwrap();
     let conversation = resources
         .common
         .repos
@@ -355,6 +366,13 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
         dm_prompt.contains("Ultra Trail"),
         "with the athlete's season in it"
     );
+    let fuel = &dm_prompt[dm_prompt
+        .find(FUEL_BLOCK)
+        .expect("the DM carries the fuel block")..];
+    assert!(
+        fuel.contains(&format!("product_id {gel}")),
+        "with the athlete's carried product in it: {fuel}"
+    );
 
     let before_room = prompts.lock().unwrap().len();
     pierre_chat_pipeline::run(
@@ -370,6 +388,10 @@ async fn the_plan_block_rides_the_dm_prompt_and_never_a_room_turns() {
     assert!(
         !room_prompt.contains(PLAN_BLOCK) && !room_prompt.contains("Ultra Trail"),
         "a room turn's prompt carries no plan block: the reply goes to every member"
+    );
+    assert!(
+        !room_prompt.contains(FUEL_BLOCK) && !room_prompt.contains("RoomGel"),
+        "nor the athlete's fuel products, withheld with the plan"
     );
 }
 

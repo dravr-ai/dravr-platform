@@ -58,7 +58,9 @@ use super::training_plan_authorship::{
     agent_title, load_conversation, plan_authors, season_held_refusal,
 };
 use super::training_plan_drafts::{draft_section, save_into_draft, DraftSave};
-use super::training_plan_fuel_products::{check_fuel_products, validate_day_fuel_products};
+use super::training_plan_fuel_products::{
+    check_fuel_products, validate_day_fuel_products, FuelProductsReader,
+};
 use super::training_plan_push::{calendar_block, calendar_preview_after_save};
 use super::training_plan_rails::{run_live_plan_rails, LivePlanWrite};
 use super::training_plan_schema::{
@@ -934,7 +936,14 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             check_template_slugs(&catalogue, repos, tenant, scope.user_id, &mut weeks).await?;
             let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
             fueling.refuse_figures(weeks.iter().flat_map(|week| &week.days))?;
-            check_fuel_products(repos, tenant, scope.user_id, &weeks).await?;
+            check_fuel_products(
+                repos,
+                tenant,
+                scope.user_id,
+                &weeks,
+                FuelProductsReader::for_save(scope.acting_for.as_deref()),
+            )
+            .await?;
 
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.

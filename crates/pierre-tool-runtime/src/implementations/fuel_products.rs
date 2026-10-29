@@ -44,7 +44,7 @@ use pierre_core::models::{
     check_plausibility, fuel_natural_key, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct,
     FactProvenance, FactSource, FieldProvenance, FuelFacts, FuelForm, FuelItemCarried,
     FuelItemEntry, NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalStatus,
-    TenantId, MAX_FUEL_ITEMS_PER_ATHLETE,
+    TenantId,
 };
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
@@ -607,19 +607,13 @@ impl McpTool<dyn ToolRuntime> for AddFuelItemTool {
                         )
                         .await;
                     }
-                    let live = items.len();
-                    if i64::try_from(live).unwrap_or(i64::MAX) >= MAX_FUEL_ITEMS_PER_ATHLETE {
-                        return Err(AppError::invalid_input(format!(
-                            "the athlete carries {MAX_FUEL_ITEMS_PER_ATHLETE} fuel items, the most \
-                             allowed: remove one with remove_fuel_item first"
-                        )));
-                    }
-                    let proposal_id = repos.fuel_catalogue.create_fuel_proposal(&proposal).await?;
-                    let carried = repos
+                    // Filed and carried in one transaction: at the item cap
+                    // the filing is refused with it, never left queued alone.
+                    let item_id = repos
                         .athlete_fuel_items
-                        .add_pending_fuel_item(tenant, user, proposal_id, note.as_deref())
+                        .file_and_carry_fuel_proposal(tenant, user, &proposal, note.as_deref())
                         .await?;
-                    answer_carried(&context, tenant, user, carried).await
+                    answer_carried(&context, tenant, user, FuelItemCarried::Added(item_id)).await
                 }
                 Err(refusal) => Ok(refusal),
             }

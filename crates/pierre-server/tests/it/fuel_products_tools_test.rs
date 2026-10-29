@@ -7,14 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use pierre_core::models::{
-    FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelRejectReason, NewFuelProposal,
-    ProposalSource, ProposalStatus,
-};
+use pierre_core::models::{FuelRejectReason, ProposalSource, ProposalStatus, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocol::UniversalExecutor;
@@ -23,6 +19,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::common;
+use crate::helpers::fuel_fixtures;
 
 async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_server_config();
@@ -96,54 +93,13 @@ async fn refused(
     }
 }
 
-/// A gel label that passes the plausibility gate: 40 g, 25 g carbs, 1:0.8.
-fn gel_facts() -> FuelFacts {
-    FuelFacts {
-        serving_label: Some("1 gel (40 g)".to_owned()),
-        serving_g: Some(40.0),
-        carbs_g: Some(25.0),
-        sugars_g: Some(12.0),
-        sodium_mg: Some(50.0),
-        caffeine_mg: Some(100.0),
-        glucose_fructose_ratio: Some(0.8),
-        ..FuelFacts::default()
-    }
-}
-
 /// An approved catalogue product, with `reviewer` as the operator.
 async fn catalogue_product(
     executor: &UniversalToolExecutor,
     reviewer: Uuid,
     brand: &str,
 ) -> Result<Uuid> {
-    let repos = executor.resources.repos();
-    let proposal_id = repos
-        .fuel_catalogue
-        .create_fuel_proposal(&NewFuelProposal {
-            product_id: None,
-            brand: brand.to_owned(),
-            name: format!("Gel {}", Uuid::new_v4().simple()),
-            variant: "Citrus".to_owned(),
-            form: FuelForm::Gel,
-            gtin: None,
-            source_kind: ProposalSource::Admin,
-            source_url: None,
-            source_image: None,
-            source_hash: None,
-            facts: gel_facts(),
-            provenance: BTreeMap::new(),
-            gate_flags: Vec::new(),
-            proposed_by_user_id: None,
-        })
-        .await?;
-    match repos
-        .fuel_catalogue
-        .approve_fuel_proposal(proposal_id, reviewer, &FuelFactOverrides::default())
-        .await?
-    {
-        FuelApprovalOutcome::Approved(product) => Ok(product.product.id),
-        other => panic!("the gel label must be approved: {other:?}"),
-    }
+    Ok(fuel_fixtures::approved_gel(executor.resources.repos(), reviewer, brand).await)
 }
 
 #[tokio::test]
@@ -362,6 +318,81 @@ async fn one_athletes_items_are_not_another_athletes() -> Result<()> {
     Ok(())
 }
 
+/// Two athletes of ONE tenant: the tenant id is shared, so only the `user_id`
+/// filter keeps their lists apart — for a list, a removal, and a plan day
+/// naming the other's product.
+#[tokio::test]
+async fn athletes_sharing_a_tenant_never_reach_each_others_items() -> Result<()> {
+    let executor = create_executor().await?;
+    let (first, tenant) = create_athlete(&executor).await?;
+    let (second, _own_tenant) = create_athlete(&executor).await?;
+    let shared = TenantId::parse_str(&tenant)?;
+    executor
+        .resources
+        .repos()
+        .users
+        .update_tenant_id(second, shared)
+        .await?;
+    let firsts = catalogue_product(&executor, first, "SharedTenantFirst").await?;
+    let seconds = catalogue_product(&executor, first, "SharedTenantSecond").await?;
+
+    let added = call(
+        &executor,
+        "add_fuel_item",
+        json!({"product_id": firsts.to_string()}),
+        first,
+        &tenant,
+    )
+    .await?;
+    let firsts_item = added["item"]["item_id"].clone();
+    call(
+        &executor,
+        "add_fuel_item",
+        json!({"product_id": seconds.to_string()}),
+        second,
+        &tenant,
+    )
+    .await?;
+
+    let theirs = call(&executor, "list_fuel_items", json!({}), second, &tenant).await?;
+    assert_eq!(theirs["count"], 1, "{theirs}");
+    assert_eq!(
+        theirs["items"][0]["product"]["product_id"],
+        seconds.to_string()
+    );
+
+    let removed = call(
+        &executor,
+        "remove_fuel_item",
+        json!({"item_id": firsts_item}),
+        second,
+        &tenant,
+    )
+    .await?;
+    assert_eq!(removed["removed"], false, "a tenant-mate cannot remove it");
+
+    let refusal = refused(
+        &executor,
+        "save_training_plan",
+        plan_naming(&[firsts.to_string()]),
+        second,
+        &tenant,
+    )
+    .await;
+    assert!(
+        refusal.contains("not on this athlete's fuel list"),
+        "a tenant-mate's product is not theirs to plan with: {refusal}"
+    );
+
+    let mine = call(&executor, "list_fuel_items", json!({}), first, &tenant).await?;
+    assert_eq!(mine["count"], 1, "{mine}");
+    assert_eq!(
+        mine["items"][0]["product"]["product_id"],
+        firsts.to_string()
+    );
+    Ok(())
+}
+
 // ============================================================================
 // Plan days that name fuel products
 // ============================================================================
@@ -503,7 +534,6 @@ async fn the_prompt_block_shows_approved_facts_and_pending_items_without_figures
         inject_fuel_products, render_fuel_products_block, FuelBlockReader,
         FUEL_PRODUCTS_PROMPT_LIMIT,
     };
-    use pierre_core::models::TenantId;
 
     let executor = create_executor().await?;
     let (athlete, tenant) = create_athlete(&executor).await?;

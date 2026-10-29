@@ -181,6 +181,23 @@ pub trait AthleteFuelItemRepository: Send + Sync {
         note: Option<&str>,
     ) -> AppResult<FuelItemCarried>;
 
+    /// File a product the catalogue does not hold for review and carry it
+    /// pending, in one transaction under the athlete's item lock: at the
+    /// item cap nothing is written, so no proposal is left queued that no
+    /// athlete carries.
+    ///
+    /// # Errors
+    /// An invalid-input error for a GTIN that is not a normalized GTIN-14 or
+    /// at [`pierre_core::models::MAX_FUEL_ITEMS_PER_ATHLETE`], or a database
+    /// error when its source hash is already queued.
+    async fn file_and_carry_fuel_proposal(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        proposal: &NewFuelProposal,
+        note: Option<&str>,
+    ) -> AppResult<Uuid>;
+
     /// The items the athlete carries, oldest first, each resolved to its
     /// product's current facts or to its proposal.
     async fn list_fuel_items(
@@ -527,6 +544,38 @@ macro_rules! impl_fuel_product_repositories {
                 }
             }
 
+            /// Queue `proposal` inside `tx` and return its id. Its GTIN is
+            /// checked by the caller.
+            async fn insert_fuel_proposal(
+                tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
+                proposal: &NewFuelProposal,
+            ) -> AppResult<Uuid> {
+                let id = Uuid::new_v4();
+                let image = proposal.source_image.as_ref();
+                sqlx::query(INSERT_PROPOSAL_SQL)
+                    .bind($ids::bind(id))
+                    .bind($ids::bind_opt(proposal.product_id))
+                    .bind(proposal.brand.as_str())
+                    .bind(proposal.name.as_str())
+                    .bind(proposal.variant.as_str())
+                    .bind(proposal.form.as_str())
+                    .bind(proposal.gtin.as_deref())
+                    .bind(proposal.source_kind.as_str())
+                    .bind(proposal.source_url.as_deref())
+                    .bind(image.map(|i| i.bytes.clone()))
+                    .bind(image.map(|i| i.mime.clone()))
+                    .bind(proposal.source_hash.as_deref())
+                    .bind(to_json("facts", &proposal.facts)?)
+                    .bind(to_json("provenance", &proposal.provenance)?)
+                    .bind(to_json("gate flags", &proposal.gate_flags)?)
+                    .bind($ids::bind_opt(proposal.proposed_by_user_id))
+                    .bind(Utc::now())
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|e| fuel_error("queue a proposal in", e))?;
+                Ok(id)
+            }
+
             /// The live item of the athlete a lookup selects, if any.
             async fn find_live_fuel_item(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
@@ -638,29 +687,15 @@ macro_rules! impl_fuel_product_repositories {
 
             async fn create_fuel_proposal(&self, proposal: &NewFuelProposal) -> AppResult<Uuid> {
                 check_gtin(proposal.gtin.as_deref())?;
-                let id = Uuid::new_v4();
-                let image = proposal.source_image.as_ref();
-                sqlx::query(INSERT_PROPOSAL_SQL)
-                    .bind($ids::bind(id))
-                    .bind($ids::bind_opt(proposal.product_id))
-                    .bind(proposal.brand.as_str())
-                    .bind(proposal.name.as_str())
-                    .bind(proposal.variant.as_str())
-                    .bind(proposal.form.as_str())
-                    .bind(proposal.gtin.as_deref())
-                    .bind(proposal.source_kind.as_str())
-                    .bind(proposal.source_url.as_deref())
-                    .bind(image.map(|i| i.bytes.clone()))
-                    .bind(image.map(|i| i.mime.clone()))
-                    .bind(proposal.source_hash.as_deref())
-                    .bind(to_json("facts", &proposal.facts)?)
-                    .bind(to_json("provenance", &proposal.provenance)?)
-                    .bind(to_json("gate flags", &proposal.gate_flags)?)
-                    .bind($ids::bind_opt(proposal.proposed_by_user_id))
-                    .bind(Utc::now())
-                    .execute(self.pool())
+                let mut tx = self
+                    .pool()
+                    .begin()
                     .await
-                    .map_err(|e| fuel_error("queue a proposal in", e))?;
+                    .map_err(|e| fuel_error("begin a proposal in", e))?;
+                let id = Self::insert_fuel_proposal(&mut tx, proposal).await?;
+                tx.commit()
+                    .await
+                    .map_err(|e| fuel_error("commit a proposal to", e))?;
                 Ok(id)
             }
 
@@ -941,6 +976,36 @@ macro_rules! impl_fuel_product_repositories {
                         Ok(FuelItemCarried::Added(id))
                     }
                 }
+            }
+
+            async fn file_and_carry_fuel_proposal(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                proposal: &NewFuelProposal,
+                note: Option<&str>,
+            ) -> AppResult<Uuid> {
+                check_gtin(proposal.gtin.as_deref())?;
+                let mut tx = self.begin_fuel_item_write(tenant_id, user_id).await?;
+                let proposal_id = Self::insert_fuel_proposal(&mut tx, proposal).await?;
+                // The cap is counted inside this transaction: refused, the
+                // transaction drops and the proposal goes with it.
+                let id = Self::insert_fuel_item(
+                    &mut tx,
+                    tenant_id,
+                    user_id,
+                    None,
+                    Some(proposal_id),
+                    note,
+                )
+                .await?
+                .ok_or_else(|| {
+                    AppError::database("A just-filed fuel proposal was already carried")
+                })?;
+                tx.commit()
+                    .await
+                    .map_err(|e| fuel_error("commit a filed item to", e))?;
+                Ok(id)
             }
 
             async fn list_fuel_items(
