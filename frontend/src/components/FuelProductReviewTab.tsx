@@ -4,7 +4,7 @@
 // ABOUTME: Super-admin review of the global fuel-product bank — the paged proposal queue, a drawer to correct, approve or reject one, and the paged live catalogue
 // ABOUTME: The drawer (fuelReview/) shows every stored photo and the reader's notes; each fact and identity field can be kept, changed or cleared
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
@@ -23,6 +23,13 @@ function ProposalQueue({ onOpen }: { onOpen: (id: string) => void }) {
     queryKey: QUERY_KEYS.adminFuelProducts.proposals(status, offset),
     queryFn: () => adminApi.listFuelProposals(status, PAGE_SIZE, offset),
   });
+  // Reviewing the last row of the last page empties that page: step back to
+  // the page that now holds the queue's tail rather than show an empty one.
+  const emptiedPage = offset > 0 && proposals.data !== undefined && proposals.data.proposals.length === 0;
+  const tailOffset = Math.max(0, Math.floor(((proposals.data?.total ?? 0) - 1) / PAGE_SIZE) * PAGE_SIZE);
+  useEffect(() => {
+    if (emptiedPage) setOffset(tailOffset);
+  }, [emptiedPage, tailOffset]);
 
   const renderBody = () => {
     if (proposals.isPending) {

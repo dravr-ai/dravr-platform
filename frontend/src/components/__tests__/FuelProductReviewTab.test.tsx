@@ -170,6 +170,34 @@ describe('FuelProductReviewTab', () => {
     await waitFor(() => expect(adminApi.listFuelProposals).toHaveBeenCalledWith('approved', 50, 0));
   });
 
+  it('steps back to the tail page when reviewing empties the last page', async () => {
+    // 51 pending: page two holds one row until it is reviewed, then none.
+    let total = 51;
+    vi.mocked(adminApi.listFuelProposals).mockImplementation(async (status, _limit, offset = 0) => ({
+      proposals:
+        offset < total ? [proposal({ id: `${PROPOSAL_ID.slice(0, -3)}${String(offset).padStart(3, '0')}` })] : [],
+      status,
+      total,
+      limit: 50,
+      offset,
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FuelProductReviewTab />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(within(await screen.findByTestId('fuel-proposals-pager')).getByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('51–51 of 51 pending proposals')).toBeInTheDocument();
+
+    // The row is reviewed: the refetched page two is empty.
+    total = 50;
+    await queryClient.invalidateQueries();
+    await waitFor(() => expect(adminApi.listFuelProposals).toHaveBeenLastCalledWith('pending', 50, 0));
+    expect(await screen.findByTestId('fuel-proposals-list')).toBeInTheDocument();
+    expect(screen.queryByTestId('fuel-proposals-pager')).toBeNull();
+  });
+
   it('opens a drawer with every stored photo, the reader notes, the source link and each fact provenance', async () => {
     const drawer = await openDrawer();
     await waitFor(() => expect(within(drawer).getAllByTestId('fuel-proposal-image')).toHaveLength(2));
