@@ -16,6 +16,9 @@ use crate::similarity::Similarity;
 /// A line found in more files than this is boilerplate, not evidence of a copy.
 const BOILERPLATE_FILE_COUNT: usize = 40;
 
+/// Lines this short (`x;`, `ok`) carry no content of their own.
+const MAX_TRIVIAL_LINE_LEN: usize = 3;
+
 /// Lines that carry no content of their own.
 const STRUCTURAL_LINES: &[&str] = &["}", "};", "});", "),", "{", "})", ");"];
 
@@ -33,7 +36,7 @@ impl SourceLines {
         let lines = source
             .lines()
             .map(str::trim)
-            .filter(|line| line.len() > 3 && !line.starts_with("//"))
+            .filter(|line| line.len() > MAX_TRIVIAL_LINE_LEN && !line.starts_with("//"))
             .filter(|line| !STRUCTURAL_LINES.contains(line))
             .map(str::to_owned)
             .collect();

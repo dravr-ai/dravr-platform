@@ -14,7 +14,7 @@
 //! burying real copies under look-alikes.
 
 use std::collections::HashSet;
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::hash::DefaultHasher;
 
 use syn::punctuated::Punctuated;
 use syn::visit::{self, Visit};
@@ -56,6 +56,8 @@ impl Builder {
     }
 
     fn close(&mut self) {
+        use std::hash::{Hash, Hasher};
+
         let Some((label, children)) = self.stack.pop() else {
             return;
         };
@@ -92,8 +94,11 @@ fn last_segment(path: &syn::Path) -> String {
         .unwrap_or_default()
 }
 
-/// `Type::function` or `module::function`: the last two segments name what is
-/// called without tying the match to where it was imported from.
+/// Path segments kept from a callee: `Type::function` or `module::function`.
+const CALLEE_SEGMENTS: usize = 2;
+
+/// The last [`CALLEE_SEGMENTS`] segments name what is called without tying
+/// the match to where it was imported from.
 fn callee_name(func: &Expr) -> String {
     let Expr::Path(path) = func else {
         return "dynamic".to_owned();
@@ -104,7 +109,7 @@ fn callee_name(func: &Expr) -> String {
         .iter()
         .map(|s| s.ident.to_string())
         .collect();
-    segments[segments.len().saturating_sub(2)..].join("::")
+    segments[segments.len().saturating_sub(CALLEE_SEGMENTS)..].join("::")
 }
 
 const fn binary_operator(op: &BinOp) -> &'static str {
@@ -219,7 +224,7 @@ impl<'ast> Visit<'ast> for Builder {
                 self.close();
             }
             Stmt::Macro(m) => self.macro_call(&m.mac),
-            // A nested item is its own unit, never part of this body.
+            // A nested item is a definition, not a step of this body.
             Stmt::Item(_) => {}
             Stmt::Expr(expr, _) => self.visit_expr(expr),
         }
@@ -301,7 +306,7 @@ mod tests {
         let without = shape("{ run(x) }");
         assert_eq!(
             with_item.prints, without.prints,
-            "a nested fn is compared as its own unit"
+            "a nested fn adds nothing to the enclosing body"
         );
     }
 }

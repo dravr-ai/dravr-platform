@@ -11,77 +11,77 @@ use crate::similarity::Similarity;
 
 /// Where a function lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FunctionSite {
+pub(crate) struct FunctionSite {
     /// Label of the repository it was found in.
-    pub repo: String,
+    pub(crate) repo: String,
     /// Path relative to that repository's scanned root.
-    pub file: String,
+    pub(crate) file: String,
     /// `function`, `Type::method` or `Trait::method`.
-    pub name: String,
+    pub(crate) name: String,
     /// First line, 1-based.
-    pub start_line: usize,
+    pub(crate) start_line: usize,
     /// Last line, inclusive.
-    pub end_line: usize,
+    pub(crate) end_line: usize,
 }
 
 /// Two functions with near-identical structure.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SimilarFunctions {
+pub(crate) struct SimilarFunctions {
     /// Jaccard similarity of their fingerprint sets.
-    pub score: Similarity,
+    pub(crate) score: Similarity,
     /// Node count of the smaller body: how much code the copy spans.
-    pub nodes: usize,
+    pub(crate) nodes: usize,
     /// One of the two functions.
-    pub left: FunctionSite,
+    pub(crate) left: FunctionSite,
     /// The other.
-    pub right: FunctionSite,
+    pub(crate) right: FunctionSite,
 }
 
 impl SimilarFunctions {
     /// True when the two functions live in different repositories.
     #[must_use]
-    pub fn crosses_repos(&self) -> bool {
+    pub(crate) fn crosses_repos(&self) -> bool {
         self.left.repo != self.right.repo
     }
 }
 
 /// A file in one repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileSite {
+pub(crate) struct FileSite {
     /// Label of the repository.
-    pub repo: String,
+    pub(crate) repo: String,
     /// Path relative to the scanned root.
-    pub file: String,
+    pub(crate) file: String,
     /// Meaningful lines in the file.
-    pub lines: usize,
+    pub(crate) lines: usize,
 }
 
 /// Two files in different repositories sharing most of their lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CopiedFile {
+pub(crate) struct CopiedFile {
     /// Shared lines as a share of the smaller file.
-    pub overlap: Similarity,
+    pub(crate) overlap: Similarity,
     /// Meaningful lines the two files share.
-    pub shared_lines: usize,
+    pub(crate) shared_lines: usize,
     /// One of the two files.
-    pub left: FileSite,
+    pub(crate) left: FileSite,
     /// The other.
-    pub right: FileSite,
+    pub(crate) right: FileSite,
 }
 
 /// Everything one scan found.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Report {
     /// Rust files read, across every root.
-    pub files_scanned: usize,
+    pub(crate) files_scanned: usize,
     /// Functions above the size floor, the population that was compared.
     pub functions_compared: usize,
     /// Files `syn` could not parse, so none of their functions were compared.
-    pub unparsed_files: Vec<String>,
+    pub(crate) unparsed_files: Vec<String>,
     /// Function pairs: cross-repository first, then by score and size.
-    pub similar_functions: Vec<SimilarFunctions>,
+    pub(crate) similar_functions: Vec<SimilarFunctions>,
     /// File pairs across repositories, most shared lines first.
-    pub copied_files: Vec<CopiedFile>,
+    pub(crate) copied_files: Vec<CopiedFile>,
 }
 
 impl Report {

@@ -25,11 +25,12 @@ mod similarity;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-pub use report::{CopiedFile, FileSite, FunctionSite, Report, SimilarFunctions};
+pub use report::Report;
 pub use similarity::{ParseSimilarityError, Similarity};
 
 use extract::{Collector, MinimumSize, Unit};
 use files::{CopyRule, SourceLines};
+use report::{CopiedFile, FileSite, FunctionSite, SimilarFunctions};
 
 /// A repository to scan, under the label the report names it by.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,14 +81,24 @@ pub enum ScanError {
         /// The underlying I/O error.
         source: io::Error,
     },
+    /// A root holds no Rust source, so nothing in it was compared: a wrong
+    /// path or an empty clone, never a clean result.
+    #[error("{label} ({path}) holds no Rust source to compare")]
+    NoSources {
+        /// The root's label.
+        label: String,
+        /// The directory that was scanned.
+        path: PathBuf,
+    },
 }
 
 /// Scan every root and compare what was found.
 ///
 /// # Errors
 ///
-/// [`ScanError::Read`] when a root or one of its files cannot be read. A file
-/// that reads but does not parse is listed in [`Report::unparsed_files`].
+/// [`ScanError::Read`] when a root or one of its files cannot be read, and
+/// [`ScanError::NoSources`] when a root holds no Rust source. A file that reads
+/// but does not parse is listed in the report as not parsed.
 pub fn scan(roots: &[Root], options: &Options) -> Result<Report, ScanError> {
     let minimum = MinimumSize {
         lines: options.min_lines,
@@ -101,6 +112,12 @@ pub fn scan(roots: &[Root], options: &Options) -> Result<Report, ScanError> {
             path: root.path.clone(),
             source,
         })?;
+        if paths.is_empty() {
+            return Err(ScanError::NoSources {
+                label: root.label.clone(),
+                path: root.path.clone(),
+            });
+        }
         report.files_scanned += paths.len();
         for path in paths {
             let text = fs::read_to_string(&path).map_err(|source| ScanError::Read {
@@ -199,4 +216,175 @@ fn copied_files(sources: &[SourceLines], rule: CopyRule) -> Vec<CopiedFile> {
             .then_with(|| (&a.left.repo, &a.left.file).cmp(&(&b.left.repo, &b.left.file)))
     });
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    /// A function long enough to clear the default size floor.
+    fn loader(name: &str, field: &str) -> String {
+        format!(
+            "pub fn {name}(path: &str) -> Result<Vec<String>, String> {{
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for line in text.lines() {{
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {{
+            continue;
+        }}
+        let parts: Vec<&str> = trimmed.split(',').collect();
+        if parts.len() < 3 {{
+            return Err(format!(\"bad line {{}}\", line));
+        }}
+        out.push(parts[2].to_uppercase());
+        out.push(parts[1].{field}().to_string());
+    }}
+    Ok(out)
+}}
+"
+        )
+    }
+
+    fn write(root: &Path, relative: &str, text: &str) {
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+
+    fn root(label: &str, dir: &TempDir) -> Root {
+        Root {
+            label: label.to_owned(),
+            path: dir.path().to_path_buf(),
+        }
+    }
+
+    #[test]
+    fn reports_a_renamed_copy_across_repositories() {
+        let (alpha, beta) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        write(alpha.path(), "src/load.rs", &loader("load_rows", "trim"));
+        write(
+            beta.path(),
+            "src/import.rs",
+            &loader("read_entries", "trim"),
+        );
+        write(beta.path(), "src/other.rs", &loader("different", "len"));
+
+        let report = scan(
+            &[root("alpha", &alpha), root("beta", &beta)],
+            &Options::default(),
+        )
+        .unwrap();
+
+        assert_eq!(report.files_scanned, 3, "every source file is read");
+        assert_eq!(
+            report.functions_compared, 3,
+            "all three loaders clear the size floor"
+        );
+        let first = &report.similar_functions[0];
+        assert!(
+            first.crosses_repos(),
+            "the cross-repository copy is listed first"
+        );
+        assert_eq!(
+            first.score.to_string(),
+            "1.000",
+            "renaming the function changes nothing"
+        );
+        let mut names = [first.left.name.as_str(), first.right.name.as_str()];
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            ["load_rows", "read_entries"],
+            "the two copies are named"
+        );
+        assert!(
+            report
+                .similar_functions
+                .iter()
+                .all(|p| p.left.name != "different" || p.score < first.score),
+            "calling .len() instead of .trim() lowers the score"
+        );
+    }
+
+    #[test]
+    fn reports_a_copied_file_and_ignores_test_code() {
+        use std::fmt::Write;
+
+        let (alpha, beta) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+        // Twenty distinct settings plus a loader: a scaffold file, well past the
+        // fifteen shared lines a copy needs.
+        let settings = (0..20).fold(String::new(), |mut out, n| {
+            let _ = writeln!(out, "pub const SETTING_{n}: &str = \"value-{n}\";");
+            out
+        });
+        let scaffold = settings + &loader("serve", "trim");
+        write(alpha.path(), "src/main.rs", &scaffold);
+        write(beta.path(), "src/main.rs", &scaffold);
+        write(
+            alpha.path(),
+            "tests/it/copy.rs",
+            &loader("in_a_test", "trim"),
+        );
+        write(
+            beta.path(),
+            "src/checks.rs",
+            &format!(
+                "#[cfg(test)]\nmod checks {{\n{}}}\n",
+                loader("also_test", "trim")
+            ),
+        );
+
+        let report = scan(
+            &[root("alpha", &alpha), root("beta", &beta)],
+            &Options::default(),
+        )
+        .unwrap();
+
+        // checks.rs repeats the loader's lines too, so it is a line-level copy as
+        // well; what matters here is that the identical main.rs pair is found.
+        let copy = report
+            .copied_files
+            .iter()
+            .find(|c| c.left.file == "src/main.rs" && c.right.file == "src/main.rs")
+            .expect("main.rs is reported as copied between the repositories");
+        assert_ne!(
+            copy.left.repo, copy.right.repo,
+            "the copy spans two repositories"
+        );
+        assert_eq!(copy.overlap.to_string(), "1.000", "the files are identical");
+        let names: Vec<&str> = report
+            .similar_functions
+            .iter()
+            .flat_map(|p| [p.left.name.as_str(), p.right.name.as_str()])
+            .collect();
+        assert!(
+            !names.contains(&"in_a_test") && !names.contains(&"also_test"),
+            "test code is not compared: {names:?}"
+        );
+    }
+
+    #[test]
+    fn lists_files_that_do_not_parse() {
+        let alpha = TempDir::new().unwrap();
+        write(alpha.path(), "src/lib.rs", &loader("load_rows", "trim"));
+        write(alpha.path(), "src/broken.rs", "fn half_written( {");
+
+        let report = scan(&[root("alpha", &alpha)], &Options::default()).unwrap();
+
+        assert_eq!(
+            report.unparsed_files,
+            ["alpha:src/broken.rs"],
+            "the broken file is named, not skipped silently"
+        );
+        assert_eq!(
+            report.functions_compared, 1,
+            "the parseable file is still compared"
+        );
+    }
 }

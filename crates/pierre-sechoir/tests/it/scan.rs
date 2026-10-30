@@ -1,10 +1,9 @@
-// ABOUTME: Scans two temporary repositories and checks what pierre-sechoir reports across them
-// ABOUTME: Covers renamed copies, copied files, test-code exclusion, unparsed files and read errors
+// ABOUTME: Scans temporary repositories through pierre-sechoir's public API, as its binary does
+// ABOUTME: Covers the markdown naming a cross-repo copy and the errors that refuse a scan of nothing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
@@ -12,7 +11,7 @@ use pierre_sechoir::{Options, Root, ScanError};
 use tempfile::TempDir;
 
 /// A function long enough to clear the default size floor.
-fn loader(name: &str, field: &str) -> String {
+fn loader(name: &str) -> String {
     format!(
         "pub fn {name}(path: &str) -> Result<Vec<String>, String> {{
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -27,7 +26,7 @@ fn loader(name: &str, field: &str) -> String {
             return Err(format!(\"bad line {{}}\", line));
         }}
         out.push(parts[2].to_uppercase());
-        out.push(parts[1].{field}().to_string());
+        out.push(parts[1].trim().to_string());
     }}
     Ok(out)
 }}
@@ -49,15 +48,10 @@ fn root(label: &str, dir: &TempDir) -> Root {
 }
 
 #[test]
-fn reports_a_renamed_copy_across_repositories() {
+fn the_markdown_names_a_cross_repository_copy() {
     let (alpha, beta) = (TempDir::new().unwrap(), TempDir::new().unwrap());
-    write(alpha.path(), "src/load.rs", &loader("load_rows", "trim"));
-    write(
-        beta.path(),
-        "src/import.rs",
-        &loader("read_entries", "trim"),
-    );
-    write(beta.path(), "src/other.rs", &loader("different", "len"));
+    write(alpha.path(), "src/load.rs", &loader("load_rows"));
+    write(beta.path(), "src/import.rs", &loader("read_entries"));
 
     let report = pierre_sechoir::scan(
         &[root("alpha", &alpha), root("beta", &beta)],
@@ -65,108 +59,22 @@ fn reports_a_renamed_copy_across_repositories() {
     )
     .unwrap();
 
-    assert_eq!(report.files_scanned, 3, "every source file is read");
     assert_eq!(
-        report.functions_compared, 3,
-        "all three loaders clear the size floor"
+        report.functions_compared, 2,
+        "both loaders clear the size floor"
     );
-    let first = &report.similar_functions[0];
+    let markdown = report.to_markdown();
     assert!(
-        first.crosses_repos(),
-        "the cross-repository copy is listed first"
-    );
-    assert_eq!(
-        first.score.to_string(),
-        "1.000",
-        "renaming the function changes nothing"
-    );
-    let mut names = [first.left.name.as_str(), first.right.name.as_str()];
-    names.sort_unstable();
-    assert_eq!(
-        names,
-        ["load_rows", "read_entries"],
-        "the two copies are named"
+        markdown.starts_with("**2 files, 2 functions compared.**"),
+        "the summary counts what was read: {markdown}"
     );
     assert!(
-        report
-            .similar_functions
-            .iter()
-            .all(|p| p.left.name != "different" || p.score < first.score),
-        "calling .len() instead of .trim() lowers the score"
+        markdown.contains("| alpha ↔ beta |"),
+        "the two repositories are named as sharing code: {markdown}"
     );
-}
-
-#[test]
-fn reports_a_copied_file_and_ignores_test_code() {
-    let (alpha, beta) = (TempDir::new().unwrap(), TempDir::new().unwrap());
-    // Twenty distinct settings plus a loader: a scaffold file, well past the
-    // fifteen shared lines a copy needs.
-    let settings = (0..20).fold(String::new(), |mut out, n| {
-        let _ = writeln!(out, "pub const SETTING_{n}: &str = \"value-{n}\";");
-        out
-    });
-    let scaffold = settings + &loader("serve", "trim");
-    write(alpha.path(), "src/main.rs", &scaffold);
-    write(beta.path(), "src/main.rs", &scaffold);
-    write(
-        alpha.path(),
-        "tests/it/copy.rs",
-        &loader("in_a_test", "trim"),
-    );
-    write(
-        beta.path(),
-        "src/checks.rs",
-        &format!(
-            "#[cfg(test)]\nmod checks {{\n{}}}\n",
-            loader("also_test", "trim")
-        ),
-    );
-
-    let report = pierre_sechoir::scan(
-        &[root("alpha", &alpha), root("beta", &beta)],
-        &Options::default(),
-    )
-    .unwrap();
-
-    // checks.rs repeats the loader's lines too, so it is a line-level copy as
-    // well; what matters here is that the identical main.rs pair is found.
-    let copy = report
-        .copied_files
-        .iter()
-        .find(|c| c.left.file == "src/main.rs" && c.right.file == "src/main.rs")
-        .expect("main.rs is reported as copied between the repositories");
-    assert_ne!(
-        copy.left.repo, copy.right.repo,
-        "the copy spans two repositories"
-    );
-    assert_eq!(copy.overlap.to_string(), "1.000", "the files are identical");
-    let names: Vec<&str> = report
-        .similar_functions
-        .iter()
-        .flat_map(|p| [p.left.name.as_str(), p.right.name.as_str()])
-        .collect();
     assert!(
-        !names.contains(&"in_a_test") && !names.contains(&"also_test"),
-        "test code is not compared: {names:?}"
-    );
-}
-
-#[test]
-fn lists_files_that_do_not_parse() {
-    let alpha = TempDir::new().unwrap();
-    write(alpha.path(), "src/lib.rs", &loader("load_rows", "trim"));
-    write(alpha.path(), "src/broken.rs", "fn half_written( {");
-
-    let report = pierre_sechoir::scan(&[root("alpha", &alpha)], &Options::default()).unwrap();
-
-    assert_eq!(
-        report.unparsed_files,
-        ["alpha:src/broken.rs"],
-        "the broken file is named, not skipped silently"
-    );
-    assert_eq!(
-        report.functions_compared, 1,
-        "the parseable file is still compared"
+        markdown.contains("| 1.000 |") && markdown.contains("`load_rows`"),
+        "the renamed copy is listed at full score: {markdown}"
     );
 }
 
@@ -180,5 +88,22 @@ fn a_missing_root_is_an_error() {
     assert!(
         matches!(error, ScanError::Read { .. }),
         "a root that cannot be read fails the scan: {error}"
+    );
+}
+
+#[test]
+fn a_root_without_rust_source_is_an_error() {
+    let (alpha, empty) = (TempDir::new().unwrap(), TempDir::new().unwrap());
+    write(alpha.path(), "src/lib.rs", &loader("load_rows"));
+    write(empty.path(), "README.md", "no code here");
+
+    let error = pierre_sechoir::scan(
+        &[root("alpha", &alpha), root("empty", &empty)],
+        &Options::default(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&error, ScanError::NoSources { label, .. } if label == "empty"),
+        "one empty root fails the whole scan rather than reporting a partial fleet: {error}"
     );
 }

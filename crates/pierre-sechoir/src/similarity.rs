@@ -7,8 +7,12 @@
 use std::fmt;
 use std::str::FromStr;
 
-/// Parts per thousand in a whole score.
-const SCALE: u64 = 1000;
+/// Thousandths in a whole score.
+const THOUSANDTHS: u16 = 1000;
+
+/// Decimal places a score is written and parsed with: one per power of ten in
+/// [`THOUSANDTHS`].
+const DECIMALS: usize = 3;
 
 /// A score between 0 and 1, kept in thousandths.
 ///
@@ -19,37 +23,43 @@ pub struct Similarity(u16);
 
 impl Similarity {
     /// The highest score: identical sets.
-    pub const ONE: Self = Self(1000);
+    pub(crate) const ONE: Self = Self(THOUSANDTHS);
 
     /// `part / whole`, rounded down to a thousandth. An empty whole scores 0.
     #[must_use]
-    pub fn ratio(part: usize, whole: usize) -> Self {
+    pub(crate) fn ratio(part: usize, whole: usize) -> Self {
         let (part, whole) = (part as u64, whole as u64);
         if whole == 0 {
             return Self(0);
         }
-        let thousandths = (part.min(whole) * SCALE) / whole;
-        Self(u16::try_from(thousandths).unwrap_or(u16::MAX).min(1000))
+        let thousandths = (part.min(whole) * u64::from(THOUSANDTHS)) / whole;
+        Self(u16::try_from(thousandths).unwrap_or(u16::MAX)).min(Self::ONE)
     }
 
     /// The smallest count `n` with `n / total >= self`: how much of a set of
     /// `total` items must be shared for a pair to reach this score.
     #[must_use]
     pub(crate) fn min_count(self, total: usize) -> usize {
-        let needed = (total as u64 * u64::from(self.0)).div_ceil(SCALE);
+        let needed = (total as u64 * u64::from(self.0)).div_ceil(u64::from(THOUSANDTHS));
         usize::try_from(needed).unwrap_or(usize::MAX)
     }
 
     /// True when `part / whole` reaches this score, computed without rounding.
     #[must_use]
     pub(crate) fn admits(self, part: usize, whole: usize) -> bool {
-        whole > 0 && (part as u64) * SCALE >= (whole as u64) * u64::from(self.0)
+        whole > 0 && (part as u64) * u64::from(THOUSANDTHS) >= (whole as u64) * u64::from(self.0)
     }
 }
 
 impl fmt::Display for Similarity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{:03}", self.0 / 1000, self.0 % 1000)
+        write!(
+            f,
+            "{}.{:0width$}",
+            self.0 / THOUSANDTHS,
+            self.0 % THOUSANDTHS,
+            width = DECIMALS
+        )
     }
 }
 
@@ -64,20 +74,21 @@ impl FromStr for Similarity {
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let refuse = || ParseSimilarityError(text.to_owned());
         let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
-        if fraction.len() > 3 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        if fraction.len() > DECIMALS || !fraction.bytes().all(|b| b.is_ascii_digit()) {
             return Err(refuse());
         }
         let whole: u16 = whole.parse().map_err(|_| refuse())?;
-        let padded = format!("{fraction:0<3}");
+        let padded = format!("{fraction:0<DECIMALS$}");
         let fraction: u16 = padded.parse().map_err(|_| refuse())?;
         let value = whole
-            .checked_mul(1000)
+            .checked_mul(THOUSANDTHS)
             .and_then(|w| w.checked_add(fraction))
             .ok_or_else(refuse)?;
-        if value > 1000 {
+        let score = Self(value);
+        if score > Self::ONE {
             return Err(refuse());
         }
-        Ok(Self(value))
+        Ok(score)
     }
 }
 
