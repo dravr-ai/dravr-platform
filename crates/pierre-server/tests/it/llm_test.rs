@@ -156,16 +156,15 @@ fn test_llm_chain_env_var_is_the_one_the_deployment_sets() {
             LlmChain::ENV_VAR
         )
     });
-    let literal = match assigned.strip_prefix("local.") {
-        Some(local) => terraform_assignment(deployment, local).unwrap_or_else(|| {
+    let literal = assigned.strip_prefix("local.").map_or(assigned, |local| {
+        terraform_assignment(deployment, local).unwrap_or_else(|| {
             panic!(
                 "{} = {assigned} in infra/environments/dev/main.tf, but main.tf \
                  defines no local {local:?}: the chain must be named in that file",
                 LlmChain::ENV_VAR
             )
-        }),
-        None => assigned,
-    };
+        })
+    });
     let value = literal
         .strip_prefix('"')
         .and_then(|rest| rest.split('"').next())
