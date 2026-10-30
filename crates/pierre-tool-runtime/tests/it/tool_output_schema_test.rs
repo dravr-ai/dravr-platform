@@ -28,6 +28,7 @@ use pierre_core::models::{
     MeasurementKind, MetricProvenance, ProvenancedValue, SportType, ThresholdProvenance,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
+use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
 use pierre_tool_runtime::conversions::output_schema_for;
@@ -121,8 +122,8 @@ use pierre_tool_runtime::implementations::group_member_plan::{
     GetGroupMemberPlanStatusTool, GroupMemberPlanStatus, PlanGoalRace,
 };
 use pierre_tool_runtime::implementations::group_roster::{
-    GetRosterOverviewTool, RosterAthleteStatus, RosterOverviewActivity, RosterOverviewAthlete,
-    RosterOverviewGroup, RosterOverviewResult, RosterTraining,
+    GetRosterOverviewTool, RosterOverviewActivity, RosterOverviewAthlete, RosterOverviewGroup,
+    RosterOverviewResult, RosterTraining,
 };
 use pierre_tool_runtime::implementations::groups::{
     GetGroupMemberActivitiesTool, GroupMemberActivitiesResult, GroupMemberActivity,

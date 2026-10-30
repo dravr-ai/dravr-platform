@@ -216,8 +216,17 @@ mod roster_overview_tests {
         agent: Uuid,
     }
 
+    /// A coach holds `manages_roster`: only such a user (or an admin) can be
+    /// attached as a group's coach at all.
     async fn seed_coach(resources: &ServerContext, name: &str) -> Coach {
         let user = seed_user(resources, name).await;
+        resources
+            .common
+            .repos
+            .users
+            .set_manages_roster(user, true)
+            .await
+            .unwrap();
         let tenant = create_tenant_owned_by(resources, user).await;
         let agent = seed_agent(resources, user, tenant).await;
         Coach {
@@ -453,6 +462,40 @@ mod roster_overview_tests {
         let payload = overview(&resources, &owner, json!({})).await;
         assert_eq!(payload["reason"], "not_a_coach", "{payload:#}");
         assert!(payload.get("athletes").is_none());
+    }
+
+    /// The group's coach whose coaching permission was withdrawn after they
+    /// were attached reads no roster: the gate is the permission that let them
+    /// be attached, re-checked on every read.
+    #[tokio::test]
+    async fn a_coach_whose_permission_was_withdrawn_has_no_roster() {
+        let resources = create_test_server_resources().await.unwrap();
+        let coach = seed_coach(&resources, "Coach Carla").await;
+        let group = create_group(
+            &resources,
+            coach.tenant,
+            coach.agent,
+            "Squad",
+            coach.user,
+            Some(coach.user),
+        )
+        .await;
+        let (alice, alice_tenant) = seed_athlete(&resources, "Alice").await;
+        add_member(&resources, group, alice, alice_tenant, true).await;
+        resources
+            .common
+            .repos
+            .users
+            .set_manages_roster(coach.user, false)
+            .await
+            .unwrap();
+
+        let payload = overview(&resources, &coach, json!({})).await;
+        assert_eq!(payload["reason"], "not_a_coach", "{payload:#}");
+        assert!(
+            payload.get("athletes").is_none(),
+            "a withdrawn coach is named no athlete: {payload:#}"
+        );
     }
 
     /// The coach's own DM covers every group; a group's thread covers that

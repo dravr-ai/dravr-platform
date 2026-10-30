@@ -23,7 +23,7 @@ use super::{PlanDraft, PlanWeekRow, SaveTrainingPlanParams, TrainingPlanRow};
 
 /// Convert epoch seconds to `DateTime<Utc>`, treating an out-of-range value
 /// as corruption rather than silently clamping.
-fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<DateTime<Utc>> {
+pub(crate) fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<DateTime<Utc>> {
     DateTime::from_timestamp(epoch, 0)
         .ok_or_else(|| AppError::database(format!("training plan {column} out of range: {epoch}")))
 }

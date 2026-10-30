@@ -269,6 +269,12 @@ pub(crate) const DRAFT_WEEK_CONFLICTS_SQL: &str = "SELECT d.week_start FROM trai
      AND base.week_start = d.week_start AND base.supersedes_id = live.id) \
      ORDER BY d.week_start ASC";
 
+/// When the coach last published a draft of this athlete's plan: a published
+/// draft keeps its row, `status = 'published'`, stamped at the publish.
+pub(crate) const LAST_PUBLISHED_DRAFT_SQL: &str = "SELECT updated_at FROM training_plans \
+     WHERE tenant_id = $1 AND user_id = $2 AND drafted_by_user_id = $3 AND status = 'published' \
+     ORDER BY updated_at DESC LIMIT 1";
+
 /// Mark a draft published, as its content goes live in the same transaction.
 pub(crate) const PUBLISHED_DRAFT_SQL: &str = "UPDATE training_plans \
      SET status = 'published', updated_at = $4 \

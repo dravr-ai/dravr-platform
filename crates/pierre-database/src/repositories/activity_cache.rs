@@ -407,6 +407,15 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
     ) -> AppResult<Option<DateTime<Utc>>>;
 
+    /// When the user's most recent cached activity in `tenant_id` started,
+    /// whatever its source; `None` with nothing cached. Reads the cache only,
+    /// never a provider, so a roster can be ordered before any is read.
+    async fn latest_activity_start(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<DateTime<Utc>>>;
+
     /// The user-provided keys (`USER_PROVIDED_PROVIDERS`: uploads, imported
     /// archives) under which the user holds at least one cached activity in
     /// `tenant_id`, in no particular order.
@@ -740,6 +749,22 @@ macro_rules! impl_activity_cache_repository {
                     latest_fetch_mark(self, &user_id_str, &tenant_id.to_string(), Some(provider))
                         .await?;
                 Ok(later(from_rows, mark))
+            }
+
+            async fn latest_activity_start(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let row = sqlx::query(LATEST_ACTIVITY_START_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read latest activity start: {e}"))
+                    })?;
+                row.map(|r| timestamp_column(&r, "start_date")).transpose()
             }
 
             async fn latest_activity_sync_any(

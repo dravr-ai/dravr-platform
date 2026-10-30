@@ -49,6 +49,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::chat_verdicts::{verdict_row, ChatVerdictRow};
+use crate::coach_roster::{gather_members, RosterAthleteStatus};
 
 /// Replies on one page when the caller names no size.
 const DEFAULT_PAGE_SIZE: i64 = 20;
@@ -357,7 +358,8 @@ pub async fn weekly_counts(
 }
 
 /// The Monday of the week `day` falls in.
-fn week_start(day: NaiveDate) -> NaiveDate {
+#[must_use]
+pub fn week_start(day: NaiveDate) -> NaiveDate {
     day - Duration::days(i64::from(day.weekday().num_days_from_monday()))
 }
 
@@ -405,8 +407,9 @@ async fn reviewable_reply(
         .ok_or_else(|| AppError::not_found("Reply"))
 }
 
-/// The groups the caller coaches and their live athletes, by name. The coach
-/// is never listed as their own athlete.
+/// The groups the caller coaches and their live athletes, by name, gathered
+/// by [`crate::coach_roster::gather_members`]. The coach is never listed as
+/// their own athlete.
 ///
 /// A group is the caller's by its `coach_user_id`, whatever tenant owns it:
 /// every account is its own tenant, so an athlete's group that invited the
@@ -425,24 +428,19 @@ async fn coached_roster(
         .into_iter()
         .filter(|g| g.is_active)
         .collect();
+    // The same live members and consent the coach's roster reads; memberships
+    // only, so no connection is looked up for a filter list.
+    let roster = gather_members(repos, coach_user_id, &groups).await?;
 
-    let mut athletes: HashMap<Uuid, CoachedAthlete> = HashMap::new();
-    for group in &groups {
-        for member in repos.groups.list_members(&group.id.to_string()).await? {
-            if member.user_id == coach_user_id {
-                continue;
-            }
-            let entry = athletes
-                .entry(member.user_id)
-                .or_insert_with(|| CoachedAthlete {
-                    user_id: member.user_id.to_string(),
-                    name: member.display_name.clone(),
-                    shares_with_coach: false,
-                });
-            entry.shares_with_coach |= member.coach_sharing_consent;
-        }
-    }
-    let mut athletes: Vec<CoachedAthlete> = athletes.into_values().collect();
+    let mut athletes: Vec<CoachedAthlete> = roster
+        .members
+        .into_iter()
+        .map(|member| CoachedAthlete {
+            user_id: member.user_id.to_string(),
+            name: member.member_display_name,
+            shares_with_coach: member.status != RosterAthleteStatus::NoCoachConsent,
+        })
+        .collect();
     athletes.sort_by(|a, b| {
         a.name
             .as_deref()

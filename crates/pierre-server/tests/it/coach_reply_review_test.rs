@@ -1315,3 +1315,41 @@ async fn a_deleted_coachs_correction_stays_in_the_room_unnamed() {
         "bug: a deleted coach's correction must name no one, never the current coach: {corrections:?}"
     );
 }
+
+/// The page's athlete filter lists the coach's live athletes only: one who
+/// left the group is gone from it, as from the coach's roster, which reads the
+/// same members (carnet#1251).
+#[tokio::test]
+async fn an_athlete_who_left_the_group_leaves_the_filter_list() {
+    let w = world().await;
+    let listed = |page: &Value| -> Vec<String> {
+        page["athletes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["user_id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let alex = w.alex.id.to_string();
+    let (_, before) = get(&w.router, "/api/coach/replies", &w.casey.auth).await;
+    assert!(
+        listed(&before).contains(&alex),
+        "Alex is listed while a member: {before}"
+    );
+
+    let left = w
+        .res
+        .common
+        .repos
+        .groups
+        .remove_member(&w.casey_group.to_string(), w.alex.id)
+        .await
+        .unwrap();
+    assert!(left, "Alex's membership was live");
+    let (status, after) = get(&w.router, "/api/coach/replies", &w.casey.auth).await;
+    assert_eq!(status, 200, "{after}");
+    assert!(
+        !listed(&after).contains(&alex),
+        "a member who left is still a filter: {after}"
+    );
+}

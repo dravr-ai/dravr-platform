@@ -12,7 +12,10 @@
 //! [`super::groups::GetGroupMemberActivitiesTool`] reads one athlete's full
 //! session history; this tool reads the whole roster's snapshot.
 //!
-//! Four rules decide what comes back:
+//! The roster itself — who may read it, who is on it, their consent status
+//! and the order — is [`pierre_services::coach_roster`], which the coach's REST read
+//! (`GET /api/coach/roster`) reads too; this tool only pins a room and shapes
+//! the result for the agent. Four rules decide what comes back:
 //!
 //! 1. **The roster is the coach attachment.** The groups are the active ones
 //!    whose `coach_user_id` is the caller, and the athletes their live members
@@ -44,27 +47,28 @@ use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::Value;
 use tracing::info;
-use uuid::Uuid;
 
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
-use pierre_core::models::groups::{CoachingGroup, GroupMember, MemberFitnessSnapshot};
+use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
+use pierre_services::coach_roster::{
+    gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
+};
 use pierre_tools_core::ToolResult;
 
 use super::coach_scope::refusal;
+use crate::coach_roster::{fetch_page_snapshots, read_snapshot};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
-use crate::group_fitness::fetch_member_snapshots;
 use crate::runtime::ToolRuntime;
-use pierre_services::athlete_display_name::fetch_user_display_name;
 
 /// Most athletes one call fetches training for, and most it names without.
 /// Each snapshot is a provider read, so the cap bounds both the turn's latency
@@ -74,31 +78,6 @@ const MAX_ROSTER_ATHLETES: usize = 40;
 /// Recent sessions listed per athlete. The weekly totals carry the volume;
 /// these name what the sessions were.
 const RECENT_ACTIVITIES_PER_ATHLETE: usize = 3;
-
-/// One athlete's place on the roster.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum RosterAthleteStatus {
-    /// Their training is shared with the coach and listed.
-    Shared,
-    /// They revoked the coach's read in every group the coach holds them in
-    /// (`/group consent coach no`); `/group consent coach yes` restores it.
-    NoCoachConsent,
-    /// They share, but no training source is connected.
-    NoSource,
-}
-
-impl RosterAthleteStatus {
-    /// The athlete's standing through one membership: shared unless they
-    /// revoked the coach's read there.
-    const fn of_member(member: &GroupMember) -> Self {
-        if member.coach_sharing_consent {
-            Self::Shared
-        } else {
-            Self::NoCoachConsent
-        }
-    }
-}
 
 /// One session in an athlete's recent list.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
@@ -184,13 +163,6 @@ pub struct RosterOverviewResult {
     pub truncated: bool,
 }
 
-/// An athlete gathered across the coach's groups, before any data is read.
-struct RosterEntry {
-    user_id: Uuid,
-    groups: Vec<String>,
-    status: RosterAthleteStatus,
-}
-
 /// Where a coach's call was made, as the tools that read their athletes see it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum CallRoom {
@@ -243,16 +215,9 @@ async fn covered_groups(
     context: &ToolExecutionContext,
     arg_group: Option<&str>,
 ) -> AppResult<Result<Vec<CoachingGroup>, ToolResult>> {
-    let requester = context.user_id;
-    let repos = context.resources.repos();
-    let mut groups: Vec<CoachingGroup> = repos
-        .groups
-        .list_groups_coached_by(requester)
-        .await?
-        .into_iter()
-        .filter(|g| g.is_active)
-        .collect();
-    if groups.is_empty() {
+    let RosterAccess::Granted(mut groups) =
+        roster_access(context.resources.repos(), context.user_id).await?
+    else {
         return Ok(Err(refusal(
             "not_a_coach",
             "You are not the human coach of any Dravr group, so no group roster is reviewed \
@@ -260,7 +225,7 @@ async fn covered_groups(
              `get_provider_roster` reads it. A coach joins a group by redeeming its coach \
              invite.",
         )));
-    }
+    };
 
     match call_room(context).await? {
         CallRoom::Private => {}
@@ -298,50 +263,6 @@ async fn covered_groups(
     Ok(Ok(groups))
 }
 
-/// Gather each live athlete of `groups` once, with the most useful status any
-/// of their groups grants, and the per-group summary.
-async fn gather_roster(
-    context: &ToolExecutionContext,
-    groups: &[CoachingGroup],
-) -> AppResult<(Vec<RosterOverviewGroup>, Vec<RosterEntry>)> {
-    let repos = context.resources.repos();
-    let mut summaries = Vec::with_capacity(groups.len());
-    let mut entries: Vec<RosterEntry> = Vec::new();
-    let mut index: HashMap<Uuid, usize> = HashMap::new();
-    for group in groups {
-        let members = repos.groups.list_members(&group.id.to_string()).await?;
-        let mut athlete_count = 0;
-        for member in members.iter().filter(|m| m.left_at.is_none()) {
-            if member.user_id == context.user_id {
-                continue;
-            }
-            athlete_count += 1;
-            let status = RosterAthleteStatus::of_member(member);
-            if let Some(&at) = index.get(&member.user_id) {
-                // Shared through any one group is shared: the consent is per
-                // membership, and each grants the same coach the same read.
-                let entry = &mut entries[at];
-                entry.groups.push(group.name.clone());
-                if status == RosterAthleteStatus::Shared {
-                    entry.status = status;
-                }
-            } else {
-                index.insert(member.user_id, entries.len());
-                entries.push(RosterEntry {
-                    user_id: member.user_id,
-                    groups: vec![group.name.clone()],
-                    status,
-                });
-            }
-        }
-        summaries.push(RosterOverviewGroup {
-            name: group.name.clone(),
-            athlete_count,
-        });
-    }
-    Ok((summaries, entries))
-}
-
 /// Project a snapshot to the training the overview lists.
 ///
 /// The one per-athlete roster line a coach reads: this overview, and the
@@ -350,6 +271,7 @@ async fn gather_roster(
 /// athlete's own fitness the same way on both.
 #[must_use]
 pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
+    let reading = read_snapshot(snapshot);
     let zone = resolve_zone(snapshot.timezone.as_deref());
     let recent_activities = snapshot
         .recent_activities
@@ -368,27 +290,22 @@ pub fn project_training(snapshot: &MemberFitnessSnapshot) -> RosterTraining {
         })
         .collect();
     RosterTraining {
-        days_since_last_activity: snapshot.days_since_last_activity,
+        days_since_last_activity: reading.days_since_last_activity,
         sessions_this_week: snapshot.weekly_activity_count,
         seconds_this_week: snapshot.weekly_duration_seconds,
         km_this_week: snapshot.weekly_volume_km,
         km_previous_week: snapshot.previous_week_volume_km,
         primary_sport: snapshot.primary_sport.clone(),
-        ctl: snapshot.ctl.map(f64::round),
-        form: snapshot.form_reading().map(|reading| reading.inline()),
+        ctl: reading.ctl,
+        form: snapshot.form_reading().map(|form| form.inline()),
         recent_activities,
-        last_activity_per_source: snapshot
-            .last_activity_per_provider
-            .iter()
-            .map(|(source, at)| {
-                (
-                    source.clone(),
-                    local_date(*at, zone).format("%Y-%m-%d").to_string(),
-                )
-            })
+        last_activity_per_source: reading
+            .last_activity_per_source
+            .into_iter()
+            .map(|(source, day)| (source, day.format("%Y-%m-%d").to_string()))
             .collect(),
-        needs_reconnect: snapshot.needs_reauth_providers.clone(),
-        stale: snapshot.served_stale,
+        needs_reconnect: reading.needs_reconnect,
+        stale: reading.stale,
     }
 }
 
@@ -411,80 +328,58 @@ async fn build_overview(
     groups: &[CoachingGroup],
 ) -> AppResult<RosterOverviewResult> {
     let runtime = &context.resources;
-    let data = runtime.data();
-    let (summaries, entries) = gather_roster(context, groups).await?;
-    let total = entries.len();
+    let repos = runtime.repos();
+    let gathered = gather_roster(repos, context.user_id, groups).await?;
+    let total = gathered.roster_members();
+    let summaries = gathered
+        .groups
+        .iter()
+        .map(|g| RosterOverviewGroup {
+            name: g.name.clone(),
+            athlete_count: g.athlete_count,
+        })
+        .collect();
 
-    let (sharing, withheld): (Vec<RosterEntry>, Vec<RosterEntry>) = entries
+    let (mut readable, mut others): (Vec<_>, Vec<_>) = order_roster(repos, gathered.members)
+        .await?
         .into_iter()
-        .partition(|e| e.status == RosterAthleteStatus::Shared);
-
-    // Split the sharers by whether any training source is connected: one
-    // without a source has nothing to read, and saying so beats an empty card.
-    let mut readable = Vec::new();
-    let mut sourceless = Vec::new();
-    for entry in sharing {
-        let connections = data
-            .repos()
-            .provider_connections
-            .get_for_user(entry.user_id, None)
-            .await?;
-        if connections.is_empty() {
-            sourceless.push(RosterEntry {
-                status: RosterAthleteStatus::NoSource,
-                ..entry
-            });
-        } else {
-            readable.push(entry);
-        }
-    }
-    let truncated = readable.len() > MAX_ROSTER_ATHLETES
-        || withheld.len() + sourceless.len() > MAX_ROSTER_ATHLETES;
+        .partition(|m| m.member.status == RosterAthleteStatus::Shared);
+    let truncated = readable.len() > MAX_ROSTER_ATHLETES || others.len() > MAX_ROSTER_ATHLETES;
     readable.truncate(MAX_ROSTER_ATHLETES);
+    others.truncate(MAX_ROSTER_ATHLETES);
 
-    let fallback_tenant = TenantId::from_uuid(context.require_tenant()?);
-    let ids: Vec<Uuid> = readable.iter().map(|e| e.user_id).collect();
     // Each athlete whose training is read: what the round is about
     // (carnet#1174). The others are named with their status, no data.
-    for &athlete in &ids {
-        ai_scope::note_member_read(athlete);
+    for m in &readable {
+        ai_scope::note_member_read(m.member.user_id);
     }
-    // One snapshot per id, in the order asked: `join_all` keeps it.
-    let snapshots = fetch_member_snapshots(runtime, &ids, fallback_tenant).await;
-
+    let snapshots = fetch_page_snapshots(runtime, &readable).await;
+    let group_names = |m: &OrderedMember| m.member.groups.iter().map(|g| g.name.clone()).collect();
     let mut shared: Vec<RosterOverviewAthlete> = readable
-        .into_iter()
-        .zip(snapshots)
-        .map(|(entry, snapshot)| RosterOverviewAthlete {
-            training: Some(project_training(&snapshot)),
-            name: snapshot.display_name,
-            groups: entry.groups,
+        .iter()
+        .map(|m| RosterOverviewAthlete {
+            training: snapshots.get(&m.member.user_id).map(project_training),
+            name: m.name.clone(),
+            groups: group_names(m),
             status: RosterAthleteStatus::Shared,
         })
         .collect();
     shared.sort_by(attention_order);
 
-    let mut others = Vec::new();
-    for entry in sourceless.into_iter().chain(withheld) {
-        others.push(RosterOverviewAthlete {
-            name: fetch_user_display_name(data.repos(), entry.user_id).await,
-            groups: entry.groups,
-            status: entry.status,
-            training: None,
-        });
-    }
-    others.sort_by(|a, b| a.name.cmp(&b.name));
-    others.truncate(MAX_ROSTER_ATHLETES);
-
     info!(
         requester = %context.user_id,
-        groups = summaries.len(),
+        groups = groups.len(),
         athletes = total,
         shared = shared.len(),
         truncated,
         "get_roster_overview: consent-gated roster read"
     );
-    shared.extend(others);
+    shared.extend(others.iter().map(|m| RosterOverviewAthlete {
+        name: m.name.clone(),
+        groups: group_names(m),
+        status: m.member.status,
+        training: None,
+    }));
     Ok(RosterOverviewResult {
         groups: summaries,
         athletes: shared,
@@ -572,6 +467,7 @@ mod tests {
     use pierre_core::models::groups::{OvertrainingRiskLevel, RosterActivity};
 
     use super::*;
+    use uuid::Uuid;
 
     /// A shared athlete; `has_snapshot` false models one with no `training`
     /// listed, `days` the days since their last session.
@@ -655,33 +551,5 @@ mod tests {
         roster.sort_by(attention_order);
         let names: Vec<&str> = roster.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(names, ["NoSession", "NoSnapshot", "Week", "Recent"]);
-    }
-
-    #[test]
-    fn a_member_is_shared_until_they_revoke_the_coach_read() {
-        let json = |coach_sharing_consent: bool| {
-            serde_json::from_value::<GroupMember>(serde_json::json!({
-                "id": Uuid::nil(),
-                "group_id": Uuid::nil(),
-                "user_id": Uuid::nil(),
-                "tenant_id": "t",
-                "role": "member",
-                "peer_sharing_consent": false,
-                "coach_sharing_consent": coach_sharing_consent,
-                "consent_given_at": "2026-10-05T00:00:00Z",
-                "joined_at": "2026-10-05T00:00:00Z",
-                "left_at": null
-            }))
-            .expect("member")
-        };
-        // Peer consent off, coach consent on: the coach still reads.
-        assert_eq!(
-            RosterAthleteStatus::of_member(&json(true)),
-            RosterAthleteStatus::Shared
-        );
-        assert_eq!(
-            RosterAthleteStatus::of_member(&json(false)),
-            RosterAthleteStatus::NoCoachConsent
-        );
     }
 }

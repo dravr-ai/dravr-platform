@@ -71,6 +71,9 @@ pub mod capabilities;
 pub mod capture_sweep;
 /// The tool declarations a chat turn sends, and their wire size (carnet#1196).
 pub mod chat_catalogue;
+/// The coach roster both the agent tool and the coach REST read project from.
+#[cfg(feature = "tools-groups")]
+pub mod coach_roster;
 /// Which tools a group's coach may call in their own group (carnet#742).
 pub mod coach_seat;
 pub mod commitment_refresh;

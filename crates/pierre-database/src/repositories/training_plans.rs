@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
@@ -15,15 +16,15 @@ use pierre_memory::training_plans::{
 mod codec;
 
 pub(crate) use codec::{
-    built_plan_week, built_training_plan, phase_index_column, plan_draft_from_row,
-    plan_insert_values, plan_week_from_row, training_plan_from_row, week_insert_values, BuiltPlan,
-    BuiltWeek, WeekInsertValues,
+    built_plan_week, built_training_plan, epoch_to_datetime, phase_index_column,
+    plan_draft_from_row, plan_insert_values, plan_week_from_row, training_plan_from_row,
+    week_insert_values, BuiltPlan, BuiltWeek, WeekInsertValues,
 };
 pub(crate) use draft::{
     draft_insert_error, draft_outline_params, impl_training_plan_draft_helpers, CLAIM_DRAFT_SQL,
     DISCARD_DRAFT_SQL, DRAFT_PLAN_SQL, DRAFT_WEEK_CONFLICTS_SQL, INSERT_DRAFT_FROM_LIVE_SQL,
-    INSERT_DRAFT_SQL, LIST_DRAFT_WEEKS_SQL, LIVE_WEEK_ID_SQL, PUBLISHED_DRAFT_SQL,
-    RELAY_DRAFT_OUTLINE_SQL,
+    INSERT_DRAFT_SQL, LAST_PUBLISHED_DRAFT_SQL, LIST_DRAFT_WEEKS_SQL, LIVE_WEEK_ID_SQL,
+    PUBLISHED_DRAFT_SQL, RELAY_DRAFT_OUTLINE_SQL,
 };
 pub use draft::{
     DraftConflicts, DraftOwner, DraftPreview, DraftPublish, PlanDraft, PublishDraftParams,
@@ -292,6 +293,13 @@ pub trait TrainingPlanRepository: Send + Sync {
     /// Fetch the coach's open draft of the athlete's plan, or `None` when the
     /// coach holds none.
     async fn get_draft_plan(&self, owner: DraftOwner<'_>) -> AppResult<Option<PlanDraft>>;
+
+    /// When the coach last published a draft of the athlete's plan, or `None`
+    /// when they never have.
+    async fn last_published_draft_at(
+        &self,
+        owner: DraftOwner<'_>,
+    ) -> AppResult<Option<DateTime<Utc>>>;
 
     /// List the weeks the coach saved into their open draft `draft_id`, in
     /// calendar order: the draft's own version of each, never the live one.
@@ -1104,6 +1112,21 @@ macro_rules! impl_training_plan_repository {
                 read_draft(&mut conn, owner)
                     .await?
                     .map(plan_draft_from_row)
+                    .transpose()
+            }
+
+            async fn last_published_draft_at(
+                &self,
+                owner: DraftOwner<'_>,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let row: Option<(i64,)> = sqlx::query_as(LAST_PUBLISHED_DRAFT_SQL)
+                    .bind(owner.tenant_id)
+                    .bind(owner.user_id)
+                    .bind(owner.coach_user_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("last published draft: {e}")))?;
+                row.map(|(at,)| epoch_to_datetime(at, "updated_at"))
                     .transpose()
             }
 

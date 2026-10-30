@@ -87,6 +87,9 @@ pub mod check_in;
 pub mod coach_access;
 /// A coach's after-the-fact review of the agent's group replies (carnet#847)
 pub mod coach_replies;
+/// The human coach's roster read for Coach Home (carnet#1251)
+#[cfg(feature = "tools-groups")]
+pub mod coach_roster;
 /// The athlete's in-app feedback thread with the Dravr team (carnet#1235)
 #[cfg(feature = "client-chat")]
 pub mod feedback;

@@ -199,6 +199,7 @@ mod coach_plan_notice_test;
 mod coach_plan_thread_seed_test;
 mod coach_planned_read_test;
 mod coach_reply_review_test;
+mod coach_roster_route_test;
 mod coach_roster_scope_test;
 mod coach_seat_tool_surface_test;
 mod coach_setup_timing_test;

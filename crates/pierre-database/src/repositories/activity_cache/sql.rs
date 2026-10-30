@@ -108,6 +108,15 @@ pub(crate) const LATEST_ANY_SYNC_SQL: &str = r"
     ORDER BY synced_at DESC
     LIMIT 1";
 
+/// Latest `start_date` any cached activity of a user carries, uploads and
+/// imports included: the day they last trained, as far as the cache knows.
+pub(crate) const LATEST_ACTIVITY_START_SQL: &str = r"
+    SELECT start_date
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2
+    ORDER BY start_date DESC
+    LIMIT 1";
+
 /// The user-provided keys (`USER_PROVIDED_PROVIDERS`) under which a user holds
 /// at least one cached activity: the sources an athlete with no connection
 /// still has to answer from.

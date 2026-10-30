@@ -488,3 +488,17 @@ export type {
   CoachReviewWeek,
   CoachReviewWeeklyResponse,
 } from './coach-review';
+export type {
+  CoachRosterStatus,
+  CoachRosterGroupRef,
+  CoachRosterGroup,
+  CoachRosterForm,
+  CoachRosterLastSession,
+  CoachRosterTraining,
+  CoachRosterPlan,
+  CoachRosterPlanThread,
+  CoachRosterAgentReplies,
+  CoachRosterAthlete,
+  CoachRosterResponse,
+  CoachRosterQuery,
+} from './coach-roster';

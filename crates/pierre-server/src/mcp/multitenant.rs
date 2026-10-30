@@ -32,6 +32,8 @@ use tracing::field::Empty;
 use tracing::{error, info, info_span, Level, Span};
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
+#[cfg(feature = "tools-groups")]
+use crate::routes::coach_roster::CoachRosterRoutes;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
 use crate::routes::oauth_grants::OAuthGrantsRoutes;
 use crate::routes::request_transport::declare_request_transport;
@@ -658,6 +660,9 @@ impl ProviderToolRouter {
         let app = app.merge(CoachAccessRoutes::routes(Arc::clone(resources)));
         // A coach's review of the agent's group replies: flag, correct, count.
         let app = app.merge(CoachReplyRoutes::routes(Arc::clone(resources)));
+        // The coach's roster for Coach Home, read through the agent's roster.
+        #[cfg(feature = "tools-groups")]
+        let app = app.merge(CoachRosterRoutes::routes(Arc::clone(resources)));
         let app = app.merge(VizRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-agents")]
