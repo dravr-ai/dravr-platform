@@ -121,16 +121,17 @@ impl FuelForm {
     }
 
     /// The serving mass, in grams, a label of this form can state: capsules
-    /// and tablets weigh a fraction of a gram to a few grams, everything else
-    /// from a few grams to a large bottle's worth of powder. A puree is
-    /// bounded like the gel it is eaten as, a waffle like a bar.
+    /// and tablets weigh a fraction of a gram to a few grams, an electrolyte
+    /// drink mix's scoop a gram or more (2.75 g and 3.8 g on real labels),
+    /// everything else from a few grams to a large bottle's worth of powder.
+    /// A puree is bounded like the gel it is eaten as, a waffle like a bar.
     #[must_use]
     pub const fn serving_g_bounds(self) -> (f64, f64) {
         match self {
             Self::Capsule | Self::Tablet => (0.2, 5.0),
+            Self::DrinkMix => (1.0, 200.0),
             Self::Gel
             | Self::Puree
-            | Self::DrinkMix
             | Self::Bar
             | Self::Waffle
             | Self::Chew

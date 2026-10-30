@@ -544,6 +544,27 @@ mod tests {
             codes(FuelForm::Capsule, &heavy),
             vec!["serving_mass_out_of_range"]
         );
+        // An electrolyte drink mix's scoop weighs a few grams; a gel that
+        // light is not a gel.
+        let scoop = FuelFacts {
+            serving_g: Some(2.75),
+            sodium_mg: Some(400.0),
+            carbs_g: Some(0.0),
+            ..FuelFacts::default()
+        };
+        assert_eq!(codes(FuelForm::DrinkMix, &scoop), Vec::<&str>::new());
+        assert_eq!(
+            codes(FuelForm::Gel, &scoop),
+            vec!["serving_mass_out_of_range"]
+        );
+        let dust = FuelFacts {
+            serving_g: Some(0.5),
+            ..scoop
+        };
+        assert_eq!(
+            codes(FuelForm::DrinkMix, &dust),
+            vec!["serving_mass_out_of_range"]
+        );
         let mut facts = gel();
         facts.serving_g = Some(250.0);
         facts.carbs_g_per_100g = None;
