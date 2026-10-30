@@ -855,9 +855,9 @@ async fn an_agent_that_welcomed_the_thread_is_not_introduced_again() {
 /// The text tool call a model makes for the athlete's recent activities.
 const GET_ACTIVITIES_CALL: &str = "<tool_call>\n{\"name\": \"get_activities\", \"arguments\": {\"limit\": 10, \"mode\": \"summary\"}}\n</tool_call>";
 
-/// The first line of a `get_activities` list once the fold has dropped the
-/// panel header: the date anchor every list opens with.
-const LIST_OPENING: &str = "[Today]";
+/// The first line of a `get_activities` list once the fold has kept only the
+/// athlete's rows: its first numbered row.
+const LIST_OPENING: &str = "1. [";
 
 /// The athlete's two recent sessions, in the durable cache behind a Strava
 /// connection, plus a Garmin connection with no session — registered last, so

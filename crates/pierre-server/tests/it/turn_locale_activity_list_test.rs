@@ -273,10 +273,13 @@ async fn an_english_turn_folds_an_english_list_into_its_reply() {
             _ => None,
         })
         .expect("the reply is delivered as prose");
-    let today = Utc::now().date_naive();
     assert!(
-        prose.contains(&format!("[Today] {}", format_civil_day(today, "en"))),
+        prose.contains("[bike ride]") && prose.contains("(yesterday)"),
         "bug: the English turn's folded list must be English, not the profile's French: {prose}"
+    );
+    assert!(
+        !prose.contains("[Today]"),
+        "the list's date anchor is the agent's, never folded into the athlete's reply: {prose}"
     );
 }
 
