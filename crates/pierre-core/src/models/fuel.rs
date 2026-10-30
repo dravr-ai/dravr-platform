@@ -34,7 +34,7 @@ pub use gate::{
     MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
 };
 pub use identity::{fuel_natural_key, image_sha256, normalize_gtin, proposal_source_hash};
-pub use overrides::{FieldOverride, FuelFactOverrides};
+pub use overrides::{FieldOverride, FuelFactOverrides, FuelIdentity, ReviewedProposal};
 
 /// The physical form a fuel product comes in. Stored as [`FuelForm::as_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -226,6 +226,10 @@ pub struct FieldProvenance {
     /// The reader's confidence in the value, 0..=1, when it reports one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
+    /// The operator who set or cleared the value at review, for an
+    /// [`FactSource::AdminEdit`]; `None` for every other source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_user_id: Option<Uuid>,
 }
 
 /// Per-field provenance: stored fact name -> where it came from.

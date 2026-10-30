@@ -24,6 +24,7 @@ mod first_run_progress_test;
 mod fitness_config_repository_test;
 mod fuel_product_bank_test;
 mod fuel_proposal_sources_test;
+mod fuel_review_edits_test;
 mod harness_memory_repository_test;
 mod home_preferences_test;
 mod impersonation_test;

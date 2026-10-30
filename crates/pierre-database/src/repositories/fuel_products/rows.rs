@@ -11,9 +11,9 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     normalize_gtin, CatalogueFuelProduct, FactProvenance, FactSource, FieldProvenance,
-    FuelFactOverrides, FuelFacts, FuelForm, FuelKeyHolder, FuelProduct, FuelProductProposal,
-    FuelProductVersion, FuelProposalImageMeta, FuelRejectReason, ProposalSource, ProposalStatus,
-    ILLEGIBLE_FLAG,
+    FuelFactOverrides, FuelFacts, FuelForm, FuelIdentity, FuelKeyHolder, FuelProduct,
+    FuelProductProposal, FuelProductVersion, FuelProposalImageMeta, FuelRejectReason,
+    ProposalSource, ProposalStatus, ReviewedProposal, ILLEGIBLE_FLAG,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -65,26 +65,31 @@ pub(crate) fn parse_status(raw: &str) -> AppResult<ProposalStatus> {
         .ok_or_else(|| AppError::database(format!("Unknown fuel proposal status: {raw}")))
 }
 
-/// The merged facts of an approval and their provenance: the proposal's,
-/// with every field the operator changed — set or cleared — recorded as
-/// `admin_edit`.
+/// A proposal as the operator's checked edits leave it, and its provenance:
+/// the proposal's, with every field the edits changed — identity or fact,
+/// set or cleared — recorded as `admin_edit` by `reviewer_user_id`.
+///
+/// # Errors
+/// An invalid-input error for an edit [`FuelFactOverrides::review`] refuses.
 pub(crate) fn merge_for_approval(
     proposal: &FuelProductProposal,
     overrides: &FuelFactOverrides,
-) -> (FuelFacts, FactProvenance) {
-    let (facts, changed) = proposal.facts.merged_with(overrides);
+    reviewer_user_id: Uuid,
+) -> AppResult<(ReviewedProposal, FactProvenance)> {
+    let reviewed = overrides.review(&FuelIdentity::of(proposal), &proposal.facts)?;
     let mut provenance = proposal.provenance.clone();
-    for field in changed {
+    for field in &reviewed.changed {
         provenance.insert(
-            field.to_owned(),
+            (*field).to_owned(),
             FieldProvenance {
                 source: FactSource::AdminEdit,
                 source_url: None,
                 confidence: None,
+                operator_user_id: Some(reviewer_user_id),
             },
         );
     }
-    (facts, provenance)
+    Ok((reviewed, provenance))
 }
 
 /// Refuse a GTIN that is not already in the normalized GTIN-14 form.
@@ -325,6 +330,14 @@ pub(crate) fn duplicate_note(holder: FuelKeyHolder) -> String {
             format!("Filed by the ingestion job: proposal {id} already has this brand, name and variant")
         }
     }
+}
+
+/// A catalogue product as an approval resolves it: its id, barcode and key.
+#[derive(Debug, Clone)]
+pub(crate) struct ProductIdentity {
+    pub(crate) id: Uuid,
+    pub(crate) gtin: Option<String>,
+    pub(crate) natural_key: String,
 }
 
 /// How a product identity lookup is keyed.

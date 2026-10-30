@@ -661,6 +661,7 @@ fn proposal_from_args(args: &Value, user: Uuid) -> AppResult<Result<NewFuelPropo
                     source: FactSource::Athlete,
                     source_url: None,
                     confidence: None,
+                    operator_user_id: None,
                 },
             )
         })

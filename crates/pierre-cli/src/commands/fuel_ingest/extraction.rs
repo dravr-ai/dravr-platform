@@ -202,6 +202,7 @@ fn put(
                 source: FactSource::LabelOcr,
                 source_url: Some(source_url.to_owned()),
                 confidence: None,
+                operator_user_id: None,
             },
         );
     }
@@ -324,6 +325,7 @@ pub(super) fn map_reading(reading: &LabelReading, source_url: &str) -> MappedRea
                 source: FactSource::LabelOcr,
                 source_url: Some(source_url.to_owned()),
                 confidence: None,
+                operator_user_id: None,
             },
         );
     }

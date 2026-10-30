@@ -68,6 +68,7 @@ pub(crate) fn proposal(brand: &str, facts: FuelFacts) -> NewFuelProposal {
             source: FactSource::LabelOcr,
             source_url: Some(url.clone()),
             confidence: Some(0.93),
+            operator_user_id: None,
         },
     );
     NewFuelProposal {

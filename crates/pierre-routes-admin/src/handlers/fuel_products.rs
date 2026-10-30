@@ -1,4 +1,4 @@
-// ABOUTME: Super-admin review of the fuel-product bank: the proposal queue, its label images, approve (with edits) and reject, and the live catalogue
+// ABOUTME: Super-admin review of the fuel-product bank: the proposal queue, its photos, approve (with identity and fact edits) and reject, and the live catalogue
 // ABOUTME: The catalogue is global reference data, so every route is super-admin only and none is tenant-scoped (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,16 +14,17 @@
 //! Every route is super-admin only instead, reads included, since a change
 //! here reaches every athlete on the platform.
 //!
-//! An approval can edit the proposed facts first: each field of
-//! [`FuelFactOverrides`] keeps, sets or clears its value, the edited fields
-//! are recorded with provenance `admin_edit`, and the merged facts pass the
-//! plausibility gate again before anything is written. Each
-//! [`FuelApprovalOutcome`] answers with its own status and an `outcome` code
-//! the console branches on.
+//! An approval can edit the proposal first — its brand, name, variant, form
+//! and GTIN as well as its facts: each field of [`FuelFactOverrides`] keeps,
+//! sets or clears its value, the repository checks the edits, records each
+//! changed field with provenance `admin_edit` naming the operator, and passes
+//! the merged facts through the plausibility gate again before anything is
+//! written. Each [`FuelApprovalOutcome`] answers with its own status and an
+//! `outcome` code the console branches on.
 //!
-//! The label image is served from the stored bytes rather than linked from
-//! the brand's CDN: the console's content-security policy only loads images
-//! from its own origin.
+//! The photos are served from the stored bytes, one route per position,
+//! rather than linked from the brand's CDN: the console's content-security
+//! policy only loads images from its own origin.
 
 use std::sync::Arc;
 
@@ -41,17 +42,15 @@ use uuid::Uuid;
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    CatalogueFuelListing, CatalogueFuelProduct, FieldOverride, FuelApprovalOutcome,
-    FuelFactOverrides, FuelProductProposal, FuelRejectReason, PlausibilityViolation, ProposalStatus,
+    CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome, FuelFactOverrides,
+    FuelProductProposal, FuelProposalImageMeta, FuelRejectReason, PlausibilityViolation,
+    ProposalStatus,
 };
 
 use crate::context::AdminApiContext;
 
 /// Longest rejection note accepted, in characters.
-pub const MAX_REJECT_NOTE_CHARS: usize = 2000;
-
-/// Longest serving label an operator can set, in characters.
-pub const MAX_SERVING_LABEL_CHARS: usize = 120;
+const MAX_REJECT_NOTE_CHARS: usize = 2000;
 
 /// Rows a list returns when the request names no limit.
 const DEFAULT_PAGE: i64 = 50;
@@ -59,9 +58,16 @@ const DEFAULT_PAGE: i64 = 50;
 /// The most rows one list returns.
 const MAX_PAGE: i64 = 100;
 
-/// The label image types the console is served. Anything else stored is
-/// refused rather than sent under a type a browser might sniff into script.
-pub const SERVABLE_IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/// The photo types the console is served. Anything else stored is refused
+/// rather than sent under a type a browser might sniff into script.
+const SERVABLE_IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+/// The content type a stored photo is served under: its own, folded, when
+/// [`SERVABLE_IMAGE_TYPES`] lists it; `None` for anything else.
+fn servable_type(stored_mime: &str) -> Option<&'static str> {
+    let mime = stored_mime.trim().to_ascii_lowercase();
+    SERVABLE_IMAGE_TYPES.into_iter().find(|t| *t == mime)
+}
 
 /// Refuse anyone but a super-admin: the catalogue is global.
 fn require_super_admin(admin_token: &ValidatedAdminToken) -> AppResult<()> {
@@ -110,6 +116,8 @@ pub struct ProposalListResponse {
     pub proposals: Vec<FuelProductProposal>,
     /// The status listed.
     pub status: ProposalStatus,
+    /// How many proposals are in that status, every page together.
+    pub total: i64,
     /// The limit applied.
     pub limit: i64,
     /// The offset applied.
@@ -137,14 +145,13 @@ pub async fn handle_list_fuel_proposals(
         })?,
     };
     let (limit, offset) = page(query.limit, query.offset);
-    let proposals = context
-        .repos
-        .fuel_catalogue
-        .list_fuel_proposals(status, limit, offset)
-        .await?;
+    let catalogue = &context.repos.fuel_catalogue;
+    let proposals = catalogue.list_fuel_proposals(status, limit, offset).await?;
+    let total = catalogue.count_fuel_proposals(status).await?;
     Ok(Json(ProposalListResponse {
         proposals,
         status,
+        total,
         limit,
         offset,
     })
@@ -154,11 +161,12 @@ pub async fn handle_list_fuel_proposals(
 /// Body of `GET /api/admin/fuel-products/proposals/{id}`.
 #[derive(Debug, Serialize)]
 pub struct ProposalDetailResponse {
-    /// The proposal.
+    /// The proposal, with the label reader's notes, the ingredients as
+    /// printed and the glucose + fructose claim.
     pub proposal: FuelProductProposal,
-    /// The stored label image's size in bytes, when one is stored; the image
-    /// itself is served by the `source-image` route.
-    pub source_image_bytes: Option<usize>,
+    /// Every stored photo, without its bytes, in the order sent; each is
+    /// served by the `images/{position}` route.
+    pub images: Vec<FuelProposalImageMeta>,
 }
 
 /// Handle `GET /api/admin/fuel-products/proposals/{id}`.
@@ -174,51 +182,48 @@ pub async fn handle_get_fuel_proposal(
 ) -> AppResult<Response> {
     require_super_admin(&admin_token)?;
     let id = parse_id(&proposal_id)?;
-    let detail = context
-        .repos
-        .fuel_catalogue
+    let catalogue = &context.repos.fuel_catalogue;
+    let proposal = catalogue
         .get_fuel_proposal(id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Fuel proposal {id}")))?;
-    Ok(Json(ProposalDetailResponse {
-        source_image_bytes: detail.source_image.as_ref().map(|i| i.bytes.len()),
-        proposal: detail.proposal,
-    })
-    .into_response())
+    let images = catalogue.list_fuel_proposal_images(id).await?;
+    Ok(Json(ProposalDetailResponse { proposal, images }).into_response())
 }
 
-/// Handle `GET /api/admin/fuel-products/proposals/{id}/source-image`.
+/// Handle `GET /api/admin/fuel-products/proposals/{id}/images/{position}`.
 ///
-/// The stored label image, with its stored type when that is one of
-/// [`SERVABLE_IMAGE_TYPES`], never cached and never type-sniffed.
+/// One stored photo, by its place in the order sent (from 0), under its
+/// stored type when [`servable_type`] allows it, never cached and never
+/// type-sniffed.
 ///
 /// # Errors
 ///
-/// 403 for anyone but a super-admin, 400 for a malformed id, 404 for an
-/// unknown proposal or one with no image, 415 for a stored type outside the
-/// allowlist, or a repository error.
+/// 403 for anyone but a super-admin, 400 for a malformed id or position, 404
+/// for an unknown proposal or a position it has no photo at, 415 for a
+/// stored type outside the allowlist, or a repository error.
 pub async fn handle_get_fuel_proposal_image(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
-    Path(proposal_id): Path<String>,
+    Path((proposal_id, position)): Path<(String, String)>,
 ) -> AppResult<Response> {
     require_super_admin(&admin_token)?;
     let id = parse_id(&proposal_id)?;
+    let position: i64 = position
+        .parse()
+        .map_err(|_| AppError::invalid_input(format!("Invalid photo position: {position}")))?;
     let image = context
         .repos
         .fuel_catalogue
-        .get_fuel_proposal(id)
+        .get_fuel_proposal_image(id, position)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("Fuel proposal {id}")))?
-        .source_image
-        .ok_or_else(|| AppError::not_found(format!("Label image of fuel proposal {id}")))?;
-    let mime = image.mime.trim().to_ascii_lowercase();
-    let Some(content_type) = SERVABLE_IMAGE_TYPES.iter().find(|t| **t == mime) else {
+        .ok_or_else(|| AppError::not_found(format!("Photo {position} of fuel proposal {id}")))?;
+    let Some(content_type) = servable_type(&image.mime) else {
         return Ok(reply(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             json!({
                 "outcome": "unsupported_image_type",
-                "error": format!("The stored label image is `{}`, which is not served", image.mime),
+                "error": format!("The stored photo is `{}`, which is not served", image.mime),
             }),
         ));
     };
@@ -245,7 +250,8 @@ pub async fn handle_get_fuel_proposal_image(
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApproveFuelProposalRequest {
-    /// The operator's edits: a field left out keeps the proposed value, a
+    /// The operator's edits of the identity (brand, name, variant, form,
+    /// GTIN) and the facts: a field left out keeps the proposed value, a
     /// value replaces it, `null` clears it. Empty for a plain approval.
     #[serde(default)]
     pub overrides: FuelFactOverrides,
@@ -280,10 +286,9 @@ impl From<PlausibilityViolation> for ViolationView {
 /// | approved | 200 | `approved`, with `product` |
 /// | merged facts fail the gate | 422 | `implausible`, with `violations` |
 /// | already reviewed | 410 | `not_pending`, with `status` |
-/// | GTIN and named product disagree | 409 | `identity_conflict`, with `product_id` |
+/// | the barcode, the named product or an identity edit lands on another product | 409 | `identity_conflict`, with `product_id` |
 /// | no such proposal | 404 | `not_found` |
-#[must_use]
-pub fn approval_response(outcome: FuelApprovalOutcome) -> Response {
+fn approval_response(outcome: FuelApprovalOutcome) -> Response {
     match outcome {
         FuelApprovalOutcome::Approved(product) => reply(
             StatusCode::OK,
@@ -313,7 +318,7 @@ pub fn approval_response(outcome: FuelApprovalOutcome) -> Response {
             StatusCode::CONFLICT,
             json!({
                 "outcome": "identity_conflict",
-                "error": "The proposal's barcode belongs to another catalogue product than the one it names",
+                "error": "The proposal's barcode or name lands on another catalogue product than the one it names, and an approval never renames a live product",
                 "product_id": product_id,
             }),
         ),
@@ -335,34 +340,6 @@ fn reviewer(admin_token: &ValidatedAdminToken) -> AppResult<Uuid> {
     })
 }
 
-/// An operator's serving label, trimmed. The plausibility gate reads only
-/// numbers, so the text is checked here: a blank label is "not stated",
-/// which is a clear (`null`), never an empty string; one line only; and at
-/// most [`MAX_SERVING_LABEL_CHARS`], the cap an athlete's label has.
-///
-/// # Errors
-///
-/// An invalid-input error for a blank, multi-line or over-long label.
-fn checked_serving_label(raw: &str) -> AppResult<String> {
-    let label = raw.trim();
-    if label.is_empty() {
-        return Err(AppError::invalid_input(
-            "serving_label is blank: send null to clear it",
-        ));
-    }
-    if label.chars().any(char::is_control) {
-        return Err(AppError::invalid_input(
-            "serving_label must be one line of text",
-        ));
-    }
-    if label.chars().count() > MAX_SERVING_LABEL_CHARS {
-        return Err(AppError::invalid_input(format!(
-            "serving_label must be at most {MAX_SERVING_LABEL_CHARS} characters"
-        )));
-    }
-    Ok(label.to_owned())
-}
-
 /// Handle `POST /api/admin/fuel-products/proposals/{id}/approve`.
 ///
 /// See [`approval_response`] for what each outcome answers.
@@ -370,8 +347,9 @@ fn checked_serving_label(raw: &str) -> AppResult<String> {
 /// # Errors
 ///
 /// 403 for anyone but a signed-in super-admin, 400 for a malformed id or
-/// body or a serving label [`checked_serving_label`] refuses, or a
-/// repository error.
+/// body or an edit [`FuelFactOverrides::review`] refuses (a blank or
+/// multi-line text, a cleared brand, name or form, a GTIN that does not
+/// normalize), or a repository error.
 pub async fn handle_approve_fuel_proposal(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -381,14 +359,10 @@ pub async fn handle_approve_fuel_proposal(
     require_super_admin(&admin_token)?;
     let reviewer = reviewer(&admin_token)?;
     let id = parse_id(&proposal_id)?;
-    let mut overrides = body.overrides;
-    if let FieldOverride::Set(label) = &mut overrides.serving_label {
-        *label = checked_serving_label(label)?;
-    }
     let outcome = context
         .repos
         .fuel_catalogue
-        .approve_fuel_proposal(id, reviewer, &overrides)
+        .approve_fuel_proposal(id, reviewer, &body.overrides)
         .await?;
     if let FuelApprovalOutcome::Approved(product) = &outcome {
         info!(
@@ -400,6 +374,27 @@ pub async fn handle_approve_fuel_proposal(
         );
     }
     Ok(approval_response(outcome))
+}
+
+/// A rejection's note, trimmed: `None` when blank, at most
+/// [`MAX_REJECT_NOTE_CHARS`], and required for reason `other`.
+///
+/// # Errors
+///
+/// An invalid-input error for an over-long note, or `other` without one.
+fn checked_reject_note(reason: FuelRejectReason, raw: Option<&str>) -> AppResult<Option<&str>> {
+    let note = raw.map(str::trim).filter(|n| !n.is_empty());
+    if note.is_some_and(|n| n.chars().count() > MAX_REJECT_NOTE_CHARS) {
+        return Err(AppError::invalid_input(format!(
+            "note must be at most {MAX_REJECT_NOTE_CHARS} characters"
+        )));
+    }
+    if reason == FuelRejectReason::Other && note.is_none() {
+        return Err(AppError::invalid_input(
+            "A rejection for reason `other` needs a note saying what",
+        ));
+    }
+    Ok(note)
 }
 
 /// Body of `POST /api/admin/fuel-products/proposals/{id}/reject`.
@@ -440,31 +435,17 @@ pub async fn handle_reject_fuel_proposal(
             body.reason
         ))
     })?;
-    let note = body
-        .note
-        .as_deref()
-        .map(str::trim)
-        .filter(|n| !n.is_empty());
-    if note.is_some_and(|n| n.chars().count() > MAX_REJECT_NOTE_CHARS) {
-        return Err(AppError::invalid_input(format!(
-            "note must be at most {MAX_REJECT_NOTE_CHARS} characters"
-        )));
-    }
-    if reason == FuelRejectReason::Other && note.is_none() {
-        return Err(AppError::invalid_input(
-            "A rejection for reason `other` needs a note saying what",
-        ));
-    }
+    let note = checked_reject_note(reason, body.note.as_deref())?;
     let catalogue = &context.repos.fuel_catalogue;
     let rejected = catalogue
         .reject_fuel_proposal(id, reviewer, reason, note)
         .await?;
-    let Some(detail) = catalogue.get_fuel_proposal(id).await? else {
+    let Some(proposal) = catalogue.get_fuel_proposal(id).await? else {
         return Ok(approval_response(FuelApprovalOutcome::NotFound));
     };
     if !rejected {
         return Ok(approval_response(FuelApprovalOutcome::NotPending(
-            detail.proposal.status,
+            proposal.status,
         )));
     }
     info!(
@@ -475,7 +456,7 @@ pub async fn handle_reject_fuel_proposal(
     );
     Ok(reply(
         StatusCode::OK,
-        json!({ "outcome": "rejected", "proposal": detail.proposal }),
+        json!({ "outcome": "rejected", "proposal": proposal }),
     ))
 }
 
@@ -512,6 +493,8 @@ impl From<CatalogueFuelListing> for CatalogueRow {
 pub struct CatalogueListResponse {
     /// The live products, in brand/name/variant order.
     pub products: Vec<CatalogueRow>,
+    /// How many products the live catalogue lists, every page together.
+    pub total: i64,
     /// The limit applied.
     pub limit: i64,
     /// The offset applied.
@@ -530,18 +513,50 @@ pub async fn handle_list_fuel_catalogue(
 ) -> AppResult<Response> {
     require_super_admin(&admin_token)?;
     let (limit, offset) = page(query.limit, query.offset);
-    let products = context
-        .repos
-        .fuel_catalogue
+    let catalogue = &context.repos.fuel_catalogue;
+    let products = catalogue
         .list_fuel_catalogue(limit, offset)
         .await?
         .into_iter()
         .map(CatalogueRow::from)
         .collect();
+    let total = catalogue.count_fuel_catalogue().await?;
     Ok(Json(CatalogueListResponse {
         products,
+        total,
         limit,
         offset,
     })
     .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_allowlisted_photo_types_are_served_folded() {
+        assert_eq!(servable_type("image/png"), Some("image/png"));
+        assert_eq!(servable_type(" IMAGE/JPEG "), Some("image/jpeg"));
+        for refused in ["text/html", "image/svg+xml", "application/octet-stream", ""] {
+            assert_eq!(servable_type(refused), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_reject_note_is_trimmed_capped_and_required_for_other() {
+        assert_eq!(
+            checked_reject_note(FuelRejectReason::Illegible, Some("  blurry  ")).ok(),
+            Some(Some("blurry"))
+        );
+        assert_eq!(
+            checked_reject_note(FuelRejectReason::Duplicate, Some("   ")).ok(),
+            Some(None)
+        );
+        let at_cap = "x".repeat(MAX_REJECT_NOTE_CHARS);
+        assert!(checked_reject_note(FuelRejectReason::Other, Some(&at_cap)).is_ok());
+        assert!(checked_reject_note(FuelRejectReason::Other, Some(&format!("{at_cap}x"))).is_err());
+        assert!(checked_reject_note(FuelRejectReason::Other, None).is_err());
+        assert!(checked_reject_note(FuelRejectReason::Other, Some("  ")).is_err());
+    }
 }

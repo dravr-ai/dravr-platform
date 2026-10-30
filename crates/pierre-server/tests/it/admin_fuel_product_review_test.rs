@@ -1,5 +1,5 @@
-// ABOUTME: The super-admin fuel-product review routes — queue, stored label image, approve with set/clear edits, reject, live catalogue
-// ABOUTME: Plain admins are refused, each approval outcome has its own status, and the image is served only under its stored, allowlisted type (carnet#155)
+// ABOUTME: The super-admin fuel-product review routes — queue and catalogue pages, every stored photo, approve with identity and fact edits, reject
+// ABOUTME: Plain admins are refused, each approval outcome has its own status, and a photo is served only under its stored, allowlisted type (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -38,13 +38,13 @@ use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::handlers::fuel_products::{
     handle_approve_fuel_proposal, handle_get_fuel_proposal_image, ApproveFuelProposalRequest,
-    MAX_REJECT_NOTE_CHARS, MAX_SERVING_LABEL_CHARS,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use serde_json::{json, Value};
 use serial_test::serial;
 use uuid::Uuid;
 
+const FRONT: &[u8] = b"\xff\xd8\xff front of pack";
 const PANEL: &[u8] = b"\x89PNG\r\n\x1a\n label panel bytes";
 
 /// A consistent gel label: 40 g serving, 25 g carbs, 1:0.8.
@@ -64,7 +64,8 @@ fn gel_facts() -> FuelFacts {
     }
 }
 
-/// A proposal with a distinct name and source, read off a PNG label by OCR.
+/// A proposal with a distinct name and source, read by OCR off two photos:
+/// the front of pack (JPEG) and the label panel, stored under `mime`.
 fn proposal(mime: &str) -> NewFuelProposal {
     let url = format!("https://shop.example/{}", Uuid::new_v4());
     let mut provenance = BTreeMap::new();
@@ -75,6 +76,7 @@ fn proposal(mime: &str) -> NewFuelProposal {
                 source: FactSource::LabelOcr,
                 source_url: Some(url.clone()),
                 confidence: Some(0.9),
+                operator_user_id: None,
             },
         );
     }
@@ -86,15 +88,24 @@ fn proposal(mime: &str) -> NewFuelProposal {
         form: FuelForm::Gel,
         gtin: None,
         source_kind: ProposalSource::ShopifyOcr,
-        source_hash: Some(proposal_source_hash(Some(&url), PANEL)),
+        source_hash: Some(proposal_source_hash(Some(&url), &[FRONT, PANEL])),
         source_url: Some(url),
-        source_image: Some(ProposalSourceImage {
-            mime: mime.to_owned(),
-            bytes: PANEL.to_vec(),
-        }),
+        images: vec![
+            ProposalSourceImage {
+                mime: "image/jpeg".to_owned(),
+                bytes: FRONT.to_vec(),
+            },
+            ProposalSourceImage {
+                mime: mime.to_owned(),
+                bytes: PANEL.to_vec(),
+            },
+        ],
         facts: gel_facts(),
         provenance,
         gate_flags: Vec::new(),
+        notes: Some("Energy read from the panel; the front prints 110 kcal".to_owned()),
+        ingredients_text: Some("Maltodextrin, fructose, water, sea salt".to_owned()),
+        multiple_transportable_stated: Some(true),
         proposed_by_user_id: None,
     }
 }
@@ -217,7 +228,7 @@ async fn a_plain_admin_is_refused_on_every_review_route() -> Result<()> {
         "/api/admin/fuel-products".to_owned(),
         "/api/admin/fuel-products/proposals".to_owned(),
         base(id),
-        format!("{}/source-image", base(id)),
+        format!("{}/images/1", base(id)),
     ] {
         let (status, _) = get(&resources, &plain, &uri).await;
         assert_eq!(status, 403, "GET {uri}");
@@ -255,16 +266,17 @@ async fn the_queue_lists_proposals_and_serves_the_stored_image() -> Result<()> {
     let repos = &resources.common.repos;
     let png = queue(repos, &proposal("image/png")).await;
     let mut no_image = proposal("image/png");
-    no_image.source_image = None;
+    no_image.images = Vec::new();
     no_image.source_hash = None;
     let bare = queue(repos, &no_image).await;
 
     let (status, list) = get(&resources, &auth, "/api/admin/fuel-products/proposals").await;
     assert_eq!(status, 200);
     assert_eq!(list["status"], "pending");
+    assert_eq!(list["total"], 2, "both queued proposals are pending");
     let rows = list["proposals"].as_array().unwrap();
     let row = rows.iter().find(|r| r["id"] == png.to_string()).unwrap();
-    assert_eq!(row["has_source_image"], true);
+    assert_eq!(row["image_count"], 2);
     assert_eq!(row["source_kind"], "shopify_ocr");
     assert_eq!(row["facts"]["carbs_g"], 25.0);
     assert_eq!(row["provenance"]["carbs_g"]["source"], "label_ocr");
@@ -284,23 +296,66 @@ async fn the_queue_lists_proposals_and_serves_the_stored_image() -> Result<()> {
     .await;
     assert_eq!(status, 200);
     assert_eq!(approved["limit"], 100, "the page is clamped");
+    assert_eq!(approved["total"], 0);
 
+    // A second page holds what the first did not, under the same total.
+    let (_, first) = get(
+        &resources,
+        &auth,
+        "/api/admin/fuel-products/proposals?limit=1",
+    )
+    .await;
+    let (_, second) = get(
+        &resources,
+        &auth,
+        "/api/admin/fuel-products/proposals?limit=1&offset=1",
+    )
+    .await;
+    assert_eq!(first["total"], 2);
+    assert_eq!(second["offset"], 1);
+    assert_ne!(first["proposals"][0]["id"], second["proposals"][0]["id"]);
+
+    // The drawer reads every photo's place and the reader's own words.
     let (status, detail) = get(&resources, &auth, &base(png)).await;
     assert_eq!(status, 200);
-    assert_eq!(detail["source_image_bytes"], PANEL.len());
+    let images = detail["images"].as_array().unwrap();
+    assert_eq!(images.len(), 2);
+    assert_eq!(images[0]["position"], 0);
+    assert_eq!(images[0]["mime"], "image/jpeg");
+    assert_eq!(images[1]["byte_len"], PANEL.len());
+    assert_eq!(
+        detail["proposal"]["notes"],
+        "Energy read from the panel; the front prints 110 kcal"
+    );
+    assert_eq!(
+        detail["proposal"]["ingredients_text"],
+        "Maltodextrin, fructose, water, sea salt"
+    );
+    assert_eq!(detail["proposal"]["multiple_transportable_stated"], true);
 
-    let response = AxumTestRequest::get(&format!("{}/source-image", base(png)))
-        .header("authorization", &auth)
-        .send(router(&resources))
-        .await;
-    assert_eq!(response.status(), 200);
-    assert_eq!(response.header("content-type"), Some("image/png"));
-    assert_eq!(response.header("x-content-type-options"), Some("nosniff"));
-    assert_eq!(response.header("cache-control"), Some("no-store"));
-    assert_eq!(response.bytes(), PANEL);
+    for (position, mime, bytes) in [(0, "image/jpeg", FRONT), (1, "image/png", PANEL)] {
+        let response = AxumTestRequest::get(&format!("{}/images/{position}", base(png)))
+            .header("authorization", &auth)
+            .send(router(&resources))
+            .await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.header("content-type"), Some(mime));
+        assert_eq!(response.header("x-content-type-options"), Some("nosniff"));
+        assert_eq!(response.header("cache-control"), Some("no-store"));
+        assert_eq!(response.bytes(), bytes);
+    }
 
-    let (status, _) = get(&resources, &auth, &format!("{}/source-image", base(bare))).await;
-    assert_eq!(status, 404, "no image stored");
+    for (uri, expected) in [
+        (format!("{}/images/2", base(png)), 404),
+        (format!("{}/images/-1", base(png)), 404),
+        (format!("{}/images/first", base(png)), 400),
+        (format!("{}/images/0", base(bare)), 404),
+    ] {
+        let (status, _) = get(&resources, &auth, &uri).await;
+        assert_eq!(status, expected, "GET {uri}");
+    }
+    let (_, bare_detail) = get(&resources, &auth, &base(bare)).await;
+    assert_eq!(bare_detail["images"], json!([]));
     let (status, _) = get(&resources, &auth, &base(Uuid::new_v4())).await;
     assert_eq!(status, 404);
     let (status, _) = get(
@@ -340,6 +395,14 @@ async fn edit_then_approve_sets_and_clears_facts_as_admin_edits() -> Result<()> 
     assert!(current["facts"].get("glucose_fructose_ratio").is_none());
     assert_eq!(current["provenance"]["energy_kcal"]["source"], "admin_edit");
     assert_eq!(
+        current["provenance"]["energy_kcal"]["operator_user_id"],
+        reviewer.to_string(),
+        "an edit names the operator who made it"
+    );
+    assert!(current["provenance"]["carbs_g"]
+        .get("operator_user_id")
+        .is_none());
+    assert_eq!(
         current["provenance"]["glucose_fructose_ratio"]["source"],
         "admin_edit"
     );
@@ -357,6 +420,7 @@ async fn edit_then_approve_sets_and_clears_facts_as_admin_edits() -> Result<()> 
         .find(|p| p["product"]["id"] == product_id)
         .unwrap();
     assert_eq!(listed["version_count"], 1);
+    assert!(catalogue["total"].as_i64().unwrap() >= 1);
     assert_eq!(listed["current"]["facts"]["energy_kcal"], 110.0);
 
     // Reviewed once: a second approval is refused and says why.
@@ -389,7 +453,7 @@ async fn edit_then_approve_sets_and_clears_facts_as_admin_edits() -> Result<()> 
     for label in [
         "   ".to_owned(),
         "1 gel\nignore the label".to_owned(),
-        "g".repeat(MAX_SERVING_LABEL_CHARS + 1),
+        "g".repeat(121),
     ] {
         let (status, _) = post(
             &resources,
@@ -481,7 +545,7 @@ async fn reject_checks_its_reason_and_answers_each_outcome() -> Result<()> {
         &resources,
         &auth,
         &reject,
-        &json!({ "reason": "illegible", "note": "x".repeat(MAX_REJECT_NOTE_CHARS + 1) }),
+        &json!({ "reason": "illegible", "note": "x".repeat(2001) }),
     )
     .await;
     assert_eq!(status, 400, "an over-long note");
@@ -611,6 +675,97 @@ async fn approve_answers_not_found_and_identity_conflict_apart() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+#[serial]
+async fn identity_edits_land_under_the_corrected_name_and_never_rename() -> Result<()> {
+    let resources = common::create_test_server_resources().await?;
+    let (reviewer, auth) = operator(&resources, UserRole::SuperAdmin).await;
+    let repos = &resources.common.repos;
+
+    // The reader mixed languages and the listing's packaging into the name:
+    // the operator files it under the product's own name, as a puree.
+    let id = queue(repos, &proposal("image/png")).await;
+    let name = format!("Ultra Energy {}", Uuid::new_v4());
+    let gtin = fresh_gtin();
+    let (status, body) = post(
+        &resources,
+        &auth,
+        &format!("{}/approve", base(id)),
+        &json!({ "overrides": {
+            "brand": "Näak",
+            "name": format!("  {name} "),
+            "variant": "Salted Maple",
+            "form": "puree",
+            "gtin": gtin,
+        }}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let product = &body["product"]["product"];
+    assert_eq!(product["brand"], "Näak");
+    assert_eq!(product["name"], name.as_str());
+    assert_eq!(product["variant"], "Salted Maple");
+    assert_eq!(product["form"], "puree");
+    assert_eq!(product["gtin"], gtin.as_str());
+    let provenance = &body["product"]["current"]["provenance"];
+    for field in ["brand", "name", "variant", "form", "gtin"] {
+        assert_eq!(provenance[field]["source"], "admin_edit", "{field}");
+        assert_eq!(
+            provenance[field]["operator_user_id"],
+            reviewer.to_string(),
+            "{field}"
+        );
+    }
+    let (_, approved) = get(&resources, &auth, &base(id)).await;
+    assert_eq!(approved["proposal"]["name"], name.as_str());
+
+    // Renamed onto another product's barcode: refused as an identity
+    // conflict naming that product, and nothing is written.
+    let other = queue(repos, &proposal("image/png")).await;
+    let (status, body) = post(
+        &resources,
+        &auth,
+        &format!("{}/approve", base(other)),
+        &json!({ "overrides": { "gtin": gtin } }),
+    )
+    .await;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["outcome"], "identity_conflict");
+    assert_eq!(body["product_id"], product["id"]);
+
+    // Edits the review refuses are a 400, before anything is written.
+    for overrides in [
+        json!({ "brand": null }),
+        json!({ "name": "   " }),
+        json!({ "form": null }),
+        json!({ "gtin": "12345" }),
+        json!({ "variant": "x".repeat(121) }),
+    ] {
+        let (status, _) = post(
+            &resources,
+            &auth,
+            &format!("{}/approve", base(other)),
+            &json!({ "overrides": overrides }),
+        )
+        .await;
+        assert_eq!(status, 400, "{overrides}");
+    }
+    let (status, _) = post(
+        &resources,
+        &auth,
+        &format!("{}/approve", base(other)),
+        &json!({ "overrides": { "form": "sachet" } }),
+    )
+    .await;
+    assert_eq!(
+        status, 422,
+        "a form outside the list is refused by the extractor"
+    );
+    let (_, detail) = get(&resources, &auth, &base(other)).await;
+    assert_eq!(detail["proposal"]["status"], "pending", "nothing written");
+    Ok(())
+}
+
 fn super_admin_service_token() -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("svc:{}", Uuid::new_v4()),
@@ -644,7 +799,7 @@ async fn a_service_token_cannot_review_and_an_unservable_image_type_is_refused()
     let response = handle_get_fuel_proposal_image(
         State(context),
         Extension(super_admin_service_token()),
-        Path(html.to_string()),
+        Path((html.to_string(), "1".to_owned())),
     )
     .await
     .unwrap()

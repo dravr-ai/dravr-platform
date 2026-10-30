@@ -161,6 +161,17 @@ pub(crate) const LIST_PROPOSALS_SQL: &str = concat!(
             "
 );
 
+/// How many proposals are in status `$1`.
+pub(crate) const COUNT_PROPOSALS_BY_STATUS_SQL: &str =
+    "SELECT COUNT(*) FROM fuel_product_proposals WHERE status = $1";
+
+/// How many products the live catalogue lists: each with a current version.
+pub(crate) const COUNT_CATALOGUE_SQL: &str = r"
+            SELECT COUNT(*) FROM fuel_products p
+            JOIN fuel_product_versions v
+              ON v.product_id = p.id AND v.superseded_by IS NULL
+            ";
+
 /// One proposal by id `$1`.
 pub(crate) const GET_PROPOSAL_SQL: &str = concat!(
     "SELECT ",
@@ -194,10 +205,14 @@ pub(crate) const HOLD_PENDING_PROPOSAL_SQL: &str = r"
 pub(crate) const PROPOSAL_STATUS_SQL: &str =
     "SELECT status FROM fuel_product_proposals WHERE id = $1";
 
-/// Record on approved proposal `$1` the version `$2` it wrote on product `$3`.
+/// Record on approved proposal `$1` the version `$2` it wrote on product
+/// `$3`, and the identity it was approved under — `$4` brand, `$5` name, `$6`
+/// variant, `$7` form, `$8` natural key, `$9` gtin — so an operator's
+/// correction is what the approved proposal holds its key by.
 pub(crate) const RECORD_APPROVAL_SQL: &str = r"
             UPDATE fuel_product_proposals
-            SET approved_version_id = $2, product_id = $3
+            SET approved_version_id = $2, product_id = $3, brand = $4, name = $5,
+                variant = $6, form = $7, natural_key = $8, gtin = $9
             WHERE id = $1
             ";
 
@@ -209,17 +224,20 @@ pub(crate) const REJECT_PROPOSAL_SQL: &str = r"
             WHERE id = $1 AND status = 'pending'
             ";
 
-/// A product's id and GTIN by id `$1`.
+/// A product's id, GTIN and natural key by id `$1`.
 pub(crate) const PRODUCT_IDENTITY_BY_ID_SQL: &str =
-    "SELECT id, gtin FROM fuel_products WHERE id = $1";
+    "SELECT id, gtin, natural_key FROM fuel_products WHERE id = $1";
 
-/// A product's id and GTIN by GTIN `$1`.
+/// A product's id, GTIN and natural key by GTIN `$1`.
 pub(crate) const PRODUCT_IDENTITY_BY_GTIN_SQL: &str =
-    "SELECT id, gtin FROM fuel_products WHERE gtin = $1";
+    "SELECT id, gtin, natural_key FROM fuel_products WHERE gtin = $1";
 
-/// A product's id and GTIN by natural key `$1`.
+/// A product's id, GTIN and natural key by natural key `$1`.
 pub(crate) const PRODUCT_IDENTITY_BY_KEY_SQL: &str =
-    "SELECT id, gtin FROM fuel_products WHERE natural_key = $1";
+    "SELECT id, gtin, natural_key FROM fuel_products WHERE natural_key = $1";
+
+/// Give product `$1` the form `$2` an operator corrected at review.
+pub(crate) const SET_PRODUCT_FORM_SQL: &str = "UPDATE fuel_products SET form = $2 WHERE id = $1";
 
 /// Give product `$1`, which has none, the GTIN `$2`.
 pub(crate) const SET_PRODUCT_GTIN_SQL: &str =

@@ -331,7 +331,7 @@ impl AdminRoutes {
                 get(fuel_products::handle_get_fuel_proposal),
             )
             .route(
-                "/api/admin/fuel-products/proposals/{proposal_id}/source-image",
+                "/api/admin/fuel-products/proposals/{proposal_id}/images/{position}",
                 get(fuel_products::handle_get_fuel_proposal_image),
             )
             .route(

@@ -38,8 +38,8 @@ mod traits;
 pub(crate) use rows::{
     bind_fuel_facts, catalogue_from_row, check_gtin, duplicate_note, from_json, fuel_error,
     illegible_flag_pattern, image_meta_from_row, merge_for_approval, parse_form, parse_status,
-    proposal_from_row, search_patterns, to_json, CatalogueIds, FuelIdentityKey, ProposalIds,
-    MAX_FUEL_PAGE,
+    proposal_from_row, search_patterns, to_json, CatalogueIds, FuelIdentityKey, ProductIdentity,
+    ProposalIds, MAX_FUEL_PAGE,
 };
 pub(crate) use sql::{
     CLAIM_PROPOSAL_SQL, COUNT_LIVE_ITEMS_SQL, COUNT_PRODUCT_SQL, COUNT_PROPOSALS_BY_HASH_SQL,
@@ -53,6 +53,7 @@ pub(crate) use sql::{
     RELINK_PENDING_ITEMS_SQL, REMOVE_ITEM_SQL, RETIRE_DUPLICATE_PENDING_ITEMS_SQL,
     SEARCH_PRODUCTS_SQL, SET_PRODUCT_GTIN_SQL, SUPERSEDE_CURRENT_VERSION_SQL,
 };
+pub(crate) use sql::{COUNT_CATALOGUE_SQL, COUNT_PROPOSALS_BY_STATUS_SQL, SET_PRODUCT_FORM_SQL};
 pub use traits::{AthleteFuelItemRepository, FuelCatalogueRepository};
 
 /// Emit both fuel-product repository implementations for one backend type.
@@ -126,12 +127,13 @@ macro_rules! impl_fuel_product_repositories {
                 })
             }
 
-            /// The id and GTIN of the product a statement selects, if any.
+            /// The id, GTIN and natural key of the product a statement
+            /// selects, if any.
             async fn fuel_product_identity(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
                 sql: &'static str,
                 key: FuelIdentityKey<'_>,
-            ) -> AppResult<Option<(Uuid, Option<String>)>> {
+            ) -> AppResult<Option<$crate::repositories::fuel_products::ProductIdentity>> {
                 use sqlx::Row as _;
                 let query = sqlx::query(sql);
                 let query = match key {
@@ -143,43 +145,39 @@ macro_rules! impl_fuel_product_repositories {
                     .await
                     .map_err(|e| fuel_error("look up a product in", e))?;
                 row.map(|row| {
-                    let gtin: Option<String> =
-                        row.try_get("gtin").map_err(|e| fuel_error("decode gtin of", e))?;
-                    Ok(($ids::read(&row, "id")?, gtin))
+                    Ok($crate::repositories::fuel_products::ProductIdentity {
+                        id: $ids::read(&row, "id")?,
+                        gtin: row.try_get("gtin").map_err(|e| fuel_error("decode gtin of", e))?,
+                        natural_key: row
+                            .try_get("natural_key")
+                            .map_err(|e| fuel_error("decode natural_key of", e))?,
+                    })
                 })
                 .transpose()
             }
 
-            /// The product a proposal names: its own, else the one its brand,
-            /// name and variant name.
-            async fn named_fuel_product(
-                tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
-                proposal: &FuelProductProposal,
-            ) -> AppResult<Option<(Uuid, Option<String>)>> {
-                if let Some(id) = proposal.product_id {
-                    return Self::fuel_product_identity(
-                        tx,
-                        PRODUCT_IDENTITY_BY_ID_SQL,
-                        FuelIdentityKey::Id(id),
-                    )
-                    .await;
-                }
-                let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
-                Self::fuel_product_identity(tx, PRODUCT_IDENTITY_BY_KEY_SQL, FuelIdentityKey::Text(&key))
-                    .await
-            }
-
-            /// The product an approval lands on, or `Err` with the one it conflicts with.
+            /// The product an approval lands on, or `Err` with the one it
+            /// conflicts with.
             ///
-            /// The product the proposal names; else the one its GTIN names; else a
-            /// new one. A named product that holds another barcode, or a barcode
-            /// another product holds, is a conflict.
+            /// The product the proposal updates (`product_id`), else the one
+            /// its reviewed brand, name and variant name; else the one its
+            /// reviewed GTIN names; else a new one under the reviewed
+            /// identity. A conflict is a named product holding another
+            /// barcode, a barcode another product holds, or an operator's
+            /// identity edit that lands on a product filed under another key
+            /// — an edit corrects what a proposal names, it never renames a
+            /// live product.
             async fn resolve_fuel_product(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
-                proposal: &FuelProductProposal,
+                reviewed: &pierre_core::models::ReviewedProposal,
+                product_id: Option<Uuid>,
                 now: DateTime<Utc>,
             ) -> AppResult<Result<Uuid, Uuid>> {
-                let by_gtin = match proposal.gtin.as_deref() {
+                let identity = &reviewed.identity;
+                let key = identity.natural_key();
+                let key_edited =
+                    reviewed.changed("brand") || reviewed.changed("name") || reviewed.changed("variant");
+                let by_gtin = match identity.gtin.as_deref() {
                     Some(gtin) => {
                         Self::fuel_product_identity(
                             tx,
@@ -190,43 +188,80 @@ macro_rules! impl_fuel_product_repositories {
                     }
                     None => None,
                 };
-                match (Self::named_fuel_product(tx, proposal).await?, by_gtin) {
-                    (Some((id, _)), Some((holder, _))) if holder != id => Ok(Err(holder)),
-                    // The named product carries another barcode than the one proposed.
-                    (Some((id, Some(_))), None) if proposal.gtin.is_some() => Ok(Err(id)),
-                    (Some((id, None)), None) => {
-                        if let Some(gtin) = proposal.gtin.as_deref() {
-                            sqlx::query(SET_PRODUCT_GTIN_SQL)
-                                .bind($ids::bind(id))
-                                .bind(gtin)
-                                .execute(&mut **tx)
-                                .await
-                                .map_err(|e| fuel_error("set a product's GTIN in", e))?;
-                        }
-                        Ok(Ok(id))
+                let named = match product_id {
+                    Some(id) => {
+                        Self::fuel_product_identity(
+                            tx,
+                            PRODUCT_IDENTITY_BY_ID_SQL,
+                            FuelIdentityKey::Id(id),
+                        )
+                        .await?
                     }
-                    (Some((id, _)), _) | (None, Some((id, _))) => Ok(Ok(id)),
+                    None => {
+                        Self::fuel_product_identity(
+                            tx,
+                            PRODUCT_IDENTITY_BY_KEY_SQL,
+                            FuelIdentityKey::Text(&key),
+                        )
+                        .await?
+                    }
+                };
+                let existing = match (named, by_gtin) {
+                    (Some(named), Some(holder)) if holder.id != named.id => return Ok(Err(holder.id)),
+                    // The named product carries another barcode than the one proposed.
+                    (Some(named), None) if named.gtin.is_some() && identity.gtin.is_some() => {
+                        return Ok(Err(named.id))
+                    }
+                    (Some(named), _) => {
+                        if key_edited && named.natural_key != key {
+                            return Ok(Err(named.id));
+                        }
+                        named
+                    }
+                    (None, Some(holder)) => {
+                        // Nothing holds the reviewed key, so the barcode's
+                        // product is filed under another one.
+                        if key_edited || reviewed.changed("gtin") {
+                            return Ok(Err(holder.id));
+                        }
+                        holder
+                    }
                     (None, None) => {
                         let id = Uuid::new_v4();
                         sqlx::query(INSERT_PRODUCT_SQL)
                             .bind($ids::bind(id))
-                            .bind(proposal.gtin.as_deref())
-                            .bind(proposal.brand.as_str())
-                            .bind(proposal.name.as_str())
-                            .bind(proposal.variant.as_str())
-                            .bind(proposal.form.as_str())
-                            .bind(fuel_natural_key(
-                                &proposal.brand,
-                                &proposal.name,
-                                &proposal.variant,
-                            ))
+                            .bind(identity.gtin.as_deref())
+                            .bind(identity.brand.as_str())
+                            .bind(identity.name.as_str())
+                            .bind(identity.variant.as_str())
+                            .bind(identity.form.as_str())
+                            .bind(key.as_str())
                             .bind(now)
                             .execute(&mut **tx)
                             .await
                             .map_err(|e| fuel_error("enter a product in", e))?;
-                        Ok(Ok(id))
+                        return Ok(Ok(id));
+                    }
+                };
+                if existing.gtin.is_none() {
+                    if let Some(gtin) = identity.gtin.as_deref() {
+                        sqlx::query(SET_PRODUCT_GTIN_SQL)
+                            .bind($ids::bind(existing.id))
+                            .bind(gtin)
+                            .execute(&mut **tx)
+                            .await
+                            .map_err(|e| fuel_error("set a product's GTIN in", e))?;
                     }
                 }
+                if reviewed.changed("form") {
+                    sqlx::query($crate::repositories::fuel_products::SET_PRODUCT_FORM_SQL)
+                        .bind($ids::bind(existing.id))
+                        .bind(identity.form.as_str())
+                        .execute(&mut **tx)
+                        .await
+                        .map_err(|e| fuel_error("correct a product's form in", e))?;
+                }
+                Ok(Ok(existing.id))
             }
 
             /// Supersede `product_id`'s current version; returns the new version's id.
@@ -625,6 +660,21 @@ macro_rules! impl_fuel_product_repositories {
                 rows.iter().map(Self::fuel_proposal_row).collect()
             }
 
+            async fn count_fuel_proposals(&self, status: ProposalStatus) -> AppResult<i64> {
+                sqlx::query_scalar($crate::repositories::fuel_products::COUNT_PROPOSALS_BY_STATUS_SQL)
+                    .bind(status.as_str())
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("count proposals in", e))
+            }
+
+            async fn count_fuel_catalogue(&self) -> AppResult<i64> {
+                sqlx::query_scalar($crate::repositories::fuel_products::COUNT_CATALOGUE_SQL)
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| fuel_error("count the catalogue of", e))
+            }
+
             async fn get_fuel_proposal(
                 &self,
                 proposal_id: Uuid,
@@ -698,8 +748,11 @@ macro_rules! impl_fuel_product_repositories {
                 if proposal.status != ProposalStatus::Pending {
                     return Ok(FuelApprovalOutcome::NotPending(proposal.status));
                 }
-                let (facts, provenance) = merge_for_approval(&proposal, overrides);
-                if let Err(violations) = check_plausibility(proposal.form, &facts) {
+                let (reviewed, provenance) =
+                    merge_for_approval(&proposal, overrides, reviewer_user_id)?;
+                if let Err(violations) =
+                    check_plausibility(reviewed.identity.form, &reviewed.facts)
+                {
                     return Ok(FuelApprovalOutcome::Implausible(violations));
                 }
                 let now = Utc::now();
@@ -724,7 +777,8 @@ macro_rules! impl_fuel_product_repositories {
                         .map_err(|e| fuel_error("read a proposal in", e))?;
                     return Ok(FuelApprovalOutcome::NotPending(parse_status(&status)?));
                 }
-                let product_id = match Self::resolve_fuel_product(&mut tx, &proposal, now).await? {
+                let product_id = match Self::resolve_fuel_product(&mut tx, &reviewed, proposal.product_id, now)
+                    .await? {
                     Ok(id) => id,
                     // Dropping the transaction rolls the claim back.
                     Err(product_id) => {
@@ -734,7 +788,7 @@ macro_rules! impl_fuel_product_repositories {
                 let version_id = Self::write_fuel_version(
                     &mut tx,
                     product_id,
-                    &facts,
+                    &reviewed.facts,
                     &provenance,
                     reviewer_user_id,
                     now,
@@ -744,6 +798,12 @@ macro_rules! impl_fuel_product_repositories {
                     .bind($ids::bind(proposal_id))
                     .bind($ids::bind(version_id))
                     .bind($ids::bind(product_id))
+                    .bind(reviewed.identity.brand.as_str())
+                    .bind(reviewed.identity.name.as_str())
+                    .bind(reviewed.identity.variant.as_str())
+                    .bind(reviewed.identity.form.as_str())
+                    .bind(reviewed.identity.natural_key())
+                    .bind(reviewed.identity.gtin.as_deref())
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| fuel_error("record an approval in", e))?;

@@ -93,6 +93,14 @@ pub trait FuelCatalogueRepository: Send + Sync {
         offset: i64,
     ) -> AppResult<Vec<FuelProductProposal>>;
 
+    /// How many proposals are in `status`: the length of the queue a page
+    /// of [`Self::list_fuel_proposals`] is taken from.
+    async fn count_fuel_proposals(&self, status: ProposalStatus) -> AppResult<i64>;
+
+    /// How many products the live catalogue lists: the length of the list a
+    /// page of [`Self::list_fuel_catalogue`] is taken from.
+    async fn count_fuel_catalogue(&self) -> AppResult<i64>;
+
     /// One proposal, without its photos.
     async fn get_fuel_proposal(&self, proposal_id: Uuid) -> AppResult<Option<FuelProductProposal>>;
 
@@ -114,14 +122,23 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// status.
     async fn fuel_proposal_exists_by_hash(&self, source_hash: &str) -> AppResult<bool>;
 
-    /// Approve a pending proposal, with `overrides` applied to its facts: each
-    /// field an override sets to a new value or clears is recorded with
-    /// provenance `admin_edit`. The
-    /// merged facts must pass the plausibility gate. In one transaction the
-    /// proposal's product is found (its `product_id`, else its GTIN, else its
-    /// brand, name and variant) or created, the product's current version is
-    /// superseded, the new one written, the proposal marked approved, and every
-    /// athlete item that carried the proposal relinked to the product.
+    /// Approve a pending proposal with an operator's `overrides` (see
+    /// [`FuelFactOverrides::review`]): each identity field or fact they set
+    /// to a new value or clear is recorded with provenance `admin_edit`,
+    /// naming `reviewer_user_id`. The merged facts must pass the plausibility
+    /// gate for the reviewed form. In one transaction the proposal's product
+    /// is found (its `product_id`, else its reviewed brand, name and variant,
+    /// else its reviewed GTIN) or created under the reviewed identity, the
+    /// product's current version is superseded, the new one written, the
+    /// proposal marked approved under the reviewed identity, and every
+    /// athlete item that carried the proposal relinked to the product. An
+    /// identity edit that lands on a product filed under another key is an
+    /// [`FuelApprovalOutcome::IdentityConflict`]: an edit never renames a
+    /// live product.
+    ///
+    /// # Errors
+    /// An invalid-input error for an edit the review refuses, or a database
+    /// error.
     async fn approve_fuel_proposal(
         &self,
         proposal_id: Uuid,
