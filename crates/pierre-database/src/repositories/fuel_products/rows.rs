@@ -363,7 +363,7 @@ impl ProductIdentity {
     /// is the operator's spelling, every other part stays the product's.
     pub(crate) fn renamed_by(&self, reviewed: &ReviewedProposal) -> (String, String, String) {
         let part = |field: &str, operator: &str, own: &str| {
-            if reviewed.changed(field) {
+            if reviewed.has_changed(field) {
                 operator.to_owned()
             } else {
                 own.to_owned()
@@ -380,11 +380,11 @@ impl ProductIdentity {
 
 /// How a product identity lookup is keyed.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum FuelIdentityKey<'k> {
+pub(crate) enum FuelIdentityKey<'key> {
     /// By the product's id.
     Id(Uuid),
     /// By a GTIN or natural key.
-    Text(&'k str),
+    Text(&'key str),
 }
 
 #[cfg(test)]

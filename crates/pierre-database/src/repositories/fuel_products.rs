@@ -20,7 +20,7 @@
 //! its product to every athlete who carries it while it was pending, keyed by
 //! the proposal and never by an athlete.
 //!
-//! Facts reach the catalogue only through [`FuelCatalogueRepository::approve_proposal`],
+//! Facts reach the catalogue only through [`FuelCatalogueRepository::approve_fuel_proposal`],
 //! which passes the merged facts through
 //! [`pierre_core::models::check_plausibility`] and, in one transaction,
 //! supersedes the product's current version and writes the new one.
@@ -205,8 +205,8 @@ macro_rules! impl_fuel_product_repositories {
                 let identity = &reviewed.identity;
                 let key = identity.natural_key();
                 let key_edited =
-                    reviewed.changed("brand") || reviewed.changed("name") || reviewed.changed("variant");
-                let gtin_edited = reviewed.changed("gtin");
+                    reviewed.has_changed("brand") || reviewed.has_changed("name") || reviewed.has_changed("variant");
+                let gtin_edited = reviewed.has_changed("gtin");
                 let by_gtin = match identity.gtin.as_deref() {
                     Some(gtin) => {
                         Self::fuel_product_identity(
@@ -307,7 +307,7 @@ macro_rules! impl_fuel_product_repositories {
             ) -> AppResult<Result<(), $crate::repositories::fuel_products::IdentityClash>> {
                 use $crate::repositories::fuel_products::identity_written;
                 let identity = &reviewed.identity;
-                if reviewed.changed("brand") || reviewed.changed("name") || reviewed.changed("variant") {
+                if reviewed.has_changed("brand") || reviewed.has_changed("name") || reviewed.has_changed("variant") {
                     let (brand, name, variant) = existing.renamed_by(reviewed);
                     let key = fuel_natural_key(&brand, &name, &variant);
                     if key != existing.natural_key {
@@ -335,7 +335,7 @@ macro_rules! impl_fuel_product_repositories {
                         return Ok(Err(clash));
                     }
                 }
-                if reviewed.changed("gtin") {
+                if reviewed.has_changed("gtin") {
                     let replaced = sqlx::query($crate::repositories::fuel_products::REPLACE_PRODUCT_GTIN_SQL)
                         .bind($ids::bind(existing.id))
                         .bind(identity.gtin.as_deref())
@@ -356,7 +356,7 @@ macro_rules! impl_fuel_product_repositories {
                         }
                     }
                 }
-                if reviewed.changed("form") {
+                if reviewed.has_changed("form") {
                     sqlx::query($crate::repositories::fuel_products::SET_PRODUCT_FORM_SQL)
                         .bind($ids::bind(existing.id))
                         .bind(identity.form.as_str())

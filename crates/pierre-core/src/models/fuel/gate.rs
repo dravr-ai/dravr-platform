@@ -218,15 +218,15 @@ const fn basis_label(basis: FactBasis) -> &'static str {
 }
 
 /// The most sodium one serving of a fuel product carries, mg.
-pub const MAX_SODIUM_MG_PER_SERVING: f64 = 2000.0;
+const MAX_SODIUM_MG_PER_SERVING: f64 = 2000.0;
 
 /// The most caffeine one serving carries, mg: the single-day ceiling
 /// EFSA judges of no concern for a healthy adult.
-pub const MAX_CAFFEINE_MG_PER_SERVING: f64 = 400.0;
+const MAX_CAFFEINE_MG_PER_SERVING: f64 = 400.0;
 
 /// The largest glucose:fructose ratio a label can state (fructose per gram of
 /// glucose source).
-pub const MAX_GLUCOSE_FRUCTOSE_RATIO: f64 = 1.5;
+const MAX_GLUCOSE_FRUCTOSE_RATIO: f64 = 1.5;
 
 /// Relative tolerance between two statements of one fact on a label.
 const LABEL_TOLERANCE: f64 = 0.05;

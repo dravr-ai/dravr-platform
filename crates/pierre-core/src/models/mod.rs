@@ -181,8 +181,7 @@ pub use fuel::{
     FuelItemEntry, FuelKeyHolder, FuelProduct, FuelProductProposal, FuelProductVersion,
     FuelProposalImageMeta, FuelReadRecorded, FuelReadRequest, FuelRejectReason, NewFuelProposal,
     PendingFuelItem, PlausibilityViolation, ProposalSource, ProposalSourceImage, ProposalStatus,
-    ReviewedProposal, MAX_CAFFEINE_MG_PER_SERVING, MAX_FUEL_ITEMS_PER_ATHLETE,
-    MAX_FUEL_PRODUCT_LOOKUP, MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
+    ReviewedProposal, MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
 };
 pub use gear::{
     default_pair, parse_shoe_sport, shoe_sport_slug, ActivityGearKey, AthleteGear,

@@ -29,10 +29,7 @@ mod gate;
 mod identity;
 mod overrides;
 
-pub use gate::{
-    check_plausibility, FactBasis, PlausibilityViolation, MAX_CAFFEINE_MG_PER_SERVING,
-    MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
-};
+pub use gate::{check_plausibility, FactBasis, PlausibilityViolation};
 pub use identity::{
     fuel_natural_key, fuel_read_hash, image_sha256, normalize_gtin, proposal_source_hash,
     FuelReadRequest,

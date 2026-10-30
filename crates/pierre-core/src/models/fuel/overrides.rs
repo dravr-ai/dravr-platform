@@ -205,7 +205,7 @@ pub struct ReviewedProposal {
 impl ReviewedProposal {
     /// Whether the edits changed field `name`.
     #[must_use]
-    pub fn changed(&self, name: &str) -> bool {
+    pub fn has_changed(&self, name: &str) -> bool {
         self.changed.contains(&name)
     }
 }
@@ -513,7 +513,7 @@ mod tests {
             reviewed.changed,
             vec!["name", "variant", "form", "gtin", "carbs_g"]
         );
-        assert!(reviewed.changed("gtin") && !reviewed.changed("brand"));
+        assert!(reviewed.has_changed("gtin") && !reviewed.has_changed("brand"));
         assert_eq!(reviewed.identity.natural_key(), "naak|ultra gel|");
         Ok(())
     }

@@ -97,14 +97,14 @@ fn update_field(hasher: &mut Sha256, field: &[u8]) {
 /// What a label read sends besides its page and photos: everything that
 /// can change the answer, so each is part of [`fuel_read_hash`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FuelReadRequest<'a> {
+pub struct FuelReadRequest<'req> {
     /// The `fuel_panel_extraction` prompt text sent.
-    pub prompt: &'a str,
+    pub prompt: &'req str,
     /// The user message the photos travel on, as sent: rewording it can
     /// change the answer as much as rewording the prompt.
-    pub user_message: &'a str,
+    pub user_message: &'req str,
     /// The configured model, as `provider=model`.
-    pub model: &'a str,
+    pub model: &'req str,
     /// The request's output cap: an answer cut off at a lower one may parse
     /// at a higher one.
     pub max_tokens: u32,
