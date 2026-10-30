@@ -12,8 +12,10 @@
 //! providers lack that consent ([`with_ai_consent`]); the parent module's
 //! filters then read the provider terms through
 //! [`WithConsent`](pierre_core::ai_policy::WithConsent), so such a provider's
-//! data is denied whole to the model. The athlete still sees it, and the
-//! connection stays live. The parent module re-exports the public surface.
+//! data is denied whole to the model. A human coach's read of the athlete
+//! ([`for_human_coach`](super::for_human_coach)) is held to the same consent
+//! (carnet#1262). The athlete still sees it, and the connection stays live.
+//! The parent module re-exports the public surface.
 
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -34,9 +36,10 @@ tokio::task_local! {
 /// Run `fut` with `withheld` as the providers lacking the athlete's AI consent.
 ///
 /// Those are the providers whose data the athlete has not consented to hand
-/// to AI, or withdrew that consent for. Inside a read for a model, a provider
-/// in it is denied whole, recorded or relayed; outside one it changes nothing.
-/// A read for a model where nothing was declared withholds every provider
+/// to AI, or withdrew that consent for. Inside a read for a model or a human
+/// coach's read ([`for_human_coach`](super::for_human_coach)), a provider in
+/// it is denied whole, recorded or relayed; outside both it changes nothing.
+/// Such a read where nothing was declared withholds every provider
 /// whose notice is a consent to AI use ([`ai_consent_backends`]): an entry
 /// point that forgets withholds the data instead of handing it over.
 pub async fn with_ai_consent<F: Future>(withheld: BTreeSet<String>, fut: F) -> F::Output {
@@ -58,7 +61,8 @@ pub fn ai_consent_withheld() -> Arc<BTreeSet<String>> {
         .unwrap_or_else(|_| Arc::new(ai_consent_backends().map(str::to_ascii_lowercase).collect()))
 }
 
-/// Refuse a model's untagged read of a provider lacking the athlete's AI consent.
+/// Refuse a model's or a human coach's untagged read of a provider lacking the
+/// athlete's AI consent.
 ///
 /// For the reads that carry no item provenance (profile, stats, calendar),
 /// when the athlete has not consented to AI use of `provider`'s data. The
@@ -68,7 +72,7 @@ pub fn ai_consent_withheld() -> Arc<BTreeSet<String>> {
 /// # Errors
 ///
 /// [`ErrorCode::ResourceNotFound`](pierre_core::errors::ErrorCode::ResourceNotFound)
-/// when a model reads and `provider`'s AI consent is withheld.
+/// when a model or a human coach reads and `provider`'s AI consent is withheld.
 pub fn consented_read(provider: &str) -> AppResult<()> {
     let for_model = exposure().is_some_and(|gate| gate.to_model);
     if !for_model || !ai_consent_withheld().contains(&provider.to_ascii_lowercase()) {

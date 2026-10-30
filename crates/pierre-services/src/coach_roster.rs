@@ -30,19 +30,20 @@
 //!    listed, by name.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Serialize;
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{CoachingGroup, GroupMember};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Activity, TenantId};
 use pierre_database::RepositoryRegistry;
 
 use crate::athlete_display_name::fetch_user_display_name;
+use crate::provider_notice::ai_consent_withheld;
 
 /// Per-athlete roster lookups (connections, names, cache dates, a row's plan
 /// reads) run at once. Each is a short database read, so a roster of a few
@@ -364,14 +365,7 @@ pub async fn order_roster(
     let mut ordered: Vec<OrderedMember> = stream::iter(members)
         .map(|member| async move {
             let name = fetch_user_display_name(repos, member.user_id).await;
-            let mut last_cached_activity = None;
-            for tenant in &member.source_tenants {
-                let start = repos
-                    .activity_cache
-                    .latest_activity_start(member.user_id, tenant)
-                    .await?;
-                last_cached_activity = last_cached_activity.max(start);
-            }
+            let last_cached_activity = last_consented_activity(repos, &member).await?;
             AppResult::Ok(OrderedMember {
                 member,
                 name,
@@ -383,6 +377,95 @@ pub async fn order_roster(
         .await?;
     ordered.sort_by(roster_order);
     Ok(ordered)
+}
+
+/// Cached sessions read per page while looking past withheld ones.
+const WITHHELD_SCAN_PAGE: i64 = 100;
+
+/// Pages read before an athlete whose recent sessions are all withheld is
+/// ordered as having none: what the order shows must never be a withheld
+/// session's day, so giving up reads as "no session", never as a guess.
+const WITHHELD_SCAN_MAX_PAGES: usize = 20;
+
+/// When the athlete last trained, as far as the cache knows, by the sources
+/// whose AI use they have not withheld.
+///
+/// The order is read by the agent and the coach alike, so a source the athlete
+/// withheld from AI must not place them either: its session's day would show
+/// through the order while their row carries none (carnet#1262). A relay
+/// caches a withheld provider's session under its own key with that provider
+/// as its `source`, so an athlete who withheld any provider is ordered by
+/// their sessions themselves, each judged by provider and source.
+async fn last_consented_activity(
+    repos: &RepositoryRegistry,
+    member: &RosterMember,
+) -> AppResult<Option<DateTime<Utc>>> {
+    if member.source_tenants.is_empty() {
+        return Ok(None);
+    }
+    let withheld = ai_consent_withheld(repos, member.tenant.as_uuid(), member.user_id).await;
+    let mut latest = None;
+    for tenant in &member.source_tenants {
+        let start = if withheld.is_empty() {
+            repos
+                .activity_cache
+                .latest_activity_start(member.user_id, tenant)
+                .await?
+        } else {
+            latest_unwithheld_start(repos, member.user_id, tenant, &withheld).await?
+        };
+        latest = latest.max(start);
+    }
+    Ok(latest)
+}
+
+/// The start of the user's newest cached session in `tenant` that neither
+/// comes from nor was relayed from a provider in `withheld`.
+async fn latest_unwithheld_start(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant: &TenantId,
+    withheld: &BTreeSet<String>,
+) -> AppResult<Option<DateTime<Utc>>> {
+    let is_withheld = |name: &str| withheld.contains(&name.to_ascii_lowercase());
+    let mut end = Utc::now();
+    let mut previous_oldest = None;
+    for _ in 0..WITHHELD_SCAN_MAX_PAGES {
+        let page = repos
+            .activity_cache
+            .get_cached_activities(
+                user_id,
+                tenant,
+                None,
+                DateTime::UNIX_EPOCH,
+                end,
+                WITHHELD_SCAN_PAGE,
+            )
+            .await?;
+        let Some(oldest) = page.last().map(Activity::start_date) else {
+            return Ok(None);
+        };
+        if let Some(kept) = page
+            .iter()
+            .find(|a| !is_withheld(a.provider()) && !a.source().is_some_and(is_withheld))
+        {
+            return Ok(Some(kept.start_date()));
+        }
+        if i64::try_from(page.len()).unwrap_or(i64::MAX) < WITHHELD_SCAN_PAGE {
+            return Ok(None);
+        }
+        // The window is inclusive and ends on the oldest instant read, so a
+        // session sharing that instant beyond the page is read next, not
+        // skipped; the withheld ones re-read with it are passed over again. A
+        // page holding that one instant alone made no progress: step past it.
+        end = if previous_oldest == Some(oldest) {
+            oldest - Duration::microseconds(1)
+        } else {
+            oldest
+        };
+        previous_oldest = Some(oldest);
+    }
+    Ok(None)
 }
 
 /// Readable sharers first, the longest without a session (none at all

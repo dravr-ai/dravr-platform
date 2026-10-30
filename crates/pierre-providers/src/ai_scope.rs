@@ -11,7 +11,9 @@
 //! reads with [`for_model`]. Inside that scope the provider policies
 //! ([`crate::provider_terms`]) apply; outside it (the athlete's web and
 //! mobile routes, webhooks, sync sweeps) nothing is filtered, so the athlete
-//! always sees their own data.
+//! always sees their own data. A human coach reading an athlete runs under
+//! [`for_human_coach`]: the athlete's AI consents apply there, and no other AI
+//! rule (carnet#1262).
 //!
 //! Each entry point also declares the [`Transport`] it serves ([`serve_over`],
 //! carnet#724). On an external call, a provider whose terms keep its data
@@ -75,6 +77,8 @@ use tokio::task::LocalKey;
 mod consent;
 /// The decorator that applies the provider-terms filters to every read.
 mod governed;
+/// A human coach's read: only the athlete's AI consents apply (carnet#1262).
+mod human_coach;
 /// The provenance accumulator, and the group members it records (carnet#1174).
 mod provenance;
 /// Provider-terms filtering of stored health records.
@@ -82,6 +86,7 @@ mod stored_health;
 
 pub use consent::{ai_consent_withheld, consented_read, with_ai_consent};
 pub use governed::AiGovernedProvider;
+pub use human_coach::for_human_coach;
 pub use provenance::{derived_member, note_member_read, reading_members, sole, Provenance};
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
@@ -321,6 +326,12 @@ fn flag(key: &'static LocalKey<bool>) -> bool {
     key.try_with(|set| *set).unwrap_or(false)
 }
 
+/// Whether the read made now is a human coach's and no model's: only the
+/// athlete's AI consents apply to it.
+fn consent_only() -> bool {
+    !flag(&FOR_MODEL) && human_coach::human_coach_read()
+}
+
 /// The gates a read made now crosses, or `None` when none applies.
 #[must_use]
 pub fn exposure() -> Option<Exposure> {
@@ -341,8 +352,10 @@ fn gates(for_model: bool, transport: Option<Transport>) -> Option<Exposure> {
         return None;
     }
     let external = transport.map_or(for_model, |t| !t.is_first_party());
+    // A human coach's read crosses the AI gate for the athlete's consents
+    // alone: `filter_typed` reads it through `ConsentOnly` (carnet#1262).
     let exposure = Exposure {
-        to_model: for_model && !flag(&DISPLAY),
+        to_model: (for_model && !flag(&DISPLAY)) || consent_only(),
         external,
     };
     exposure.any().then_some(exposure)
@@ -381,10 +394,17 @@ where
     let kept = match exposure() {
         None => items,
         Some(exposure) => {
-            // The athlete's AI consents ride on the provider terms (carnet#726).
+            // The athlete's AI consents ride on the provider terms (carnet#726);
+            // for a human coach, on no AI rule at all (carnet#1262).
             let consent = ai_consent_withheld();
+            let consent_only_terms = human_coach::ConsentOnly(lookup);
+            let rules: &dyn ProviderTerms = if consent_only() {
+                &consent_only_terms
+            } else {
+                lookup
+            };
             let terms = WithConsent {
-                terms: lookup,
+                terms: rules,
                 withheld: &consent,
             };
             let (kept, withheld) = filter_items(&terms, items, &origin, required, exposure);

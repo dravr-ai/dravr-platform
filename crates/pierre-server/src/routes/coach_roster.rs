@@ -18,6 +18,8 @@
 //!   coaches at least one active group; anyone else gets 403.
 //! - **Consent.** Only a `shared` row carries anything beyond the athlete's
 //!   name, groups and status: no number, nothing inferred, for the others.
+//!   A shared row carries nothing from a provider whose AI use the athlete
+//!   withheld: the coach and the agent read one projection (carnet#1262).
 //! - **Form** is the server's band on the athlete's own scale with the day it
 //!   was read, never a raw TSB.
 //! - **Bounded.** The roster is gathered and ordered from the database; the
@@ -244,7 +246,9 @@ pub async fn handle_roster(
     let page = &ordered[offset..end];
 
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
-    let snapshots = fetch_page_snapshots(&runtime, page).await;
+    // A human coach's read: each athlete's AI consents apply to it as to the
+    // agent's, and no other AI rule (carnet#1262, ADR-002 amendment 2026-10-30).
+    let snapshots = ai_scope::for_human_coach(fetch_page_snapshots(&runtime, page)).await;
     // Only a sharer's row carries reply counts: a page with none reads none.
     let replies = if page
         .iter()
