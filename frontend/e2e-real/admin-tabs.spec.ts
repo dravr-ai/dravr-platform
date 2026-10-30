@@ -156,11 +156,13 @@ test.describe('admin tabs — real cookie-auth backend (no mocks)', () => {
     const queueBody = await queue.json();
     expect(Array.isArray(queueBody.proposals)).toBe(true);
     expect(queueBody.status).toBe('pending');
+    expect(typeof queueBody.total).toBe('number');
 
     const live = await ctx.get('/api/admin/fuel-products?limit=10');
     expect(live.status()).toBe(200);
     const liveBody = await live.json();
     expect(Array.isArray(liveBody.products)).toBe(true);
+    expect(typeof liveBody.total).toBe('number');
     await ctx.dispose();
   });
 

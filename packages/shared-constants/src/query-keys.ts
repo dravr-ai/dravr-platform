@@ -217,10 +217,11 @@ export const QUERY_KEYS = {
   // ==================== ADMIN - FUEL PRODUCTS ====================
   adminFuelProducts: {
     all: ['admin-fuel-products'] as const,
-    proposals: (status: string) => ['admin-fuel-products', 'proposals', status] as const,
+    proposals: (status: string, offset: number) =>
+      ['admin-fuel-products', 'proposals', status, offset] as const,
     proposal: (id: string) => ['admin-fuel-products', 'proposal', id] as const,
-    image: (id: string) => ['admin-fuel-products', 'image', id] as const,
-    catalogue: () => ['admin-fuel-products', 'catalogue'] as const,
+    image: (id: string, position: number) => ['admin-fuel-products', 'image', id, position] as const,
+    catalogue: (offset: number) => ['admin-fuel-products', 'catalogue', offset] as const,
   },
 
   // ==================== ADMIN - COACHES ====================

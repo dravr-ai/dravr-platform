@@ -1,5 +1,5 @@
 // ABOUTME: Tests for the super-admin fuel-product review tab
-// ABOUTME: Mocks the admin API; asserts the queue, the drawer's image and provenance, set/clear overrides, the gate's refusal, reject and the live catalogue
+// ABOUTME: Mocks the admin API; asserts the paged queue and catalogue, every photo and the reader's notes, identity and fact edits, the gate's refusal and reject
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,7 +14,7 @@ vi.mock('../../services/api/admin', async () => ({
   adminApi: {
     listFuelProposals: vi.fn(),
     getFuelProposal: vi.fn(),
-    getFuelProposalSourceImage: vi.fn(),
+    getFuelProposalImage: vi.fn(),
     approveFuelProposal: vi.fn(),
     rejectFuelProposal: vi.fn(),
     listFuelCatalogue: vi.fn(),
@@ -37,8 +37,7 @@ function proposal(overrides: Partial<FuelProductProposal> = {}): FuelProductProp
     gtin: '07350053630050',
     source_kind: 'shopify_ocr',
     source_url: 'https://shop.example/products/gel-100',
-    has_source_image: true,
-    source_image_mime: 'image/png',
+    image_count: 2,
     source_hash: 'abc',
     facts: {
       serving_label: '1 gel (40 g)',
@@ -53,6 +52,9 @@ function proposal(overrides: Partial<FuelProductProposal> = {}): FuelProductProp
       glucose_fructose_ratio: { source: 'label_ocr', confidence: 0.4 },
     },
     gate_flags: ['ratio_out_of_range'],
+    notes: 'Energy read from the panel; the front prints 110 kcal',
+    ingredients_text: 'Maltodextrin, fructose, water',
+    multiple_transportable_stated: true,
     status: 'pending',
     proposed_by_user_id: null,
     reviewed_by_user_id: null,
@@ -65,10 +67,16 @@ function proposal(overrides: Partial<FuelProductProposal> = {}): FuelProductProp
   };
 }
 
+const IMAGES = [
+  { position: 0, mime: 'image/jpeg', byte_len: 2048, sha256: 'a'.repeat(64) },
+  { position: 1, mime: 'image/png', byte_len: 4096, sha256: 'b'.repeat(64) },
+];
+
 function catalogue(): FuelCatalogueListResponse {
   return {
-    limit: 100,
+    limit: 50,
     offset: 0,
+    total: 1,
     products: [
       {
         product: {
@@ -118,14 +126,12 @@ describe('FuelProductReviewTab', () => {
     vi.mocked(adminApi.listFuelProposals).mockResolvedValue({
       proposals: [proposal()],
       status: 'pending',
-      limit: 100,
+      total: 1,
+      limit: 50,
       offset: 0,
     });
-    vi.mocked(adminApi.getFuelProposal).mockResolvedValue({
-      proposal: proposal(),
-      source_image_bytes: 1234,
-    });
-    vi.mocked(adminApi.getFuelProposalSourceImage).mockResolvedValue(IMAGE);
+    vi.mocked(adminApi.getFuelProposal).mockResolvedValue({ proposal: proposal(), images: IMAGES });
+    vi.mocked(adminApi.getFuelProposalImage).mockResolvedValue(IMAGE);
     vi.mocked(adminApi.listFuelCatalogue).mockResolvedValue(catalogue());
   });
 
@@ -134,17 +140,49 @@ describe('FuelProductReviewTab', () => {
     const list = await screen.findByTestId('fuel-proposals-list');
     expect(within(list).getByText('Maurten · Gel 100')).toBeInTheDocument();
     expect(within(list).getByText('1 flag')).toBeInTheDocument();
-    expect(adminApi.listFuelProposals).toHaveBeenCalledWith('pending', 100);
+    expect(adminApi.listFuelProposals).toHaveBeenCalledWith('pending', 50, 0);
+    // One page holds the whole queue: no page controls.
+    expect(screen.queryByTestId('fuel-proposals-pager')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Proposal status'), { target: { value: 'rejected' } });
-    await waitFor(() => expect(adminApi.listFuelProposals).toHaveBeenCalledWith('rejected', 100));
+    await waitFor(() => expect(adminApi.listFuelProposals).toHaveBeenCalledWith('rejected', 50, 0));
   });
 
-  it('opens a drawer with the served label image, the source link and each fact provenance', async () => {
+  it('pages through a queue longer than one page by its total', async () => {
+    vi.mocked(adminApi.listFuelProposals).mockImplementation(async (status, _limit, offset = 0) => ({
+      proposals: [proposal({ id: `${PROPOSAL_ID.slice(0, -3)}${String(offset).padStart(3, '0')}` })],
+      status,
+      total: 120,
+      limit: 50,
+      offset,
+    }));
+    renderTab();
+    const pager = await screen.findByTestId('fuel-proposals-pager');
+    expect(pager).toHaveTextContent('1–1 of 120 pending proposals');
+    expect(within(pager).getByRole('button', { name: 'Previous' })).toBeDisabled();
+
+    fireEvent.click(within(pager).getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(adminApi.listFuelProposals).toHaveBeenCalledWith('pending', 50, 50));
+    expect(await screen.findByText('51–51 of 120 pending proposals')).toBeInTheDocument();
+
+    // A new status starts again from its first page.
+    fireEvent.change(screen.getByLabelText('Proposal status'), { target: { value: 'approved' } });
+    await waitFor(() => expect(adminApi.listFuelProposals).toHaveBeenCalledWith('approved', 50, 0));
+  });
+
+  it('opens a drawer with every stored photo, the reader notes, the source link and each fact provenance', async () => {
     const drawer = await openDrawer();
-    const image = await within(drawer).findByTestId('fuel-proposal-image');
-    expect(image).toHaveAttribute('src', IMAGE);
-    expect(adminApi.getFuelProposalSourceImage).toHaveBeenCalledWith(PROPOSAL_ID);
+    await waitFor(() => expect(within(drawer).getAllByTestId('fuel-proposal-image')).toHaveLength(2));
+    const images = within(drawer).getAllByTestId('fuel-proposal-image');
+    expect(images[0]).toHaveAttribute('src', IMAGE);
+    expect(adminApi.getFuelProposalImage).toHaveBeenCalledWith(PROPOSAL_ID, 0);
+    expect(adminApi.getFuelProposalImage).toHaveBeenCalledWith(PROPOSAL_ID, 1);
+    expect(within(drawer).getByTestId('fuel-proposal-photo-1')).toHaveTextContent('Photo 2 of 2 · image/png · 4 KB');
+    expect(within(drawer).getByTestId('fuel-proposal-notes')).toHaveTextContent('the front prints 110 kcal');
+    expect(within(drawer).getByTestId('fuel-proposal-ingredients')).toHaveTextContent('Maltodextrin, fructose, water');
+    expect(within(drawer).getByTestId('fuel-proposal-blend-claim')).toHaveTextContent(
+      'the pack claims a glucose + fructose blend',
+    );
     expect(within(drawer).getByTestId('fuel-proposal-source-link')).toHaveAttribute(
       'href',
       'https://shop.example/products/gel-100',
@@ -154,10 +192,26 @@ describe('FuelProductReviewTab', () => {
     expect(within(drawer).getByTestId('fuel-fact-sodium_mg')).toHaveTextContent('No recorded source');
   });
 
+  it('says when no photo is stored and nobody read the pack', async () => {
+    vi.mocked(adminApi.getFuelProposal).mockResolvedValue({
+      proposal: proposal({
+        image_count: 0,
+        notes: null,
+        ingredients_text: null,
+        multiple_transportable_stated: null,
+      }),
+      images: [],
+    });
+    const drawer = await openDrawer();
+    expect(await within(drawer).findByTestId('fuel-proposal-no-photos')).toBeInTheDocument();
+    expect(within(drawer).getByTestId('fuel-proposal-blend-claim')).toHaveTextContent('not read');
+    expect(adminApi.getFuelProposalImage).not.toHaveBeenCalled();
+  });
+
   it('never renders a non-web source URL as a link', async () => {
     vi.mocked(adminApi.getFuelProposal).mockResolvedValue({
       proposal: proposal({ source_url: 'javascript:alert(1)' }),
-      source_image_bytes: 1234,
+      images: IMAGES,
     });
     const drawer = await openDrawer();
     expect(await within(drawer).findByTestId('fuel-proposal-source-text')).toHaveTextContent('javascript:alert(1)');
@@ -187,6 +241,53 @@ describe('FuelProductReviewTab', () => {
     );
     expect(await screen.findByTestId('fuel-review-notice')).toHaveTextContent('Approved: SiS · Beta Fuel · Orange is live.');
     expect(screen.queryByTestId('fuel-proposal-drawer')).not.toBeInTheDocument();
+  });
+
+  it('sends identity corrections with the facts, and refuses a blank name before sending', async () => {
+    vi.mocked(adminApi.approveFuelProposal).mockResolvedValue({
+      outcome: 'approved',
+      product: catalogue().products[0],
+    });
+    const drawer = await openDrawer();
+    const name = await within(drawer).findByLabelText('Name');
+    fireEvent.change(name, { target: { value: '   ' } });
+    expect(within(drawer).getByText('Name needs a value.')).toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: /Save and approve/ })).toBeDisabled();
+
+    fireEvent.change(name, { target: { value: ' Gel 100 Caf ' } });
+    fireEvent.change(within(drawer).getByLabelText('Variant'), { target: { value: 'Caf 100' } });
+    fireEvent.change(within(drawer).getByLabelText('Form'), { target: { value: 'puree' } });
+    // Restating the barcode with spaces is not an edit; clearing it is.
+    fireEvent.change(within(drawer).getByLabelText('Barcode (UPC, EAN or GTIN-14)'), {
+      target: { value: '0735 0053 6300 50' },
+    });
+    expect(within(drawer).getByRole('button', { name: /Save and approve \(3 edits\)/ })).toBeEnabled();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Clear Barcode' }));
+    fireEvent.click(within(drawer).getByRole('button', { name: /Save and approve \(4 edits\)/ }));
+
+    await waitFor(() =>
+      expect(adminApi.approveFuelProposal).toHaveBeenCalledWith(PROPOSAL_ID, {
+        name: 'Gel 100 Caf',
+        variant: 'Caf 100',
+        form: 'puree',
+        gtin: null,
+      }),
+    );
+  });
+
+  it('explains an identity conflict without closing the drawer', async () => {
+    vi.mocked(adminApi.approveFuelProposal).mockResolvedValue({
+      outcome: 'identity_conflict',
+      error: 'conflict',
+      product_id: 'p-1',
+    });
+    const drawer = await openDrawer();
+    fireEvent.change(await within(drawer).findByLabelText('Brand'), { target: { value: 'SiS' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: /Save and approve \(1 edit\)/ }));
+    expect(await within(drawer).findByTestId('fuel-review-problem')).toHaveTextContent(
+      'never renames a live product',
+    );
+    expect(adminApi.approveFuelProposal).toHaveBeenCalledWith(PROPOSAL_ID, { brand: 'SiS' });
   });
 
   it('shows the gate violations when the merged facts are implausible', async () => {
@@ -249,5 +350,31 @@ describe('FuelProductReviewTab', () => {
     expect(list).toHaveTextContent('SiS · Beta Fuel · Orange');
     expect(list).toHaveTextContent('80 g carbs per serving');
     expect(list).toHaveTextContent('2 versions');
+    expect(adminApi.listFuelCatalogue).toHaveBeenCalledWith(50, 0);
+    expect(screen.queryByTestId('fuel-catalogue-pager')).toBeNull();
+  });
+
+  it('pages the live catalogue by its total', async () => {
+    // 75 products: a full first page of 50, then the last 25.
+    const row = catalogue().products[0];
+    vi.mocked(adminApi.listFuelCatalogue).mockImplementation(async (_limit, offset = 0) => ({
+      products: Array.from({ length: offset === 0 ? 50 : 25 }, (_, i) => ({
+        ...row,
+        product: { ...row.product, id: `p-${offset + i}` },
+      })),
+      limit: 50,
+      offset,
+      total: 75,
+    }));
+    renderTab();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Live catalogue' }));
+    const pager = await screen.findByTestId('fuel-catalogue-pager');
+    expect(pager).toHaveTextContent('1–50 of 75 products');
+    fireEvent.click(within(pager).getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(adminApi.listFuelCatalogue).toHaveBeenCalledWith(50, 50));
+    expect(await screen.findByText('51–75 of 75 products')).toBeInTheDocument();
+    const second = screen.getByTestId('fuel-catalogue-pager');
+    expect(within(second).getByRole('button', { name: 'Next' })).toBeDisabled();
+    expect(within(second).getByRole('button', { name: 'Previous' })).toBeEnabled();
   });
 });

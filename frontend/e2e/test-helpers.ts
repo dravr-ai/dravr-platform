@@ -541,11 +541,11 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   });
 
   // Mock the fuel-product review (super-admin tab): one pending proposal with
-  // a stored label image, and a live catalogue of one product. The image is a
-  // 1x1 PNG so the drawer's served-image path renders.
+  // two stored photos and the reader's notes, and a live catalogue of one
+  // product. Each photo is a 1x1 PNG so the drawer's served-photo path renders.
   await page.route('**/api/admin/fuel-products**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/source-image')) {
+    if (/\/images\/\d+$/.test(url.pathname)) {
       await route.fulfill({
         status: 200,
         contentType: 'image/png',
@@ -566,12 +566,14 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       gtin: '07350053630050',
       source_kind: 'shopify_ocr',
       source_url: 'https://shop.example/products/gel-100',
-      has_source_image: true,
-      source_image_mime: 'image/png',
+      image_count: 2,
       source_hash: 'sweep',
       facts: { serving_label: '1 gel (40 g)', serving_g: 40, energy_kcal: 100, carbs_g: 25, sugars_g: 12, glucose_fructose_ratio: 0.8 },
       provenance: { carbs_g: { source: 'label_ocr', confidence: 0.93 } },
       gate_flags: [],
+      notes: 'Energy read from the nutrition panel; the front of pack prints the same.',
+      ingredients_text: 'Water, maltodextrin, fructose, sodium alginate, calcium carbonate',
+      multiple_transportable_stated: true,
       status: 'pending',
       proposed_by_user_id: null,
       reviewed_by_user_id: null,
@@ -584,8 +586,9 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     let body: unknown;
     if (url.pathname.endsWith('/api/admin/fuel-products')) {
       body = {
-        limit: 100,
+        limit: 50,
         offset: 0,
+        total: 1,
         products: [
           {
             product: { id: 'p-sweep', gtin: null, brand: 'SiS', name: 'Beta Fuel', variant: 'Orange', form: 'drink_mix', created_at: '2026-10-01T00:00:00Z' },
@@ -606,9 +609,16 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       };
     } else if (url.pathname.endsWith('/proposals')) {
       const status = url.searchParams.get('status') ?? 'pending';
-      body = { proposals: status === 'pending' ? [proposal] : [], status, limit: 100, offset: 0 };
+      const proposals = status === 'pending' ? [proposal] : [];
+      body = { proposals, status, total: proposals.length, limit: 50, offset: 0 };
     } else {
-      body = { proposal, source_image_bytes: 68 };
+      body = {
+        proposal,
+        images: [
+          { position: 0, mime: 'image/png', byte_len: 68, sha256: 'a'.repeat(64) },
+          { position: 1, mime: 'image/png', byte_len: 68, sha256: 'b'.repeat(64) },
+        ],
+      };
     }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });

@@ -1338,7 +1338,7 @@ export const adminApi = {
   },
 
   // ==================== FUEL-PRODUCT REVIEW (super-admin, global catalogue) ====================
-  /** Proposals in one review status, oldest first, without their images. */
+  /** A page of the proposals in one review status, oldest first, without their photos, with the status's total. */
   async listFuelProposals(
     status: FuelProposalStatus,
     limit = 50,
@@ -1349,7 +1349,7 @@ export const adminApi = {
     return response.data;
   },
 
-  /** One proposal as the reviewer opens it, with the size of its stored label image. */
+  /** One proposal as the reviewer opens it, with its stored photos' metadata in the order sent. */
   async getFuelProposal(proposalId: string): Promise<FuelProposalDetailResponse> {
     const response = await axios.get(
       `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}`,
@@ -1358,26 +1358,27 @@ export const adminApi = {
   },
 
   /**
-   * The stored label image as a `data:` URL. Fetched through the API client
-   * (session and CSRF interceptors) rather than linked: the console's CSP
-   * loads images from `'self'` and `data:` only, never `blob:` or a brand CDN.
+   * One stored photo, by its place in the order sent (from 0), as a `data:`
+   * URL. Fetched through the API client (session and CSRF interceptors)
+   * rather than linked: the console's CSP loads images from `'self'` and
+   * `data:` only, never `blob:` or a brand CDN.
    */
-  async getFuelProposalSourceImage(proposalId: string): Promise<string> {
+  async getFuelProposalImage(proposalId: string, position: number): Promise<string> {
     const response = await axios.get<Blob>(
-      `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}/source-image`,
+      `/api/admin/fuel-products/proposals/${encodeURIComponent(proposalId)}/images/${position}`,
       { responseType: 'blob' },
     );
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error ?? new Error('Could not read the label image'));
+      reader.onerror = () => reject(reader.error ?? new Error('Could not read the photo'));
       reader.readAsDataURL(response.data);
     });
   },
 
   /**
-   * Approve a proposal, with the operator's edits: a field left out keeps the
-   * proposed value, a number sets it, `null` clears it. Every outcome comes
+   * Approve a proposal, with the operator's edits of its identity and facts:
+   * a field left out keeps the proposed value, a value sets it, `null` clears it. Every outcome comes
    * back as a value — the server gives each its own status (approved 200,
    * implausible 422, not_pending 410, identity_conflict 409, not_found 404)
    * and an `outcome` code, which is what the caller branches on.
@@ -1408,7 +1409,7 @@ export const adminApi = {
     return fuelReviewOutcome<FuelRejectResult>(response.status, response.data, FUEL_REJECT_OUTCOMES);
   },
 
-  /** The live catalogue: each product with its current facts and version count. */
+  /** A page of the live catalogue: each product with its current facts and version count, and the total. */
   async listFuelCatalogue(limit = 100, offset = 0): Promise<FuelCatalogueListResponse> {
     const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     const response = await axios.get(`/api/admin/fuel-products?${query.toString()}`);
@@ -1438,7 +1439,16 @@ function fuelReviewOutcome<T>(status: number, data: unknown, outcomes: readonly 
   );
 }
 
-export type FuelForm = 'gel' | 'drink_mix' | 'bar' | 'chew' | 'capsule' | 'tablet' | 'other';
+export type FuelForm =
+  | 'gel'
+  | 'drink_mix'
+  | 'bar'
+  | 'chew'
+  | 'capsule'
+  | 'tablet'
+  | 'puree'
+  | 'waffle'
+  | 'other';
 export type FuelProposalStatus = 'pending' | 'approved' | 'rejected';
 export type FuelProposalSource = 'shopify_ocr' | 'athlete' | 'admin';
 export type FuelFactSource = 'label_ocr' | 'athlete' | 'admin_edit' | 'brand_page';
@@ -1473,13 +1483,43 @@ export interface FuelFacts {
   glucose_fructose_ratio?: number;
 }
 
-/** An approval's edits: absent keeps, a value sets, `null` clears. */
-export type FuelFactOverrides = { [K in keyof FuelFacts]?: FuelFacts[K] | null };
+/** The identity a proposal files its facts under; the variant is empty when there is none. */
+export interface FuelIdentity {
+  brand: string;
+  name: string;
+  variant: string;
+  form: FuelForm;
+  gtin: string | null;
+}
+
+/**
+ * An approval's edits of the identity and the facts: absent keeps, a value
+ * sets, `null` clears. Brand, name and form can be set but never cleared; a
+ * GTIN may be typed as printed (UPC-A, EAN-13, EAN-8 or GTIN-14).
+ */
+export type FuelFactOverrides = { [K in keyof FuelFacts]?: FuelFacts[K] | null } & {
+  brand?: string;
+  name?: string;
+  variant?: string | null;
+  form?: FuelForm;
+  gtin?: string | null;
+};
 
 export interface FuelFieldProvenance {
   source: FuelFactSource;
   source_url?: string;
   confidence?: number;
+  /** The operator who set or cleared the value at review, on an `admin_edit`. */
+  operator_user_id?: string;
+}
+
+/** A stored photo of a proposal, without its bytes. */
+export interface FuelProposalImageMeta {
+  /** Its place in the order the photos were sent, from 0. */
+  position: number;
+  mime: string;
+  byte_len: number;
+  sha256: string;
 }
 
 export interface FuelProductProposal {
@@ -1492,13 +1532,19 @@ export interface FuelProductProposal {
   gtin: string | null;
   source_kind: FuelProposalSource;
   source_url: string | null;
-  has_source_image: boolean;
-  source_image_mime: string | null;
+  /** How many photos are stored with it. */
+  image_count: number;
   source_hash: string | null;
   facts: FuelFacts;
   provenance: Record<string, FuelFieldProvenance>;
-  /** Gate codes the facts tripped when they were proposed. */
+  /** Gate codes the facts tripped when they were proposed, or `illegible`. */
   gate_flags: string[];
+  /** The label reader's notes to the reviewer, and the ingestion job's. */
+  notes: string | null;
+  /** The ingredients list as printed. */
+  ingredients_text: string | null;
+  /** Whether the pack claims a glucose + fructose blend; `null` when nobody read the pack. */
+  multiple_transportable_stated: boolean | null;
   status: FuelProposalStatus;
   proposed_by_user_id: string | null;
   reviewed_by_user_id: string | null;
@@ -1512,13 +1558,16 @@ export interface FuelProductProposal {
 export interface FuelProposalListResponse {
   proposals: FuelProductProposal[];
   status: FuelProposalStatus;
+  /** How many proposals are in that status, every page together. */
+  total: number;
   limit: number;
   offset: number;
 }
 
 export interface FuelProposalDetailResponse {
   proposal: FuelProductProposal;
-  source_image_bytes: number | null;
+  /** Every stored photo, in the order sent. */
+  images: FuelProposalImageMeta[];
 }
 
 export interface FuelProduct {
@@ -1554,6 +1603,8 @@ export interface FuelCatalogueRow extends CatalogueFuelProduct {
 
 export interface FuelCatalogueListResponse {
   products: FuelCatalogueRow[];
+  /** How many products the live catalogue lists, every page together. */
+  total: number;
   limit: number;
   offset: number;
 }
