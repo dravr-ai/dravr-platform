@@ -68,16 +68,11 @@ const MAX_SEARCH_RESULTS: i64 = 10;
 /// Longest brand, name, variant or note an athlete may type.
 const MAX_TEXT_LEN: usize = 120;
 
-/// The forms an athlete may name, as stored.
-const FORMS: &[&str] = &[
-    "gel",
-    "drink_mix",
-    "bar",
-    "chew",
-    "capsule",
-    "tablet",
-    "other",
-];
+/// The forms an athlete may name, as stored and comma-separated: every
+/// [`FuelForm`], so the schema never lags the catalogue's own list.
+fn form_list() -> String {
+    FuelForm::ALL.map(FuelForm::as_str).join(", ")
+}
 
 // ============================================================================
 // Output shapes
@@ -536,7 +531,7 @@ impl McpTool<dyn ToolRuntime> for AddFuelItemTool {
         properties.insert("variant".to_owned(), string_property("Flavour."));
         properties.insert(
             "form".to_owned(),
-            string_property(&format!("One of: {}.", FORMS.join(", "))),
+            string_property(&format!("One of: {}.", form_list())),
         );
         properties.insert("gtin".to_owned(), string_property("Barcode, if known."));
         properties.insert("facts".to_owned(), facts_property());
@@ -623,7 +618,7 @@ fn proposal_from_args(args: &Value, user: Uuid) -> AppResult<Result<NewFuelPropo
         ));
     };
     let form = FuelForm::parse(&form).ok_or_else(|| {
-        AppError::invalid_input(format!("form '{form}' is not one of: {}", FORMS.join(", ")))
+        AppError::invalid_input(format!("form '{form}' is not one of: {}", form_list()))
     })?;
     let typed: FuelLabelFacts = match args.get("facts") {
         Some(facts) if !facts.is_null() => serde_json::from_value(facts.clone())

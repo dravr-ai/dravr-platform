@@ -124,7 +124,7 @@
             "type": "object"
           },
           "form": {
-            "description": "One of: gel, drink_mix, bar, chew, capsule, tablet, other.",
+            "description": "One of: gel, drink_mix, bar, chew, capsule, tablet, puree, waffle, other.",
             "type": "string"
           },
           "gtin": {

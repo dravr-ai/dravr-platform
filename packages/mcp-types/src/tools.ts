@@ -62,7 +62,7 @@ export interface AddFuelItemParams {
   sugars_g?: number;
 };
 
-  /** One of: gel, drink_mix, bar, chew, capsule, tablet, other. */
+  /** One of: gel, drink_mix, bar, chew, capsule, tablet, puree, waffle, other. */
   form?: string;
 
   /** Barcode, if known. */
