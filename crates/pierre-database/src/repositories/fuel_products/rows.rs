@@ -11,9 +11,9 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     normalize_gtin, CatalogueFuelProduct, FactProvenance, FactSource, FieldProvenance,
-    FuelFactOverrides, FuelFacts, FuelForm, FuelIdentity, FuelKeyHolder, FuelProduct,
-    FuelProductProposal, FuelProductVersion, FuelProposalImageMeta, FuelRejectReason,
-    ProposalSource, ProposalStatus, ReviewedProposal, ILLEGIBLE_FLAG,
+    FuelFactOverrides, FuelFacts, FuelForm, FuelIdentity, FuelProduct, FuelProductProposal,
+    FuelProductVersion, FuelProposalImageMeta, FuelRejectReason, ProposalSource, ProposalStatus,
+    ReviewedProposal,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -241,6 +241,7 @@ where
             AppError::database(format!("Unknown fuel proposal source: {source_kind}"))
         })?,
         source_url: text_opt("source_url")?,
+        listing_key: text_opt("listing_key")?,
         image_count: row
             .try_get("image_count")
             .map_err(|e| column("image_count", e))?,
@@ -313,31 +314,37 @@ where
     })
 }
 
-/// The `LIKE` pattern `PROPOSAL_HOLDING_KEY_SQL` excludes: the illegible flag
-/// as it appears, quoted, in a gate-flags JSON array.
-pub(crate) fn illegible_flag_pattern() -> String {
-    format!("%\"{ILLEGIBLE_FLAG}\"%")
-}
-
-/// The note a proposal filed as a duplicate carries: what already holds its
-/// brand, name and variant.
-pub(crate) fn duplicate_note(holder: FuelKeyHolder) -> String {
-    match holder {
-        FuelKeyHolder::Product(id) => {
-            format!("Filed by the ingestion job: catalogue product {id} already has this brand, name and variant")
-        }
-        FuelKeyHolder::Proposal(id) => {
-            format!("Filed by the ingestion job: proposal {id} already has this brand, name and variant")
-        }
-    }
-}
-
-/// A catalogue product as an approval resolves it: its id, barcode and key.
+/// A catalogue product as an approval resolves it: its id, barcode, the
+/// brand, name and variant it is filed under, and their key.
 #[derive(Debug, Clone)]
 pub(crate) struct ProductIdentity {
     pub(crate) id: Uuid,
     pub(crate) gtin: Option<String>,
+    pub(crate) brand: String,
+    pub(crate) name: String,
+    pub(crate) variant: String,
     pub(crate) natural_key: String,
+}
+
+impl ProductIdentity {
+    /// The brand, name and variant this product is filed under once an
+    /// operator's identity edits are applied: each part the review changed
+    /// is the operator's spelling, every other part stays the product's.
+    pub(crate) fn renamed_by(&self, reviewed: &ReviewedProposal) -> (String, String, String) {
+        let part = |field: &str, operator: &str, own: &str| {
+            if reviewed.changed(field) {
+                operator.to_owned()
+            } else {
+                own.to_owned()
+            }
+        };
+        let identity = &reviewed.identity;
+        (
+            part("brand", &identity.brand, &self.brand),
+            part("name", &identity.name, &self.name),
+            part("variant", &identity.variant, &self.variant),
+        )
+    }
 }
 
 /// How a product identity lookup is keyed.

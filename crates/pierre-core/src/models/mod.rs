@@ -174,15 +174,15 @@ pub use user::{
 pub use calibration::{CalibrationConditions, CalibrationTopic, LONG_SESSION_MIN};
 pub use dossier::{Dossier, DossierFact};
 pub use fuel::{
-    check_plausibility, fuel_natural_key, image_sha256, normalize_gtin, proposal_source_hash,
-    AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FactBasis, FactProvenance,
-    FactSource, FieldOverride, FieldProvenance, FuelApprovalOutcome, FuelFactOverrides, FuelFacts,
-    FuelForm, FuelIdentity, FuelItemCarried, FuelItemEntry, FuelKeyHolder, FuelProduct,
-    FuelProductProposal, FuelProductVersion, FuelProposalImageMeta, FuelRejectReason,
-    NewFuelProposal, PendingFuelItem, PlausibilityViolation, ProposalSource, ProposalSourceImage,
-    ProposalStatus, ReviewedProposal, ILLEGIBLE_FLAG, MAX_CAFFEINE_MG_PER_SERVING,
-    MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP, MAX_GLUCOSE_FRUCTOSE_RATIO,
-    MAX_SODIUM_MG_PER_SERVING,
+    check_plausibility, fuel_natural_key, fuel_read_hash, image_sha256, normalize_gtin,
+    proposal_source_hash, AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FactBasis,
+    FactProvenance, FactSource, FieldOverride, FieldProvenance, FuelApprovalOutcome,
+    FuelFactOverrides, FuelFacts, FuelForm, FuelIdentity, FuelIngestOutcome, FuelItemCarried,
+    FuelItemEntry, FuelKeyHolder, FuelProduct, FuelProductProposal, FuelProductVersion,
+    FuelProposalImageMeta, FuelRejectReason, NewFuelProposal, PendingFuelItem,
+    PlausibilityViolation, ProposalSource, ProposalSourceImage, ProposalStatus, ReviewedProposal,
+    MAX_CAFFEINE_MG_PER_SERVING, MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
+    MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
 };
 pub use gear::{
     default_pair, parse_shoe_sport, shoe_sport_slug, ActivityGearKey, AthleteGear,

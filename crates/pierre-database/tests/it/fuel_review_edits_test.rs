@@ -6,16 +6,17 @@
 
 //! What an approval does with an operator's identity edits: a corrected
 //! label lands under the corrected identity, the proposal keeps the identity
-//! it was approved under, every edit names its operator, and an edit that
-//! would rename a live product is an identity conflict. Also the totals the
-//! console pages the queue and the catalogue by.
+//! it was approved under, every edit names its operator, and the edits are
+//! written onto the live product they land on — unless another product
+//! already holds the corrected key or barcode, an identity conflict. Also the
+//! totals the console pages the queue and the catalogue by.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    normalize_gtin, FactSource, FieldOverride, FuelApprovalOutcome, FuelFactOverrides, FuelForm,
-    FuelKeyHolder, FuelRejectReason, ProposalStatus,
+    normalize_gtin, CatalogueFuelProduct, FactSource, FieldOverride, FuelApprovalOutcome,
+    FuelFactOverrides, FuelForm, FuelKeyHolder, FuelRejectReason, ProposalStatus,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -156,9 +157,13 @@ async fn a_corrected_name_lands_on_the_product_it_names() {
     };
     assert_eq!(updated.product.id, live.product.id);
     assert_ne!(updated.current.id, live.current.id);
-    // The live product keeps its own spelling: an edit corrects the
-    // proposal, never renames the product.
-    assert_eq!(updated.product.name, first.name);
+    // The operator's spelling is authoritative: the provenance names the
+    // correction, so the product shows it.
+    assert_eq!(updated.product.name, first.name.to_uppercase());
+    assert_eq!(
+        updated.current.provenance["name"].operator_user_id,
+        Some(reviewer)
+    );
 }
 
 #[tokio::test]
@@ -213,66 +218,181 @@ async fn a_corrected_form_is_written_onto_the_live_product() {
     assert_eq!(stored.product.form, FuelForm::Puree);
 }
 
+/// Approve a fresh proposal of `brand` with no edits; returns its product.
+async fn live_product(
+    repos: &RepositoryRegistry,
+    reviewer: Uuid,
+    brand: &str,
+    gtin: Option<String>,
+) -> CatalogueFuelProduct {
+    let mut read = proposal(brand, gel_facts());
+    read.gtin = gtin;
+    let id = repos
+        .fuel_catalogue
+        .create_fuel_proposal(&read)
+        .await
+        .unwrap();
+    let FuelApprovalOutcome::Approved(live) =
+        approve(repos, id, reviewer, &FuelFactOverrides::default()).await
+    else {
+        panic!("the proposal is approved");
+    };
+    *live
+}
+
+/// A pending proposal that updates `product_id`, read under `name`, with
+/// the barcode `gtin` printed.
+async fn update_of(
+    repos: &RepositoryRegistry,
+    product_id: Uuid,
+    name: &str,
+    gtin: Option<&str>,
+) -> Uuid {
+    let mut update = proposal("Rename Co", gel_facts());
+    update.product_id = Some(product_id);
+    update.name = name.to_owned();
+    update.gtin = gtin.map(str::to_owned);
+    repos
+        .fuel_catalogue
+        .create_fuel_proposal(&update)
+        .await
+        .unwrap()
+}
+
 #[tokio::test]
-async fn an_identity_edit_never_renames_a_live_product() {
+async fn an_identity_edit_renames_the_live_product_it_lands_on() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let reviewer = fresh_user(repos).await;
     let gtin = fresh_gtin();
-    let mut barcoded = proposal("Rename Co", gel_facts());
-    barcoded.gtin = Some(gtin.clone());
-    let barcoded_id = repos
-        .fuel_catalogue
-        .create_fuel_proposal(&barcoded)
-        .await
-        .unwrap();
-    let FuelApprovalOutcome::Approved(live) =
-        approve(repos, barcoded_id, reviewer, &FuelFactOverrides::default()).await
-    else {
-        panic!("the barcoded proposal is approved");
-    };
+    let live = live_product(repos, reviewer, "Rename Co", Some(gtin.clone())).await;
+    let old_name = live.product.name.clone();
 
-    // A proposal updating that product, renamed at review, would rename it.
-    let mut update = proposal("Rename Co", gel_facts());
-    update.product_id = Some(live.product.id);
-    update.name.clone_from(&barcoded.name);
-    let update_id = repos
-        .fuel_catalogue
-        .create_fuel_proposal(&update)
-        .await
-        .unwrap();
+    let update_id = update_of(repos, live.product.id, &old_name, None).await;
+    let new_name = format!("Renamed {}", Uuid::new_v4());
     let renamed = FuelFactOverrides {
-        name: FieldOverride::Set(format!("Another {}", Uuid::new_v4())),
+        name: FieldOverride::Set(new_name.clone()),
+        ..FuelFactOverrides::default()
+    };
+    let FuelApprovalOutcome::Approved(after) = approve(repos, update_id, reviewer, &renamed).await
+    else {
+        panic!("a rename no other product holds is approved");
+    };
+    assert_eq!(after.product.id, live.product.id);
+    assert_eq!(after.product.name, new_name);
+    assert_eq!(after.product.brand, "Rename Co");
+    assert_eq!(after.product.gtin.as_deref(), Some(gtin.as_str()));
+    // The product is filed under its new key, and the old one is free.
+    assert_eq!(
+        repos
+            .fuel_catalogue
+            .fuel_key_holder("rename co", &new_name, "")
+            .await
+            .unwrap(),
+        Some(FuelKeyHolder::Product(live.product.id))
+    );
+    // The approved proposal still files the old spelling, as the product it
+    // landed on: a read of the old label compares against the product.
+    assert_eq!(
+        repos
+            .fuel_catalogue
+            .fuel_key_holder("Rename Co", &old_name, "")
+            .await
+            .unwrap(),
+        Some(FuelKeyHolder::Product(live.product.id))
+    );
+
+    // Clearing the barcode the label printed clears it on the product.
+    let cleared_id = update_of(repos, live.product.id, &new_name, Some(&gtin)).await;
+    let cleared = FuelFactOverrides {
+        gtin: FieldOverride::Clear,
+        ..FuelFactOverrides::default()
+    };
+    let FuelApprovalOutcome::Approved(after) = approve(repos, cleared_id, reviewer, &cleared).await
+    else {
+        panic!("clearing the barcode is approved");
+    };
+    assert_eq!(after.product.gtin, None);
+    assert_eq!(
+        after.current.provenance["gtin"].source,
+        FactSource::AdminEdit
+    );
+    assert_eq!(
+        repos
+            .fuel_catalogue
+            .get_fuel_product_by_gtin(&gtin)
+            .await
+            .unwrap(),
+        None
+    );
+
+    // A barcode the operator gives replaces none, and is the product's.
+    let regiven_id = update_of(repos, live.product.id, &new_name, None).await;
+    let regiven = FuelFactOverrides {
+        gtin: FieldOverride::Set(gtin.clone()),
+        ..FuelFactOverrides::default()
+    };
+    let FuelApprovalOutcome::Approved(after) = approve(repos, regiven_id, reviewer, &regiven).await
+    else {
+        panic!("giving the barcode back is approved");
+    };
+    assert_eq!(after.product.gtin.as_deref(), Some(gtin.as_str()));
+}
+
+#[tokio::test]
+async fn an_identity_edit_another_product_holds_is_a_conflict() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let reviewer = fresh_user(repos).await;
+    let gtin = fresh_gtin();
+    let live = live_product(repos, reviewer, "Rename Co", Some(gtin.clone())).await;
+    let other = live_product(repos, reviewer, "Rename Co", None).await;
+
+    // Renaming the live product to the other's name would file two products
+    // under one key.
+    let update_id = update_of(repos, live.product.id, &live.product.name, None).await;
+    let onto_other = FuelFactOverrides {
+        name: FieldOverride::Set(other.product.name.to_uppercase()),
         ..FuelFactOverrides::default()
     };
     assert_eq!(
-        approve(repos, update_id, reviewer, &renamed).await,
+        approve(repos, update_id, reviewer, &onto_other).await,
+        FuelApprovalOutcome::IdentityConflict {
+            product_id: other.product.id
+        }
+    );
+
+    // Giving the other product the live one's barcode collides with it.
+    let other_update = update_of(repos, other.product.id, &other.product.name, None).await;
+    let taken_barcode = FuelFactOverrides {
+        gtin: FieldOverride::Set(gtin.clone()),
+        ..FuelFactOverrides::default()
+    };
+    assert_eq!(
+        approve(repos, other_update, reviewer, &taken_barcode).await,
         FuelApprovalOutcome::IdentityConflict {
             product_id: live.product.id
         }
     );
 
-    // A new read given that product's barcode at review, under another
-    // name, collides with it too.
-    let other = proposal("Rename Co", gel_facts());
-    let other_id = repos
+    // A new read given that barcode at review, under another name, never
+    // moves onto the barcoded product.
+    let fresh = proposal("Rename Co", gel_facts());
+    let fresh_id = repos
         .fuel_catalogue
-        .create_fuel_proposal(&other)
+        .create_fuel_proposal(&fresh)
         .await
         .unwrap();
-    let given_barcode = FuelFactOverrides {
-        gtin: FieldOverride::Set(gtin),
-        ..FuelFactOverrides::default()
-    };
     assert_eq!(
-        approve(repos, other_id, reviewer, &given_barcode).await,
+        approve(repos, fresh_id, reviewer, &taken_barcode).await,
         FuelApprovalOutcome::IdentityConflict {
             product_id: live.product.id
         }
     );
 
-    // Nothing was written: both stay pending, the product keeps its name.
-    for id in [update_id, other_id] {
+    // Nothing was written: each stays pending, each product keeps its
+    // identity and its version.
+    for id in [update_id, other_update, fresh_id] {
         let stored = repos
             .fuel_catalogue
             .get_fuel_proposal(id)
@@ -281,21 +401,23 @@ async fn an_identity_edit_never_renames_a_live_product() {
             .unwrap();
         assert_eq!(stored.status, ProposalStatus::Pending);
     }
-    let still = repos
-        .fuel_catalogue
-        .get_fuel_product(live.product.id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(still.product.name, barcoded.name);
-    assert_eq!(still.current.id, live.current.id);
+    for before in [&live, &other] {
+        let still = repos
+            .fuel_catalogue
+            .get_fuel_product(before.product.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still.product, before.product);
+        assert_eq!(still.current.id, before.current.id);
+    }
     assert_eq!(
         repos
             .fuel_catalogue
-            .fuel_key_holder("Rename Co", &other.name, "")
+            .fuel_key_holder("Rename Co", &fresh.name, "")
             .await
             .unwrap(),
-        Some(FuelKeyHolder::Proposal(other_id)),
+        Some(FuelKeyHolder::Proposal(fresh_id)),
         "a refused approval enters no product under the other name"
     );
 }

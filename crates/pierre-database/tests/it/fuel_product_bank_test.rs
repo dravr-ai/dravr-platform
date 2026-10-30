@@ -118,6 +118,25 @@ async fn approve(
     }
 }
 
+/// Whether a proposal named `name` waits in the review queue.
+async fn queued_under(repos: &RepositoryRegistry, name: &str) -> bool {
+    let mut offset = 0;
+    loop {
+        let page = repos
+            .fuel_catalogue
+            .list_fuel_proposals(ProposalStatus::Pending, 100, offset)
+            .await
+            .unwrap();
+        if page.iter().any(|queued| queued.name == name) {
+            return true;
+        }
+        if page.len() < 100 {
+            return false;
+        }
+        offset += 100;
+    }
+}
+
 #[tokio::test]
 async fn an_approved_proposal_becomes_the_current_version() {
     let db = create_test_db().await.unwrap();
@@ -130,11 +149,6 @@ async fn an_approved_proposal_becomes_the_current_version() {
         .create_fuel_proposal(&new)
         .await
         .unwrap();
-    assert!(repos
-        .fuel_catalogue
-        .fuel_proposal_exists_by_hash(new.source_hash.as_deref().unwrap())
-        .await
-        .unwrap());
     let queued = repos
         .fuel_catalogue
         .list_fuel_proposals(ProposalStatus::Pending, 100, 0)
@@ -788,7 +802,6 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
     // At the cap the filing and the item are refused together: the proposal
     // is not left in the review queue with no athlete carrying it.
     let one_more = proposal("Filed", gel_facts());
-    let hash = one_more.source_hash.clone().expect("a source hash");
     // Refused as the cap, not as any failed write: a broken insert would also
     // leave nothing queued.
     let refused = repos
@@ -808,11 +821,7 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
         "the refusal names the remedy: {refused:?}"
     );
     assert!(
-        !repos
-            .fuel_catalogue
-            .fuel_proposal_exists_by_hash(&hash)
-            .await
-            .unwrap(),
+        !queued_under(repos, &one_more.name).await,
         "a refused filing queues nothing"
     );
 
@@ -832,11 +841,7 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
         "a new filing is added: {item:?}"
     );
     let item = item.id();
-    assert!(repos
-        .fuel_catalogue
-        .fuel_proposal_exists_by_hash(&hash)
-        .await
-        .unwrap());
+    assert!(queued_under(repos, &one_more.name).await);
     let listed = repos
         .athlete_fuel_items
         .list_fuel_items(tenant, athlete)

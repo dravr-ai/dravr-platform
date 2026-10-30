@@ -33,7 +33,9 @@ pub use gate::{
     check_plausibility, FactBasis, PlausibilityViolation, MAX_CAFFEINE_MG_PER_SERVING,
     MAX_GLUCOSE_FRUCTOSE_RATIO, MAX_SODIUM_MG_PER_SERVING,
 };
-pub use identity::{fuel_natural_key, image_sha256, normalize_gtin, proposal_source_hash};
+pub use identity::{
+    fuel_natural_key, fuel_read_hash, image_sha256, normalize_gtin, proposal_source_hash,
+};
 pub use overrides::{FieldOverride, FuelFactOverrides, FuelIdentity, ReviewedProposal};
 
 /// The physical form a fuel product comes in. Stored as [`FuelForm::as_str`].
@@ -414,11 +416,59 @@ impl FuelRejectReason {
     }
 }
 
-/// The gate flag of a proposal whose label was read and no panel could be.
+/// What one label read the ingestion job paid for came to.
 ///
-/// Filed so the next run's source-hash dedupe skips the same photos, and so
-/// a reviewer rejects it in one click. Not a plausibility code.
-pub const ILLEGIBLE_FLAG: &str = "illegible";
+/// Stored in `fuel_ingest_reads` as [`FuelIngestOutcome::as_str`]; the
+/// column's CHECK lists the same set. Every outcome is final for its read hash
+/// ([`fuel_read_hash`]): the same photos, prompt and model are never read
+/// again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FuelIngestOutcome {
+    /// A proposal was filed: a new product, or an update to a catalogued
+    /// one whose facts the read found changed.
+    Proposed,
+    /// The photos show no readable nutrition panel; nothing was filed.
+    Illegible,
+    /// A live proposal already holds the product; nothing was filed.
+    Duplicate,
+    /// The answer was not the prompt's JSON object; nothing was filed.
+    ParseFailed,
+    /// The catalogued product's current facts are what the label states;
+    /// nothing was filed.
+    Unchanged,
+}
+
+impl FuelIngestOutcome {
+    /// Every outcome, in the column's CHECK order.
+    pub const ALL: [Self; 5] = [
+        Self::Proposed,
+        Self::Illegible,
+        Self::Duplicate,
+        Self::ParseFailed,
+        Self::Unchanged,
+    ];
+
+    /// The stored spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Proposed => "proposed",
+            Self::Illegible => "illegible",
+            Self::Duplicate => "duplicate",
+            Self::ParseFailed => "parse_failed",
+            Self::Unchanged => "unchanged",
+        }
+    }
+
+    /// The outcome a stored spelling names, `None` for any other text.
+    #[must_use]
+    pub fn parse(stored: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|outcome| outcome.as_str() == stored)
+    }
+}
 
 /// One photo a proposal's label was read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -442,14 +492,17 @@ pub struct FuelProposalImageMeta {
     pub sha256: String,
 }
 
-/// What already holds a brand/name/variant natural key, so the ingestion job
-/// files nothing new under it.
+/// What already holds a product the ingestion job read — by its storefront
+/// listing key or by the brand/name/variant natural key its label prints —
+/// so the job files no second new proposal for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
 pub enum FuelKeyHolder {
     /// A catalogue product.
     Product(Uuid),
-    /// A proposal pending review or approved (an illegible filing excluded).
+    /// A proposal pending review or approved. An athlete's typed filing
+    /// never holds a key: a photo-backed read is better evidence, and the
+    /// reviewer sees both.
     Proposal(Uuid),
 }
 
@@ -476,14 +529,14 @@ pub struct NewFuelProposal {
     /// Every photo its label was read from, in the order sent; empty for a
     /// product an athlete typed.
     pub images: Vec<ProposalSourceImage>,
-    /// [`proposal_source_hash`] of the source, so one source is proposed once.
+    /// The [`fuel_read_hash`] of the read that filed it, so one read files
+    /// once; `None` for a filing no read made.
     pub source_hash: Option<String>,
     /// The proposed facts.
     pub facts: FuelFacts,
     /// Where each fact came from.
     pub provenance: FactProvenance,
-    /// The [`PlausibilityViolation::code`]s the facts tripped when proposed,
-    /// or [`ILLEGIBLE_FLAG`] when no panel could be read.
+    /// The [`PlausibilityViolation::code`]s the facts tripped when proposed.
     pub gate_flags: Vec<String>,
     /// The label reader's notes to the reviewer, and the ingestion job's.
     pub notes: Option<String>,
@@ -517,6 +570,10 @@ pub struct FuelProductProposal {
     pub source_kind: ProposalSource,
     /// The page it was read from.
     pub source_url: Option<String>,
+    /// The storefront listing the ingestion job filed it from (brand
+    /// slug|title without pack-size words|flavour); `None` for a filing no
+    /// storefront read made.
+    pub listing_key: Option<String>,
     /// How many photos are stored with it.
     pub image_count: i64,
     /// The source's hash.
@@ -525,7 +582,7 @@ pub struct FuelProductProposal {
     pub facts: FuelFacts,
     /// Where each fact came from.
     pub provenance: FactProvenance,
-    /// The gate codes the facts tripped when proposed, or [`ILLEGIBLE_FLAG`].
+    /// The gate codes the facts tripped when proposed.
     pub gate_flags: Vec<String>,
     /// The label reader's notes to the reviewer, and the ingestion job's.
     pub notes: Option<String>,
@@ -664,6 +721,10 @@ mod tests {
         ] {
             assert_eq!(ProposalSource::parse(source.as_str()), Some(source));
         }
+        for outcome in FuelIngestOutcome::ALL {
+            assert_eq!(FuelIngestOutcome::parse(outcome.as_str()), Some(outcome));
+        }
+        assert_eq!(FuelIngestOutcome::parse("skipped"), None);
         for reason in [
             FuelRejectReason::Illegible,
             FuelRejectReason::WrongProduct,

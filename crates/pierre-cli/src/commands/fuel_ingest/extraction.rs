@@ -28,7 +28,7 @@ use pierre_core::models::{
 use pierre_core::redaction::redact_url;
 use pierre_llm::served_tier::{observe_served_tier, ServedTier};
 use pierre_llm::stage::LlmStage;
-use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ImagePart, LlmCapabilities};
+use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ImagePart, LlmCapabilities, TokenUsage};
 use serde::{Deserialize, Deserializer};
 use tracing::{debug, info, warn};
 
@@ -137,6 +137,15 @@ pub(super) struct Reading {
     pub label: LabelReading,
     pub provider: &'static str,
     pub position: Option<usize>,
+}
+
+/// One label read sent: what came of it, and the tokens the answer that came
+/// back was billed for (`None` when no answer came back or the provider
+/// reported none).
+#[derive(Debug)]
+pub(super) struct Answer {
+    pub result: Result<Reading, ReadFailure>,
+    pub usage: Option<TokenUsage>,
 }
 
 /// `text` without one surrounding code fence (with or without a `json` tag),
@@ -422,9 +431,18 @@ pub(super) async fn read_label(
     provider: &ChatProvider,
     request: &ChatRequest,
     source_url: &str,
-) -> Result<Reading, ReadFailure> {
+) -> Answer {
     let (result, served) = observe_served_tier(provider.complete(request)).await;
-    let response = result.map_err(ReadFailure::Provider)?;
+    let response = match result {
+        Ok(response) => response,
+        Err(e) => {
+            return Answer {
+                result: Err(ReadFailure::Provider(e)),
+                usage: None,
+            }
+        }
+    };
+    let usage = response.usage.clone();
     let (name, position, vision) = answering_tier(
         served,
         provider.fallback_tail().is_none(),
@@ -439,7 +457,10 @@ pub(super) async fn read_label(
             source = %redact_url(source_url),
             "label answer discarded: the tier that answered does not read images, so it never saw the label"
         );
-        return Err(ReadFailure::NoVision);
+        return Answer {
+            result: Err(ReadFailure::NoVision),
+            usage,
+        };
     }
     info!(
         provider = name,
@@ -448,13 +469,14 @@ pub(super) async fn read_label(
         source = %redact_url(source_url),
         "label read"
     );
-    parse_reading(&response.content)
+    let result = parse_reading(&response.content)
         .map(|label| Reading {
             label,
             provider: name,
             position,
         })
-        .map_err(ReadFailure::Unparseable)
+        .map_err(ReadFailure::Unparseable);
+    Answer { result, usage }
 }
 
 #[cfg(test)]

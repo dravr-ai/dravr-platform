@@ -8,8 +8,9 @@ use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     AthleteFuelItem, CatalogueFuelListing, CatalogueFuelProduct, FuelApprovalOutcome,
-    FuelFactOverrides, FuelItemCarried, FuelKeyHolder, FuelProductProposal, FuelProposalImageMeta,
-    FuelRejectReason, NewFuelProposal, ProposalSourceImage, ProposalStatus, TenantId,
+    FuelFactOverrides, FuelIngestOutcome, FuelItemCarried, FuelKeyHolder, FuelProductProposal,
+    FuelProposalImageMeta, FuelRejectReason, NewFuelProposal, ProposalSourceImage, ProposalStatus,
+    TenantId,
 };
 use uuid::Uuid;
 
@@ -61,23 +62,41 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// a database error when its source hash is already queued.
     async fn create_fuel_proposal(&self, proposal: &NewFuelProposal) -> AppResult<Uuid>;
 
-    /// File a label read whose brand, name and variant `holder` already
-    /// holds: queued and closed at once as a `duplicate` rejection with no
-    /// reviewer and a note naming `holder`, its photos not stored. Its source
-    /// hash is then on file, so the next ingestion run skips it unread.
+    /// Record a label read the ingestion job paid for, under its
+    /// [`pierre_core::models::fuel_read_hash`], so no later run pays for it
+    /// again. A [`FuelIngestOutcome::Proposed`] read files `proposal` —
+    /// queued for review with its photos and the storefront `listing_key` it
+    /// was read from — in the same transaction, and its id is returned; every
+    /// other outcome files nothing and returns `None`.
     ///
     /// # Errors
-    /// As [`Self::create_fuel_proposal`].
-    async fn file_duplicate_fuel_proposal(
+    /// An invalid-input error when a proposal comes with any outcome but
+    /// `Proposed` or none with it, or as [`Self::create_fuel_proposal`].
+    async fn record_fuel_ingest_read(
         &self,
-        proposal: &NewFuelProposal,
-        holder: FuelKeyHolder,
-    ) -> AppResult<Uuid>;
+        source_hash: &str,
+        outcome: FuelIngestOutcome,
+        proposal: Option<(&NewFuelProposal, &str)>,
+    ) -> AppResult<Option<Uuid>>;
+
+    /// Whether a label read with this hash is on file, whatever it came to.
+    async fn fuel_ingest_read_seen(&self, source_hash: &str) -> AppResult<bool>;
+
+    /// What already holds this storefront listing key: the oldest product
+    /// entered from it, else the oldest job proposal pending or approved
+    /// filed from it — an approved one as the product its approval landed on.
+    async fn fuel_listing_holder(&self, listing_key: &str) -> AppResult<Option<FuelKeyHolder>>;
+
+    /// The oldest pending proposal that updates catalogue product
+    /// `product_id`, if any.
+    async fn pending_fuel_update(&self, product_id: Uuid) -> AppResult<Option<Uuid>>;
 
     /// What already holds this brand, name and variant (compared by
     /// [`pierre_core::models::fuel_natural_key`]): a catalogue product, else
-    /// the oldest proposal pending or approved. A rejected proposal holds
-    /// nothing, nor does an illegible filing, which is named by its listing.
+    /// the oldest proposal pending or approved — an approved one as the
+    /// product its approval landed on. A rejected proposal holds
+    /// nothing, nor does an athlete's typed filing: a photo-backed read is
+    /// better evidence, and the reviewer sees both.
     async fn fuel_key_holder(
         &self,
         brand: &str,
@@ -118,10 +137,6 @@ pub trait FuelCatalogueRepository: Send + Sync {
         position: i64,
     ) -> AppResult<Option<ProposalSourceImage>>;
 
-    /// Whether a proposal with this source hash is already queued, in any
-    /// status.
-    async fn fuel_proposal_exists_by_hash(&self, source_hash: &str) -> AppResult<bool>;
-
     /// Approve a pending proposal with an operator's `overrides` (see
     /// [`FuelFactOverrides::review`]): each identity field or fact they set
     /// to a new value or clear is recorded with provenance `admin_edit`,
@@ -131,10 +146,17 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// else its reviewed GTIN) or created under the reviewed identity, the
     /// product's current version is superseded, the new one written, the
     /// proposal marked approved under the reviewed identity, and every
-    /// athlete item that carried the proposal relinked to the product. An
-    /// identity edit that lands on a product filed under another key is an
-    /// [`FuelApprovalOutcome::IdentityConflict`]: an edit never renames a
-    /// live product.
+    /// athlete item that carried the proposal relinked to the product.
+    ///
+    /// The operator's identity edits are authoritative: on an existing
+    /// product, each brand, name or variant part they changed, the form, and
+    /// a GTIN they set or cleared are written onto the product, so the
+    /// `admin_edit` provenance never names a correction the product does not
+    /// show. An edit whose new key or GTIN another product already holds, or
+    /// a GTIN edit (or a key edit) that would land a new read on a barcoded
+    /// product filed under another key, is an
+    /// [`FuelApprovalOutcome::IdentityConflict`] and writes nothing. The
+    /// proposal's storefront listing key is given to a product that has none.
     ///
     /// # Errors
     /// An invalid-input error for an edit the review refuses, or a database

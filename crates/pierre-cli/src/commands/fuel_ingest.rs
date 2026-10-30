@@ -1,5 +1,5 @@
 // ABOUTME: `pierre-cli fuel-ingest` — files fuel-product proposals from brands' Shopify storefronts, labels read by OCR
-// ABOUTME: Checked-in brand list, discovery, dedupe by source hash, the embacle label read, the gate, a counted summary (carnet#155)
+// ABOUTME: Checked-in brand list, discovery, a paid-read ledger and a listing key before the LLM, the label read, the gate, a counted summary (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,33 +8,46 @@
 //!
 //! The weekly `*-fuel-ingest-job` Cloud Run job runs it. For each brand in
 //! [`BRANDS`] it lists the storefront's `/products.json`, keeps the fuel
-//! packages, splits each into the flavours its photos show, downloads the last
-//! [`shopify::MAX_IMAGES_PER_CANDIDATE`] photos, and files one proposal per
-//! package read. Nothing enters the catalogue here: a proposal waits for an
-//! operator's approval.
+//! packages, splits each into the flavours its photos show, downloads every
+//! photo up to [`shopify::MAX_IMAGES_PER_CANDIDATE`], and reads the label.
+//! Nothing enters the catalogue here: a proposal waits for an operator's
+//! approval.
 //!
-//! - **Dedupe before the LLM.** The source hash
-//!   ([`pierre_core::models::proposal_source_hash`]) is taken over the page
-//!   URL and every photo sent, in order; a hash already on file skips the
-//!   package without a call, so a weekly rerun costs only the downloads. Every
-//!   read that costs a call is therefore filed, whatever it found.
+//! - **Never pay twice.** Every read the job pays for is recorded in
+//!   `fuel_ingest_reads` under its [`fuel_read_hash`] — the page URL, every
+//!   photo sent in order, the `fuel_panel_extraction` prompt text and the
+//!   configured model — whatever it came to: a proposal, an illegible label,
+//!   a duplicate, an unchanged product or an answer that did not parse. A
+//!   hash on file is skipped before the call, so an unchanged weekly run
+//!   costs only the downloads, and a new photo, prompt or model reads again.
+//!   A provider error or a tier that cannot see images is not recorded: the
+//!   next run tries again.
+//! - **One read per product, before the read.** A listing's
+//!   [`shopify::listing_key`] (brand, title without pack-size words, flavour)
+//!   names the product whatever pack it is sold in: Näak sells one drink mix
+//!   as a "Bag" and a "Single Serve" listing, whose labels print the name
+//!   differently. A listing a live proposal holds, or whose product a pending
+//!   update holds, is not read.
+//! - **A catalogued product is re-read, never re-filed.** A read of a product
+//!   the catalogue holds — by its listing, else by the brand, name and
+//!   variant its label prints — is compared with the product's current
+//!   facts: the same facts file nothing (`unchanged`), different ones file a
+//!   pending update of that product, whose approval supersedes its version.
+//!   A read whose label a live proposal holds files nothing (`duplicate`). An
+//!   athlete's typed filing never holds a label: the read is better evidence.
 //! - **The label is the only source.** The read goes through the configured
-//!   chain with the contremaitre `fuel_panel_extraction` prompt; an answer
-//!   from a tier that does not read images is discarded
-//!   ([`extraction::read_label`]).
+//!   chain; an answer from a tier that does not read images is discarded
+//!   ([`extraction::read_label`]). A label with no readable panel files
+//!   nothing (`illegible`): it never reaches the queue.
 //! - **Flagged, never clamped.** The gate's violation codes travel on the
-//!   proposal so the reviewer sees why. A label with no readable panel is
-//!   filed pending with the [`ILLEGIBLE_FLAG`], for a one-click rejection.
-//! - **One proposal per product.** A read whose brand, name and variant a
-//!   catalogue product or a live proposal already holds (Näak sells one drink
-//!   mix as a "Bag" and a "Single Serve" listing) is filed already rejected
-//!   as a duplicate, without its photos, so it never reaches the queue.
+//!   proposal so the reviewer sees why.
 //! - **Identity.** The brand is the table's display name, so one brand is one
 //!   spelling; name and variant are what the label prints, falling back to
 //!   the listing title and its flavour.
 //! - **What the reviewer sees.** Every photo sent, in order; the reader's
 //!   notes, the ingredients and the glucose + fructose claim; and the job's
-//!   note when the photos were not tied to one flavour.
+//!   notes when the photos were not tied to one flavour or the proposal
+//!   updates a catalogued product.
 //!
 //! The run fails (non-zero exit, which the job-failure alert counts) when
 //! labels were sent and not one read came back, when every candidate failed
@@ -49,21 +62,23 @@ use std::sync::Arc;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    fuel_natural_key, proposal_source_hash, FuelKeyHolder, NewFuelProposal, ProposalSource,
-    ProposalSourceImage, ILLEGIBLE_FLAG,
+    fuel_natural_key, fuel_read_hash, FuelFacts, FuelIngestOutcome, FuelKeyHolder, NewFuelProposal,
+    ProposalSource, ProposalSourceImage,
 };
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
+use pierre_llm::stage::LlmStage;
 use pierre_llm::ChatProvider;
 use serde_json::json;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use extraction::{label_request, map_reading, read_label, ReadFailure, Reading};
 use shopify::{
-    download_image, fetch_fuel_products, label_candidates, LabelCandidate, LabelImage,
-    ShopifyProduct,
+    download_image, fetch_fuel_products, label_candidates, listing_key, LabelCandidate, LabelImage,
+    ShopifyProduct, MAX_READ_BYTES,
 };
 
 /// A brand the job reads, and how its storefront is filtered to fuel.
@@ -159,33 +174,75 @@ struct Tally {
     products_listed: usize,
     products_seen: usize,
     candidates: usize,
+    /// Reads filed as a new product's proposal.
     proposed: usize,
-    /// Reads filed pending with the illegible flag.
-    filed_illegible: usize,
-    /// Reads filed already rejected: their natural key was held.
-    filed_duplicate: usize,
-    skipped_duplicate: usize,
+    /// Reads filed as an update of a catalogued product whose facts changed.
+    proposed_update: usize,
+    /// Reads that found no readable panel; nothing filed.
+    illegible: usize,
+    /// Reads whose product a live proposal already holds; nothing filed.
+    duplicate: usize,
+    /// Reads of a catalogued product whose facts are unchanged; nothing filed.
+    unchanged: usize,
+    /// Answers that were not the prompt's object; recorded, nothing filed.
+    parse_failed: usize,
+    /// Candidates whose read hash is on file: no call.
+    skipped_already_read: usize,
+    /// Candidates whose listing a live proposal holds: no call.
+    skipped_listing_held: usize,
     skipped_no_photo: usize,
     llm_calls: usize,
+    /// Prompt tokens the answers were billed for, as the providers report.
+    prompt_tokens: u64,
+    /// Completion tokens the answers were billed for.
+    completion_tokens: u64,
     discarded_no_vision: usize,
-    /// Reads that errored on every tier or answered with no usable object.
+    /// Reads that errored on every tier (not recorded: retried next run).
     read_failed: usize,
     /// Candidates that failed outside the read (download, database).
     failed: usize,
 }
 
 impl Tally {
+    /// Log the summary the job-failure alert's reader starts from.
+    fn log(&self, dry_run: bool, brands: usize) {
+        info!(
+            dry_run,
+            brands,
+            brands_failed = self.brands_failed,
+            listed = self.products_listed,
+            products_seen = self.products_seen,
+            candidates = self.candidates,
+            proposed = self.proposed,
+            proposed_update = self.proposed_update,
+            illegible = self.illegible,
+            duplicate = self.duplicate,
+            unchanged = self.unchanged,
+            parse_failed = self.parse_failed,
+            skipped_already_read = self.skipped_already_read,
+            skipped_listing_held = self.skipped_listing_held,
+            skipped_no_photo = self.skipped_no_photo,
+            llm_calls = self.llm_calls,
+            prompt_tokens = self.prompt_tokens,
+            completion_tokens = self.completion_tokens,
+            discarded_no_vision = self.discarded_no_vision,
+            read_failed = self.read_failed,
+            failed = self.failed,
+            "fuel ingestion finished"
+        );
+    }
+
     /// The run's verdict: an error when labels were sent and none was read,
     /// when every candidate failed before or after its read (the database
     /// down, every photo download refused), or when no brand could be listed.
     fn verdict(&self, brands: usize) -> AppResult<()> {
-        let unread = self.discarded_no_vision + self.read_failed;
+        let unread = self.discarded_no_vision + self.read_failed + self.parse_failed;
         if self.llm_calls > 0 && unread >= self.llm_calls {
             return Err(AppError::external_service(
                 "llm",
                 format!(
-                    "every label read failed ({} sent, {} discarded for no vision, {} failed)",
-                    self.llm_calls, self.discarded_no_vision, self.read_failed
+                    "every label read failed ({} sent, {} discarded for no vision, {} errored, {} unparseable)",
+                    self.llm_calls, self.discarded_no_vision, self.read_failed, self.parse_failed
                 ),
             ));
         }
@@ -233,10 +290,13 @@ fn selected_brands(slugs: &[String]) -> AppResult<Vec<&'static Brand>> {
         .collect()
 }
 
-/// The dedupe hash of a package: its page URL and every photo sent, in order.
-fn source_hash(page_url: &str, images: &[LabelImage]) -> String {
-    let sent: Vec<&[u8]> = images.iter().map(|image| image.bytes.as_slice()).collect();
-    proposal_source_hash(Some(page_url), &sent)
+/// The model a label read is sent to, as the read hash names it: the head
+/// provider and the model its `fuel_panel_extraction` stage runs on.
+fn configured_model(provider: &ChatProvider) -> String {
+    let model = provider
+        .stage_model(LlmStage::FuelPanelExtraction)
+        .unwrap_or_else(|| provider.default_model());
+    format!("{}={model}", provider.name())
 }
 
 /// The reviewer's notes on a read: the label reader's, then the job's own
@@ -253,25 +313,71 @@ fn reviewer_notes(reader: Option<&str>, job: Option<String>) -> Option<String> {
     }
 }
 
-/// How a read is filed.
+/// What a listing's key says before any photo is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Listing {
+    /// Nothing holds it.
+    Unfiled,
+    /// The catalogue holds its product: a new photo set is read and compared.
+    Catalogued(Uuid),
+    /// A live proposal holds it (a new product, or an update of the
+    /// catalogued one): not read until that proposal is decided.
+    Held,
+}
+
+/// What a read came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Filing {
-    /// A pending proposal for review.
-    Proposal,
-    /// A pending proposal flagged illegible.
+    /// A proposal for a product the catalogue does not hold.
+    New,
+    /// A proposal updating this catalogued product: its facts changed.
+    Update(Uuid),
+    /// No readable panel; nothing filed.
     Illegible,
-    /// Already rejected: what holds its natural key, or `None` for a
-    /// candidate earlier in this dry run.
+    /// What holds the product already, or `None` for an earlier candidate of
+    /// this dry run; nothing filed.
     Duplicate(Option<FuelKeyHolder>),
+    /// This catalogued product's current facts are what the label states.
+    Unchanged(Uuid),
+    /// The answer was not the prompt's object.
+    ParseFailed,
 }
 
 impl Filing {
+    /// The outcome the read is recorded with.
+    const fn outcome(self) -> FuelIngestOutcome {
+        match self {
+            Self::New | Self::Update(_) => FuelIngestOutcome::Proposed,
+            Self::Illegible => FuelIngestOutcome::Illegible,
+            Self::Duplicate(_) => FuelIngestOutcome::Duplicate,
+            Self::Unchanged(_) => FuelIngestOutcome::Unchanged,
+            Self::ParseFailed => FuelIngestOutcome::ParseFailed,
+        }
+    }
+
+    /// How the summary and the dry run name it.
     const fn label(self) -> &'static str {
         match self {
-            Self::Proposal => "proposal",
-            Self::Illegible => "illegible",
-            Self::Duplicate(_) => "duplicate",
+            Self::New => "proposed",
+            Self::Update(_) => "proposed_update",
+            other => other.outcome().as_str(),
         }
+    }
+}
+
+/// What a legible read of catalogued `product` comes to: nothing while a
+/// pending update holds it, nothing when its `current` facts are what was
+/// `read`, else an update whose approval supersedes its version.
+fn against_product(
+    product: Uuid,
+    pending: Option<Uuid>,
+    current: &FuelFacts,
+    read: &FuelFacts,
+) -> Filing {
+    match pending {
+        Some(update) => Filing::Duplicate(Some(FuelKeyHolder::Proposal(update))),
+        None if current == read => Filing::Unchanged(product),
+        None => Filing::Update(product),
     }
 }
 
@@ -284,17 +390,29 @@ fn printed_or(printed: Option<&str>, fallback: &str) -> String {
         .to_owned()
 }
 
+/// `notes` with the ingestion job's `note` after them.
+fn with_job_note(notes: Option<String>, note: &str) -> String {
+    notes.map_or_else(
+        || format!("Ingestion job: {note}"),
+        |notes| format!("{notes}\nIngestion job: {note}"),
+    )
+}
+
 /// Everything one run holds.
 struct Run {
     repos: Arc<RepositoryRegistry>,
     provider: ChatProvider,
     prompt: String,
+    /// [`configured_model`], hashed into every read.
+    model: String,
     http: reqwest::Client,
-    /// `--dry-run`: print what would be proposed, write nothing.
+    /// `--dry-run`: print what would be filed, write nothing.
     preview: bool,
-    /// The natural keys this run filed a proposal under, so a dry run, which
-    /// writes nothing, still sees a second listing of one product.
+    /// The natural keys and listing keys this dry run would have filed a
+    /// proposal under, so a run that writes nothing still sees a second
+    /// listing of one product.
     filed_keys: HashSet<String>,
+    filed_listings: HashSet<String>,
     tally: Tally,
 }
 
@@ -310,37 +428,25 @@ pub(crate) async fn run(args: FuelIngestArgs, database_url: &str) -> AppResult<(
         redact_url(database_url)
     );
     let db = Database::init_for_seeding(database_url).await?;
+    let provider = ChatProvider::from_chain(&LlmChain::from_env()).await?;
+    let model = configured_model(&provider);
+    info!(model = %model, "label reads go to the configured model");
     let mut run = Run {
         repos: Arc::clone(db.repositories()),
-        provider: ChatProvider::from_chain(&LlmChain::from_env()).await?,
+        provider,
         prompt: PromptRegistry::new().fuel_panel_extraction_prompt(),
+        model,
         http: shopify::http_client()?,
         preview: args.dry_run,
         filed_keys: HashSet::new(),
+        filed_listings: HashSet::new(),
         tally: Tally::default(),
     };
     for brand in &brands {
         run.brand(brand, args.limit).await;
     }
     let t = &run.tally;
-    info!(
-        dry_run = run.preview,
-        brands = brands.len(),
-        brands_failed = t.brands_failed,
-        listed = t.products_listed,
-        products_seen = t.products_seen,
-        candidates = t.candidates,
-        proposed = t.proposed,
-        filed_illegible = t.filed_illegible,
-        filed_duplicate = t.filed_duplicate,
-        skipped_duplicate = t.skipped_duplicate,
-        skipped_no_photo = t.skipped_no_photo,
-        llm_calls = t.llm_calls,
-        discarded_no_vision = t.discarded_no_vision,
-        read_failed = t.read_failed,
-        failed = t.failed,
-        "fuel ingestion finished"
-    );
+    t.log(run.preview, brands.len());
     t.verdict(brands.len())
         .inspect_err(|e| error!("fuel ingestion failed: {e}"))
 }
@@ -388,18 +494,52 @@ impl Run {
         }
     }
 
+    /// What holds `listing` before any photo is read.
+    async fn listing(&self, listing: &str) -> AppResult<Listing> {
+        if self.preview && self.filed_listings.contains(listing) {
+            return Ok(Listing::Held);
+        }
+        let catalogue = &self.repos.fuel_catalogue;
+        Ok(match catalogue.fuel_listing_holder(listing).await? {
+            None => Listing::Unfiled,
+            Some(FuelKeyHolder::Proposal(_)) => Listing::Held,
+            Some(FuelKeyHolder::Product(product)) => {
+                if catalogue.pending_fuel_update(product).await?.is_some() {
+                    Listing::Held
+                } else {
+                    Listing::Catalogued(product)
+                }
+            }
+        })
+    }
+
+    /// The candidate's photos, every one up to [`MAX_READ_BYTES`] together:
+    /// read from the last, where the panel usually is, and kept in the
+    /// store's order.
     async fn photos(&self, candidate: &LabelCandidate) -> AppResult<Vec<LabelImage>> {
         let mut images = Vec::with_capacity(candidate.image_urls.len());
-        for src in &candidate.image_urls {
-            if let Some(image) = download_image(&self.http, src).await? {
-                images.push(image);
+        let mut bytes = 0;
+        for src in candidate.image_urls.iter().rev() {
+            let Some(image) = download_image(&self.http, src).await? else {
+                continue;
+            };
+            if bytes + image.bytes.len() > MAX_READ_BYTES {
+                warn!(
+                    page = %redact_url(&candidate.page_url),
+                    bytes = image.bytes.len(),
+                    "photo left out: the read's photos are over the byte budget"
+                );
+                continue;
             }
+            bytes += image.bytes.len();
+            images.push(image);
         }
+        images.reverse();
         Ok(images)
     }
 
-    /// The photos to read and their source hash, or `None` (counted) when no
-    /// photo was usable or these photos were already proposed.
+    /// The photos to read and their read hash, or `None` (counted) when no
+    /// photo was usable or this read is already on file.
     async fn fresh_photos(
         &mut self,
         brand: &Brand,
@@ -412,118 +552,210 @@ impl Run {
             self.tally.skipped_no_photo += 1;
             return Ok(None);
         }
-        let hash = source_hash(&candidate.page_url, &images);
+        let sent: Vec<&[u8]> = images.iter().map(|image| image.bytes.as_slice()).collect();
+        let hash = fuel_read_hash(&candidate.page_url, &sent, &self.prompt, &self.model);
         if self
             .repos
             .fuel_catalogue
-            .fuel_proposal_exists_by_hash(&hash)
+            .fuel_ingest_read_seen(&hash)
             .await?
         {
-            info!(brand = brand.slug, %page, "already proposed from these photos, skipped");
-            self.tally.skipped_duplicate += 1;
+            info!(brand = brand.slug, %page, "already read with these photos, prompt and model, skipped");
+            self.tally.skipped_already_read += 1;
             return Ok(None);
         }
         Ok(Some((images, hash)))
     }
 
-    /// The label `images` show, or `None` (counted, logged) when the read
-    /// failed or came from a tier that cannot see images.
+    /// Read the label `images` show, counting the call and its tokens.
+    /// `Ok(None)` (logged) when nothing usable came back.
     async fn read(
         &mut self,
         brand: &Brand,
         candidate: &LabelCandidate,
         images: &[LabelImage],
-    ) -> AppResult<Option<Reading>> {
+    ) -> AppResult<Option<Result<Reading, AppError>>> {
         let page = redact_url(&candidate.page_url);
         let request = label_request(&self.provider, &self.prompt, images)?;
         self.tally.llm_calls += 1;
-        let read = match read_label(&self.provider, &request, &candidate.page_url).await {
-            Ok(read) => read,
+        let answer = read_label(&self.provider, &request, &candidate.page_url).await;
+        if let Some(usage) = &answer.usage {
+            self.tally.prompt_tokens += u64::from(usage.prompt_tokens);
+            self.tally.completion_tokens += u64::from(usage.completion_tokens);
+        }
+        match answer.result {
+            Ok(read) => Ok(Some(Ok(read))),
             Err(ReadFailure::NoVision) => {
                 self.tally.discarded_no_vision += 1;
-                return Ok(None);
+                Ok(None)
             }
-            Err(ReadFailure::Provider(e) | ReadFailure::Unparseable(e)) => {
+            Err(ReadFailure::Provider(e)) => {
                 error!(brand = brand.slug, %page, "label read failed: {e}");
                 self.tally.read_failed += 1;
-                return Ok(None);
+                Ok(None)
             }
-        };
-        Ok(Some(read))
+            Err(ReadFailure::Unparseable(e)) => {
+                error!(brand = brand.slug, %page, "label answer refused: {e}");
+                Ok(Some(Err(e)))
+            }
+        }
     }
 
-    /// How `proposal` is filed: illegible, a duplicate of what holds its
-    /// natural key, or a proposal.
-    async fn filing(&self, read: &Reading, proposal: &NewFuelProposal) -> AppResult<Filing> {
+    /// What `read` comes to. `listed` is the catalogued product the
+    /// candidate's listing names, which outranks the label's own key: a
+    /// label prints a product's name differently on each listing.
+    async fn filing(
+        &self,
+        read: &Reading,
+        proposal: &NewFuelProposal,
+        listed: Option<Uuid>,
+    ) -> AppResult<Filing> {
         if !read.label.legible {
             return Ok(Filing::Illegible);
         }
-        let held = self
-            .repos
-            .fuel_catalogue
-            .fuel_key_holder(&proposal.brand, &proposal.name, &proposal.variant)
-            .await?;
-        if held.is_some() {
-            return Ok(Filing::Duplicate(held));
+        let catalogue = &self.repos.fuel_catalogue;
+        let holder = match listed {
+            Some(product) => Some(FuelKeyHolder::Product(product)),
+            None => {
+                catalogue
+                    .fuel_key_holder(&proposal.brand, &proposal.name, &proposal.variant)
+                    .await?
+            }
+        };
+        match holder {
+            None => {
+                let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
+                if self.preview && self.filed_keys.contains(&key) {
+                    return Ok(Filing::Duplicate(None));
+                }
+                Ok(Filing::New)
+            }
+            Some(FuelKeyHolder::Proposal(_)) => Ok(Filing::Duplicate(holder)),
+            Some(FuelKeyHolder::Product(product)) => {
+                let pending = catalogue.pending_fuel_update(product).await?;
+                let current = catalogue.get_fuel_product(product).await?.ok_or_else(|| {
+                    AppError::database(format!(
+                        "Catalogued fuel product {product} has no current version"
+                    ))
+                })?;
+                Ok(against_product(
+                    product,
+                    pending,
+                    &current.current.facts,
+                    &proposal.facts,
+                ))
+            }
         }
-        let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
-        if self.preview && self.filed_keys.contains(&key) {
-            return Ok(Filing::Duplicate(None));
-        }
-        Ok(Filing::Proposal)
     }
 
     async fn candidate(&mut self, brand: &Brand, candidate: &LabelCandidate) -> AppResult<()> {
+        let listing = listing_key(brand.slug, &candidate.title, candidate.flavour.as_deref());
+        let listed = match self.listing(&listing).await? {
+            Listing::Held => {
+                info!(
+                    brand = brand.slug,
+                    page = %redact_url(&candidate.page_url),
+                    %listing,
+                    "a live proposal holds this listing's product, not read"
+                );
+                self.tally.skipped_listing_held += 1;
+                return Ok(());
+            }
+            Listing::Catalogued(product) => Some(product),
+            Listing::Unfiled => None,
+        };
         let Some((images, hash)) = self.fresh_photos(brand, candidate).await? else {
             return Ok(());
         };
-        let Some(read) = self.read(brand, candidate, &images).await? else {
-            return Ok(());
+        let read = match self.read(brand, candidate, &images).await? {
+            None => return Ok(()),
+            Some(Err(_)) => {
+                self.file(candidate, &hash, &listing, Filing::ParseFailed, None)
+                    .await?;
+                self.count(Filing::ParseFailed, None, &listing);
+                return Ok(());
+            }
+            Some(Ok(read)) => read,
         };
-        let proposal = proposal(brand, candidate, &read, &images, hash);
-        let filing = self.filing(&read, &proposal).await?;
+        let mut proposal = proposal(brand, candidate, &read, &images, hash.clone());
+        let filing = self.filing(&read, &proposal, listed).await?;
+        if let Filing::Update(product) = filing {
+            proposal.product_id = Some(product);
+            proposal.notes = Some(with_job_note(
+                proposal.notes.take(),
+                &format!(
+                    "Updates catalogued product {product}: the label's facts differ from its current version."
+                ),
+            ));
+        }
         if self.preview {
             println!("{}", preview_line(&proposal, &read, filing));
         } else {
-            let catalogue = &self.repos.fuel_catalogue;
-            let id = match filing {
-                Filing::Duplicate(Some(holder)) => {
-                    catalogue
-                        .file_duplicate_fuel_proposal(&proposal, holder)
-                        .await?
-                }
-                Filing::Proposal | Filing::Illegible | Filing::Duplicate(None) => {
-                    catalogue.create_fuel_proposal(&proposal).await?
-                }
-            };
-            info!(
-                brand = brand.slug,
-                page = %redact_url(&candidate.page_url),
-                proposal = %id,
-                filed_as = filing.label(),
-                flags = proposal.gate_flags.len(),
-                provider = read.provider,
-                "fuel proposal filed"
-            );
+            self.file(candidate, &hash, &listing, filing, Some(&proposal))
+                .await?;
         }
-        match filing {
-            Filing::Proposal => {
-                self.filed_keys.insert(fuel_natural_key(
-                    &proposal.brand,
-                    &proposal.name,
-                    &proposal.variant,
-                ));
-                self.tally.proposed += 1;
-            }
-            Filing::Illegible => self.tally.filed_illegible += 1,
-            Filing::Duplicate(_) => self.tally.filed_duplicate += 1,
-        }
+        self.count(filing, Some(&proposal), &listing);
         Ok(())
+    }
+
+    /// Record the read (not in a dry run), filing `proposal` when it came
+    /// to one.
+    async fn file(
+        &self,
+        candidate: &LabelCandidate,
+        hash: &str,
+        listing: &str,
+        filing: Filing,
+        proposal: Option<&NewFuelProposal>,
+    ) -> AppResult<()> {
+        if self.preview {
+            if filing == Filing::ParseFailed {
+                println!(
+                    "{}",
+                    json!({ "would_record": { "as": filing.label(), "source_url": candidate.page_url } })
+                );
+            }
+            return Ok(());
+        }
+        let filed = proposal.filter(|_| matches!(filing, Filing::New | Filing::Update(_)));
+        let id = self
+            .repos
+            .fuel_catalogue
+            .record_fuel_ingest_read(hash, filing.outcome(), filed.map(|p| (p, listing)))
+            .await?;
+        info!(
+            page = %redact_url(&candidate.page_url),
+            proposal = ?id,
+            outcome = filing.label(),
+            flags = filed.map_or(0, |p| p.gate_flags.len()),
+            "label read recorded"
+        );
+        Ok(())
+    }
+
+    /// Count `filing`, and in a dry run remember what it would have filed.
+    fn count(&mut self, filing: Filing, proposal: Option<&NewFuelProposal>, listing: &str) {
+        let tally = &mut self.tally;
+        match filing {
+            Filing::New => tally.proposed += 1,
+            Filing::Update(_) => tally.proposed_update += 1,
+            Filing::Illegible => tally.illegible += 1,
+            Filing::Duplicate(_) => tally.duplicate += 1,
+            Filing::Unchanged(_) => tally.unchanged += 1,
+            Filing::ParseFailed => tally.parse_failed += 1,
+        }
+        if let (Filing::New | Filing::Update(_), Some(proposal)) = (filing, proposal) {
+            self.filed_listings.insert(listing.to_owned());
+            self.filed_keys.insert(fuel_natural_key(
+                &proposal.brand,
+                &proposal.name,
+                &proposal.variant,
+            ));
+        }
     }
 }
 
-/// The proposal a read label files, with every photo sent, in order. An
-/// illegible read carries the [`ILLEGIBLE_FLAG`] ahead of any gate code.
+/// The proposal a read label files, with every photo sent, in order.
 fn proposal(
     brand: &Brand,
     candidate: &LabelCandidate,
@@ -533,10 +765,6 @@ fn proposal(
 ) -> NewFuelProposal {
     let label = &read.label;
     let mapped = map_reading(label, &candidate.page_url);
-    let mut gate_flags = mapped.gate_flags;
-    if !label.legible {
-        gate_flags.insert(0, ILLEGIBLE_FLAG.to_owned());
-    }
     NewFuelProposal {
         product_id: None,
         brand: brand.display.to_owned(),
@@ -559,7 +787,7 @@ fn proposal(
         source_hash: Some(hash),
         facts: mapped.facts,
         provenance: mapped.provenance,
-        gate_flags,
+        gate_flags: mapped.gate_flags,
         notes: reviewer_notes(label.notes.as_deref(), candidate.photo_note()),
         ingredients_text: label
             .ingredients_text
@@ -567,18 +795,20 @@ fn proposal(
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_owned),
-        // An illegible read is no reading of the pack's claims either.
-        multiple_transportable_stated: label.legible.then_some(label.multiple_transportable_stated),
+        multiple_transportable_stated: Some(label.multiple_transportable_stated),
         proposed_by_user_id: None,
     }
 }
 
-/// The `--dry-run` line for a read that would be filed.
+/// The `--dry-run` line for a read.
 fn preview_line(proposal: &NewFuelProposal, read: &Reading, filing: Filing) -> serde_json::Value {
     let held_by = match filing {
         Filing::Duplicate(Some(holder)) => json!(holder),
         Filing::Duplicate(None) => json!("an earlier listing in this run"),
-        Filing::Proposal | Filing::Illegible => serde_json::Value::Null,
+        Filing::Update(product) | Filing::Unchanged(product) => {
+            json!(FuelKeyHolder::Product(product))
+        }
+        Filing::New | Filing::Illegible | Filing::ParseFailed => serde_json::Value::Null,
     };
     json!({
         "would_file": {
@@ -590,7 +820,7 @@ fn preview_line(proposal: &NewFuelProposal, read: &Reading, filing: Filing) -> s
             "form": proposal.form,
             "gtin": proposal.gtin,
             "source_url": proposal.source_url,
-            "photos_stored": proposal.images.len(),
+            "photos_sent": proposal.images.len(),
             "photo_bytes": proposal.images.iter().map(|image| image.bytes.len()).collect::<Vec<_>>(),
             "facts": proposal.facts,
             "gate_flags": proposal.gate_flags,
@@ -616,6 +846,48 @@ mod tests {
     }
 
     #[test]
+    fn every_outcome_is_recorded_under_its_stored_spelling() {
+        let product = Uuid::nil();
+        let cases = [
+            (Filing::New, FuelIngestOutcome::Proposed, "proposed"),
+            (
+                Filing::Update(product),
+                FuelIngestOutcome::Proposed,
+                "proposed_update",
+            ),
+            (Filing::Illegible, FuelIngestOutcome::Illegible, "illegible"),
+            (
+                Filing::Duplicate(None),
+                FuelIngestOutcome::Duplicate,
+                "duplicate",
+            ),
+            (
+                Filing::Unchanged(product),
+                FuelIngestOutcome::Unchanged,
+                "unchanged",
+            ),
+            (
+                Filing::ParseFailed,
+                FuelIngestOutcome::ParseFailed,
+                "parse_failed",
+            ),
+        ];
+        for (filing, outcome, label) in cases {
+            assert_eq!(filing.outcome(), outcome, "{filing:?}");
+            assert_eq!(filing.label(), label, "{filing:?}");
+        }
+    }
+
+    #[test]
+    fn a_job_note_follows_the_readers() {
+        assert_eq!(with_job_note(None, "b"), "Ingestion job: b");
+        assert_eq!(
+            with_job_note(Some("Label reader: a".to_owned()), "b"),
+            "Label reader: a\nIngestion job: b"
+        );
+    }
+
+    #[test]
     fn every_brand_slug_is_unique_and_selectable() {
         let all = selected_brands(&[]).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(all.len(), BRANDS.len());
@@ -626,20 +898,6 @@ mod tests {
             vec!["gu", "naak"]
         );
         assert!(selected_brands(&["maurten".to_owned()]).is_err());
-    }
-
-    #[test]
-    fn the_source_hash_is_the_stored_one_over_every_photo_in_order() {
-        let url = "https://naak.com/products/gel";
-        let a = [image(b"front"), image(b"panel")];
-        assert_eq!(
-            source_hash(url, &a),
-            proposal_source_hash(Some(url), &[b"front", b"panel"])
-        );
-        assert_ne!(
-            source_hash(url, &a),
-            source_hash(url, &[image(b"panel"), image(b"front")])
-        );
     }
 
     #[test]
@@ -691,22 +949,35 @@ mod tests {
         }
         .verdict(1)
         .is_err());
-        // Duplicates and illegible labels are not failures; no call is not one.
+        // Reads on file and held listings are no call, and no failure.
         assert!(Tally {
-            skipped_duplicate: 5,
+            skipped_already_read: 5,
+            skipped_listing_held: 2,
             ..Tally::default()
         }
         .verdict(1)
         .is_ok());
+        // Illegible, duplicate and unchanged reads were read.
+        assert!(Tally {
+            candidates: 3,
+            llm_calls: 3,
+            illegible: 1,
+            duplicate: 1,
+            unchanged: 1,
+            ..Tally::default()
+        }
+        .verdict(1)
+        .is_ok());
+        // Answers that never parse are failed reads.
         assert!(Tally {
             candidates: 2,
             llm_calls: 2,
-            filed_illegible: 1,
-            filed_duplicate: 1,
+            parse_failed: 1,
+            read_failed: 1,
             ..Tally::default()
         }
         .verdict(1)
-        .is_ok());
+        .is_err());
         assert!(Tally {
             brands_failed: 2,
             ..Tally::default()
@@ -715,11 +986,10 @@ mod tests {
         .is_err());
     }
 
-    fn read(legible: bool) -> Reading {
+    fn read() -> Reading {
         let mut label =
             extraction::parse_reading(include_str!("fuel_ingest/fixtures/label_reading.json"))
                 .unwrap_or_else(|e| panic!("{e}"));
-        label.legible = legible;
         label.notes = Some("Energy is front-of-pack".to_owned());
         Reading {
             label,
@@ -744,7 +1014,7 @@ mod tests {
         let filed = proposal(
             &BRANDS[1],
             &untied_candidate(),
-            &read(true),
+            &read(),
             &photos,
             "hash".to_owned(),
         );
@@ -777,21 +1047,26 @@ mod tests {
     }
 
     #[test]
-    fn an_illegible_read_is_filed_flagged_first() {
-        let photos = [image(b"front")];
-        let filed = proposal(
-            &BRANDS[1],
-            &untied_candidate(),
-            &read(false),
-            &photos,
-            "hash".to_owned(),
-        );
+    fn a_catalogued_product_is_updated_only_when_its_facts_changed() {
+        let product = Uuid::new_v4();
+        let current = read().label;
+        let facts = map_reading(&current, "https://naak.com/products/gel").facts;
         assert_eq!(
-            filed.gate_flags.first().map(String::as_str),
-            Some(ILLEGIBLE_FLAG)
+            against_product(product, None, &facts, &facts),
+            Filing::Unchanged(product)
         );
-        assert_eq!(filed.images.len(), 1);
-        assert_eq!(filed.multiple_transportable_stated, None);
+        let mut changed = facts.clone();
+        changed.sodium_mg = Some(400.0);
+        assert_eq!(
+            against_product(product, None, &facts, &changed),
+            Filing::Update(product)
+        );
+        // A pending update already holds it: nothing more is filed.
+        let pending = Uuid::new_v4();
+        assert_eq!(
+            against_product(product, Some(pending), &facts, &changed),
+            Filing::Duplicate(Some(FuelKeyHolder::Proposal(pending)))
+        );
     }
 
     #[test]

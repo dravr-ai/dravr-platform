@@ -14,7 +14,9 @@
 //! [`label_candidates`] turns one product into the packages whose labels are
 //! read: one per flavour when the photos are tied to flavours (GU lists 21
 //! flavours of one gel as one product), else the product itself, with the
-//! flavours its untied photos may mix named for the reviewer.
+//! flavours its untied photos may mix named for the reviewer. [`listing_key`]
+//! names the product a listing sells whatever pack size it sells it in, so
+//! a "Bag" and a "Single Serve" listing of one drink mix are read once.
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -46,8 +48,19 @@ const MAX_RETRY_AFTER_SECS: u64 = 60;
 /// nutrition panel's small print, well under the providers' image limits.
 const IMAGE_WIDTH: &str = "1600";
 
-/// Photos sent per label candidate — the last ones, where the panel usually is.
-pub(super) const MAX_IMAGES_PER_CANDIDATE: usize = 4;
+/// Photos sent per label candidate. Every photo a fuel listing in the four
+/// checked-in stores shows fits (Näak's longest is 6, live on 2026-10-29); a
+/// longer gallery keeps its last ones, where the panel usually is. The
+/// storefront serves no alt text to pick the panel by (no `alt` on any photo
+/// of the four stores), so the order is the store's.
+pub(super) const MAX_IMAGES_PER_CANDIDATE: usize = 8;
+
+/// The most photo bytes one read sends. Base64 grows a photo by 4/3, so
+/// 14 MB of photos is under 19 MB on the wire: inside Gemini's 20 MB inline
+/// request and Anthropic's 32 MB request, whichever tier answers. A 1600 px
+/// label photo is a few hundred kB, so a full gallery fits; past the budget
+/// the earliest photos are left out first.
+pub(super) const MAX_READ_BYTES: usize = 14_000_000;
 
 /// The largest photo accepted, bytes. Anthropic refuses an image whose
 /// base64 encoding is over 5 MiB (5,242,880 bytes), and base64 grows a photo
@@ -250,6 +263,48 @@ pub(super) fn is_fuel(brand: &Brand, product: &ShopifyProduct) -> bool {
         return false;
     }
     brand.keywords.iter().any(|kw| has_word(&words, kw))
+}
+
+/// Title words that name a pack size or a serving format, never the product:
+/// Näak sells one drink mix as a "Bag" and a "Single Serve" listing.
+const PACK_WORDS: [&str; 13] = [
+    "bag", "bags", "box", "boxes", "pack", "packs", "sachet", "sachets", "serve", "serving",
+    "servings", "count", "ct",
+];
+
+/// The key of the product a storefront listing sells, whatever pack it
+/// sells it in: `slug|title|flavour`, the title's words lowercased with the
+/// pack-size words ([`PACK_WORDS`], "single" before a serving word, `x12`,
+/// `12x` and a count before a pack word) left out, the flavour's words
+/// lowercased. Derived before any read, so a second listing of a product
+/// already filed is never paid for.
+pub(super) fn listing_key(brand_slug: &str, title: &str, flavour: Option<&str>) -> String {
+    let text = word_text(title);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let is_pack = |word: &str| PACK_WORDS.contains(&word);
+    let is_multiple = |word: &str| {
+        let digits = word
+            .strip_prefix('x')
+            .or_else(|| word.strip_suffix('x'))
+            .unwrap_or_default();
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    };
+    let mut kept: Vec<&str> = Vec::with_capacity(words.len());
+    for (i, word) in words.iter().enumerate() {
+        let next = words.get(i + 1).copied().unwrap_or_default();
+        let counts_a_pack = word.bytes().all(|b| b.is_ascii_digit()) && is_pack(next);
+        let single_serving = *word == "single" && is_pack(next);
+        if is_pack(word) || is_multiple(word) || counts_a_pack || single_serving {
+            continue;
+        }
+        kept.push(word);
+    }
+    let flavour = flavour.map(word_text).unwrap_or_default();
+    format!(
+        "{brand_slug}|{}|{}",
+        kept.join(" "),
+        flavour.split_whitespace().collect::<Vec<_>>().join(" ")
+    )
 }
 
 /// The product page of `handle` on `store`.
@@ -720,10 +775,9 @@ mod tests {
             tri_berry.page_url,
             "https://guenergy.com/products/original-energy-gel?variant=101"
         );
-        // Five photos tied to Tri-Berry: the last four are sent, in order.
-        assert_eq!(tri_berry.image_urls.len(), MAX_IMAGES_PER_CANDIDATE);
-        assert!(tri_berry.image_urls[0].ends_with("tb-2.png?v=1"));
-        assert!(tri_berry.image_urls[3].ends_with("tb-panel.png?v=1"));
+        // Five photos tied to Tri-Berry: every one is sent, in order.
+        assert_eq!(tri_berry.image_urls.len(), 5);
+        assert!(tri_berry.image_urls[4].ends_with("tb-panel.png?v=1"));
     }
 
     #[test]
@@ -752,6 +806,71 @@ mod tests {
         assert_eq!(only.flavour.as_deref(), Some("Unflavored"));
         assert_eq!(only.image_urls.len(), 2);
         assert_eq!(only.photo_note(), None);
+    }
+
+    #[test]
+    fn two_pack_sizes_of_one_product_are_one_listing() {
+        let bag = listing_key("naak", "ULTRA™ Drink Mix 250 · Watermelon · Bag", None);
+        assert_eq!(bag, "naak|ultra drink mix 250 watermelon|");
+        for sibling in [
+            "ULTRA™ Drink Mix 250 · Watermelon · Single Serve",
+            "ULTRA™ Drink Mix 250 ‧ Watermelon ‧ Single Serving",
+            "ULTRA Drink Mix 250 - Watermelon (x12)",
+            "ULTRA™ Drink Mix 250 · Watermelon · 12 Count",
+            "ULTRA™ Drink Mix 250 · Watermelon · 6 Pack",
+        ] {
+            assert_eq!(listing_key("naak", sibling, None), bag, "{sibling}");
+        }
+        assert_eq!(
+            listing_key(
+                "naak",
+                "ULTRA™ Drink Mix 250 UTMB® Edition · Salted Soup - Bag",
+                None
+            ),
+            listing_key(
+                "naak",
+                "ULTRA™ Drink Mix 250 UTMB® Edition · Salted Soup · Single Serve",
+                None
+            )
+        );
+        // The product's own number and another flavour stay apart.
+        assert_ne!(
+            listing_key("naak", "BOOST™ Drink Mix 60 · Watermelon · Bag", None),
+            bag
+        );
+        assert_ne!(
+            listing_key("naak", "ULTRA™ Drink Mix 250 · Lime · Bag", None),
+            bag
+        );
+        // A flavour option is part of the key; another brand is another key.
+        assert_eq!(
+            listing_key("gu", "Original Energy Gel", Some("Tri-Berry")),
+            "gu|original energy gel|tri berry"
+        );
+        assert_ne!(
+            listing_key("gu", "Original Energy Gel", Some("Tri-Berry")),
+            listing_key("gu", "Original Energy Gel", Some("Salted Caramel"))
+        );
+        assert_ne!(
+            listing_key("skratch", "Original Energy Gel", Some("Tri-Berry")),
+            listing_key("gu", "Original Energy Gel", Some("Tri-Berry"))
+        );
+    }
+
+    #[test]
+    fn a_gallery_past_the_cap_keeps_its_last_photos_in_order() {
+        let gallery: Vec<ShopifyImage> = (1..=11)
+            .rev()
+            .map(|position| ShopifyImage {
+                src: format!("p{position}"),
+                position,
+                variant_ids: Vec::new(),
+            })
+            .collect();
+        let kept = last_images(gallery.iter());
+        assert_eq!(kept.len(), MAX_IMAGES_PER_CANDIDATE);
+        assert_eq!(kept.first().map(String::as_str), Some("p4"));
+        assert_eq!(kept.last().map(String::as_str), Some("p11"));
     }
 
     #[test]

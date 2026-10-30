@@ -13,6 +13,10 @@
 --                lowercased in Rust, so both engines compare the same text
 --                (SQLite's lower() folds ASCII only, so the key is never
 --                computed in SQL)
+--   listing_key  the storefront listing the ingestion job first read it from
+--                (brand slug|title without pack-size words|flavour), set on
+--                approval when the product has none; NULL for a product no
+--                storefront read entered
 CREATE TABLE IF NOT EXISTS fuel_products (
     id UUID PRIMARY KEY,
     gtin TEXT,
@@ -21,11 +25,15 @@ CREATE TABLE IF NOT EXISTS fuel_products (
     variant TEXT NOT NULL DEFAULT '',
     form TEXT NOT NULL CHECK (form IN ('gel', 'drink_mix', 'bar', 'chew', 'capsule', 'tablet', 'puree', 'waffle', 'other')),
     natural_key TEXT NOT NULL UNIQUE,
+    listing_key TEXT,
     created_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_products_gtin
     ON fuel_products (gtin) WHERE gtin IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_fuel_products_listing_key
+    ON fuel_products (listing_key) WHERE listing_key IS NOT NULL;
 
 -- fuel_product_versions: the label facts of a product, slowly changing. An
 -- approval supersedes the current row (superseded_by points at its
@@ -78,14 +86,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_product_versions_current
 --   natural_key      brand|name|variant normalized in Rust as on
 --                    fuel_products, so the ingestion job finds a product
 --                    already queued or catalogued under another listing
---   source_hash      sha256 hex over the page URL and every photo sent, in
---                    order; one proposal per source. Its photos are rows of
+--   listing_key      the storefront listing a job read was filed from (brand
+--                    slug|title without pack-size words|flavour), derived
+--                    before the read, so a second listing of one product (a
+--                    Bag and a Single Serve) is never read twice; NULL for an
+--                    athlete's or an operator's filing
+--   source_hash      the fuel_ingest_reads hash of the read that filed it:
+--                    one proposal per read. Its photos are rows of
 --                    fuel_proposal_images
 --   facts_json       the proposed facts, same field names as the versions;
 --                    the stated glucose:fructose ratio is one of them
---   gate_flags_json  the plausibility-gate codes the proposal tripped, plus
---                    `illegible` for a label read that found no panel (filed
---                    so the next run skips it and a reviewer rejects it)
+--   gate_flags_json  the plausibility-gate codes the proposal tripped
 --   notes            the label reader's notes to the reviewer, and the
 --                    ingestion job's (photos not tied to one flavour)
 --   ingredients_text the ingredients list as printed
@@ -102,6 +113,7 @@ CREATE TABLE IF NOT EXISTS fuel_product_proposals (
     gtin TEXT,
     source_kind TEXT NOT NULL CHECK (source_kind IN ('shopify_ocr', 'athlete', 'admin')),
     natural_key TEXT NOT NULL,
+    listing_key TEXT,
     source_url TEXT,
     source_hash TEXT,
     facts_json TEXT NOT NULL,
@@ -129,6 +141,9 @@ CREATE INDEX IF NOT EXISTS idx_fuel_product_proposals_queue
 CREATE INDEX IF NOT EXISTS idx_fuel_product_proposals_natural_key
     ON fuel_product_proposals (natural_key);
 
+CREATE INDEX IF NOT EXISTS idx_fuel_product_proposals_listing_key
+    ON fuel_product_proposals (listing_key) WHERE listing_key IS NOT NULL;
+
 -- fuel_proposal_images: every photo a proposal's label was read from, in the
 -- order it was sent (position 0 first), served by the backend to the
 -- reviewer. A proposal an athlete typed has none.
@@ -140,6 +155,26 @@ CREATE TABLE IF NOT EXISTS fuel_proposal_images (
     mime TEXT NOT NULL,
     sha256 TEXT NOT NULL,
     PRIMARY KEY (proposal_id, position)
+);
+
+-- fuel_ingest_reads: every label read the ingestion job paid for, once per
+-- source, whatever it found, so an unchanged weekly run makes no LLM call.
+-- Global like the catalogue.
+--   source_hash  sha256 hex over the page URL, every photo sent in order, the
+--                fuel_panel_extraction prompt text sent and the configured
+--                model: a new photo, prompt or model is a new source and is
+--                read again
+--   outcome      proposed (a new or an update proposal was filed), illegible
+--                (no panel could be read; nothing filed), duplicate (a live
+--                proposal already holds the product), parse_failed (the
+--                answer was not the prompt's object), unchanged (the
+--                catalogued product's current facts are what was read)
+--   proposal_id  the proposal a `proposed` read filed
+CREATE TABLE IF NOT EXISTS fuel_ingest_reads (
+    source_hash TEXT PRIMARY KEY,
+    outcome TEXT NOT NULL CHECK (outcome IN ('proposed', 'illegible', 'duplicate', 'parse_failed', 'unchanged')),
+    proposal_id UUID REFERENCES fuel_product_proposals(id) ON DELETE SET NULL,
+    read_at TIMESTAMPTZ NOT NULL
 );
 
 -- athlete_fuel_items: what an athlete carries, in one tenant. A catalogue

@@ -7,9 +7,15 @@
 # the brands themselves publish. `pierre-cli fuel-ingest` lists each
 # checked-in brand's Shopify `/products.json`, downloads the label photos,
 # reads them through the platform's LLM chain (embacle, contremaitre prompt
-# `fuel_panel_extraction`) and files one proposal per readable package. A
-# proposal never reaches the catalogue until an operator approves it in the
+# `fuel_panel_extraction`) and files one proposal per new or changed product.
+# A proposal never reaches the catalogue until an operator approves it in the
 # admin console, so a bad read costs review time, never an athlete's plan.
+#
+# Every read the job pays for is recorded in `fuel_ingest_reads` under a hash
+# of its photos, the prompt text and the configured model, whatever it found
+# (a proposal, an illegible label, a duplicate, an unchanged product, an
+# answer that did not parse): an unchanged weekly run makes no LLM call, and a
+# new photo, prompt or model reads again.
 #
 # The job's name ends in `-job`, so the dravr-mcp-server-job-failures alert
 # (monitoring.tf) already counts its failures: the command exits non-zero when
@@ -35,12 +41,13 @@ module "fuel_ingest" {
   vpc_connector_id         = local.seed_common.vpc_connector_id
   cloudsql_connection_name = local.seed_common.cloudsql_connection_name
   cpu                      = local.seed_common.cpu
-  # Up to four ~2 MB label photos per package are held and base64-encoded at
-  # once; the seed jobs' 512Mi leaves no room for that beside the runtime.
+  # Up to eight label photos per package, at most 14 MB together, are held
+  # and base64-encoded at once; the seed jobs' 512Mi leaves no room for that
+  # beside the runtime.
   memory = "1Gi"
 
-  # A rerun files nothing twice (proposals dedupe on their source hash), but
-  # it reads every new label again on the LLM's quota: fail once, alert, and
+  # A rerun pays for no read twice (every read is recorded under its hash),
+  # but it reads every new label on the LLM's quota: fail once, alert, and
   # let the next weekly run pick up.
   max_retries = 0
   # Four brands, each label read one LLM call of up to a minute, plus the
@@ -58,10 +65,11 @@ module "fuel_ingest" {
     # the images can never file invented values. Change both together.
     PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,anthropic#3=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
     PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
-    # A label read is a transcription: Haiku reads a nutrition panel as well
-    # as Opus does at a fraction of the credit. The head's other stages are
-    # not this job's concern.
-    PIERRE_LLM_MODEL_FUEL_PANEL_EXTRACTION = "claude-haiku-5-5"
+    # No PIERRE_LLM_MODEL_FUEL_PANEL_EXTRACTION: labels are read by the head's
+    # own model (Opus). Haiku put numbers on panels it called illegible in the
+    # 2026-10-29 Näak dry run; with ~150 SKUs each read once, accuracy is worth
+    # the credit. The model is part of the read hash, so changing it here
+    # re-reads every label once.
     # The job never offers the Copilot runtime a tool or a file write.
     COPILOT_SDK_PERMISSION_POLICY = "deny_all"
   })
@@ -85,7 +93,7 @@ module "fuel_ingest" {
 # Cloud Scheduler — weekly, Monday 04:37 UTC
 # -----------------------------------------------------------------------------
 # Brands change a label a few times a year; a weekly pass is plenty, and a
-# rerun only downloads photos for packages already proposed (no LLM call).
+# rerun only downloads photos for packages already read (no LLM call).
 # Off the hour, like every scheduled lane here.
 #
 # Paused on purpose: the branch is tested on JF's local stack first, and an

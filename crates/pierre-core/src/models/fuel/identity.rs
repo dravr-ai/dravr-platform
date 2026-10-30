@@ -1,4 +1,4 @@
-// ABOUTME: Fuel-product identity helpers: GTIN normalization, the brand/name/variant natural key, the source and photo hashes
+// ABOUTME: Fuel-product identity helpers: GTIN normalization, the brand/name/variant natural key, the source, read and photo hashes
 // ABOUTME: Pure functions shared by the catalogue storage, the ingestion job and the review console (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -87,6 +87,34 @@ pub fn proposal_source_hash(source_url: Option<&str>, images: &[&[u8]]) -> Strin
     hex(&hasher.finalize())
 }
 
+/// Hash `field` into `hasher` prefixed with its length, so two fields never
+/// run together.
+fn update_field(hasher: &mut Sha256, field: &[u8]) {
+    hasher.update((field.len() as u64).to_le_bytes());
+    hasher.update(field);
+}
+
+/// The hash of one label read the ingestion job pays for.
+///
+/// SHA-256, lowercase hex, over the page URL, the prompt text sent, the model
+/// it was sent to and every photo sent, in order, each field length-prefixed.
+/// A read with this hash on file is not paid for again; a new photo, a
+/// reworded `fuel_panel_extraction` prompt or another configured model is a
+/// new read. The proposal the read files carries the same hash.
+#[must_use]
+pub fn fuel_read_hash(source_url: &str, images: &[&[u8]], prompt: &str, model: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"fuel-ingest-read\0");
+    update_field(&mut hasher, source_url.as_bytes());
+    update_field(&mut hasher, prompt.as_bytes());
+    update_field(&mut hasher, model.as_bytes());
+    hasher.update((images.len() as u64).to_le_bytes());
+    for image in images {
+        update_field(&mut hasher, image);
+    }
+    hex(&hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +195,40 @@ mod tests {
             proposal_source_hash(url, &[b"ab", b"c"]),
             proposal_source_hash(url, &[b"a", b"bc"])
         );
+    }
+
+    #[test]
+    fn a_read_hash_changes_with_the_photos_the_prompt_and_the_model() {
+        let url = "https://naak.com/products/gel";
+        let set: [&[u8]; 2] = [b"front", b"panel"];
+        let base = fuel_read_hash(url, &set, "prompt v1", "anthropic=claude-opus-5-5");
+        assert_eq!(base.len(), 64);
+        assert_eq!(
+            base,
+            fuel_read_hash(url, &set, "prompt v1", "anthropic=claude-opus-5-5")
+        );
+        for other in [
+            fuel_read_hash(
+                url,
+                &[b"panel", b"front"],
+                "prompt v1",
+                "anthropic=claude-opus-5-5",
+            ),
+            fuel_read_hash(url, &set, "prompt v2", "anthropic=claude-opus-5-5"),
+            fuel_read_hash(url, &set, "prompt v1", "anthropic=claude-haiku-5-5"),
+            fuel_read_hash(
+                "https://naak.com/products/bar",
+                &set,
+                "prompt v1",
+                "anthropic=claude-opus-5-5",
+            ),
+            // Length prefixes: text moved between the prompt and the model
+            // is another read.
+            fuel_read_hash(url, &set, "prompt v", "1anthropic=claude-opus-5-5"),
+        ] {
+            assert_ne!(base, other);
+        }
+        assert_ne!(base, proposal_source_hash(Some(url), &set));
     }
 
     #[test]

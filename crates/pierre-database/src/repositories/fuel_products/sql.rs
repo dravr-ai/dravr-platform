@@ -79,6 +79,7 @@ macro_rules! proposal_columns {
     () => {
         r"
             id, product_id, brand, name, variant, form, gtin, source_kind, source_url,
+            listing_key,
             (SELECT COUNT(*) FROM fuel_proposal_images img
               WHERE img.proposal_id = fuel_product_proposals.id) AS image_count,
             source_hash, facts_json, provenance_json, gate_flags_json, notes,
@@ -93,16 +94,16 @@ macro_rules! proposal_columns {
 /// name, `$5` variant, `$6` form, `$7` natural key, `$8` gtin, `$9` source
 /// kind, `$10` source URL, `$11` source hash, `$12` facts, `$13` provenance,
 /// `$14` gate flags, `$15` notes, `$16` ingredients, `$17` blend claim,
-/// `$18` proposer, `$19` created at.
+/// `$18` proposer, `$19` created at, `$20` storefront listing key.
 pub(crate) const INSERT_PROPOSAL_SQL: &str = r"
             INSERT INTO fuel_product_proposals (
                 id, product_id, brand, name, variant, form, natural_key, gtin,
                 source_kind, source_url, source_hash, facts_json, provenance_json,
                 gate_flags_json, notes, ingredients_text, multiple_transportable_stated,
-                proposed_by_user_id, status, created_at
+                proposed_by_user_id, status, created_at, listing_key
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-                    $17, $18, 'pending', $19)
+                    $17, $18, 'pending', $19, $20)
             ";
 
 /// Store photo `$2` (its place in the order sent) of proposal `$1`: `$3`
@@ -127,26 +128,57 @@ pub(crate) const GET_PROPOSAL_IMAGE_SQL: &str = r"
             WHERE proposal_id = $1 AND position = $2
             ";
 
-/// The oldest proposal pending or approved under natural key `$1` whose gate
-/// flags do not match `$2` (the illegible flag, quoted and `LIKE`-wrapped):
-/// an illegible filing is named by its listing, not its label, so it holds
-/// no key.
+/// The oldest proposal pending or approved under natural key `$1`, with its
+/// status and the product an approval landed it on; an athlete's typed
+/// filing left out: a photo-backed read is better evidence than a typed one,
+/// so the typed one never stops it.
 pub(crate) const PROPOSAL_HOLDING_KEY_SQL: &str = r"
-            SELECT id FROM fuel_product_proposals
+            SELECT id, status, product_id FROM fuel_product_proposals
             WHERE natural_key = $1 AND status IN ('pending', 'approved')
-              AND gate_flags_json NOT LIKE $2
+              AND source_kind <> 'athlete'
             ORDER BY created_at, id
             LIMIT 1
             ";
 
-/// Close proposal `$1`, just queued by the ingestion job, as a duplicate at
-/// `$2` with note `$3`. No reviewer: the job filed it already decided, so
-/// its source hash is on file and the next run skips it unread.
-pub(crate) const FILE_AS_DUPLICATE_SQL: &str = r"
-            UPDATE fuel_product_proposals
-            SET status = 'rejected', reviewed_at = $2, reject_reason = 'duplicate',
-                reject_note = $3
-            WHERE id = $1 AND status = 'pending'
+/// The oldest product entered from storefront listing `$1`.
+pub(crate) const PRODUCT_HOLDING_LISTING_SQL: &str = r"
+            SELECT id FROM fuel_products
+            WHERE listing_key = $1
+            ORDER BY created_at, id
+            LIMIT 1
+            ";
+
+/// The oldest proposal pending or approved filed from storefront listing
+/// `$1`, with its status and the product an approval landed it on.
+pub(crate) const PROPOSAL_HOLDING_LISTING_SQL: &str = r"
+            SELECT id, status, product_id FROM fuel_product_proposals
+            WHERE listing_key = $1 AND status IN ('pending', 'approved')
+              AND source_kind <> 'athlete'
+            ORDER BY created_at, id
+            LIMIT 1
+            ";
+
+/// The oldest pending proposal that updates product `$1`.
+pub(crate) const PENDING_UPDATE_SQL: &str = r"
+            SELECT id FROM fuel_product_proposals
+            WHERE product_id = $1 AND status = 'pending'
+            ORDER BY created_at, id
+            LIMIT 1
+            ";
+
+/// How many label reads carry hash `$1`.
+pub(crate) const COUNT_INGEST_READS_SQL: &str =
+    "SELECT COUNT(*) FROM fuel_ingest_reads WHERE source_hash = $1";
+
+/// Record label read `$1`: outcome `$2`, the proposal `$3` it filed, at `$4`.
+/// A hash already on file takes the new outcome: the job never reads one
+/// twice, so only a run racing another lands here.
+pub(crate) const RECORD_INGEST_READ_SQL: &str = r"
+            INSERT INTO fuel_ingest_reads (source_hash, outcome, proposal_id, read_at)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (source_hash) DO UPDATE
+            SET outcome = excluded.outcome, proposal_id = excluded.proposal_id,
+                read_at = excluded.read_at
             ";
 
 /// Proposals in status `$1`, oldest first, `$2` of them after `$3`.
@@ -178,10 +210,6 @@ pub(crate) const GET_PROPOSAL_SQL: &str = concat!(
     proposal_columns!(),
     " FROM fuel_product_proposals WHERE id = $1"
 );
-
-/// How many proposals carry source hash `$1`.
-pub(crate) const COUNT_PROPOSALS_BY_HASH_SQL: &str =
-    "SELECT COUNT(*) FROM fuel_product_proposals WHERE source_hash = $1";
 
 /// Take pending proposal `$1` for approval by `$2` at `$3`. Zero rows means
 /// it was no longer pending; on Postgres the row lock makes a concurrent
@@ -224,17 +252,32 @@ pub(crate) const REJECT_PROPOSAL_SQL: &str = r"
             WHERE id = $1 AND status = 'pending'
             ";
 
-/// A product's id, GTIN and natural key by id `$1`.
+/// A product's identity columns by id `$1`.
 pub(crate) const PRODUCT_IDENTITY_BY_ID_SQL: &str =
-    "SELECT id, gtin, natural_key FROM fuel_products WHERE id = $1";
+    "SELECT id, gtin, brand, name, variant, natural_key FROM fuel_products WHERE id = $1";
 
-/// A product's id, GTIN and natural key by GTIN `$1`.
+/// A product's identity columns by GTIN `$1`.
 pub(crate) const PRODUCT_IDENTITY_BY_GTIN_SQL: &str =
-    "SELECT id, gtin, natural_key FROM fuel_products WHERE gtin = $1";
+    "SELECT id, gtin, brand, name, variant, natural_key FROM fuel_products WHERE gtin = $1";
 
-/// A product's id, GTIN and natural key by natural key `$1`.
+/// A product's identity columns by natural key `$1`.
 pub(crate) const PRODUCT_IDENTITY_BY_KEY_SQL: &str =
-    "SELECT id, gtin, natural_key FROM fuel_products WHERE natural_key = $1";
+    "SELECT id, gtin, brand, name, variant, natural_key FROM fuel_products WHERE natural_key = $1";
+
+/// Give product `$1` the brand `$2`, name `$3`, variant `$4` and natural key
+/// `$5` an operator corrected at review.
+pub(crate) const SET_PRODUCT_IDENTITY_SQL: &str = r"
+            UPDATE fuel_products SET brand = $2, name = $3, variant = $4, natural_key = $5
+            WHERE id = $1
+            ";
+
+/// Give product `$1` the GTIN `$2` an operator set or cleared (NULL) at review.
+pub(crate) const REPLACE_PRODUCT_GTIN_SQL: &str =
+    "UPDATE fuel_products SET gtin = $2 WHERE id = $1";
+
+/// Give product `$1`, which has none, the storefront listing key `$2`.
+pub(crate) const SET_PRODUCT_LISTING_KEY_SQL: &str =
+    "UPDATE fuel_products SET listing_key = $2 WHERE id = $1 AND listing_key IS NULL";
 
 /// Give product `$1` the form `$2` an operator corrected at review.
 pub(crate) const SET_PRODUCT_FORM_SQL: &str = "UPDATE fuel_products SET form = $2 WHERE id = $1";
@@ -244,10 +287,12 @@ pub(crate) const SET_PRODUCT_GTIN_SQL: &str =
     "UPDATE fuel_products SET gtin = $2 WHERE id = $1 AND gtin IS NULL";
 
 /// Enter a product: `$1` id, `$2` gtin, `$3` brand, `$4` name, `$5` variant,
-/// `$6` form, `$7` natural key, `$8` when.
+/// `$6` form, `$7` natural key, `$8` when, `$9` storefront listing key.
 pub(crate) const INSERT_PRODUCT_SQL: &str = r"
-            INSERT INTO fuel_products (id, gtin, brand, name, variant, form, natural_key, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO fuel_products (
+                id, gtin, brand, name, variant, form, natural_key, created_at, listing_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ";
 
 /// Point product `$1`'s current version at its successor `$2`. The foreign
