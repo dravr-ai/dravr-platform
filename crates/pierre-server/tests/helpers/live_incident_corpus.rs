@@ -1117,6 +1117,7 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
                 role,
                 peer_sharing_consent: true,
                 coach_sharing_consent: true,
+                coach_sharing_consent_at: None,
                 coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,

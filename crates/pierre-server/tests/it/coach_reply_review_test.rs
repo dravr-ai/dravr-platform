@@ -213,6 +213,7 @@ async fn join_group(
             role,
             peer_sharing_consent: false,
             coach_sharing_consent: shares_with_coach,
+            coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,

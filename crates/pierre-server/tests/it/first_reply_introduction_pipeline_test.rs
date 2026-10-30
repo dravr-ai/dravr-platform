@@ -757,6 +757,7 @@ async fn a_room_hears_its_agent_introduce_itself_once() {
                 role,
                 peer_sharing_consent: false,
                 coach_sharing_consent: false,
+                coach_sharing_consent_at: None,
                 coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,

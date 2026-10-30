@@ -153,6 +153,11 @@ pub struct RosterMember {
     /// The tenants their connected sources live under — where their cached
     /// activities are. Empty for anyone the coach may not read.
     pub source_tenants: Vec<TenantId>,
+    /// When they last stopped sharing with the coach: the latest known
+    /// instant across the coach's groups holding them, only while the status
+    /// is `NoCoachConsent` and only when one is recorded. `None` otherwise,
+    /// including for a revoke from before the instant was recorded.
+    pub sharing_stopped_at: Option<DateTime<Utc>>,
 }
 
 /// The roster before any training is read.
@@ -235,6 +240,9 @@ pub async fn gather_members(
             }
             athlete_count += 1;
             let status = RosterAthleteStatus::of_member(member);
+            let stopped_at = (status == RosterAthleteStatus::NoCoachConsent)
+                .then_some(member.coach_sharing_consent_at)
+                .flatten();
             if let Some(&at) = index.get(&member.user_id) {
                 // Shared through any one group is shared: the consent is per
                 // membership, and each grants the same coach the same read.
@@ -250,6 +258,13 @@ pub async fn gather_members(
                     entry.tenant = tenant;
                     entry.shared_via = Some(group.id);
                 }
+                // Only a revoke in every group is a stop; keep the latest
+                // known instant, and none once any group shares.
+                entry.sharing_stopped_at = if entry.status == RosterAthleteStatus::NoCoachConsent {
+                    entry.sharing_stopped_at.max(stopped_at)
+                } else {
+                    None
+                };
             } else {
                 index.insert(member.user_id, members.len());
                 members.push(RosterMember {
@@ -260,6 +275,7 @@ pub async fn gather_members(
                     shared_via: (status == RosterAthleteStatus::Shared).then_some(group.id),
                     member_display_name: member.display_name.clone(),
                     source_tenants: Vec::new(),
+                    sharing_stopped_at: stopped_at,
                 });
             }
         }
@@ -399,6 +415,7 @@ mod tests {
                 shared_via: None,
                 member_display_name: None,
                 source_tenants: Vec::new(),
+                sharing_stopped_at: None,
             },
             name: name.to_owned(),
             last_cached_activity: last.map(|secs| DateTime::from_timestamp(secs, 0).unwrap()),

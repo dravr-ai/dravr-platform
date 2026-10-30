@@ -336,6 +336,7 @@ async fn every_row_carries_its_kind_facts_preview_and_counts() {
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,

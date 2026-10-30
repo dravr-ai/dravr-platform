@@ -92,6 +92,11 @@ export interface CoachRosterAthlete {
   name: string;
   groups: CoachRosterGroupRef[];
   status: CoachRosterStatus;
+  /**
+   * When the athlete stopped sharing with the coach (ISO 8601). Only for
+   * `no_coach_consent`, and absent when the date is unknown.
+   */
+  sharing_stopped_at?: string;
   training?: CoachRosterTraining;
   /** Absent for a sharer with no live plan. */
   plan?: CoachRosterPlan;

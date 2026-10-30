@@ -10,16 +10,6 @@ use crate::request_budget::{ProviderRateLimiter, RequestBudget};
 use crate::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 use pierre_auth::config::oauth::ProviderEndpointOverrides;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
-#[cfg(any(
-    feature = "provider-strava",
-    feature = "provider-garmin",
-    feature = "provider-terra",
-    feature = "provider-whoop",
-    feature = "provider-coros",
-    feature = "provider-sciotte",
-    feature = "provider-intervals-icu",
-    feature = "provider-wahoo"
-))]
 use pierre_core::constants::oauth as oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;

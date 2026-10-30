@@ -94,7 +94,8 @@ macro_rules! member_columns {
     () => {
         concat!(
             "m.id, m.group_id, m.user_id, m.tenant_id, m.role,
-              m.peer_sharing_consent, m.coach_sharing_consent, m.consent_given_at,
+              m.peer_sharing_consent, m.coach_sharing_consent, m.coach_sharing_consent_at,
+              m.consent_given_at,
               m.coach_calendar_write, m.coach_calendar_write_at,
               m.coach_wellness_read, m.coach_wellness_read_at,
               m.joined_at, m.left_at,
@@ -212,14 +213,15 @@ pub(crate) const SET_GROUP_COACH_USER_SQL: &str = r"UPDATE coaching_groups SET c
 // coaching_group_members
 // ============================================================================
 
-/// One membership; `$7` serves both the consent and the join instant, `$8`
-/// is the coach-sharing grant joining carries, and `$9`..`$12` the coach
-/// consents the membership starts with (none, for a member who just joined).
+/// One membership; `$7` serves the consent, the join and the coach-sharing
+/// instants, `$8` is the coach-sharing grant joining carries, and `$9`..`$12`
+/// the coach consents the membership starts with (none, for a member who
+/// just joined).
 pub(crate) const INSERT_MEMBER_SQL: &str = r"INSERT INTO coaching_group_members
               (id, group_id, user_id, tenant_id, role, peer_sharing_consent, consent_given_at, joined_at,
-               coach_sharing_consent, coach_calendar_write, coach_calendar_write_at,
+               coach_sharing_consent, coach_sharing_consent_at, coach_calendar_write, coach_calendar_write_at,
                coach_wellness_read, coach_wellness_read_at)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)";
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $7, $9, $10, $11, $12)";
 
 /// Mark a live membership as left.
 pub(crate) const REMOVE_MEMBER_SQL: &str = r"UPDATE coaching_group_members SET left_at = $1
@@ -256,7 +258,8 @@ pub(crate) const UPDATE_PEER_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
 /// Record a live member's coach-sharing decision and when it was made.
-pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET coach_sharing_consent = $1, consent_given_at = $2
+pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_group_members SET coach_sharing_consent = $1, consent_given_at = $2,
+              coach_sharing_consent_at = $2
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
 /// A live member sets what their coach may do beyond reading their training:
@@ -400,6 +403,7 @@ macro_rules! impl_coaching_group_repository {
                 role: parse_role(&role),
                 peer_sharing_consent: column(r, "peer_sharing_consent")?,
                 coach_sharing_consent: column(r, "coach_sharing_consent")?,
+                coach_sharing_consent_at: column(r, "coach_sharing_consent_at")?,
                 coach_consents: CoachConsents {
                     calendar_write: column(r, "coach_calendar_write")?,
                     calendar_write_at: column(r, "coach_calendar_write_at")?,

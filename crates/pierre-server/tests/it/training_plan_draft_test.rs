@@ -146,6 +146,7 @@ async fn coached_group(
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: true,
+                coach_sharing_consent_at: None,
                 coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,

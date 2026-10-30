@@ -166,6 +166,7 @@ mod tests {
             role: GroupRole::Member,
             peer_sharing_consent: peer,
             coach_sharing_consent: coach,
+            coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
             consent_given_at: Utc::now(),
             joined_at: Utc::now(),

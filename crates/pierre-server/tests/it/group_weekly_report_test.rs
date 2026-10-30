@@ -136,6 +136,7 @@ async fn add_member_consents(
             role,
             peer_sharing_consent: peer,
             coach_sharing_consent: coach,
+            coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,

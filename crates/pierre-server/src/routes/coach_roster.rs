@@ -164,6 +164,11 @@ pub struct RosterRow {
     pub groups: Vec<RosterGroupRef>,
     /// Whether their training is listed, and why not when it is not.
     pub status: RosterAthleteStatus,
+    /// When they stopped sharing with the coach; only for `no_coach_consent`,
+    /// and absent when the date is unknown (a revoke from before it was
+    /// recorded).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sharing_stopped_at: Option<DateTime<Utc>>,
     /// Their training; only for `shared`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training: Option<RosterReading>,
@@ -292,6 +297,8 @@ async fn row(
         name: member.name.clone(),
         groups: member.member.groups.clone(),
         status: member.member.status,
+        // The service already leaves it `None` for any other status.
+        sharing_stopped_at: member.member.sharing_stopped_at,
         training: None,
         plan: None,
         plan_thread: None,

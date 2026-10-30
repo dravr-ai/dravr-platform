@@ -1493,6 +1493,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
             role: GroupRole::Owner,
             peer_sharing_consent: true,
             coach_sharing_consent: true,
+            coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,

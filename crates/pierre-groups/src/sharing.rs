@@ -126,6 +126,7 @@ mod tests {
             role,
             peer_sharing_consent: peer,
             coach_sharing_consent: coach,
+            coach_sharing_consent_at: Some(now),
             coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,

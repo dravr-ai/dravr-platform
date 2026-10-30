@@ -339,6 +339,10 @@ pub struct GroupMember {
     /// deserializable, and read them as granted, as membership then implied.
     #[serde(default = "coach_sharing_granted")]
     pub coach_sharing_consent: bool,
+    /// When the member last granted or revoked `coach_sharing_consent`; `None`
+    /// when unknown (memberships from before it was recorded).
+    #[serde(default)]
+    pub coach_sharing_consent_at: Option<DateTime<Utc>>,
     /// What the member lets the group's coach do beyond reading their
     /// training: write their calendar, sync their wellness through the
     /// coach's account. Each is off until the member grants it.

@@ -768,6 +768,7 @@ pub const fn no_recorded_samples() -> TimeSeriesData {
 /// whose offset is `null` has nowhere to stand. Dropping that index from
 /// every channel keeps the channels aligned with `timestamps` without
 /// inventing an instant for it.
+#[cfg(any(feature = "provider-strava", feature = "provider-intervals-icu"))]
 pub(crate) fn keep_timed<T>(values: Vec<T>, timed: &[bool]) -> Vec<T> {
     values
         .into_iter()

@@ -390,6 +390,7 @@ async fn bound_room_group(
             role: GroupRole::Owner,
             peer_sharing_consent: false,
             coach_sharing_consent: false,
+            coach_sharing_consent_at: None,
             coach_consents: CoachConsents::default(),
             consent_given_at: now,
             joined_at: now,

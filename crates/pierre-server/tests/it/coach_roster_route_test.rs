@@ -36,6 +36,7 @@ mod coach_roster_route_tests {
         CreateAgentRequest, SportType, TenantId,
     };
     use pierre_core::transport::TransportPolicy;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::training_plans::{
         DraftOwner, PlanAuthor, PublishDraftParams, SaveDraftParams,
     };
@@ -172,6 +173,7 @@ mod coach_roster_route_tests {
                 role: GroupRole::Member,
                 peer_sharing_consent: false,
                 coach_sharing_consent: shares,
+                coach_sharing_consent_at: None,
                 coach_consents: CoachConsents::default(),
                 consent_given_at: now,
                 joined_at: now,
@@ -829,6 +831,271 @@ mod coach_roster_route_tests {
         assert_eq!(
             page["scope"]["visible_members"], 1,
             "Alex is the one visible athlete"
+        );
+    }
+
+    /// Forget when a membership's coach sharing was last decided, as every
+    /// membership from before the instant was recorded has it.
+    async fn forget_sharing_instant(res: &Arc<ServerContext>, group: Uuid, user: Uuid) {
+        const SQL: &str = "UPDATE coaching_group_members SET coach_sharing_consent_at = NULL \
+                           WHERE group_id = $1 AND user_id = $2";
+        match res.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                sqlx::query(SQL)
+                    .bind(group.to_string())
+                    .bind(user.to_string())
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                sqlx::query(SQL)
+                    .bind(group)
+                    .bind(user)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_revoke_names_the_day_and_a_regrant_clears_it() {
+        let res = create_test_server_resources().await.unwrap();
+        let casey = coach(&res, "casey@stopped.test", "Casey Coach").await;
+        let alex = person(&res, "alex@stopped.test", "Alex Athlete").await;
+        let agent = group_agent(&res, &casey).await;
+        let group = coached_group(&res, casey.tenant, casey.id, &agent, "Squad").await;
+        join(&res, group, alex.id, alex.tenant, true).await;
+        seed_ride(&res, &alex, 2).await;
+        let router = router(&res);
+        let groups = &res.common.repos.groups;
+
+        let joined = groups
+            .get_member(&group.to_string(), alex.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            joined.coach_sharing_consent_at.is_some(),
+            "joining grants coach sharing and stamps the instant"
+        );
+
+        let before_revoke = Utc::now();
+        groups
+            .update_coach_sharing_consent(&group.to_string(), alex.id, false)
+            .await
+            .unwrap();
+        let revoked = groups
+            .get_member(&group.to_string(), alex.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let revoked_at = revoked.coach_sharing_consent_at.unwrap();
+        assert!(
+            revoked_at >= before_revoke,
+            "the revoke stamps its own instant"
+        );
+
+        let (status, page) = get(&router, "/api/coach/roster", &casey.auth).await;
+        assert_eq!(status, 200, "{page:#}");
+        let alex_row = row(&page, alex.id).unwrap();
+        assert_status_only(alex_row, "no_coach_consent");
+        let stopped =
+            chrono::DateTime::parse_from_rfc3339(alex_row["sharing_stopped_at"].as_str().unwrap())
+                .unwrap()
+                .with_timezone(&Utc);
+        assert_eq!(
+            stopped.date_naive(),
+            revoked_at.date_naive(),
+            "the roster names the revoke's day: {alex_row:#}"
+        );
+
+        let before_regrant = Utc::now();
+        groups
+            .update_coach_sharing_consent(&group.to_string(), alex.id, true)
+            .await
+            .unwrap();
+        let regranted = groups
+            .get_member(&group.to_string(), alex.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let regranted_at = regranted.coach_sharing_consent_at.unwrap();
+        assert!(
+            regranted_at > revoked_at,
+            "a re-grant moves the stored instant past the revoke"
+        );
+        assert!(
+            regranted_at >= before_regrant,
+            "the re-grant stamps its own instant"
+        );
+        let (_, page) = get(&router, "/api/coach/roster", &casey.auth).await;
+        let alex_row = row(&page, alex.id).unwrap();
+        assert_eq!(alex_row["status"], "shared", "{alex_row:#}");
+        assert!(
+            alex_row.get("sharing_stopped_at").is_none(),
+            "a sharer carries no stop date: {alex_row:#}"
+        );
+    }
+
+    /// The instant the roster names for `user`, parsed, or `None` when absent.
+    fn stopped_at(page: &Value, user: Uuid) -> Option<chrono::DateTime<Utc>> {
+        row(page, user)?.get("sharing_stopped_at").map(|v| {
+            chrono::DateTime::parse_from_rfc3339(v.as_str().unwrap())
+                .unwrap()
+                .with_timezone(&Utc)
+        })
+    }
+
+    async fn stamp_of(
+        res: &Arc<ServerContext>,
+        group: Uuid,
+        user: Uuid,
+    ) -> Option<chrono::DateTime<Utc>> {
+        res.common
+            .repos
+            .groups
+            .get_member(&group.to_string(), user)
+            .await
+            .unwrap()
+            .unwrap()
+            .coach_sharing_consent_at
+    }
+
+    #[tokio::test]
+    async fn the_stop_date_merges_across_the_coachs_groups() {
+        let res = create_test_server_resources().await.unwrap();
+        let casey = coach(&res, "casey@merge.test", "Casey Coach").await;
+        let agent = group_agent(&res, &casey).await;
+        let a = coached_group(&res, casey.tenant, casey.id, &agent, "Squad A").await;
+        let b = coached_group(&res, casey.tenant, casey.id, &agent, "Squad B").await;
+        let groups = &res.common.repos.groups;
+        let revoke = |g: Uuid, u: Uuid| async move {
+            groups
+                .update_coach_sharing_consent(&g.to_string(), u, false)
+                .await
+                .unwrap();
+        };
+
+        // Revoked in A, still sharing in B, and the other way round: shared.
+        let a_then_b = person(&res, "ab@merge.test", "Ab").await;
+        join(&res, a, a_then_b.id, a_then_b.tenant, false).await;
+        join(&res, b, a_then_b.id, a_then_b.tenant, true).await;
+        revoke(a, a_then_b.id).await;
+        let b_then_a = person(&res, "ba@merge.test", "Ba").await;
+        join(&res, a, b_then_a.id, b_then_a.tenant, true).await;
+        join(&res, b, b_then_a.id, b_then_a.tenant, false).await;
+        revoke(b, b_then_a.id).await;
+        seed_ride(&res, &a_then_b, 2).await;
+        seed_ride(&res, &b_then_a, 2).await;
+
+        // Revoked in both, B later: the later instant wins.
+        let both = person(&res, "both@merge.test", "Both").await;
+        join(&res, a, both.id, both.tenant, true).await;
+        join(&res, b, both.id, both.tenant, true).await;
+        revoke(a, both.id).await;
+        revoke(b, both.id).await;
+
+        // Revoked in both, one instant unknown: the dated one, in either order.
+        let a_unknown = person(&res, "au@merge.test", "Au").await;
+        let b_unknown = person(&res, "bu@merge.test", "Bu").await;
+        for (user, unknown) in [(&a_unknown, a), (&b_unknown, b)] {
+            join(&res, a, user.id, user.tenant, true).await;
+            join(&res, b, user.id, user.tenant, true).await;
+            revoke(a, user.id).await;
+            revoke(b, user.id).await;
+            forget_sharing_instant(&res, unknown, user.id).await;
+        }
+
+        // Revoked in both, neither instant known: no date at all.
+        let neither = person(&res, "none@merge.test", "None").await;
+        join(&res, a, neither.id, neither.tenant, true).await;
+        join(&res, b, neither.id, neither.tenant, true).await;
+        revoke(a, neither.id).await;
+        revoke(b, neither.id).await;
+        forget_sharing_instant(&res, a, neither.id).await;
+        forget_sharing_instant(&res, b, neither.id).await;
+
+        let (status, page) = get(&router(&res), "/api/coach/roster", &casey.auth).await;
+        assert_eq!(status, 200, "{page:#}");
+
+        for shared in [&a_then_b, &b_then_a] {
+            assert_eq!(
+                row(&page, shared.id).unwrap()["status"],
+                "shared",
+                "{page:#}"
+            );
+            assert!(
+                stopped_at(&page, shared.id).is_none(),
+                "one group still shares, so there is no stop date: {page:#}"
+            );
+        }
+        let both_a = stamp_of(&res, a, both.id).await.unwrap();
+        let both_b = stamp_of(&res, b, both.id).await.unwrap();
+        assert!(both_b > both_a, "the fixture revoked B after A");
+        assert_eq!(
+            stopped_at(&page, both.id),
+            Some(both_b),
+            "the latest revoke is the stop date: {page:#}"
+        );
+        assert_eq!(
+            stopped_at(&page, a_unknown.id),
+            stamp_of(&res, b, a_unknown.id).await,
+            "A's instant is unknown, B's is named: {page:#}"
+        );
+        assert_eq!(
+            stamp_of(&res, a, a_unknown.id).await,
+            None,
+            "the dated revoke beats the unknown one: {page:#}"
+        );
+        assert_eq!(
+            stopped_at(&page, b_unknown.id),
+            stamp_of(&res, a, b_unknown.id).await,
+            "the dated revoke beats the unknown one: {page:#}"
+        );
+        assert!(
+            stopped_at(&page, a_unknown.id).is_some() && stopped_at(&page, b_unknown.id).is_some(),
+            "a known instant is named: {page:#}"
+        );
+        let neither_row = row(&page, neither.id).unwrap();
+        assert_status_only(neither_row, "no_coach_consent");
+        assert!(
+            neither_row.get("sharing_stopped_at").is_none(),
+            "no known instant in any group, so no date: {neither_row:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_revoke_from_before_the_instant_was_recorded_carries_no_date() {
+        let res = create_test_server_resources().await.unwrap();
+        let casey = coach(&res, "casey@legacy.test", "Casey Coach").await;
+        let alex = person(&res, "alex@legacy.test", "Alex Athlete").await;
+        let agent = group_agent(&res, &casey).await;
+        let group = coached_group(&res, casey.tenant, casey.id, &agent, "Squad").await;
+        join(&res, group, alex.id, alex.tenant, false).await;
+        forget_sharing_instant(&res, group, alex.id).await;
+        let legacy = res
+            .common
+            .repos
+            .groups
+            .get_member(&group.to_string(), alex.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            legacy.coach_sharing_consent_at.is_none(),
+            "the legacy fixture really has no instant"
+        );
+
+        let (status, page) = get(&router(&res), "/api/coach/roster", &casey.auth).await;
+        assert_eq!(status, 200, "{page:#}");
+        let alex_row = row(&page, alex.id).unwrap();
+        assert_status_only(alex_row, "no_coach_consent");
+        assert!(
+            alex_row.get("sharing_stopped_at").is_none(),
+            "an unknown date is absent, never guessed: {alex_row:#}"
         );
     }
 }
