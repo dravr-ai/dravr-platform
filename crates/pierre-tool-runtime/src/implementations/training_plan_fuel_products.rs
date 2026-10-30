@@ -236,7 +236,13 @@ fn check_day_carb_ceiling(
         .fuel_product_ids
         .iter()
         .filter_map(|id| products.get(id))
-        .filter(|product| product.current.facts.carbs_g.is_some_and(|carbs| carbs > 0.0))
+        .filter(|product| {
+            product
+                .current
+                .facts
+                .carbs_g
+                .is_some_and(|carbs| carbs > 0.0)
+        })
         .filter(|product| {
             !product
                 .current

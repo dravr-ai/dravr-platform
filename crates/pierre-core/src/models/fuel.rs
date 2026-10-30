@@ -130,12 +130,9 @@ impl FuelForm {
         match self {
             Self::Capsule | Self::Tablet => (0.2, 5.0),
             Self::DrinkMix => (1.0, 200.0),
-            Self::Gel
-            | Self::Puree
-            | Self::Bar
-            | Self::Waffle
-            | Self::Chew
-            | Self::Other => (5.0, 200.0),
+            Self::Gel | Self::Puree | Self::Bar | Self::Waffle | Self::Chew | Self::Other => {
+                (5.0, 200.0)
+            }
         }
     }
 }
