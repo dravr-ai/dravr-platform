@@ -1312,7 +1312,9 @@
       "verdictUnverifiedOne": "{{count}} número não verificado",
       "verdictUnverifiedN": "{{count}} números não verificados",
       "replyWithheld": "Esta resposta usa dados que só os apps da Dravr podem exibir.",
-      "hidden": "Enquanto o compartilhamento estiver desligado, nada do treino é exibido nem deduzido aqui."
+      "hidden": "Enquanto o compartilhamento estiver desligado, nada do treino é exibido nem deduzido aqui.",
+      "hiddenNever": "Nunca compartilhou os dados com você: nada do treino é exibido nem deduzido aqui.",
+      "hiddenNoSource": "Não conectou nenhuma fonte de dados: não há treino para mostrar aqui."
     },
     "action": {
       "writeToAthlete": "Enviar mensagem",

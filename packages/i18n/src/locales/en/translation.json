@@ -1312,7 +1312,9 @@
       "verdictUnverifiedOne": "{{count}} unverified figure",
       "verdictUnverifiedN": "{{count}} unverified figures",
       "replyWithheld": "This reply draws on data only Dravr’s own apps can show.",
-      "hidden": "As long as sharing is off, nothing about their training is shown or inferred here."
+      "hidden": "As long as sharing is off, nothing about their training is shown or inferred here.",
+      "hiddenNever": "They have never shared their data with you: nothing about their training is shown or inferred here.",
+      "hiddenNoSource": "They haven’t connected any data source: there is no training of theirs to show here."
     },
     "action": {
       "writeToAthlete": "Message them",

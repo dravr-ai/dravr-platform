@@ -1312,7 +1312,9 @@
       "verdictUnverifiedOne": "{{count}} ungeprüfte Zahl",
       "verdictUnverifiedN": "{{count}} ungeprüfte Zahlen",
       "replyWithheld": "Diese Antwort beruht auf Daten, die nur Dravrs eigene Apps anzeigen dürfen.",
-      "hidden": "Solange die Freigabe aus ist, wird hier nichts aus dem Training angezeigt oder abgeleitet."
+      "hidden": "Solange die Freigabe aus ist, wird hier nichts aus dem Training angezeigt oder abgeleitet.",
+      "hiddenNever": "Hat die Daten nie mit dir geteilt: Hier wird nichts aus dem Training angezeigt oder abgeleitet.",
+      "hiddenNoSource": "Hat keine Datenquelle verbunden: Hier gibt es kein Training zum Anzeigen."
     },
     "action": {
       "writeToAthlete": "Nachricht schreiben",
