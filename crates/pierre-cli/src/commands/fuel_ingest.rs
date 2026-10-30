@@ -567,7 +567,8 @@ fn proposal(
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_owned),
-        multiple_transportable_stated: Some(label.multiple_transportable_stated),
+        // An illegible read is no reading of the pack's claims either.
+        multiple_transportable_stated: label.legible.then_some(label.multiple_transportable_stated),
         proposed_by_user_id: None,
     }
 }
@@ -790,6 +791,7 @@ mod tests {
             Some(ILLEGIBLE_FLAG)
         );
         assert_eq!(filed.images.len(), 1);
+        assert_eq!(filed.multiple_transportable_stated, None);
     }
 
     #[test]
