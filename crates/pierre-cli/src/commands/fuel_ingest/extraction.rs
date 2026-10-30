@@ -34,8 +34,10 @@ use tracing::{debug, info, warn};
 
 use super::shopify::LabelImage;
 
-/// Room for the whole JSON object, ingredients list included.
-const MAX_OUTPUT_TOKENS: u32 = 2_000;
+/// Room for the whole JSON object, ingredients list included. A bilingual
+/// Näak pouch's verbatim ingredients ran a 2,000-token answer out mid-object
+/// (live dry run, 2026-10-29); the cap bounds a runaway, not a normal read.
+const MAX_OUTPUT_TOKENS: u32 = 4_000;
 
 /// A transcription, not a composition.
 const TEMPERATURE: f32 = 0.0;
