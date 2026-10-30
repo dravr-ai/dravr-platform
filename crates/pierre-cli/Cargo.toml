@@ -68,6 +68,9 @@ glob = "0.3"
 # std has no equivalent and it wraps the per-OS opener (open/xdg-open/start) + WSL.
 open = "5.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# `fuel-ingest` reads the nutrition-panel image off a product page: an HTML
+# parser with CSS selectors, since no other one is in the workspace.
+scraper = { version = "0.29", default-features = false }
 # SecretString for the admin tokens the CLI holds: redacting Debug, explicit expose_secret().
 secrecy = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }

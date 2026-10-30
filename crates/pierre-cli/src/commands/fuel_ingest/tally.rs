@@ -31,6 +31,14 @@ pub(super) struct Tally {
     /// Candidates whose listing a live proposal holds: no call.
     pub skipped_listing_held: usize,
     pub skipped_no_photo: usize,
+    /// Candidates whose product page showed a nutrition panel, sent first.
+    pub panel_sent: usize,
+    /// Candidates whose product page showed no panel, or one that could not
+    /// be downloaded: the store photos were sent instead.
+    pub panel_missing: usize,
+    /// Candidates whose product page could not be fetched: the store photos
+    /// were sent instead.
+    pub page_failed: usize,
     pub llm_calls: usize,
     /// Prompt tokens the answers were billed for, as the providers report.
     pub prompt_tokens: u64,
@@ -69,6 +77,9 @@ impl Tally {
             skipped_already_read = self.skipped_already_read,
             skipped_listing_held = self.skipped_listing_held,
             skipped_no_photo = self.skipped_no_photo,
+            panel_sent = self.panel_sent,
+            panel_missing = self.panel_missing,
+            page_failed = self.page_failed,
             llm_calls = self.llm_calls,
             prompt_tokens = self.prompt_tokens,
             completion_tokens = self.completion_tokens,

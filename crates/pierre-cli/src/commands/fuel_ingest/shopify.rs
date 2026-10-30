@@ -46,13 +46,15 @@ const MAX_RETRY_AFTER_SECS: u64 = 60;
 
 /// Width every photo is requested at through the Shopify CDN: enough for a
 /// nutrition panel's small print, well under the providers' image limits.
-const IMAGE_WIDTH: &str = "1600";
+pub(super) const IMAGE_WIDTH: &str = "1600";
 
-/// Photos sent per label candidate. Every photo a fuel listing in the four
-/// checked-in stores shows fits (Näak's longest is 6, live on 2026-10-29); a
-/// longer gallery keeps its last ones, where the panel usually is. The
-/// storefront serves no alt text to pick the panel by (no `alt` on any photo
-/// of the four stores), so the order is the store's.
+/// Store photos kept per label candidate. When the product page shows a
+/// nutrition panel the read sends it and only the first of these
+/// ([`super::panel`]); with none, it sends them all. Every photo a fuel
+/// listing in the four checked-in stores shows fits (Näak's longest is 6,
+/// live on 2026-10-29); a longer gallery keeps its last ones, where a panel
+/// photo usually is. The storefront serves no alt text to pick the panel by
+/// (no `alt` on any photo of the four stores), so the order is the store's.
 pub(super) const MAX_IMAGES_PER_CANDIDATE: usize = 8;
 
 /// The most photo bytes one read sends. Base64 grows a photo by 4/3, so
@@ -65,7 +67,7 @@ pub(super) const MAX_READ_BYTES: usize = 14_000_000;
 /// The largest photo accepted, bytes. Anthropic refuses an image whose
 /// base64 encoding is over 5 MiB (5,242,880 bytes), and base64 grows a photo
 /// by 4/3: 3.9 MB encodes to 5.2 MB, just under.
-const MAX_IMAGE_BYTES: usize = 3_900_000;
+pub(super) const MAX_IMAGE_BYTES: usize = 3_900_000;
 
 /// Media types a photo may have. GIF is refused: a label is never animated,
 /// and the readers that take images all take these three.
@@ -197,6 +199,10 @@ pub(super) struct LabelCandidate {
     pub title: String,
     /// The photos to send, in position order, at most [`MAX_IMAGES_PER_CANDIDATE`].
     pub image_urls: Vec<String>,
+    /// The variants it sells, ascending: the flavour's, else the product's.
+    /// A per-variant panel locator takes the first one the page has a panel
+    /// for.
+    pub variant_ids: Vec<u64>,
     /// The flavours the listing offers when its photos are tied to none of
     /// them: the photos may show any of these, so the read is filed with a
     /// note saying so. Empty when the photos show one flavour.
@@ -369,15 +375,18 @@ fn listed_flavours(product: &ShopifyProduct, position: u8) -> Vec<&str> {
 /// When the product lists two or more flavours and its photos are tied to
 /// variants, each flavour is its own candidate with the photos of its
 /// variants, and a flavour no photo shows is left out (a product-wide photo
-/// shows some other flavour). Otherwise the product is one candidate with all
-/// its photos: of its one flavour when it lists one, else carrying the
-/// flavours its untied photos may mix, so the reviewer is told.
-pub(super) fn label_candidates(store: &str, product: &ShopifyProduct) -> Vec<LabelCandidate> {
-    let page = product_url(store, &product.handle);
-    let tied = product
-        .images
-        .iter()
-        .any(|image| !image.variant_ids.is_empty());
+/// shows some other flavour). Otherwise — or when the brand shows one panel
+/// for every flavour ([`super::panel::PanelLocator::per_family`]), so a
+/// per-flavour read would pay for that panel again — the product is one
+/// candidate with all its photos: of its one flavour when it lists one, else
+/// carrying the flavours its photos may mix, so the reviewer is told.
+pub(super) fn label_candidates(brand: &Brand, product: &ShopifyProduct) -> Vec<LabelCandidate> {
+    let page = product_url(brand.store, &product.handle);
+    let tied = !brand.panel.per_family()
+        && product
+            .images
+            .iter()
+            .any(|image| !image.variant_ids.is_empty());
     let flavours = flavour_option(product)
         .map(|position| (position, listed_flavours(product, position)))
         .filter(|(_, flavours)| !flavours.is_empty());
@@ -394,11 +403,14 @@ pub(super) fn label_candidates(store: &str, product: &ShopifyProduct) -> Vec<Lab
             [one] => (Some((*one).to_owned()), Vec::new()),
             many => (None, many.iter().map(|f| (*f).to_owned()).collect()),
         };
+        let mut variant_ids: Vec<u64> = product.variants.iter().map(|v| v.id).collect();
+        variant_ids.sort_unstable();
         return vec![LabelCandidate {
             page_url: page,
             flavour,
             title: product.title.clone(),
             image_urls,
+            variant_ids,
             untied_flavours,
         }];
     };
@@ -432,6 +444,7 @@ pub(super) fn label_candidates(store: &str, product: &ShopifyProduct) -> Vec<Lab
             flavour: Some(flavour.to_owned()),
             title: product.title.clone(),
             image_urls,
+            variant_ids: variant_ids.into_iter().collect(),
             untied_flavours: Vec::new(),
         });
     }
@@ -467,7 +480,10 @@ fn backoff(response: &reqwest::Response, attempt: u32) -> Duration {
 }
 
 /// GET `url`, retrying a 429 or 503 with backoff.
-async fn get_with_backoff(client: &reqwest::Client, url: &Url) -> AppResult<reqwest::Response> {
+pub(super) async fn get_with_backoff(
+    client: &reqwest::Client,
+    url: &Url,
+) -> AppResult<reqwest::Response> {
     let mut attempt = 1;
     loop {
         let response = client.get(url.clone()).send().await.map_err(|e| {
@@ -582,8 +598,14 @@ pub(super) fn sized_image_url(src: &str) -> AppResult<Url> {
     } else {
         src.to_owned()
     };
-    let mut url = Url::parse(&absolute)
+    let url = Url::parse(&absolute)
         .map_err(|e| AppError::external_service("shopify", format!("bad image URL: {e}")))?;
+    Ok(sized(url, IMAGE_WIDTH))
+}
+
+/// `url` asked for at `width` through the Shopify CDN's `width` parameter,
+/// replacing any it carries and keeping its other parameters.
+pub(super) fn sized(mut url: Url, width: &str) -> Url {
     let kept: Vec<(String, String)> = url
         .query_pairs()
         .filter(|(key, _)| key != "width")
@@ -592,8 +614,8 @@ pub(super) fn sized_image_url(src: &str) -> AppResult<Url> {
     url.query_pairs_mut()
         .clear()
         .extend_pairs(kept)
-        .append_pair("width", IMAGE_WIDTH);
-    Ok(url)
+        .append_pair("width", width);
+    url
 }
 
 /// The media type a response declares, without parameters, when it is one a
@@ -612,7 +634,18 @@ pub(super) async fn download_image(
     client: &reqwest::Client,
     src: &str,
 ) -> AppResult<Option<LabelImage>> {
-    let url = sized_image_url(src)?;
+    download_url(client, sized_image_url(src)?).await
+}
+
+/// Download the photo at `url` as asked for; `None` (logged) when its type is
+/// not accepted or it is over [`MAX_IMAGE_BYTES`].
+///
+/// # Errors
+/// Returns an error when the photo cannot be fetched.
+pub(super) async fn download_url(
+    client: &reqwest::Client,
+    url: Url,
+) -> AppResult<Option<LabelImage>> {
     let response = get_with_backoff(client, &url).await?;
     let declared = response
         .headers()
@@ -736,10 +769,7 @@ mod tests {
 
     #[test]
     fn a_product_without_flavour_photos_is_one_candidate_of_its_last_photos() {
-        let candidates = label_candidates(
-            "https://naak.com/",
-            &product("ULTRA™ Gel 200 · Salted Maple"),
-        );
+        let candidates = label_candidates(brand("naak"), &product("ULTRA™ Gel 200 · Salted Maple"));
         assert_eq!(candidates.len(), 1);
         let only = &candidates[0];
         assert_eq!(
@@ -759,7 +789,7 @@ mod tests {
 
     #[test]
     fn flavour_photos_split_a_product_into_one_candidate_per_flavour() {
-        let candidates = label_candidates("https://guenergy.com", &product("Original Energy Gel"));
+        let candidates = label_candidates(brand("gu"), &product("Original Energy Gel"));
         let flavours: Vec<_> = candidates
             .iter()
             .map(|c| c.flavour.clone().unwrap_or_default())
@@ -778,12 +808,32 @@ mod tests {
         // Five photos tied to Tri-Berry: every one is sent, in order.
         assert_eq!(tri_berry.image_urls.len(), 5);
         assert!(tri_berry.image_urls[4].ends_with("tb-panel.png?v=1"));
+        // Its two box sizes, where a per-variant panel is looked for.
+        assert_eq!(tri_berry.variant_ids, vec![101, 102]);
+    }
+
+    #[test]
+    fn a_brand_with_one_panel_per_family_reads_a_flavoured_product_once() {
+        // Its photos are tied to flavours, but the brand's page shows one
+        // panel for all of them: one read, naming the flavours it may show.
+        let candidates = label_candidates(brand("tailwind"), &product("Original Energy Gel"));
+        assert_eq!(candidates.len(), 1);
+        let only = &candidates[0];
+        assert_eq!(only.flavour, None);
+        assert_eq!(
+            only.untied_flavours,
+            vec!["Tri-Berry", "Cola Me Happy", "Salted Caramel"]
+        );
+        assert_eq!(only.variant_ids, vec![101, 102, 201, 301, 401]);
+        assert_eq!(
+            only.page_url,
+            "https://tailwindnutrition.com/products/original-energy-gel"
+        );
     }
 
     #[test]
     fn untied_photos_of_several_flavours_are_one_candidate_that_says_so() {
-        let candidates =
-            label_candidates("https://tailwindnutrition.com", &product("Endurance Fuel"));
+        let candidates = label_candidates(brand("tailwind"), &product("Endurance Fuel"));
         assert_eq!(candidates.len(), 1);
         let only = &candidates[0];
         assert_eq!(only.flavour, None);
@@ -797,10 +847,7 @@ mod tests {
     fn a_single_flavour_keeps_every_photo_tied_or_not() {
         // One photo is tied to a variant, one is not: with one flavour listed
         // both show it, so neither is dropped and no note is needed.
-        let candidates = label_candidates(
-            "https://www.skratchlabs.com",
-            &product("Electrolyte Booster"),
-        );
+        let candidates = label_candidates(brand("skratch"), &product("Electrolyte Booster"));
         assert_eq!(candidates.len(), 1);
         let only = &candidates[0];
         assert_eq!(only.flavour.as_deref(), Some("Unflavored"));
@@ -877,7 +924,7 @@ mod tests {
     fn a_product_with_no_photo_has_no_candidate() {
         let mut bare = product("ULTRA™ Gel 200 · Salted Maple");
         bare.images.clear();
-        assert_eq!(label_candidates("https://naak.com", &bare), Vec::new());
+        assert_eq!(label_candidates(brand("naak"), &bare), Vec::new());
     }
 
     #[test]

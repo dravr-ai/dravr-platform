@@ -8,8 +8,11 @@
 //!
 //! The weekly `*-fuel-ingest-job` Cloud Run job runs it. For each brand in
 //! [`BRANDS`] it lists the storefront's `/products.json`, keeps the fuel
-//! packages, splits each into the flavours its photos show, downloads every
-//! photo up to [`shopify::MAX_IMAGES_PER_CANDIDATE`], and reads the label.
+//! packages, splits each into the flavours its photos show, fetches the
+//! product page once for the nutrition panel the brand's
+//! [`panel::PanelLocator`] finds there, and reads the label: the panel first,
+//! then the first store photos ([`panel::gather`]); with no panel, every store
+//! photo up to [`shopify::MAX_IMAGES_PER_CANDIDATE`].
 //! Nothing enters the catalogue here: a proposal waits for an operator's
 //! approval.
 //!
@@ -64,6 +67,7 @@
 //! ([`Tally::verdict`]). A run that sent nothing is no failure.
 
 mod extraction;
+mod panel;
 mod shopify;
 mod tally;
 
@@ -90,9 +94,10 @@ use extraction::{
     label_request, map_reading, read_label, user_message, ReadFailure, Reading, MAX_OUTPUT_TOKENS,
     TEMPERATURE,
 };
+use panel::{gather, Fetcher, PagePacer, PanelLocator, ProductPage};
 use shopify::{
-    download_image, fetch_fuel_products, label_candidates, listing_key, LabelCandidate, LabelImage,
-    ShopifyProduct, MAX_READ_BYTES,
+    fetch_fuel_products, label_candidates, listing_key, product_url, LabelCandidate, LabelImage,
+    ShopifyProduct,
 };
 use tally::Tally;
 
@@ -108,6 +113,8 @@ pub(crate) struct Brand {
     /// Whole-word keywords, any of which in a listing's type, tags or title
     /// marks it as fuel (the shared exclusions in [`shopify`] still apply).
     pub keywords: &'static [&'static str],
+    /// Where its product page shows the nutrition panel.
+    pub panel: PanelLocator,
 }
 
 /// The brands the job reads. Each store was checked to be a Shopify
@@ -129,12 +136,14 @@ pub(crate) const BRANDS: [Brand; 4] = [
             "puree",
             "purees",
         ],
+        panel: PanelLocator::NaakDrawer,
     },
     Brand {
         slug: "tailwind",
         display: "Tailwind Nutrition",
         store: "https://tailwindnutrition.com",
         keywords: &["endurance fuel", "high carb fuel", "rapid hydration"],
+        panel: PanelLocator::TailwindTab,
     },
     Brand {
         slug: "skratch",
@@ -147,6 +156,7 @@ pub(crate) const BRANDS: [Brand; 4] = [
             "sport fuel",
             "electrolyte",
         ],
+        panel: PanelLocator::SkratchAccordion,
     },
     Brand {
         slug: "gu",
@@ -163,6 +173,7 @@ pub(crate) const BRANDS: [Brand; 4] = [
             "capsules",
             "waffle",
         ],
+        panel: PanelLocator::GuVariantLink,
     },
 ];
 
@@ -347,6 +358,8 @@ struct Run {
     /// to be recorded under that hash.
     hashed_model: String,
     http: reqwest::Client,
+    /// Spaces product-page requests per store.
+    pacer: PagePacer,
     /// `--dry-run`: print what would be filed, write nothing.
     preview: bool,
     /// The natural keys and listing keys this dry run would have filed a
@@ -380,6 +393,7 @@ pub(crate) async fn run(args: FuelIngestArgs, database_url: &str) -> AppResult<(
         model,
         hashed_model,
         http: shopify::http_client()?,
+        pacer: PagePacer::default(),
         preview: args.dry_run,
         filed_keys: HashSet::new(),
         filed_listings: HashSet::new(),
@@ -400,9 +414,11 @@ impl Run {
             return;
         };
         for product in &products {
-            for candidate in label_candidates(brand.store, product) {
+            // Fetched on its first read, shared by the product's flavours.
+            let mut page = ProductPage::new(product_url(brand.store, &product.handle));
+            for candidate in label_candidates(brand, product) {
                 self.tally.candidates += 1;
-                if let Err(e) = self.candidate(brand, &candidate).await {
+                if let Err(e) = self.candidate(brand, &candidate, &mut page).await {
                     error!(
                         brand = brand.slug,
                         page = %redact_url(&candidate.page_url),
@@ -456,40 +472,23 @@ impl Run {
         })
     }
 
-    /// The candidate's photos, every one up to [`MAX_READ_BYTES`] together:
-    /// read from the last, where the panel usually is, and kept in the
-    /// store's order.
-    async fn photos(&self, candidate: &LabelCandidate) -> AppResult<Vec<LabelImage>> {
-        let mut images = Vec::with_capacity(candidate.image_urls.len());
-        let mut bytes = 0;
-        for src in candidate.image_urls.iter().rev() {
-            let Some(image) = download_image(&self.http, src).await? else {
-                continue;
-            };
-            if bytes + image.bytes.len() > MAX_READ_BYTES {
-                warn!(
-                    page = %redact_url(&candidate.page_url),
-                    bytes = image.bytes.len(),
-                    "photo left out: the read's photos are over the byte budget"
-                );
-                continue;
-            }
-            bytes += image.bytes.len();
-            images.push(image);
-        }
-        images.reverse();
-        Ok(images)
-    }
-
-    /// The photos to read and their read hash, or `None` (counted) when no
-    /// photo was usable or this read is already on file.
+    /// The photos to read ([`gather`]), the job's note on where the panel
+    /// came from, and their read hash; `None` (counted) when no photo was
+    /// usable or this read is already on file.
     async fn fresh_photos(
         &mut self,
         brand: &Brand,
         candidate: &LabelCandidate,
-    ) -> AppResult<Option<(Vec<LabelImage>, String)>> {
+        product_page: &mut ProductPage,
+    ) -> AppResult<Option<(Vec<LabelImage>, String, String)>> {
         let page = redact_url(&candidate.page_url);
-        let images = self.photos(candidate).await?;
+        let fetch = Fetcher {
+            http: &self.http,
+            pacer: &mut self.pacer,
+            tally: &mut self.tally,
+        };
+        let gathered = gather(fetch, brand, product_page, candidate).await?;
+        let images = gathered.images;
         if images.is_empty() {
             warn!(brand = brand.slug, %page, "no usable photo, skipped");
             self.tally.skipped_no_photo += 1;
@@ -517,7 +516,7 @@ impl Run {
             self.tally.skipped_already_read += 1;
             return Ok(None);
         }
-        Ok(Some((images, hash)))
+        Ok(Some((images, gathered.note, hash)))
     }
 
     /// Read the label `images` show, counting the call and its tokens.
@@ -605,7 +604,12 @@ impl Run {
         }
     }
 
-    async fn candidate(&mut self, brand: &Brand, candidate: &LabelCandidate) -> AppResult<()> {
+    async fn candidate(
+        &mut self,
+        brand: &Brand,
+        candidate: &LabelCandidate,
+        page: &mut ProductPage,
+    ) -> AppResult<()> {
         let listing = listing_key(brand.slug, &candidate.title, candidate.flavour.as_deref());
         let listed = match self.listing(&listing).await? {
             Listing::Held => {
@@ -621,7 +625,8 @@ impl Run {
             Listing::Catalogued(product) => Some(product),
             Listing::Unfiled => None,
         };
-        let Some((images, hash)) = self.fresh_photos(brand, candidate).await? else {
+        let Some((images, panel_note, hash)) = self.fresh_photos(brand, candidate, page).await?
+        else {
             return Ok(());
         };
         let (read, by_hashed_model) = match self.read(brand, candidate, &images).await? {
@@ -638,7 +643,7 @@ impl Run {
             }
             Some((Ok(read), by_hashed_model)) => (read, by_hashed_model),
         };
-        let mut proposal = proposal(brand, candidate, &read, &images, hash.clone());
+        let mut proposal = proposal(brand, candidate, &read, &images, &panel_note, hash.clone());
         let filing = self.filing(&read, &proposal, listed).await?;
         if filing == Filing::Illegible {
             // Nothing is filed, so the log is the only place the reader's
@@ -786,12 +791,14 @@ impl Run {
     }
 }
 
-/// The proposal a read label files, with every photo sent, in order.
+/// The proposal a read label files, with every photo sent, in order, and the
+/// job's notes on the photos and on where the panel came from.
 fn proposal(
     brand: &Brand,
     candidate: &LabelCandidate,
     read: &Reading,
     images: &[LabelImage],
+    panel_note: &str,
     hash: String,
 ) -> NewFuelProposal {
     let label = &read.label;
@@ -819,7 +826,13 @@ fn proposal(
         facts: mapped.facts,
         provenance: mapped.provenance,
         gate_flags: mapped.gate_flags,
-        notes: reviewer_notes(label.notes.as_deref(), candidate.photo_note()),
+        notes: reviewer_notes(
+            label.notes.as_deref(),
+            Some(candidate.photo_note().map_or_else(
+                || panel_note.to_owned(),
+                |photos| format!("{photos} {panel_note}"),
+            )),
+        ),
         ingredients_text: label
             .ingredients_text
             .as_deref()
@@ -999,6 +1012,7 @@ mod tests {
             flavour: None,
             title: "Endurance Fuel".to_owned(),
             image_urls: vec!["a".to_owned(), "b".to_owned()],
+            variant_ids: vec![1, 2],
             untied_flavours: vec!["Berry".to_owned(), "Lemon".to_owned()],
         }
     }
@@ -1011,6 +1025,7 @@ mod tests {
             &untied_candidate(),
             &read(),
             &photos,
+            "The first photo is the nutrition panel.",
             "hash".to_owned(),
         );
         assert_eq!(
@@ -1035,6 +1050,10 @@ mod tests {
         );
         assert!(
             notes.contains("Ingestion job: The listing offers 2 flavours (Berry, Lemon)"),
+            "{notes}"
+        );
+        assert!(
+            notes.ends_with("against the panel. The first photo is the nutrition panel."),
             "{notes}"
         );
         assert_eq!(filed.facts.glucose_fructose_ratio, Some(0.8));
