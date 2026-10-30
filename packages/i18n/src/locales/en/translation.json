@@ -349,7 +349,7 @@
     "editAgent": "Edit agent",
     "editAgentTitle": "Edit Agent",
     "editProfile": "Edit Profile",
-    "elapsedMayTake": "{{elapsed}}s elapsed — this may take up to {{budget}}",
+    "elapsedMayTake": "{{elapsed}}s elapsed — this may take a while",
     "emailAddress": "Email address",
     "emailAndPassword": "Email & Password",
     "emptyThreadPrompt": "Ask anything about your training.",

@@ -349,7 +349,7 @@
     "editAgent": "Modifier l'agent",
     "editAgentTitle": "Modifier l'agent",
     "editProfile": "Modifier le profil",
-    "elapsedMayTake": "{{elapsed}} s écoulées — cela peut prendre jusqu'à {{budget}}",
+    "elapsedMayTake": "{{elapsed}} s écoulées — cela peut prendre un moment",
     "emailAddress": "Adresse e-mail",
     "emailAndPassword": "E-mail et mot de passe",
     "emptyThreadPrompt": "Pose n'importe quelle question sur ton entraînement.",
