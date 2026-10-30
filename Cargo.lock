@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.8.0#db0e93f30ff50c098b81c56e228d8bd3dd1a5704"
+version = "0.8.1"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.8.1#201f03534b9db5f8d14f563e62dc71b3fc088f3c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1444,8 +1444,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=16f1d4d0cd9
 
 [[package]]
 name = "dravr-enforme"
-version = "0.14.2"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.14.2#991cae36c182b0a14f864f665a5cbe7c2bc6db19"
+version = "0.14.4"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.14.4#f18da45fcc667d4f206c3277537bc3881a2355ee"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1465,8 +1465,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.8.0#0f2a820ba1b7817e95a5f9e7e51b3cd49015b8e9"
+version = "0.8.1"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.8.1#b2f6e54bd959519e30807a16007a99de38ee33d0"
 dependencies = [
  "chrono",
  "schemars 1.2.3",
@@ -1508,8 +1508,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "1.0.1"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.0.1#749828e99113cdbe8a6a2fbcacf1f72d9a780d7a"
+version = "1.0.2"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.0.2#ae857a038064ff85e970af8923027d7921410d32"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4998,7 +4998,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5036,7 +5036,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -7260,7 +7260,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
