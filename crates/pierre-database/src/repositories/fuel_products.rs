@@ -999,6 +999,14 @@ macro_rules! impl_fuel_product_repositories {
                         .await
                         .map_err(|e| fuel_error("record an approval in", e))?;
                     Self::relink_fuel_items(&mut tx, proposal_id, product_id, now).await?;
+                    // The reads it held as duplicates come off file: their
+                    // listings are read again against the approved product,
+                    // which files nothing when its facts are the label's.
+                    sqlx::query($crate::repositories::fuel_products::RELEASE_DUPLICATE_READS_SQL)
+                        .bind($ids::bind(proposal_id))
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| fuel_error("release an approved proposal's reads in", e))?;
                     tx.commit()
                         .await
                         .map_err(|e| fuel_error("commit an approval to", e))?;

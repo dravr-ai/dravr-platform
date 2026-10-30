@@ -152,7 +152,9 @@ pub trait FuelCatalogueRepository: Send + Sync {
     /// else its reviewed GTIN) or created under the reviewed identity, the
     /// product's current version is superseded, the new one written, the
     /// proposal marked approved under the reviewed identity, and every
-    /// athlete item that carried the proposal relinked to the product.
+    /// athlete item that carried the proposal relinked to the product, and
+    /// the `duplicate` label reads it held taken off file, so their listings
+    /// are read again against the approved product.
     ///
     /// The operator's identity edits are authoritative: on an existing
     /// product, each brand, name or variant part they changed, the form, and

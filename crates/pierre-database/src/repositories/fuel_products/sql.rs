@@ -185,8 +185,8 @@ pub(crate) const RECORD_INGEST_READ_SQL: &str = r"
 pub(crate) const LINK_INGEST_READ_SQL: &str =
     "UPDATE fuel_ingest_reads SET proposal_id = $2 WHERE source_hash = $1";
 
-/// Take off file the `duplicate` reads rejected proposal `$1` held, so their
-/// listings are read again.
+/// Take off file the `duplicate` reads proposal `$1` held once it is decided
+/// (approved or rejected), so their listings are read again.
 pub(crate) const RELEASE_DUPLICATE_READS_SQL: &str =
     "DELETE FROM fuel_ingest_reads WHERE proposal_id = $1 AND outcome = 'duplicate'";
 

@@ -1,5 +1,5 @@
 // ABOUTME: Covers the ingestion job's storage against whichever backend DATABASE_URL names: the paid-read ledger and the listing key
-// ABOUTME: A read is recorded once (the first of two racing runs stands), a proposed read files atomically, a rejection frees its listing and duplicates (carnet#155)
+// ABOUTME: A read is recorded once (the first of two racing runs stands), a proposed read files atomically, a decision frees its duplicates (carnet#155)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -344,6 +344,60 @@ async fn rejecting_a_holder_takes_its_duplicate_reads_off_file() {
         .reject_fuel_proposal(holder, reviewer, FuelRejectReason::WrongProduct, None)
         .await
         .unwrap());
+    assert!(catalogue.fuel_ingest_read_seen(&other_hash).await.unwrap());
+}
+
+#[tokio::test]
+async fn approving_a_holder_takes_its_duplicate_reads_off_file() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let catalogue = &repos.fuel_catalogue;
+    let reviewer = fresh_user(repos).await;
+    // One listing's read filed the product; the other pack's listing read it
+    // again and was held as a duplicate of that proposal.
+    let filed_hash = fresh_hash();
+    let holder = catalogue
+        .record_fuel_ingest_read(
+            &filed_hash,
+            FuelIngestOutcome::Proposed,
+            Some((&proposal("Näak", gel_facts()), &fresh_listing())),
+            None,
+        )
+        .await
+        .unwrap()
+        .filed();
+    let held_hash = fresh_hash();
+    catalogue
+        .record_fuel_ingest_read(&held_hash, FuelIngestOutcome::Duplicate, None, Some(holder))
+        .await
+        .unwrap();
+    // A duplicate another proposal holds is not this approval's.
+    let other = catalogue
+        .create_fuel_proposal(&proposal("Näak", gel_facts()))
+        .await
+        .unwrap();
+    let other_hash = fresh_hash();
+    catalogue
+        .record_fuel_ingest_read(&other_hash, FuelIngestOutcome::Duplicate, None, Some(other))
+        .await
+        .unwrap();
+
+    let approved = catalogue
+        .approve_fuel_proposal(holder, reviewer, &FuelFactOverrides::default())
+        .await
+        .unwrap();
+    assert!(
+        matches!(approved, FuelApprovalOutcome::Approved(_)),
+        "{approved:?}"
+    );
+    assert!(
+        !catalogue.fuel_ingest_read_seen(&held_hash).await.unwrap(),
+        "the catalogue holds its product now, so the next run reads it against that product"
+    );
+    assert!(
+        catalogue.fuel_ingest_read_seen(&filed_hash).await.unwrap(),
+        "the approved read itself stays paid for"
+    );
     assert!(catalogue.fuel_ingest_read_seen(&other_hash).await.unwrap());
 }
 
