@@ -200,9 +200,8 @@ pub struct FuelProductView {
     pub gtin: Option<String>,
     /// The label's facts per serving, as approved.
     pub facts: FuelLabelFacts,
-    /// Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or
-    /// `brand_page`, by fact name.
-    pub sources: BTreeMap<String, String>,
+    /// Where each fact came from, by fact name.
+    pub sources: BTreeMap<String, FactSource>,
     /// When these facts became current, RFC 3339.
     pub facts_since: String,
 }
@@ -221,21 +220,11 @@ impl FuelProductView {
                 .current
                 .provenance
                 .iter()
-                .map(|(field, provenance)| (field.clone(), source_name(provenance.source)))
+                .map(|(field, provenance)| (field.clone(), provenance.source))
                 .collect(),
             facts_since: product.current.valid_from.to_rfc3339(),
         }
     }
-}
-
-fn source_name(source: FactSource) -> String {
-    match source {
-        FactSource::LabelOcr => "label_ocr",
-        FactSource::Athlete => "athlete",
-        FactSource::AdminEdit => "admin_edit",
-        FactSource::BrandPage => "brand_page",
-    }
-    .to_owned()
 }
 
 /// What `search_fuel_products` answers.

@@ -1450,8 +1450,8 @@ export type FuelForm =
   | 'waffle'
   | 'other';
 export type FuelProposalStatus = 'pending' | 'approved' | 'rejected';
-export type FuelProposalSource = 'shopify_ocr' | 'athlete' | 'admin';
-export type FuelFactSource = 'label_ocr' | 'athlete' | 'admin_edit' | 'brand_page';
+export type FuelProposalSource = 'shopify_ocr' | 'athlete';
+export type FuelFactSource = 'label_ocr' | 'athlete' | 'admin_edit';
 /** The `fuel_product_proposals.reject_reason` CHECK list. */
 export type FuelRejectReason =
   | 'illegible'

@@ -18,10 +18,11 @@ use std::sync::Arc;
 
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    normalize_gtin, proposal_source_hash, CatalogueFuelProduct, FactSource, FieldOverride,
+    fuel_read_hash, normalize_gtin, CatalogueFuelProduct, FactSource, FieldOverride,
     FieldProvenance, FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelForm, FuelItemCarried,
-    FuelItemEntry, FuelRejectReason, NewFuelProposal, PlausibilityViolation, ProposalSource,
-    ProposalSourceImage, ProposalStatus, TenantId, User, MAX_FUEL_ITEMS_PER_ATHLETE,
+    FuelItemEntry, FuelReadRequest, FuelRejectReason, NewFuelProposal, PlausibilityViolation,
+    ProposalSource, ProposalSourceImage, ProposalStatus, TenantId, User,
+    MAX_FUEL_ITEMS_PER_ATHLETE,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -79,7 +80,17 @@ pub(crate) fn proposal(brand: &str, facts: FuelFacts) -> NewFuelProposal {
         form: FuelForm::Gel,
         gtin: None,
         source_kind: ProposalSource::ShopifyOcr,
-        source_hash: Some(proposal_source_hash(Some(&url), &[FRONT, PANEL])),
+        source_hash: Some(fuel_read_hash(
+            &url,
+            &[FRONT, PANEL],
+            FuelReadRequest {
+                prompt: "fuel_panel_extraction",
+                user_message: "Transcribe the label shown in these 2 photo(s) of one package.",
+                model: "test=label-reader",
+                max_tokens: 4_000,
+                temperature: 0.0,
+            },
+        )),
         source_url: Some(url),
         images: vec![
             ProposalSourceImage {

@@ -83,9 +83,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   label_ocr: 'label OCR',
   athlete: 'athlete',
   admin_edit: 'operator edit',
-  brand_page: 'brand page',
   shopify_ocr: 'Shopify label OCR',
-  admin: 'operator',
 };
 
 /** Longest rejection note the server accepts, in characters (`MAX_REJECT_NOTE_CHARS`). */

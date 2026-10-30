@@ -152,6 +152,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "FactSource": {
+            "description": "Where one stored fact came from. Its serde spelling is both what the\nprovenance JSON stores and what a tool answers.",
+            "oneOf": [
+              {
+                "const": "label_ocr",
+                "description": "Read from a label photo by OCR.",
+                "type": "string"
+              },
+              {
+                "const": "athlete",
+                "description": "Typed by an athlete.",
+                "type": "string"
+              },
+              {
+                "const": "admin_edit",
+                "description": "Set or corrected by an operator at review.",
+                "type": "string"
+              }
+            ]
+          },
           "FuelItemStatus": {
             "description": "Where one carried item stands.",
             "oneOf": [
@@ -365,9 +385,9 @@
               },
               "sources": {
                 "additionalProperties": {
-                  "type": "string"
+                  "$ref": "#/$defs/FactSource"
                 },
-                "description": "Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or\n`brand_page`, by fact name.",
+                "description": "Where each fact came from, by fact name.",
                 "type": "object"
               },
               "variant": {
@@ -22176,6 +22196,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "FactSource": {
+            "description": "Where one stored fact came from. Its serde spelling is both what the\nprovenance JSON stores and what a tool answers.",
+            "oneOf": [
+              {
+                "const": "label_ocr",
+                "description": "Read from a label photo by OCR.",
+                "type": "string"
+              },
+              {
+                "const": "athlete",
+                "description": "Typed by an athlete.",
+                "type": "string"
+              },
+              {
+                "const": "admin_edit",
+                "description": "Set or corrected by an operator at review.",
+                "type": "string"
+              }
+            ]
+          },
           "FuelItemStatus": {
             "description": "Where one carried item stands.",
             "oneOf": [
@@ -22389,9 +22429,9 @@
               },
               "sources": {
                 "additionalProperties": {
-                  "type": "string"
+                  "$ref": "#/$defs/FactSource"
                 },
-                "description": "Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or\n`brand_page`, by fact name.",
+                "description": "Where each fact came from, by fact name.",
                 "type": "object"
               },
               "variant": {
@@ -28499,6 +28539,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "FactSource": {
+            "description": "Where one stored fact came from. Its serde spelling is both what the\nprovenance JSON stores and what a tool answers.",
+            "oneOf": [
+              {
+                "const": "label_ocr",
+                "description": "Read from a label photo by OCR.",
+                "type": "string"
+              },
+              {
+                "const": "athlete",
+                "description": "Typed by an athlete.",
+                "type": "string"
+              },
+              {
+                "const": "admin_edit",
+                "description": "Set or corrected by an operator at review.",
+                "type": "string"
+              }
+            ]
+          },
           "FuelLabelFacts": {
             "description": "One product's label facts per serving. Absent is what the label does not\nstate, never zero.",
             "properties": {
@@ -28636,9 +28696,9 @@
               },
               "sources": {
                 "additionalProperties": {
-                  "type": "string"
+                  "$ref": "#/$defs/FactSource"
                 },
-                "description": "Where each fact came from: `label_ocr`, `athlete`, `admin_edit` or\n`brand_page`, by fact name.",
+                "description": "Where each fact came from, by fact name.",
                 "type": "object"
               },
               "variant": {

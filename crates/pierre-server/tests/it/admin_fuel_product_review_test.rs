@@ -29,8 +29,9 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{AdminPermissions, ValidatedAdminToken};
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    normalize_gtin, proposal_source_hash, FactSource, FieldProvenance, FuelFacts, FuelForm,
-    NewFuelProposal, ProposalSource, ProposalSourceImage, Tenant, TenantId, User, UserStatus,
+    fuel_read_hash, normalize_gtin, FactSource, FieldProvenance, FuelFacts, FuelForm,
+    FuelReadRequest, NewFuelProposal, ProposalSource, ProposalSourceImage, Tenant, TenantId, User,
+    UserStatus,
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::RepositoryRegistry;
@@ -88,7 +89,17 @@ fn proposal(mime: &str) -> NewFuelProposal {
         form: FuelForm::Gel,
         gtin: None,
         source_kind: ProposalSource::ShopifyOcr,
-        source_hash: Some(proposal_source_hash(Some(&url), &[FRONT, PANEL])),
+        source_hash: Some(fuel_read_hash(
+            &url,
+            &[FRONT, PANEL],
+            FuelReadRequest {
+                prompt: "fuel_panel_extraction",
+                user_message: "Transcribe the label shown in these 2 photo(s) of one package.",
+                model: "test=label-reader",
+                max_tokens: 4_000,
+                temperature: 0.0,
+            },
+        )),
         source_url: Some(url),
         images: vec![
             ProposalSourceImage {

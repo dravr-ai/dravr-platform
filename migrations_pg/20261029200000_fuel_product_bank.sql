@@ -90,7 +90,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_fuel_product_versions_current
 --                    slug|title without pack-size words|flavour), derived
 --                    before the read, so a second listing of one product (a
 --                    Bag and a Single Serve) is never read twice; NULL for an
---                    athlete's or an operator's filing
+--                    athlete's filing
 --   source_hash      the fuel_ingest_reads hash of the read that filed it:
 --                    one proposal per read. Its photos are rows of
 --                    fuel_proposal_images
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS fuel_product_proposals (
     variant TEXT NOT NULL DEFAULT '',
     form TEXT NOT NULL CHECK (form IN ('gel', 'drink_mix', 'bar', 'chew', 'capsule', 'tablet', 'puree', 'waffle', 'other')),
     gtin TEXT,
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('shopify_ocr', 'athlete', 'admin')),
+    source_kind TEXT NOT NULL CHECK (source_kind IN ('shopify_ocr', 'athlete')),
     natural_key TEXT NOT NULL,
     listing_key TEXT,
     source_url TEXT,
@@ -160,11 +160,13 @@ CREATE TABLE IF NOT EXISTS fuel_proposal_images (
 -- fuel_ingest_reads: every label read the ingestion job paid for, once per
 -- source, whatever it found, so an unchanged weekly run makes no LLM call.
 -- Global like the catalogue.
---   source_hash  sha256 hex over the page URL, every photo sent in order, the
---                fuel_panel_extraction prompt text sent, the configured
---                model, the output cap and the temperature: a new photo,
---                prompt, model or cap is a new source and is read again; of
---                two runs racing on one hash, the first recorded stands
+--   source_hash  sha256 hex (fuel_read_hash in Rust) over the page URL, the
+--                fuel_panel_extraction prompt text sent, the user message the
+--                photos travel on, the configured model, the output cap, the
+--                temperature and every photo sent in order, each field
+--                length-prefixed: a new photo, prompt, message, model, cap or
+--                temperature is a new source and is read again; of two runs
+--                racing on one hash, the first recorded stands
 --   outcome      proposed (a new or an update proposal was filed), illegible
 --                (no panel could be read; nothing filed), duplicate (a live
 --                proposal already holds the product), parse_failed (the

@@ -1186,7 +1186,16 @@ fn parity_gel_facts() -> FuelFacts {
     }
 }
 
-fn parity_fuel_proposal(source_kind: ProposalSource, proposer: Option<Uuid>) -> NewFuelProposal {
+/// A gel proposal: an athlete's filing when `proposer` is set, otherwise the
+/// ingestion job's, read off a storefront page.
+fn parity_fuel_proposal(proposer: Option<Uuid>) -> NewFuelProposal {
+    let (source_kind, source_url) = match proposer {
+        Some(_) => (ProposalSource::Athlete, None),
+        None => (
+            ProposalSource::ShopifyOcr,
+            Some(format!("https://shop.example/{}", Uuid::new_v4())),
+        ),
+    };
     NewFuelProposal {
         product_id: None,
         brand: "Parity".to_owned(),
@@ -1195,7 +1204,7 @@ fn parity_fuel_proposal(source_kind: ProposalSource, proposer: Option<Uuid>) -> 
         form: FuelForm::Gel,
         gtin: None,
         source_kind,
-        source_url: None,
+        source_url,
         images: Vec::new(),
         notes: None,
         ingredients_text: None,
@@ -1222,7 +1231,7 @@ async fn test_parity_athlete_fuel_items_roundtrip() {
 
         let approved_id = repos
             .fuel_catalogue
-            .create_fuel_proposal(&parity_fuel_proposal(ProposalSource::Admin, None))
+            .create_fuel_proposal(&parity_fuel_proposal(None))
             .await
             .unwrap_or_else(|e| panic!("{backend}: proposal must queue: {e}"));
         let FuelApprovalOutcome::Approved(product) = repos
@@ -1254,10 +1263,7 @@ async fn test_parity_athlete_fuel_items_roundtrip() {
 
         let pending_id = repos
             .fuel_catalogue
-            .create_fuel_proposal(&parity_fuel_proposal(
-                ProposalSource::Athlete,
-                Some(user_id),
-            ))
+            .create_fuel_proposal(&parity_fuel_proposal(Some(user_id)))
             .await
             .unwrap_or_else(|e| panic!("{backend}: athlete proposal must queue: {e}"));
         let pending = repos

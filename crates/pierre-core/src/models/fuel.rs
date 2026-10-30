@@ -31,8 +31,7 @@ mod overrides;
 
 pub use gate::{check_plausibility, FactBasis, PlausibilityViolation};
 pub use identity::{
-    fuel_natural_key, fuel_read_hash, image_sha256, normalize_gtin, proposal_source_hash,
-    FuelReadRequest,
+    fuel_natural_key, fuel_read_hash, image_sha256, normalize_gtin, FuelReadRequest,
 };
 pub use overrides::{FieldOverride, FuelFactOverrides, FuelIdentity, ReviewedProposal};
 
@@ -199,8 +198,9 @@ pub struct FuelFacts {
     pub glucose_fructose_ratio: Option<f64>,
 }
 
-/// Where one stored fact came from. Stored as [`FactSource::as_str`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Where one stored fact came from. Its serde spelling is both what the
+/// provenance JSON stores and what a tool answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FactSource {
     /// Read from a label photo by OCR.
@@ -209,8 +209,6 @@ pub enum FactSource {
     Athlete,
     /// Set or corrected by an operator at review.
     AdminEdit,
-    /// Transcribed from the brand's own product page.
-    BrandPage,
 }
 
 /// The provenance of one fact.
@@ -302,8 +300,6 @@ pub enum ProposalSource {
     ShopifyOcr,
     /// An athlete typed or photographed it.
     Athlete,
-    /// An operator entered it.
-    Admin,
 }
 
 impl ProposalSource {
@@ -313,7 +309,6 @@ impl ProposalSource {
         match self {
             Self::ShopifyOcr => "shopify_ocr",
             Self::Athlete => "athlete",
-            Self::Admin => "admin",
         }
     }
 
@@ -323,7 +318,6 @@ impl ProposalSource {
         match stored {
             "shopify_ocr" => Some(Self::ShopifyOcr),
             "athlete" => Some(Self::Athlete),
-            "admin" => Some(Self::Admin),
             _ => None,
         }
     }
@@ -720,13 +714,10 @@ mod tests {
         ] {
             assert_eq!(ProposalStatus::parse(status.as_str()), Some(status));
         }
-        for source in [
-            ProposalSource::ShopifyOcr,
-            ProposalSource::Athlete,
-            ProposalSource::Admin,
-        ] {
+        for source in [ProposalSource::ShopifyOcr, ProposalSource::Athlete] {
             assert_eq!(ProposalSource::parse(source.as_str()), Some(source));
         }
+        assert_eq!(ProposalSource::parse("admin"), None);
         for outcome in FuelIngestOutcome::ALL {
             assert_eq!(FuelIngestOutcome::parse(outcome.as_str()), Some(outcome));
         }

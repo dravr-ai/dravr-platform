@@ -25,7 +25,7 @@ use dravr_meteo::{
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
-    MeasurementKind, MetricProvenance, ProvenancedValue, SportType, ThresholdProvenance,
+    FactSource, MeasurementKind, MetricProvenance, ProvenancedValue, SportType, ThresholdProvenance,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_services::coach_roster::RosterAthleteStatus;
@@ -3672,7 +3672,7 @@ fn the_fuel_product_answers_match_their_schemas() {
             glucose_fructose_ratio: Some(0.8),
             ..FuelLabelFacts::default()
         },
-        sources: [("carbs_g".to_owned(), "label_ocr".to_owned())].into(),
+        sources: [("carbs_g".to_owned(), FactSource::LabelOcr)].into(),
         facts_since: "2026-10-29T12:00:00+00:00".to_owned(),
     };
     let item = |status, product| FuelItemView {
