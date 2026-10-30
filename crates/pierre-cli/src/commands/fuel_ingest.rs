@@ -21,7 +21,9 @@
 //!   hash on file is skipped before the call, so an unchanged weekly run
 //!   costs only the downloads, and a new photo, prompt or model reads again.
 //!   A provider error or a tier that cannot see images is not recorded: the
-//!   next run tries again.
+//!   next run tries again. Nor is a read that filed nothing when a fallback
+//!   tier on another model answered it ([`read_by_hashed_model`]): the hash
+//!   names the configured model, which never saw those photos.
 //! - **One read per product, before the read.** A listing's
 //!   [`shopify::listing_key`] (brand, title without pack-size words, flavour)
 //!   names the product whatever pack it is sold in: Näak sells one drink mix
@@ -199,6 +201,9 @@ struct Tally {
     discarded_no_vision: usize,
     /// Reads that errored on every tier (not recorded: retried next run).
     read_failed: usize,
+    /// Reads that filed nothing, answered by a fallback tier on another model
+    /// than the hashed one (not recorded: retried next run).
+    unrecorded_fallback: usize,
     /// Candidates that failed outside the read (download, database).
     failed: usize,
 }
@@ -227,6 +232,7 @@ impl Tally {
             completion_tokens = self.completion_tokens,
             discarded_no_vision = self.discarded_no_vision,
             read_failed = self.read_failed,
+            unrecorded_fallback = self.unrecorded_fallback,
             failed = self.failed,
             "fuel ingestion finished"
         );
@@ -290,13 +296,28 @@ fn selected_brands(slugs: &[String]) -> AppResult<Vec<&'static Brand>> {
         .collect()
 }
 
-/// The model a label read is sent to, as the read hash names it: the head
-/// provider and the model its `fuel_panel_extraction` stage runs on.
-fn configured_model(provider: &ChatProvider) -> String {
-    let model = provider
+/// The model a label read is sent to: the one the head provider's
+/// `fuel_panel_extraction` stage runs on.
+fn stage_model(provider: &ChatProvider) -> String {
+    provider
         .stage_model(LlmStage::FuelPanelExtraction)
-        .unwrap_or_else(|| provider.default_model());
-    format!("{}={model}", provider.name())
+        .unwrap_or_else(|| provider.default_model())
+        .to_owned()
+}
+
+/// The model a label read is sent to, as the read hash names it: the head
+/// provider and [`stage_model`].
+fn configured_model(provider: &ChatProvider) -> String {
+    format!("{}={}", provider.name(), stage_model(provider))
+}
+
+/// Whether the model `hashed` (the stage model [`configured_model`] names)
+/// read the label: the chain's head did (`position` 0, or `None` for a solo
+/// provider), or a fallback tier reports that same model (a pooled account).
+/// Else the read hash would claim a read its model never made, and a weaker
+/// fallback's `illegible` would stand until the photos change.
+fn read_by_hashed_model(position: Option<usize>, served_model: Option<&str>, hashed: &str) -> bool {
+    matches!(position, None | Some(0)) || served_model == Some(hashed)
 }
 
 /// The reviewer's notes on a read: the label reader's, then the job's own
@@ -405,6 +426,9 @@ struct Run {
     prompt: String,
     /// [`configured_model`], hashed into every read.
     model: String,
+    /// [`stage_model`]: the model a fallback tier must report for its read
+    /// to be recorded under that hash.
+    hashed_model: String,
     http: reqwest::Client,
     /// `--dry-run`: print what would be filed, write nothing.
     preview: bool,
@@ -430,12 +454,14 @@ pub(crate) async fn run(args: FuelIngestArgs, database_url: &str) -> AppResult<(
     let db = Database::init_for_seeding(database_url).await?;
     let provider = ChatProvider::from_chain(&LlmChain::from_env()).await?;
     let model = configured_model(&provider);
+    let hashed_model = stage_model(&provider);
     info!(model = %model, "label reads go to the configured model");
     let mut run = Run {
         repos: Arc::clone(db.repositories()),
         provider,
         prompt: PromptRegistry::new().fuel_panel_extraction_prompt(),
         model,
+        hashed_model,
         http: shopify::http_client()?,
         preview: args.dry_run,
         filed_keys: HashSet::new(),
@@ -568,13 +594,15 @@ impl Run {
     }
 
     /// Read the label `images` show, counting the call and its tokens.
-    /// `Ok(None)` (logged) when nothing usable came back.
+    /// `Ok(None)` (logged) when nothing usable came back; else the reading or
+    /// why it did not parse, and whether the hashed model made it
+    /// ([`read_by_hashed_model`]).
     async fn read(
         &mut self,
         brand: &Brand,
         candidate: &LabelCandidate,
         images: &[LabelImage],
-    ) -> AppResult<Option<Result<Reading, AppError>>> {
+    ) -> AppResult<Option<(Result<Reading, AppError>, bool)>> {
         let page = redact_url(&candidate.page_url);
         let request = label_request(&self.provider, &self.prompt, images)?;
         self.tally.llm_calls += 1;
@@ -583,8 +611,10 @@ impl Run {
             self.tally.prompt_tokens += u64::from(usage.prompt_tokens);
             self.tally.completion_tokens += u64::from(usage.completion_tokens);
         }
+        let by_hashed_model =
+            read_by_hashed_model(answer.position, answer.model.as_deref(), &self.hashed_model);
         match answer.result {
-            Ok(read) => Ok(Some(Ok(read))),
+            Ok(read) => Ok(Some((Ok(read), by_hashed_model))),
             Err(ReadFailure::NoVision) => {
                 self.tally.discarded_no_vision += 1;
                 Ok(None)
@@ -596,7 +626,7 @@ impl Run {
             }
             Err(ReadFailure::Unparseable(e)) => {
                 error!(brand = brand.slug, %page, "label answer refused: {e}");
-                Ok(Some(Err(e)))
+                Ok(Some((Err(e), by_hashed_model)))
             }
         }
     }
@@ -667,15 +697,22 @@ impl Run {
         let Some((images, hash)) = self.fresh_photos(brand, candidate).await? else {
             return Ok(());
         };
-        let read = match self.read(brand, candidate, &images).await? {
+        let (read, by_hashed_model) = match self.read(brand, candidate, &images).await? {
             None => return Ok(()),
-            Some(Err(_)) => {
-                self.file(candidate, &hash, &listing, Filing::ParseFailed, None)
-                    .await?;
+            Some((Err(_), by_hashed_model)) => {
+                self.record(
+                    candidate,
+                    &hash,
+                    &listing,
+                    Filing::ParseFailed,
+                    None,
+                    by_hashed_model,
+                )
+                .await?;
                 self.count(Filing::ParseFailed, None, &listing);
                 return Ok(());
             }
-            Some(Ok(read)) => read,
+            Some((Ok(read), by_hashed_model)) => (read, by_hashed_model),
         };
         let mut proposal = proposal(brand, candidate, &read, &images, hash.clone());
         let filing = self.filing(&read, &proposal, listed).await?;
@@ -701,10 +738,43 @@ impl Run {
         if self.preview {
             println!("{}", preview_line(&proposal, &read, filing));
         } else {
-            self.file(candidate, &hash, &listing, filing, Some(&proposal))
-                .await?;
+            self.record(
+                candidate,
+                &hash,
+                &listing,
+                filing,
+                Some(&proposal),
+                by_hashed_model,
+            )
+            .await?;
         }
         self.count(filing, Some(&proposal), &listing);
+        Ok(())
+    }
+
+    /// [`Self::file`] the read, unless it filed nothing and the hashed model
+    /// did not make it: then it is counted and left off file, so the next
+    /// run reads it again. A filed proposal is always recorded: its listing
+    /// holds the product, so the next run would not read it anyway.
+    async fn record(
+        &mut self,
+        candidate: &LabelCandidate,
+        hash: &str,
+        listing: &str,
+        filing: Filing,
+        proposal: Option<&NewFuelProposal>,
+        by_hashed_model: bool,
+    ) -> AppResult<()> {
+        if by_hashed_model || matches!(filing, Filing::New | Filing::Update(_)) {
+            return self.file(candidate, hash, listing, filing, proposal).await;
+        }
+        warn!(
+            page = %redact_url(&candidate.page_url),
+            outcome = filing.label(),
+            model = %self.hashed_model,
+            "a fallback tier on another model read this label; not recorded, so the next run reads it again"
+        );
+        self.tally.unrecorded_fallback += 1;
         Ok(())
     }
 
@@ -886,6 +956,28 @@ mod tests {
             assert_eq!(filing.outcome(), outcome, "{filing:?}");
             assert_eq!(filing.label(), label, "{filing:?}");
         }
+    }
+
+    #[test]
+    fn only_the_hashed_model_puts_a_read_on_file() {
+        let opus = "claude-opus-5-5";
+        // The chain's head, or a solo provider.
+        assert!(read_by_hashed_model(Some(0), Some(opus), opus));
+        assert!(read_by_hashed_model(None, Some(opus), opus));
+        // A pooled account of the same model.
+        assert!(read_by_hashed_model(Some(1), Some(opus), opus));
+        // A fallback on another model never saw the photos as the hash says.
+        assert!(!read_by_hashed_model(
+            Some(1),
+            Some("claude-haiku-5-5"),
+            opus
+        ));
+        assert!(!read_by_hashed_model(
+            Some(5),
+            Some("gemini-flash-lite-latest"),
+            opus
+        ));
+        assert!(!read_by_hashed_model(Some(2), None, opus));
     }
 
     #[test]

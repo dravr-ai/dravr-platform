@@ -139,13 +139,18 @@ pub(super) struct Reading {
     pub position: Option<usize>,
 }
 
-/// One label read sent: what came of it, and the tokens the answer that came
+/// One label read sent: what came of it, the tokens the answer that came
 /// back was billed for (`None` when no answer came back or the provider
-/// reported none).
+/// reported none), and who answered.
 #[derive(Debug)]
 pub(super) struct Answer {
     pub result: Result<Reading, ReadFailure>,
     pub usage: Option<TokenUsage>,
+    /// The chain position that answered (`None` for a solo provider or no
+    /// answer) and the model it reports, so the job records a read only when
+    /// the model its read hash names really read the label.
+    pub position: Option<usize>,
+    pub model: Option<String>,
 }
 
 /// `text` without one surrounding code fence (with or without a `json` tag),
@@ -439,6 +444,8 @@ pub(super) async fn read_label(
             return Answer {
                 result: Err(ReadFailure::Provider(e)),
                 usage: None,
+                position: None,
+                model: None,
             }
         }
     };
@@ -460,6 +467,8 @@ pub(super) async fn read_label(
         return Answer {
             result: Err(ReadFailure::NoVision),
             usage,
+            position,
+            model: Some(response.model),
         };
     }
     info!(
@@ -476,7 +485,12 @@ pub(super) async fn read_label(
             position,
         })
         .map_err(ReadFailure::Unparseable);
-    Answer { result, usage }
+    Answer {
+        result,
+        usage,
+        position,
+        model: Some(response.model),
+    }
 }
 
 #[cfg(test)]
