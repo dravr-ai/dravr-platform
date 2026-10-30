@@ -8,10 +8,11 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     check_plausibility, fuel_natural_key, image_sha256, normalize_gtin, AthleteFuelItem,
-    CatalogueFuelProduct, FactProvenance, FuelApprovalOutcome, FuelFacts, FuelItemCarried,
-    FuelItemEntry, FuelKeyHolder, FuelProductProposal, FuelProposalImageMeta, FuelRejectReason,
-    NewFuelProposal, PendingFuelItem, ProposalSourceImage, ProposalStatus, TenantId,
-    MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
+    CatalogueFuelListing, CatalogueFuelProduct, FactProvenance, FuelApprovalOutcome,
+    FuelFactOverrides, FuelFacts, FuelIngestOutcome, FuelItemCarried, FuelItemEntry, FuelKeyHolder,
+    FuelProductProposal, FuelProposalImageMeta, FuelReadRecorded, FuelRejectReason,
+    NewFuelProposal, PendingFuelItem, ProposalSourceImage, ProposalStatus, ReviewedProposal,
+    TenantId, MAX_FUEL_ITEMS_PER_ATHLETE, MAX_FUEL_PRODUCT_LOOKUP,
 };
 use sqlx::postgres::PgRow;
 use uuid::Uuid;

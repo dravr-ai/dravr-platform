@@ -196,7 +196,7 @@ macro_rules! impl_fuel_product_repositories {
             /// ([`Self::apply_fuel_identity_edits`]).
             async fn resolve_fuel_product(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
-                reviewed: &pierre_core::models::ReviewedProposal,
+                reviewed: &ReviewedProposal,
                 product_id: Option<Uuid>,
                 listing_key: Option<&str>,
                 now: DateTime<Utc>,
@@ -302,7 +302,7 @@ macro_rules! impl_fuel_product_repositories {
             /// approval committed that key or barcode after the check.
             async fn apply_fuel_identity_edits(
                 tx: &mut sqlx::Transaction<'static, <$row as sqlx::Row>::Database>,
-                reviewed: &pierre_core::models::ReviewedProposal,
+                reviewed: &ReviewedProposal,
                 existing: &$crate::repositories::fuel_products::ProductIdentity,
             ) -> AppResult<Result<(), $crate::repositories::fuel_products::IdentityClash>> {
                 use $crate::repositories::fuel_products::identity_written;
@@ -640,7 +640,7 @@ macro_rules! impl_fuel_product_repositories {
                 &self,
                 limit: i64,
                 offset: i64,
-            ) -> AppResult<Vec<pierre_core::models::CatalogueFuelListing>> {
+            ) -> AppResult<Vec<CatalogueFuelListing>> {
                 use sqlx::Row as _;
                 let rows = sqlx::query($crate::repositories::fuel_products::LIST_CATALOGUE_SQL)
                     .bind(limit.clamp(1, MAX_FUEL_PAGE))
@@ -650,7 +650,7 @@ macro_rules! impl_fuel_product_repositories {
                     .map_err(|e| fuel_error("list the catalogue of", e))?;
                 rows.iter()
                     .map(|row| {
-                        Ok(pierre_core::models::CatalogueFuelListing {
+                        Ok(CatalogueFuelListing {
                             product: Self::fuel_catalogue_row(row)?,
                             version_count: row
                                 .try_get("version_count")
@@ -698,11 +698,10 @@ macro_rules! impl_fuel_product_repositories {
             async fn record_fuel_ingest_read(
                 &self,
                 source_hash: &str,
-                outcome: pierre_core::models::FuelIngestOutcome,
+                outcome: FuelIngestOutcome,
                 proposal: Option<(&NewFuelProposal, &str)>,
                 held_by: Option<Uuid>,
-            ) -> AppResult<pierre_core::models::FuelReadRecorded> {
-                use pierre_core::models::{FuelIngestOutcome, FuelReadRecorded};
+            ) -> AppResult<FuelReadRecorded> {
                 let proposed = outcome == FuelIngestOutcome::Proposed;
                 if proposed != proposal.is_some() {
                     return Err(AppError::invalid_input(format!(
@@ -906,7 +905,7 @@ macro_rules! impl_fuel_product_repositories {
                 &self,
                 proposal_id: Uuid,
                 reviewer_user_id: Uuid,
-                overrides: &pierre_core::models::FuelFactOverrides,
+                overrides: &FuelFactOverrides,
             ) -> AppResult<FuelApprovalOutcome> {
                 let Some(proposal) = self.get_fuel_proposal(proposal_id).await? else {
                     return Ok(FuelApprovalOutcome::NotFound);
