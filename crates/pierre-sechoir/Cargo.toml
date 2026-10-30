@@ -1,0 +1,35 @@
+# ABOUTME: Structural duplicate finder across the platform and its satellite repos
+# ABOUTME: Compares normalized Rust function bodies and copied files, reporting cross-repo copies first
+
+[package]
+name = "pierre-sechoir"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Finds near-duplicate Rust functions and copied files across several repositories"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[lib]
+name = "pierre_sechoir"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pierre-sechoir"
+path = "src/main.rs"
+
+[dependencies]
+# `full` parses function bodies, `visit` walks them. The version is the one the
+# workspace already locks for its derive macros.
+syn = { version = "2.0", features = ["full", "visit"] }
+# `span-locations` gives each parsed function its line numbers. Resolver 2 builds
+# proc-macro crates against their own proc-macro2, so derives are unaffected.
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+thiserror = "2.0"
+clap = { version = "4.6", features = ["derive", "std"], default-features = false }
+
+[dev-dependencies]
+tempfile = "3.27"
+
+[lints]
+workspace = true

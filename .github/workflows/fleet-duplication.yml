@@ -1,0 +1,99 @@
+# ABOUTME: Weekly structural duplicate scan of the platform, every satellite in satellites.toml and dravr-tronc
+# ABOUTME: Keeps one standing carnet issue holding the latest report; the full report is in the run summary
+name: "Monitor: Fleet Duplication"
+
+# Most duplication in dravr sits between repositories: satellites that copied
+# each other's server scaffolding, and models copied out of the platform. No
+# per-repo gate can see it, so this reads the whole fleet with pierre-sechoir
+# and keeps the findings in front of us as one standing issue, updated in place.
+#
+# It reports and never fails on findings: a copy is removed by moving code into
+# a shared crate, which takes a release, so a red run would only mark time.
+# It does fail when the scan cannot run: an unreadable satellite, a scan that
+# compared nothing, or a build error.
+
+on:
+  schedule:
+    # Mondays 05:37 UTC, off the top of the hour where GitHub drops cron runs.
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-duplication
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: Scan the fleet for duplication
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private repositories
+        # NOT secrets.GITHUB_TOKEN: the default Actions token reads this
+        # repository only, and most satellites are private.
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.99.1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fleet-duplication
+
+      - name: Build pierre-sechoir
+        run: cargo build --release -p pierre-sechoir
+
+      - name: Self-test the fleet script
+        run: ./scripts/ci/fleet-duplication.test.sh
+
+      - name: Scan the fleet
+        run: |
+          ./scripts/ci/fleet-duplication.sh "$RUNNER_TEMP/fleet" > "$RUNNER_TEMP/fleet-duplication.md"
+          cat "$RUNNER_TEMP/fleet-duplication.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: fleet-duplication
+          path: ${{ runner.temp }}/fleet-duplication.md
+
+      - name: Update the standing carnet issue
+        uses: actions/github-script@v9
+        env:
+          REPORT_PATH: ${{ runner.temp }}/fleet-duplication.md
+        with:
+          github-token: ${{ secrets.DRAVR_CARNET_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            // An issue body holds 65,536 characters; the run summary keeps the rest.
+            const limit = 60000;
+            let report = fs.readFileSync(process.env.REPORT_PATH, 'utf8');
+            if (report.length > limit) {
+              report = report.slice(0, report.lastIndexOf('\n', limit)) +
+                `\n\n_Report cut at ${limit} characters; the full report is in the run summary._`;
+            }
+            const body = [
+              'Structural duplicates across the platform, every satellite and dravr-tronc, from `pierre-sechoir`.',
+              'Copies between repositories belong in a shared crate (tronc first); this issue is replaced by each weekly run.',
+              '',
+              report,
+              '',
+              `_[Monitor: Fleet Duplication](${runUrl})_`,
+            ].join('\n');
+            const { upsertStandingIssue } = require('./scripts/ci/standing-issue.cjs');
+            await upsertStandingIssue(github, core, {
+              owner: 'dravr-ai',
+              repo: 'dravr-carnet',
+              label: 'dravr-platform',
+              title: '[platform] Fleet duplication report',
+              body,
+              onExisting: 'update',
+            });
