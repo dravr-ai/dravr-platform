@@ -479,5 +479,11 @@ export function settingsPaneSections(id: SettingsPaneId): readonly SettingsSecti
 export const HELP_URL = 'https://dravr.ai/docs';
 export const LEGAL_URL = 'https://dravr.ai/privacy';
 
+/**
+ * The marketing site the brand lockups and the sign-in page's website link
+ * open. Same reasoning as the two above: one address, read by every placement.
+ */
+export const SITE_URL = 'https://dravr.ai';
+
 /** The release both clients report in their About pane. */
 export const APP_VERSION = '1.0.0';

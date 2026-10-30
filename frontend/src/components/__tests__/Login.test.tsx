@@ -116,6 +116,17 @@ describe('Login Component', () => {
     expect(screen.getByRole('button', { name: /create one/i })).toBeInTheDocument()
   })
 
+  it('links the lockups and the Website entry to the marketing site', async () => {
+    await renderLogin()
+
+    // Both lockups (desktop hero and narrow-viewport) and the bottom-right
+    // Website entry open dravr.ai; the wordmark names each lockup link.
+    expect(screen.getByTestId('login-lockup-link')).toHaveAttribute('href', 'https://dravr.ai')
+    expect(screen.getByTestId('login-lockup-link')).toHaveAccessibleName('DRAVR')
+    expect(screen.getByTestId('login-lockup-link-mobile')).toHaveAttribute('href', 'https://dravr.ai')
+    expect(screen.getByRole('link', { name: 'Website' })).toHaveAttribute('href', 'https://dravr.ai')
+  })
+
   it('opens the hosted sign-in when the button is pressed, and keeps the spinner up while leaving', async () => {
     const user = userEvent.setup()
     const { authApi } = await import('../../services/api')

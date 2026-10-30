@@ -13,7 +13,7 @@ import { useConversationScope, usePersonalConversation } from '../hooks/useConve
 import type { AdminToken } from '../types/api';
 import { clsx } from 'clsx';
 import { BottomTabBar, MobileDrawer, type MobileNavTab } from './layout/MobileNav';
-import { ACCOUNT_ROLE_LABEL_KEY, COMMAND_DRAFTS, PRODUCT_WORDMARK } from '@pierre/shared-constants';
+import { ACCOUNT_ROLE_LABEL_KEY, COMMAND_DRAFTS, PRODUCT_WORDMARK, SITE_URL } from '@pierre/shared-constants';
 import type { PendingComposerAction } from './chat/types';
 import type { PersonalToday } from './home/personalToday';
 // Explicit /index path avoids macOS case-insensitive collision between
@@ -787,14 +787,24 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           'flex h-[52px] items-center border-b ghost-border transition-all duration-300',
           sidebarCollapsed ? 'px-3 justify-center' : 'pl-4 pr-2 gap-2.5 justify-between'
         )}>
-          <div className="flex items-center gap-2.5">
+          {/* The lockup opens the marketing site in a new tab so the admin
+              keeps their place. Collapsed, the wordmark is gone, so the brand
+              name becomes the link's label instead. */}
+          <a
+            href={SITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={sidebarCollapsed ? PRODUCT_WORDMARK : undefined}
+            data-testid="sidebar-lockup-link"
+            className="flex items-center gap-2.5 rounded-lg focus-ring"
+          >
             <DravrLogo size={sidebarCollapsed ? 32 : 24} />
             {!sidebarCollapsed && (
               <span className="font-display text-base font-semibold tracking-brand text-primary">
                 {PRODUCT_WORDMARK}
               </span>
             )}
-          </div>
+          </a>
           {!sidebarCollapsed && collapseToggle}
         </div>
 

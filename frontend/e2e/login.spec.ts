@@ -50,6 +50,9 @@ test.describe('Login Page', () => {
 
     // DRAVR brand wordmark lives in the hero aside (desktop) and as a label on mobile
     await expect(page.getByText('DRAVR').first()).toBeVisible();
+    // The lockup and the Website entry beside the pillar strip open dravr.ai.
+    await expect(page.getByTestId('login-lockup-link')).toHaveAttribute('href', 'https://dravr.ai');
+    await expect(page.getByRole('link', { name: 'Website' })).toHaveAttribute('href', 'https://dravr.ai');
 
     // The aside is the hero line and the four pillars: no blurb under the
     // line, and no provider named anywhere in it (DESIGN.md, auth section).

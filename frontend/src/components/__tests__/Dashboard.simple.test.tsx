@@ -149,6 +149,27 @@ describe('Dashboard Component', () => {
     expect(screen.getByTitle('Sign out')).toBeInTheDocument();
   });
 
+  it('links the sidebar lockup to the marketing site, named by the wordmark in either state', async () => {
+    const user = userEvent.setup();
+    await act(async () => {
+      renderDashboard();
+    });
+
+    // Expanded, the visible wordmark names the link; collapsed, the wordmark
+    // is gone and the aria-label carries the same name, so the link never
+    // reads as an unlabelled image to a screen reader.
+    const lockup = screen.getByTestId('sidebar-lockup-link');
+    expect(lockup).toHaveAttribute('href', 'https://dravr.ai');
+    expect(lockup).toHaveAttribute('target', '_blank');
+    expect(lockup).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(lockup).toHaveAccessibleName('DRAVR');
+
+    await user.click(screen.getByTitle('Collapse sidebar'));
+
+    expect(screen.queryByText('DRAVR')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-lockup-link')).toHaveAccessibleName('DRAVR');
+  });
+
   it('should show pending users badge', async () => {
     await act(async () => {
       renderDashboard();

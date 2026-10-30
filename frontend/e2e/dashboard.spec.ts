@@ -171,6 +171,10 @@ test.describe('Dashboard Sidebar', () => {
 
     // The sidebar lockup sets the DRAVR wordmark (PRODUCT_WORDMARK), never a translated brand name
     await expect(page.getByText('DRAVR', { exact: true })).toBeVisible();
+    // The lockup opens the marketing site in a new tab, so the admin keeps their place.
+    const lockup = page.getByTestId('sidebar-lockup-link');
+    await expect(lockup).toHaveAttribute('href', 'https://dravr.ai');
+    await expect(lockup).toHaveAttribute('target', '_blank');
   });
 
   test('collapses and expands sidebar', async ({ page }) => {

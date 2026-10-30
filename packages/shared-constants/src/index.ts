@@ -108,6 +108,7 @@ export {
   settingsSectionScreen,
   HELP_URL,
   LEGAL_URL,
+  SITE_URL,
   APP_VERSION,
 } from './surfaces';
 export type { SettingsPane, SettingsPaneId, SettingsSectionId } from './surfaces';

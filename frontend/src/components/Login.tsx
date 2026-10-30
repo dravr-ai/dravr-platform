@@ -17,7 +17,7 @@ import { GoogleSignInButton } from './GoogleSignInButton';
 
 import { DravrLogo } from './DravrLogo';
 import { useTranslation } from '@pierre/i18n';
-import { PRODUCT_WORDMARK } from '@pierre/shared-constants';
+import { PRODUCT_WORDMARK, SITE_URL } from '@pierre/shared-constants';
 
 interface LoginProps {
   onNavigateToRegister?: () => void;
@@ -121,13 +121,19 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
         worth more than the eleven points of contrast it costs here.
       */}
       <aside className="hidden lg:flex lg:w-1/2 xl:w-3/5 flex-col justify-between border-r ghost-border bg-primary-container p-12 dark:bg-surface-container-low xl:p-16">
-        {/* Lockup */}
-        <div className="flex items-center gap-3">
+        {/* Lockup — a link to the marketing site. The visible wordmark names
+            it, so the decorative mark stays aria-hidden; per BRAND.md the
+            anchor adds no fill or hover tint, only the keyboard focus ring. */}
+        <a
+          href={SITE_URL}
+          data-testid="login-lockup-link"
+          className="flex w-fit items-center gap-3 rounded-lg focus-ring"
+        >
           <DravrLogo size={32} />
           <span className="font-display text-xl font-semibold tracking-brand text-primary">
             {PRODUCT_WORDMARK}
           </span>
-        </div>
+        </a>
 
         {/* The mark, large, and the one serif line in the product */}
         <div className="max-w-xl xl:max-w-2xl">
@@ -139,15 +145,24 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
           </h2>
         </div>
 
-        {/* The four pillars, in sentence case */}
-        <div className="flex items-center gap-3 text-sm text-on-primary-container/85 dark:text-on-surface-variant">
-          <span>{t('auth.activityLabel')}</span>
-          <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
-          <span>{t('chat.categoryNutrition')}</span>
-          <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
-          <span>{t('chat.categoryRecovery')}</span>
-          <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
-          <span>{t('chat.categoryMobility')}</span>
+        {/* The four pillars, in sentence case, and the way out to the site */}
+        <div className="flex items-center justify-between gap-6 text-sm text-on-primary-container/85 dark:text-on-surface-variant">
+          <div className="flex items-center gap-3">
+            <span>{t('auth.activityLabel')}</span>
+            <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
+            <span>{t('chat.categoryNutrition')}</span>
+            <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
+            <span>{t('chat.categoryRecovery')}</span>
+            <span aria-hidden className="text-on-primary-container/50 dark:text-outline">·</span>
+            <span>{t('chat.categoryMobility')}</span>
+          </div>
+          <a
+            href={SITE_URL}
+            data-testid="login-website-link"
+            className="shrink-0 rounded focus-ring underline-offset-4 hover:underline"
+          >
+            {t('auth.websiteLink')}
+          </a>
         </div>
       </aside>
 
@@ -181,12 +196,16 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
               mobile and centers both the mark and the heading; desktop
               (lg+) keeps the left-aligned form layout because the hero
               column owns the brand moment. */}
-          <div className="lg:hidden flex items-center justify-center gap-3">
+          <a
+            href={SITE_URL}
+            data-testid="login-lockup-link-mobile"
+            className="lg:hidden flex w-fit mx-auto items-center justify-center gap-3 rounded-lg focus-ring"
+          >
             <DravrLogo size={40} />
             <span className="font-display font-semibold text-lg tracking-brand text-primary">
               {PRODUCT_WORDMARK}
             </span>
-          </div>
+          </a>
 
           <div className="text-center lg:text-left">
             <h1 className="font-display font-semibold text-3xl text-on-surface">
