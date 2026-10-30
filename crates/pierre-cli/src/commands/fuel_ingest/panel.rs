@@ -396,9 +396,9 @@ pub(super) async fn gather(
     );
     if brand.panel.per_family() {
         note.push_str(
-            " This brand shows one panel for a whole product family, shared by every \
-             flavour: caffeine and flavour differences are not on it, so check them against \
-             the listing.",
+            " This brand's product page shows one panel per product whatever flavour is \
+             pictured: it may be headed with another flavour and never shows a caffeinated \
+             flavour's caffeine, so check flavour and caffeine against the listing.",
         );
     }
     Ok(Gathered { images, note })
