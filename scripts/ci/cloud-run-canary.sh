@@ -24,7 +24,7 @@
 # each next step the database must show RAMP_HEADROOM free slots on a Cloud
 # Monitoring point whose whole 60 s window opens RAMP_SETTLE_SECONDS or more
 # after the step: long enough for the old pods, which lost that share, to close
-# their idle connections (SQLX_IDLE_TIMEOUT_SECS, 60 s on dev), and late enough
+# their idle connections (SQLX_IDLE_TIMEOUT_SECS, 10 s on dev), and late enough
 # that the step's new pods have connected. That point is published a minute or
 # more after its window closes, so a step waits about 2 to 5 minutes. The wait
 # is wait-cloud-run-service-ready.sh's headroom mode.
