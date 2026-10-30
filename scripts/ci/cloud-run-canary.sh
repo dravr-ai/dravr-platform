@@ -23,8 +23,8 @@
 # Usage:
 #   cloud-run-canary.sh --service <name> --region <region> [--timeout-seconds <n>]
 #
-# The newest revision must already be Ready and carry no traffic (deploy-cloudrun
-# with no_traffic). Needs roles/run.admin and roles/logging.viewer. A workflow
+# The newest revision must carry no traffic (deploy-cloudrun with no_traffic);
+# the script waits up to --timeout-seconds for its own Ready condition. Needs roles/run.admin and roles/logging.viewer. A workflow
 # step runs it with `exec`: a cancel signals the step's own process only, so
 # without exec the signal never reaches this script and nothing sends back.
 #
@@ -53,7 +53,9 @@ usage() {
 SERVICE=""
 REGION=""
 # The pod's boot read queues up to POSTGRES_BOOT_WAIT_SECS (150 s on dev)
-# inside a 240 s startup probe; past that the pod is not coming.
+# inside a 240 s startup probe; past that the pod is not coming. The same bound
+# applies first to the revision's Ready wait, so a run lasts at most twice it
+# (wait-cloud-run-service-ready.sh's CANARY_MAX_AGE_SECONDS counts on that).
 TIMEOUT_SECONDS="300"
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || usage "option '$1' has no value"
@@ -70,7 +72,7 @@ done
 [[ "${REGION}" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || usage "--region '${REGION}' is not a Cloud Run region name"
 [[ "${TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || usage "--timeout-seconds '${TIMEOUT_SECONDS}' is not a positive integer"
 [[ "${POLL_SECONDS}" =~ ^[1-9][0-9]*$ ]] || usage "CLOUD_RUN_CANARY_POLL_SECONDS '${POLL_SECONDS}' is not a positive integer"
-for tool in gcloud jq date sleep mktemp tr cut; do
+for tool in gcloud jq date sleep mktemp tr cut head; do
   command -v "${tool}" >/dev/null 2>&1 || die "${tool} is not on PATH"
 done
 
@@ -83,14 +85,40 @@ PROJECT=$(gcloud config get-value project 2>"${WORK}/project.err") \
 gcloud run services describe "${SERVICE}" --region "${REGION}" --format=json >"${WORK}/svc.json" 2>"${WORK}/svc.err" \
   || die "gcloud run services describe ${SERVICE} failed: $(tr '\n' ' ' <"${WORK}/svc.err")"
 NEW=$(jq -r '.status.latestCreatedRevisionName // ""' "${WORK}/svc.json")
-READY=$(jq -r '.status.latestReadyRevisionName // ""' "${WORK}/svc.json")
 [ -n "${NEW}" ] || die "${SERVICE} has no latest created revision"
-[ "${NEW}" = "${READY}" ] || die "${SERVICE}'s newest revision ${NEW} is not Ready (latest ready: ${READY:-none}); nothing to send traffic to"
 SERVING=$(jq -r '[(.status.traffic // [])[] | select((.percent // 0) > 0) | "\(.revisionName)=\(.percent)"] | join(",")' "${WORK}/svc.json")
 case ",${SERVING}," in
   *",${NEW}="*) die "${NEW} already carries traffic (${SERVING}); this expects a no_traffic deploy" ;;
 esac
 echo "${SERVICE}: ${SERVING:-nothing} serving; canarying ${NEW}"
+
+# The revision's own Ready condition, never the service's
+# latestReadyRevisionName: a no_traffic revision is Ready ("Retired", no pod)
+# while the service still names the revision serving traffic as its latest
+# ready one, and stays so until traffic moves (2026-10-30 15:33: 01553 Ready,
+# the service's latest ready 01552 25 minutes later). The deploy can return
+# before the revision has settled, so wait for it.
+READY_DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
+while :; do
+  gcloud run revisions describe "${NEW}" --region "${REGION}" --format=json \
+    >"${WORK}/rev.json" 2>"${WORK}/rev.err" \
+    || die "gcloud run revisions describe ${NEW} failed: $(tr '\n' ' ' <"${WORK}/rev.err")"
+  [ -s "${WORK}/rev.json" ] || die "gcloud run revisions describe ${NEW} returned nothing"
+  ready_status=$(jq -r '[(.status.conditions // [])[] | select(.type == "Ready")][0].status // "none"' "${WORK}/rev.json" 2>/dev/null) \
+    || die "gcloud run revisions describe ${NEW} did not return a revision: $(head -c 300 "${WORK}/rev.json" | tr '\n' ' ')"
+  case "${ready_status}" in
+    True) break ;;
+    False) die "${NEW} is not Ready: $(jq -r '[(.status.conditions // [])[] | select(.type == "Ready")][0].message // "no message"' "${WORK}/rev.json"); nothing to send traffic to" ;;
+  esac
+  now=$(date +%s)
+  [ "${now}" -lt "${READY_DEADLINE}" ] \
+    || die "${NEW} did not become Ready within ${TIMEOUT_SECONDS}s (Ready=${ready_status:-none}); nothing to send traffic to"
+  echo "[$(date -u +%H:%M:%S)] ${NEW}: Ready=${ready_status:-none}, waiting"
+  remaining=$(( READY_DEADLINE - now ))
+  # In the background, so a cancel lands at once, as in the key-read wait.
+  sleep $(( remaining < POLL_SECONDS ? remaining : POLL_SECONDS )) &
+  wait "$!"
+done
 
 # From here until the 100% move, the new revision may hold the canary share;
 # any exit that is not that success sends it back.

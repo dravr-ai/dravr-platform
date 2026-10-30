@@ -20,7 +20,7 @@ cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/wait-cloud-run-service-ready.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=47
+EXPECTED_CASES=52
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -51,8 +51,16 @@ if [ "$1 $2 $3" = "config get-value project" ]; then
 fi
 if [ "$1 $2" = "auth print-access-token" ]; then echo "stub-token"; exit 0; fi
 if [ "$1 $2 $3" = "run revisions describe" ]; then
-  if [ -e "${STUB_DIR}/$4.created" ]; then printf '%s\n' "$(<"${STUB_DIR}/$4.created")"; exit 0; fi
-  echo "ERROR: (gcloud.run.revisions.describe) Cannot find revision [$4]" >&2; exit 1
+  # Created now unless <rev>.created names a time; Ready=True unless <rev>.ready
+  # says otherwise; <rev>.fail makes it fail as gcloud does.
+  if [ -e "${STUB_DIR}/$4.fail" ]; then
+    echo "ERROR: (gcloud.run.revisions.describe) Cannot find revision [$4]" >&2; exit 1
+  fi
+  created=$(date -u +%Y-%m-%dT%H:%M:%S.000000Z)
+  [ -e "${STUB_DIR}/$4.created" ] && created=$(<"${STUB_DIR}/$4.created")
+  ready="True"; [ -e "${STUB_DIR}/$4.ready" ] && ready=$(<"${STUB_DIR}/$4.ready")
+  printf '{"metadata":{"creationTimestamp":"%s"},"status":{"conditions":[{"type":"Ready","status":"%s"}]}}\n' "${created}" "${ready}"
+  exit 0
 fi
 if [ "$1 $2 $3" != "run services describe" ]; then
   echo "stub gcloud: unexpected call: $*" >&2; exit 2
@@ -225,7 +233,7 @@ case_quiesce_waits_for_a_rollout_then_passes() {
   for s in api frontend photograveur; do settled "${s}"; done
   rolling sciotte .1; settled sciotte .2
   quiesce --timeout-seconds 20
-  expect_code 0 && expect_out "rolling sciotte-00004 created, sciotte-00003 ready" \
+  expect_code 0 && expect_out "rolling sciotte-00004 created (Ready=True), sciotte-00003 ready" \
     && expect_out "Quiescent after waiting; re-checking in" && expect_out "Quiescent: no dev Cloud Run" \
     && expect_calls "${PREFIX}-sciotte" -eq 3
 }
@@ -312,6 +320,61 @@ case_quiesce_lets_a_leftover_canary_share_through_with_a_warning() {
   expect_code 0 && expect_out "::warning::${PREFIX}-api has traffic pinned off its latest revision and nothing in progress" \
     && expect_out "a canary share left on api-00003" \
     && expect_out "--to-revisions api-00003=0" && expect_out "Quiescent"
+}
+
+# A revision deployed without traffic whose canary failed or never ran: the
+# service keeps naming the old revision as its latest ready one, and nothing in
+# flight will change that. Waiting on it wedged every dev deploy on 2026-10-30
+# (carnet#1269), so it reads as SPLIT and the next roll goes through.
+case_quiesce_lets_a_leftover_no_traffic_revision_through_with_a_warning() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  svc_json "${STUB_DIR}/${PREFIX}-api.json" 3 3 api-00004 api-00003 True api-00003 100
+  echo "2026-01-01T00:00:00.5Z" > "${STUB_DIR}/api-00004.created"
+  quiesce --timeout-seconds 5
+  expect_code 0 && expect_out "::warning::${PREFIX}-api has traffic pinned off its latest revision and nothing in progress" \
+    && expect_out "api-00004 was deployed without traffic" \
+    && expect_out "cloud-run-canary.sh --service ${PREFIX}-api" && expect_out "Quiescent"
+}
+
+# The same revision minutes after its deploy is the canary's to move: a
+# rollout in flight, so the next roll waits.
+case_quiesce_waits_on_a_fresh_no_traffic_revision() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  svc_json "${STUB_DIR}/${PREFIX}-api.json" 3 3 api-00004 api-00003 True api-00003 100
+  quiesce --timeout-seconds 2
+  expect_code 1 && expect_out "rolling api-00004 created (Ready=True), api-00003 ready" && expect_no_out "Quiescent:"
+}
+
+# Old but not Ready on its own: not a leftover the canary could promote, so it
+# is never let through as SPLIT.
+case_quiesce_waits_on_an_old_no_traffic_revision_that_is_not_ready() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  svc_json "${STUB_DIR}/${PREFIX}-api.json" 3 3 api-00004 api-00003 True api-00003 100
+  echo "2026-01-01T00:00:00.5Z" > "${STUB_DIR}/api-00004.created"
+  echo Unknown > "${STUB_DIR}/api-00004.ready"
+  quiesce --timeout-seconds 2
+  expect_code 1 && expect_out "rolling api-00004 created (Ready=Unknown), api-00003 ready" \
+    && expect_no_out "::warning::" && expect_no_out "Quiescent:"
+}
+
+# A no-traffic revision that itself failed: nothing in flight will clear it,
+# so it reads as FAILED and the next roll goes through with a warning.
+case_quiesce_lets_a_failed_no_traffic_revision_through_with_a_warning() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  svc_json "${STUB_DIR}/${PREFIX}-api.json" 3 3 api-00004 api-00003 True api-00003 100
+  echo False > "${STUB_DIR}/api-00004.ready"
+  quiesce --timeout-seconds 5
+  expect_code 0 && expect_out "::warning::${PREFIX}-api has a failed rollout and nothing in progress" \
+    && expect_out "api-00004: the revision is not Ready, and api-00003 keeps the traffic" && expect_out "Quiescent"
+}
+
+case_quiesce_fails_when_the_revision_cannot_be_read() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  svc_json "${STUB_DIR}/${PREFIX}-api.json" 3 3 api-00004 api-00003 True api-00003 100
+  : > "${STUB_DIR}/api-00004.fail"
+  quiesce --timeout-seconds 20
+  expect_code 1 && expect_out "gcloud run revisions describe api-00004 --region=${REGION} failed" \
+    && expect_out "Cannot find revision [api-00004]" && expect_calls "${PREFIX}-api" -eq 1
 }
 
 case_quiesce_lets_a_failed_rollout_through_with_a_warning() {
@@ -598,6 +661,11 @@ CASES=(
   case_quiesce_lets_split_traffic_through_with_a_warning
   case_quiesce_waits_while_the_api_canary_holds_a_share
   case_quiesce_lets_a_leftover_canary_share_through_with_a_warning
+  case_quiesce_lets_a_leftover_no_traffic_revision_through_with_a_warning
+  case_quiesce_waits_on_a_fresh_no_traffic_revision
+  case_quiesce_waits_on_an_old_no_traffic_revision_that_is_not_ready
+  case_quiesce_lets_a_failed_no_traffic_revision_through_with_a_warning
+  case_quiesce_fails_when_the_revision_cannot_be_read
   case_quiesce_lets_a_failed_rollout_through_with_a_warning
   case_quiesce_fails_on_a_missing_service
   case_quiesce_fails_on_an_empty_answer

@@ -18,7 +18,7 @@ cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/cloud-run-canary.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=10
+EXPECTED_CASES=13
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -30,6 +30,10 @@ NEW="${SERVICE}-00002-new"
 
 # ---------------------------------------------------------------------------
 # Stub gcloud. `run services describe` prints ${STUB_DIR}/service.json.
+# `run revisions describe` prints a revision whose Ready status is the Nth line
+# of ${STUB_DIR}/ready on its Nth call (the last line repeats; True without the
+# file), with the message in ${STUB_DIR}/ready.message; a revision.fail file
+# makes it fail.
 # `logging read` prints the Nth line of ${STUB_DIR}/logs on its Nth call
 # (nothing past the end, or without the file); a logging.fail file makes it
 # fail. `run services update-traffic` succeeds unless update-traffic.fail
@@ -44,6 +48,18 @@ echo "$*" >> "${STUB_DIR}/calls.log"
 case "$1 $2 $3" in
   "config get-value project") echo "dravr-dev"; exit 0 ;;
   "run services describe") cat "${STUB_DIR}/service.json"; exit 0 ;;
+  "run revisions describe")
+    [ -e "${STUB_DIR}/revision.fail" ] && { echo "ERROR: (gcloud.run.revisions.describe) Cannot find revision [$4]" >&2; exit 1; }
+    status="True"
+    if [ -e "${STUB_DIR}/ready" ]; then
+      n=0; [ -e "${STUB_DIR}/ready.count" ] && n=$(<"${STUB_DIR}/ready.count")
+      n=$(( n + 1 )); echo "${n}" > "${STUB_DIR}/ready.count"
+      lines=$(wc -l < "${STUB_DIR}/ready")
+      status=$(sed -n "$(( n < lines ? n : lines ))p" "${STUB_DIR}/ready")
+    fi
+    message=""; [ -e "${STUB_DIR}/ready.message" ] && message=$(<"${STUB_DIR}/ready.message")
+    jq -n --arg s "${status}" --arg m "${message}" '{status: {conditions: [{type: "Ready", status: $s, message: $m}]}}'
+    exit 0 ;;
   "run services update-traffic")
     [ -e "${STUB_DIR}/update-traffic.fail" ] && { echo "ERROR: stub refused" >&2; exit 1; }
     exit 0 ;;
@@ -60,7 +76,9 @@ SH
 chmod +x "${BIN}/gcloud"
 
 # A service whose newest revision is ${created}, ${ready} the latest ready one,
-# and ${traffic} its serving split as "rev=percent,…".
+# and ${traffic} its serving split as "rev=percent,…". After a no_traffic deploy
+# the service still names the revision serving traffic as its latest ready one
+# (2026-10-30 15:33), so the cases below pass ${OLD} there.
 service_json() {
   local created="$1" ready="$2" traffic="$3"
   jq -n --arg c "${created}" --arg r "${ready}" --arg t "${traffic}" '{
@@ -138,52 +156,71 @@ new_case() {
 echo "cloud-run-canary"
 
 new_case promote
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 printf '\n2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
 run_case "a blank answer is not yet; one pod reads its key, then the new revision takes 100%" 0 "one pod read its key at 2026-10-30T13:50:08Z" \
   "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-latest"
 
 new_case timeout
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 TIMEOUT=2 run_case "no pod reads its key in time: the 1% goes back" 1 "its pod never reached the database" \
   "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
 
 new_case no-log-access
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 : > "${STUB_DIR}/logging.fail"
 run_case "the logs cannot be read: the 1% goes back" 1 "roles/logging.viewer" \
   "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
 
 new_case not-a-timestamp
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 printf 'WARNING: something else\n' > "${STUB_DIR}/logs"
 run_case "an answer that is not a log timestamp fails: the 1% goes back" 1 "is not a log timestamp" \
   "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
 
 new_case cancel-int
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 run_signal_case "a cancel's SIGINT mid-wait sends the 1% back at once" INT 130
 
 new_case cancel-term
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 run_signal_case "a SIGTERM mid-wait sends the 1% back at once" TERM 143
 
 new_case canary-refused
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 : > "${STUB_DIR}/update-traffic.fail"
 run_case "the 1% move is refused: it still tries to send it back" 1 "could not move 1% of ${SERVICE}'s traffic" \
   "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
 
+new_case becomes-ready
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+printf 'Unknown\nUnknown\nTrue\n' > "${STUB_DIR}/ready"
+printf '2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
+run_case "the deploy returns before the revision is Ready: wait for it, then canary" 0 "${NEW}: Ready=Unknown, waiting" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-latest"
+
 new_case not-ready
 service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
-run_case "the newest revision is not Ready: no traffic moves" 1 "is not Ready" ""
+echo False > "${STUB_DIR}/ready"
+echo "Container failed to start" > "${STUB_DIR}/ready.message"
+run_case "the newest revision failed: no traffic moves" 1 "is not Ready: Container failed to start" ""
+
+new_case never-ready
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+echo Unknown > "${STUB_DIR}/ready"
+TIMEOUT=2 run_case "the newest revision never settles: no traffic moves" 1 "did not become Ready within 2s" ""
+
+new_case revision-unreadable
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+: > "${STUB_DIR}/revision.fail"
+run_case "the newest revision cannot be read: no traffic moves" 1 "gcloud run revisions describe ${NEW} failed: ERROR: (gcloud.run.revisions.describe) Cannot find revision" ""
 
 new_case already-serving
 service_json "${NEW}" "${NEW}" "${NEW}=100" > "${STUB_DIR}/service.json"
 run_case "the newest revision already serves: no traffic moves" 1 "already carries traffic" ""
 
 new_case bad-region
-service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 CASES_RUN=$(( CASES_RUN + 1 ))
 got_exit=0
 PATH="${BIN}:${PATH}" STUB_DIR="${STUB_DIR}" "${SCRIPT}" --service "${SERVICE}" --region "nowhere" >"${STUB_DIR}/out" 2>&1 || got_exit=$?
