@@ -58,18 +58,16 @@ module "fuel_ingest" {
   args    = ["fuel-ingest"]
 
   env_vars = merge(local.seed_env_vars, {
-    # The backend's chain, verbatim (main.tf, the backend's PIERRE_LLM_CHAIN
-    # and its rationale): JF's call is that the job reads labels through the
-    # normal chain, not a separate vision-only one. The command discards an
-    # answer from a tier that does not advertise vision, so a tier that drops
-    # the images can never file invented values. Change both together.
-    PIERRE_LLM_CHAIN         = "anthropic=claude-opus-5-5,anthropic#2=claude-haiku-5-5,anthropic#3=claude-haiku-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
-    PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
-    # No PIERRE_LLM_MODEL_FUEL_PANEL_EXTRACTION: labels are read by the head's
-    # own model (Opus). Haiku put numbers on panels it called illegible in the
-    # 2026-10-29 Näak dry run; with ~150 SKUs each read once, accuracy is worth
-    # the credit. The model is part of the read hash, so changing it here
+    # The backend's chain (local.backend_llm_chain in main.tf, with its
+    # rationale): JF's call is that the job reads labels through the normal
+    # chain, not a separate vision-only one. The command discards an answer
+    # from a tier that does not advertise vision, so a tier that drops the
+    # images can never file invented values. No
+    # PIERRE_LLM_MODEL_FUEL_PANEL_EXTRACTION, so labels are read by the head's
+    # own model; that model is part of the read hash, so moving the head
     # re-reads every label once.
+    PIERRE_LLM_CHAIN         = local.backend_llm_chain
+    PIERRE_LLM_DEFAULT_MODEL = local.backend_llm_default_model
     # The job never offers the Copilot runtime a tool or a file write.
     COPILOT_SDK_PERMISSION_POLICY = "deny_all"
   })

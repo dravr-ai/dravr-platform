@@ -126,6 +126,16 @@ fn test_llm_provider_type_display() {
     assert_eq!(format!("{}", LlmProviderType::Gemini), "gemini");
 }
 
+/// The right-hand side of the first `name = …` assignment in a Terraform
+/// file, trimmed. Terraform aligns the `=` of neighbouring assignments, so the
+/// gap between the name and the value is any run of spaces.
+fn terraform_assignment<'tf>(terraform: &'tf str, name: &str) -> Option<&'tf str> {
+    terraform.lines().find_map(|line| {
+        let rest = line.trim_start().strip_prefix(name)?.trim_start();
+        Some(rest.strip_prefix('=')?.trim())
+    })
+}
+
 /// The variable the server reads is the one the deployment sets, and the
 /// value it sets parses as a chain with no entry dropped.
 ///
@@ -133,27 +143,36 @@ fn test_llm_provider_type_display() {
 /// environment, which Terraform writes, and nothing in a test process joins
 /// them. A rename on either side alone leaves production on the default
 /// provider without an error anywhere; a typo in one entry drops that tier
-/// with only a boot warning.
+/// with only a boot warning. The backend's env names a shared local (the
+/// fuel-ingest job reads the same chain), so a `local.<name>` value is
+/// followed to the literal its definition holds.
 #[test]
 fn test_llm_chain_env_var_is_the_one_the_deployment_sets() {
     let deployment = include_str!("../../../../infra/environments/dev/main.tf");
-    // Terraform aligns the `=` of neighbouring assignments, so the gap
-    // between the name and the value is any run of spaces.
-    let value = deployment
-        .lines()
-        .find_map(|line| {
-            line.trim_start()
-                .strip_prefix(LlmChain::ENV_VAR)?
-                .trim_start()
-                .strip_prefix('=')?
-                .trim_start()
-                .strip_prefix('"')
-        })
+    let assigned = terraform_assignment(deployment, LlmChain::ENV_VAR).unwrap_or_else(|| {
+        panic!(
+            "infra/environments/dev/main.tf no longer sets {}, the variable the \
+             server builds its LLM chain from",
+            LlmChain::ENV_VAR
+        )
+    });
+    let literal = match assigned.strip_prefix("local.") {
+        Some(local) => terraform_assignment(deployment, local).unwrap_or_else(|| {
+            panic!(
+                "{} = {assigned} in infra/environments/dev/main.tf, but main.tf \
+                 defines no local {local:?}: the chain must be named in that file",
+                LlmChain::ENV_VAR
+            )
+        }),
+        None => assigned,
+    };
+    let value = literal
+        .strip_prefix('"')
         .and_then(|rest| rest.split('"').next())
         .unwrap_or_else(|| {
             panic!(
-                "infra/environments/dev/main.tf no longer sets {}, the variable the \
-                 server builds its LLM chain from",
+                "the deployed {} is not a string literal in \
+                 infra/environments/dev/main.tf: {literal:?}",
                 LlmChain::ENV_VAR
             )
         });

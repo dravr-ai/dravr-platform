@@ -14,7 +14,7 @@
 #
 # WHOSE MODEL ANSWERS
 #
-# Dev's chain, PIERRE_LLM_CHAIN read from infra/environments/dev/main.tf so the lane
+# Dev's chain, PIERRE_LLM_CHAIN (local.backend_llm_chain) read from infra/environments/dev/main.tf so the lane
 # follows it: anthropic serving the coaching model on the Messages API and its second
 # and third organizations (anthropic#2, anthropic#3), then copilot_sdk on its own model, then claude_code and
 # its second account (claude-code#2), then gemini. Every tier runs on the live dev
@@ -201,13 +201,21 @@ jobs:
         run: |
           set -euo pipefail
           TF=infra/environments/dev/main.tf
-          tf_value() {
+          tf_rhs() {
             # -m1 rather than a `head` pipe, because pipefail reads a closed
             # pipe as a failed step; `|| true` because a no-match grep exits 1
             # and `set -e` would end the step before the message that names
             # which variable went missing.
             grep -m1 -E "^[[:space:]]*$1[[:space:]]*=" "$TF" \
-              | sed -E 's/.*"([^"]+)".*/\1/' || true
+              | sed -E 's/^[^=]*=[[:space:]]*//' || true
+          }
+          tf_value() {
+            # The backend's env names a shared local (`= local.<name>`, the
+            # fuel-ingest job reads the same one); its definition holds the
+            # literal.
+            RHS=$(tf_rhs "$1")
+            case "${RHS}" in local.*) RHS=$(tf_rhs "${RHS#local.}") ;; esac
+            printf '%s\n' "${RHS}" | sed -nE 's/^"([^"]+)".*/\1/p'
           }
           CHAIN=$(tf_value PIERRE_LLM_CHAIN)
           if [ -z "${CHAIN}" ]; then

@@ -266,6 +266,74 @@ resource "terraform_data" "frontend_origins_accepted" {
   }
 }
 
+locals {
+  # LLM provider chain (JF, 2026-10-01; Anthropic head 2026-10-19,
+  # carnet#875; Opus head 2026-10-20, carnet#1108; Sonnet 5.5 on every
+  # Anthropic account 2026-10-29, JF): one ordered list,
+  # PIERRE_LLM_CHAIN, each entry `provider=model`
+  # (crates/pierre-llm/src/config.rs, LlmChain). The first entry serves
+  # every turn; a provider fault or an empty answer moves the turn to the
+  # next one, each tier on its own model. A pooled provider's further
+  # accounts sit right behind it wherever it is: anthropic is followed by
+  # anthropic#2 (ANTHROPIC_API_KEY_2) and anthropic#3
+  # (ANTHROPIC_API_KEY_3), and claude_code by claude-code#2
+  # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a spent account moves
+  # the turn to the next account before the chain leaves that provider
+  # (carnet#480, carnet#688). An account runs its provider's model unless
+  # a `provider#N=model` entry names its own; that entry sets the model
+  # only, never the position. Cohere is out.
+  #
+  # 1. anthropic = the Anthropic Messages API, over a pool of
+  #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
+  #    ANTHROPIC_API_KEY_3), each with its own prepaid credit under a
+  #    $199/month Console spend limit. All three serve the reply on
+  #    claude-sonnet-5-5 (JF, 2026-10-29), so a spent account hands the
+  #    turn to the same model rather than a smaller one. Sonnet is sent
+  #    every tool outside the loaded core deferred (chat_catalogue.rs,
+  #    defers_on): on the live incident corpus it gave 3 findings
+  #    deferred against 6 with every tool loaded. A spent credit
+  #    answers HTTP 402, which embacle maps to RateLimit, so it falls
+  #    through like a quota: to anthropic#2, then anthropic#3, then
+  #    copilot_sdk. Any quota answer fires
+  #    dravr-llm-tier-rate-limited and more than three skips in five
+  #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
+  #    Tool-loop iterations run on the turn's own model
+  #    (PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit" below).
+  # 2. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
+  #    jfarcand Copilot account, serving claude-sonnet-5.5. Its monthly
+  #    credits reset on the 1st and have no overage (carnet#478). A whole
+  #    turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn
+  #    that ends on "copilot-sdk: turn exceeded 300s" is the signal that
+  #    the model is too slow for that cap.
+  # 3. claude_code = the direct Anthropic subscription — the one switched
+  #    off on 2026-05-13 for burning Opus credits during Copilot blips with
+  #    no spend cap — so it runs Sonnet, then its pooled second account.
+  #    `sonnet` is the alias the claude CLI publishes (it lists only
+  #    sonnet, opus, haiku), so the boot model check accepts it; the CLI
+  #    resolves it to its current Sonnet.
+  #    Binding ANTHROPIC_API_KEY does not move it off its subscription:
+  #    since embacle 0.35.0 the claude_code runner withholds the API key
+  #    from every `claude` child that holds an OAuth token (claude_code.rs,
+  #    withholds_api_key).
+  # 4. gemini = the Google free tier via GEMINI_API_KEY.
+  #
+  # The head's model is also the model every turn asks for and the one a
+  # new conversation records (carnet#824).
+  #
+  # The live incident eval lane reads this value and refuses to run when
+  # its provider list differs from LANE_LLM_PROVIDERS
+  # (.github/workflows/live-incident-eval.yml): change both together. The
+  # fuel-ingest job reads labels through this same chain (fuel_ingest.tf, JF:
+  # labels go through the normal chain), so it is named once, here.
+  #
+  # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
+  # reads it is the Gemini provider built with no model of its own — a
+  # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
+  # model (crates/pierre-llm/src/http_env.rs).
+  backend_llm_chain         = "anthropic=claude-sonnet-5-5,anthropic#2=claude-sonnet-5-5,anthropic#3=claude-sonnet-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
+  backend_llm_default_model = "gemini-flash-lite-latest"
+}
+
 module "backend" {
   source = "../../modules/cloud_run"
 
@@ -395,69 +463,10 @@ module "backend" {
       AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
-      # LLM provider chain (JF, 2026-10-01; Anthropic head 2026-10-19,
-      # carnet#875; Opus head 2026-10-20, carnet#1108; Sonnet 5.5 on every
-      # Anthropic account 2026-10-29, JF): one ordered list,
-      # PIERRE_LLM_CHAIN, each entry `provider=model`
-      # (crates/pierre-llm/src/config.rs, LlmChain). The first entry serves
-      # every turn; a provider fault or an empty answer moves the turn to the
-      # next one, each tier on its own model. A pooled provider's further
-      # accounts sit right behind it wherever it is: anthropic is followed by
-      # anthropic#2 (ANTHROPIC_API_KEY_2) and anthropic#3
-      # (ANTHROPIC_API_KEY_3), and claude_code by claude-code#2
-      # (CLAUDE_CODE_OAUTH_TOKEN_2), both bound below — a spent account moves
-      # the turn to the next account before the chain leaves that provider
-      # (carnet#480, carnet#688). An account runs its provider's model unless
-      # a `provider#N=model` entry names its own; that entry sets the model
-      # only, never the position. Cohere is out.
-      #
-      # 1. anthropic = the Anthropic Messages API, over a pool of
-      #    organizations (ANTHROPIC_API_KEY, ANTHROPIC_API_KEY_2,
-      #    ANTHROPIC_API_KEY_3), each with its own prepaid credit under a
-      #    $199/month Console spend limit. All three serve the reply on
-      #    claude-sonnet-5-5 (JF, 2026-10-29), so a spent account hands the
-      #    turn to the same model rather than a smaller one. Sonnet is sent
-      #    every tool outside the loaded core deferred (chat_catalogue.rs,
-      #    defers_on): on the live incident corpus it gave 3 findings
-      #    deferred against 6 with every tool loaded. A spent credit
-      #    answers HTTP 402, which embacle maps to RateLimit, so it falls
-      #    through like a quota: to anthropic#2, then anthropic#3, then
-      #    copilot_sdk. Any quota answer fires
-      #    dravr-llm-tier-rate-limited and more than three skips in five
-      #    minutes fire dravr-llm-chain-fallthrough (llm_chain_monitoring.tf).
-      #    Tool-loop iterations run on the turn's own model
-      #    (PIERRE_LLM_MODEL_TOOL_ITERATION = "inherit" below).
-      # 2. copilot_sdk = GitHub's Rust Copilot runtime over stdio, on the
-      #    jfarcand Copilot account, serving claude-sonnet-5.5. Its monthly
-      #    credits reset on the 1st and have no overage (carnet#478). A whole
-      #    turn is capped by EMBACLE_SDK_PROMPT_TIMEOUT_SECS below — a turn
-      #    that ends on "copilot-sdk: turn exceeded 300s" is the signal that
-      #    the model is too slow for that cap.
-      # 3. claude_code = the direct Anthropic subscription — the one switched
-      #    off on 2026-05-13 for burning Opus credits during Copilot blips with
-      #    no spend cap — so it runs Sonnet, then its pooled second account.
-      #    `sonnet` is the alias the claude CLI publishes (it lists only
-      #    sonnet, opus, haiku), so the boot model check accepts it; the CLI
-      #    resolves it to its current Sonnet.
-      #    Binding ANTHROPIC_API_KEY does not move it off its subscription:
-      #    since embacle 0.35.0 the claude_code runner withholds the API key
-      #    from every `claude` child that holds an OAuth token (claude_code.rs,
-      #    withholds_api_key).
-      # 4. gemini = the Google free tier via GEMINI_API_KEY.
-      #
-      # The head's model is also the model every turn asks for and the one a
-      # new conversation records (carnet#824).
-      #
-      # The live incident eval lane reads this value and refuses to run when
-      # its provider list differs from LANE_LLM_PROVIDERS
-      # (.github/workflows/live-incident-eval.yml): change both together.
-      #
-      # PIERRE_LLM_DEFAULT_MODEL is a Gemini model name: the only code that
-      # reads it is the Gemini provider built with no model of its own — a
-      # `gemini` entry without `=model`, or a BYO-Gemini tenant that stored no
-      # model (crates/pierre-llm/src/http_env.rs).
-      PIERRE_LLM_CHAIN         = "anthropic=claude-sonnet-5-5,anthropic#2=claude-sonnet-5-5,anthropic#3=claude-sonnet-5-5,copilot_sdk=claude-sonnet-5.5,claude_code=sonnet,gemini=gemini-flash-lite-latest"
-      PIERRE_LLM_DEFAULT_MODEL = "gemini-flash-lite-latest"
+      # LLM provider chain and its fallback model: local.backend_llm_chain
+      # above carries the order, the models and why.
+      PIERRE_LLM_CHAIN         = local.backend_llm_chain
+      PIERRE_LLM_DEFAULT_MODEL = local.backend_llm_default_model
 
       # Every tool-loop iteration runs on the turn's own model (Sonnet), not on
       # the Haiku default the code picks for an `anthropic` head. Measured on
