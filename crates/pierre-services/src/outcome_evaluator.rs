@@ -34,7 +34,7 @@ use std::time::Duration;
 use crate::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
-use crate::stored_health;
+use crate::stored_health::{self, SourceFilter};
 use crate::training_history_read::{history_rows_for_model, HistorySources};
 use chrono::Utc;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
@@ -42,8 +42,7 @@ use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::{
-    merge_recovery_metrics, Activity, ConversationTurnId, SportType, StoredRecoveryMetrics,
-    TenantId,
+    Activity, ConversationTurnId, Merged, SportType, StoredRecoveryMetrics, TenantId,
 };
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::RecordedOutcome;
@@ -269,18 +268,19 @@ impl EvalCtx<'_> {
         }
     }
 
-    /// The athlete's stored recovery readings over the window, each governed
-    /// by its data source's provider terms, not yet merged. `None` when the
-    /// readings or the athlete's data sources cannot be read: a reading whose
-    /// provider cannot be named never reaches the judge.
-    async fn window_recovery(&self) -> Option<Vec<StoredRecoveryMetrics>> {
-        stored_health::recovery_metrics(
+    /// The athlete's recovery days over the window, each row governed by its
+    /// data source's provider terms and then merged into one record per
+    /// date, ordered by date. `None` when the readings or the athlete's data
+    /// sources cannot be read: a reading whose provider cannot be named never
+    /// reaches the judge.
+    async fn window_recovery(&self) -> Option<Vec<Merged<StoredRecoveryMetrics>>> {
+        stored_health::merged_recovery(
             self.repos(),
             self.inputs.terms,
             self.user_id,
             &self.tenant_id,
-            self.start(),
-            self.end(),
+            (self.start(), self.end()),
+            SourceFilter::All,
         )
         .await
         .inspect_err(|e| warn!(error = %e, "recovery read failed; will retry"))
@@ -362,18 +362,16 @@ async fn eval_activity_completed(ctx: &EvalCtx<'_>, sport: Option<&str>) -> Advi
 
 /// Recovery: did HRV improve over the window?
 async fn eval_hrv(ctx: &EvalCtx<'_>) -> AdviceResolution {
-    let Some(rows) = ctx.window_recovery().await else {
+    // One record per date across the athlete's sources, ordered by date, so
+    // a day two providers both reported counts once.
+    let Some(recs) = ctx.window_recovery().await else {
         return AdviceResolution::Retry;
     };
-    // One row per date across the athlete's sources, ordered by date, so a
-    // day two providers both reported counts once. Filtered first: a merge
-    // folds one source's HRV into another's row, past any later filter.
-    let recs = merge_recovery_metrics(rows);
     // HRV is captured sporadically, so the earliest/latest record in the window
     // may carry no HRV. Take the first and last records that actually have a
     // value so a boundary `None` cannot discard a computable mid-window delta.
-    let before = recs.iter().find_map(|m| m.record.hrv_ms);
-    let after = recs.iter().rev().find_map(|m| m.record.hrv_ms);
+    let before = recs.iter().find_map(|m| m.record.daily_hrv());
+    let after = recs.iter().rev().find_map(|m| m.record.daily_hrv());
     let verdict = delta_label(before, after, true, HRV_DEAD_BAND_MS);
     self_or_judge(ctx, verdict, "HRV (ms)", before, after).await
 }

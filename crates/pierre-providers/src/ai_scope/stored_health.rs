@@ -18,6 +18,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::{
     DataSource, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
 };
+use pierre_database::repositories::WellnessRowOrigin;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -65,6 +66,16 @@ impl StoredHealthRecord for StoredHealthMetrics {
     }
 }
 
+impl StoredHealthRecord for WellnessRowOrigin {
+    fn data_source_id(&self) -> &str {
+        &self.data_source_id
+    }
+
+    fn source_name(&self) -> &str {
+        &self.provider
+    }
+}
+
 /// The string fields every stored health record needs to deserialize, filled
 /// with a neutral placeholder when a rule removed them.
 const HEALTH_RECORD_REQUIRED: &[&str] = &["id", "user_id", "data_source_id", "source_name"];
@@ -108,8 +119,9 @@ mod tests {
     #[cfg(feature = "provider-whoop")]
     use crate::registry::ProviderRegistry;
     use chrono::{Duration, NaiveDate, TimeZone, Utc};
+    use dravr_equilibre::{merge_recovery_metrics, merge_sleep_sessions};
     use pierre_core::ai_policy::SourcePolicy;
-    use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, DeviceType};
+    use pierre_core::models::DeviceType;
     use pierre_core::transport::{Transport, TransportPolicy};
     use std::collections::BTreeSet;
 

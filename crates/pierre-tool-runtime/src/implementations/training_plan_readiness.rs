@@ -27,7 +27,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::periodization::alerts::BASELINE_DAYS;
 use pierre_core::models::periodization::{
@@ -35,7 +35,7 @@ use pierre_core::models::periodization::{
     Flavour, LoadDay, PhaseKind, ReadinessInput, ReadinessLevel, RecoveryDay, StrainDay,
     SubstitutionReason, TrainingAlert, WorkoutFilter, WorkoutPurpose, WorkoutTemplate,
 };
-use pierre_core::models::{merge_recovery_metrics, merge_sleep_sessions, SportType, TenantId};
+use pierre_core::models::{Merged, SportType, StoredSleepSession, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, TrainingPlan};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
@@ -47,7 +47,8 @@ use crate::implementations::training_plans_output::{
 };
 use crate::runtime::ToolRuntime;
 use crate::training_history_compute::history_rows_for_model;
-use pierre_services::stored_health;
+use pierre_services::athlete_clock::athlete_zone;
+use pierre_services::stored_health::{self, SourceFilter};
 
 /// Seconds in an hour, for the nightly sleep total.
 const SECONDS_PER_HOUR: f64 = 3600.0;
@@ -423,26 +424,33 @@ async fn recovery_series(
         return Vec::new();
     };
     let sleep = sleep_by_night(repos, terms, tenant, user_id, start, end).await;
-    let metrics = stored_health::recovery_metrics(repos, terms, user_id, &tenant, start, end)
-        .await
-        .map_or_else(
-            |e| {
-                warn!(error = %e, "week readiness: recovery metrics unreadable");
-                Vec::new()
-            },
-            |read| read.records,
-        );
+    let metrics = stored_health::merged_recovery(
+        repos,
+        terms,
+        user_id,
+        &tenant,
+        (start, end),
+        SourceFilter::All,
+    )
+    .await
+    .map_or_else(
+        |e| {
+            warn!(error = %e, "week readiness: recovery metrics unreadable");
+            Vec::new()
+        },
+        |read| read.records,
+    );
     // One day per date: two providers reporting the same morning are one
-    // reading, not two days of evidence.
+    // reading, not two days of evidence (merged by the read).
     let mut days: BTreeMap<NaiveDate, RecoveryDay> = BTreeMap::new();
-    for merged in merge_recovery_metrics(metrics) {
+    for merged in metrics {
         let m = merged.record;
         if let Some(days_ago) = days_ago(today, m.date) {
             days.insert(
                 m.date,
                 RecoveryDay {
                     days_ago,
-                    hrv_rmssd: m.hrv_rmssd,
+                    hrv_rmssd: m.daily_hrv(),
                     resting_heart_rate: m.resting_heart_rate.map(f64::from),
                     sleep_hours: None,
                 },
@@ -478,19 +486,36 @@ async fn sleep_by_night(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) -> HashMap<NaiveDate, f64> {
-    let sessions = stored_health::sleep_sessions(repos, terms, user_id, &tenant, start, end)
-        .await
-        .map_or_else(
-            |e| {
-                warn!(error = %e, "week readiness: sleep sessions unreadable");
-                Vec::new()
-            },
-            |read| read.records,
-        );
-    // Merged first, so one night two wearables both recorded counts once
-    // instead of being summed into a double night.
+    let sessions = stored_health::merged_sleep(
+        repos,
+        terms,
+        user_id,
+        &tenant,
+        (start, end),
+        SourceFilter::All,
+    )
+    .await
+    .map_or_else(
+        |e| {
+            warn!(error = %e, "week readiness: sleep sessions unreadable");
+            Vec::new()
+        },
+        |read| read.records,
+    );
+    hours_by_night(sessions, &athlete_zone(repos, user_id).await)
+}
+
+/// Hours slept per night from merged sessions, each dated by the morning it
+/// ended on in the athlete's `zone`; naps left out.
+///
+/// Merged by the read, so one night two wearables both recorded counts once
+/// instead of being summed into a double night.
+fn hours_by_night<Z: TimeZone>(
+    sessions: Vec<Merged<StoredSleepSession>>,
+    zone: &Z,
+) -> HashMap<NaiveDate, f64> {
     let mut by_night: HashMap<NaiveDate, f64> = HashMap::new();
-    for merged in merge_sleep_sessions(sessions) {
+    for merged in sessions {
         let session = merged.record;
         if session.is_nap {
             continue;
@@ -498,9 +523,10 @@ async fn sleep_by_night(
         let Some(seconds) = session.total_sleep_seconds else {
             continue;
         };
-        // A night is dated by when the athlete woke, so a sleep starting
-        // before midnight belongs to the morning it ended on.
-        let night = session.end_datetime.date_naive();
+        // A night is dated by when the athlete woke, on their own clock, so
+        // a sleep starting before midnight belongs to the morning it ended
+        // on, whatever the athlete's distance from UTC.
+        let night = session.night_date(zone);
         *by_night.entry(night).or_insert(0.0) += f64::from(seconds) / SECONDS_PER_HOUR;
     }
     by_night
@@ -544,4 +570,61 @@ fn report(week: &WeekReadiness, raised: &BTreeSet<TrainingAlert>) {
 /// changed, so a week that ended before today is skipped.
 pub(super) fn week_is_actionable(week: &PlanWeek, today: NaiveDate) -> bool {
     parse_plan_date(&week.week_start).is_some_and(|start| start + Duration::days(6) >= today)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::FixedOffset;
+
+    fn merged_night(start: DateTime<Utc>, hours: u32) -> Merged<StoredSleepSession> {
+        Merged {
+            record: StoredSleepSession {
+                id: "night".to_owned(),
+                user_id: "athlete".to_owned(),
+                data_source_id: "ds".to_owned(),
+                is_nap: false,
+                start_datetime: start,
+                end_datetime: start + Duration::hours(i64::from(hours)),
+                total_sleep_seconds: Some(hours * 3600),
+                deep_sleep_seconds: None,
+                light_sleep_seconds: None,
+                rem_sleep_seconds: None,
+                awake_seconds: None,
+                sleep_efficiency: None,
+                avg_heart_rate: None,
+                min_heart_rate: None,
+                avg_hrv: None,
+                sleep_score: None,
+                stages: Vec::new(),
+                source_name: "garmin".to_owned(),
+            },
+            sources: vec!["garmin".to_owned()],
+            filled: Vec::new(),
+        }
+    }
+
+    /// A 23:00-07:00 night at UTC+10 ends at 21:00 UTC the evening before:
+    /// the rail dates it by the athlete's morning, as the snapshot and the
+    /// sleep tools do, not by the UTC date it ended on (carnet#1281).
+    #[test]
+    fn a_night_far_from_utc_is_dated_by_the_athletes_morning() {
+        let brisbane = FixedOffset::east_opt(10 * 3600).unwrap();
+        let start = Utc.with_ymd_and_hms(2026, 10, 28, 13, 0, 0).unwrap();
+        let nights = hours_by_night(vec![merged_night(start, 8)], &brisbane);
+        let morning = NaiveDate::from_ymd_opt(2026, 10, 29).unwrap();
+        assert_eq!(nights.get(&morning), Some(&8.0), "{nights:?}");
+        assert_eq!(nights.len(), 1, "one night, one date");
+    }
+
+    #[test]
+    fn a_nap_is_not_a_night() {
+        let mut nap = merged_night(Utc.with_ymd_and_hms(2026, 10, 29, 3, 0, 0).unwrap(), 1);
+        nap.record.is_nap = true;
+        assert_eq!(
+            hours_by_night(vec![nap], &Utc).len(),
+            0,
+            "a nap is no night"
+        );
+    }
 }

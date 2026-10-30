@@ -15,8 +15,11 @@
 //! (their Garmin, their WHOOP) is never read here, granted or not — the link
 //! syncs none of it, and revoking the consent deletes what the link filed.
 //!
-//! The rows are read through [`stored_health`], so each source's provider
-//! terms apply exactly as they do to the athlete's own reads.
+//! The rows are read through [`stored_health`] narrowed to the link
+//! ([`SourceFilter::Link`]): each source's provider terms apply exactly as
+//! they do to the athlete's own reads, and the link's rows are never merged
+//! with the athlete's other sources. A night is dated by the morning it ended
+//! on, in the athlete's zone.
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use pierre_core::ai_policy::ProviderTerms;
@@ -25,9 +28,10 @@ use pierre_core::models::{DelegationStatus, TenantId};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
+use crate::athlete_clock::athlete_zone;
 use crate::coach_consents::member_consents;
 use crate::provider_notice::under_ai_consent;
-use crate::stored_health;
+use crate::stored_health::{self, SourceFilter};
 
 /// How far back the newest readings are looked for.
 pub const LINKED_WELLNESS_DAYS: i64 = 7;
@@ -147,18 +151,19 @@ async fn newest_filed(
         start,
         end: now,
     } = filed;
-    let filed_by_link = |source: &str| source.eq_ignore_ascii_case(&provider);
+    let link = SourceFilter::Link(&provider);
+    let window = (start, now);
 
-    let recovery = stored_health::recovery_metrics(repos, terms, athlete, &tenant, start, now)
-        .await?
-        .records;
-    let mut recovery: Vec<_> = recovery
-        .into_iter()
-        .filter(|row| filed_by_link(&row.source_name))
-        .collect();
+    let mut recovery: Vec<_> =
+        stored_health::merged_recovery(repos, terms, athlete, &tenant, window, link)
+            .await?
+            .records
+            .into_iter()
+            .map(|row| row.record)
+            .collect();
     recovery.sort_by_key(|row| row.date);
     let hrv_ms = recovery.iter().rev().find_map(|row| {
-        row.hrv_rmssd.or(row.hrv_ms).map(|value| Reading {
+        row.daily_hrv().map(|value| Reading {
             value,
             date: row.date,
         })
@@ -170,24 +175,26 @@ async fn newest_filed(
         })
     });
 
-    let sleep_seconds = stored_health::sleep_sessions(repos, terms, athlete, &tenant, start, now)
+    let zone = athlete_zone(repos, athlete).await;
+    let sleep_seconds = stored_health::merged_sleep(repos, terms, athlete, &tenant, window, link)
         .await?
         .records
         .into_iter()
-        .filter(|night| !night.is_nap && filed_by_link(&night.source_name))
+        .map(|night| night.record)
+        .filter(|night| !night.is_nap)
         .filter_map(|night| {
             night.total_sleep_seconds.map(|value| Reading {
                 value,
-                date: night.end_datetime.date_naive(),
+                date: night.night_date(&zone),
             })
         })
         .max_by_key(|reading| reading.date);
 
-    let weight_kg = stored_health::health_snapshots(repos, terms, athlete, &tenant, start, now)
+    let weight_kg = stored_health::merged_body(repos, terms, athlete, &tenant, window, link)
         .await?
         .records
         .into_iter()
-        .filter(|row| filed_by_link(&row.source_name))
+        .map(|row| row.record)
         .filter_map(|row| {
             row.weight_kg.map(|value| Reading {
                 value,

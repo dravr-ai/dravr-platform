@@ -848,6 +848,7 @@ mod website_members_test;
 mod week_compliance_rail_test;
 mod week_readiness_rail_test;
 mod welcome_postback_test;
+mod wellness_read_chokepoint_test;
 mod whatsapp_delivery_status_test;
 mod whoop_own_app_connect_test;
 mod whoop_owner_authorization_test;

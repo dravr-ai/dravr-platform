@@ -1717,6 +1717,15 @@ else
     echo -e "${YELLOW}⚠️  scripts/ci/check-orphan-source.sh not found or not executable${NC}"
 fi
 
+# HARD FAIL: guard G3 — the wellness merge and the repository wellness reads
+# are called only in pierre-services' stored_health chokepoint (carnet#1281).
+if [ -f "$SCRIPT_DIR/check-one-wellness-merge.sh" ]; then
+    bash "$SCRIPT_DIR/check-one-wellness-merge.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-one-wellness-merge.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
 if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
     "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true

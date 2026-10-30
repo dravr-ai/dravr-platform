@@ -146,8 +146,8 @@ macro_rules! user_owned_tables {
         /// a row the user owns (a messaging session's messages, an A2A
         /// client's API key). A table whose rows reference another listed
         /// table's, or a row the account delete cascades to, without
-        /// cascading comes before it (`sleep_sessions`, `recovery_metrics` and
-        /// `health_snapshots` before `data_sources`; the messaging rows before
+        /// cascading comes before it (`sleep_sessions`, `recovery_metrics`,
+        /// `health_snapshots` and `daily_activity` before `data_sources`; the messaging rows before
         /// the account row takes their sessions; the A2A keys before
         /// `a2a_clients` takes the link naming them). `chat_conversations`
         /// cascades from the account, and is cleared first anyway: a
@@ -258,6 +258,7 @@ user_owned_tables!(
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
+    "daily_activity",
     "data_sources",
     "sync_state",
     "llm_usage",

@@ -476,7 +476,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, one wellness merge, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -489,6 +489,7 @@ jobs:
           ./scripts/ci/check-migration-versions.test.sh
           ./scripts/ci/check-migration-immutability.test.sh
           ./scripts/ci/check-moved-symbols.test.sh
+          ./scripts/ci/check-one-wellness-merge.test.sh
           ./scripts/ci/check-inline-paths.test.sh
           ./scripts/ci/check-phantom-surfaces.test.sh
           ./scripts/ci/check-contremaitre-sync.test.sh

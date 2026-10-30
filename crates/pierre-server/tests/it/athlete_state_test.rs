@@ -11,7 +11,8 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use pierre_contremaitre::use_case_catalogue::{Predicate, Stage};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    ActivityBuilder, CheckInCadence, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
+    ActivityBuilder, CheckInCadence, ConnectionType, DataSource, DeviceType, SportType,
+    StoredRecoveryMetrics, Tenant, TenantId, User, UserStatus,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
@@ -78,6 +79,61 @@ async fn ride(
     repos
         .activity_cache
         .upsert_activities(user_id, &tenant, provider, &[activity])
+        .await
+        .unwrap();
+}
+
+/// One stored recovery day `days_ago`, synced by a data source of `provider`
+/// — whatever the ingress: a provider sync, a Garmin push, an export import.
+async fn recovery_day(
+    repos: &RepositoryRegistry,
+    (user_id, tenant): (Uuid, TenantId),
+    provider: &str,
+    days_ago: i64,
+) {
+    let data_source_id = repos
+        .data_sources
+        .upsert_data_source(
+            &tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: user_id.to_string(),
+                provider: provider.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Watch,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let at = Utc::now() - Duration::days(days_ago);
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &tenant,
+            &StoredRecoveryMetrics {
+                id: Uuid::new_v4().to_string(),
+                user_id: user_id.to_string(),
+                data_source_id,
+                date: at.date_naive(),
+                recovery_score: None,
+                readiness_score: None,
+                hrv_ms: None,
+                hrv_rmssd: Some(58.0),
+                resting_heart_rate: Some(47),
+                stress_score: None,
+                body_battery: None,
+                spo2: None,
+                respiratory_rate: None,
+                skin_temp_deviation: None,
+                daily_strain: None,
+                athlete_note: None,
+                source_name: provider.to_owned(),
+                recorded_at: at,
+            },
+        )
         .await
         .unwrap();
 }
@@ -247,8 +303,11 @@ async fn a_ride_older_than_the_window_is_still_an_activity_but_no_week_of_data()
     assert_eq!(state.weeks_of_data, 0);
 }
 
+/// A recovery source is a stored night or morning, not a connection: the
+/// tools answer from rows, so a WHOOP connected but never synced is not one
+/// yet, and becomes one with its first stored morning (carnet#1281).
 #[tokio::test]
-async fn whoop_is_a_recovery_source_and_intervals_takes_a_pushed_plan() {
+async fn a_recovery_source_is_a_stored_morning_and_intervals_takes_a_pushed_plan() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     let who = athlete(repos, Duration::days(10)).await;
@@ -260,9 +319,47 @@ async fn whoop_is_a_recovery_source_and_intervals_takes_a_pushed_plan() {
 
     connect(repos, who, "whoop").await;
     connect(repos, who, "intervals_icu").await;
+    let (connected, _) = read(repos, who).await;
+    assert!(
+        !connected.holds(Predicate::HasRecoverySource),
+        "connected, nothing synced yet"
+    );
+    assert!(
+        connected.holds(Predicate::CalendarWritable),
+        "intervals.icu takes a pushed plan: a bug in the calendar target"
+    );
+
+    recovery_day(repos, who, "whoop", 1).await;
     let (state, _) = read(repos, who).await;
-    assert!(state.holds(Predicate::HasRecoverySource));
-    assert!(state.holds(Predicate::CalendarWritable));
+    assert!(
+        state.holds(Predicate::HasRecoverySource),
+        "a stored WHOOP morning makes a recovery source"
+    );
+}
+
+/// An athlete whose wellness arrived only from an imported Garmin export (or
+/// a push) holds no recovery-capable connection, and is a recovery source
+/// all the same; a morning older than the four-week window is not.
+#[tokio::test]
+async fn an_export_only_athletes_stored_mornings_make_a_recovery_source() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+
+    let imported = athlete(repos, Duration::days(200)).await;
+    recovery_day(repos, imported, "garmin_archive", 3).await;
+    let (state, _) = read(repos, imported).await;
+    assert!(
+        state.holds(Predicate::HasRecoverySource),
+        "an imported morning three days old counts"
+    );
+
+    let lapsed = athlete(repos, Duration::days(200)).await;
+    recovery_day(repos, lapsed, "garmin_archive", 40).await;
+    let (state, _) = read(repos, lapsed).await;
+    assert!(
+        !state.holds(Predicate::HasRecoverySource),
+        "a morning older than the window does not count"
+    );
 }
 
 #[tokio::test]

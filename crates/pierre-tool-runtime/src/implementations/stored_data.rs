@@ -18,8 +18,8 @@
 //! [`apply_format`].
 //!
 //! The sleep, recovery and snapshot rows are read through
-//! `pierre_services::stored_health`, which applies each row's provider terms before
-//! the per-night or per-day merge here (carnet#771).
+//! `pierre_services::stored_health`, which applies each row's provider terms
+//! (carnet#771) and then merges them per night or per day (carnet#1281).
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
@@ -28,8 +28,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{
-    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, DataSource, Merged,
-    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
+    DataSource, Merged, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, TenantId,
 };
 use pierre_core::untrusted::fence_athlete_text;
 use serde::Serialize;
@@ -47,7 +46,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
-use pierre_services::stored_health;
+use pierre_services::stored_health::{self, SourceFilter};
 use pierre_tools_core::ToolResult;
 
 // ============================================================================
@@ -300,18 +299,18 @@ impl McpTool<dyn ToolRuntime> for GetSleepSessionsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match stored_health::sleep_sessions(
+            match stored_health::merged_sleep(
                 context.resources.repos(),
                 context.resources.provider_registry().as_ref(),
                 context.user_id,
                 &tenant_id,
-                start,
-                end,
+                (start, end),
+                SourceFilter::All,
             )
             .await
             {
                 Ok(read) => {
-                    let sessions = merge_sleep_sessions(read.records);
+                    let sessions = read.records;
                     let last_synced_at = last_synced(&context, &tenant_id, "sleep").await;
                     let payload = SleepSessionsResult {
                         count: sessions.len(),
@@ -400,18 +399,18 @@ impl McpTool<dyn ToolRuntime> for GetRecoveryMetricsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match stored_health::recovery_metrics(
+            match stored_health::merged_recovery(
                 context.resources.repos(),
                 context.resources.provider_registry().as_ref(),
                 context.user_id,
                 &tenant_id,
-                start,
-                end,
+                (start, end),
+                SourceFilter::All,
             )
             .await
             {
                 Ok(read) => {
-                    let metrics = fence_athlete_notes(merge_recovery_metrics(read.records));
+                    let metrics = fence_athlete_notes(read.records);
                     let last_synced_at = last_synced(&context, &tenant_id, "recovery").await;
                     let payload = RecoveryMetricsResult {
                         count: metrics.len(),
@@ -477,18 +476,18 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let (start, end) = parse_date_range(&args)?;
 
-            match stored_health::health_snapshots(
+            match stored_health::merged_body(
                 context.resources.repos(),
                 context.resources.provider_registry().as_ref(),
                 context.user_id,
                 &tenant_id,
-                start,
-                end,
+                (start, end),
+                SourceFilter::All,
             )
             .await
             {
                 Ok(read) => {
-                    let snapshots = merge_health_metrics(read.records);
+                    let snapshots = read.records;
                     let last_synced_at = last_synced(&context, &tenant_id, "health").await;
                     let payload = HealthSnapshotsResult {
                         count: snapshots.len(),

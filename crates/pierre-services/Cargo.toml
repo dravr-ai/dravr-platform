@@ -28,7 +28,7 @@ client-messaging = [
 # Push notification dispatch in coach_followup_scheduler
 client-notifications = []
 # Health-data sync adapter (health_sync)
-health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync", "dep:pierre-logging"]
+health-sync = ["dep:dravr-enforme", "dep:pierre-logging"]
 # PostHog analytics implementation
 analytics-posthog = []
 
@@ -70,7 +70,9 @@ dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop
 # The scraper service's typed client and the session, roster and athlete types
 # its reads and session drops name.
 dravr-sciotte = { workspace = true, features = ["client"] }
-dravr-equilibre-sync = { workspace = true, optional = true }
+# The wellness models and their per-night / per-day merge: `stored_health`
+# is the one place that merges, and the health-sync adapter writes the models.
+dravr-equilibre-sync = { workspace = true }
 # riviere's TimeSeriesStore: the health-sync adapter writes continuous series
 # through it, and `continuous_series` reads them back.
 dravr-riviere = { workspace = true }

@@ -27,6 +27,7 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them; nothing on these four tables is spelled differently per engine.
 
+use crate::repositories::WellnessRowOrigin;
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
@@ -152,6 +153,14 @@ pub(crate) const GET_SLEEP_SESSIONS_SQL: &str = concat!(
             "
 );
 
+/// The distinct origins of the live sessions starting inside a window.
+pub(crate) const GET_SLEEP_ORIGINS_SQL: &str = "
+            SELECT DISTINCT provider, COALESCE(data_source_id, '') AS data_source_id
+            FROM sleep_sessions
+            WHERE user_id = $1 AND tenant_id = $2 AND start_time >= $3 AND start_time <= $4
+              AND deleted_at IS NULL
+            ";
+
 /// Soft-delete one session: stamps `deleted_at` once, never twice.
 pub(crate) const SOFT_DELETE_SLEEP_SESSION_SQL: &str = "UPDATE sleep_sessions SET deleted_at = $1 \
                  WHERE id = $2 AND tenant_id = $3 AND deleted_at IS NULL";
@@ -217,6 +226,14 @@ pub(crate) const GET_RECOVERY_METRICS_SQL: &str = concat!(
             ORDER BY date DESC
             "
 );
+
+/// The distinct origins of the live recovery readings dated inside a window.
+pub(crate) const GET_RECOVERY_ORIGINS_SQL: &str = "
+            SELECT DISTINCT provider, COALESCE(data_source_id, '') AS data_source_id
+            FROM recovery_metrics
+            WHERE user_id = $1 AND tenant_id = $2 AND date >= $3 AND date <= $4
+              AND deleted_at IS NULL
+            ";
 
 /// Soft-delete one recovery row: stamps `deleted_at` once, never twice.
 pub(crate) const SOFT_DELETE_RECOVERY_METRIC_SQL: &str =
@@ -491,6 +508,22 @@ where
         .map_err(|e| AppError::database(format!("Invalid tenant_id stored: {e}")))
 }
 
+/// Read a [`WellnessRowOrigin`] from a row of the `*_ORIGINS_SQL` reads.
+///
+/// # Errors
+/// Returns a database error when a column is missing or not text.
+pub(crate) fn origin_from_row<R>(row: &R) -> AppResult<WellnessRowOrigin>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    Ok(WellnessRowOrigin {
+        provider: column(row, "provider")?,
+        data_source_id: column(row, "data_source_id")?,
+    })
+}
+
 // ============================================================================
 // The shared body
 // ============================================================================
@@ -639,6 +672,25 @@ macro_rules! impl_health_persistence_repositories {
                 rows.iter().map(sleep_session_from_row).collect()
             }
 
+            async fn sleep_origins(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                start: DateTime<Utc>,
+                end: DateTime<Utc>,
+            ) -> AppResult<Vec<WellnessRowOrigin>> {
+                let rows = sqlx::query(GET_SLEEP_ORIGINS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(start)
+                    .bind(end)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to get sleep origins: {e}")))?;
+
+                rows.iter().map(origin_from_row).collect()
+            }
+
             async fn delete_sleep_session_by_id(
                 &self,
                 tenant_id: &TenantId,
@@ -746,6 +798,27 @@ macro_rules! impl_health_persistence_repositories {
                     })?;
 
                 rows.iter().map(recovery_metrics_from_row).collect()
+            }
+
+            async fn recovery_origins(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                start: DateTime<Utc>,
+                end: DateTime<Utc>,
+            ) -> AppResult<Vec<WellnessRowOrigin>> {
+                let rows = sqlx::query(GET_RECOVERY_ORIGINS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(start.date_naive())
+                    .bind(end.date_naive())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get recovery origins: {e}"))
+                    })?;
+
+                rows.iter().map(origin_from_row).collect()
             }
 
             async fn delete_recovery_metric_by_id(

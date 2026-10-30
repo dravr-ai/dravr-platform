@@ -42,11 +42,9 @@ use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
 use pierre_core::models::ProvenancedValue;
 use pierre_core::models::{
-    merge_recovery_metrics, merge_sleep_sessions, StoredRecoveryMetrics, StoredSleepSession,
-};
-use pierre_core::models::{
     Activity, DailyTrainingState, FormReading, TenantId, UserPhysiologicalProfile,
 };
+use pierre_core::models::{Merged, StoredRecoveryMetrics, StoredSleepSession};
 use pierre_database::RepositoryRegistry;
 use pierre_evals::personalized_recovery::BASELINE_DAYS;
 use pierre_evals::{AthleteMetrics, NightlyMetric, RecoveryReadings, StoredMetric};
@@ -55,7 +53,7 @@ use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use uuid::Uuid;
 
-use crate::stored_health;
+use crate::stored_health::{self, SourceFilter};
 
 /// Lookback window for the activity read backing `data_days` and the form compute.
 const ACTIVITY_LOOKBACK_DAYS: i64 = 180;
@@ -229,17 +227,30 @@ async fn load_recovery_readings(
     now: DateTime<Utc>,
 ) -> RecoveryReadings {
     let start = now - Duration::days(BASELINE_DAYS + NIGHTS_READ_MARGIN_DAYS);
-    let nights =
-        match stored_health::sleep_sessions(repos, policies, user_id, &tenant_id, start, now).await
-        {
-            Ok(read) => read.records,
-            Err(e) => {
-                tracing::warn!(error = %e, "personalized verification: sleep sessions load failed");
-                Vec::new()
-            }
-        };
-    let mornings = match stored_health::recovery_metrics(
-        repos, policies, user_id, &tenant_id, start, now,
+    let window = (start, now);
+    let nights = match stored_health::merged_sleep(
+        repos,
+        policies,
+        user_id,
+        &tenant_id,
+        window,
+        SourceFilter::All,
+    )
+    .await
+    {
+        Ok(read) => read.records,
+        Err(e) => {
+            tracing::warn!(error = %e, "personalized verification: sleep sessions load failed");
+            Vec::new()
+        }
+    };
+    let mornings = match stored_health::merged_recovery(
+        repos,
+        policies,
+        user_id,
+        &tenant_id,
+        window,
+        SourceFilter::All,
     )
     .await
     {
@@ -255,29 +266,30 @@ async fn load_recovery_readings(
 /// One reading per civil day of HRV, resting HR and sleep, from the nights and
 /// mornings each source synced.
 ///
-/// Rows are merged across sources first, the way every sleep and recovery
-/// tool reads them, so one night two devices recorded counts once. A night
-/// belongs to the day it ended on, in the athlete's zone; naps are left out.
+/// Rows come merged across sources by the read, the way every sleep and
+/// recovery tool reads them, so one night two devices recorded counts once. A
+/// night belongs to the day it ended on, in the athlete's zone; naps are left
+/// out.
 ///
 /// A day's HRV and resting HR are read two ways, because the night and the
 /// next morning can each carry one: morning-first (the recovery reading's,
 /// else the night's own average HRV and lowest heart rate), as the readiness
 /// tools quote them, and night-first, as the sleep tools quote them.
 fn recovery_readings(
-    nights: Vec<StoredSleepSession>,
-    mornings: Vec<StoredRecoveryMetrics>,
+    nights: Vec<Merged<StoredSleepSession>>,
+    mornings: Vec<Merged<StoredRecoveryMetrics>>,
     zone: Tz,
     today: NaiveDate,
 ) -> RecoveryReadings {
     let mut sleep: BTreeMap<NaiveDate, f64> = BTreeMap::new();
     let mut night_hrv: BTreeMap<NaiveDate, f64> = BTreeMap::new();
     let mut night_min_hr: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    for night in merge_sleep_sessions(nights) {
+    for night in nights {
         let session = night.record;
         if session.is_nap {
             continue;
         }
-        let day = local_date(session.end_datetime, zone);
+        let day = session.night_date(&zone);
         *sleep.entry(day).or_insert(0.0) += hours_asleep(&session);
         if let Some(value) = session.avg_hrv {
             night_hrv.entry(day).or_insert(value);
@@ -288,9 +300,9 @@ fn recovery_readings(
     }
     let mut morning_hrv: BTreeMap<NaiveDate, f64> = BTreeMap::new();
     let mut morning_resting_hr: BTreeMap<NaiveDate, f64> = BTreeMap::new();
-    for morning in merge_recovery_metrics(mornings) {
+    for morning in mornings {
         let reading = morning.record;
-        if let Some(value) = reading.hrv_rmssd.or(reading.hrv_ms) {
+        if let Some(value) = reading.daily_hrv() {
             morning_hrv.insert(reading.date, value);
         }
         if let Some(value) = reading.resting_heart_rate {
@@ -381,6 +393,7 @@ mod tests {
 
     use super::*;
     use chrono::TimeZone;
+    use dravr_equilibre_sync::{merge_recovery_metrics, merge_sleep_sessions};
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
     use pierre_core::models::{DataSource, DeviceType};
     use pierre_core::transport::TransportPolicy;
@@ -472,7 +485,12 @@ mod tests {
             morning("garmin", today - Duration::days(1), 58.0, 48),
         ];
 
-        let readings = recovery_readings(nights, mornings, Tz::UTC, today);
+        let readings = recovery_readings(
+            merge_sleep_sessions(nights),
+            merge_recovery_metrics(mornings),
+            Tz::UTC,
+            today,
+        );
 
         let sleep = readings.sleep_hours.unwrap();
         assert_eq!(sleep.last, Some(7.0));
@@ -520,14 +538,19 @@ mod tests {
                 ),
             ]
         };
-        let toronto = recovery_readings(nights(), Vec::new(), Tz::America__Toronto, today);
+        let toronto = recovery_readings(
+            merge_sleep_sessions(nights()),
+            Vec::new(),
+            Tz::America__Toronto,
+            today,
+        );
         assert_eq!(
             toronto.sleep_hours.unwrap().last,
             Some(7.0),
             "two nights, two days"
         );
         // Bucketed on UTC days both land on the 9th, as one 13-hour day.
-        let utc = recovery_readings(nights(), Vec::new(), Tz::UTC, today);
+        let utc = recovery_readings(merge_sleep_sessions(nights()), Vec::new(), Tz::UTC, today);
         assert_eq!(utc.sleep_hours.unwrap().last, Some(13.0));
     }
 

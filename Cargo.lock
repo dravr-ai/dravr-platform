@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.8.1"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.8.1#201f03534b9db5f8d14f563e62dc71b3fc088f3c"
+version = "0.8.2"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.8.2#0f5bdc5c40d36da36990a9db40781c8359399fdb"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1444,8 +1444,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=16f1d4d0cd9
 
 [[package]]
 name = "dravr-enforme"
-version = "0.14.4"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.14.4#f18da45fcc667d4f206c3277537bc3881a2355ee"
+version = "0.14.5"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.14.5#ff0140d9efb95729bbe39d140e8843a4b231f4d2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1465,8 +1465,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-equilibre"
-version = "0.8.1"
-source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.8.1#b2f6e54bd959519e30807a16007a99de38ee33d0"
+version = "0.8.2"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.8.2#3012f05050660b009ae9e23515ac9794570e15a3"
 dependencies = [
  "chrono",
  "schemars 1.2.3",
@@ -4208,6 +4208,7 @@ dependencies = [
  "dravr-barrage",
  "dravr-cageux",
  "dravr-enforme",
+ "dravr-equilibre",
  "dravr-sciotte",
  "dravr-tronc",
  "hex",

@@ -35,17 +35,22 @@ use pierre_core::models::{Activity, CheckInCadence, ConnectionType, CoverageMap,
 use pierre_core::transport::TransportPolicy;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver::serving_backends;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::registry::global_registry;
 use uuid::Uuid;
 
 use crate::athlete_clock::athlete_today;
 use crate::plan_calendar_push::resolve_calendar_target;
+use crate::stored_health;
 use crate::training_plan_render::select_active_weeks;
 
 /// The window `weeks_of_data` counts distinct ISO weeks of activity over.
 const WEEKS_OF_DATA_WINDOW_DAYS: i64 = 28;
+
+/// How far back a stored night or recovery day makes the athlete a recovery
+/// source: the same four weeks the activity history is read over, so a
+/// wearable left in a drawer for a month stops counting.
+const RECOVERY_ROWS_WINDOW_DAYS: i64 = 28;
 
 /// The most activities the weeks count reads. Newest first, so a cut drops the
 /// oldest weeks of the window; it takes seven a day for four weeks to reach it.
@@ -130,7 +135,9 @@ pub struct AthleteState {
     pub season_set: bool,
     /// The active plan has a week covering today, in the athlete's zone.
     pub plan_active: bool,
-    /// A connected provider reports sleep or recovery.
+    /// A night of sleep or a recovery day is stored for the athlete in the
+    /// last [`RECOVERY_ROWS_WINDOW_DAYS`] days, however it arrived: a synced
+    /// provider, a Garmin push or an imported export.
     pub recovery_source: bool,
     /// A provider the athlete connected themselves takes their pushed
     /// training plan; one read only through a human coach's link does not.
@@ -236,10 +243,18 @@ async fn read_untracked(
         .map(|c| c.provider.as_str())
         .collect();
     let registry = global_registry();
-    let recovery_source = real
-        .iter()
-        .flat_map(|provider| serving_backends(provider))
-        .any(|backend| registry.supports_sleep(&backend) || registry.supports_recovery(&backend));
+    // From the stored rows, read through the terms filter like the
+    // activities below: the tools answer from rows, so a connection that
+    // never synced a night is no recovery source, and an export-only or
+    // push-only athlete is one (carnet#1281).
+    let recovery_source = stored_health::holds_recovery_rows(
+        repos,
+        registry.as_ref(),
+        user_id,
+        &tenant,
+        (now - Duration::days(RECOVERY_ROWS_WINDOW_DAYS), now),
+    )
+    .await?;
     let calendar_writable = resolve_calendar_target(&registry, &own, None).is_ok();
 
     // Through the terms filter, as every model-facing read: a session a

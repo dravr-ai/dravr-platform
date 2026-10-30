@@ -89,10 +89,11 @@ const SEEDED_POINTS: u64 = 2;
 /// Tables one seeded scope holds exactly one row in. `activity_backfill_jobs`
 /// is apart: it is unique per `(user, provider)` across tenants, so an
 /// athlete holds at most one WHOOP job wherever they are.
-const ONE_ROW_TABLES: [&str; 16] = [
+const ONE_ROW_TABLES: [&str; 17] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
+    "daily_activity",
     "data_sources",
     "data_point_series_archive",
     "cached_activities",
@@ -297,7 +298,7 @@ async fn seed_provider_rows(
         .await
         .unwrap();
     assert_eq!(written, SEEDED_POINTS);
-    seed_archive_row(db, &ds).await;
+    seed_sql_only_rows(db, (user_id, tenant), provider, &ds).await;
 
     repos
         .sleep
@@ -541,6 +542,18 @@ async fn seed_provider_rows(
     ds
 }
 
+/// The rows no repository writes, in SQL: a daily rollup and a day of
+/// steps and energy.
+async fn seed_sql_only_rows(
+    db: &Database,
+    scope: (Uuid, TenantId),
+    provider: &str,
+    data_source_id: &str,
+) {
+    seed_archive_row(db, data_source_id).await;
+    seed_daily_activity_row(db, scope, provider, data_source_id).await;
+}
+
 /// One daily rollup in `data_point_series_archive`, which no repository
 /// writes: the table is SQL-only, so the fixture writes it in SQL too.
 async fn seed_archive_row(db: &Database, data_source_id: &str) {
@@ -565,6 +578,55 @@ async fn seed_archive_row(db: &Database, data_source_id: &str) {
                 .bind(data_source_id)
                 .bind(i64::from(HEART_RATE_SERIES))
                 .bind(night_start())
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// One day of steps and energy in `daily_activity`, which no repository
+/// writes yet (its writer arrives with the export and push mapping), so the
+/// fixture writes it in SQL, synced now like every other seeded copy.
+async fn seed_daily_activity_row(
+    db: &Database,
+    (user_id, tenant): (Uuid, TenantId),
+    provider: &str,
+    data_source_id: &str,
+) {
+    const SQL: &str = "INSERT INTO daily_activity \
+         (id, user_id, tenant_id, provider, data_source_id, synced_at, date, steps, \
+          active_kcal, total_kcal, intensity_minutes) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 9500, 640.0, 2410.0, 38)";
+    let (id, user, tenant) = (
+        Uuid::new_v4().to_string(),
+        user_id.to_string(),
+        tenant.to_string(),
+    );
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(SQL)
+                .bind(id)
+                .bind(user)
+                .bind(tenant)
+                .bind(provider)
+                .bind(data_source_id)
+                .bind(Utc::now())
+                .bind(morning())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(SQL)
+                .bind(id)
+                .bind(user)
+                .bind(tenant)
+                .bind(provider)
+                .bind(data_source_id)
+                .bind(Utc::now())
+                .bind(morning())
                 .execute(postgres.pool())
                 .await
                 .unwrap();
@@ -718,10 +780,11 @@ async fn a_users_provider_purge_takes_exactly_their_rows_in_that_tenant() {
 /// The tables of [`ONE_ROW_TABLES`] the health sync writes for a scope; a
 /// wellness purge takes these, with the scope's `data_point_series` points,
 /// and nothing else.
-const WELLNESS_TABLES: [&str; 6] = [
+const WELLNESS_TABLES: [&str; 7] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
+    "daily_activity",
     "data_sources",
     "data_point_series_archive",
     "sync_state",
@@ -1191,10 +1254,11 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
 
 /// Tables a cache expiry evicts one row from per seeded scope, the sync state
 /// describing them included. `activity_backfill_jobs` is apart, as above.
-const ONE_ROW_EXPIRED_TABLES: [&str; 10] = [
+const ONE_ROW_EXPIRED_TABLES: [&str; 11] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
+    "daily_activity",
     "cached_activities",
     "activity_route_tracks",
     "activity_streams",
@@ -1423,12 +1487,21 @@ async fn every_purge_leaves_an_attestation_row_the_operator_can_read() {
     assert_eq!(purges[0]["reason"], "termination", "{body}");
     assert!(purges[0]["user_id"].is_null(), "{body}");
     assert!(purges[0]["tenant_id"].is_null(), "{body}");
-    assert_eq!(purges[0]["rows_removed"], 3 * 16 + 3 * 2 + 2, "{body}");
+    let tables = u64::try_from(ONE_ROW_TABLES.len()).unwrap();
+    assert_eq!(
+        purges[0]["rows_removed"],
+        3 * tables + 3 * SEEDED_POINTS + 2,
+        "{body}"
+    );
 
     assert_eq!(purges[1]["reason"], "athlete_disconnect", "{body}");
     assert_eq!(purges[1]["user_id"], athlete.to_string(), "{body}");
     assert_eq!(purges[1]["tenant_id"], tenant.to_string(), "{body}");
-    assert_eq!(purges[1]["rows_removed"], 16 + 2 + 1, "{body}");
+    assert_eq!(
+        purges[1]["rows_removed"],
+        tables + SEEDED_POINTS + 1,
+        "{body}"
+    );
     assert!(
         !body.to_string().contains("next-page"),
         "an attestation row carries no provider data: {body}"

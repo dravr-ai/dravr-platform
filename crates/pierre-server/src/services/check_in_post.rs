@@ -319,8 +319,8 @@ async fn due_zone(
 }
 
 /// Whether the athlete has data for the check-in to read: activities (or a
-/// connected provider nobody has read yet), or a sleep or recovery source —
-/// the catalogue's `has_activities` and `has_recovery_source`, read as the
+/// connected provider nobody has read yet), or a sleep or recovery source (a
+/// stored night or recovery day, however it arrived) — the catalogue's `has_activities` and `has_recovery_source`, read as the
 /// starters read them. An unreadable state reads as none (logged): no model
 /// call is spent on a post that cannot ground.
 async fn has_data(

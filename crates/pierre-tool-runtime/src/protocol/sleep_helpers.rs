@@ -17,22 +17,23 @@
 //!
 //! A caller naming a source (the tools' `sleep_provider` argument) narrows the
 //! rows to that source before merging; otherwise every source contributes.
-//! Either way only the rows each source's provider terms let the reader see
-//! reach the merge (`pierre_services::stored_health`).
+//! Either way `pierre_services::stored_health` reads, gates and merges them:
+//! only the rows each source's provider terms let the reader see reach the
+//! merge. A night is dated by the morning it ended on, in the athlete's zone.
 
 use std::collections::HashMap;
 
 use chrono::{Duration, NaiveDate, Utc};
 use dravr_cageux::sleep_analysis::SleepData;
 use pierre_core::models::{
-    merge_recovery_metrics, merge_sleep_sessions, Merged, StoredRecoveryMetrics,
-    StoredSleepSession, StoredSleepStageType, TenantId,
+    Merged, StoredRecoveryMetrics, StoredSleepSession, StoredSleepStageType, TenantId,
 };
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::protocol::types::{UniversalResponse, UniversalToolExecutor};
-use pierre_services::stored_health;
+use pierre_services::athlete_clock::athlete_zone;
+use pierre_services::stored_health::{self, SourceFilter};
 
 /// Extra days read before the requested window, so a night that began the
 /// evening before the window's first day still falls inside it.
@@ -76,13 +77,14 @@ pub async fn stored_sleep_nights(
     let tenant = tenant_of(tenant_id).ok_or_else(|| Box::new(missing_tenant()))?;
     let end = Utc::now();
     let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
-    let mut sessions = stored_health::sleep_sessions(
+    let filter = source.map_or(SourceFilter::All, SourceFilter::Service);
+    let sessions = stored_health::merged_sleep(
         executor.resources.repos(),
         executor.resources.provider_registry().as_ref(),
         user_uuid,
         &tenant,
-        start,
-        end,
+        (start, end),
+        filter,
     )
     .await
     .map(|read| read.records)
@@ -92,10 +94,7 @@ pub async fn stored_sleep_nights(
             "Sleep data could not be read right now.".to_owned(),
         ))
     })?;
-    if let Some(source) = source {
-        sessions.retain(|s| s.source_name.eq_ignore_ascii_case(source));
-    }
-    let mut nights: Vec<_> = merge_sleep_sessions(sessions)
+    let mut nights: Vec<_> = sessions
         .into_iter()
         .filter(|night| !night.record.is_nap)
         .collect();
@@ -120,14 +119,15 @@ pub async fn sleep_history_data(
     days: u32,
 ) -> Result<Vec<(SleepData, Vec<String>)>, Box<UniversalResponse>> {
     let nights = stored_sleep_nights(executor, user_uuid, tenant_id, source, days).await?;
-    let recovery = recovery_by_date(executor, user_uuid, tenant_id, days).await;
+    let recovery = recovery_by_date(executor, user_uuid, tenant_id, source, days).await;
+    let zone = athlete_zone(executor.resources.repos(), user_uuid).await;
     Ok(nights
         .into_iter()
         .map(|night| {
             let mut data = stored_sleep_to_data(&night.record);
-            if let Some(day) = recovery.get(&night.record.end_datetime.date_naive()) {
+            if let Some(day) = recovery.get(&night.record.night_date(&zone)) {
                 if data.hrv_rmssd_ms.is_none() {
-                    data.hrv_rmssd_ms = day.hrv_rmssd.or(day.hrv_ms);
+                    data.hrv_rmssd_ms = day.daily_hrv();
                 }
                 if data.resting_hr_bpm.is_none() {
                     data.resting_hr_bpm = day.resting_heart_rate;
@@ -167,12 +167,14 @@ pub async fn latest_sleep_data(
         })
 }
 
-/// Merged recovery readings over the window, keyed by date. Empty when the
-/// rows cannot be read: recovery only enriches sleep, it never blocks it.
+/// Merged recovery readings over the window, keyed by date, narrowed to
+/// `source` like the nights they fill. Empty when the rows cannot be read:
+/// recovery only enriches sleep, it never blocks it.
 async fn recovery_by_date(
     executor: &UniversalToolExecutor,
     user_uuid: Uuid,
     tenant_id: Option<&str>,
+    source: Option<&str>,
     days: u32,
 ) -> HashMap<NaiveDate, StoredRecoveryMetrics> {
     let Some(tenant) = tenant_of(tenant_id) else {
@@ -180,17 +182,18 @@ async fn recovery_by_date(
     };
     let end = Utc::now();
     let start = end - Duration::days(i64::from(days) + WINDOW_MARGIN_DAYS);
-    match stored_health::recovery_metrics(
+    match stored_health::merged_recovery(
         executor.resources.repos(),
         executor.resources.provider_registry().as_ref(),
         user_uuid,
         &tenant,
-        start,
-        end,
+        (start, end),
+        source.map_or(SourceFilter::All, SourceFilter::Service),
     )
     .await
     {
-        Ok(read) => merge_recovery_metrics(read.records)
+        Ok(read) => read
+            .records
             .into_iter()
             .map(|day| (day.record.date, day.record))
             .collect(),

@@ -18,6 +18,14 @@
 //! module. Outside any gate (the athlete's own surfaces, sync sweeps) the rows
 //! come back as stored and the athlete's data sources are not read at all.
 //!
+//! # The one merge (carnet#1281)
+//!
+//! [`merged_sleep`], [`merged_recovery`] and [`merged_body`] are the only
+//! callers of dravr-equilibre's per-night and per-day merge: a reader gets
+//! one record per night or per date, gated, merged and attributed, and
+//! never merges rows itself, so two tools can no longer answer the same
+//! night two ways. A [`SourceFilter`] says which rows take part.
+//!
 //! # Garmin attribution of intervals.icu wellness (carnet#521)
 //!
 //! intervals.icu's wellness rows name no source or device, while its API terms
@@ -37,6 +45,9 @@
 //! was stored under.
 
 use chrono::{DateTime, Duration, Utc};
+use dravr_equilibre_sync::{
+    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged,
+};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::constants::oauth_providers::{
     activity_attribution, garmin_device, garmin_service_attribution, source_attribution, GARMIN,
@@ -61,7 +72,8 @@ const DEVICE_LOOKBACK_ACTIVITIES: i64 = 50;
 /// they owe.
 #[derive(Debug, Clone)]
 pub struct StoredHealth<T> {
-    /// The records the gates in force let the reader see; not yet merged.
+    /// The records the gates in force let the reader see: merged ones from
+    /// the `merged_*` reads, raw rows inside this module.
     pub records: Vec<T>,
     /// The Garmin attribution to show with them: the device of the first row
     /// a Garmin data source synced (`Garmin Forerunner 965`, or `Garmin` when
@@ -219,71 +231,197 @@ pub(crate) async fn governed_by_sources<T: StoredHealthRecord>(
     })
 }
 
-/// Sleep sessions starting inside the window, as the gates in force let the
-/// reader see them; not yet merged.
+/// Which stored rows a merged read takes part in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceFilter<'a> {
+    /// Every source the gates in force let the reader see, merged.
+    All,
+    /// Only the rows one source synced (the sleep tools' `sleep_provider`
+    /// argument, matched without regard to case), merged.
+    Service(&'a str),
+    /// Only the rows one linked platform filed, each returned as it was
+    /// stored and never merged with another: a coach link reads what that
+    /// platform holds, not the athlete's other sources.
+    Link(&'a str),
+}
+
+impl SourceFilter<'_> {
+    /// Whether a row synced by `source_name` takes part.
+    fn admits(self, source_name: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Service(source) | Self::Link(source) => source_name.eq_ignore_ascii_case(source),
+        }
+    }
+}
+
+/// Narrow, gate and merge stored rows: the shared body of the `merged_*`
+/// reads. A [`SourceFilter::Link`] read returns each kept row on its own.
+async fn merged<T: StoredHealthRecord>(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    (user_id, tenant): (Uuid, &TenantId),
+    rows: Vec<T>,
+    filter: SourceFilter<'_>,
+    merge: impl FnOnce(Vec<T>) -> Vec<Merged<T>>,
+) -> AppResult<StoredHealth<Merged<T>>> {
+    let rows: Vec<T> = rows
+        .into_iter()
+        .filter(|row| filter.admits(row.source_name()))
+        .collect();
+    let StoredHealth {
+        records,
+        attribution,
+    } = governed(repos, terms, user_id, tenant, rows).await?;
+    let records = match filter {
+        SourceFilter::Link(_) => records.into_iter().map(unmerged).collect(),
+        SourceFilter::All | SourceFilter::Service(_) => merge(records),
+    };
+    Ok(StoredHealth {
+        records,
+        attribution,
+    })
+}
+
+/// One stored row as a merged record of its own source alone.
+fn unmerged<T: StoredHealthRecord>(record: T) -> Merged<T> {
+    Merged {
+        sources: vec![record.source_name().to_owned()],
+        filled: Vec::new(),
+        record,
+    }
+}
+
+/// The athlete's nights starting inside the window, one per night across the
+/// sources `filter` admits, ordered by start, naps included.
 ///
 /// # Errors
 ///
 /// Returns an error when the sessions, or under a gate the athlete's data
-/// sources, cannot be read: a row whose provider cannot be named is never
-/// served.
-pub async fn sleep_sessions(
+/// sources, cannot be read.
+pub async fn merged_sleep(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> AppResult<StoredHealth<StoredSleepSession>> {
+    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    filter: SourceFilter<'_>,
+) -> AppResult<StoredHealth<Merged<StoredSleepSession>>> {
     let rows = repos
         .sleep
         .get_sleep_sessions(user_id, tenant, start, end)
         .await?;
-    governed(repos, terms, user_id, tenant, rows).await
+    merged(
+        repos,
+        terms,
+        (user_id, tenant),
+        rows,
+        filter,
+        merge_sleep_sessions,
+    )
+    .await
 }
 
-/// Recovery readings inside the window, as the gates in force let the reader
-/// see them; not yet merged.
+/// The athlete's recovery days inside the window, one per date across the
+/// sources `filter` admits, ordered by date.
 ///
 /// # Errors
 ///
 /// Returns an error when the readings, or under a gate the athlete's data
 /// sources, cannot be read.
-pub async fn recovery_metrics(
+pub async fn merged_recovery(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> AppResult<StoredHealth<StoredRecoveryMetrics>> {
+    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    filter: SourceFilter<'_>,
+) -> AppResult<StoredHealth<Merged<StoredRecoveryMetrics>>> {
     let rows = repos
         .recovery
         .get_recovery_metrics(user_id, tenant, start, end)
         .await?;
-    governed(repos, terms, user_id, tenant, rows).await
+    merged(
+        repos,
+        terms,
+        (user_id, tenant),
+        rows,
+        filter,
+        merge_recovery_metrics,
+    )
+    .await
 }
 
-/// Health snapshots inside the window, as the gates in force let the reader
-/// see them; not yet merged.
+/// The athlete's body readings inside the window, one per date across the
+/// sources `filter` admits, ordered by date.
 ///
 /// # Errors
 ///
 /// Returns an error when the snapshots, or under a gate the athlete's data
 /// sources, cannot be read.
-pub async fn health_snapshots(
+pub async fn merged_body(
     repos: &RepositoryRegistry,
     terms: &dyn ProviderTerms,
     user_id: Uuid,
     tenant: &TenantId,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> AppResult<StoredHealth<StoredHealthMetrics>> {
+    (start, end): (DateTime<Utc>, DateTime<Utc>),
+    filter: SourceFilter<'_>,
+) -> AppResult<StoredHealth<Merged<StoredHealthMetrics>>> {
     let rows = repos
         .health_snapshots
         .get_health_snapshots(user_id, tenant, start, end)
         .await?;
-    governed(repos, terms, user_id, tenant, rows).await
+    merged(
+        repos,
+        terms,
+        (user_id, tenant),
+        rows,
+        filter,
+        merge_health_metrics,
+    )
+    .await
+}
+
+/// Whether the athlete holds a stored night or recovery day the gates in
+/// force let the reader see, in `[start, end]`.
+///
+/// Read from the rows rather than from which providers are connected, so an
+/// athlete whose wellness arrived by a Garmin push or an export import counts
+/// the same as one whose provider syncs it, and a connected provider that
+/// never synced a night does not.
+///
+/// # Errors
+///
+/// Returns an error when the rows, or under a gate the athlete's data
+/// sources, cannot be read.
+pub async fn holds_recovery_rows(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    user_id: Uuid,
+    tenant: &TenantId,
+    (start, end): (DateTime<Utc>, DateTime<Utc>),
+) -> AppResult<bool> {
+    // Where the rows came from, never the rows: governing a row needs only
+    // its provider and data source, and a yes/no serves no reading, so it
+    // owes no attribution either.
+    let mut origins = repos
+        .recovery
+        .recovery_origins(user_id, tenant, start, end)
+        .await?;
+    origins.extend(
+        repos
+            .sleep
+            .sleep_origins(user_id, tenant, start, end)
+            .await?,
+    );
+    if origins.is_empty() || !ai_scope::policies_apply() {
+        return Ok(!origins.is_empty());
+    }
+    let sources = repos
+        .data_sources
+        .list_data_sources(user_id, tenant)
+        .await?;
+    Ok(!ai_scope::filter_stored_health(terms, origins, &sources).is_empty())
 }
 
 #[cfg(test)]
@@ -293,14 +431,56 @@ mod tests {
     use super::*;
     use chrono::{Duration, NaiveDate, TimeZone};
     use pierre_core::ai_policy::{AiUse, SourcePolicy};
-    use pierre_core::models::{
-        merge_recovery_metrics, merge_sleep_sessions, ActivityBuilder, DataSource, DeviceType,
-        SportType,
-    };
+    use pierre_core::models::{ActivityBuilder, DataSource, DeviceType, SportType};
     use pierre_core::transport::{Transport, TransportPolicy};
     use pierre_providers::ai_scope::{ai_read, serve_over, tracking, Provenance};
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::server::create_test_user;
+
+    /// Sleep sessions starting inside the window, as the gates in force let the
+    /// reader see them; not yet merged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the sessions, or under a gate the athlete's data
+    /// sources, cannot be read: a row whose provider cannot be named is never
+    /// served.
+    async fn sleep_sessions(
+        repos: &RepositoryRegistry,
+        terms: &dyn ProviderTerms,
+        user_id: Uuid,
+        tenant: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<StoredHealth<StoredSleepSession>> {
+        let rows = repos
+            .sleep
+            .get_sleep_sessions(user_id, tenant, start, end)
+            .await?;
+        governed(repos, terms, user_id, tenant, rows).await
+    }
+
+    /// Recovery readings inside the window, as the gates in force let the reader
+    /// see them; not yet merged.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the readings, or under a gate the athlete's data
+    /// sources, cannot be read.
+    async fn recovery_metrics(
+        repos: &RepositoryRegistry,
+        terms: &dyn ProviderTerms,
+        user_id: Uuid,
+        tenant: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<StoredHealth<StoredRecoveryMetrics>> {
+        let rows = repos
+            .recovery
+            .get_recovery_metrics(user_id, tenant, start, end)
+            .await?;
+        governed(repos, terms, user_id, tenant, rows).await
+    }
 
     /// Terms no shipped provider declares yet: COROS keeps its data first-party
     /// (a `FirstPartyOnly` decision, carnet#724), Zepp bars every item from AI.
@@ -712,5 +892,219 @@ mod tests {
         let athlete = athlete().await;
         assert_eq!(athlete.nights().await.len(), PROVIDERS.len());
         assert_eq!(athlete.mornings().await.len(), PROVIDERS.len());
+    }
+
+    impl Athlete {
+        async fn merged_mornings(
+            &self,
+            filter: SourceFilter<'_>,
+        ) -> Vec<Merged<StoredRecoveryMetrics>> {
+            merged_recovery(
+                &self.repos,
+                &Terms,
+                self.user_id,
+                &self.tenant,
+                (self.start, self.end),
+                filter,
+            )
+            .await
+            .unwrap()
+            .records
+        }
+
+        async fn merged_nights(&self, filter: SourceFilter<'_>) -> Vec<Merged<StoredSleepSession>> {
+            merged_sleep(
+                &self.repos,
+                &Terms,
+                self.user_id,
+                &self.tenant,
+                (self.start, self.end),
+                filter,
+            )
+            .await
+            .unwrap()
+            .records
+        }
+    }
+
+    /// Every source's morning merges into one record; a named source narrows
+    /// the merge to its own rows, matched without regard to case.
+    #[tokio::test]
+    async fn a_merged_read_merges_every_source_or_only_the_one_named() {
+        let athlete = athlete().await;
+
+        let all = athlete.merged_mornings(SourceFilter::All).await;
+        assert_eq!(all.len(), 1, "one morning across three sources");
+        assert_eq!(
+            sorted(&all[0].sources),
+            vec!["coros", "garmin", "zepp"],
+            "every source takes part"
+        );
+
+        let garmin = athlete
+            .merged_mornings(SourceFilter::Service("Garmin"))
+            .await;
+        assert_eq!(garmin.len(), 1, "one Garmin morning");
+        assert_eq!(garmin[0].sources, vec!["garmin".to_owned()], "Garmin alone");
+        assert_eq!(
+            garmin[0].record.resting_heart_rate,
+            Some(48),
+            "Garmin's value"
+        );
+        assert_eq!(garmin[0].filled.len(), 0, "nothing else took part");
+
+        let nights = athlete.merged_nights(SourceFilter::All).await;
+        assert_eq!(nights.len(), 1, "one night across three sources");
+        assert_eq!(
+            athlete
+                .merged_nights(SourceFilter::Service("polar"))
+                .await
+                .len(),
+            0
+        );
+    }
+
+    /// A link's read is the rows its platform filed, each as stored: never
+    /// merged with the athlete's other sources, never filled from them.
+    #[tokio::test]
+    async fn a_link_read_returns_its_own_rows_unmerged() {
+        let athlete = athlete().await;
+        let coros = athlete.merged_mornings(SourceFilter::Link("coros")).await;
+        assert_eq!(coros.len(), 1, "the link's one morning");
+        assert_eq!(coros[0].sources, vec!["coros".to_owned()], "the link alone");
+        assert_eq!(coros[0].record.resting_heart_rate, Some(44), "as stored");
+        assert_eq!(coros[0].filled.len(), 0, "a link read fills nothing");
+
+        let nights = athlete.merged_nights(SourceFilter::Link("zepp")).await;
+        assert_eq!(nights.len(), 1, "the link's one night");
+        assert_eq!(nights[0].record.source_name, "zepp");
+    }
+
+    /// The merged read applies each row's terms before it merges, as the raw
+    /// read does: an external call never sees a first-party-only source's
+    /// metric folded into the served morning.
+    #[tokio::test]
+    async fn a_merged_read_gates_each_row_before_the_merge() {
+        let athlete = athlete().await;
+        let (mornings, withheld) = serve_over(
+            Transport::McpHttp,
+            ai_read(athlete.merged_mornings(SourceFilter::All)),
+        )
+        .await;
+        assert_eq!(mornings.len(), 1, "one served morning");
+        assert_eq!(
+            sorted(&mornings[0].sources),
+            vec!["garmin"],
+            "Garmin alone is served"
+        );
+        assert_eq!(
+            mornings[0].record.resting_heart_rate,
+            Some(48),
+            "no gated source fills it"
+        );
+        assert_eq!(withheld.off_interface, 1, "COROS's morning");
+        assert_eq!(withheld.dropped, 1, "Zepp's morning");
+    }
+
+    #[tokio::test]
+    async fn an_athlete_with_a_stored_morning_holds_recovery_rows() {
+        let athlete = athlete().await;
+        let inside = holds_recovery_rows(
+            &athlete.repos,
+            &Terms,
+            athlete.user_id,
+            &athlete.tenant,
+            (athlete.start, athlete.end),
+        )
+        .await
+        .unwrap();
+        assert!(inside, "the stored night and morning sit in the window");
+        let before = athlete.start - Duration::days(30);
+        let earlier = holds_recovery_rows(
+            &athlete.repos,
+            &Terms,
+            athlete.user_id,
+            &athlete.tenant,
+            (before - Duration::days(10), before),
+        )
+        .await
+        .unwrap();
+        assert!(!earlier, "nothing is stored a month before");
+    }
+
+    /// Asking whether rows are there serves none of them: no attribution is
+    /// owed by the reply, which shows no Garmin reading.
+    #[tokio::test]
+    async fn holding_recovery_rows_notes_no_attribution() {
+        let athlete = athlete().await;
+        let turn = Provenance::new();
+        let (holds, _) = ai_read(tracking(
+            turn.clone(),
+            holds_recovery_rows(
+                &athlete.repos,
+                &Terms,
+                athlete.user_id,
+                &athlete.tenant,
+                (athlete.start, athlete.end),
+            ),
+        ))
+        .await;
+        assert!(holds.unwrap());
+        assert!(
+            turn.attributions().is_empty(),
+            "a yes/no owes no Garmin line"
+        );
+    }
+
+    /// Rows a gate keeps from the reader do not make it a recovery source.
+    #[tokio::test]
+    async fn rows_no_gate_lets_through_hold_no_recovery_source() {
+        let db = create_test_db().await.unwrap();
+        let repos = Arc::clone(db.repositories());
+        let user = create_test_user(&format!("zepp-{}@example.com", Uuid::new_v4()), None);
+        let user_id = repos.users.create(&user).await.unwrap();
+        let tenant = TenantId::generate();
+        let night = Utc.with_ymd_and_hms(2026, 9, 29, 22, 0, 0).unwrap();
+        let data_source_id = repos
+            .data_sources
+            .upsert_data_source(
+                &tenant,
+                &DataSource {
+                    id: String::new(),
+                    user_id: user_id.to_string(),
+                    provider: "zepp".to_owned(),
+                    device_model: None,
+                    software_version: None,
+                    source: None,
+                    device_type: DeviceType::Watch,
+                    original_source_name: None,
+                },
+            )
+            .await
+            .unwrap();
+        repos
+            .sleep
+            .upsert_sleep_session(&tenant, &night_of(user_id, &data_source_id, "zepp", night))
+            .await
+            .unwrap();
+        repos
+            .recovery
+            .upsert_recovery_metrics(
+                &tenant,
+                &morning_of(user_id, &data_source_id, "zepp", night),
+            )
+            .await
+            .unwrap();
+        let window = (night - Duration::days(1), night + Duration::days(1));
+
+        let own = holds_recovery_rows(&repos, &Terms, user_id, &tenant, window)
+            .await
+            .unwrap();
+        assert!(own, "the athlete's own surfaces see Zepp's rows");
+        let (model, _) = ai_read(holds_recovery_rows(
+            &repos, &Terms, user_id, &tenant, window,
+        ))
+        .await;
+        assert!(!model.unwrap(), "Zepp bars every item from AI");
     }
 }

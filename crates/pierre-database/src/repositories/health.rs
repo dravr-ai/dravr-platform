@@ -70,6 +70,19 @@ pub struct ConnectedUserRow {
     pub token_type: String,
 }
 
+/// Where a stored wellness row came from: the provider it was stored under
+/// and the data source that synced it.
+///
+/// Enough to govern a row by its provider terms without reading its
+/// readings, for a caller that only asks whether any row is there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WellnessRowOrigin {
+    /// The provider the row was stored under (`whoop`, `garmin`, ...).
+    pub provider: String,
+    /// The data source that synced the row; empty when none was recorded.
+    pub data_source_id: String,
+}
+
 /// Sleep session persistence repository
 #[async_trait]
 pub trait SleepRepository: Send + Sync {
@@ -87,6 +100,15 @@ pub trait SleepRepository: Send + Sync {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredSleepSession>>;
+    /// The distinct origins of the sleep sessions starting inside the window,
+    /// without reading a session.
+    async fn sleep_origins(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<WellnessRowOrigin>>;
     /// Delete a single sleep session by id with the requested deletion mode.
     ///
     /// `soft = true` sets `deleted_at = now()` and the row stays for the
@@ -128,6 +150,15 @@ pub trait RecoveryRepository: Send + Sync {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> AppResult<Vec<StoredRecoveryMetrics>>;
+    /// The distinct origins of the recovery readings dated inside the window,
+    /// without reading a reading.
+    async fn recovery_origins(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<WellnessRowOrigin>>;
     /// Delete a single recovery metric by id with the requested deletion mode.
     ///
     /// `soft = true` sets `deleted_at = now()` and reads filter the row out;

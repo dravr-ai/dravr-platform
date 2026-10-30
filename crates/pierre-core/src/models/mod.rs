@@ -134,10 +134,11 @@ pub use dravr_equilibre::{
 };
 
 // One record per night or date across providers, primary source first and
-// each metric it lacks taken from the next source that has it.
+// each metric it lacks taken from the next source that has it. Only the
+// record type: the merge itself is called in one place, the stored-health
+// read chokepoint in pierre-services (carnet#1281).
 pub use dravr_equilibre::{
-    merge_health_metrics, merge_recovery_metrics, merge_sleep_sessions, Merged,
-    SleepStage as StoredSleepStage, SleepStageType as StoredSleepStageType,
+    Merged, SleepStage as StoredSleepStage, SleepStageType as StoredSleepStageType,
 };
 
 // Nutrition domain

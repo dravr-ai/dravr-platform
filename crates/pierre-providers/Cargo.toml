@@ -73,6 +73,8 @@ pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 # Only `IamError`: the sciotte error mapping's unit test builds the client's
 # identity-token failure, whose cause the sciotte client does not re-export.
 dravr-tronc = { workspace = true, features = ["google-iam"] }
+# The per-night merge, for the tests proving a terms filter runs before it.
+dravr-equilibre = { workspace = true }
 
 [lints]
 workspace = true
