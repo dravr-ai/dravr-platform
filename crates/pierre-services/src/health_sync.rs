@@ -47,7 +47,7 @@ use crate::delegated_wellness::{
     DelegatedWellness, PrivateWellness,
 };
 use crate::garmin_push;
-use crate::sciotte_health_reader::SciotteServiceReader;
+use crate::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use crate::whoop_terms;
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -112,6 +112,9 @@ pub struct PierreSyncStorage {
     /// injection, credential reads fall back to the stored token row (startup
     /// window before the first scheduled sync tick, and storage-only tests).
     refresher: OnceLock<Arc<dyn SyncCredentialRefresher>>,
+    /// The scrape-session rows handed out to syncs, which a session rotated
+    /// on a read is written back over ([`SessionRows`]).
+    session_rows: SessionRows,
     /// The full registry, for the WHOOP owner-authorization read (the notice
     /// flag and the account's acceptance live outside both views) and for the
     /// delegated wellness pass's links and worker ledger. Shared with the
@@ -325,6 +328,7 @@ impl PierreSyncStorage {
             fitness: repos.fitness_repos(),
             auth: repos.auth_repos(),
             refresher: OnceLock::new(),
+            session_rows: SessionRows::new(Arc::clone(&repos.oauth_tokens)),
             registry: Arc::clone(repos),
         }
     }
@@ -356,7 +360,10 @@ impl PierreSyncStorage {
         self: &Arc<Self>,
         sciotte: Option<SciotteClient>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
-        let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(sciotte));
+        let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(
+            sciotte,
+            self.session_rows.clone(),
+        ));
         self.build_orchestrator_with_reader(&reader)
     }
 
@@ -918,6 +925,7 @@ impl CredentialStore for PierreSyncStorage {
         };
         let tenant_id = token_tenant_id(&token)?;
         let backend = sync_backend(provider);
+        self.session_rows.remember(&token);
 
         // The injected refresher routes through AuthService::get_valid_token,
         // which transparently refreshes near-expiry tokens and persists the

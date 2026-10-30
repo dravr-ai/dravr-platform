@@ -26,12 +26,13 @@ use secrecy::ExposeSecret;
 use std::env;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::core::{
     no_recorded_samples, planned_workouts_unsupported, ActivityQueryParams, FitnessProvider,
-    OAuth2Credentials, ProviderConfig,
+    OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
 };
 use crate::delegation::coach_credential_expired;
 use crate::errors::{AppError, AppResult};
@@ -53,6 +54,7 @@ use crate::spi::{
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 
 mod factory;
+mod rotation;
 
 pub use factory::{
     startup_client, SciotteCorosProviderFactory, SciotteGarminProviderFactory,
@@ -259,6 +261,11 @@ pub struct SciotteProvider {
     /// identity token. `None` when the server started with no service
     /// configured: every remote call then reports that.
     client: Option<SciotteClient>,
+    /// The credentials the session was given in, kept so a rotated session
+    /// is stored with every other field as it came ([`rotation`]).
+    credentials: RwLock<Option<OAuth2Credentials>>,
+    /// Where a session the provider rotated on a read is stored.
+    token_refresh_callback: OnceLock<TokenRefreshCallback>,
 }
 
 impl fmt::Debug for SciotteProvider {
@@ -283,6 +290,8 @@ impl SciotteProvider {
             subject: None,
             head_complete: AtomicBool::new(true),
             client,
+            credentials: RwLock::new(None),
+            token_refresh_callback: OnceLock::new(),
         }
     }
 
@@ -761,7 +770,7 @@ impl FitnessProvider for SciotteProvider {
     /// backend: a tool that fails here quotes the message to the model.
     async fn set_credentials(&self, credentials: OAuth2Credentials) -> AppResult<()> {
         let brand = SciotteTarget::from_backend_name(self.provider_name).brand();
-        let session_json = credentials.access_token.ok_or_else(|| {
+        let session_json = credentials.access_token.clone().ok_or_else(|| {
             AppError::invalid_input(format!(
                 "No saved {brand} sign-in (username and password from Dravr) was found"
             ))
@@ -779,7 +788,12 @@ impl FitnessProvider for SciotteProvider {
             })?;
 
         *self.session.write().await = Some(session);
+        *self.credentials.write().await = Some(credentials);
         Ok(())
+    }
+
+    fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
+        self.keep_token_refresh_callback(callback);
     }
 
     async fn is_authenticated(&self) -> bool {
@@ -811,12 +825,9 @@ impl FitnessProvider for SciotteProvider {
         // — re-hydrates the service after a scale-to-zero / redeploy — then fetch.
         let target = SciotteTarget::from_backend_name(self.provider_name);
         let remote = self.remote()?;
-        let profile = remote
-            .read_imported(session, target.scraper_provider_name(), || {
-                remote.get_athlete(&session.session_id)
-            })
-            .await
-            .map_err(|e| self.remote_error(e))?;
+        let profile = self
+            .read_through(remote, session, || remote.get_athlete(&session.session_id))
+            .await?;
         match &self.subject {
             Some(athlete) => roster_athlete(profile, athlete),
             None => Ok(own_athlete(profile, target)),
@@ -867,12 +878,11 @@ impl FitnessProvider for SciotteProvider {
                 DetailPass::Skip
             },
         };
-        let list = remote
-            .read_imported(session, target.scraper_provider_name(), || {
+        let list = self
+            .read_through(remote, session, || {
                 remote.get_activities(&session.session_id, &query)
             })
-            .await
-            .map_err(|e| self.remote_error(e))?;
+            .await?;
         self.head_complete
             .store(list.head_complete, Ordering::Relaxed);
         let activities: Vec<Activity> = list
@@ -933,12 +943,11 @@ impl FitnessProvider for SciotteProvider {
         // ADR-021: fetch the single activity's detail on the dedicated service.
         let target = SciotteTarget::from_backend_name(self.provider_name);
         let remote = self.remote()?;
-        let sciotte_activity = remote
-            .read_imported(session, target.scraper_provider_name(), || {
+        let sciotte_activity = self
+            .read_through(remote, session, || {
                 remote.get_activity(&session.session_id, id)
             })
-            .await
-            .map_err(|e| self.remote_error(e))?;
+            .await?;
         Ok(convert_activity(&sciotte_activity, target))
     }
 
@@ -984,8 +993,8 @@ impl FitnessProvider for SciotteProvider {
         // the same athlete: a delegated provider's, or else the signed-in
         // account's own.
         let remote = self.remote()?;
-        let planned = remote
-            .read_imported(session, target.scraper_provider_name(), || {
+        let planned = self
+            .read_through(remote, session, || {
                 remote.get_planned_workouts(
                     &session.session_id,
                     after,
@@ -993,8 +1002,7 @@ impl FitnessProvider for SciotteProvider {
                     self.subject.as_ref(),
                 )
             })
-            .await
-            .map_err(|e| self.remote_error(e))?;
+            .await?;
         info!(
             count = planned.len(),
             %after,

@@ -52,6 +52,7 @@ use pierre_core::models::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::sciotte_error::sciotte_refusal;
+use pierre_providers::token_writeback::StoredTokenRow;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
@@ -785,9 +786,18 @@ async fn a_profile_read_that_misses_the_import_is_imported_once_more(
 ) {
     let session: AuthSession = serde_json::from_value(session_json(ROAMING_SESSION)).unwrap();
 
-    let profile = trainingpeaks_profile(resources.provider_registry(), &session)
-        .await
-        .expect("an instance that holds no session is not a dead session");
+    // No row stands for this session, so a rotation would write nothing.
+    let read_from = StoredTokenRow::new(
+        Uuid::new_v4(),
+        TenantId::from_uuid(Uuid::new_v4()),
+        oauth_providers::SCIOTTE_TRAININGPEAKS,
+        "no-row",
+    );
+    let tokens = &*resources.common.repos.oauth_tokens;
+    let profile =
+        trainingpeaks_profile(resources.provider_registry(), tokens, &read_from, &session)
+            .await
+            .expect("an instance that holds no session is not a dead session");
 
     assert_eq!(profile.id.as_deref(), Some("900001"));
     assert_eq!(profile.display_name.as_deref(), Some("Alex Athlete"));

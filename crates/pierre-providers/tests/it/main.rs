@@ -35,6 +35,8 @@ mod sciotte_session_expiry_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reimport_test;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_session_rotation_test;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_trainingpeaks_conversion_test;
 #[cfg(feature = "provider-strava")]
 mod strava_detail_read_test;

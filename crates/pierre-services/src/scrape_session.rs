@@ -1,33 +1,46 @@
-// ABOUTME: Storing a sciotte scrape session for a user, and cloning one account's session onto another
-// ABOUTME: One write path for the hosted login and the operator clone; the clone refuses OAuth grants and dead sessions
+// ABOUTME: Storing a sciotte scrape session for a user, and a super admin cloning one account's session onto another
+// ABOUTME: One write path for the hosted login and the super admin clone; the clone refuses OAuth grants and dead sessions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Scrape-session persistence and the operator clone.
+//! Scrape-session persistence and the super admin clone.
 //!
 //! A sciotte login ends with an [`AuthSession`] — the provider cookies the
 //! scraper replays — which the platform stores as a `session` token row and
 //! registers as a manual connection. [`persist_sciotte_session`] is that write,
-//! and the only one: the hosted login calls it, and so does the operator clone
-//! through [`ScrapeSessionInstaller`], which the auth route crate implements
-//! because the activity prefetch and health backfill that follow a store live
-//! there.
+//! and the only one: the hosted login calls it, and so does the super admin
+//! clone through [`ScrapeSessionInstaller`], which the auth route crate
+//! implements because the activity prefetch and health backfill that follow a
+//! store live there.
 //!
-//! The clone ([`find_clone_source`] then [`ScrapeSessionInstaller`]) exists so
-//! an operator can give a fresh test account a working Garmin or Strava-mirror
-//! connection without a second provider login: the source account's session
-//! is copied verbatim, same `session_id`, so both accounts read through the one
-//! session the sciotte service holds. Disconnecting one of them is safe for
-//! the other: the service's session delete only drops its in-memory copy, and
-//! every read imports the stored jar again first (`read_imported`), so nothing
-//! upstream is signed out. Only a scrape session can be shared that
-//! way. An OAuth grant cannot: its refresh rotates the pair (the first account
-//! to refresh strands the other) and a disconnect revokes it upstream for both.
-//! `TrainingPeaks` is excluded too: its session decides a coach's roster and
-//! delegated links, which belong to the account that signed in. COROS is not
-//! offered: nothing has needed it, and its one-time-code login has never been
-//! exercised against a shared session.
+//! The clone ([`find_clone_source`] then [`ScrapeSessionInstaller`]) lets a
+//! super admin give another account — a fresh test account, or one they
+//! impersonate — a working Garmin or Strava-mirror connection without a second
+//! provider login: the source account's session is copied verbatim, same
+//! `session_id`, so both accounts read through the one session the sciotte
+//! service holds. Disconnecting one of them is safe for the other: the
+//! service's session delete only drops its in-memory copy, and every read
+//! imports the stored jar again first (`read_imported`), so nothing upstream
+//! is signed out.
+//!
+//! A clone does not stay in step with its source. A provider can rotate a
+//! session's cookies on a read (Garmin changes its `session` cookie and logs
+//! the old value out), and the rotated copy is written back over the one row
+//! the read came from, never over another account's
+//! (`StoredTokenRow::write_session` in pierre-providers). Every other account
+//! carrying the session keeps the copy Garmin has signed out, so its next
+//! read fails and that account needs a reconnect. When a health sync's read
+//! rotates a session two accounts share, nothing is stored at all: the sync's
+//! reader cannot tell which account it read for.
+//!
+//! Only a scrape session can be shared that way. An OAuth grant cannot: its
+//! refresh rotates the pair (the first account to refresh strands the other)
+//! and a disconnect revokes it upstream for both. `TrainingPeaks` is excluded
+//! too: its session decides a coach's roster and delegated links, which belong
+//! to the account that signed in. COROS is not offered: nothing has needed it,
+//! and its one-time-code login has never been exercised against a shared
+//! session.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -40,13 +53,15 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
+use pierre_providers::sciotte_session;
+use pierre_providers::token_writeback::StoredTokenRow;
 use secrecy::SecretString;
 use std::fmt;
 use uuid::Uuid;
 
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 
-/// The mirror backends whose session an operator may clone onto another
+/// The mirror backends whose session a super admin may clone onto another
 /// account. See the module doc for why the others are refused.
 const CLONEABLE_BACKENDS: [&str; 2] = [SCIOTTE, SCIOTTE_GARMIN];
 
@@ -56,7 +71,9 @@ const CLONEABLE_BACKENDS: [&str; 2] = [SCIOTTE, SCIOTTE_GARMIN];
 /// A fresh row id is written, encrypted under this user and tenant. A
 /// `TrainingPeaks` session first ends the delegated link it supersedes, and
 /// afterwards forgets the coach roster read through the session it replaces.
-/// Returns the serialized session, which the caller's activity prefetch reads.
+/// Returns the serialized session, which the caller's activity prefetch reads,
+/// and the row it was stored as, which a session the provider rotates on
+/// those reads is written back over.
 ///
 /// # Errors
 ///
@@ -70,11 +87,8 @@ pub async fn persist_sciotte_session(
     tenant_id: TenantId,
     session: &AuthSession,
     provider_name: &str,
-) -> AppResult<SecretString> {
-    let session_json = SecretString::from(
-        serde_json::to_string(session)
-            .map_err(|e| AppError::internal(format!("Failed to serialize session: {e}")))?,
-    );
+) -> AppResult<StoredSession> {
+    let session_json = sciotte_session::session_json(session)?;
 
     let now = Utc::now();
     let token = UserOAuthToken {
@@ -116,7 +130,19 @@ pub async fn persist_sciotte_session(
         .await
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
-    Ok(session_json)
+    Ok(StoredSession {
+        row: StoredTokenRow::new(user_id, tenant_id, provider_name, token.id),
+        session_json,
+    })
+}
+
+/// A scrape session [`persist_sciotte_session`] stored.
+#[derive(Debug, Clone)]
+pub struct StoredSession {
+    /// The session as the JSON stored on the row.
+    pub session_json: SecretString,
+    /// The row it was stored as.
+    pub row: StoredTokenRow,
 }
 
 /// Installs a scrape session on an account the way a login would, minus the
@@ -169,7 +195,7 @@ pub enum CloneRefusal {
 }
 
 impl CloneRefusal {
-    /// The sentence an operator reads.
+    /// The sentence a super admin reads.
     #[must_use]
     pub fn message(&self) -> String {
         match self {
@@ -223,7 +249,7 @@ fn clone_backend(provider: &str) -> &str {
 /// Find `from_user`'s live, cloneable scrape session for `provider`.
 ///
 /// When the source holds the backend in more than one tenant, the most
-/// recently written row is taken. `Ok(Err(_))` is a refusal the operator
+/// recently written row is taken. `Ok(Err(_))` is a refusal the super admin
 /// reads; nothing is written either way.
 ///
 /// # Errors

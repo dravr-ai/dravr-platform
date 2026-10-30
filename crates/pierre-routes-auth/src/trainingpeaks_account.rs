@@ -16,14 +16,17 @@ use std::sync::Arc;
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::models::{ConnectionType, ProviderAccountRole, TenantId};
+use pierre_providers::token_writeback::StoredTokenRow;
+use pierre_services::scrape_session::StoredSession;
 use pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role;
+use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_providers::connect_prefetch::PrefetchWait;
 
 use crate::sciotte_prefetch::{
-    begin_prefetch, prefetch_activities, prefetch_in_flight, PrefetchTarget,
+    begin_prefetch, persist_rotated, prefetch_activities, prefetch_in_flight, PrefetchTarget,
 };
 use crate::AuthRoutesContext;
 
@@ -45,7 +48,7 @@ pub(crate) fn spawn_login_probe(
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
-    session_json: &str,
+    stored: &StoredSession,
 ) -> Option<PrefetchWait> {
     let ticket = begin_prefetch(user_id, tenant_id, SCIOTTE_TRAININGPEAKS);
     let wait = ticket.as_ref().map_or_else(
@@ -56,10 +59,14 @@ pub(crate) fn spawn_login_probe(
     let registry = Arc::clone(&resources.provider_registry);
     let cache = Arc::clone(&resources.cache);
     let session = session.clone();
-    let session_json = session_json.to_owned();
+    let session_json = stored.session_json.expose_secret().to_owned();
+    let read_from = stored.row.clone();
+    let persist_rotated = persist_rotated(resources, stored);
     tokio::spawn(async move {
         let tenant = TenantId::from_uuid(tenant_id);
-        match probe_trainingpeaks_role(&repos, &registry, &session, user_id, tenant).await {
+        match probe_trainingpeaks_role(&repos, &registry, &session, &read_from, user_id, tenant)
+            .await
+        {
             Ok(ProviderAccountRole::Coach) => {
                 info!(
                     user_id = %user_id,
@@ -87,6 +94,7 @@ pub(crate) fn spawn_login_probe(
                 tenant_id,
                 provider_name: SCIOTTE_TRAININGPEAKS.to_owned(),
                 session_json,
+                persist_rotated,
             },
             ticket,
         )
@@ -100,12 +108,14 @@ pub(crate) fn spawn_login_probe(
 /// instead of signing in again.
 ///
 /// A connection whose role is known is left alone, and so is a connection
-/// the user reads through someone else's account.
+/// the user reads through someone else's account. `read_from` is the token
+/// row the session is stored as.
 pub(crate) fn spawn_role_probe_if_unread(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: AuthSession,
+    read_from: StoredTokenRow,
 ) {
     let repos = Arc::clone(&resources.repos);
     let registry = Arc::clone(&resources.provider_registry);
@@ -133,7 +143,9 @@ pub(crate) fn spawn_role_probe_if_unread(
         if !unread {
             return;
         }
-        match probe_trainingpeaks_role(&repos, &registry, &session, user_id, tenant).await {
+        match probe_trainingpeaks_role(&repos, &registry, &session, &read_from, user_id, tenant)
+            .await
+        {
             Ok(role) => info!(
                 user_id = %user_id,
                 role = %role,

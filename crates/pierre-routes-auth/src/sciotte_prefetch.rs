@@ -14,8 +14,12 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_providers::connect_prefetch::{
     ConnectPrefetches, PrefetchKey, PrefetchTicket, PrefetchWait, PrefetchedWindow,
 };
-use pierre_providers::core::{ActivityQueryParams, CredentialKind, OAuth2Credentials};
+use pierre_providers::core::{
+    ActivityQueryParams, CredentialKind, OAuth2Credentials, TokenRefreshCallback,
+};
 use pierre_providers::registry::ProviderRegistry;
+use pierre_services::scrape_session::StoredSession;
+use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -56,7 +60,7 @@ pub(crate) fn spawn_activity_prefetch(
     user_id: Uuid,
     tenant_id: Uuid,
     provider_name: &str,
-    session_json: &str,
+    stored: &StoredSession,
 ) -> Option<PrefetchWait> {
     let Some(ticket) = begin_prefetch(user_id, tenant_id, provider_name) else {
         return prefetch_in_flight(user_id, tenant_id, provider_name);
@@ -69,11 +73,25 @@ pub(crate) fn spawn_activity_prefetch(
             user_id,
             tenant_id,
             provider_name: provider_name.to_owned(),
-            session_json: session_json.to_owned(),
+            session_json: stored.session_json.expose_secret().to_owned(),
+            persist_rotated: persist_rotated(resources, stored),
         },
         ticket,
     ));
     Some(wait)
+}
+
+/// What a pre-fetch's provider writes a session the scraped platform rotated
+/// on its reads through: the write-back over the row the login stored the
+/// session as, while that row still stands.
+pub(crate) fn persist_rotated(
+    resources: &AuthRoutesContext,
+    stored: &StoredSession,
+) -> TokenRefreshCallback {
+    stored
+        .row
+        .clone()
+        .write_back_callback(Arc::clone(&resources.repos.oauth_tokens))
 }
 
 /// Register the pre-fetch of `user_id`'s `provider_name` connection, or `None`
@@ -116,6 +134,9 @@ pub(crate) struct PrefetchTarget {
     pub provider_name: String,
     /// The session the login just stored, as JSON.
     pub session_json: String,
+    /// Where a session rotated on the pre-fetch's reads is written
+    /// ([`persist_rotated`]).
+    pub persist_rotated: TokenRefreshCallback,
 }
 
 /// Pre-fetch and cache the newest activities of the account the target's
@@ -133,6 +154,7 @@ pub(crate) async fn prefetch_activities(
         tenant_id,
         provider_name,
         session_json,
+        persist_rotated,
     } = target;
     info!(
         user_id = %user_id,
@@ -140,8 +162,15 @@ pub(crate) async fn prefetch_activities(
         "Starting background activity pre-fetch (remote scrape)"
     );
     let limit = prefetch_limit();
-    let Some((activities, head_complete)) =
-        fetch_prefetch_window(&registry, user_id, &provider_name, session_json, limit).await
+    let Some((activities, head_complete)) = fetch_prefetch_window(
+        &registry,
+        user_id,
+        &provider_name,
+        session_json,
+        persist_rotated,
+        limit,
+    )
+    .await
     else {
         ticket.finish(None);
         return;
@@ -174,14 +203,16 @@ pub(crate) async fn prefetch_activities(
 }
 
 /// The newest `limit` activities of the account `session_json` signed in to,
-/// read through a fresh `provider_name` provider, and whether the capture
-/// reached the list head; `None`, logged, when the provider cannot be built,
-/// take the session, or answer.
+/// read through a fresh `provider_name` provider that writes a session rotated
+/// on the read through `persist_rotated`, and whether the capture reached the
+/// list head; `None`, logged, when the provider cannot be built, take the
+/// session, or answer.
 async fn fetch_prefetch_window(
     registry: &ProviderRegistry,
     user_id: Uuid,
     provider_name: &str,
     session_json: String,
+    persist_rotated: TokenRefreshCallback,
     limit: usize,
 ) -> Option<(Vec<Activity>, bool)> {
     let provider = registry
@@ -203,6 +234,7 @@ async fn fetch_prefetch_window(
         .await
         .inspect_err(|e| warn!(error = %e, "Background pre-fetch: failed to set credentials"))
         .ok()?;
+    provider.set_token_refresh_callback(persist_rotated);
     let params = ActivityQueryParams {
         limit: Some(limit),
         offset: None,

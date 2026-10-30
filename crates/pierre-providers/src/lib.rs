@@ -52,6 +52,8 @@ pub mod registry;
 pub mod request_budget;
 /// Service Provider Interface for external providers
 pub mod spi;
+/// The one write-back of a token a provider refreshed or rotated on its own, over the row it was read from
+pub mod token_writeback;
 /// The athlete's uploaded `.fit` files read as a provider, with no connection behind it
 pub mod upload_provider;
 /// Provider utility functions (retry, type conversion)
@@ -105,6 +107,9 @@ mod garmin_self_report;
 /// What a failed call to the dravr-sciotte scraper service is, as a platform error
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_error;
+/// Every read through a platform-held sciotte session, storing a session the provider rotated
+#[cfg(feature = "provider-sciotte")]
+pub mod sciotte_session;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;

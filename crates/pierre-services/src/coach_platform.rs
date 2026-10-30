@@ -49,6 +49,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 #[cfg(doc)]
 use pierre_providers::spi::ProviderCapabilities;
+use pierre_providers::token_writeback::StoredTokenRow;
 use pierre_providers::{credential_kind, CredentialKind, OAuth2Credentials};
 use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;
@@ -167,7 +168,10 @@ impl CoachPlatform for TrainingPeaksPlatform {
     async fn read_roster(&self, read: RosterRead<'_>) -> AppResult<Vec<RosterAthlete>> {
         let session = serde_json::from_str::<AuthSession>(read.token.access_token.expose_secret())
             .map_err(|_| Refusal::ReconnectNeeded.error(Some(self)))?;
-        let profile = match trainingpeaks_profile(read.registry, &session).await {
+        let read_from = StoredTokenRow::of(read.token)?;
+        let tokens = &*read.repos.oauth_tokens;
+        let profile = match trainingpeaks_profile(read.registry, tokens, &read_from, &session).await
+        {
             Ok(profile) => profile,
             Err(e) if e.provider_auth_required_provider().is_some() => {
                 return Err(Refusal::ReconnectNeeded.error(Some(self)));

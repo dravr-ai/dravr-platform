@@ -21,7 +21,9 @@ use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_notice::require_notice_accepted;
-use pierre_services::scrape_session::{persist_sciotte_session, ScrapeSessionInstaller};
+use pierre_services::scrape_session::{
+    persist_sciotte_session, ScrapeSessionInstaller, StoredSession,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -328,7 +330,7 @@ async fn store_sciotte_session(
     session: &AuthSession,
     provider_name: &str,
 ) -> Result<Response, AppError> {
-    let session_json = persist_sciotte_session(
+    let stored = persist_sciotte_session(
         &resources.repos,
         &resources.cache,
         user_id,
@@ -344,7 +346,7 @@ async fn store_sciotte_session(
         user_id,
         tenant_id,
         session,
-        session_json.expose_secret(),
+        &stored,
         provider_name,
     );
 
@@ -354,13 +356,14 @@ async fn store_sciotte_session(
 /// Start what a freshly stored session owes the account: an activity
 /// pre-fetch so the agent can serve data immediately, then the health
 /// backfill. A `TrainingPeaks` session is first probed for its account role,
-/// which decides whether there is a calendar to prefetch at all.
+/// which decides whether there is a calendar to prefetch at all. A session
+/// the provider rotates on those reads is written back over `stored`'s row.
 fn warm_from_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
-    session_json: &str,
+    stored: &StoredSession,
     provider_name: &str,
 ) {
     // Pre-fetch activities in background so the cache is warm when the user
@@ -370,9 +373,9 @@ fn warm_from_session(
     // arrives meanwhile (the onboarding proposal) waits for this one instead
     // of scraping the fresh session beside it (carnet#736).
     let prefetch = if provider_name == SCIOTTE_TRAININGPEAKS {
-        spawn_login_probe(resources, user_id, tenant_id, session, session_json)
+        spawn_login_probe(resources, user_id, tenant_id, session, stored)
     } else {
-        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, session_json)
+        spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, stored)
     };
 
     // The session also feeds the health sync (Garmin's and COROS's nights,
@@ -390,9 +393,9 @@ fn warm_from_session(
     drop(prefetch);
 }
 
-/// The operator clone's install: the same store and warm-up as a login, with
-/// no `provider.connected` event, since an operator copying a session onto a
-/// test account is not an athlete connecting and must not count as one.
+/// The super admin clone's install: the same store and warm-up as a login,
+/// with no `provider.connected` event, since a super admin copying a session
+/// onto a test account is not an athlete connecting and must not count as one.
 #[async_trait::async_trait]
 impl ScrapeSessionInstaller for AuthRoutesContext {
     async fn install_session(
@@ -402,7 +405,7 @@ impl ScrapeSessionInstaller for AuthRoutesContext {
         backend: &str,
         session: &AuthSession,
     ) -> AppResult<()> {
-        let session_json = persist_sciotte_session(
+        let stored = persist_sciotte_session(
             &self.repos,
             &self.cache,
             user_id,
@@ -416,7 +419,7 @@ impl ScrapeSessionInstaller for AuthRoutesContext {
             user_id,
             tenant_id.as_uuid(),
             session,
-            session_json.expose_secret(),
+            &stored,
             backend,
         );
         Ok(())

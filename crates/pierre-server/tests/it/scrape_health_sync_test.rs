@@ -45,7 +45,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
-use pierre_services::sciotte_health_reader::SciotteServiceReader;
+use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -562,10 +562,14 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Seen, status: &'static str, b
 
 /// A reader whose client calls the stand-in at `addr`, built as the server
 /// builds its one client and never read from the environment.
-fn reader_for(addr: SocketAddr) -> SciotteServiceReader {
+///
+/// No row is handed out to it, so a rotation it noted would write nothing.
+async fn reader_for(addr: SocketAddr) -> SciotteServiceReader {
     let client = SciotteClient::new(&format!("http://{addr}"), None)
         .expect("a loopback client needs no audience");
-    SciotteServiceReader::new(Some(client))
+    let db = create_test_db().await;
+    let rows = SessionRows::new(Arc::clone(&db.repositories().oauth_tokens));
+    SciotteServiceReader::new(Some(client), rows)
 }
 
 async fn stub_service(status: &'static str, body: &'static str) -> (Seen, SciotteServiceReader) {
@@ -573,7 +577,7 @@ async fn stub_service(status: &'static str, body: &'static str) -> (Seen, Sciott
     let addr = listener.local_addr().unwrap();
     let seen: Seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, Arc::clone(&seen), status, body);
-    (seen, reader_for(addr))
+    (seen, reader_for(addr).await)
 }
 
 /// A scraper service of several instances: it imports any session, and
@@ -616,7 +620,7 @@ async fn stub_service_missing_the_session(
             drop(stream.write_all(response.as_bytes()).await);
         }
     });
-    (seen, reader_for(addr))
+    (seen, reader_for(addr).await)
 }
 
 /// How many of `requests` are imports, and how many are daily-summary reads.

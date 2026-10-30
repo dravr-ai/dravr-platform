@@ -42,10 +42,13 @@ use dravr_sciotte::models::{AccountRole, AthleteProfile, AuthSession};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{normalize_email, DelegatedConnection, ProviderAccountRole, TenantId};
+use pierre_database::repositories::OAuthTokenRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_error::to_app_error;
 use pierre_providers::sciotte_provider::SciotteTarget;
+use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
+use pierre_providers::token_writeback::StoredTokenRow;
 use tracing::info;
 use uuid::Uuid;
 
@@ -388,7 +391,9 @@ async fn purge_misfiled_activities(
 /// for the service. The session is imported first, and imported once more when the read
 /// reaches an instance the import did not: that instance holding no session
 /// says nothing about the account's, so it must not read as a session to
-/// reconnect.
+/// reconnect. A session `TrainingPeaks` rotated on the read is written back
+/// over `read_from`, the token row `session` was stored as, while that row
+/// still stands ([`read_imported_persisting`]).
 ///
 /// # Errors
 ///
@@ -396,17 +401,20 @@ async fn purge_misfiled_activities(
 /// cannot import the session or read the profile.
 pub async fn trainingpeaks_profile(
     registry: &ProviderRegistry,
+    tokens: &dyn OAuthTokenRepository,
+    read_from: &StoredTokenRow,
     session: &AuthSession,
 ) -> AppResult<AthleteProfile> {
     let remote = registry.require_sciotte_client()?;
-    remote
-        .read_imported(
-            session,
-            SciotteTarget::TrainingPeaks.scraper_provider_name(),
-            || remote.get_athlete(&session.session_id),
-        )
-        .await
-        .map_err(to_app_error)
+    read_imported_persisting(
+        remote,
+        session,
+        SciotteTarget::TrainingPeaks.scraper_provider_name(),
+        || remote.get_athlete(&session.session_id),
+        |rotated| async move { store_over_row(tokens, read_from, &rotated).await },
+    )
+    .await
+    .map_err(to_app_error)
 }
 
 /// The platform's account role for a `TrainingPeaks` profile: a coach when
@@ -424,6 +432,9 @@ pub fn account_role(profile: &AthleteProfile) -> ProviderAccountRole {
 /// the grant a coach account bound to the user earns
 /// ([`record_trainingpeaks_profile`]).
 ///
+/// `read_from` is the token row the session was stored as
+/// ([`trainingpeaks_profile`]).
+///
 /// The probe costs one profile read on the scraper service, so callers run it
 /// off the request that stored the session.
 ///
@@ -435,10 +446,11 @@ pub async fn probe_trainingpeaks_role(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,
     session: &AuthSession,
+    read_from: &StoredTokenRow,
     user_id: Uuid,
     tenant: TenantId,
 ) -> AppResult<ProviderAccountRole> {
-    let profile = trainingpeaks_profile(registry, session).await?;
+    let profile = trainingpeaks_profile(registry, &*repos.oauth_tokens, read_from, session).await?;
     Ok(
         record_trainingpeaks_profile(repos, user_id, tenant, &profile)
             .await?

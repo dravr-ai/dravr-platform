@@ -11,6 +11,7 @@ use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::AppError;
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
+use pierre_providers::token_writeback::StoredTokenRow;
 use secrecy::ExposeSecret;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -233,7 +234,16 @@ pub(crate) async fn stored_session_use(
     // A TrainingPeaks connection made before account roles were recorded is
     // probed now, with the session it already holds.
     if provider_name == SCIOTTE_TRAININGPEAKS {
-        spawn_role_probe_if_unread(resources, user_id, tenant_id, session);
+        match StoredTokenRow::of(&token) {
+            Ok(read_from) => {
+                spawn_role_probe_if_unread(resources, user_id, tenant_id, session, read_from);
+            }
+            Err(e) => warn!(
+                %user_id,
+                error = %e,
+                "TrainingPeaks role probe skipped: the stored row cannot be named"
+            ),
+        }
     }
     Ok(StoredSessionUse::Reused(
         Json(serde_json::json!({
