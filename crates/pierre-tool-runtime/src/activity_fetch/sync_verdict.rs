@@ -25,7 +25,7 @@ use pierre_database::repositories::{ActivityFetchFailure, ActivityFetchFailureRe
 use pierre_providers::connect_prefetch::{ConnectPrefetches, PrefetchKey};
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use tracing::field::Empty;
-use tracing::{info, instrument, warn, Span};
+use tracing::{error, info, instrument, warn, Span};
 use uuid::Uuid;
 
 use super::{
@@ -347,6 +347,16 @@ async fn connect_prefetch_answer(
 /// ([`record_sync_failure`]) — when it read the list head
 /// ([`covers_list_head`]). A closed window or a later page that failed says
 /// nothing about whether the head is current, so it records nothing.
+///
+/// A failed head read is also the one event here an operator must hear
+/// about, so it is logged at `error`, the level the Slack error layer
+/// forwards: every caller that reads a head — a chat turn, its detached
+/// continuation, Home, the capture sweep — passes through here, and each
+/// then serves the athlete from the cache under a caveat the athlete is not
+/// shown. On 2026-10-30 a scraper release failed every Strava read for
+/// hours, the chat answered from yesterday's cache, and the only trace was
+/// a `warn` nobody is paged for (carnet#1278). An authentication failure
+/// stays out of it: the reconnect notice is that failure's page.
 pub async fn record_head_outcome(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -360,11 +370,25 @@ pub async fn record_head_outcome(
         Err(e) if e.provider_auth_required_provider().is_some() => None,
         Err(_) => Some(ActivityFetchFailure::FetchError),
     };
-    if let Some(failure) = failure {
-        if covers_list_head(params, Utc::now().timestamp()) {
-            record_sync_failure(runtime, user_id, tenant, provider_slug, failure).await;
-        }
+    let Some(failure) = failure else {
+        return;
+    };
+    if !covers_list_head(params, Utc::now().timestamp()) {
+        return;
     }
+    // The message is the dedup key of the error layer (target plus its first
+    // 80 characters), so it stays constant and the specifics ride as fields.
+    let cause = match read {
+        Err(e) => e.to_string(),
+        Ok(head) => head.verdict.label().to_owned(),
+    };
+    error!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        cause = %cause,
+        "Live activity head read failed; the athlete is served from the cache until it recovers"
+    );
+    record_sync_failure(runtime, user_id, tenant, provider_slug, failure).await;
 }
 
 /// Judge an empty answer for `params`: an honest zero over a window the cache

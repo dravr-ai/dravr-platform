@@ -157,6 +157,12 @@ jobs:
       digest: ${{ needs.image.outputs.digest }}
       probe_audience: dravr-sciotte-development
       probe_providers: garmin strava
+      # A boot that advertises both providers can still fail every read:
+      # sciotte v1.0.0 did (carnet#1278). Read real heads before the platform
+      # that calls this service is rebuilt on top of it. The prefix is the
+      # switch; an unset base URL fails the probe instead of skipping it.
+      read_probe_provider_prefix: sciotte
+      read_probe_base_url: ${{ vars.DEV_PUBLIC_BASE_URL }}
       ship_platform: ${{ needs.bump.outputs.merged == 'true' }}
       release: enforme v${{ needs.bump.outputs.version }}
       platform_summary: |-

@@ -23,14 +23,33 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::sync::Arc;
+
+use axum::http::StatusCode;
+use axum::routing::get;
+use axum::{Json, Router};
 use chrono::{DateTime, Duration, Utc};
-use pierre_core::models::ConnectionType;
+use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+use pierre_config::environment::ProviderEndpointOverride;
+use pierre_core::errors::AppError;
+use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId, UserOAuthToken};
 use pierre_database::repositories::CaptureFreshness;
 use pierre_mcp_server::routes::admin::diagnostics::partition_stale_captures;
+use pierre_providers::core::ActivityQueryParams;
+use pierre_tool_runtime::activity_fetch::sync_verdict::{
+    record_head_outcome, HeadRead, HeadVerdict,
+};
 use pierre_tool_runtime::capture_sweep::capturable;
+use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use secrecy::SecretString;
+use serde_json::{json, Value};
+use tokio::net::TcpListener;
+use tracing::Level;
+use uuid::Uuid;
 
-use crate::common::{create_test_server_resources, create_test_user};
+use crate::common::{self, create_test_server_resources, create_test_user};
+use crate::helpers::notify_capture::{capture_logs, named};
 
 /// Build one snapshot row with ages expressed relative to `now`.
 fn row(
@@ -394,5 +413,241 @@ async fn a_push_only_connection_is_never_judged_stale() {
         stale,
         vec!["whoop"],
         "bug: only the provider read on request can be a frozen capture"
+    );
+}
+
+/// The tenant the test user was created in.
+async fn tenant_of(resources: &Arc<dyn ToolRuntime>, user_id: Uuid) -> TenantId {
+    resources
+        .repos()
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .expect("list tenants")
+        .first()
+        .expect("user has a tenant")
+        .id
+}
+
+/// The line the Slack error layer forwards for a failed head read. Its first
+/// 80 characters are the layer's dedup key, so the text is pinned here.
+const HEAD_READ_FAILED: &str =
+    "Live activity head read failed; the athlete is served from the cache until it recovers";
+
+/// A head read that failed is the one event an operator is paged for: the
+/// error layer forwards `error` lines only, and a `warn` is how the 2026-10-30
+/// stale serve went unheard (carnet#1278). An authentication failure is not
+/// one — the reconnect notice is its page — and a complete read records
+/// nothing.
+#[tokio::test]
+async fn a_failed_head_read_pages_and_an_auth_failure_does_not() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = tenant_of(&runtime, user_id).await;
+    let head = ActivityQueryParams {
+        after: Some((Utc::now() - Duration::days(7)).timestamp()),
+        before: None,
+        limit: Some(50),
+        offset: None,
+    };
+
+    let (events, _guard) = capture_logs();
+    record_head_outcome(
+        &runtime,
+        user_id,
+        tenant,
+        "sciotte",
+        &head,
+        &Err(AppError::provider_auth_required("sciotte")),
+    )
+    .await;
+    record_head_outcome(
+        &runtime,
+        user_id,
+        tenant,
+        "sciotte",
+        &head,
+        &Ok(HeadRead {
+            activities: Vec::new(),
+            verdict: HeadVerdict::Complete,
+        }),
+    )
+    .await;
+    assert!(
+        named(&events, HEAD_READ_FAILED).is_empty(),
+        "bug: an authentication failure or a complete read must not page"
+    );
+
+    record_head_outcome(
+        &runtime,
+        user_id,
+        tenant,
+        "sciotte",
+        &head,
+        &Err(AppError::external_service(
+            "sciotte",
+            "500 from the scraper",
+        )),
+    )
+    .await;
+    let paged = named(&events, HEAD_READ_FAILED);
+    assert_eq!(
+        paged.len(),
+        1,
+        "bug: one failed head read pages exactly once"
+    );
+    let page = &paged[0];
+    assert_eq!(
+        page.level,
+        Level::ERROR,
+        "bug: the page must be at the level the error layer forwards"
+    );
+    assert_eq!(page.field("provider"), "sciotte");
+    assert_eq!(page.field("user_id"), user_id.to_string());
+    assert!(
+        page.field("cause").contains("500 from the scraper"),
+        "bug: the page names what failed, got: {}",
+        page.field("cause")
+    );
+}
+
+/// A Strava API stand-in whose activity list answers 500: a live read that
+/// fails without being an authentication failure, so the elected provider's
+/// own cache answers the window.
+async fn strava_answering_500() -> String {
+    let app = Router::new().route(
+        "/athlete/activities",
+        get(|| async {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "message": "Internal Server Error" })),
+            )
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
+/// A window the elected provider's own cache answered, its live read having
+/// failed, is still that connection serving the athlete, so it moves
+/// `last_used_at`. The active-athlete sweep selects on that mark; touching
+/// it on live answers only froze jf's at 2026-10-19 while chat served him
+/// from the cache daily (carnet#1278).
+#[tokio::test]
+async fn a_serve_from_the_elected_providers_own_cache_touches_its_connection() {
+    let api_base = strava_answering_500().await;
+    let mut config = common::test_server_config();
+    common::set_server_app(&mut config, "strava", "test_client", "test_secret");
+    common::set_provider_endpoints(
+        &mut config,
+        "strava",
+        ProviderEndpointOverride {
+            api_base_url: Some(api_base),
+            ..ProviderEndpointOverride::default()
+        },
+    );
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let (user_id, _user) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let tenant = tenant_of(&runtime, user_id).await;
+    let repos = &resources.common.repos;
+
+    // A live grant, so the read reaches the API and fails there, not at auth.
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, "strava", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let now = Utc::now();
+    repos
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant.to_string(),
+            provider: "strava".to_owned(),
+            // >= 40 chars and not "at_"-prefixed: the provider's token validation.
+            access_token: SecretString::from("strava_access_token_0123456789abcdef0123456789"),
+            refresh_token: Some(SecretString::from("strava_refresh")),
+            token_type: "Bearer".to_owned(),
+            expires_at: Some(now + Duration::hours(6)),
+            scope: Some("activity:read_all".to_owned()),
+            provider_user_id: Some("4242".to_owned()),
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+    let ride = ActivityBuilder::new(
+        "strava-ride-1",
+        "Sortie longue",
+        SportType::Ride,
+        now - Duration::days(2),
+        7_200,
+        "strava",
+    )
+    .distance_meters(80_000.0)
+    .build();
+    repos
+        .activity_cache
+        .upsert_activities(user_id, &tenant, "strava", &[ride])
+        .await
+        .unwrap();
+    let fresh = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant))
+        .await
+        .unwrap();
+    assert!(
+        fresh.iter().all(|c| c.last_used_at.is_none()),
+        "fixture: a connection that has never served carries no mark"
+    );
+
+    let ctx = ToolContext::new()
+        .with_user(user_id.to_string())
+        .with_tenant(tenant.to_string())
+        .with_auth_method("jwt_bearer");
+    let response = GetActivitiesTool
+        .execute(&runtime, &ctx, json!({ "limit": 10, "mode": "summary" }))
+        .await;
+    let payload = response
+        .structured_content
+        .expect("tool result carries structured content");
+    assert!(
+        payload.get("provider_unavailable").is_some(),
+        "fixture: the window must be served from strava's own cache, got: {payload}"
+    );
+    assert_eq!(
+        payload
+            .get("activities")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(1),
+        "the cached ride is what the athlete is served: {payload}"
+    );
+
+    let strava = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.provider == "strava")
+        .expect("the strava connection");
+    assert!(
+        strava.last_used_at.is_some(),
+        "bug: a serve from the elected provider's own cache must touch its connection"
     );
 }

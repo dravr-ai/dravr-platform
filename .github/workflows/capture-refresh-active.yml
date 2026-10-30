@@ -9,11 +9,13 @@
 # an athlete's 07:56 ride was missing from a 11:21 answer for exactly that reason
 # (carnet#1206).
 #
-# This lane runs the same server-side sweep, narrowed to connections that served
-# their athlete in the last week (a chat turn or an app load touches
-# `provider_connections.last_used_at`) and passing over heads a fetch reached in
-# the last two hours. An athlete who has not chatted this week waits for the
-# daily sweep, so the scraper is not woken for everyone eight times a day.
+# This lane runs the same server-side sweep, narrowed to the athletes served in
+# the last week (a chat turn or an app load touches
+# `provider_connections.last_used_at` on the connection that answered, and
+# every capturable connection of that athlete then counts as active) and
+# passing over heads a fetch reached in the last two hours. An athlete who has
+# not chatted this week waits for the daily sweep, so the scraper is not woken
+# for everyone eight times a day.
 # Flagged scrape sessions are the one exception: every sweep also retries the
 # ones whose retry is due, whoever owns them, and their own six-hour claim
 # (SCRAPE_SESSION_RETRY_INTERVAL_HOURS) holds each to four reads a day.
@@ -31,7 +33,7 @@ on:
   workflow_dispatch:
     inputs:
       active_within_hours:
-        description: "Only connections that served their athlete within this many hours"
+        description: "Only the connections of athletes served, on any of their connections, within this many hours"
         required: false
         default: "168"
       skip_fetched_within_hours:
@@ -99,3 +101,15 @@ jobs:
             echo
             jq -r '"attempted \(.attempted) · refreshed \(.refreshed) · flagged \(.flagged) · failed \(.failed) · skipped \(.skipped) · passed over \(.passed_over) · completed \(.completed)"' /tmp/refresh.json
           } >> "${GITHUB_STEP_SUMMARY}"
+          # A transient failure is a head the athlete will be served stale
+          # from, and three in a row on 2026-10-30 were a scraper release that
+          # could not read Strava at all: the lane went green on `failed: 0`
+          # because nothing ever read that count (carnet#1278). A flagged
+          # connection is the athlete's to reconnect and stays a count.
+          # -e: a body with no `failed` count fails the step instead of
+          # reading as zero failures.
+          FAILED=$(jq -er '.failed' /tmp/refresh.json)
+          if [ "${FAILED}" != "0" ]; then
+            echo "::error::capture-refresh: ${FAILED} head fetch(es) failed transiently — the providers, by count: $(jq -c '[.connections[] | select(.outcome == "failed") | .provider] | group_by(.) | map({(.[0]): length}) | add' /tmp/refresh.json)"
+            exit 1
+          fi

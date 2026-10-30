@@ -42,6 +42,7 @@
 //! upsert, dedup, prune and freshness-mark logic — and `fetched_at`, the mark
 //! that write-through advances, is the exact signal the staleness reader trusts.
 
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -128,8 +129,9 @@ impl Default for SweepBudget {
 /// chat keeps their head current without waking the scraper for everyone.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SweepSelection {
-    /// Only connections that served the athlete — a chat turn or an app load
-    /// — within this long. `None` walks every live connection.
+    /// Only the connections of athletes served — a chat turn or an app load,
+    /// on any of their connections — within this long. `None` walks every
+    /// live connection.
     pub active_within: Option<ChronoDuration>,
     /// Pass over connections whose last successful fetch is younger than
     /// this: a turn or an earlier sweep already refreshed them.
@@ -137,20 +139,59 @@ pub struct SweepSelection {
 }
 
 impl SweepSelection {
-    /// Whether `connection` is one this sweep refreshes at `now`.
-    fn selects(&self, connection: &CaptureFreshness, now: DateTime<Utc>) -> bool {
-        let active = self.active_within.is_none_or(|window| {
-            connection
-                .last_used_at
-                .is_some_and(|used| used >= now - window)
-        });
+    /// The athletes of `rows` this sweep treats as active: those with a serve
+    /// of ANY of their connections within `active_within`. `None` when the
+    /// sweep walks everyone.
+    ///
+    /// Activity is the athlete's, not the connection's. `last_used_at` is
+    /// touched on the connection the election picked, so an athlete's other
+    /// connections never carry it (11 of 24 on dev read `NULL` on
+    /// 2026-10-30), and a connection-level test left every one of them to
+    /// the daily sweep while their athlete chatted daily (carnet#1278).
+    fn active_athletes(&self, rows: &[CaptureFreshness], now: DateTime<Utc>) -> ActiveAthletes {
+        let Some(window) = self.active_within else {
+            return ActiveAthletes(None);
+        };
+        let since = now - window;
+        ActiveAthletes(Some(
+            rows.iter()
+                .filter(|row| row.last_used_at.is_some_and(|used| used >= since))
+                .map(athlete_key)
+                .collect(),
+        ))
+    }
+
+    /// Whether `connection` is one this sweep refreshes at `now`: its athlete
+    /// is active and no fetch reached it within `skip_fetched_within`.
+    fn selects(
+        &self,
+        connection: &CaptureFreshness,
+        now: DateTime<Utc>,
+        active: &ActiveAthletes,
+    ) -> bool {
         let due = self.skip_fetched_within.is_none_or(|window| {
             connection
                 .last_fetch_at
                 .is_none_or(|fetched| fetched < now - window)
         });
-        active && due
+        active.covers(connection) && due
     }
+}
+
+/// The athletes a sweep walks, keyed by tenant and user; `None` is everyone.
+struct ActiveAthletes(Option<HashSet<(String, String)>>);
+
+impl ActiveAthletes {
+    fn covers(&self, connection: &CaptureFreshness) -> bool {
+        self.0
+            .as_ref()
+            .is_none_or(|active| active.contains(&athlete_key(connection)))
+    }
+}
+
+/// One athlete across their connections: the tenant and user a row belongs to.
+fn athlete_key(row: &CaptureFreshness) -> (String, String) {
+    (row.tenant_id.clone(), row.user_id.clone())
 }
 
 /// The connections of `snapshot` a capture can be made of, and how many
@@ -282,9 +323,10 @@ pub async fn refresh_captures(
         .await?;
     let live_count = live.len();
     let (fetchable, _) = capturable(runtime.provider_registry(), live);
+    let active = selection.active_athletes(&fetchable, started_at);
     let snapshot: Vec<CaptureFreshness> = fetchable
         .into_iter()
-        .filter(|connection| selection.selects(connection, started_at))
+        .filter(|connection| selection.selects(connection, started_at, &active))
         .collect();
     let passed_over = live_count - snapshot.len();
 
@@ -661,6 +703,8 @@ async fn flag_connection(
 
 #[cfg(test)]
 mod tests {
+    use std::slice;
+
     use chrono::{DateTime, Duration, Utc};
     use pierre_database::repositories::CaptureFreshness;
 
@@ -684,6 +728,14 @@ mod tests {
         skip_fetched_within: Some(Duration::hours(2)),
     };
 
+    /// Whether `selection` walks `row` when `row` is the athlete's only
+    /// connection.
+    fn selects_alone(selection: &SweepSelection, row: &CaptureFreshness) -> bool {
+        let now = Utc::now();
+        let active = selection.active_athletes(slice::from_ref(row), now);
+        selection.selects(row, now, &active)
+    }
+
     /// The 2026-10-27 athlete: chatted yesterday, last fetched this morning.
     #[test]
     fn an_athlete_who_chats_and_was_not_fetched_lately_is_refreshed() {
@@ -693,7 +745,7 @@ mod tests {
             Some(now - Duration::hours(5)),
         );
         assert!(
-            ACTIVE_ONLY.selects(&row, now),
+            selects_alone(&ACTIVE_ONLY, &row),
             "bug: an active athlete's stale head must be refreshed"
         );
     }
@@ -704,11 +756,11 @@ mod tests {
         for used in [None, Some(now - Duration::days(8))] {
             let row = connection(used, None);
             assert!(
-                !ACTIVE_ONLY.selects(&row, now),
+                !selects_alone(&ACTIVE_ONLY, &row),
                 "bug: an idle athlete must not wake the scraper: {used:?}"
             );
             assert!(
-                SweepSelection::default().selects(&row, now),
+                selects_alone(&SweepSelection::default(), &row),
                 "bug: the daily sweep walks every live connection: {used:?}"
             );
         }
@@ -719,13 +771,67 @@ mod tests {
         let now = Utc::now();
         let row = connection(Some(now), Some(now - Duration::minutes(30)));
         assert!(
-            !ACTIVE_ONLY.selects(&row, now),
+            !selects_alone(&ACTIVE_ONLY, &row),
             "bug: a head fetched 30 minutes ago must be passed over"
         );
         let never_fetched = connection(Some(now), None);
         assert!(
-            ACTIVE_ONLY.selects(&never_fetched, now),
+            selects_alone(&ACTIVE_ONLY, &never_fetched),
             "bug: a head never fetched is always due"
+        );
+    }
+
+    /// The 2026-10-30 athlete: Strava elected and served yesterday, an
+    /// intervals.icu connection never elected, so never touched, and fetched
+    /// only by the daily sweep. Activity is theirs, not the elected row's.
+    #[test]
+    fn an_active_athletes_untouched_connection_is_refreshed_too() {
+        let now = Utc::now();
+        let elected = CaptureFreshness {
+            provider: "strava".to_owned(),
+            ..connection(
+                Some(now - Duration::days(1)),
+                Some(now - Duration::hours(1)),
+            )
+        };
+        let untouched = CaptureFreshness {
+            provider: "intervals_icu".to_owned(),
+            ..connection(None, Some(now - Duration::hours(20)))
+        };
+        let rows = [elected.clone(), untouched.clone()];
+        let active = ACTIVE_ONLY.active_athletes(&rows, now);
+        assert!(
+            !ACTIVE_ONLY.selects(&elected, now, &active),
+            "bug: the elected head fetched an hour ago is passed over"
+        );
+        assert!(
+            ACTIVE_ONLY.selects(&untouched, now, &active),
+            "bug: an active athlete's untouched connection must be refreshed"
+        );
+    }
+
+    /// A different athlete's recent serve lends nobody else activity.
+    #[test]
+    fn activity_does_not_cross_athletes_or_tenants() {
+        let now = Utc::now();
+        let chatty = connection(Some(now), Some(now - Duration::hours(5)));
+        let other_user = CaptureFreshness {
+            user_id: "someone-else".to_owned(),
+            ..connection(None, None)
+        };
+        let other_tenant = CaptureFreshness {
+            tenant_id: "another-tenant".to_owned(),
+            ..connection(None, None)
+        };
+        let rows = [chatty, other_user.clone(), other_tenant.clone()];
+        let active = ACTIVE_ONLY.active_athletes(&rows, now);
+        assert!(
+            !ACTIVE_ONLY.selects(&other_user, now, &active),
+            "bug: another athlete's serve must not make this one active"
+        );
+        assert!(
+            !ACTIVE_ONLY.selects(&other_tenant, now, &active),
+            "bug: a serve in another tenant must not make this athlete active"
         );
     }
 }

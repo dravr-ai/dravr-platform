@@ -992,11 +992,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // and never a capture whose head the provider did not see
             // (carnet#149, carnet#151).
 
-            // Record the serve against the connection that actually produced it, so
-            // the activity-source election picks the backend the athlete trains on rather
-            // than whichever connection was added last. A missing primary that a
-            // sibling answered for is not a serve.
-            if stood_in.is_none() && context.tenant_id.is_some() {
+            // Record the serve against the connection that produced it, so the
+            // activity-source election picks the backend the athlete trains on. A
+            // sibling's answer is not its serve; its own cache's is (carnet#1278).
+            if stood_in.as_ref().is_none_or(PrimaryStandIn::served_from_own_cache)
+                && context.tenant_id.is_some()
+            {
                 touch_connection_used(
                     &context.resources,
                     context.user_id,

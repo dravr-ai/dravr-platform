@@ -55,6 +55,16 @@ on:
         required: false
         default: ""
         type: string
+      read_probe_provider_prefix:
+        description: "Provider-key prefix of the connections the read probe judges (sciotte for every scrape backend); a failed head among them, or none to judge, rolls the deploy back. Empty skips the read probe"
+        required: false
+        type: string
+        default: ""
+      read_probe_base_url:
+        description: "Platform base URL whose POST /admin/diagnostics/capture-refresh reads real heads through the deployed service; a read probe fails rather than skips when it is empty"
+        required: false
+        type: string
+        default: ""
       ship_platform:
         description: "Dispatch the platform image build once the service is deployed (true when the spine pushed a bump)"
         required: true
@@ -251,6 +261,72 @@ jobs:
               || { echo "::error::/health does not advertise the ${p} provider"; exit 1; }
           done
           echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
+
+      - name: Read real heads through the deployed service
+        # /health proves the container boots and names its providers; it says
+        # nothing about whether a read works. sciotte v1.0.0 (2026-10-30) passed
+        # that probe and then answered 500 to every Strava read for hours, while
+        # the chat served yesterday's cache (carnet#1278). This asks the platform
+        # to refresh every active athlete's capture right now — the same call the
+        # 3-hourly lane makes — and reads the per-connection outcomes: a head the
+        # deployed service failed to read rolls the deploy back below. A
+        # connection the athlete must reconnect (`flagged`) is not the service's
+        # fault and does not count; a transient failure on a provider outside the
+        # prefix (an OAuth API down) does not either.
+        #
+        # The athletes' sessions are real: this repo keeps no fake provider
+        # accounts, so the canary is whoever is connected on dev. No connection
+        # under the prefix fails the probe like a failed read does: it proved
+        # nothing, and a deploy nothing judged is not a passed deploy.
+        #
+        # The caller's provider prefix is the switch, a literal it writes
+        # itself; the base URL and the token are read from the repository and
+        # each refuses when unset, so a missing variable can never silently
+        # turn the gate off.
+        if: ${{ inputs.read_probe_provider_prefix != '' }}
+        env:
+          BASE_URL: ${{ inputs.read_probe_base_url }}
+          ADMIN_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          PREFIX: ${{ inputs.read_probe_provider_prefix }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} secrets.CANARY_ADMIN_TOKEN"
+          [ -n "${BASE_URL}" ] || MISSING="${MISSING} read_probe_base_url (vars.DEV_PUBLIC_BASE_URL)"
+          if [ -n "${MISSING}" ]; then
+            echo "::error::Missing:${MISSING} — the read probe cannot run, and a deploy it cannot judge is not a passed deploy (see monitor-capture-staleness.yml for how CANARY_ADMIN_TOKEN is minted)"
+            exit 1
+          fi
+          URL="${BASE_URL}/admin/diagnostics/capture-refresh?active_within_hours=168&skip_fetched_within_hours=0"
+          CODE=$(curl -sS -X POST -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Accept: application/json" \
+            --max-time 540 -o /tmp/read-probe.json -w '%{http_code}' "${URL}" || echo "000")
+          if [ "${CODE}" != "200" ]; then
+            echo "::error::capture-refresh answered HTTP ${CODE}; the read probe could not run"
+            head -c 2000 /tmp/read-probe.json 2>/dev/null || true
+            exit 1
+          fi
+          # Counts only: the body carries ids, and this repo's CI logs are public.
+          jq --arg p "${PREFIX}" '[.connections[] | select(.provider | startswith($p))] | {judged: length, refreshed: map(select(.outcome == "refreshed")) | length, failed: map(select(.outcome == "failed")) | length, flagged: map(select(.outcome == "flagged")) | length}' /tmp/read-probe.json | tee /tmp/read-probe-summary.json
+          JUDGED=$(jq -r '.judged' /tmp/read-probe-summary.json)
+          FAILED=$(jq -r '.failed' /tmp/read-probe-summary.json)
+          if [ "${FAILED}" != "0" ]; then
+            echo "::error::${FAILED} head read(s) failed through the deployed service on providers: $(jq -c --arg p "${PREFIX}" '[.connections[] | select((.provider | startswith($p)) and .outcome == "failed") | .provider] | unique' /tmp/read-probe.json) — rolling back"
+            exit 1
+          fi
+          # One dead session is the athlete's to reconnect; every session
+          # under the prefix refused at once is a release that cannot read,
+          # and a sweep that flags them all sends every athlete a reconnect
+          # notice for the service's fault. Nothing read is a failed probe.
+          REFRESHED=$(jq -r '.refreshed' /tmp/read-probe-summary.json)
+          if [ "${JUDGED}" != "0" ] && [ "${REFRESHED}" = "0" ]; then
+            echo "::error::no head under provider prefix '${PREFIX}' was read through the deployed service ($(jq -c . /tmp/read-probe-summary.json)) — rolling back"
+            exit 1
+          fi
+          if [ "${JUDGED}" = "0" ]; then
+            echo "::error::no active connection under provider prefix '${PREFIX}' on dev: the read probe judged nothing, so this deploy is unverified — rolling back"
+            exit 1
+          fi
+          echo "read probe: $(cat /tmp/read-probe-summary.json)"
 
       - name: Roll back to the previously serving digest
         # Only once a rollback target was captured: a failure before that (auth,

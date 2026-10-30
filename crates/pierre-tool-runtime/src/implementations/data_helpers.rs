@@ -290,6 +290,20 @@ pub enum PrimaryStandIn {
 }
 
 impl PrimaryStandIn {
+    /// Whether the elected provider's own cache answered the window, which
+    /// counts as that connection serving the athlete.
+    ///
+    /// `CaptureFreshness::last_used_at` promises "live fetch or cache
+    /// alike", and the active-athlete sweep selects on it. Touching only a
+    /// live answer let a scrape that outlives every turn's 15 s budget freeze
+    /// the mark on 2026-10-19, and the sweep passed the athlete over for ten
+    /// days while chat served him daily (carnet#1278). A sibling's answer
+    /// (`Dead`, `Unreachable`) is still not the primary's serve.
+    #[must_use]
+    pub const fn served_from_own_cache(&self) -> bool {
+        matches!(self, Self::Stale(..))
+    }
+
     /// The sidecar the served window carries for it, and the key it rides
     /// under: `reconnect_required` for a dead provider, `provider_unavailable`
     /// for one that could not answer or was served from its cache.

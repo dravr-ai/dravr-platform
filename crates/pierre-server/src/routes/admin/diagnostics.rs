@@ -190,7 +190,8 @@ pub struct CaptureStalenessQuery {
 /// reader's are: an unbounded window would overflow `now - window`.
 #[derive(Debug, Default, Deserialize)]
 pub struct CaptureRefreshQuery {
-    /// Only connections that served the athlete within this many hours.
+    /// Only the connections of athletes served, on any of their connections,
+    /// within this many hours.
     active_within_hours: Option<u32>,
     /// Pass over connections a fetch already reached within this many hours.
     skip_fetched_within_hours: Option<u32>,
