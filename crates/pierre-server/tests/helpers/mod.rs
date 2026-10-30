@@ -19,11 +19,11 @@ pub(crate) mod contremaitre_checkout;
 /// suites that interrupt a live turn (drain, watchdog).
 #[cfg(feature = "client-messaging")]
 pub(crate) mod drained_turn;
-/// An approved fuel-product label an athlete can carry (carnet#155).
-pub(crate) mod fuel_fixtures;
 /// The first-party sign-in: authorization code + PKCE through the hosted login page.
 #[cfg(feature = "protocol-rest")]
 pub(crate) mod first_party_sign_in;
+/// An approved fuel-product label an athlete can carry (carnet#155).
+pub(crate) mod fuel_fixtures;
 /// Google's OpenID Connect token endpoint and signing keys, for the hosted Google sign-in.
 pub(crate) mod google_oidc;
 /// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.

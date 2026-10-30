@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
+use dravr_cageux::periodization::MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H;
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::{TenantId, WorkoutStep};
 use pierre_database::repositories::training_plans::PlanAuthor;
@@ -361,6 +362,25 @@ fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
             }
             if let Some(source) = fuel.carb_source.as_deref() {
                 bounded("day.fueling.carb_source", source, MAX_SHORT_TEXT_LEN)?;
+            }
+            // Above the single-transporter ceiling the rate is only honest when
+            // something says where the second transportable carbohydrate comes
+            // from: the stated source, or the products the day names (whose
+            // labels `check_fuel_products` then holds to it).
+            let states_source = fuel
+                .carb_source
+                .as_deref()
+                .is_some_and(|source| !source.trim().is_empty());
+            if fuel.needs_multiple_transportable_carbs()
+                && !states_source
+                && day.fuel_product_ids.is_empty()
+            {
+                return Err(AppError::invalid_input(format!(
+                    "day {} fueling.carbs_g_per_h {} is above {MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H} \
+                     g/h, which one carbohydrate source cannot deliver — state carb_source \
+                     (e.g. 'glucose:fructose 1:0.8') or name the day's fuel products",
+                    day.date, fuel.carbs_g_per_h
+                )));
             }
             if day.is_rest() {
                 return Err(AppError::invalid_input(format!(

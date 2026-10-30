@@ -313,6 +313,7 @@ mod forgot_password_test;
 mod form_relative_banding_test;
 mod formatters_test;
 mod fortnight_command_test;
+mod fuel_carb_ceiling_test;
 mod fuel_products_tools_test;
 mod garmin_api_e2e_test;
 mod garmin_attribution_reply_test;

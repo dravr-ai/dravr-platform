@@ -1,5 +1,5 @@
 // ABOUTME: The fuel products a saved plan day names — each a catalogue product the athlete carries, refused otherwise
-// ABOUTME: Resolves every referenced product once per save, so a per-day rule over their label facts has them in hand (carnet#155)
+// ABOUTME: Above 60 g/h every carb-bearing product named must state a glucose:fructose ratio on its label (carnet#155)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,6 +20,12 @@
 //! label once; [`check_day_fuel_products`] then holds each day to the rules
 //! over those facts.
 //!
+//! A day fuelled above the single-transporter ceiling (60 g/h, dravr-cageux's
+//! [`MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H`]) is held to the labels it names:
+//! each carbohydrate-bearing product must state a glucose:fructose ratio
+//! ([`check_day_carb_ceiling`]). A day naming no product states its source in
+//! `carb_source` instead, checked in the payload's pure validation.
+//!
 //! A refusal names the remedy its reader can act on ([`FuelProductsReader`]):
 //! the fuel tools act on the caller's own list, so in a coach's thread they
 //! read and write the coach's, never the athlete's, and the coach is pointed
@@ -27,6 +33,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use dravr_cageux::periodization::MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CatalogueFuelProduct, FuelItemEntry, TenantId, MAX_FUEL_PRODUCT_LOOKUP};
 use pierre_database::RepositoryRegistry;
@@ -181,7 +188,8 @@ async fn resolve_fuel_products(
 }
 
 /// Hold one day to the rules over the products it names: each is in the
-/// catalogue and on the athlete's list, the refusal naming `reader`'s remedy.
+/// catalogue and on the athlete's list, the refusal naming `reader`'s remedy,
+/// and a rate above the single-transporter ceiling is backed by their labels.
 fn check_day_fuel_products(
     day: &PlannedDay,
     products: &HashMap<Uuid, CatalogueFuelProduct>,
@@ -204,5 +212,60 @@ fn check_day_fuel_products(
             )));
         }
     }
-    Ok(())
+    check_day_carb_ceiling(day, products)
+}
+
+/// Hold a day above the single-transporter ceiling to the labels of the
+/// products it names: every one that carries carbohydrate must state a
+/// glucose:fructose ratio, because a rate above
+/// [`MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H`] is only reachable with multiple
+/// transportable carbohydrates and a label without the ratio cannot show it
+/// delivers them. A ratio of zero is glucose alone. A product with no
+/// carbohydrate on its label (an electrolyte capsule) neither helps nor hurts.
+fn check_day_carb_ceiling(
+    day: &PlannedDay,
+    products: &HashMap<Uuid, CatalogueFuelProduct>,
+) -> AppResult<()> {
+    let Some(fuel) = day.fueling.as_ref() else {
+        return Ok(());
+    };
+    if !fuel.needs_multiple_transportable_carbs() {
+        return Ok(());
+    }
+    let single_source: Vec<String> = day
+        .fuel_product_ids
+        .iter()
+        .filter_map(|id| products.get(id))
+        .filter(|product| product.current.facts.carbs_g.is_some_and(|carbs| carbs > 0.0))
+        .filter(|product| {
+            !product
+                .current
+                .facts
+                .glucose_fructose_ratio
+                .is_some_and(|ratio| ratio > 0.0)
+        })
+        .map(|product| format!("{} ({})", product.product.id, product_label(product)))
+        .collect();
+    if single_source.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(format!(
+        "day {} fueling.carbs_g_per_h {} is above {MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H} g/h, but \
+         these named products state no glucose:fructose ratio, so their label does not show \
+         multiple transportable carbohydrates: {} — lower the rate to \
+         {MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H} g/h or name products whose label states the ratio",
+        day.date,
+        fuel.carbs_g_per_h,
+        single_source.join(", ")
+    )))
+}
+
+/// "Brand Name Variant", the variant left out when the product has none.
+fn product_label(product: &CatalogueFuelProduct) -> String {
+    let product = &product.product;
+    if product.variant.is_empty() {
+        format!("{} {}", product.brand, product.name)
+    } else {
+        format!("{} {} {}", product.brand, product.name, product.variant)
+    }
 }

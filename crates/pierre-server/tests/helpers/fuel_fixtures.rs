@@ -32,6 +32,28 @@ pub(crate) fn gel_facts() -> FuelFacts {
 /// An approved catalogue gel of `brand`, with a distinct name and variant
 /// "Citrus", approved by `reviewer`. Returns its product id.
 pub(crate) async fn approved_gel(repos: &RepositoryRegistry, reviewer: Uuid, brand: &str) -> Uuid {
+    approved_gel_with(repos, reviewer, brand, gel_facts()).await
+}
+
+/// [`approved_gel`] with its label `facts` given.
+pub(crate) async fn approved_gel_with(
+    repos: &RepositoryRegistry,
+    reviewer: Uuid,
+    brand: &str,
+    facts: FuelFacts,
+) -> Uuid {
+    approved_product(repos, reviewer, brand, FuelForm::Gel, facts).await
+}
+
+/// An approved catalogue product of `brand` and `form` with label `facts`, a
+/// distinct name and variant "Citrus", approved by `reviewer`.
+pub(crate) async fn approved_product(
+    repos: &RepositoryRegistry,
+    reviewer: Uuid,
+    brand: &str,
+    form: FuelForm,
+    facts: FuelFacts,
+) -> Uuid {
     let proposal_id = repos
         .fuel_catalogue
         .create_fuel_proposal(&NewFuelProposal {
@@ -39,7 +61,7 @@ pub(crate) async fn approved_gel(repos: &RepositoryRegistry, reviewer: Uuid, bra
             brand: brand.to_owned(),
             name: format!("Gel {}", Uuid::new_v4().simple()),
             variant: "Citrus".to_owned(),
-            form: FuelForm::Gel,
+            form,
             gtin: None,
             source_kind: ProposalSource::Admin,
             source_url: None,
@@ -48,7 +70,7 @@ pub(crate) async fn approved_gel(repos: &RepositoryRegistry, reviewer: Uuid, bra
             ingredients_text: None,
             multiple_transportable_stated: None,
             source_hash: None,
-            facts: gel_facts(),
+            facts,
             provenance: BTreeMap::new(),
             gate_flags: Vec::new(),
             proposed_by_user_id: None,
