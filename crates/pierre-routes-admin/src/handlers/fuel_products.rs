@@ -260,8 +260,9 @@ pub struct ApproveFuelProposalRequest {
 /// One gate violation as the console shows it.
 #[derive(Debug, Serialize)]
 pub struct ViolationView {
-    /// The stable code ([`PlausibilityViolation::code`]).
-    pub code: &'static str,
+    /// The stable rule code ([`PlausibilityViolation::code`]), sent as `code`.
+    #[serde(rename = "code")]
+    pub rule_code: &'static str,
     /// What is wrong, in a sentence.
     pub message: String,
     /// The violation's own fields.
@@ -271,7 +272,7 @@ pub struct ViolationView {
 impl From<PlausibilityViolation> for ViolationView {
     fn from(violation: PlausibilityViolation) -> Self {
         Self {
-            code: violation.code(),
+            rule_code: violation.code(),
             message: violation.to_string(),
             detail: violation,
         }
