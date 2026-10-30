@@ -153,11 +153,12 @@ fn negation_in_another_clause_does_not_open_the_guard() {
 /// A comma is a list separator as often as a clause break, and the negation
 /// reaches across the first kind.
 ///
-/// The first case is the shape of the identity anchor appended to every system
-/// prompt (`prompt_assembly::IDENTITY_ANCHOR`): one negation governing a list
-/// of things the agent is not. A model echoing its own anchor — or an athlete
-/// quoting it back — must not be withheld, which is what treating every comma
-/// as a clause break would do.
+/// The first case is one negation governing a list of things the agent is
+/// not, the shape the identity anchor appended to every system prompt
+/// (`prompt_assembly::IDENTITY_ANCHOR`) uses in "You are not a coding,
+/// terminal, or command-line assistant". A model echoing its own anchor — or
+/// an athlete quoting it back — must not be withheld, which is what treating
+/// every comma as a clause break would do.
 #[test]
 fn a_negated_list_keeps_the_negation_across_its_commas() {
     let lists = [

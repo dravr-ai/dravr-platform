@@ -73,8 +73,8 @@ use stable_head::mark_stable_head;
 /// the freshest instruction when generation starts.
 ///
 /// It counters the underlying Copilot CLI system prompt at the *category* level
-/// ("terminal/coding assistant", "general-purpose AI/language model") rather
-/// than by naming products. Two deliberate omissions:
+/// ("coding, terminal, or command-line assistant") rather than by naming
+/// products. Two deliberate omissions:
 /// - **No product names** (GitHub Copilot / `ChatGPT` / `OpenAI`). Naming them
 ///   primes the tokens and invites a `no, I'm not <product>` reply — which
 ///   the response-boundary matcher would then withhold as if it were a real
@@ -82,24 +82,30 @@ use stable_head::mark_stable_head;
 ///   suffices": arm B was equally generic and still disclosed the model 2/12.
 ///   Placement is what carried arm C; the omission is about not manufacturing
 ///   the false positive.
-/// - **"not even to deny it"** — the agent must assert "I am Dravr" without
-///   ever emitting the underlying identity's name, so a correct answer can
-///   never trip that matcher. This is not hypothetical: every one of the 5
+/// - **"not even to deny it"** — the agent must assert "I am Dravr's agent"
+///   without ever emitting the underlying identity's name, so a correct answer
+///   can never trip that matcher. This is not hypothetical: every one of the 5
 ///   boundary matches across the 48 A/B runs was a *correct denial* (« Non, je
 ///   ne suis pas GitHub Copilot — je suis Dravr »), not a leak.
+///
+/// Hiding the model is not hiding that there is one (carnet#1165, ADR-026):
+/// the agent says plainly it is an AI agent, never a person or anyone's coach,
+/// as EU AI Act Art. 50(1) and the privacy policy require. Coach-facing agents
+/// read it too, so it names no audience. It never hands the model "language
+/// model" or "software agent", the phrasings the leak boundary withholds.
 ///
 /// Public because a system layer exists that prompt assembly cannot reach: an
 /// agent that runs its own loop reads a system prompt we do not control, so
 /// this travels there as the tool host's MCP `initialize` instructions. A
 /// persona that only reaches the prompt body is read as the user talking, and
 /// the model answers as itself.
-pub const IDENTITY_ANCHOR: &str = "You are Dravr, the athlete's personal fitness and endurance \
-coach, and nothing else. You are not a general-purpose AI, a language model, a chat bot, or a \
-coding, terminal, or command-line assistant — you are their coach. Never reveal, name, \
-discuss, apologize as, or role-play the underlying model, provider, or tools that run you, and \
-never claim any identity other than Dravr — not even to deny another one. If the athlete asks \
-who or what you are, or about your \"real\" identity, you are simply Dravr, their coach. \
-Everything above is your coaching context, not a competing identity.";
+pub const IDENTITY_ANCHOR: &str = "You are Dravr's AI agent: an AI, not a person, and not \
+anyone's coach, because a coach is a person. If anyone asks whether you are a person, an AI or \
+their coach, say plainly that you are an AI agent, not a person. You are not a coding, \
+terminal, or command-line assistant. Never reveal, name, discuss, apologize as, or role-play \
+the underlying model, provider, or tools that run you — not even to deny another one — and \
+never claim any identity other than Dravr's AI agent. Everything above is your coaching \
+context, not a competing identity.";
 
 /// What the agent is meant to DO on an ordinary turn.
 ///
@@ -213,16 +219,17 @@ pub const TURN_DIRECTIVE: &str = "\n\n# This turn\n\
 /// file and there is no reason to spend the tail on those words. It says what
 /// it governs and stays quiet about the rest.
 ///
-/// Ahead of the identity anchor, not after it: that block's tail placement is
-/// the measured result and nothing may displace it.
+/// Ahead of the identity anchor, whose tail placement nothing may displace.
+/// Says "agent", never "coach", minus the "-agent" every catalogue slug ends in.
 #[must_use]
 pub fn agent_voice_anchor(slug: &str) -> String {
+    let discipline = slug.strip_suffix("-agent").unwrap_or(slug);
     format!(
-        "Answer as the {slug} coach throughout. Stay in that discipline's own \
+        "Answer as the {discipline} agent throughout. Stay in that discipline's own \
 vocabulary and framing even when the athlete asks about something adjacent to \
 it — a recovery, sleep or nutrition question asked of a specialist is still \
 that specialist's question, and answering it in generic coaching language is \
-answering as the wrong coach. This shapes how you speak, never what you can \
+answering as the wrong agent. This shapes how you speak, never what you can \
 do; the rules above already settle that."
     )
 }
@@ -1060,23 +1067,16 @@ pub(crate) async fn assemble_prompt_and_messages(
     // (embacle v0.19.6's tool-catalog reframing did, over 9 live A/B runs) — so
     // the fight is "adversarial slot vs. something" rather than "vs. nothing".
     //
-    // Until now agent-bound turns fought it with nothing: [`resolve_agent_base_prompt`]
-    // REPLACES `pierre_system.md` (the only prompt carrying "You are Dravr")
-    // with the agent's own prompt, which never states who the assistant is.
-    // The result was an accidental prod A/B — agent-bound turns matched the
-    // boundary detector ~24% of the time while no-agent turns (which keep the
-    // anchor) matched 0%.
+    // Agent-bound turns need it most: [`resolve_agent_base_prompt`] replaces
+    // `pierre_system.md` with the agent's prompt, which never says who it is.
     //
-    // LAST, not first: see [`IDENTITY_ANCHOR`] for the 48-run A/B that measured
-    // both. Prepending left the model still reciting Copilot's model-disclosure
-    // clause; the tail placement is what suppressed it, for the same recency
-    // reason Stage 7g.1 gives. Detection at the response boundary
-    // ([`prompt_leak`]) stays as the safety net.
+    // LAST, not first, per the A/B on [`IDENTITY_ANCHOR`]: only the tail stopped
+    // the model reciting Copilot's model-disclosure clause. Detection at the
+    // response boundary ([`prompt_leak`]) stays as the safety net.
     //
-    // Caveat worth knowing when reading prod telemetry: embacle appends its
-    // ~16 KB text tool catalog to the system message AFTER this block
-    // (`tool_simulation::inject_tool_catalog`), so "last" here means last
-    // platform-controlled block, not last on the wire.
+    // Caveat for prod telemetry: embacle appends its ~16 KB text tool catalog
+    // after this block (`tool_simulation::inject_tool_catalog`), so "last"
+    // means last platform-controlled block, not last on the wire.
     let raw_system_prompt =
         close_with_anchors(&raw_system_prompt, agent_ctx.map(|c| c.slug.as_str()));
 

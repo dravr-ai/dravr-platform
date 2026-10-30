@@ -1,5 +1,5 @@
 // ABOUTME: Pins that every assembled system prompt closes with the Dravr identity anchor
-// ABOUTME: Regression for the agent-bound identity-leak gap (2026-07-25)
+// ABOUTME: Regression for the agent-bound identity-leak gap (2026-07-25) and the AI disclosure (carnet#1165)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -34,7 +34,7 @@
 //! These tests pin the tail contract and the no-product-names rule.
 
 use pierre_chat_pipeline::stages::prompt_assembly::{
-    agent_voice_anchor, close_with_anchors, close_with_identity_anchor,
+    agent_voice_anchor, close_with_anchors, close_with_identity_anchor, IDENTITY_ANCHOR,
 };
 use pierre_core::narration::contains_identity_leak;
 
@@ -65,9 +65,14 @@ fn agent_prompt_with_no_identity_gains_the_anchor_last() {
     );
     // Category-level anti-impersonation is present.
     let folded = out.to_lowercase();
-    assert!(folded.contains("you are dravr"));
-    assert!(folded.contains("you are not a general-purpose ai"));
-    assert!(folded.contains("coding, terminal, or command-line assistant"));
+    assert!(
+        folded.contains("you are dravr's ai agent"),
+        "the anchor must name the agent as Dravr's AI agent (bug in IDENTITY_ANCHOR)"
+    );
+    assert!(
+        folded.contains("you are not a coding, terminal, or command-line assistant"),
+        "the anchor must keep the category-level anti-impersonation line (bug in IDENTITY_ANCHOR)"
+    );
 }
 
 #[test]
@@ -120,7 +125,7 @@ fn the_voice_anchor_names_the_agent_it_speaks_for() {
     let out = agent_voice_anchor("strength");
     assert!(
         out.contains("strength"),
-        "the anchor must name the coach; a generic reminder is what already failed"
+        "the anchor must name the agent; a generic reminder is what already failed"
     );
     // Not a stub: it has to actually say something about staying in vocabulary,
     // which is the whole reason it exists.
@@ -172,7 +177,7 @@ fn the_identity_anchor_still_comes_last() {
     let out = close_with_anchors("coach body", Some("strength"));
 
     let voice_at = out
-        .find("Answer as the strength coach")
+        .find("Answer as the strength agent")
         .expect("voice anchor present");
     let identity_at = out.find("You are Dravr").expect("identity anchor present");
     assert!(
@@ -217,5 +222,96 @@ fn the_voice_anchor_does_not_read_as_an_identity_leak() {
     assert!(
         !contains_identity_leak(&agent_voice_anchor("strength")),
         "the voice anchor's own wording must not match identity_leak_match"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Disclosure — the agent says it is an AI agent, never a person or the coach
+// (carnet#1165, ADR-026).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_anchor_discloses_an_ai_agent_and_never_claims_the_coach() {
+    let folded = close_with_identity_anchor("body").to_lowercase();
+    for required in [
+        "an ai, not a person, and not anyone's coach",
+        "a coach is a person",
+        "say plainly that you are an ai agent, not a person",
+    ] {
+        assert!(
+            folded.contains(required),
+            "the anchor must instruct the disclosure {required:?}"
+        );
+    }
+    // Wording that denies being an AI or claims to be the athlete's coach
+    // (carnet#1165): none of it may reach the model.
+    for denial in [
+        "not a general-purpose ai",
+        "a chat bot",
+        "you are their coach",
+        "simply dravr",
+        "personal fitness and endurance coach",
+    ] {
+        assert!(
+            !folded.contains(denial),
+            "the anchor must not tell the agent {denial:?}"
+        );
+    }
+}
+
+#[test]
+fn the_anchor_hands_the_model_no_phrase_the_boundary_withholds() {
+    // "language model" is a leak pattern and "software agent" a developer-tool
+    // role: an agent that echoed either while disclosing would have its honest
+    // answer withheld.
+    let folded = IDENTITY_ANCHOR.to_lowercase();
+    // "software" covers "software agent" and every other software role.
+    for primed in ["language model", "software"] {
+        assert!(
+            !folded.contains(primed),
+            "the anchor must not hand the model {primed:?}"
+        );
+    }
+}
+
+#[test]
+fn an_honest_disclosure_is_never_withheld_as_a_leak() {
+    // The answers the anchor asks for, in the five shipped locales. A match
+    // here would withhold the reply the law requires.
+    let disclosures = [
+        "Yes, I'm an AI agent, not a person. Your coach is Marie; I work with your training data.",
+        "Oui, je suis un agent IA, pas une personne. Ton coach, c'est Marie.",
+        "Sí, soy un agente de IA, no una persona. Tu entrenadora es Marie.",
+        "Ja, ich bin ein KI-Agent, kein Mensch. Deine Trainerin ist Marie.",
+        "Sim, sou um agente de IA, não uma pessoa. A tua treinadora é a Marie.",
+        "I'm Dravr's AI agent; Marie is the one who coaches you.",
+    ];
+    for reply in disclosures {
+        assert!(
+            !contains_identity_leak(reply),
+            "an honest disclosure must reach the athlete: {reply:?}"
+        );
+    }
+}
+
+#[test]
+fn the_voice_anchor_calls_the_agent_an_agent() {
+    let out = agent_voice_anchor("strength");
+    assert!(
+        out.starts_with("Answer as the strength agent throughout."),
+        "the voice anchor must open by naming the agent's discipline as an agent, got: {out:?}"
+    );
+    for claim in ["coach throughout", "wrong coach"] {
+        assert!(
+            !out.contains(claim),
+            "the voice anchor must not call the agent a coach: found {claim:?}"
+        );
+    }
+    // Every catalogue slug ends in "-agent" (`road-running-agent`), so the
+    // suffix is dropped rather than doubled into "road-running-agent agent".
+    let catalogue = agent_voice_anchor("road-running-agent");
+    assert!(
+        catalogue.starts_with("Answer as the road-running agent throughout."),
+        "a catalogue slug must not read as an \"-agent agent\", got: {catalogue:?}"
     );
 }

@@ -486,8 +486,8 @@ async fn a_mention_routes_that_turn_only_and_the_next_turn_reverts() {
         "the conversation's own coach must not leak into the mentioned turn: {prompt}"
     );
     assert!(
-        prompt.contains("Answer as the recovery-coach coach"),
-        "the voice anchor names the mentioned coach: {prompt}"
+        prompt.contains("Answer as the recovery-coach agent"),
+        "the voice anchor names the mentioned agent: {prompt}"
     );
     assert!(
         coaching_request(&log, MENTION_TURN).is_none(),

@@ -44,10 +44,10 @@ pub(super) const NEGATION_TOKENS: &[&str] = &[
 /// A comma is as often a list separator as a clause break, and the two need
 /// opposite answers: « je ne suis pas un agent, je suis GitHub Copilot »
 /// starts a new predication the negation does not reach, while "you are not a
-/// general-purpose AI, a language model, a chat bot" keeps every item under
-/// the one negation — the shape of the identity anchor the agent is told to
-/// embody, so treating its commas as clause breaks would withhold the agent's
-/// own persona statement.
+/// coding, terminal, or command-line assistant" keeps every item under the one
+/// negation — the shape of the identity anchor the agent is told to embody, so
+/// treating its commas as clause breaks would withhold the agent's own persona
+/// statement.
 pub(super) const fn is_soft_clause_break(c: char) -> bool {
     matches!(c, ',' | ';' | ':')
 }
@@ -103,8 +103,8 @@ pub(super) fn is_negated_at(folded: &str, dash_breaks: &[usize], at: usize) -> b
     // clause is the whole guard: a character-count lookbehind would have to
     // be short enough to stay out of the previous clause, and a negation
     // legitimately sits a whole list away from the item it governs — "not a
-    // general-purpose AI, a language model, a chat bot, or a coding …
-    // assistant".
+    // coding, terminal, or command-line assistant", the identity anchor's own
+    // list.
     let start = punctuation_start.max(dash_start);
     prefix[start..]
         .split(' ')
