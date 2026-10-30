@@ -43,11 +43,11 @@ pub(crate) use rows::{
 };
 pub(crate) use sql::{
     CLAIM_PROPOSAL_SQL, COUNT_LIVE_ITEMS_SQL, COUNT_PRODUCT_SQL, COUNT_PROPOSALS_BY_HASH_SQL,
-    FILE_AS_DUPLICATE_SQL, FIND_LIVE_PENDING_ITEM_SQL, FIND_LIVE_PRODUCT_ITEM_SQL,
-    GET_PRODUCT_BY_GTIN_SQL, GET_PRODUCT_SQL, GET_PROPOSAL_IMAGE_SQL, GET_PROPOSAL_SQL,
-    HOLD_PENDING_PROPOSAL_SQL, INSERT_ITEM_SQL, INSERT_PRODUCT_SQL, INSERT_PROPOSAL_IMAGE_SQL,
-    INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_CATALOGUE_SQL, LIST_ITEMS_SQL,
-    LIST_PROPOSALS_SQL, LIST_PROPOSAL_IMAGES_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL,
+    FILE_AS_DUPLICATE_SQL, FIND_LIVE_PENDING_FILING_SQL, FIND_LIVE_PENDING_ITEM_SQL,
+    FIND_LIVE_PRODUCT_ITEM_SQL, GET_PRODUCT_BY_GTIN_SQL, GET_PRODUCT_SQL, GET_PROPOSAL_IMAGE_SQL,
+    GET_PROPOSAL_SQL, HOLD_PENDING_PROPOSAL_SQL, INSERT_ITEM_SQL, INSERT_PRODUCT_SQL,
+    INSERT_PROPOSAL_IMAGE_SQL, INSERT_PROPOSAL_SQL, INSERT_VERSION_SQL, LIST_CATALOGUE_SQL,
+    LIST_ITEMS_SQL, LIST_PROPOSALS_SQL, LIST_PROPOSAL_IMAGES_SQL, PRODUCT_IDENTITY_BY_GTIN_SQL,
     PRODUCT_IDENTITY_BY_ID_SQL, PRODUCT_IDENTITY_BY_KEY_SQL, PROPOSAL_HOLDING_KEY_SQL,
     PROPOSAL_LINK_SQL, PROPOSAL_STATUS_SQL, RECORD_APPROVAL_SQL, REJECT_PROPOSAL_SQL,
     RELINK_PENDING_ITEMS_SQL, REMOVE_ITEM_SQL, RETIRE_DUPLICATE_PENDING_ITEMS_SQL,
@@ -914,9 +914,25 @@ macro_rules! impl_fuel_product_repositories {
                 user_id: Uuid,
                 proposal: &NewFuelProposal,
                 note: Option<&str>,
-            ) -> AppResult<Uuid> {
+            ) -> AppResult<FuelItemCarried> {
                 check_gtin(proposal.gtin.as_deref())?;
                 let mut tx = self.begin_fuel_item_write(tenant_id, user_id).await?;
+                // The same product filed again while its first filing is still
+                // under review is already carried: decided under the lock, so
+                // two concurrent filings cannot both pass and queue it twice.
+                let held = sqlx::query(
+                    $crate::repositories::fuel_products::FIND_LIVE_PENDING_FILING_SQL,
+                )
+                .bind($ids::bind(tenant_id.as_uuid()))
+                .bind($ids::bind(user_id))
+                .bind(fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant))
+                .bind(proposal.form.as_str())
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| fuel_error("find a pending filing in", e))?;
+                if let Some(row) = held {
+                    return Ok(FuelItemCarried::AlreadyCarried($ids::read(&row, "id")?));
+                }
                 let proposal_id = Self::insert_fuel_proposal(&mut tx, proposal).await?;
                 // The cap is counted inside this transaction: refused, the
                 // transaction drops and the proposal goes with it.
@@ -935,7 +951,7 @@ macro_rules! impl_fuel_product_repositories {
                 tx.commit()
                     .await
                     .map_err(|e| fuel_error("commit a filed item to", e))?;
-                Ok(id)
+                Ok(FuelItemCarried::Added(id))
             }
 
             async fn list_fuel_items(

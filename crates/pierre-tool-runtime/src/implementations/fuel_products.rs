@@ -41,10 +41,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    check_plausibility, fuel_natural_key, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct,
-    FactProvenance, FactSource, FieldProvenance, FuelFacts, FuelForm, FuelItemCarried,
-    FuelItemEntry, NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalStatus,
-    TenantId,
+    check_plausibility, normalize_gtin, AthleteFuelItem, CatalogueFuelProduct, FactProvenance,
+    FactSource, FieldProvenance, FuelFacts, FuelForm, FuelItemCarried, FuelItemEntry,
+    NewFuelProposal, PlausibilityViolation, ProposalSource, ProposalStatus, TenantId,
 };
 use pierre_mcp_schema::PropertySchema;
 use pierre_tools_core::ToolResult;
@@ -591,29 +590,16 @@ impl McpTool<dyn ToolRuntime> for AddFuelItemTool {
             }
             match proposal_from_args(&args, user)? {
                 Ok(proposal) => {
-                    let items = repos
-                        .athlete_fuel_items
-                        .list_fuel_items(tenant, user)
-                        .await?;
-                    // The same product filed again while its first filing is
-                    // still under review is already on the list: a second
-                    // proposal would only queue the label twice.
-                    if let Some(held) = pending_filing_of(&items, &proposal) {
-                        return answer_carried(
-                            &context,
-                            tenant,
-                            user,
-                            FuelItemCarried::AlreadyCarried(held),
-                        )
-                        .await;
-                    }
-                    // Filed and carried in one transaction: at the item cap
-                    // the filing is refused with it, never left queued alone.
-                    let item_id = repos
+                    // Filed and carried in one transaction under the
+                    // athlete's item lock: at the item cap the filing is
+                    // refused with it, never left queued alone, and a product
+                    // whose first filing is still under review comes back
+                    // already carried rather than queued twice.
+                    let carried = repos
                         .athlete_fuel_items
                         .file_and_carry_fuel_proposal(tenant, user, &proposal, note.as_deref())
                         .await?;
-                    answer_carried(&context, tenant, user, FuelItemCarried::Added(item_id)).await
+                    answer_carried(&context, tenant, user, carried).await
                 }
                 Err(refusal) => Ok(refusal),
             }
@@ -714,22 +700,6 @@ fn typed_gtin(args: &Value) -> AppResult<Option<String>> {
             })
         })
         .transpose()
-}
-
-/// The athlete's live item that carries a still-pending filing of the same
-/// product (brand, name, variant and form), if any.
-fn pending_filing_of(items: &[AthleteFuelItem], proposal: &NewFuelProposal) -> Option<Uuid> {
-    let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
-    items.iter().find_map(|item| match &item.entry {
-        FuelItemEntry::Pending(pending)
-            if pending.status == ProposalStatus::Pending
-                && pending.form == proposal.form
-                && fuel_natural_key(&pending.brand, &pending.name, &pending.variant) == key =>
-        {
-            Some(item.id)
-        }
-        _ => None,
-    })
 }
 
 async fn answer_carried(

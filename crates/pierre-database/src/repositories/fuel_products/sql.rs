@@ -301,6 +301,17 @@ pub(crate) const FIND_LIVE_PENDING_ITEM_SQL: &str = r"
               AND product_id IS NULL AND removed_at IS NULL
             ";
 
+/// The live item of athlete `$2` in tenant `$1` that carries a still-pending
+/// filing with natural key `$3` and form `$4`.
+pub(crate) const FIND_LIVE_PENDING_FILING_SQL: &str = r"
+            SELECT i.id FROM athlete_fuel_items i
+            JOIN fuel_product_proposals p ON p.id = i.proposal_id
+            WHERE i.tenant_id = $1 AND i.user_id = $2 AND i.product_id IS NULL
+              AND i.removed_at IS NULL AND p.status = 'pending'
+              AND p.natural_key = $3 AND p.form = $4
+            LIMIT 1
+            ";
+
 /// How many products have id `$1`.
 pub(crate) const COUNT_PRODUCT_SQL: &str = "SELECT COUNT(*) FROM fuel_products WHERE id = $1";
 

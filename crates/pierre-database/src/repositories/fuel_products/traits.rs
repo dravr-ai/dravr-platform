@@ -176,7 +176,10 @@ pub trait AthleteFuelItemRepository: Send + Sync {
     /// File a product the catalogue does not hold for review and carry it
     /// pending, in one transaction under the athlete's item lock: at the
     /// item cap nothing is written, so no proposal is left queued that no
-    /// athlete carries.
+    /// athlete carries. A product the athlete already carries pending review
+    /// (same brand, name and variant key, same form) is not filed again: its
+    /// item comes back as [`FuelItemCarried::AlreadyCarried`], decided under
+    /// the same lock, so two concurrent filings queue one proposal.
     ///
     /// # Errors
     /// An invalid-input error for a GTIN that is not a normalized GTIN-14 or
@@ -188,7 +191,7 @@ pub trait AthleteFuelItemRepository: Send + Sync {
         user_id: Uuid,
         proposal: &NewFuelProposal,
         note: Option<&str>,
-    ) -> AppResult<Uuid>;
+    ) -> AppResult<FuelItemCarried>;
 
     /// The items the athlete carries, oldest first, each resolved to its
     /// product's current facts or to its proposal.

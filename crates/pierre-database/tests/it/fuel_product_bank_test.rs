@@ -779,7 +779,8 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
                     None,
                 )
                 .await
-                .unwrap(),
+                .unwrap()
+                .id(),
         );
     }
 
@@ -825,6 +826,11 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
         .file_and_carry_fuel_proposal(tenant, athlete, &one_more, Some("race day"))
         .await
         .unwrap();
+    assert!(
+        matches!(item, FuelItemCarried::Added(_)),
+        "a new filing is added: {item:?}"
+    );
+    let item = item.id();
     assert!(repos
         .fuel_catalogue
         .fuel_proposal_exists_by_hash(&hash)
@@ -846,6 +852,73 @@ async fn a_filing_refused_at_the_cap_leaves_no_proposal_queued() {
             panic!("a filed product is carried pending: {product:?}")
         }
     }
+}
+
+/// The same product filed by concurrent callers while no filing of it is
+/// under review yet is queued once: the pending-filing check runs under the
+/// athlete's item lock, so every racer but one finds the item that landed. A
+/// filing of it under another form is a different product and is filed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_filings_of_one_product_queue_one_proposal() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let athlete = fresh_user(repos).await;
+    let tenant = TenantId::generate();
+    let filed = proposal("Twin", gel_facts());
+
+    let outcomes = race(repos, RACERS, |repos, n| {
+        // Each racer types the product its own way: case and spacing aside,
+        // it is the same brand, name and variant.
+        let mut typed = NewFuelProposal {
+            source_hash: None,
+            ..filed.clone()
+        };
+        if n % 2 == 1 {
+            typed.brand = format!("  {}  ", typed.brand.to_uppercase());
+        }
+        async move {
+            repos
+                .athlete_fuel_items
+                .file_and_carry_fuel_proposal(tenant, athlete, &typed, None)
+                .await
+        }
+    })
+    .await;
+    let outcomes: Vec<FuelItemCarried> = outcomes.into_iter().map(Result::unwrap).collect();
+    let added: Vec<Uuid> = outcomes
+        .iter()
+        .filter_map(|o| match o {
+            FuelItemCarried::Added(id) => Some(*id),
+            FuelItemCarried::AlreadyCarried(_) => None,
+        })
+        .collect();
+    assert_eq!(added.len(), 1, "one filing lands: {outcomes:?}");
+    assert!(
+        outcomes.iter().all(|o| o.id() == added[0]),
+        "every other filing finds the item that landed: {outcomes:?}"
+    );
+    // Every filing carries its proposal, so one item is one proposal queued.
+    let carried = repos
+        .athlete_fuel_items
+        .list_fuel_items(tenant, athlete)
+        .await
+        .unwrap();
+    assert_eq!(carried.len(), 1, "one proposal queued: {carried:?}");
+
+    let as_a_bar = NewFuelProposal {
+        form: FuelForm::Bar,
+        source_hash: None,
+        ..filed.clone()
+    };
+    let bar = repos
+        .athlete_fuel_items
+        .file_and_carry_fuel_proposal(tenant, athlete, &as_a_bar, None)
+        .await
+        .unwrap();
+    assert!(
+        matches!(bar, FuelItemCarried::Added(id) if id != added[0]),
+        "another form is another product: {bar:?}"
+    );
 }
 
 /// How many adds race in [`concurrent_adds_keep_the_cap_and_one_item_per_product`].
