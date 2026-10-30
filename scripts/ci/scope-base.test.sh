@@ -69,7 +69,7 @@ run() {
   shift 2
   [ $# -gt 0 ] || set -- Lane
   out="$(cd "$R" && PATH="$ROOT/bin:$PATH" FIX="$FIX" GITHUB_REPOSITORY=o/r EVENT_NAME="$event" PUSHED_REF="$ref" \
-         MAIN_REF=main "$UNDER_TEST" w.yml "$@" 2>/dev/null)" || code=$?
+         MAIN_REF=main SCOPE_DISPATCH="${SCOPE_DISPATCH:-}" "$UNDER_TEST" w.yml "$@" 2>/dev/null)" || code=$?
   echo "${out}:${code}"
 }
 runs() { # each argument: id:sha[:event[:branch]], listed newest first by created_at
@@ -123,6 +123,15 @@ expect "no green ancestor means no base" "$(run push refs/heads/main)" ":0"
 runs "4:0000000000000000000000000000000000000001" "5:$C2"
 jobs 5 Lane=success
 expect "a sha this checkout lacks is passed over" "$(run push refs/heads/main)" "$C2:0"
+
+echo "=== a dispatch that asks to be scoped (a bump lane's)"
+expect "a scoped dispatch on main diffs against the newest green ancestor" \
+    "$(SCOPE_DISPATCH=true run workflow_dispatch refs/heads/main)" "$C2:0"
+git -C "$R" checkout -q feature/x
+expect "a scoped dispatch on a branch diffs against its fork point" \
+    "$(SCOPE_DISPATCH=true run workflow_dispatch refs/heads/feature/x)" "$C2:0"
+git -C "$R" checkout -q main
+expect "a dispatch that does not ask has no base" "$(SCOPE_DISPATCH=false run workflow_dispatch refs/heads/main)" ":0"
 
 echo "=== lookups that fail"
 echo runs >"$FIX/fail"

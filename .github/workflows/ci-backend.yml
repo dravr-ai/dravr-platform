@@ -11,6 +11,14 @@ on:
         description: Also run the SQLite shards (the daily cron runs them)
         type: boolean
         default: false
+      # The bump lanes set it: their GITHUB_TOKEN push starts no run, so this
+      # dispatch is the commit's verdict, scoped like the push it stands in for
+      # (scripts/ci/scope-base.sh, carnet#1282). A person's dispatch leaves it
+      # off and tests everything.
+      scope:
+        description: Test only what changed since a proven base, like a push
+        type: boolean
+        default: false
   push:
     branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
     paths:
@@ -283,8 +291,10 @@ jobs:
       # the crates its diff from main's fork point reaches and every crate
       # depending on them; a main push, those its diff from the newest
       # ancestor whose leaf-crate job passed reaches (scripts/ci/scope-base.sh).
-      # A schedule or dispatch run, a lookup that fails, a CI definition or a
-      # workspace-wide input tests every crate (scripts/ci/affected-crates.py).
+      # A bump lane's dispatch sets `scope` and is judged like a push from the
+      # same base. A schedule run, a dispatch without `scope`, a lookup that
+      # fails, a CI definition or a workspace-wide input tests every crate
+      # (scripts/ci/affected-crates.py).
       - name: Choose the crates this push can change
         id: scope
         if: steps.changes.outputs.rust == 'true'
@@ -292,6 +302,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           PUSHED_REF: ${{ github.ref }}
+          SCOPE_DISPATCH: ${{ inputs.scope }}
         run: |
           code=0
           base="$(./scripts/ci/scope-base.sh ci-backend.yml 'Leaf-Crate Tests (every crate but pierre-server)')" || code=$?

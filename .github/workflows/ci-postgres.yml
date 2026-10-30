@@ -1,4 +1,4 @@
-# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on schedule/dispatch and on any push whose diff from a proven base reaches the server's build; *_postgresql_test.rs smoke plus edited targets otherwise.
+# ABOUTME: The backend suite on real PostgreSQL 16 — full suite on schedule/plain dispatch and on any push or scoped bump dispatch whose diff from a proven base reaches the server's build; *_postgresql_test.rs smoke plus edited targets otherwise.
 # ABOUTME: One job builds every test binary; four shards download and run them. Runs when ANY crate or migration changes, so a newly-extracted crate can never silently skip the suite.
 name: "CI: Backend (PostgreSQL)"
 
@@ -67,6 +67,15 @@ on:
     # (rust-setup cache-save: auto); push runs restore it.
     - cron: '30 2 * * *'
   workflow_dispatch:
+    inputs:
+      # The bump lanes set it: their GITHUB_TOKEN push starts no run, so this
+      # dispatch is the commit's verdict, scoped like the push it stands in for
+      # (scripts/ci/scope-base.sh, carnet#1282). A person's dispatch leaves it
+      # off and runs the full suite.
+      scope:
+        description: Run only what changed since a proven base, like a push
+        type: boolean
+        default: false
 
 concurrency:
   # On main the sha is part of the group, so every commit gets its own group and
@@ -216,13 +225,15 @@ jobs:
         # What the push is judged against (scripts/ci/scope-base.sh): on a
         # branch, its fork point from main; on main, the newest ancestor whose
         # run passed this lane's build and four shards, so main tests what
-        # changed since the last tree it proved. A schedule or dispatch run, a
-        # pull request, a lookup that fails or a CI definition change runs the
-        # full suite (scripts/ci/affected-crates.py).
+        # changed since the last tree it proved. A bump lane's dispatch sets
+        # `scope` and is judged like a push from the same base. A schedule run,
+        # a dispatch without `scope`, a pull request, a lookup that fails or a
+        # CI definition change runs the full suite (scripts/ci/affected-crates.py).
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
           PUSHED_REF: ${{ github.ref }}
+          SCOPE_DISPATCH: ${{ inputs.scope }}
         run: |
           full() {
             echo "lane=full" >> "$GITHUB_OUTPUT"

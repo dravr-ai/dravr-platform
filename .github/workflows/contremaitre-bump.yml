@@ -232,8 +232,11 @@ jobs:
         # with no verdict at all.
         run: |
           rc=0
-          gh workflow run ci-backend.yml --ref main || rc=1
-          gh workflow run ci-postgres.yml --ref main || rc=1
+          # -f scope=true: judged like the push this dispatch stands in for, from
+          # the newest green ancestor, so a rev bump tests the crates resolving
+          # the moved entries rather than every crate (carnet#1282).
+          gh workflow run ci-backend.yml --ref main -f scope=true || rc=1
+          gh workflow run ci-postgres.yml --ref main -f scope=true || rc=1
           exit $rc
 
       - name: Run the messaging eval asserters on the bumped prompts

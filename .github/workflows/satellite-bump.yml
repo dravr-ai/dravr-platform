@@ -510,7 +510,13 @@ jobs:
           # on runs that never start. Dispatch each gate explicitly. A PAT would avoid
           # this, but DRAVR_PRIVATE_DEPS_TOKEN is read-only on this repo.
           for wf in $(scripts/ci/satellite-pin.sh gates "${SATELLITE}"); do
-            gh workflow run "$wf" --ref "${BRANCH}"
+            # The two Rust lanes take `scope`: judged like a push from the
+            # branch's fork point, so a bump tests the crates resolving the
+            # moved entries (carnet#1282). The other gates take no input.
+            case "$wf" in
+              ci-backend.yml|ci-postgres.yml) gh workflow run "$wf" --ref "${BRANCH}" -f scope=true ;;
+              *) gh workflow run "$wf" --ref "${BRANCH}" ;;
+            esac
             echo "dispatched ${wf} on ${BRANCH}"
           done
 

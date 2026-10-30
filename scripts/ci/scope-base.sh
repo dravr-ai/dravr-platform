@@ -8,7 +8,8 @@
 # Usage:
 #   scope-base.sh <workflow-file> <job name>...
 #   env: EVENT_NAME (github.event_name), PUSHED_REF (github.ref),
-#        GITHUB_REPOSITORY, GH_TOKEN; MAIN_REF (default origin/main)
+#        GITHUB_REPOSITORY, GH_TOKEN; MAIN_REF (default origin/main);
+#        SCOPE_DISPATCH ('true' when a dispatch asked to be scoped)
 #
 # A lane that tests only what a push can change is sound when what it diffs
 # against already passed (carnet#1282):
@@ -26,7 +27,10 @@
 #     any push whose diff was judged full. The branch's own head is never
 #     the base: a squash lands it after the branch is deleted, and main has
 #     usually moved past its fork point by then.
-# A schedule or dispatch run has no base: it tests everything.
+# A schedule run has no base: it tests everything, and so does a dispatch,
+# unless it set the workflow's `scope` input (SCOPE_DISPATCH=true). The bump
+# lanes do: their GITHUB_TOKEN push starts no run, so their dispatch is the
+# commit's only verdict, and it is judged like the push it stands in for.
 #
 # Output: the base sha on stdout, or nothing (no base: test everything).
 # Exit 2 on bad usage; exit 3 when git or the API fails, which a caller
@@ -43,6 +47,7 @@ MAX_CANDIDATES="${SCOPE_BASE_MAX_CANDIDATES:-15}"
 
 case "${EVENT_NAME:-}" in
   push) ;;
+  workflow_dispatch) [ "${SCOPE_DISPATCH:-}" = true ] || exit 0 ;;
   *) exit 0 ;;
 esac
 
