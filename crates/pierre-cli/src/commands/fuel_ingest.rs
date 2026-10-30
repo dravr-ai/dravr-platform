@@ -679,6 +679,16 @@ impl Run {
         };
         let mut proposal = proposal(brand, candidate, &read, &images, hash.clone());
         let filing = self.filing(&read, &proposal, listed).await?;
+        if filing == Filing::Illegible {
+            // Nothing is filed, so the log is the only place the reader's
+            // reason survives.
+            warn!(
+                brand = brand.slug,
+                page = %redact_url(&candidate.page_url),
+                notes = read.label.notes.as_deref().unwrap_or("none"),
+                "label read found no readable panel; nothing filed"
+            );
+        }
         if let Filing::Update(product) = filing {
             proposal.product_id = Some(product);
             proposal.notes = Some(with_job_note(
