@@ -1,5 +1,5 @@
 // ABOUTME: Covers the ingestion job's storage against whichever backend DATABASE_URL names: the paid-read ledger and the listing key
-// ABOUTME: A read is recorded once with its outcome, a proposed read files atomically, a listing is held until rejected (carnet#155)
+// ABOUTME: A read is recorded once, a proposed read files atomically, a listing is held until rejected, an update supersedes one version (carnet#155)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,8 +13,8 @@
 
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    FuelApprovalOutcome, FuelFactOverrides, FuelIngestOutcome, FuelKeyHolder, FuelRejectReason,
-    ProposalStatus,
+    FuelApprovalOutcome, FuelFactOverrides, FuelFacts, FuelIngestOutcome, FuelKeyHolder,
+    FuelRejectReason, ProposalStatus,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -206,4 +206,84 @@ async fn a_rejected_listing_holds_nothing() {
     assert_eq!(catalogue.fuel_listing_holder(&listing).await.unwrap(), None);
     // Its read stays on file: the same photos are not paid for again.
     assert!(catalogue.fuel_ingest_read_seen(&hash).await.unwrap());
+}
+
+#[tokio::test]
+async fn an_approved_update_supersedes_exactly_the_products_current_version() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let catalogue = &repos.fuel_catalogue;
+    let reviewer = fresh_user(repos).await;
+    let listing = fresh_listing();
+    let first = catalogue
+        .record_fuel_ingest_read(
+            &fresh_hash(),
+            FuelIngestOutcome::Proposed,
+            Some((&proposal("Näak", gel_facts()), &listing)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let FuelApprovalOutcome::Approved(v1) = catalogue
+        .approve_fuel_proposal(first, reviewer, &FuelFactOverrides::default())
+        .await
+        .unwrap()
+    else {
+        panic!("the first read is approved");
+    };
+
+    // A new photo set of the listing reads caffeine, under the name the
+    // other pack's label prints: it updates the product by id, never by name.
+    let mut update = proposal(
+        "Näak",
+        FuelFacts {
+            caffeine_mg: Some(100.0),
+            ..gel_facts()
+        },
+    );
+    update.product_id = Some(v1.product.id);
+    let update_id = catalogue
+        .record_fuel_ingest_read(
+            &fresh_hash(),
+            FuelIngestOutcome::Proposed,
+            Some((&update, &listing)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let outcome = catalogue
+        .approve_fuel_proposal(update_id, reviewer, &FuelFactOverrides::default())
+        .await
+        .unwrap();
+    let FuelApprovalOutcome::Approved(v2) = outcome else {
+        panic!("the update is approved: {outcome:?}");
+    };
+    assert_eq!(v2.product.id, v1.product.id);
+    assert_eq!(
+        v2.product.name, v1.product.name,
+        "an update renames nothing"
+    );
+    assert_ne!(v2.current.id, v1.current.id);
+    assert_eq!(v2.current.facts.caffeine_mg, Some(100.0));
+    assert_eq!(
+        catalogue.pending_fuel_update(v1.product.id).await.unwrap(),
+        None
+    );
+
+    // Page through the live catalogue: other tests may share the database.
+    let mut offset = 0;
+    let listed = loop {
+        let page = catalogue.list_fuel_catalogue(100, offset).await.unwrap();
+        assert!(!page.is_empty(), "the updated product is not listed");
+        if let Some(found) = page.iter().find(|l| l.product.product.id == v1.product.id) {
+            break found.clone();
+        }
+        offset += 100;
+    };
+    assert_eq!(
+        listed.version_count, 2,
+        "one version superseded, one current"
+    );
+    assert_eq!(listed.product.current.id, v2.current.id);
+    assert_eq!(listed.product.current.superseded_by, None);
 }
