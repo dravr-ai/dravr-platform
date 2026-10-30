@@ -9,7 +9,7 @@
 //! A brand's public `/products.json` lists every product with its options,
 //! variants and photos (never a barcode: the storefront endpoint does not
 //! serve `variants[].barcode`, verified live on all four checked-in brands on
-//! 2026-10-29). [`fetch_products`] pages through it, [`is_fuel`] keeps the
+//! 2026-10-29). [`fetch_fuel_products`] pages through it, [`is_fuel`] keeps the
 //! fuel and drops the gear, bundles and hidden listings, and
 //! [`label_candidates`] turns one product into the packages whose labels are
 //! read: one per flavour when the photos are tied to flavours (GU lists 21
