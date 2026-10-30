@@ -95,6 +95,8 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "std"], default-featu
 # Resolves a hydrated route block the way the server does, so the fields
 # hydration adds are checked against the spec that reads them.
 photograveur = { workspace = true }
+# Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
 
 [lints]
 workspace = true

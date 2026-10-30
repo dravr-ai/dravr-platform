@@ -3910,6 +3910,7 @@ dependencies = [
  "pierre-runtime-context",
  "pierre-services",
  "pierre-sse",
+ "pierre-test-support",
  "pierre-tool-runtime",
  "serde_json",
  "tokio",
