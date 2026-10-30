@@ -21,13 +21,13 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use pierre_core::constants::project::user_agent;
+use pierre_core::constants::project;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::redaction::redact_url;
+use pierre_core::redaction;
 use reqwest::header::{CONTENT_TYPE, RETRY_AFTER};
 use reqwest::{StatusCode, Url};
 use serde::Deserialize;
-use tokio::time::sleep;
+use tokio::time;
 use tracing::{debug, warn};
 
 use super::Brand;
@@ -152,7 +152,7 @@ pub(super) struct ShopifyProduct {
     pub images: Vec<ShopifyImage>,
 }
 
-/// A product option ("Flavor", "Size") and its values.
+/// A product option ("Flavor", "Size") and its position among the options.
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct ShopifyOption {
     pub name: String,
@@ -235,7 +235,8 @@ pub(super) struct LabelImage {
 /// keyword matches whole words only: "hat" never matches "that".
 fn word_text(text: &str) -> String {
     let mut out = String::from(" ");
-    for c in text.to_lowercase().chars() {
+    let lowered = text.to_lowercase();
+    for c in lowered.chars() {
         if c.is_alphanumeric() || c == '_' {
             out.push(c);
         } else if !out.ends_with(' ') {
@@ -458,7 +459,7 @@ pub(super) fn label_candidates(brand: &Brand, product: &ShopifyProduct) -> Vec<L
 /// Returns an error when the client cannot be built.
 pub(super) fn http_client() -> AppResult<reqwest::Client> {
     reqwest::Client::builder()
-        .user_agent(user_agent())
+        .user_agent(project::user_agent())
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .build()
@@ -489,7 +490,7 @@ pub(super) async fn get_with_backoff(
         let response = client.get(url.clone()).send().await.map_err(|e| {
             AppError::external_service(
                 "shopify",
-                format!("GET {} failed: {e}", redact_url(url.as_str())),
+                format!("GET {} failed: {e}", redaction::redact_url(url.as_str())),
             )
         })?;
         let status = response.status();
@@ -503,18 +504,21 @@ pub(super) async fn get_with_backoff(
             }
             return Err(AppError::external_service(
                 "shopify",
-                format!("GET {} answered {status}", redact_url(url.as_str())),
+                format!(
+                    "GET {} answered {status}",
+                    redaction::redact_url(url.as_str())
+                ),
             ));
         }
         let wait = backoff(&response, attempt);
         warn!(
-            url = %redact_url(url.as_str()),
+            url = %redaction::redact_url(url.as_str()),
             %status,
             attempt,
             wait_secs = wait.as_secs(),
             "storefront throttled the request, backing off"
         );
-        sleep(wait).await;
+        time::sleep(wait).await;
         attempt += 1;
     }
 }
@@ -550,7 +554,10 @@ pub(super) async fn fetch_fuel_products(
             .map_err(|e| {
                 AppError::external_service(
                     "shopify",
-                    format!("reading {} failed: {e}", redact_url(url.as_str())),
+                    format!(
+                        "reading {} failed: {e}",
+                        redaction::redact_url(url.as_str())
+                    ),
                 )
             })?;
         let products = parse_products_page(&body)?;
@@ -654,7 +661,7 @@ pub(super) async fn download_url(
         .map(str::to_owned);
     let Some(mime) = accepted_mime(declared.as_deref()) else {
         warn!(
-            url = %redact_url(url.as_str()),
+            url = %redaction::redact_url(url.as_str()),
             content_type = declared.as_deref().unwrap_or("none"),
             "photo is not png, jpeg or webp, skipped"
         );
@@ -664,17 +671,20 @@ pub(super) async fn download_url(
         .content_length()
         .is_some_and(|len| len > MAX_IMAGE_BYTES as u64)
     {
-        warn!(url = %redact_url(url.as_str()), "photo is over the size cap, skipped");
+        warn!(url = %redaction::redact_url(url.as_str()), "photo is over the size cap, skipped");
         return Ok(None);
     }
     let bytes = response.bytes().await.map_err(|e| {
         AppError::external_service(
             "shopify",
-            format!("reading {} failed: {e}", redact_url(url.as_str())),
+            format!(
+                "reading {} failed: {e}",
+                redaction::redact_url(url.as_str())
+            ),
         )
     })?;
     if bytes.len() > MAX_IMAGE_BYTES {
-        warn!(url = %redact_url(url.as_str()), bytes = bytes.len(), "photo is over the size cap, skipped");
+        warn!(url = %redaction::redact_url(url.as_str()), bytes = bytes.len(), "photo is over the size cap, skipped");
         return Ok(None);
     }
     Ok(Some(LabelImage {
@@ -711,19 +721,28 @@ mod tests {
     #[test]
     fn a_products_page_parses_without_a_barcode() {
         let products = fixture();
-        assert_eq!(products.len(), 12);
+        assert_eq!(products.len(), 12, "bug: every fixture product parses");
         let gel = product("ULTRA™ Gel 200 · Salted Maple");
-        assert_eq!(gel.handle, "ultra-gel-200-salted-maple");
-        assert_eq!(gel.images.len(), 2);
-        assert_eq!(gel.product_type, "Gels");
+        assert_eq!(
+            gel.handle, "ultra-gel-200-salted-maple",
+            "bug: a product keeps its handle"
+        );
+        assert_eq!(gel.images.len(), 2, "bug: a product keeps its photos");
+        assert_eq!(gel.product_type, "Gels", "bug: a product keeps its type");
     }
 
     #[test]
     fn an_empty_page_ends_the_listing_and_junk_is_refused() {
-        assert!(parse_products_page(r#"{"products":[]}"#)
-            .unwrap_or_else(|e| panic!("{e}"))
-            .is_empty());
-        assert!(parse_products_page("<html>not a store</html>").is_err());
+        assert!(
+            parse_products_page(r#"{"products":[]}"#)
+                .unwrap_or_else(|e| panic!("{e}"))
+                .is_empty(),
+            "bug: an empty page parses as no products"
+        );
+        assert!(
+            parse_products_page("<html>not a store</html>").is_err(),
+            "bug: a body that is not a products page must be refused"
+        );
     }
 
     #[test]
@@ -732,57 +751,114 @@ mod tests {
         // Its live tags include "Plant-based Protein": a tag says what is in
         // the fuel, never that it is not fuel.
         let gel = product("ULTRA™ Gel 200 · Salted Maple");
-        assert!(gel.tags.iter().any(|tag| tag == "Plant-based Protein"));
-        assert!(is_fuel(naak, &gel));
+        assert!(
+            gel.tags.iter().any(|tag| tag == "Plant-based Protein"),
+            "fixture: the gel carries Näak's live protein tag"
+        );
+        assert!(
+            is_fuel(naak, &gel),
+            "bug: a protein tag must not drop a fuel listing"
+        );
         let mut recovery_tagged = gel;
         recovery_tagged.tags.push("Recovery".to_owned());
-        assert!(is_fuel(naak, &recovery_tagged));
-        assert!(!is_fuel(
-            naak,
-            &product("ULTRA Soft Flask · HydraPak® · 500ml")
-        ));
-        assert!(!is_fuel(naak, &product("Boost™ ‧ Marathon Pack")));
+        assert!(
+            is_fuel(naak, &recovery_tagged),
+            "bug: a recovery tag must not drop a fuel listing"
+        );
+        assert!(
+            !is_fuel(naak, &product("ULTRA Soft Flask · HydraPak® · 500ml")),
+            "bug: a flask is gear, not fuel"
+        );
+        assert!(
+            !is_fuel(naak, &product("Boost™ ‧ Marathon Pack")),
+            "bug: a pack is a bundle, not one package"
+        );
         let tailwind = brand("tailwind");
-        assert!(!is_fuel(
-            tailwind,
-            &product("Endurance Fuel: Caffeinated Blood Orange")
-        ));
+        assert!(
+            !is_fuel(
+                tailwind,
+                &product("Endurance Fuel: Caffeinated Blood Orange")
+            ),
+            "bug: a listing with no brand keyword is not fuel"
+        );
         let gu = brand("gu");
-        assert!(is_fuel(gu, &product("Original Energy Gel")));
-        assert!(!is_fuel(gu, &product("GU Variety Energy Box")));
+        assert!(
+            is_fuel(gu, &product("Original Energy Gel")),
+            "bug: a gel is fuel"
+        );
+        assert!(
+            !is_fuel(gu, &product("GU Variety Energy Box")),
+            "bug: a variety box is not one package"
+        );
         // A title that names recovery or protein is not race fuel, whatever
         // keyword ("drink mix") it also carries.
-        assert!(!is_fuel(gu, &product("Roctane Protein Recovery Drink Mix")));
+        assert!(
+            !is_fuel(gu, &product("Roctane Protein Recovery Drink Mix")),
+            "bug: a recovery or protein title is not race fuel"
+        );
         // Salt capsules are fuel; amino-acid and micronutrient capsules are not.
-        assert!(is_fuel(gu, &product("Roctane Electrolyte Capsules")));
-        assert!(!is_fuel(gu, &product("Roctane BCAA Capsules")));
-        assert!(!is_fuel(gu, &product("Roctane Magnesium Plus Capsules")));
+        assert!(
+            is_fuel(gu, &product("Roctane Electrolyte Capsules")),
+            "bug: salt capsules are fuel"
+        );
+        assert!(
+            !is_fuel(gu, &product("Roctane BCAA Capsules")),
+            "bug: amino-acid capsules are not fuel"
+        );
+        assert!(
+            !is_fuel(gu, &product("Roctane Magnesium Plus Capsules")),
+            "bug: micronutrient capsules are not fuel"
+        );
     }
 
     #[test]
     fn keywords_match_whole_words_only() {
         let words = word_text("Salted Maple · that chat");
-        assert!(!has_word(&words, "hat"));
-        assert!(has_word(&words, "salted maple"));
-        assert!(has_word(&word_text("hide_product,private"), "hide_product"));
+        assert!(
+            !has_word(&words, "hat"),
+            "bug: a keyword must match whole words only"
+        );
+        assert!(
+            has_word(&words, "salted maple"),
+            "bug: a multi-word keyword matches across its words"
+        );
+        assert!(
+            has_word(&word_text("hide_product,private"), "hide_product"),
+            "bug: an underscore keeps a tag one word"
+        );
     }
 
     #[test]
     fn a_product_without_flavour_photos_is_one_candidate_of_its_last_photos() {
         let candidates = label_candidates(brand("naak"), &product("ULTRA™ Gel 200 · Salted Maple"));
-        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates.len(),
+            1,
+            "bug: a product with untied photos is one candidate"
+        );
         let only = &candidates[0];
         assert_eq!(
-            only.page_url,
-            "https://naak.com/products/ultra-gel-200-salted-maple"
+            only.page_url, "https://naak.com/products/ultra-gel-200-salted-maple",
+            "bug: an untied candidate's page is the product's"
         );
-        assert_eq!(only.flavour, None);
-        assert_eq!(only.untied_flavours, Vec::<String>::new());
-        assert_eq!(only.photo_note(), None);
-        assert_eq!(only.image_urls.len(), 2);
+        assert_eq!(
+            only.flavour, None,
+            "bug: an untied candidate names no flavour"
+        );
+        assert_eq!(
+            only.untied_flavours,
+            Vec::<String>::new(),
+            "bug: a product listing no flavours mixes none"
+        );
+        assert_eq!(
+            only.photo_note(),
+            None,
+            "bug: one-flavour photos need no note"
+        );
+        assert_eq!(only.image_urls.len(), 2, "bug: every photo is kept");
         assert!(
             only.image_urls[1].contains("panel"),
-            "{:?}",
+            "bug: the panel photo keeps its place, last: {:?}",
             only.image_urls
         );
     }
@@ -798,18 +874,28 @@ mod tests {
         // box is an assortment.
         assert_eq!(
             flavours,
-            vec!["Tri-Berry".to_owned(), "Salted Caramel".to_owned()]
-        );
+            vec!["Tri-Berry".to_owned(), "Salted Caramel".to_owned()], "bug: each photographed flavour is a candidate, an assortment and a photoless flavour left out");
         let tri_berry = &candidates[0];
         assert_eq!(
-            tri_berry.page_url,
-            "https://guenergy.com/products/original-energy-gel?variant=101"
+            tri_berry.page_url, "https://guenergy.com/products/original-energy-gel?variant=101",
+            "bug: a flavour's page is pinned to its first variant"
         );
         // Five photos tied to Tri-Berry: every one is sent, in order.
-        assert_eq!(tri_berry.image_urls.len(), 5);
-        assert!(tri_berry.image_urls[4].ends_with("tb-panel.png?v=1"));
+        assert_eq!(
+            tri_berry.image_urls.len(),
+            5,
+            "bug: every photo tied to the flavour is sent"
+        );
+        assert!(
+            tri_berry.image_urls[4].ends_with("tb-panel.png?v=1"),
+            "bug: photos keep the store's order"
+        );
         // Its two box sizes, where a per-variant panel is looked for.
-        assert_eq!(tri_berry.variant_ids, vec![101, 102]);
+        assert_eq!(
+            tri_berry.variant_ids,
+            vec![101, 102],
+            "bug: a flavour's variants are its box sizes, ascending"
+        );
     }
 
     #[test]
@@ -817,30 +903,56 @@ mod tests {
         // Its photos are tied to flavours, but the brand's page shows one
         // panel for all of them: one read, naming the flavours it may show.
         let candidates = label_candidates(brand("tailwind"), &product("Original Energy Gel"));
-        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates.len(),
+            1,
+            "bug: a family-panel brand reads a product once"
+        );
         let only = &candidates[0];
-        assert_eq!(only.flavour, None);
+        assert_eq!(
+            only.flavour, None,
+            "bug: a family read names no one flavour"
+        );
         assert_eq!(
             only.untied_flavours,
-            vec!["Tri-Berry", "Cola Me Happy", "Salted Caramel"]
+            vec!["Tri-Berry", "Cola Me Happy", "Salted Caramel"],
+            "bug: a family read names every flavour it may show"
         );
-        assert_eq!(only.variant_ids, vec![101, 102, 201, 301, 401]);
         assert_eq!(
-            only.page_url,
-            "https://tailwindnutrition.com/products/original-energy-gel"
+            only.variant_ids,
+            vec![101, 102, 201, 301, 401],
+            "bug: a family read carries every variant, ascending"
+        );
+        assert_eq!(
+            only.page_url, "https://tailwindnutrition.com/products/original-energy-gel",
+            "bug: a family read's page is the product's"
         );
     }
 
     #[test]
     fn untied_photos_of_several_flavours_are_one_candidate_that_says_so() {
         let candidates = label_candidates(brand("tailwind"), &product("Endurance Fuel"));
-        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates.len(),
+            1,
+            "bug: untied photos of several flavours are one candidate"
+        );
         let only = &candidates[0];
-        assert_eq!(only.flavour, None);
-        assert_eq!(only.image_urls.len(), 2);
-        assert_eq!(only.untied_flavours, vec!["Berry", "Lemon", "Naked"]);
+        assert_eq!(
+            only.flavour, None,
+            "bug: an untied candidate names no flavour"
+        );
+        assert_eq!(only.image_urls.len(), 2, "bug: every photo is kept");
+        assert_eq!(
+            only.untied_flavours,
+            vec!["Berry", "Lemon", "Naked"],
+            "bug: the untied candidate names every flavour it may show"
+        );
         let note = only.photo_note().unwrap_or_default();
-        assert!(note.contains("3 flavours (Berry, Lemon, Naked)"), "{note}");
+        assert!(
+            note.contains("3 flavours (Berry, Lemon, Naked)"),
+            "bug: the note names every untied flavour: {note}"
+        );
     }
 
     #[test]
@@ -848,17 +960,36 @@ mod tests {
         // One photo is tied to a variant, one is not: with one flavour listed
         // both show it, so neither is dropped and no note is needed.
         let candidates = label_candidates(brand("skratch"), &product("Electrolyte Booster"));
-        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates.len(),
+            1,
+            "bug: a single-flavour product is one candidate"
+        );
         let only = &candidates[0];
-        assert_eq!(only.flavour.as_deref(), Some("Unflavored"));
-        assert_eq!(only.image_urls.len(), 2);
-        assert_eq!(only.photo_note(), None);
+        assert_eq!(
+            only.flavour.as_deref(),
+            Some("Unflavored"),
+            "bug: the one flavour is named"
+        );
+        assert_eq!(
+            only.image_urls.len(),
+            2,
+            "bug: tied and untied photos are both kept"
+        );
+        assert_eq!(
+            only.photo_note(),
+            None,
+            "bug: one-flavour photos need no note"
+        );
     }
 
     #[test]
     fn two_pack_sizes_of_one_product_are_one_listing() {
         let bag = listing_key("naak", "ULTRA™ Drink Mix 250 · Watermelon · Bag", None);
-        assert_eq!(bag, "naak|ultra drink mix 250 watermelon|");
+        assert_eq!(
+            bag, "naak|ultra drink mix 250 watermelon|",
+            "bug: pack-size words are left out of the key"
+        );
         for sibling in [
             "ULTRA™ Drink Mix 250 · Watermelon · Single Serve",
             "ULTRA™ Drink Mix 250 ‧ Watermelon ‧ Single Serving",
@@ -866,7 +997,11 @@ mod tests {
             "ULTRA™ Drink Mix 250 · Watermelon · 12 Count",
             "ULTRA™ Drink Mix 250 · Watermelon · 6 Pack",
         ] {
-            assert_eq!(listing_key("naak", sibling, None), bag, "{sibling}");
+            assert_eq!(
+                listing_key("naak", sibling, None),
+                bag,
+                "bug: a pack-size listing must key as the bag: {sibling}"
+            );
         }
         assert_eq!(
             listing_key(
@@ -878,29 +1013,35 @@ mod tests {
                 "naak",
                 "ULTRA™ Drink Mix 250 UTMB® Edition · Salted Soup · Single Serve",
                 None
-            )
+            ),
+            "bug: a UTMB edition's two packs are one listing"
         );
         // The product's own number and another flavour stay apart.
         assert_ne!(
             listing_key("naak", "BOOST™ Drink Mix 60 · Watermelon · Bag", None),
-            bag
+            bag,
+            "bug: another product number is another listing"
         );
         assert_ne!(
             listing_key("naak", "ULTRA™ Drink Mix 250 · Lime · Bag", None),
-            bag
+            bag,
+            "bug: another flavour is another listing"
         );
         // A flavour option is part of the key; another brand is another key.
         assert_eq!(
             listing_key("gu", "Original Energy Gel", Some("Tri-Berry")),
-            "gu|original energy gel|tri berry"
+            "gu|original energy gel|tri berry",
+            "bug: the flavour option is part of the key"
         );
         assert_ne!(
             listing_key("gu", "Original Energy Gel", Some("Tri-Berry")),
-            listing_key("gu", "Original Energy Gel", Some("Salted Caramel"))
+            listing_key("gu", "Original Energy Gel", Some("Salted Caramel")),
+            "bug: two flavour options are two listings"
         );
         assert_ne!(
             listing_key("skratch", "Original Energy Gel", Some("Tri-Berry")),
-            listing_key("gu", "Original Energy Gel", Some("Tri-Berry"))
+            listing_key("gu", "Original Energy Gel", Some("Tri-Berry")),
+            "bug: another brand is another listing"
         );
     }
 
@@ -915,16 +1056,32 @@ mod tests {
             })
             .collect();
         let kept = last_images(gallery.iter());
-        assert_eq!(kept.len(), MAX_IMAGES_PER_CANDIDATE);
-        assert_eq!(kept.first().map(String::as_str), Some("p4"));
-        assert_eq!(kept.last().map(String::as_str), Some("p11"));
+        assert_eq!(
+            kept.len(),
+            MAX_IMAGES_PER_CANDIDATE,
+            "bug: a gallery is capped"
+        );
+        assert_eq!(
+            kept.first().map(String::as_str),
+            Some("p4"),
+            "bug: the cap keeps the last photos"
+        );
+        assert_eq!(
+            kept.last().map(String::as_str),
+            Some("p11"),
+            "bug: the cap keeps the last photo"
+        );
     }
 
     #[test]
     fn a_product_with_no_photo_has_no_candidate() {
         let mut bare = product("ULTRA™ Gel 200 · Salted Maple");
         bare.images.clear();
-        assert_eq!(label_candidates(brand("naak"), &bare), Vec::new());
+        assert_eq!(
+            label_candidates(brand("naak"), &bare),
+            Vec::new(),
+            "bug: a product with no photo has nothing to read"
+        );
     }
 
     #[test]
@@ -933,7 +1090,8 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(
             url.as_str(),
-            "https://cdn.shopify.com/s/files/gel.png?v=17&width=1600"
+            "https://cdn.shopify.com/s/files/gel.png?v=17&width=1600",
+            "bug: a photo is asked for at the label width, keeping its version"
         );
     }
 
@@ -941,19 +1099,34 @@ mod tests {
     fn only_png_jpeg_and_webp_are_accepted() {
         assert_eq!(
             accepted_mime(Some("image/png")).as_deref(),
-            Some("image/png")
+            Some("image/png"),
+            "bug: png is accepted"
         );
         assert_eq!(
             accepted_mime(Some("Image/JPEG; charset=binary")).as_deref(),
-            Some("image/jpeg")
+            Some("image/jpeg"),
+            "bug: a JPEG type is accepted, lowercased without parameters"
         );
         assert_eq!(
             accepted_mime(Some("image/webp")).as_deref(),
-            Some("image/webp")
+            Some("image/webp"),
+            "bug: webp is accepted"
         );
-        assert_eq!(accepted_mime(Some("image/gif")), None);
-        assert_eq!(accepted_mime(Some("text/html")), None);
-        assert_eq!(accepted_mime(None), None);
+        assert_eq!(
+            accepted_mime(Some("image/gif")),
+            None,
+            "bug: gif is refused"
+        );
+        assert_eq!(
+            accepted_mime(Some("text/html")),
+            None,
+            "bug: html is refused"
+        );
+        assert_eq!(
+            accepted_mime(None),
+            None,
+            "bug: no declared type is refused"
+        );
     }
 
     #[test]
@@ -961,7 +1134,8 @@ mod tests {
         let url = page_url("https://www.skratchlabs.com/", 3).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(
             url.as_str(),
-            "https://www.skratchlabs.com/products.json?limit=250&page=3"
+            "https://www.skratchlabs.com/products.json?limit=250&page=3",
+            "bug: a page URL carries Shopify's page size and the page number"
         );
     }
 }

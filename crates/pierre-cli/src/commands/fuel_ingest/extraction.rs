@@ -19,14 +19,10 @@
 //! hunt through prose, no field repair.
 
 use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine as _;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{
-    check_plausibility, normalize_gtin, FactProvenance, FactSource, FieldProvenance, FuelFacts,
-    FuelForm,
-};
-use pierre_core::redaction::redact_url;
-use pierre_llm::served_tier::{observe_served_tier, ServedTier};
+use pierre_core::models::{self, FactProvenance, FactSource, FieldProvenance, FuelFacts, FuelForm};
+use pierre_core::redaction;
+use pierre_llm::served_tier::{self, ServedTier};
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, ImagePart, LlmCapabilities, TokenUsage};
 use serde::{Deserialize, Deserializer};
@@ -346,7 +342,7 @@ pub(super) fn map_reading(reading: &LabelReading, source_url: &str) -> MappedRea
     }
 
     let mut gate_flags: Vec<String> = Vec::new();
-    if let Err(violations) = check_plausibility(reading.form, &facts) {
+    if let Err(violations) = models::check_plausibility(reading.form, &facts) {
         for violation in violations {
             let code = violation.code().to_owned();
             if !gate_flags.contains(&code) {
@@ -356,10 +352,10 @@ pub(super) fn map_reading(reading: &LabelReading, source_url: &str) -> MappedRea
     }
 
     let gtin = reading.gtin.as_deref().and_then(|printed| {
-        let normalized = normalize_gtin(printed);
+        let normalized = models::normalize_gtin(printed);
         if normalized.is_none() {
             warn!(
-                source = %redact_url(source_url),
+                source = %redaction::redact_url(source_url),
                 digits = printed.len(),
                 "label GTIN is not a valid GTIN (length or check digit); filed without one"
             );
@@ -401,6 +397,8 @@ pub(super) fn label_request(
 
 /// [`label_request`] before it is routed to a stage.
 fn label_messages(system_prompt: &str, images: &[LabelImage]) -> AppResult<ChatRequest> {
+    use base64::Engine as _;
+
     let parts = images
         .iter()
         .map(|image| {
@@ -447,7 +445,7 @@ pub(super) async fn read_label(
     request: &ChatRequest,
     source_url: &str,
 ) -> Answer {
-    let (result, served) = observe_served_tier(provider.complete(request)).await;
+    let (result, served) = served_tier::observe_served_tier(provider.complete(request)).await;
     let response = match result {
         Ok(response) => response,
         Err(e) => {
@@ -471,7 +469,7 @@ pub(super) async fn read_label(
             provider = name,
             position = ?position,
             model = %response.model,
-            source = %redact_url(source_url),
+            source = %redaction::redact_url(source_url),
             "label answer discarded: the tier that answered does not read images, so it never saw the label"
         );
         return Answer {
@@ -485,7 +483,7 @@ pub(super) async fn read_label(
         provider = name,
         position = ?position,
         model = %response.model,
-        source = %redact_url(source_url),
+        source = %redaction::redact_url(source_url),
         "label read"
     );
     let result = parse_reading(&response.content)
@@ -532,31 +530,68 @@ mod tests {
             .iter()
             .find(|message| message.images.is_some())
             .unwrap_or_else(|| panic!("no message carries the photos"));
-        assert_eq!(user.content, user_message(photos.len()));
-        assert_eq!(user.images.as_ref().map(Vec::len), Some(2));
+        assert_eq!(
+            user.content,
+            user_message(photos.len()),
+            "bug: the user message sent must be the one the read hash names"
+        );
+        assert_eq!(
+            user.images.as_ref().map(Vec::len),
+            Some(2),
+            "bug: every photo must travel on the user message"
+        );
         // The count is part of the text, so one more photo is another message.
-        assert_ne!(user_message(2), user_message(3));
+        assert_ne!(
+            user_message(2),
+            user_message(3),
+            "bug: the photo count must be part of the hashed message"
+        );
     }
 
     #[test]
     fn the_prompts_object_parses_bare_and_in_one_fence() {
         let bare = reading();
-        assert_eq!(bare.form, FuelForm::Gel);
-        assert_eq!(bare.per_serving.carbs_g, Some(25.0));
-        assert!(bare.legible);
+        assert_eq!(bare.form, FuelForm::Gel, "bug: the fixture's form is gel");
+        assert_eq!(
+            bare.per_serving.carbs_g,
+            Some(25.0),
+            "bug: the fixture's carbs are 25 g"
+        );
+        assert!(bare.legible, "bug: the fixture is a legible label");
         let fenced =
             parse_reading(&format!("```json\n{READING}\n```")).unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(fenced, bare);
+        assert_eq!(
+            fenced, bare,
+            "bug: one code fence must not change the reading"
+        );
     }
 
     #[test]
     fn prose_truncation_and_foreign_shapes_are_refused() {
-        assert!(parse_reading(&format!("Here is the label:\n{READING}")).is_err());
-        assert!(parse_reading(&READING[..READING.len() / 2]).is_err());
-        assert!(parse_reading(&READING.replacen("\"legible\"", "\"readable\"", 1)).is_err());
-        assert!(parse_reading(&READING.replacen("\"gel\"", "null", 1)).is_err());
-        assert!(parse_reading(&format!("```json\n{READING}\n```\n```{{}}```")).is_err());
-        assert!(parse_reading(&format!("{READING} {{}}")).is_err());
+        assert!(
+            parse_reading(&format!("Here is the label:\n{READING}")).is_err(),
+            "bug: prose before the object must be refused"
+        );
+        assert!(
+            parse_reading(&READING[..READING.len() / 2]).is_err(),
+            "bug: a truncated object must be refused"
+        );
+        assert!(
+            parse_reading(&READING.replacen("\"legible\"", "\"readable\"", 1)).is_err(),
+            "bug: an unknown key must be refused"
+        );
+        assert!(
+            parse_reading(&READING.replacen("\"gel\"", "null", 1)).is_err(),
+            "bug: a null form must be refused"
+        );
+        assert!(
+            parse_reading(&format!("```json\n{READING}\n```\n```{{}}```")).is_err(),
+            "bug: two code fences must be refused"
+        );
+        assert!(
+            parse_reading(&format!("{READING} {{}}")).is_err(),
+            "bug: text after the object must be refused"
+        );
     }
 
     #[test]
@@ -566,42 +601,97 @@ mod tests {
             Ok(reading) => panic!("a string carb amount was accepted: {reading:?}"),
             Err(e) => e.to_string(),
         };
-        assert!(message.contains("`per_serving.carbs_g`"), "{message}");
-        assert!(!message.contains("25 g net"), "{message}");
+        assert!(
+            message.contains("`per_serving.carbs_g`"),
+            "bug: the error must name the field it broke at: {message}"
+        );
+        assert!(
+            !message.contains("25 g net"),
+            "bug: the error must never carry label text: {message}"
+        );
     }
 
     #[test]
     fn a_form_this_build_does_not_know_reads_as_other() {
         let syrup = parse_reading(&READING.replacen("\"gel\"", "\"syrup\"", 1))
             .unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(syrup.form, FuelForm::Other);
+        assert_eq!(
+            syrup.form,
+            FuelForm::Other,
+            "bug: an unknown form must read as other"
+        );
         for form in FuelForm::ALL {
             let named =
                 parse_reading(&READING.replacen("\"gel\"", &format!("\"{}\"", form.as_str()), 1))
                     .unwrap_or_else(|e| panic!("{e}"));
-            assert_eq!(named.form, form);
+            assert_eq!(named.form, form, "bug: a known form must read as itself");
         }
     }
 
     #[test]
     fn a_reading_maps_to_facts_with_label_provenance() {
         let mapped = map_reading(&reading(), URL);
-        assert_eq!(mapped.facts.serving_g, Some(57.0));
-        assert_eq!(mapped.facts.carbs_g, Some(25.0));
-        assert_eq!(mapped.facts.sodium_mg, Some(150.0));
-        assert_eq!(mapped.facts.salt_g_per_100g, Some(0.66));
-        assert_eq!(mapped.facts.glucose_fructose_ratio, Some(0.8));
-        assert_eq!(mapped.facts.serving_label.as_deref(), Some("1 gel (57 g)"));
+        let facts = &mapped.facts;
+        assert_eq!(facts.serving_g, Some(57.0), "bug: serving_g is the label's");
+        assert_eq!(facts.carbs_g, Some(25.0), "bug: carbs_g is the label's");
+        assert_eq!(
+            facts.sodium_mg,
+            Some(150.0),
+            "bug: sodium_mg is the label's"
+        );
+        assert_eq!(
+            facts.salt_g_per_100g,
+            Some(0.66),
+            "bug: salt per 100 g is the label's"
+        );
+        assert_eq!(
+            facts.glucose_fructose_ratio,
+            Some(0.8),
+            "bug: the blend ratio is the label's"
+        );
+        assert_eq!(
+            facts.serving_label.as_deref(),
+            Some("1 gel (57 g)"),
+            "bug: the serving label is the label's"
+        );
         // A value the label leaves out stays out, with no provenance.
-        assert_eq!(mapped.facts.caffeine_mg, None);
-        assert!(!mapped.provenance.contains_key("caffeine_mg"));
+        assert_eq!(
+            facts.caffeine_mg, None,
+            "bug: a value the label omits must stay out"
+        );
+        assert!(
+            !mapped.provenance.contains_key("caffeine_mg"),
+            "bug: an omitted value must carry no provenance"
+        );
         let carbs = &mapped.provenance["carbs_g"];
-        assert_eq!(carbs.source, FactSource::LabelOcr);
-        assert_eq!(carbs.source_url.as_deref(), Some(URL));
-        assert!(mapped.provenance.contains_key("serving_label"));
-        assert!(mapped.provenance.contains_key("salt_g_per_100g"));
-        assert_eq!(mapped.gtin.as_deref(), Some("04260512340018"));
-        assert!(mapped.gate_flags.is_empty(), "{:?}", mapped.gate_flags);
+        assert_eq!(
+            carbs.source,
+            FactSource::LabelOcr,
+            "bug: a read fact's source is label_ocr"
+        );
+        assert_eq!(
+            carbs.source_url.as_deref(),
+            Some(URL),
+            "bug: a read fact points at its page"
+        );
+        assert!(
+            mapped.provenance.contains_key("serving_label"),
+            "bug: the serving label carries provenance"
+        );
+        assert!(
+            mapped.provenance.contains_key("salt_g_per_100g"),
+            "bug: a per-100 g fact carries provenance"
+        );
+        assert_eq!(
+            mapped.gtin.as_deref(),
+            Some("04260512340018"),
+            "bug: a valid printed GTIN is kept as GTIN-14"
+        );
+        assert!(
+            mapped.gate_flags.is_empty(),
+            "bug: a plausible label trips no gate: {:?}",
+            mapped.gate_flags
+        );
     }
 
     #[test]
@@ -609,13 +699,17 @@ mod tests {
         let mut implausible = reading();
         implausible.per_serving.sugars_g = Some(40.0);
         let mapped = map_reading(&implausible, URL);
-        assert_eq!(mapped.facts.sugars_g, Some(40.0));
+        assert_eq!(
+            mapped.facts.sugars_g,
+            Some(40.0),
+            "bug: an implausible value is carried as read, never clamped"
+        );
         // 40 g of 25 g carbs, and 40 g per serving disagrees with 21 g/100 g.
         assert!(
             mapped
                 .gate_flags
                 .contains(&"sugars_exceed_carbs".to_owned()),
-            "{:?}",
+            "bug: sugars above carbs must be flagged: {:?}",
             mapped.gate_flags
         );
     }
@@ -641,27 +735,32 @@ mod tests {
                 "anthropic",
                 vision
             ),
-            ("claude_code", Some(4), false)
+            ("claude_code", Some(4), false),
+            "bug: a text-only fallback tier must not be trusted"
         );
         // The tier that answered reads images.
         assert_eq!(
             answering_tier(Some(tier("anthropic", 0, vision)), false, "anthropic", text),
-            ("anthropic", Some(0), true)
+            ("anthropic", Some(0), true),
+            "bug: the answering tier's own vision decides"
         );
         // A solo provider reports no tier; its own capabilities stand.
         assert_eq!(
             answering_tier(None, true, "claude_code", text),
-            ("claude_code", None, false)
+            ("claude_code", None, false),
+            "bug: a text-only solo provider must not be trusted"
         );
         assert_eq!(
             answering_tier(None, true, "anthropic", vision),
-            ("anthropic", None, true)
+            ("anthropic", None, true),
+            "bug: a vision solo provider is trusted"
         );
         // A chain that answered without naming its tier is not trusted, even
         // when its head reads images.
         assert_eq!(
             answering_tier(None, false, "anthropic", vision),
-            ("anthropic", None, false)
+            ("anthropic", None, false),
+            "bug: a chain that names no tier must not be trusted"
         );
     }
 
@@ -669,6 +768,10 @@ mod tests {
     fn an_invalid_printed_gtin_is_dropped() {
         let mut bad = reading();
         bad.gtin = Some("4260512340017".to_owned());
-        assert_eq!(map_reading(&bad, URL).gtin, None);
+        assert_eq!(
+            map_reading(&bad, URL).gtin,
+            None,
+            "bug: a GTIN with a bad check digit must be dropped"
+        );
     }
 }

@@ -17,7 +17,7 @@
 //! approval.
 //!
 //! - **Never pay twice.** Every read the job pays for is recorded in
-//!   `fuel_ingest_reads` under its [`fuel_read_hash`] — the page URL, every
+//!   `fuel_ingest_reads` under its [`models::fuel_read_hash`] — the page URL, every
 //!   photo sent in order, the `fuel_panel_extraction` prompt text, the user
 //!   message the photos travel on, the configured model, the output cap and
 //!   the temperature — whatever it came
@@ -77,10 +77,10 @@ use std::sync::Arc;
 use pierre_contremaitre::registry::PromptRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    fuel_natural_key, fuel_read_hash, FuelFacts, FuelIngestOutcome, FuelKeyHolder,
-    FuelReadRecorded, FuelReadRequest, NewFuelProposal, ProposalSource, ProposalSourceImage,
+    self, FuelFacts, FuelIngestOutcome, FuelKeyHolder, FuelReadRecorded, FuelReadRequest,
+    NewFuelProposal, ProposalSource, ProposalSourceImage,
 };
-use pierre_core::redaction::redact_url;
+use pierre_core::redaction;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
@@ -90,15 +90,9 @@ use serde_json::json;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use extraction::{
-    label_request, map_reading, read_label, user_message, ReadFailure, Reading, MAX_OUTPUT_TOKENS,
-    TEMPERATURE,
-};
-use panel::{gather, Fetcher, PagePacer, PanelLocator, ProductPage};
-use shopify::{
-    fetch_fuel_products, label_candidates, listing_key, product_url, LabelCandidate, LabelImage,
-    ShopifyProduct,
-};
+use extraction::{ReadFailure, Reading, MAX_OUTPUT_TOKENS, TEMPERATURE};
+use panel::{Fetcher, PagePacer, PanelLocator, ProductPage};
+use shopify::{LabelCandidate, LabelImage, ShopifyProduct};
 use tally::Tally;
 
 /// A brand the job reads, and how its storefront is filtered to fuel.
@@ -349,6 +343,8 @@ fn with_job_note(notes: Option<String>, note: &str) -> String {
 
 /// Everything one run holds.
 struct Run {
+    /// The database's registry, shared with the `Database` that opened it:
+    /// its repositories hold the connection pool.
     repos: Arc<RepositoryRegistry>,
     provider: ChatProvider,
     prompt: String,
@@ -379,7 +375,7 @@ pub(crate) async fn run(args: FuelIngestArgs, database_url: &str) -> AppResult<(
     let brands = selected_brands(&args.brands)?;
     info!(
         "Connecting to database for fuel ingestion: {}",
-        redact_url(database_url)
+        redaction::redact_url(database_url)
     );
     let db = Database::init_for_seeding(database_url).await?;
     let provider = ChatProvider::from_chain(&LlmChain::from_env()).await?;
@@ -415,13 +411,13 @@ impl Run {
         };
         for product in &products {
             // Fetched on its first read, shared by the product's flavours.
-            let mut page = ProductPage::new(product_url(brand.store, &product.handle));
-            for candidate in label_candidates(brand, product) {
+            let mut page = ProductPage::new(shopify::product_url(brand.store, &product.handle));
+            for candidate in shopify::label_candidates(brand, product) {
                 self.tally.candidates += 1;
                 if let Err(e) = self.candidate(brand, &candidate, &mut page).await {
                     error!(
                         brand = brand.slug,
-                        page = %redact_url(&candidate.page_url),
+                        page = %redaction::redact_url(&candidate.page_url),
                         "label candidate failed: {e}"
                     );
                     self.tally.failed += 1;
@@ -433,7 +429,7 @@ impl Run {
     /// The brand's fuel products, counted; `None` (logged) when the
     /// storefront could not be listed.
     async fn list(&mut self, brand: &Brand, limit: Option<usize>) -> Option<Vec<ShopifyProduct>> {
-        match fetch_fuel_products(&self.http, brand, limit).await {
+        match shopify::fetch_fuel_products(&self.http, brand, limit).await {
             Ok((listed, products)) => {
                 info!(
                     brand = brand.slug,
@@ -472,7 +468,7 @@ impl Run {
         })
     }
 
-    /// The photos to read ([`gather`]), the job's note on where the panel
+    /// The photos to read ([`panel::gather`]), the job's note on where the panel
     /// came from, and their read hash; `None` (counted) when no photo was
     /// usable or this read is already on file.
     async fn fresh_photos(
@@ -481,13 +477,13 @@ impl Run {
         candidate: &LabelCandidate,
         product_page: &mut ProductPage,
     ) -> AppResult<Option<(Vec<LabelImage>, String, String)>> {
-        let page = redact_url(&candidate.page_url);
+        let page = redaction::redact_url(&candidate.page_url);
         let fetch = Fetcher {
             http: &self.http,
             pacer: &mut self.pacer,
             tally: &mut self.tally,
         };
-        let gathered = gather(fetch, brand, product_page, candidate).await?;
+        let gathered = panel::gather(fetch, brand, product_page, candidate).await?;
         let images = gathered.images;
         if images.is_empty() {
             warn!(brand = brand.slug, %page, "no usable photo, skipped");
@@ -495,12 +491,12 @@ impl Run {
             return Ok(None);
         }
         let sent: Vec<&[u8]> = images.iter().map(|image| image.bytes.as_slice()).collect();
-        let hash = fuel_read_hash(
+        let hash = models::fuel_read_hash(
             &candidate.page_url,
             &sent,
             FuelReadRequest {
                 prompt: &self.prompt,
-                user_message: &user_message(sent.len()),
+                user_message: &extraction::user_message(sent.len()),
                 model: &self.model,
                 max_tokens: MAX_OUTPUT_TOKENS,
                 temperature: TEMPERATURE,
@@ -529,10 +525,10 @@ impl Run {
         candidate: &LabelCandidate,
         images: &[LabelImage],
     ) -> AppResult<Option<(Result<Reading, AppError>, bool)>> {
-        let page = redact_url(&candidate.page_url);
-        let request = label_request(&self.provider, &self.prompt, images)?;
+        let page = redaction::redact_url(&candidate.page_url);
+        let request = extraction::label_request(&self.provider, &self.prompt, images)?;
         self.tally.llm_calls += 1;
-        let answer = read_label(&self.provider, &request, &candidate.page_url).await;
+        let answer = extraction::read_label(&self.provider, &request, &candidate.page_url).await;
         if let Some(usage) = &answer.usage {
             self.tally.prompt_tokens += u64::from(usage.prompt_tokens);
             self.tally.completion_tokens += u64::from(usage.completion_tokens);
@@ -580,7 +576,8 @@ impl Run {
         };
         match holder {
             None => {
-                let key = fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
+                let key =
+                    models::fuel_natural_key(&proposal.brand, &proposal.name, &proposal.variant);
                 if self.preview && self.filed_keys.contains(&key) {
                     return Ok(Filing::Duplicate(None));
                 }
@@ -610,12 +607,13 @@ impl Run {
         candidate: &LabelCandidate,
         page: &mut ProductPage,
     ) -> AppResult<()> {
-        let listing = listing_key(brand.slug, &candidate.title, candidate.flavour.as_deref());
+        let listing =
+            shopify::listing_key(brand.slug, &candidate.title, candidate.flavour.as_deref());
         let listed = match self.listing(&listing).await? {
             Listing::Held => {
                 info!(
                     brand = brand.slug,
-                    page = %redact_url(&candidate.page_url),
+                    page = %redaction::redact_url(&candidate.page_url),
                     %listing,
                     "a live proposal holds this listing's product, not read"
                 );
@@ -650,7 +648,7 @@ impl Run {
             // reason survives.
             warn!(
                 brand = brand.slug,
-                page = %redact_url(&candidate.page_url),
+                page = %redaction::redact_url(&candidate.page_url),
                 notes = read.label.notes.as_deref().unwrap_or("none"),
                 "label read found no readable panel; nothing filed"
             );
@@ -711,7 +709,7 @@ impl Run {
             return Ok(true);
         }
         warn!(
-            page = %redact_url(&candidate.page_url),
+            page = %redaction::redact_url(&candidate.page_url),
             outcome = filing.label(),
             model = %self.hashed_model,
             "a fallback tier on another model read this label; not recorded, so the next run reads it again"
@@ -753,14 +751,14 @@ impl Run {
             .await?;
         let FuelReadRecorded::Recorded(id) = recorded else {
             warn!(
-                page = %redact_url(&candidate.page_url),
+                page = %redaction::redact_url(&candidate.page_url),
                 outcome = filing.label(),
                 "a concurrent run recorded this read first; its outcome stands, nothing filed"
             );
             return Ok(false);
         };
         info!(
-            page = %redact_url(&candidate.page_url),
+            page = %redaction::redact_url(&candidate.page_url),
             proposal = ?id,
             outcome = filing.label(),
             flags = filed.map_or(0, |p| p.gate_flags.len()),
@@ -782,7 +780,7 @@ impl Run {
         }
         if let (Filing::New | Filing::Update(_), Some(proposal)) = (filing, proposal) {
             self.filed_listings.insert(listing.to_owned());
-            self.filed_keys.insert(fuel_natural_key(
+            self.filed_keys.insert(models::fuel_natural_key(
                 &proposal.brand,
                 &proposal.name,
                 &proposal.variant,
@@ -802,7 +800,7 @@ fn proposal(
     hash: String,
 ) -> NewFuelProposal {
     let label = &read.label;
-    let mapped = map_reading(label, &candidate.page_url);
+    let mapped = extraction::map_reading(label, &candidate.page_url);
     NewFuelProposal {
         product_id: None,
         brand: brand.display.to_owned(),
@@ -917,8 +915,16 @@ mod tests {
             ),
         ];
         for (filing, outcome, label) in cases {
-            assert_eq!(filing.outcome(), outcome, "{filing:?}");
-            assert_eq!(filing.label(), label, "{filing:?}");
+            assert_eq!(
+                filing.outcome(),
+                outcome,
+                "bug: {filing:?} is recorded under the wrong outcome"
+            );
+            assert_eq!(
+                filing.label(),
+                label,
+                "bug: {filing:?} is named under the wrong label"
+            );
             // Only a read that found a panel may count as `raced`, which
             // the run's verdict reads as legible.
             assert_eq!(
@@ -927,7 +933,7 @@ mod tests {
                     outcome,
                     FuelIngestOutcome::Illegible | FuelIngestOutcome::ParseFailed
                 ),
-                "{filing:?}"
+                "bug: only a read that found a panel may count as raced: {filing:?}"
             );
         }
     }
@@ -936,61 +942,91 @@ mod tests {
     fn only_the_hashed_model_puts_a_read_on_file() {
         let opus = "claude-opus-5-5";
         // The chain's head, or a solo provider.
-        assert!(read_by_hashed_model(Some(0), Some(opus), opus));
-        assert!(read_by_hashed_model(None, Some(opus), opus));
+        assert!(
+            read_by_hashed_model(Some(0), Some(opus), opus),
+            "bug: the chain's head read the label its hash names"
+        );
+        assert!(
+            read_by_hashed_model(None, Some(opus), opus),
+            "bug: a solo provider read the label its hash names"
+        );
         // A pooled account of the same model.
-        assert!(read_by_hashed_model(Some(1), Some(opus), opus));
+        assert!(
+            read_by_hashed_model(Some(1), Some(opus), opus),
+            "bug: a pooled account on the hashed model read the label"
+        );
         // A fallback on another model never saw the photos as the hash says.
-        assert!(!read_by_hashed_model(
-            Some(1),
-            Some("claude-haiku-5-5"),
-            opus
-        ));
-        assert!(!read_by_hashed_model(
-            Some(5),
-            Some("gemini-flash-lite-latest"),
-            opus
-        ));
-        assert!(!read_by_hashed_model(Some(2), None, opus));
+        assert!(
+            !read_by_hashed_model(Some(1), Some("claude-haiku-5-5"), opus),
+            "bug: a fallback on another model must not put a read on file"
+        );
+        assert!(
+            !read_by_hashed_model(Some(5), Some("gemini-flash-lite-latest"), opus),
+            "bug: a fallback on another model must not put a read on file"
+        );
+        assert!(
+            !read_by_hashed_model(Some(2), None, opus),
+            "bug: a tier that reports no model must not put a read on file"
+        );
     }
 
     #[test]
     fn a_job_note_follows_the_readers() {
-        assert_eq!(with_job_note(None, "b"), "Ingestion job: b");
+        assert_eq!(
+            with_job_note(None, "b"),
+            "Ingestion job: b",
+            "bug: a job note alone is named as the job's"
+        );
         assert_eq!(
             with_job_note(Some("Label reader: a".to_owned()), "b"),
-            "Label reader: a\nIngestion job: b"
+            "Label reader: a\nIngestion job: b",
+            "bug: the job's note follows the reader's"
         );
     }
 
     #[test]
     fn every_brand_slug_is_unique_and_selectable() {
         let all = selected_brands(&[]).unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(all.len(), BRANDS.len());
+        assert_eq!(all.len(), BRANDS.len(), "bug: no slug selects every brand");
         let picked = selected_brands(&["GU".to_owned(), "naak".to_owned()])
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(
             picked.iter().map(|b| b.slug).collect::<Vec<_>>(),
-            vec!["gu", "naak"]
+            vec!["gu", "naak"],
+            "bug: slugs select their brands, case-insensitively, in order"
         );
-        assert!(selected_brands(&["maurten".to_owned()]).is_err());
+        assert!(
+            selected_brands(&["maurten".to_owned()]).is_err(),
+            "bug: an unknown slug must be refused"
+        );
     }
 
     #[test]
     fn the_reviewer_notes_name_who_wrote_each() {
-        assert_eq!(reviewer_notes(None, None), None);
-        assert_eq!(reviewer_notes(Some("  "), None), None);
+        assert_eq!(
+            reviewer_notes(None, None),
+            None,
+            "bug: no note from anyone is no note"
+        );
+        assert_eq!(
+            reviewer_notes(Some("  "), None),
+            None,
+            "bug: a blank reader note is no note"
+        );
         assert_eq!(
             reviewer_notes(Some("200 kcal is front-of-pack"), None).as_deref(),
-            Some("Label reader: 200 kcal is front-of-pack")
+            Some("Label reader: 200 kcal is front-of-pack"),
+            "bug: a reader note is named as the reader's"
         );
         assert_eq!(
             reviewer_notes(Some("a"), Some("b".to_owned())).as_deref(),
-            Some("Label reader: a\nIngestion job: b")
+            Some("Label reader: a\nIngestion job: b"),
+            "bug: the reader's note comes before the job's"
         );
         assert_eq!(
             reviewer_notes(None, Some("b".to_owned())).as_deref(),
-            Some("Ingestion job: b")
+            Some("Ingestion job: b"),
+            "bug: a job note alone is named as the job's"
         );
     }
 
@@ -1034,52 +1070,75 @@ mod tests {
                 .iter()
                 .map(|i| i.bytes.as_slice())
                 .collect::<Vec<_>>(),
-            vec![b"front".as_slice(), b"panel".as_slice()]
+            vec![b"front".as_slice(), b"panel".as_slice()],
+            "bug: every photo sent is filed, in order"
         );
-        assert_eq!(filed.brand, "Tailwind Nutrition");
-        assert_eq!(filed.name, "ULTRA Energy Gel");
-        assert_eq!(filed.multiple_transportable_stated, Some(true));
+        assert_eq!(
+            filed.brand, "Tailwind Nutrition",
+            "bug: the brand is the table's display name"
+        );
+        assert_eq!(
+            filed.name, "ULTRA Energy Gel",
+            "bug: the name is what the label prints"
+        );
+        assert_eq!(
+            filed.multiple_transportable_stated,
+            Some(true),
+            "bug: the blend claim is the label's"
+        );
         assert_eq!(
             filed.ingredients_text.as_deref(),
-            Some("Maple syrup, maltodextrin, water, sea salt")
+            Some("Maple syrup, maltodextrin, water, sea salt"),
+            "bug: the ingredients are the label's, trimmed"
         );
         let notes = filed.notes.unwrap_or_default();
         assert!(
             notes.starts_with("Label reader: Energy is front-of-pack\n"),
-            "{notes}"
+            "bug: the reader's note opens the notes: {notes}"
         );
         assert!(
             notes.contains("Ingestion job: The listing offers 2 flavours (Berry, Lemon)"),
-            "{notes}"
+            "bug: the job's photo note names the untied flavours: {notes}"
         );
         assert!(
             notes.ends_with("against the panel. The first photo is the nutrition panel."),
-            "{notes}"
+            "bug: the panel note closes the notes: {notes}"
         );
-        assert_eq!(filed.facts.glucose_fructose_ratio, Some(0.8));
-        assert!(filed.gate_flags.is_empty(), "{:?}", filed.gate_flags);
+        assert_eq!(
+            filed.facts.glucose_fructose_ratio,
+            Some(0.8),
+            "bug: the blend ratio is the label's"
+        );
+        assert!(
+            filed.gate_flags.is_empty(),
+            "bug: a plausible label trips no gate: {:?}",
+            filed.gate_flags
+        );
     }
 
     #[test]
     fn a_catalogued_product_is_updated_only_when_its_facts_changed() {
         let product = Uuid::new_v4();
         let current = read().label;
-        let facts = map_reading(&current, "https://naak.com/products/gel").facts;
+        let facts = extraction::map_reading(&current, "https://naak.com/products/gel").facts;
         assert_eq!(
             against_product(product, None, &facts, &facts),
-            Filing::Unchanged(product)
+            Filing::Unchanged(product),
+            "bug: the same facts file nothing"
         );
         let mut changed = facts.clone();
         changed.sodium_mg = Some(400.0);
         assert_eq!(
             against_product(product, None, &facts, &changed),
-            Filing::Update(product)
+            Filing::Update(product),
+            "bug: changed facts file an update"
         );
         // A pending update already holds it: nothing more is filed.
         let pending = Uuid::new_v4();
         assert_eq!(
             against_product(product, Some(pending), &facts, &changed),
-            Filing::Duplicate(Some(FuelKeyHolder::Proposal(pending)))
+            Filing::Duplicate(Some(FuelKeyHolder::Proposal(pending))),
+            "bug: a pending update holds the product, so nothing more is filed"
         );
     }
 
@@ -1087,9 +1146,18 @@ mod tests {
     fn a_printed_identity_wins_over_the_listing() {
         assert_eq!(
             printed_or(Some(" ULTRA Gel "), "ULTRA™ Gel 200 · Maple"),
-            "ULTRA Gel"
+            "ULTRA Gel",
+            "bug: a printed identity wins, trimmed"
         );
-        assert_eq!(printed_or(Some("  "), "Listing"), "Listing");
-        assert_eq!(printed_or(None, ""), "");
+        assert_eq!(
+            printed_or(Some("  "), "Listing"),
+            "Listing",
+            "bug: a blank print falls back to the listing"
+        );
+        assert_eq!(
+            printed_or(None, ""),
+            "",
+            "bug: no print falls back to the listing"
+        );
     }
 }

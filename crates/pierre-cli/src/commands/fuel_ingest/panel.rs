@@ -23,15 +23,14 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::redaction::redact_url;
+use pierre_core::redaction;
 use reqwest::Url;
 use scraper::{ElementRef, Html, Selector};
-use tokio::time::{sleep_until, Instant};
+use tokio::time::{self, Instant};
 use tracing::{info, warn};
 
 use super::shopify::{
-    download_image, download_url, get_with_backoff, sized, LabelCandidate, LabelImage, IMAGE_WIDTH,
-    MAX_IMAGE_BYTES, MAX_READ_BYTES,
+    self, LabelCandidate, LabelImage, IMAGE_WIDTH, MAX_IMAGE_BYTES, MAX_READ_BYTES,
 };
 use super::tally::Tally;
 use super::Brand;
@@ -47,7 +46,10 @@ pub(super) const STORE_PHOTOS_WITH_PANEL: usize = 2;
 
 // A panel and its store photos always fit the read's byte budget, each photo
 // being at most `MAX_IMAGE_BYTES`, so none is left out for size.
-const _: () = assert!((1 + STORE_PHOTOS_WITH_PANEL) * MAX_IMAGE_BYTES <= MAX_READ_BYTES);
+const _: () = assert!(
+    (1 + STORE_PHOTOS_WITH_PANEL) * MAX_IMAGE_BYTES <= MAX_READ_BYTES,
+    "bug: a panel and STORE_PHOTOS_WITH_PANEL store photos at MAX_IMAGE_BYTES each must fit MAX_READ_BYTES"
+);
 
 /// The largest product page read, bytes. The four stores' pages run 0.5 to
 /// 1.2 MB (live, 2026-10-29).
@@ -203,9 +205,9 @@ pub(super) fn panel_url(page: &Url, src: &str) -> AppResult<Url> {
     url.query_pairs_mut().clear().extend_pairs(kept);
     if svg {
         url.query_pairs_mut().append_pair("format", "png");
-        return Ok(sized(url, SVG_PANEL_WIDTH));
+        return Ok(shopify::sized(url, SVG_PANEL_WIDTH));
     }
-    Ok(sized(url, IMAGE_WIDTH))
+    Ok(shopify::sized(url, IMAGE_WIDTH))
 }
 
 /// `file` without a Shopify size suffix before its extension
@@ -247,7 +249,7 @@ impl PagePacer {
     /// Wait until `store` may be asked for another page.
     async fn wait(&self, store: &str) {
         if let Some(last) = self.last.get(store) {
-            sleep_until(*last + PAGE_SPACING).await;
+            time::sleep_until(*last + PAGE_SPACING).await;
         }
     }
 }
@@ -290,7 +292,7 @@ impl ProductPage {
             self.state = match fetched {
                 Ok(html) => PageState::Fetched(html),
                 Err(e) => {
-                    warn!(page = %redact_url(&self.url), "product page fetch failed: {e}");
+                    warn!(page = %redaction::redact_url(&self.url), "product page fetch failed: {e}");
                     PageState::Failed
                 }
             };
@@ -310,10 +312,10 @@ async fn fetch_page(http: &reqwest::Client, page: &str) -> AppResult<String> {
     let over_cap = || {
         AppError::external_service(
             "shopify",
-            format!("{} is over the page size cap", redact_url(page)),
+            format!("{} is over the page size cap", redaction::redact_url(page)),
         )
     };
-    let mut response = get_with_backoff(http, &url).await?;
+    let mut response = shopify::get_with_backoff(http, &url).await?;
     if response
         .content_length()
         .is_some_and(|len| len > MAX_PAGE_BYTES as u64)
@@ -324,7 +326,7 @@ async fn fetch_page(http: &reqwest::Client, page: &str) -> AppResult<String> {
     while let Some(chunk) = response.chunk().await.map_err(|e| {
         AppError::external_service(
             "shopify",
-            format!("reading {} failed: {e}", redact_url(page)),
+            format!("reading {} failed: {e}", redaction::redact_url(page)),
         )
     })? {
         if body.len() + chunk.len() > MAX_PAGE_BYTES {
@@ -344,10 +346,10 @@ pub(super) struct Gathered {
 }
 
 /// Whatever a run holds to fetch pages and photos.
-pub(super) struct Fetcher<'a> {
-    pub http: &'a reqwest::Client,
-    pub pacer: &'a mut PagePacer,
-    pub tally: &'a mut Tally,
+pub(super) struct Fetcher<'run> {
+    pub http: &'run reqwest::Client,
+    pub pacer: &'run mut PagePacer,
+    pub tally: &'run mut Tally,
 }
 
 /// The photos a read of `candidate` sends: the panel its product page shows
@@ -373,8 +375,9 @@ pub(super) async fn gather(
     };
     fetch.tally.panel_sent += 1;
     let mut images = vec![panel];
-    for src in candidate.image_urls.iter().take(STORE_PHOTOS_WITH_PANEL) {
-        if let Some(image) = download_image(fetch.http, src).await? {
+    let fronts = candidate.image_urls.iter().take(STORE_PHOTOS_WITH_PANEL);
+    for src in fronts {
+        if let Some(image) = shopify::download_image(fetch.http, src).await? {
             images.push(image);
         }
     }
@@ -403,7 +406,7 @@ async fn find_panel(
     page: &mut ProductPage,
     candidate: &LabelCandidate,
 ) -> AppResult<Result<(LabelImage, Url), String>> {
-    let shown = redact_url(&candidate.page_url);
+    let shown = redaction::redact_url(&candidate.page_url);
     if !brand.panel.serves(candidate) {
         info!(brand = brand.slug, page = %shown, "listing mixes flavours its page has one panel each for; no panel sent");
         fetch.tally.panel_missing += 1;
@@ -426,7 +429,7 @@ async fn find_panel(
         fetch.tally.panel_missing += 1;
         return Ok(Err("The product page shows no nutrition panel".to_owned()));
     };
-    match download_url(fetch.http, panel_src.clone()).await {
+    match shopify::download_url(fetch.http, panel_src.clone()).await {
         Ok(Some(panel)) => Ok(Ok((panel, panel_src))),
         // A refused type or size was logged by the download.
         refused => {
@@ -434,7 +437,7 @@ async fn find_panel(
                 || "not png, jpeg or webp, or over the size cap".to_owned(),
                 |e| e.to_string(),
             );
-            warn!(brand = brand.slug, panel = %redact_url(panel_src.as_str()), "nutrition panel image not usable ({why}); reading the store photos");
+            warn!(brand = brand.slug, panel = %redaction::redact_url(panel_src.as_str()), "nutrition panel image not usable ({why}); reading the store photos");
             fetch.tally.panel_missing += 1;
             Ok(Err(format!(
                 "The product page's nutrition panel ({panel_src}) could not be downloaded as \
@@ -453,13 +456,14 @@ async fn store_photos(
 ) -> AppResult<Vec<LabelImage>> {
     let mut images = Vec::with_capacity(candidate.image_urls.len());
     let mut bytes = 0;
-    for src in candidate.image_urls.iter().rev() {
-        let Some(image) = download_image(http, src).await? else {
+    let last_first = candidate.image_urls.iter().rev();
+    for src in last_first {
+        let Some(image) = shopify::download_image(http, src).await? else {
             continue;
         };
         if bytes + image.bytes.len() > MAX_READ_BYTES {
             warn!(
-                page = %redact_url(&candidate.page_url),
+                page = %redaction::redact_url(&candidate.page_url),
                 bytes = image.bytes.len(),
                 "photo left out: the read's photos are over the byte budget"
             );
@@ -503,7 +507,7 @@ mod tests {
             assert_eq!(
                 find_source(locator, &empty, &[1]).unwrap_or_else(|e| panic!("{e}")),
                 None,
-                "{locator:?}"
+                "bug: an empty page has no panel for {locator:?}"
             );
         }
     }
@@ -518,7 +522,8 @@ mod tests {
                 &[]
             )
             .as_deref(),
-            Some("https://www.naak.com/cdn/shop/files/EGSM-SS-CA-TVN.png?v=1738511171&width=1600")
+            Some("https://www.naak.com/cdn/shop/files/EGSM-SS-CA-TVN.png?v=1738511171&width=1600"),
+            "bug: Näak's drawer image is found, resolved and sized"
         );
     }
 
@@ -534,8 +539,7 @@ mod tests {
                 &[]
             )
             .as_deref(),
-            Some("https://tailwindnutrition.com/cdn/shop/files/Nutrition_Facts_HCF-Simplified.png?v=1755627394&width=1600")
-        );
+            Some("https://tailwindnutrition.com/cdn/shop/files/Nutrition_Facts_HCF-Simplified.png?v=1755627394&width=1600"), "bug: Tailwind's tab image is found by its label, at its original size");
         // A page whose tabs name no "Nutrition Facts" has no panel.
         let renamed = TAILWIND.replace(">Nutrition Facts<", ">Reviews<");
         assert_eq!(
@@ -545,7 +549,8 @@ mod tests {
                 &renamed,
                 &[]
             ),
-            None
+            None,
+            "bug: a page with no Nutrition Facts tab has no panel"
         );
     }
 
@@ -555,8 +560,7 @@ mod tests {
             "https://www.skratchlabs.com/products/energy-bar-sport-fuel?variant=41588270301255";
         assert_eq!(
             found(PanelLocator::SkratchAccordion, base, SKRATCH, &[41_588_270_301_255]).as_deref(),
-            Some("https://www.skratchlabs.com/cdn/shop/files/EBF-CO-50g-12_110724_NFP.svg?v=1754678193&format=png&width=1000")
-        );
+            Some("https://www.skratchlabs.com/cdn/shop/files/EBF-CO-50g-12_110724_NFP.svg?v=1754678193&format=png&width=1000"), "bug: the variant's SVG panel is asked for as a PNG");
         // The first variant with a panel wins; one with no nutrition-info
         // accordion is passed over, and a page with none of them has none.
         assert_eq!(
@@ -567,8 +571,7 @@ mod tests {
                 &[39_951_831_072_839, 41_588_270_268_487]
             )
             .as_deref(),
-            Some("https://www.skratchlabs.com/cdn/shop/files/EBF-CO-50g-12_110724_NFP_Single.svg?v=1754678193&format=png&width=1000")
-        );
+            Some("https://www.skratchlabs.com/cdn/shop/files/EBF-CO-50g-12_110724_NFP_Single.svg?v=1754678193&format=png&width=1000"), "bug: the first variant with a panel wins");
         assert_eq!(
             found(
                 PanelLocator::SkratchAccordion,
@@ -576,7 +579,8 @@ mod tests {
                 SKRATCH,
                 &[39_951_831_072_839]
             ),
-            None
+            None,
+            "bug: a variant with no nutrition accordion has no panel"
         );
     }
 
@@ -585,8 +589,7 @@ mod tests {
         let base = "https://guenergy.com/products/energy-gel";
         assert_eq!(
             found(PanelLocator::GuVariantLink, base, GU, &[31_693_107_593_267]).as_deref(),
-            Some("https://guenergy.com/cdn/shop/files/Energy_Gels_-_SFP_-_Cola-01.png?v=1743549115&width=1600")
-        );
+            Some("https://guenergy.com/cdn/shop/files/Energy_Gels_-_SFP_-_Cola-01.png?v=1743549115&width=1600"), "bug: the variant's info link is the panel");
         // A Mixed Box variant's link is empty: the next variant's is used.
         assert_eq!(
             found(
@@ -596,19 +599,27 @@ mod tests {
                 &[31_169_147_830_323, 31_169_146_912_819]
             )
             .as_deref(),
-            Some("https://guenergy.com/cdn/shop/files/Energy_Gels_-_SFP_-_ChocolateOutrage-01.png?v=1743549116&width=1600")
-        );
+            Some("https://guenergy.com/cdn/shop/files/Energy_Gels_-_SFP_-_ChocolateOutrage-01.png?v=1743549116&width=1600"), "bug: an empty info link passes to the next variant");
         assert_eq!(
             found(PanelLocator::GuVariantLink, base, GU, &[31_169_147_830_323]),
-            None
+            None,
+            "bug: a variant whose link is empty has no panel"
         );
     }
 
     #[test]
     fn a_locator_finds_nothing_on_another_brands_page() {
         let base = "https://naak.com/products/x";
-        assert_eq!(found(PanelLocator::NaakDrawer, base, GU, &[]), None);
-        assert_eq!(found(PanelLocator::TailwindTab, base, NAAK, &[]), None);
+        assert_eq!(
+            found(PanelLocator::NaakDrawer, base, GU, &[]),
+            None,
+            "bug: Näak's locator finds nothing on GU's page"
+        );
+        assert_eq!(
+            found(PanelLocator::TailwindTab, base, NAAK, &[]),
+            None,
+            "bug: Tailwind's locator finds nothing on Näak's page"
+        );
         assert_eq!(
             found(
                 PanelLocator::GuVariantLink,
@@ -616,7 +627,8 @@ mod tests {
                 SKRATCH,
                 &[41_588_270_268_487]
             ),
-            None
+            None,
+            "bug: GU's locator finds nothing on Skratch's page"
         );
     }
 
@@ -627,15 +639,29 @@ mod tests {
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(
             relative.as_str(),
-            "https://www.skratchlabs.com/cdn/shop/files/SDM-AC_NFP.png?v=3&width=1600"
+            "https://www.skratchlabs.com/cdn/shop/files/SDM-AC_NFP.png?v=3&width=1600",
+            "bug: a root-relative source resolves against the page, resized"
         );
         assert_eq!(
             without_size_suffix("Panel_750x.jpg").as_deref(),
-            Some("Panel.jpg")
+            Some("Panel.jpg"),
+            "bug: a size suffix is dropped"
         );
-        assert_eq!(without_size_suffix("Gel_12_x.jpg"), None);
-        assert_eq!(without_size_suffix("protein_15.png"), None);
-        assert_eq!(without_size_suffix("_750x.png"), None);
+        assert_eq!(
+            without_size_suffix("Gel_12_x.jpg"),
+            None,
+            "bug: a suffix with no digits is no size suffix"
+        );
+        assert_eq!(
+            without_size_suffix("protein_15.png"),
+            None,
+            "bug: a suffix with no x is no size suffix"
+        );
+        assert_eq!(
+            without_size_suffix("_750x.png"),
+            None,
+            "bug: a file that is only a suffix keeps it"
+        );
     }
 
     #[test]
@@ -654,19 +680,28 @@ mod tests {
             PanelLocator::SkratchAccordion,
             PanelLocator::GuVariantLink,
         ] {
-            assert!(locator.serves(&candidate), "{locator:?}");
+            assert!(
+                locator.serves(&candidate),
+                "bug: a one-flavour listing must get {locator:?}'s panel"
+            );
         }
         // Untied photos of two flavours: the lowest variant's panel (here
         // Chocolate Outrage's) would be filed for both, so none is sent.
         candidate.flavour = None;
         candidate.untied_flavours = vec!["Chocolate Outrage".to_owned(), "Cola".to_owned()];
-        assert!(PanelLocator::TailwindTab.serves(&candidate));
+        assert!(
+            PanelLocator::TailwindTab.serves(&candidate),
+            "bug: a family panel serves a mixed listing"
+        );
         for locator in [
             PanelLocator::NaakDrawer,
             PanelLocator::SkratchAccordion,
             PanelLocator::GuVariantLink,
         ] {
-            assert!(!locator.serves(&candidate), "{locator:?}");
+            assert!(
+                !locator.serves(&candidate),
+                "bug: a mixed listing must get no per-flavour panel from {locator:?}"
+            );
         }
     }
 
@@ -699,21 +734,40 @@ mod tests {
         let why = found.err().unwrap_or_else(|| panic!("a panel was sent"));
         assert!(
             why.contains("offers several, so no panel was sent"),
-            "{why}"
+            "bug: the note must say why no panel was sent: {why}"
         );
-        assert!(matches!(page.state, PageState::Unfetched));
-        assert!(pacer.last.is_empty());
+        assert!(
+            matches!(page.state, PageState::Unfetched),
+            "bug: a refused listing must not fetch its page"
+        );
+        assert!(
+            pacer.last.is_empty(),
+            "bug: a refused listing must not take a page slot"
+        );
         assert_eq!(
             (tally.panel_missing, tally.page_failed, tally.panel_sent),
-            (1, 0, 0)
+            (1, 0, 0),
+            "bug: a refused listing is counted as a missing panel"
         );
     }
 
     #[test]
     fn only_a_family_panel_is_read_once_per_product() {
-        assert!(PanelLocator::TailwindTab.per_family());
-        assert!(!PanelLocator::NaakDrawer.per_family());
-        assert!(!PanelLocator::SkratchAccordion.per_family());
-        assert!(!PanelLocator::GuVariantLink.per_family());
+        assert!(
+            PanelLocator::TailwindTab.per_family(),
+            "bug: Tailwind shows one panel per product"
+        );
+        assert!(
+            !PanelLocator::NaakDrawer.per_family(),
+            "bug: Näak shows a panel per listing"
+        );
+        assert!(
+            !PanelLocator::SkratchAccordion.per_family(),
+            "bug: Skratch shows a panel per variant"
+        );
+        assert!(
+            !PanelLocator::GuVariantLink.per_family(),
+            "bug: GU shows a panel per variant"
+        );
     }
 }

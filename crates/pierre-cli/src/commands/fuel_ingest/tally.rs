@@ -151,39 +151,54 @@ mod tests {
             discarded_no_vision: 1,
             ..Tally::default()
         };
-        assert!(tally.verdict(1).is_err());
+        assert!(
+            tally.verdict(1).is_err(),
+            "bug: reads that all errored or went blind must fail the run"
+        );
         tally.proposed = 1;
         tally.read_failed = 1;
-        assert!(tally.verdict(1).is_ok());
+        assert!(
+            tally.verdict(1).is_ok(),
+            "bug: one proposal among failed reads must pass the run"
+        );
         // A download or database failure is not a failed read.
-        assert!(Tally {
-            candidates: 5,
-            llm_calls: 1,
-            proposed: 1,
-            failed: 4,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_ok());
+        assert!(
+            Tally {
+                candidates: 5,
+                llm_calls: 1,
+                proposed: 1,
+                failed: 4,
+                ..Tally::default()
+            }
+            .verdict(1)
+            .is_ok(),
+            "bug: a candidate that failed outside the read must not fail a run that filed"
+        );
         // But a run where every candidate failed (the database down: even the
         // dedupe lookup errors, so no read is ever sent) filed nothing.
-        assert!(Tally {
-            candidates: 4,
-            failed: 4,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_err());
+        assert!(
+            Tally {
+                candidates: 4,
+                failed: 4,
+                ..Tally::default()
+            }
+            .verdict(1)
+            .is_err(),
+            "bug: a run where every candidate failed must fail"
+        );
         // Reads on file and held listings are no call, and no failure: the
         // run after an all-illegible one sends nothing and passes.
-        assert!(Tally {
-            candidates: 33,
-            skipped_already_read: 31,
-            skipped_listing_held: 2,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_ok());
+        assert!(
+            Tally {
+                candidates: 33,
+                skipped_already_read: 31,
+                skipped_listing_held: 2,
+                ..Tally::default()
+            }
+            .verdict(1)
+            .is_ok(),
+            "bug: a run that sent nothing must pass"
+        );
         // Every new read illegible (Näak's front-of-pack photos, 2026-10-29)
         // fails the run, so the job-failure alert fires.
         let all_illegible = Tally {
@@ -194,17 +209,23 @@ mod tests {
             ..Tally::default()
         };
         let refused = all_illegible.verdict(1).unwrap_err();
-        assert!(refused.message.contains("32 illegible"), "{refused}");
+        assert!(
+            refused.message.contains("32 illegible"),
+            "bug: the verdict must count the illegible reads: {refused}"
+        );
         // As does a mix of illegible and unparseable answers.
-        assert!(Tally {
-            candidates: 2,
-            llm_calls: 2,
-            illegible: 1,
-            parse_failed: 1,
-            ..Tally::default()
-        }
-        .verdict(1)
-        .is_err());
+        assert!(
+            Tally {
+                candidates: 2,
+                llm_calls: 2,
+                illegible: 1,
+                parse_failed: 1,
+                ..Tally::default()
+            }
+            .verdict(1)
+            .is_err(),
+            "bug: illegible and unparseable reads alone must fail the run"
+        );
         // One legible read among them is enough: a duplicate, an unchanged
         // product, or a read a concurrent run recorded first.
         for legible in [
@@ -231,13 +252,19 @@ mod tests {
                 illegible: 2,
                 ..legible
             };
-            assert!(tally.verdict(1).is_ok(), "{tally:?}");
+            assert!(
+                tally.verdict(1).is_ok(),
+                "bug: one legible read must pass the run: {tally:?}"
+            );
         }
-        assert!(Tally {
-            brands_failed: 2,
-            ..Tally::default()
-        }
-        .verdict(2)
-        .is_err());
+        assert!(
+            Tally {
+                brands_failed: 2,
+                ..Tally::default()
+            }
+            .verdict(2)
+            .is_err(),
+            "bug: a run that listed no brand must fail"
+        );
     }
 }
