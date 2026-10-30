@@ -20,7 +20,7 @@ cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/wait-cloud-run-service-ready.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=52
+EXPECTED_CASES=57
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -204,6 +204,7 @@ expect_calls() {
 
 quiesce() { run_script quiesce --region "${REGION}" --prefix "${PREFIX}" "$@"; }
 gated() { quiesce --db-headroom 6 "$@"; }
+headroom() { run_script headroom --region "${REGION}" --prefix "${PREFIX}" --db-headroom 6 "$@"; }
 service() { run_script service --region "${REGION}" --prefix "${PREFIX}" "$@"; }
 
 # ---------------------------------------------------------------------------
@@ -477,7 +478,7 @@ case_rejects_a_missing_prefix() {
 
 case_rejects_an_unknown_mode() {
   run_script "${PREFIX}-api" --region "${REGION}" --prefix "${PREFIX}"
-  expect_code 1 && expect_out "unknown mode '${PREFIX}-api' (must be quiesce or service)"
+  expect_code 1 && expect_out "unknown mode '${PREFIX}-api' (must be quiesce, service or headroom)"
 }
 
 case_rejects_a_bad_timeout() {
@@ -499,6 +500,45 @@ case_fails_without_jq() {
 case_fails_without_gcloud() {
   run_with_path "$(trimmed_path gcloud)" quiesce --region "${REGION}" --prefix "${PREFIX}"
   expect_code 1 && expect_out "::error::gcloud is not on PATH"
+}
+
+# ---------------------------------------------------------------------------
+# Headroom mode: the API canary's ramp between traffic steps (carnet#1269)
+# ---------------------------------------------------------------------------
+# It reads the database only: the API is mid-rollout (its own canary), so a
+# Cloud Run read would wait on itself.
+case_headroom_reads_the_database_only() {
+  backends 1 60 dravr=10
+  headroom --fresh-after "$(( $(date +%s) - 600 ))" --timeout-seconds 5
+  expect_code 0 && expect_out "Database headroom: 10 of 22 slots in use (dravr=10), 12 free, need 6" \
+    && expect_calls "${PREFIX}-api" -eq 0 && expect_monitoring_calls -eq 1
+}
+
+# A reading from before the step cannot show what the step did: wait for one
+# whose whole window opens after --fresh-after, then judge it. The first point
+# ends 30 s after --fresh-after, so its window still opens before it.
+case_headroom_waits_for_a_reading_after_the_step() {
+  backends 1 150 dravr=2; backends 2 5 dravr=8
+  headroom --fresh-after "$(( $(date +%s) - 120 ))" --timeout-seconds 20
+  expect_code 0 && expect_out "db: no num_backends point yet from after" \
+    && expect_out "Database headroom: 8 of 22 slots in use" && expect_monitoring_calls -eq 2
+}
+
+case_headroom_times_out_naming_the_database() {
+  backends 1 5 dravr=20
+  headroom --fresh-after "$(( $(date +%s) - 600 ))" --timeout-seconds 2
+  expect_code 1 && expect_out "::error::${PROJECT}:${PREFIX}-postgres did not have 6 free Cloud SQL slots within 2s" \
+    && expect_out "20 of 22 slots in use"
+}
+
+case_headroom_needs_fresh_after() {
+  headroom --timeout-seconds 5
+  expect_code 1 && expect_out "headroom mode needs --fresh-after <epoch seconds>"
+}
+
+case_fresh_after_belongs_to_headroom_mode() {
+  gated --fresh-after 1800000000
+  expect_code 1 && expect_out "--fresh-after belongs to headroom mode"
 }
 
 # ---------------------------------------------------------------------------
@@ -702,6 +742,11 @@ CASES=(
   case_db_fails_without_curl
   case_db_ungated_quiesce_never_reads_the_database
   case_db_rejects_headroom_in_service_mode
+  case_headroom_reads_the_database_only
+  case_headroom_waits_for_a_reading_after_the_step
+  case_headroom_times_out_naming_the_database
+  case_headroom_needs_fresh_after
+  case_fresh_after_belongs_to_headroom_mode
   case_db_rejects_headroom_beyond_the_slot_limit
 )
 
@@ -733,7 +778,8 @@ done
 # reaches it, and by a `--to-latest` traffic move on the same service that runs
 # on a failed or cancelled deploy and never after a successful one;
 # that move is the second half of the same roll, so no quiesce sits between
-# them (carnet#1269); and checkout runs before auth
+# them (carnet#1269), and the API's canary ramps on Cloud SQL headroom
+# (--ramp-db-prefix); and checkout runs before auth
 # (actions/checkout cleans the workspace, deleting the credentials file
 # google-github-actions/auth wrote). The scan then runs against broken copies
 # of the workflows and must fail on each, so a scan that checks nothing cannot
@@ -894,6 +940,11 @@ def scan(workflows):
                     for c in found_canaries:
                         if not execs_canary(c):
                             problems.append(f"{where}: '{c.get('name')}' does not exec {CANARY}; a cancel would never reach its send-back")
+                        # Only the API holds Cloud SQL connections, so its canary
+                        # ramps on database headroom; one jump to 100% started
+                        # 3-4 pods at once (2026-10-30 18:59, carnet#1269).
+                        if service.endswith("-api") and not re.search(r"--ramp-db-prefix\s+\S", c.get("run") or ""):
+                            problems.append(f"{where}: '{c.get('name')}' does not pass --ramp-db-prefix; the API's canary must ramp on Cloud SQL headroom")
             for i in uses_wait:
                 t = text(steps[i])
                 for var in ("vars.GCP_DEV_CLOUD_RUN_REGION", "vars.GCP_DEV_SERVICE_NAME"):
@@ -976,6 +1027,8 @@ BROKEN = [
      lambda wf: set_if(wf, "deploy-api", MOVE_TRAFFIC, "${{ always() && steps.deploy.outcome != 'skipped' }}")),
     ("publish-images.yml", f"publish-images.yml:deploy-dev: '{CANARY_STEP}' does not exec {CANARY}",
      lambda wf: edit_run(wf, "deploy-dev", CANARY_STEP, "exec ./", "./")),
+    ("deploy-gcp.yml", f"deploy-gcp.yml:deploy-api: '{CANARY_STEP}' does not pass --ramp-db-prefix",
+     lambda wf: edit_run(wf, "deploy-api", CANARY_STEP, ' --ramp-db-prefix "${PREFIX}"', "")),
 ]
 for wf_name, expected, breaker in BROKEN:
     broken = copy.deepcopy(workflows)

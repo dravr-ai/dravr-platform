@@ -875,7 +875,7 @@ jobs:
   deploy-dev:
     name: Deploy to Development
     runs-on: ubuntu-latest
-    timeout-minutes: 75  # two 15-min quiesce and two 10-min settle waits around the rollouts
+    timeout-minutes: 100  # two 15-min quiesce and two 10-min settle waits around the rollouts, and the API canary's up to 32 min: 82 min of waits plus two deploys
     # resolve-sha is already an ancestor through the publish jobs; it is named
     # here because `needs.<job>.outputs` reaches direct dependencies only. The
     # CI gate is resolve-sha's `if:`: a run for a CI run that is not green
@@ -949,19 +949,22 @@ jobs:
       # The deploy above boots no pod: a no_traffic revision is Ready with
       # nothing running (2026-10-29 23:43), so Ready proves nothing about the
       # database. The canary is the queue (carnet#1269): 1% of traffic starts
-      # ONE new pod while the old revision keeps 99%, the new revision takes
-      # 100% only once that pod has logged reading its key from the database,
-      # and any failure or cancel sends the 1% back. On 2026-10-29, rolled with
+      # ONE new pod while the old revision keeps 99%; once that pod has logged
+      # reading its key from the database the rest moves in steps (33%, 66%,
+      # 100%), each next step only once Cloud SQL shows free slots (a single
+      # jump to 100% started 3-4 pods at once, 2026-10-30 18:59); any failure or
+      # cancel sends the new revision's share back. On 2026-10-29, rolled with
       # traffic, three new pods booted beside three old ones holding 18 of
       # Cloud SQL's 22 slots, and two waited out their boot window and restarted.
       # `exec`: a cancel signals the step's own process only, and the script's
-      # trap is what sends the 1% back.
+      # trap is what sends the share back.
       - name: Canary one pod, then move traffic to the new revision
         if: ${{ steps.deploy-api.outcome == 'success' }}
         env:
           SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
-        run: exec ./scripts/ci/cloud-run-canary.sh --service "${SERVICE}" --region "${REGION}"
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
+        run: exec ./scripts/ci/cloud-run-canary.sh --service "${SERVICE}" --region "${REGION}" --ramp-db-prefix "${PREFIX}"
 
       # A deploy that failed or was cancelled leaves its no_traffic pin on the
       # revision serving now, and a pin left behind holds until something moves

@@ -18,7 +18,7 @@ cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/cloud-run-canary.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=13
+EXPECTED_CASES=16
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -75,6 +75,23 @@ echo "stub gcloud: unexpected call: $*" >&2; exit 2
 SH
 chmod +x "${BIN}/gcloud"
 
+# Stub the ramp's headroom wait (wait-cloud-run-service-ready.sh headroom): it
+# logs "wait <args>" and fails on the Nth call when ${STUB_DIR}/wait.fail.N
+# exists. With ${STUB_DIR}/wait.block it records its pid in wait.pid and
+# blocks, as a wait for a reading that has not arrived does.
+cat > "${BIN}/wait-headroom" <<SH
+#!${BASH}
+SH
+cat >> "${BIN}/wait-headroom" <<'SH'
+echo "wait $*" >> "${STUB_DIR}/calls.log"
+n=0; [ -e "${STUB_DIR}/wait.count" ] && n=$(<"${STUB_DIR}/wait.count")
+n=$(( n + 1 )); echo "${n}" > "${STUB_DIR}/wait.count"
+if [ -e "${STUB_DIR}/wait.fail.${n}" ]; then echo "::error::stub: no headroom" >&2; exit 1; fi
+if [ -e "${STUB_DIR}/wait.block" ]; then echo "$$" > "${STUB_DIR}/wait.pid"; exec sleep 60; fi
+echo "Database headroom: stub"
+SH
+chmod +x "${BIN}/wait-headroom"
+
 # A service whose newest revision is ${created}, ${ready} the latest ready one,
 # and ${traffic} its serving split as "rev=percent,…". After a no_traffic deploy
 # the service still names the revision serving traffic as its latest ready one
@@ -90,10 +107,12 @@ service_json() {
   }'
 }
 
-# The update-traffic calls a case made, one per line, without the region.
+# The update-traffic and headroom-wait calls a case made, in order, one per
+# line, without the region; a wait's --fresh-after epoch reads as <epoch>.
 traffic_moves() {
-  grep '^run services update-traffic' "${STUB_DIR}/calls.log" \
-    | sed -e "s/ --region ${REGION}//" -e 's/ --quiet//' -e 's/^run services update-traffic //' || true
+  grep -E '^(run services update-traffic|wait )' "${STUB_DIR}/calls.log" \
+    | sed -E -e "s/ --region ${REGION}//" -e 's/ --quiet//' -e 's/^run services update-traffic //' \
+        -e 's/ --fresh-after [1-9][0-9]* / --fresh-after <epoch> /' || true
 }
 
 # run_case <name> <expected exit> <expected output fragment> <expected moves, ";"-separated>
@@ -101,7 +120,8 @@ run_case() {
   local name="$1" want_exit="$2" want_out="$3" want_moves="$4" got_exit=0 got_moves
   CASES_RUN=$(( CASES_RUN + 1 ))
   PATH="${BIN}:${PATH}" STUB_DIR="${STUB_DIR}" CLOUD_RUN_CANARY_POLL_SECONDS=1 \
-    "${SCRIPT}" --service "${SERVICE}" --region "${REGION}" --timeout-seconds "${TIMEOUT:-5}" \
+    CLOUD_RUN_CANARY_RAMP_SETTLE_SECONDS=0 CLOUD_RUN_CANARY_WAIT_SCRIPT="${BIN}/wait-headroom" \
+    "${SCRIPT}" --service "${SERVICE}" --region "${REGION}" --timeout-seconds "${TIMEOUT:-5}" ${RAMP:+--ramp-db-prefix "${RAMP}"} \
     >"${STUB_DIR}/out" 2>&1 || got_exit=$?
   got_moves=$(traffic_moves | paste -sd ';' -)
   if [ "${got_exit}" = "${want_exit}" ] && grep -qF -- "${want_out}" "${STUB_DIR}/out" && [ "${got_moves}" = "${want_moves}" ]; then
@@ -113,21 +133,29 @@ run_case() {
   fi
 }
 
-# run_signal_case <name> <signal> <expected exit>: no pod ever reads its key;
-# once the 1% has moved, the script gets <signal> as a cancelled step does, and
-# must send the 1% back without waiting on the operation. Job control (set -m)
-# keeps SIGINT deliverable: a non-interactive shell starts a background job
-# with SIGINT ignored, and an ignored signal cannot be trapped.
+# run_signal_case <name> <signal> <expected exit> [<expected moves>]: without
+# RAMP no pod ever reads its key, and the signal lands once the 1% has moved;
+# with RAMP one does, the headroom wait blocks, and the signal lands in that
+# wait. The script gets <signal> as a cancelled step does, and must send the
+# share back without waiting on the operation, stopping a blocked headroom
+# wait. Job control (set -m) keeps SIGINT deliverable: a non-interactive shell
+# starts a background job with SIGINT ignored, and an ignored signal cannot be
+# trapped.
 run_signal_case() {
-  local name="$1" sig="$2" want_exit="$3" got_exit=0 got_moves pid tries=0 took started
+  local name="$1" sig="$2" want_exit="$3" got_exit=0 got_moves pid tries=0 took started waiter_left=""
+  local want_moves="${4:-${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0 --async}"
+  local reached="^logging read"
+  [ -z "${RAMP:-}" ] || reached="^wait headroom"
   CASES_RUN=$(( CASES_RUN + 1 ))
   set -m
   PATH="${BIN}:${PATH}" STUB_DIR="${STUB_DIR}" CLOUD_RUN_CANARY_POLL_SECONDS=30 \
-    "${SCRIPT}" --service "${SERVICE}" --region "${REGION}" --timeout-seconds 120 \
+    CLOUD_RUN_CANARY_RAMP_SETTLE_SECONDS=0 CLOUD_RUN_CANARY_WAIT_SCRIPT="${BIN}/wait-headroom" \
+    "${SCRIPT}" --service "${SERVICE}" --region "${REGION}" --timeout-seconds 120 ${RAMP:+--ramp-db-prefix "${RAMP}"} \
     >"${STUB_DIR}/out" 2>&1 &
   pid=$!
   set +m
-  until grep -q -- "--to-revisions ${NEW}=1" "${STUB_DIR}/calls.log" && grep -q '^logging read' "${STUB_DIR}/calls.log"; do
+  until grep -q -- "--to-revisions ${NEW}=1" "${STUB_DIR}/calls.log" && grep -q "${reached}" "${STUB_DIR}/calls.log" \
+      && { [ -z "${RAMP:-}" ] || [ -s "${STUB_DIR}/wait.pid" ]; }; do
     tries=$(( tries + 1 ))
     [ "${tries}" -le 100 ] || break
     sleep 0.1
@@ -135,16 +163,26 @@ run_signal_case() {
   started=${SECONDS}
   kill -s "${sig}" "${pid}"
   wait "${pid}" || got_exit=$?
-  # The poll sleeps 30 s; a send-back that waits it out would miss a real
-  # cancel's 10 s before SIGKILL.
+  # The poll sleeps 30 s and the blocked headroom wait 60 s; a send-back that
+  # waits either out would miss a real cancel's 10 s before SIGKILL.
   took=$(( SECONDS - started ))
   got_moves=$(traffic_moves | paste -sd ';' -)
-  local want_moves="${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0 --async"
-  if [ "${got_exit}" = "${want_exit}" ] && [ "${took}" -lt 10 ] && grep -qF "sending ${NEW}'s canary share back" "${STUB_DIR}/out" && [ "${got_moves}" = "${want_moves}" ]; then
+  # The headroom wait the send-back stopped must be gone, not left running.
+  if [ -s "${STUB_DIR}/wait.pid" ]; then
+    tries=0
+    while kill -0 "$(<"${STUB_DIR}/wait.pid")" 2>/dev/null; do
+      tries=$(( tries + 1 ))
+      if [ "${tries}" -gt 20 ]; then
+        waiter_left="yes"; kill "$(<"${STUB_DIR}/wait.pid")" 2>/dev/null || true; break
+      fi
+      sleep 0.1
+    done
+  fi
+  if [ "${got_exit}" = "${want_exit}" ] && [ "${took}" -lt 10 ] && [ -z "${waiter_left}" ] && grep -qF "sending ${NEW}'s canary share back" "${STUB_DIR}/out" && [ "${got_moves}" = "${want_moves}" ]; then
     CASES_PASSED=$(( CASES_PASSED + 1 )); echo "  ok   ${name}"
   else
     CASES_FAILED=$(( CASES_FAILED + 1 ))
-    echo "  FAIL ${name}: exit ${got_exit} (want ${want_exit}) after ${took}s (want under 10); moves '${got_moves}' (want '${want_moves}')"
+    echo "  FAIL ${name}: exit ${got_exit} (want ${want_exit}) after ${took}s (want under 10); headroom wait left running: ${waiter_left:-no}; moves '${got_moves}' (want '${want_moves}')"
     sed 's/^/       /' "${STUB_DIR}/out"
   fi
 }
@@ -160,6 +198,22 @@ service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 printf '\n2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
 run_case "a blank answer is not yet; one pod reads its key, then the new revision takes 100%" 0 "one pod read its key at 2026-10-30T13:50:08Z" \
   "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-latest"
+
+new_case ramp
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+printf '2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
+# Each step waits for database headroom, on the database the prefix names,
+# before the next move.
+WAIT_CALL="wait headroom --prefix dravr-mcp-server --db-headroom 6 --fresh-after <epoch> --timeout-seconds 10"
+RAMP=dravr-mcp-server run_case "with a ramp, the rest moves 33% then 66% then 100%, waiting for headroom after each step" 0 "33% of ${SERVICE} goes to ${NEW}" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=33;${WAIT_CALL};${SERVICE} --to-revisions ${NEW}=66;${WAIT_CALL};${SERVICE} --to-latest"
+
+new_case ramp-no-headroom
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+printf '2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
+: > "${STUB_DIR}/wait.fail.1"
+RAMP=dravr-mcp-server run_case "no headroom after a step: the new revision's share goes back" 1 "never had 6 free slots with ${NEW} at 33%" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=33;${WAIT_CALL};${SERVICE} --to-revisions ${NEW}=0"
 
 new_case timeout
 service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
@@ -185,6 +239,13 @@ run_signal_case "a cancel's SIGINT mid-wait sends the 1% back at once" INT 130
 new_case cancel-term
 service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
 run_signal_case "a SIGTERM mid-wait sends the 1% back at once" TERM 143
+
+new_case cancel-ramp
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+printf '2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
+: > "${STUB_DIR}/wait.block"
+RAMP=dravr-mcp-server run_signal_case "a cancel's SIGINT during a headroom wait stops it and sends the 33% back at once" INT 130 \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=33;${WAIT_CALL/--timeout-seconds 10/--timeout-seconds 240};${SERVICE} --to-revisions ${NEW}=0 --async"
 
 new_case canary-refused
 service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"

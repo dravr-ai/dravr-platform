@@ -29,14 +29,24 @@
 # Usage:
 #   wait-cloud-run-service-ready.sh quiesce --region <region> --prefix <prefix> [--db-headroom <n>] [--timeout-seconds <n>]
 #   wait-cloud-run-service-ready.sh service --region <region> --prefix <prefix> --service <suffix> [--timeout-seconds <n>]
+#   wait-cloud-run-service-ready.sh headroom --region <region> --prefix <prefix> --db-headroom <n> --fresh-after <epoch> [--timeout-seconds <n>]
+#
+# headroom waits for the database gate alone, on points whose whole 60 s window
+# opens at or after --fresh-after (epoch seconds). Each point is the maximum over
+# its window, so one opening earlier could show the moment before a traffic
+# step's new pods connected and pass the gate wrongly. The API canary's stepped ramp
+# (cloud-run-canary.sh) runs it between traffic steps, while its own rollout is
+# in flight, so it cannot wait on Cloud Run quiescing.
 #
 #   --region   the dev Cloud Run region (vars.GCP_DEV_CLOUD_RUN_REGION). Required,
 #              never defaulted: a defaulted region describes services that do not
 #              exist there, or worse, other ones that do.
 #   --prefix   the dev service-name prefix (vars.GCP_DEV_SERVICE_NAME).
 #   --service  one suffix from DEV_SERVICE_SUFFIXES below (service mode only).
-#   --db-headroom  free Cloud SQL connection slots to wait for (quiesce mode only).
-#              Needs curl, a gcloud project and roles/monitoring.viewer.
+#   --db-headroom  free Cloud SQL connection slots to wait for (quiesce and
+#              headroom modes). Needs curl, a gcloud project and
+#              roles/monitoring.viewer.
+#   --fresh-after  epoch seconds; headroom mode ignores a reading whose window opens earlier.
 #
 # A service is SETTLED when Cloud Run has observed its latest spec
 # (observedGeneration == generation), its Ready condition is True, the latest
@@ -95,12 +105,13 @@ DEV_CLOUD_SQL_SLOT_LIMIT=22
 DEV_CLOUD_SQL_ADMIN_DB="cloudsqladmin"
 # The longest the one-pod canary (scripts/ci/cloud-run-canary.sh) can still be
 # moving the API's traffic, counted from its revision's creation: the deploy,
-# then its 300 s wait for the revision's Ready and its 300 s wait for one pod's
-# key read, with room to spare. A canary share, or a no_traffic revision never
+# then its 300 s wait for the revision's Ready, its 300 s wait for one pod's
+# key read and its two ramp steps of up to 660 s each (1920 s), with room to
+# spare. A canary share, or a no_traffic revision never
 # promoted, older than this is a leftover (a canary that failed, never ran, or
 # whose runner died before sending its share back), not a rollout: blocking on
 # it would wedge every deploy, so it reads as SPLIT.
-CANARY_MAX_AGE_SECONDS=900
+CANARY_MAX_AGE_SECONDS=2700
 # Monitoring points lag 1-3 minutes; older than this, the count is unknown.
 DB_STALE_SECONDS=300
 
@@ -115,7 +126,7 @@ die() {
 }
 
 usage() {
-  die "usage: $0 quiesce|service --region <region> --prefix <prefix> [--service <suffix>] [--db-headroom <n>] [--timeout-seconds <n>] — $1"
+  die "usage: $0 quiesce|service|headroom --region <region> --prefix <prefix> [--service <suffix>] [--db-headroom <n>] [--fresh-after <epoch>] [--timeout-seconds <n>] — $1"
 }
 
 # ---------------------------------------------------------------------------
@@ -124,8 +135,8 @@ usage() {
 [ $# -ge 1 ] || usage "no mode given"
 MODE="$1"; shift
 case "${MODE}" in
-  quiesce|service) ;;
-  *) usage "unknown mode '${MODE}' (must be quiesce or service)" ;;
+  quiesce|service|headroom) ;;
+  *) usage "unknown mode '${MODE}' (must be quiesce, service or headroom)" ;;
 esac
 
 REGION=""
@@ -133,6 +144,7 @@ PREFIX=""
 SERVICE_SUFFIX=""
 TIMEOUT_SECONDS=""
 DB_HEADROOM=""
+FRESH_AFTER=""
 while [ $# -gt 0 ]; do
   [ $# -ge 2 ] || usage "option '$1' has no value"
   case "$1" in
@@ -141,6 +153,7 @@ while [ $# -gt 0 ]; do
     --service) SERVICE_SUFFIX="$2" ;;
     --timeout-seconds) TIMEOUT_SECONDS="$2" ;;
     --db-headroom) DB_HEADROOM="$2" ;;
+    --fresh-after) FRESH_AFTER="$2" ;;
     *) usage "unknown option '$1'" ;;
   esac
   shift 2
@@ -162,7 +175,14 @@ if [ -n "${DB_HEADROOM}" ]; then
     || usage "--db-headroom ${DB_HEADROOM} exceeds the ${DEV_CLOUD_SQL_SLOT_LIMIT} slots dev Cloud SQL has, so it could never pass"
 fi
 
-if [ "${MODE}" = "service" ]; then
+if [ "${MODE}" = "headroom" ]; then
+  [ -n "${DB_HEADROOM}" ] || usage "headroom mode needs --db-headroom"
+  [[ "${FRESH_AFTER}" =~ ^[1-9][0-9]*$ ]] || usage "headroom mode needs --fresh-after <epoch seconds>, got '${FRESH_AFTER}'"
+  [ -z "${SERVICE_SUFFIX}" ] || usage "headroom mode reads the database only; --service is not accepted"
+  SERVICES=()
+elif [ -n "${FRESH_AFTER}" ]; then
+  usage "--fresh-after belongs to headroom mode"
+elif [ "${MODE}" = "service" ]; then
   [ -n "${SERVICE_SUFFIX}" ] || usage "service mode needs --service"
   [ -z "${DB_HEADROOM}" ] || usage "--db-headroom gates the next roll, so it belongs to quiesce mode"
   known=""
@@ -320,7 +340,7 @@ db_state() {
   jq -e 'type == "object"' "${body}" >/dev/null 2>&1 \
     || die "Cloud Monitoring did not return a JSON object for the num_backends query: $(head -c 300 "${body}" | tr '\n' ' ')"
 
-  fields=$(jq -r --argjson now "${now}" --argjson stale "${DB_STALE_SECONDS}" --arg admin "${DEV_CLOUD_SQL_ADMIN_DB}" '
+  fields=$(jq -r --argjson now "${now}" --argjson stale "${DB_STALE_SECONDS}" --argjson fresh "${FRESH_AFTER:-0}" --arg admin "${DEV_CLOUD_SQL_ADMIN_DB}" '
     def at: .interval.endTime | sub("\\.[0-9]+"; "") | fromdateiso8601;
     [ (.timeSeries // [])[]
       | select(.metric.labels.database != $admin)
@@ -330,7 +350,9 @@ db_state() {
       elif any($series[]; .last == null) then "nopoints"
       else
         ($series | map(select($now - (.last | at) > $stale) | "\(.db) \($now - (.last | at))s old") | join(", ")) as $old
+        | ($series | map(select((.last | at) - 60 < $fresh) | "\(.db) at \(.last.interval.endTime)") | join(", ")) as $early
         | if $old != "" then "stale\u001f\($old)"
+          elif $early != "" then "early\u001f\($early)"
           else "count\u001f\($series | map(.last.value | (.int64Value // .doubleValue) | tonumber) | add | floor)\u001f\($series | map("\(.db)=\(.last.value | (.int64Value // .doubleValue))") | join(","))"
           end
       end' "${body}") || die "could not parse the num_backends series for ${PROJECT}:${DB_INSTANCE}: $(head -c 300 "${body}" | tr '\n' ' ')"
@@ -341,6 +363,7 @@ db_state() {
     none) DB_STATE="unknown no num_backends series for ${PROJECT}:${DB_INSTANCE} in the last 10 minutes" ;;
     nopoints) DB_STATE="unknown a num_backends series for ${PROJECT}:${DB_INSTANCE} has no points" ;;
     stale) DB_STATE="unknown latest num_backends point older than ${DB_STALE_SECONDS}s (${detail})" ;;
+    early) DB_STATE="unknown no num_backends point yet from after $(jq -rn --argjson t "${FRESH_AFTER}" '$t | todate') (${detail})" ;;
     count)
       [[ "${detail}" =~ ^[0-9]+$ ]] || die "num_backends for ${PROJECT}:${DB_INSTANCE} is not a count: ${detail}"
       free=$(( DEV_CLOUD_SQL_SLOT_LIMIT - detail ))
@@ -362,6 +385,8 @@ if [ "${MODE}" = "quiesce" ]; then
   if [ -n "${DB_HEADROOM}" ]; then
     echo "…and until ${PROJECT}:${DB_INSTANCE} has ${DB_HEADROOM} of its ${DEV_CLOUD_SQL_SLOT_LIMIT} connection slots free"
   fi
+elif [ "${MODE}" = "headroom" ]; then
+  echo "Waiting until ${PROJECT}:${DB_INSTANCE} has ${DB_HEADROOM} of its ${DEV_CLOUD_SQL_SLOT_LIMIT} connection slots free, read after $(jq -rn --argjson t "${FRESH_AFTER}" '$t | todate') (up to ${TIMEOUT_SECONDS}s)"
 else
   echo "Waiting for ${SERVICES[0]} in ${REGION} to settle (up to ${TIMEOUT_SECONDS}s)"
 fi
@@ -375,7 +400,7 @@ while :; do
   done_all="yes"
   summary=""
   warnings=()
-  for svc in "${SERVICES[@]}"; do
+  for svc in ${SERVICES[@]+"${SERVICES[@]}"}; do
     service_state "${svc}"
     state="${SERVICE_STATE}"
     summary="${summary} ${svc}: ${state};"
@@ -427,6 +452,8 @@ while :; do
     if [ "${MODE}" = "quiesce" ]; then
       echo "Quiescent: no dev Cloud Run service is mid-rollout"
       [ -z "${DB_HEADROOM}" ] || echo "Database headroom: ${DB_STATE#free }"
+    elif [ "${MODE}" = "headroom" ]; then
+      echo "Database headroom: ${DB_STATE#free }"
     else
       echo "Settled: ${SERVICES[0]} serves its latest revision with 100% of traffic"
     fi
@@ -441,6 +468,8 @@ while :; do
       die "dev Cloud Run did not reach quiescence with ${DB_HEADROOM} free Cloud SQL slots within ${TIMEOUT_SECONDS}s —${summary}"
     elif [ "${MODE}" = "quiesce" ]; then
       die "dev Cloud Run did not reach quiescence within ${TIMEOUT_SECONDS}s —${summary}"
+    elif [ "${MODE}" = "headroom" ]; then
+      die "${PROJECT}:${DB_INSTANCE} did not have ${DB_HEADROOM} free Cloud SQL slots within ${TIMEOUT_SECONDS}s —${summary}"
     fi
     die "${SERVICES[0]} did not settle within ${TIMEOUT_SECONDS}s —${summary}"
   fi
