@@ -64,7 +64,8 @@ pub(crate) fn identity_written<T>(
 /// case-folded and `LIKE`-escaped, wrapped in `%`; `%` for an unused slot.
 pub(crate) fn search_patterns(query: &str) -> [String; MAX_SEARCH_TERMS] {
     let mut patterns: [String; MAX_SEARCH_TERMS] = array::from_fn(|_| "%".to_owned());
-    for (slot, word) in patterns.iter_mut().zip(query.split_whitespace()) {
+    let slots = patterns.iter_mut().zip(query.split_whitespace());
+    for (slot, word) in slots {
         let mut escaped = String::with_capacity(word.len() + 2);
         escaped.push('%');
         for c in word.to_lowercase().chars() {
