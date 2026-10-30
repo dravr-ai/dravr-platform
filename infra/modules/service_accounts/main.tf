@@ -125,6 +125,14 @@ resource "google_project_iam_member" "deployer_monitoring_viewer" {
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 
+# Logs Viewer (the API deploy's one-pod canary waits for the new revision's pod
+# to log reading its key from the database before moving traffic, carnet#1269)
+resource "google_project_iam_member" "deployer_logging_viewer" {
+  project = var.project_id
+  role    = "roles/logging.viewer"
+  member  = "serviceAccount:${google_service_account.deployer.email}"
+}
+
 # Artifact Registry Reader in dravr-artifacts (cross-project: resolve image refs during deploy)
 resource "google_project_iam_member" "deployer_artifact_reader" {
   project = var.artifacts_project_id

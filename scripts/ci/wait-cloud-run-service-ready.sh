@@ -41,21 +41,23 @@
 # A service is SETTLED when Cloud Run has observed its latest spec
 # (observedGeneration == generation), its Ready condition is True, the latest
 # created revision is the latest ready one, and that revision takes 100% of the
-# traffic. It is ROLLING while any of the first three does not hold, and SPLIT
-# when traffic is anywhere else. Two states have nothing starting, so quiesce
+# traffic. It is ROLLING while any of the first three does not hold or the
+# latest revision holds part of the traffic (the API's one-pod canary,
+# scripts/ci/cloud-run-canary.sh, carnet#1269), and SPLIT when traffic is
+# anywhere else. Two states have nothing starting, so quiesce
 # lets the next deploy through with a warning while service mode does not:
 #   - FAILED (Ready=False): the rollout stopped. Blocking on it would let one bad
 #     revision block the very deploy that fixes it. Service mode fails at once,
 #     because that rollout was ours.
 #   - SPLIT: traffic pinned to an older revision (a diagnostic
 #     `update-traffic --to-revisions`, or a `no_traffic` deploy whose traffic
-#     move never ran). Only the API's deploy moves traffic, with
-#     `update-traffic --to-latest` right after its `no_traffic` deploy
-#     (carnet#1269); no other service's deploy clears a pin, and terraform
-#     apply-dev, which does, waits here too: blocking would wedge every deploy
-#     for good. Between the API's deploy and its traffic move the API reads as
-#     SPLIT for a few seconds, a window a quiesce can pass through like the
-#     jitter race below. Service mode keeps waiting and
+#     move never ran, or a canary that sent its share back). Only the API's
+#     deploy moves traffic, through its canary right after its `no_traffic`
+#     deploy (carnet#1269); no other service's deploy clears a pin, and
+#     terraform apply-dev, which does, waits here too: blocking would wedge
+#     every deploy for good. Between the API's deploy and the canary's first
+#     move the API reads as SPLIT for a few seconds, a window a quiesce can pass
+#     through like the jitter race below. Service mode keeps waiting and
 #     times out naming the remedy, because a deploy that lands without traffic
 #     shipped nothing.
 #
@@ -88,6 +90,12 @@ DEV_CLOUD_SQL_SUFFIX="postgres"
 DEV_CLOUD_SQL_SLOT_LIMIT=22
 # Google's own maintenance database, served from the reserved slots.
 DEV_CLOUD_SQL_ADMIN_DB="cloudsqladmin"
+# The longest the one-pod canary (scripts/ci/cloud-run-canary.sh) holds part of
+# the API's traffic, counted from its revision's creation: the deploy, then its
+# 300 s wait, with room to spare. A canary share older than this is a leftover
+# (a runner that died before sending it back), not a rollout: blocking on it
+# would wedge every deploy, so it reads as SPLIT.
+CANARY_MAX_AGE_SECONDS=900
 # Monitoring points lag 1-3 minutes; older than this, the count is unknown.
 DB_STALE_SECONDS=300
 
@@ -190,6 +198,18 @@ if [ -n "${DB_HEADROOM}" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Seconds since revision <name> was created, set in REVISION_AGE.
+# ---------------------------------------------------------------------------
+revision_age() {
+  local rev="$1" created err="${WORK}/${1}.created.err"
+  created=$(gcloud run revisions describe "${rev}" --region="${REGION}" --format='value(metadata.creationTimestamp)' 2>"${err}") \
+    || die "gcloud run revisions describe ${rev} --region=${REGION} failed: $(tr '\n' ' ' <"${err}")"
+  REVISION_AGE=$(jq -rn --arg t "${created}" '$t | sub("\\.[0-9]+"; "") | fromdateiso8601 | (now - .) | floor' 2>/dev/null) \
+    || die "revision ${rev} has no readable creation time: '${created}'"
+  [[ "${REVISION_AGE}" =~ ^-?[0-9]+$ ]] || die "revision ${rev} has no readable creation time: '${created}'"
+}
+
+# ---------------------------------------------------------------------------
 # One service's state, set in SERVICE_STATE rather than printed, so a die here
 # exits the script itself and not just a command substitution: "settled <rev>",
 # "rolling <why>", "split <traffic>" or "failed <message>".
@@ -229,6 +249,16 @@ service_state() {
     SERVICE_STATE="rolling Ready=${condition}"
   elif [ -z "${created}" ] || [ "${created}" != "${ready}" ]; then
     SERVICE_STATE="rolling ${created:-?} created, ${ready:-none} ready"
+  elif [ "${traffic}" != "${ready}=100" ] && [[ ",${traffic}," == *",${ready}="* ]]; then
+    # The latest revision holds part of the traffic: the one-pod canary
+    # (scripts/ci/cloud-run-canary.sh) is moving it, so a rollout is in
+    # flight, unless the revision is older than any canary lasts.
+    revision_age "${ready}"
+    if [ "${REVISION_AGE}" -le "${CANARY_MAX_AGE_SECONDS}" ]; then
+      SERVICE_STATE="rolling canary: traffic ${traffic}"
+    else
+      SERVICE_STATE="split traffic ${traffic}: a canary share left on ${ready}, created ${REVISION_AGE}s ago (send it back: gcloud run services update-traffic ${svc} --region ${REGION} --to-revisions ${ready}=0)"
+    fi
   elif [ "${traffic}" != "${ready}=100" ]; then
     SERVICE_STATE="split traffic ${traffic:-none}, expected ${ready}=100 (repoint it: gcloud run services update-traffic ${svc} --region ${REGION} --to-latest)"
   else

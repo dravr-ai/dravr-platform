@@ -20,7 +20,7 @@ cd "$(dirname "$0")/../.."
 SCRIPT="${PWD}/scripts/ci/wait-cloud-run-service-ready.sh"
 WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
 
-EXPECTED_CASES=45
+EXPECTED_CASES=47
 CASES_RUN=0
 CASES_PASSED=0
 CASES_FAILED=0
@@ -50,6 +50,10 @@ if [ "$1 $2 $3" = "config get-value project" ]; then
   exit 0
 fi
 if [ "$1 $2" = "auth print-access-token" ]; then echo "stub-token"; exit 0; fi
+if [ "$1 $2 $3" = "run revisions describe" ]; then
+  if [ -e "${STUB_DIR}/$4.created" ]; then printf '%s\n' "$(<"${STUB_DIR}/$4.created")"; exit 0; fi
+  echo "ERROR: (gcloud.run.revisions.describe) Cannot find revision [$4]" >&2; exit 1
+fi
 if [ "$1 $2 $3" != "run services describe" ]; then
   echo "stub gcloud: unexpected call: $*" >&2; exit 2
 fi
@@ -271,6 +275,43 @@ case_quiesce_lets_split_traffic_through_with_a_warning() {
     && expect_out "split traffic api-00002=100, expected api-00003=100" \
     && expect_out "gcloud run services update-traffic ${PREFIX}-api --region ${REGION} --to-latest" \
     && expect_out "Quiescent" && expect_calls "${PREFIX}-api" -eq 1
+}
+
+# The API's one-pod canary holds part of the traffic on the new revision
+# (carnet#1269): a rollout is in flight, so the next roll waits for it.
+case_quiesce_waits_while_the_api_canary_holds_a_share() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  jq -n '{ metadata: { generation: 3 },
+           status: { observedGeneration: 3, latestCreatedRevisionName: "api-00003",
+                     latestReadyRevisionName: "api-00003",
+                     conditions: [ { type: "Ready", status: "True" } ],
+                     traffic: [ { revisionName: "api-00002", percent: 99 },
+                                { revisionName: "api-00003", percent: 1 } ] } }' \
+    > "${STUB_DIR}/${PREFIX}-api.1.json"
+  date -u -v-60S +%Y-%m-%dT%H:%M:%S.123456Z 2>/dev/null > "${STUB_DIR}/api-00003.created" \
+    || date -u -d '60 seconds ago' +%Y-%m-%dT%H:%M:%S.123456Z > "${STUB_DIR}/api-00003.created"
+  settled api .2
+  quiesce --timeout-seconds 20
+  expect_code 0 && expect_out "rolling canary: traffic api-00002=99,api-00003=1" \
+    && expect_no_out "pinned off its latest revision" && expect_out "Quiescent"
+}
+
+# A canary share older than any canary lasts was left behind by a runner that
+# died: waiting on it would wedge every deploy, so it reads as SPLIT.
+case_quiesce_lets_a_leftover_canary_share_through_with_a_warning() {
+  for s in frontend photograveur sciotte; do settled "${s}"; done
+  jq -n '{ metadata: { generation: 3 },
+           status: { observedGeneration: 3, latestCreatedRevisionName: "api-00003",
+                     latestReadyRevisionName: "api-00003",
+                     conditions: [ { type: "Ready", status: "True" } ],
+                     traffic: [ { revisionName: "api-00002", percent: 99 },
+                                { revisionName: "api-00003", percent: 1 } ] } }' \
+    > "${STUB_DIR}/${PREFIX}-api.json"
+  echo "2026-01-01T00:00:00.5Z" > "${STUB_DIR}/api-00003.created"
+  quiesce --timeout-seconds 5
+  expect_code 0 && expect_out "::warning::${PREFIX}-api has traffic pinned off its latest revision and nothing in progress" \
+    && expect_out "a canary share left on api-00003" \
+    && expect_out "--to-revisions api-00003=0" && expect_out "Quiescent"
 }
 
 case_quiesce_lets_a_failed_rollout_through_with_a_warning() {
@@ -555,6 +596,8 @@ CASES=(
   case_quiesce_waits_while_ready_is_unknown
   case_quiesce_times_out_on_a_stuck_rollout
   case_quiesce_lets_split_traffic_through_with_a_warning
+  case_quiesce_waits_while_the_api_canary_holds_a_share
+  case_quiesce_lets_a_leftover_canary_share_through_with_a_warning
   case_quiesce_lets_a_failed_rollout_through_with_a_warning
   case_quiesce_fails_on_a_missing_service
   case_quiesce_fails_on_an_empty_answer
@@ -616,10 +659,13 @@ done
 # executes a dev Cloud Run job needs every roll job of its workflow; every wait
 # takes region and prefix from the dev vars; the quiesce before an API
 # deploy-cloudrun passes --db-headroom and the one before any other service's
-# does not (carnet#1129); a `no_traffic` deploy-cloudrun is followed by a
-# `--to-latest` traffic move on the same service that runs on a failed deploy
-# too, and that move is the second half of the same roll, so no quiesce sits
-# between them (carnet#1269); and checkout runs before auth
+# does not (carnet#1129); a `no_traffic` deploy-cloudrun is followed, before
+# the next roll, by the one-pod canary (scripts/ci/cloud-run-canary.sh) on the
+# same service, run only when the deploy succeeded and with `exec` so a cancel
+# reaches it, and by a `--to-latest` traffic move on the same service that runs
+# on a failed or cancelled deploy and never after a successful one;
+# that move is the second half of the same roll, so no quiesce sits between
+# them (carnet#1269); and checkout runs before auth
 # (actions/checkout cleans the workspace, deleting the credentials file
 # google-github-actions/auth wrote). The scan then runs against broken copies
 # of the workflows and must fail on each, so a scan that checks nothing cannot
@@ -661,6 +707,30 @@ def moves_traffic_to_latest(step, service):
     return (re.search(r"gcloud\s+run\s+services\s+update-traffic\b", run) is not None
             and "--to-latest" in run and "--to-revisions" not in run
             and str((step.get("env") or {}).get("SERVICE")) == service)
+
+CANARY = "scripts/ci/cloud-run-canary.sh"
+
+def canaries(step, service, deploy_id):
+    # The one-pod canary that moves traffic after a no_traffic deploy, gated on
+    # that deploy's success: after a failed one there is nothing to canary.
+    run = step.get("run") or ""
+    cond = str(step.get("if") or "")
+    return (CANARY in run
+            and str((step.get("env") or {}).get("SERVICE")) == service
+            and f"steps.{deploy_id}.outcome == 'success'" in cond)
+
+def execs_canary(step):
+    # A cancel signals the step's own process only: run as a child of the
+    # step's shell, the canary never sees it and never sends its 1% back.
+    return re.match(rf"\s*exec\s+(\./)?{re.escape(CANARY)}\b", step.get("run") or "") is not None
+
+def unpins_only_a_failed_deploy(step, deploy_id):
+    # After a successful deploy whose canary failed, --to-latest would hand
+    # all traffic to the revision that never reached the database.
+    cond = str(step.get("if") or "")
+    return (f"steps.{deploy_id}.outcome == 'failure'" in cond
+            and f"steps.{deploy_id}.outcome == 'cancelled'" in cond
+            and "success" not in cond and "!=" not in cond)
 
 def runs_after_a_failure(step):
     # A step behind a failed deploy runs only under a status function that is
@@ -746,6 +816,16 @@ def scan(workflows):
                         problems.append(f"{where}: '{steps[r].get('name')}' deploys with no_traffic and the next roll does not move {service} traffic --to-latest")
                     elif not runs_after_a_failure(nxt):
                         problems.append(f"{where}: '{nxt.get('name')}' does not run after a failed deploy; the no_traffic pin would stick")
+                    deploy_id = str(steps[r].get("id") or "")
+                    if nxt is not None and moves_traffic_to_latest(nxt, service) and not unpins_only_a_failed_deploy(nxt, deploy_id):
+                        problems.append(f"{where}: '{nxt.get('name')}' must run only when '{steps[r].get('name')}' failed or was cancelled; after a failed canary --to-latest hands everything to the new revision")
+                    end = rolls[k + 1] if k + 1 < len(rolls) else len(steps)
+                    found_canaries = [steps[i] for i in range(r + 1, end) if canaries(steps[i], service, deploy_id)]
+                    if not found_canaries:
+                        problems.append(f"{where}: '{steps[r].get('name')}' deploys with no_traffic and no one-pod canary ({CANARY}) moves {service} traffic after it succeeds")
+                    for c in found_canaries:
+                        if not execs_canary(c):
+                            problems.append(f"{where}: '{c.get('name')}' does not exec {CANARY}; a cancel would never reach its send-back")
             for i in uses_wait:
                 t = text(steps[i])
                 for var in ("vars.GCP_DEV_CLOUD_RUN_REGION", "vars.GCP_DEV_SERVICE_NAME"):
@@ -801,7 +881,8 @@ def set_if(wf, job, name, cond):
     step = next(s for s in wf["jobs"][job]["steps"] if s.get("name") == name)
     step["if"] = cond
 
-MOVE_TRAFFIC = "Move traffic to the new revision"
+MOVE_TRAFFIC = "Unpin traffic after a failed deploy"
+CANARY_STEP = "Canary one pod, then move traffic to the new revision"
 BEFORE_FRONTEND = "Wait until no dev Cloud Run service is mid-rollout (before the frontend)"
 BEFORE_API = "Wait until no dev Cloud Run service is mid-rollout (before the API)"
 BROKEN = [
@@ -819,6 +900,14 @@ BROKEN = [
      lambda wf: drop_step(wf, "deploy-api", MOVE_TRAFFIC)),
     ("publish-images.yml", f"publish-images.yml:deploy-dev: '{MOVE_TRAFFIC}' does not run after a failed deploy",
      lambda wf: set_if(wf, "deploy-dev", MOVE_TRAFFIC, "needs.publish-server.result == 'success'")),
+    ("deploy-gcp.yml", "deploy-gcp.yml:deploy-api: 'Deploy backend API to Cloud Run' deploys with no_traffic and no one-pod canary",
+     lambda wf: drop_step(wf, "deploy-api", CANARY_STEP)),
+    ("publish-images.yml", "publish-images.yml:deploy-dev: 'Deploy backend to Cloud Run (dev)' deploys with no_traffic and no one-pod canary",
+     lambda wf: set_if(wf, "deploy-dev", CANARY_STEP, "always()")),
+    ("deploy-gcp.yml", f"deploy-gcp.yml:deploy-api: '{MOVE_TRAFFIC}' must run only when 'Deploy backend API to Cloud Run' failed or was cancelled",
+     lambda wf: set_if(wf, "deploy-api", MOVE_TRAFFIC, "${{ always() && steps.deploy.outcome != 'skipped' }}")),
+    ("publish-images.yml", f"publish-images.yml:deploy-dev: '{CANARY_STEP}' does not exec {CANARY}",
+     lambda wf: edit_run(wf, "deploy-dev", CANARY_STEP, "exec ./", "./")),
 ]
 for wf_name, expected, breaker in BROKEN:
     broken = copy.deepcopy(workflows)

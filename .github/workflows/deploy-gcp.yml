@@ -90,7 +90,7 @@ jobs:
         # mid-rollout, then waits for its own service to settle. A timeout fails
         # the job rather than deploying into a rollout.
         # carnet#1129: the API roll also waits for 6 free Cloud SQL slots, one
-        # pool's worth for the single pod the deploy below starts beside the old
+        # pool's worth for the single pod the canary below starts beside the old
         # revision (carnet#1269).
         env:
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
@@ -106,22 +106,31 @@ jobs:
           image: ${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}
           no_traffic: true
 
-      # The new revision boots ONE pod while the old revision keeps every request
-      # (carnet#1269). Rolled with traffic, Cloud Run started as many new pods as
-      # the old revision ran, all at once: on 2026-10-29 three new pods booted
-      # beside three old ones holding 18 of Cloud SQL's 22 slots, and two waited
-      # out their 150 s boot window and restarted. A revision is Ready only once
-      # its pod passes the startup probe, which follows the boot key read, so
-      # Ready is the proof that one pod reached the database. Then traffic moves,
-      # the old pods go idle and give their slots back, and the rest of the new
-      # pods start as load asks for them.
-      # Runs whatever the deploy's outcome, a cancelled job included:
-      # `no_traffic` pins traffic to the revision serving now, and a pin left
-      # behind holds until something moves traffic back (2026-05-25, 22 hours).
-      # `--to-latest` routes to the latest READY revision, so after a failed
-      # deploy it keeps the old one serving.
-      - name: Move traffic to the new revision
-        if: ${{ always() && steps.deploy.outcome != 'skipped' }}
+      # The deploy above boots no pod: a no_traffic revision is Ready with
+      # nothing running (2026-10-29 23:43), so Ready proves nothing about the
+      # database. The canary is the queue (carnet#1269): 1% of traffic starts
+      # ONE new pod while the old revision keeps 99%, the new revision takes
+      # 100% only once that pod has logged reading its key from the database,
+      # and any failure or cancel sends the 1% back. On 2026-10-29, rolled with
+      # traffic, three new pods booted beside three old ones holding 18 of
+      # Cloud SQL's 22 slots, and two waited out their boot window and restarted.
+      # `exec`: a cancel signals the step's own process only, and the script's
+      # trap is what sends the 1% back.
+      - name: Canary one pod, then move traffic to the new revision
+        if: ${{ steps.deploy.outcome == 'success' }}
+        env:
+          SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+        run: exec ./scripts/ci/cloud-run-canary.sh --service "${SERVICE}" --region "${REGION}"
+
+      # A deploy that failed or was cancelled leaves its no_traffic pin on the
+      # revision serving now, and a pin left behind holds until something moves
+      # traffic back (2026-05-25, 22 hours). `--to-latest` routes to the latest
+      # READY revision, so the old one keeps serving. A failed canary is not
+      # unpinned here: its revision is Ready, so --to-latest would hand all
+      # traffic to the pod that never reached the database.
+      - name: Unpin traffic after a failed deploy
+        if: ${{ always() && (steps.deploy.outcome == 'failure' || steps.deploy.outcome == 'cancelled') }}
         env:
           SERVICE: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}

@@ -470,6 +470,7 @@ jobs:
           ./scripts/ci/satellite-bump-gate.test.sh
           ./scripts/ci/deploy-satellite-cloud-run.test.sh
           ./scripts/ci/wait-cloud-run-service-ready.test.sh
+          ./scripts/ci/cloud-run-canary.test.sh
           ./scripts/ci/tag-deployed-digest.test.sh
           ./scripts/ci/carry-forward-frontend-assets.test.sh
           ./scripts/ci/terraform-drift.test.sh

@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# ABOUTME: Runs cloud-run-canary.sh against a stubbed gcloud: promote, send back on timeout, refuse a bad starting state
+# ABOUTME: Asserts the exact traffic moves, because a canary that sends back nothing is a pin no one knows about
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# carnet#1269. Each case asserts the script's own message and the traffic
+# commands it ran, in order: an exit code alone cannot tell "sent the canary
+# back" from "crashed before moving anything". The run fails unless exactly
+# EXPECTED_CASES cases ran and all passed. Counters are plain assignments,
+# never `(( n++ ))`, which `set -e` aborts on when n is 0.
+#
+# Usage: scripts/ci/cloud-run-canary.test.sh — bash and jq; no network.
+
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+SCRIPT="${PWD}/scripts/ci/cloud-run-canary.sh"
+WORK=$(mktemp -d); trap 'rm -rf "${WORK}"' EXIT
+
+EXPECTED_CASES=10
+CASES_RUN=0
+CASES_PASSED=0
+CASES_FAILED=0
+
+SERVICE="dravr-mcp-server-api"
+REGION="northamerica-northeast1"
+OLD="${SERVICE}-00001-old"
+NEW="${SERVICE}-00002-new"
+
+# ---------------------------------------------------------------------------
+# Stub gcloud. `run services describe` prints ${STUB_DIR}/service.json.
+# `logging read` prints the Nth line of ${STUB_DIR}/logs on its Nth call
+# (nothing past the end, or without the file); a logging.fail file makes it
+# fail. `run services update-traffic` succeeds unless update-traffic.fail
+# exists. Every call is logged to calls.log.
+# ---------------------------------------------------------------------------
+BIN="${WORK}/bin"; mkdir -p "${BIN}"
+cat > "${BIN}/gcloud" <<SH
+#!${BASH}
+SH
+cat >> "${BIN}/gcloud" <<'SH'
+echo "$*" >> "${STUB_DIR}/calls.log"
+case "$1 $2 $3" in
+  "config get-value project") echo "dravr-dev"; exit 0 ;;
+  "run services describe") cat "${STUB_DIR}/service.json"; exit 0 ;;
+  "run services update-traffic")
+    [ -e "${STUB_DIR}/update-traffic.fail" ] && { echo "ERROR: stub refused" >&2; exit 1; }
+    exit 0 ;;
+esac
+if [ "$1 $2" = "logging read" ]; then
+  [ -e "${STUB_DIR}/logging.fail" ] && { echo "ERROR: PERMISSION_DENIED logging.logEntries.list" >&2; exit 1; }
+  n=0; [ -e "${STUB_DIR}/logging.count" ] && n=$(<"${STUB_DIR}/logging.count")
+  n=$(( n + 1 )); echo "${n}" > "${STUB_DIR}/logging.count"
+  [ -e "${STUB_DIR}/logs" ] && sed -n "${n}p" "${STUB_DIR}/logs"
+  exit 0
+fi
+echo "stub gcloud: unexpected call: $*" >&2; exit 2
+SH
+chmod +x "${BIN}/gcloud"
+
+# A service whose newest revision is ${created}, ${ready} the latest ready one,
+# and ${traffic} its serving split as "rev=percent,…".
+service_json() {
+  local created="$1" ready="$2" traffic="$3"
+  jq -n --arg c "${created}" --arg r "${ready}" --arg t "${traffic}" '{
+    status: {
+      latestCreatedRevisionName: $c,
+      latestReadyRevisionName: $r,
+      traffic: ($t | split(",") | map(select(. != "") | split("=") | {revisionName: .[0], percent: (.[1] | tonumber)}))
+    }
+  }'
+}
+
+# The update-traffic calls a case made, one per line, without the region.
+traffic_moves() {
+  grep '^run services update-traffic' "${STUB_DIR}/calls.log" \
+    | sed -e "s/ --region ${REGION}//" -e 's/ --quiet//' -e 's/^run services update-traffic //' || true
+}
+
+# run_case <name> <expected exit> <expected output fragment> <expected moves, ";"-separated>
+run_case() {
+  local name="$1" want_exit="$2" want_out="$3" want_moves="$4" got_exit=0 got_moves
+  CASES_RUN=$(( CASES_RUN + 1 ))
+  PATH="${BIN}:${PATH}" STUB_DIR="${STUB_DIR}" CLOUD_RUN_CANARY_POLL_SECONDS=1 \
+    "${SCRIPT}" --service "${SERVICE}" --region "${REGION}" --timeout-seconds "${TIMEOUT:-5}" \
+    >"${STUB_DIR}/out" 2>&1 || got_exit=$?
+  got_moves=$(traffic_moves | paste -sd ';' -)
+  if [ "${got_exit}" = "${want_exit}" ] && grep -qF -- "${want_out}" "${STUB_DIR}/out" && [ "${got_moves}" = "${want_moves}" ]; then
+    CASES_PASSED=$(( CASES_PASSED + 1 )); echo "  ok   ${name}"
+  else
+    CASES_FAILED=$(( CASES_FAILED + 1 ))
+    echo "  FAIL ${name}: exit ${got_exit} (want ${want_exit}); moves '${got_moves}' (want '${want_moves}')"
+    sed 's/^/       /' "${STUB_DIR}/out"
+  fi
+}
+
+# run_signal_case <name> <signal> <expected exit>: no pod ever reads its key;
+# once the 1% has moved, the script gets <signal> as a cancelled step does, and
+# must send the 1% back without waiting on the operation. Job control (set -m)
+# keeps SIGINT deliverable: a non-interactive shell starts a background job
+# with SIGINT ignored, and an ignored signal cannot be trapped.
+run_signal_case() {
+  local name="$1" sig="$2" want_exit="$3" got_exit=0 got_moves pid tries=0 took started
+  CASES_RUN=$(( CASES_RUN + 1 ))
+  set -m
+  PATH="${BIN}:${PATH}" STUB_DIR="${STUB_DIR}" CLOUD_RUN_CANARY_POLL_SECONDS=30 \
+    "${SCRIPT}" --service "${SERVICE}" --region "${REGION}" --timeout-seconds 120 \
+    >"${STUB_DIR}/out" 2>&1 &
+  pid=$!
+  set +m
+  until grep -q -- "--to-revisions ${NEW}=1" "${STUB_DIR}/calls.log" && grep -q '^logging read' "${STUB_DIR}/calls.log"; do
+    tries=$(( tries + 1 ))
+    [ "${tries}" -le 100 ] || break
+    sleep 0.1
+  done
+  started=${SECONDS}
+  kill -s "${sig}" "${pid}"
+  wait "${pid}" || got_exit=$?
+  # The poll sleeps 30 s; a send-back that waits it out would miss a real
+  # cancel's 10 s before SIGKILL.
+  took=$(( SECONDS - started ))
+  got_moves=$(traffic_moves | paste -sd ';' -)
+  local want_moves="${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0 --async"
+  if [ "${got_exit}" = "${want_exit}" ] && [ "${took}" -lt 10 ] && grep -qF "sending ${NEW}'s canary share back" "${STUB_DIR}/out" && [ "${got_moves}" = "${want_moves}" ]; then
+    CASES_PASSED=$(( CASES_PASSED + 1 )); echo "  ok   ${name}"
+  else
+    CASES_FAILED=$(( CASES_FAILED + 1 ))
+    echo "  FAIL ${name}: exit ${got_exit} (want ${want_exit}) after ${took}s (want under 10); moves '${got_moves}' (want '${want_moves}')"
+    sed 's/^/       /' "${STUB_DIR}/out"
+  fi
+}
+
+new_case() {
+  STUB_DIR="${WORK}/$1"; mkdir -p "${STUB_DIR}"; : > "${STUB_DIR}/calls.log"
+}
+
+echo "cloud-run-canary"
+
+new_case promote
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+printf '\n2026-10-30T13:50:08Z\tinstance-1\n' > "${STUB_DIR}/logs"
+run_case "a blank answer is not yet; one pod reads its key, then the new revision takes 100%" 0 "one pod read its key at 2026-10-30T13:50:08Z" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-latest"
+
+new_case timeout
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+TIMEOUT=2 run_case "no pod reads its key in time: the 1% goes back" 1 "its pod never reached the database" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
+
+new_case no-log-access
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+: > "${STUB_DIR}/logging.fail"
+run_case "the logs cannot be read: the 1% goes back" 1 "roles/logging.viewer" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
+
+new_case not-a-timestamp
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+printf 'WARNING: something else\n' > "${STUB_DIR}/logs"
+run_case "an answer that is not a log timestamp fails: the 1% goes back" 1 "is not a log timestamp" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
+
+new_case cancel-int
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+run_signal_case "a cancel's SIGINT mid-wait sends the 1% back at once" INT 130
+
+new_case cancel-term
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+run_signal_case "a SIGTERM mid-wait sends the 1% back at once" TERM 143
+
+new_case canary-refused
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+: > "${STUB_DIR}/update-traffic.fail"
+run_case "the 1% move is refused: it still tries to send it back" 1 "could not move 1% of ${SERVICE}'s traffic" \
+  "${SERVICE} --to-revisions ${NEW}=1;${SERVICE} --to-revisions ${NEW}=0"
+
+new_case not-ready
+service_json "${NEW}" "${OLD}" "${OLD}=100" > "${STUB_DIR}/service.json"
+run_case "the newest revision is not Ready: no traffic moves" 1 "is not Ready" ""
+
+new_case already-serving
+service_json "${NEW}" "${NEW}" "${NEW}=100" > "${STUB_DIR}/service.json"
+run_case "the newest revision already serves: no traffic moves" 1 "already carries traffic" ""
+
+new_case bad-region
+service_json "${NEW}" "${NEW}" "${OLD}=100" > "${STUB_DIR}/service.json"
+CASES_RUN=$(( CASES_RUN + 1 ))
+got_exit=0
+PATH="${BIN}:${PATH}" STUB_DIR="${STUB_DIR}" "${SCRIPT}" --service "${SERVICE}" --region "nowhere" >"${STUB_DIR}/out" 2>&1 || got_exit=$?
+if [ "${got_exit}" = 1 ] && grep -qF "is not a Cloud Run region name" "${STUB_DIR}/out" && [ ! -s "${STUB_DIR}/calls.log" ]; then
+  CASES_PASSED=$(( CASES_PASSED + 1 )); echo "  ok   an invalid region is refused before any gcloud call"
+else
+  CASES_FAILED=$(( CASES_FAILED + 1 )); echo "  FAIL an invalid region: exit ${got_exit}"; sed 's/^/       /' "${STUB_DIR}/out"
+fi
+
+echo
+echo "${CASES_PASSED} passed, ${CASES_FAILED} failed (${CASES_RUN} of ${EXPECTED_CASES} cases ran)"
+[ "${CASES_FAILED}" -eq 0 ] && [ "${CASES_RUN}" -eq "${EXPECTED_CASES}" ] && [ "${CASES_PASSED}" -eq "${EXPECTED_CASES}" ]
