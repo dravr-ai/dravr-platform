@@ -17,9 +17,10 @@ use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{draft_state, CoachDraftTarget};
 use pierre_services::coach_plan_notice::{tell_plan_pushed, CoachCalendarPush};
 use pierre_services::plan_calendar_push::{
-    calendar_holds_week_notes, desired_entries, diff_against_ledger, for_calendar,
-    push_active_plan, PushPlanParams, PushReport,
+    calendar_holds_week_notes, diff_against_ledger, for_calendar, push_active_plan, PushPlanParams,
+    PushReport,
 };
+use pierre_services::plan_calendar_render::desired_entries;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use serde_json::Value;

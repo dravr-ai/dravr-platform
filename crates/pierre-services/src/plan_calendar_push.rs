@@ -11,8 +11,7 @@
 //!
 //! **Rendering.** [`crate::plan_calendar_render`] turns every non-rest plan
 //! day on or after the push date into one [`PlannedSession`] and every week
-//! with a focus into a week note, each under a stable [`CalendarKey`]; its
-//! items are re-exported here.
+//! with a focus into a week note, each under a stable [`CalendarKey`].
 //!
 //! **Reconciling.** Desired sessions are diffed against the ledger's live rows
 //! for the same provider and against what the provider's calendar actually
@@ -50,9 +49,7 @@ use uuid::Uuid;
 use crate::plan_fuel_products::PlanFuelProducts;
 use crate::plan_fueling::FuelingDisclosure;
 
-pub use crate::plan_calendar_render::{
-    desired_entries, plan_day_session, plan_sport, week_note_session, DesiredEntry,
-};
+use crate::plan_calendar_render::{desired_entries, DesiredEntry};
 
 /// Name of the descriptor capability a push target must declare, as a refusal
 /// and its `details` say it.

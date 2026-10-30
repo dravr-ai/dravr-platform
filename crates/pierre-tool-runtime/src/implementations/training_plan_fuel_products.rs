@@ -35,9 +35,10 @@ use std::collections::{HashMap, HashSet};
 
 use dravr_cageux::periodization::MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CatalogueFuelProduct, FuelItemEntry, TenantId, MAX_FUEL_PRODUCT_LOOKUP};
+use pierre_core::models::{CatalogueFuelProduct, FuelItemEntry, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::PlannedDay;
+use pierre_services::plan_fuel_products;
 use uuid::Uuid;
 
 use super::training_plans::WeekPayload;
@@ -145,7 +146,11 @@ pub(super) async fn check_fuel_products(
     if days.is_empty() {
         return Ok(());
     }
-    let products = resolve_fuel_products(repos, &days).await?;
+    let ids: Vec<Uuid> = days
+        .iter()
+        .flat_map(|day| day.fuel_product_ids.iter().copied())
+        .collect();
+    let products = plan_fuel_products::current_fuel_products(repos, ids).await?;
     let carried: HashSet<Uuid> = repos
         .athlete_fuel_items
         .list_fuel_items(tenant, user_id)
@@ -160,31 +165,6 @@ pub(super) async fn check_fuel_products(
         check_day_fuel_products(day, &products, &carried, reader)?;
     }
     Ok(())
-}
-
-/// Every product the days name, with its current label facts, keyed by id.
-/// A product the catalogue does not hold is absent.
-async fn resolve_fuel_products(
-    repos: &RepositoryRegistry,
-    days: &[&PlannedDay],
-) -> AppResult<HashMap<Uuid, CatalogueFuelProduct>> {
-    let mut ids: Vec<Uuid> = days
-        .iter()
-        .flat_map(|day| day.fuel_product_ids.iter().copied())
-        .collect();
-    ids.sort_unstable();
-    ids.dedup();
-    let mut products = HashMap::with_capacity(ids.len());
-    for chunk in ids.chunks(MAX_FUEL_PRODUCT_LOOKUP) {
-        for product in repos
-            .fuel_catalogue
-            .get_fuel_products_current(chunk)
-            .await?
-        {
-            products.insert(product.product.id, product);
-        }
-    }
-    Ok(products)
 }
 
 /// Hold one day to the rules over the products it names: each is in the
@@ -221,7 +201,9 @@ fn check_day_fuel_products(
 /// [`MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H`] is only reachable with multiple
 /// transportable carbohydrates and a label without the ratio cannot show it
 /// delivers them. A ratio of zero is glucose alone. A product with no
-/// carbohydrate on its label (an electrolyte capsule) neither helps nor hurts.
+/// carbohydrate on its label (an electrolyte capsule) neither helps nor hurts:
+/// a day naming only such products has named no carbohydrate source, so it
+/// must state one in `carb_source`, as a day naming no product must.
 fn check_day_carb_ceiling(
     day: &PlannedDay,
     products: &HashMap<Uuid, CatalogueFuelProduct>,
@@ -232,7 +214,7 @@ fn check_day_carb_ceiling(
     if !fuel.needs_multiple_transportable_carbs() {
         return Ok(());
     }
-    let single_source: Vec<String> = day
+    let carb_bearing: Vec<&CatalogueFuelProduct> = day
         .fuel_product_ids
         .iter()
         .filter_map(|id| products.get(id))
@@ -243,6 +225,22 @@ fn check_day_carb_ceiling(
                 .carbs_g
                 .is_some_and(|carbs| carbs > 0.0)
         })
+        .collect();
+    let states_source = fuel
+        .carb_source
+        .as_deref()
+        .is_some_and(|source| !source.trim().is_empty());
+    if carb_bearing.is_empty() && !states_source {
+        return Err(AppError::invalid_input(format!(
+            "day {} fueling.carbs_g_per_h {} is above {MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H} g/h, \
+             but none of the products it names carries carbohydrate, so nothing says where the \
+             carbohydrate comes from — state carb_source (e.g. 'glucose:fructose 1:0.8') or name \
+             the products it comes from",
+            day.date, fuel.carbs_g_per_h
+        )));
+    }
+    let single_source: Vec<String> = carb_bearing
+        .into_iter()
         .filter(|product| {
             !product
                 .current
@@ -250,7 +248,14 @@ fn check_day_carb_ceiling(
                 .glucose_fructose_ratio
                 .is_some_and(|ratio| ratio > 0.0)
         })
-        .map(|product| format!("{} ({})", product.product.id, product_label(product)))
+        .map(|product| {
+            let label = &product.product;
+            format!(
+                "{} ({})",
+                label.id,
+                plan_fuel_products::fuel_product_label(&label.brand, &label.name, &label.variant)
+            )
+        })
         .collect();
     if single_source.is_empty() {
         return Ok(());
@@ -264,14 +269,4 @@ fn check_day_carb_ceiling(
         fuel.carbs_g_per_h,
         single_source.join(", ")
     )))
-}
-
-/// "Brand Name Variant", the variant left out when the product has none.
-fn product_label(product: &CatalogueFuelProduct) -> String {
-    let product = &product.product;
-    if product.variant.is_empty() {
-        format!("{} {}", product.brand, product.name)
-    } else {
-        format!("{} {} {}", product.brand, product.name, product.variant)
-    }
 }

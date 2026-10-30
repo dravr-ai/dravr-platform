@@ -9,7 +9,8 @@
 //! A saved day stores the catalogue ids of the fuel products its session is
 //! fuelled with (`PlannedDay::fuel_product_ids`); a surface shows their
 //! names. [`PlanFuelProducts::for_weeks`] reads every referenced product
-//! from the catalogue once, beside the [`crate::plan_fueling::FuelingDisclosure`]
+//! from the catalogue once ([`current_fuel_products`], the one resolver the
+//! plan-save check shares), beside the [`crate::plan_fueling::FuelingDisclosure`]
 //! the same surface reads, and [`PlanFuelProducts::day`] hands each day its
 //! products in the order the day names them.
 //!
@@ -20,7 +21,7 @@
 use std::collections::HashMap;
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::{FuelProduct, MAX_FUEL_PRODUCT_LOOKUP};
+use pierre_core::models::{CatalogueFuelProduct, MAX_FUEL_PRODUCT_LOOKUP};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, PlannedDay};
 use serde::Serialize;
@@ -52,23 +53,24 @@ impl PlanFuelProducts {
         repos: &RepositoryRegistry,
         weeks: impl IntoIterator<Item = &'a PlanWeek>,
     ) -> AppResult<Self> {
-        let mut ids: Vec<Uuid> = weeks
+        // Collected before the read: a borrowing iterator held across the
+        // await would make the future not `Send` for an axum handler.
+        let ids: Vec<Uuid> = weeks
             .into_iter()
             .flat_map(|week| &week.days)
             .flat_map(|day| day.fuel_product_ids.iter().copied())
             .collect();
-        ids.sort_unstable();
-        ids.dedup();
-        let mut names = HashMap::with_capacity(ids.len());
-        for chunk in ids.chunks(MAX_FUEL_PRODUCT_LOOKUP) {
-            for product in repos
-                .fuel_catalogue
-                .get_fuel_products_current(chunk)
-                .await?
-            {
-                names.insert(product.product.id, fuel_product_label(&product.product));
-            }
-        }
+        let names: HashMap<Uuid, String> = current_fuel_products(repos, ids)
+            .await?
+            .into_iter()
+            .map(|(id, product)| {
+                let product = &product.product;
+                (
+                    id,
+                    fuel_product_label(&product.brand, &product.name, &product.variant),
+                )
+            })
+            .collect();
         Ok(Self { names })
     }
 
@@ -88,13 +90,42 @@ impl PlanFuelProducts {
     }
 }
 
+/// The current label of every catalogue product `ids` names, keyed by id.
+///
+/// Read in batches of [`MAX_FUEL_PRODUCT_LOOKUP`], each id once. An id the
+/// catalogue does not hold is absent. No read at all when `ids` is empty.
+///
+/// # Errors
+///
+/// Returns the repository error when the catalogue cannot be read.
+pub async fn current_fuel_products(
+    repos: &RepositoryRegistry,
+    ids: impl IntoIterator<Item = Uuid>,
+) -> AppResult<HashMap<Uuid, CatalogueFuelProduct>> {
+    let mut ids: Vec<Uuid> = ids.into_iter().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut products = HashMap::with_capacity(ids.len());
+    for chunk in ids.chunks(MAX_FUEL_PRODUCT_LOOKUP) {
+        for product in repos
+            .fuel_catalogue
+            .get_fuel_products_current(chunk)
+            .await?
+        {
+            products.insert(product.product.id, product);
+        }
+    }
+    Ok(products)
+}
+
 /// A product as one label: brand, name, and the variant in parentheses when
-/// there is one.
+/// there is one. A catalogue product and a pending proposal both print this
+/// way.
 #[must_use]
-pub fn fuel_product_label(product: &FuelProduct) -> String {
-    if product.variant.trim().is_empty() {
-        format!("{} {}", product.brand, product.name)
+pub fn fuel_product_label(brand: &str, name: &str, variant: &str) -> String {
+    if variant.trim().is_empty() {
+        format!("{brand} {name}")
     } else {
-        format!("{} {} ({})", product.brand, product.name, product.variant)
+        format!("{brand} {name} ({variant})")
     }
 }

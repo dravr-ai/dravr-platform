@@ -36,6 +36,7 @@ use pierre_core::models::{AthleteFuelItem, FuelFacts, FuelItemEntry, ProposalSta
 use pierre_database::RepositoryRegistry;
 use pierre_services::plan_fuel_products::fuel_product_label;
 use pierre_services::training_plan_render::sanitize_prompt_field;
+use tracing::warn;
 use uuid::Uuid;
 
 /// The most fuel items the block lists.
@@ -76,7 +77,7 @@ pub async fn inject_fuel_products(
             None => base_prompt,
         },
         Err(e) => {
-            tracing::warn!(error = %e, "fuel items read failed; continuing without them");
+            warn!(error = %e, "fuel items read failed; continuing without them");
             base_prompt
         }
     }
@@ -120,13 +121,17 @@ pub fn render_fuel_products_block(
 
 fn item_line(item: &AthleteFuelItem) -> String {
     let mut line = match &item.entry {
-        FuelItemEntry::Catalogue(product) => {
-            let facts = facts_clause(&product.current.facts);
+        FuelItemEntry::Catalogue(catalogued) => {
+            let facts = facts_clause(&catalogued.current.facts);
+            let product = &catalogued.product;
             format!(
                 "{} — {}, product_id {}{}",
-                sanitize_prompt_field(&fuel_product_label(&product.product), MAX_FIELD_LEN),
-                product.product.form.as_str(),
-                product.product.id,
+                sanitize_prompt_field(
+                    &fuel_product_label(&product.brand, &product.name, &product.variant),
+                    MAX_FIELD_LEN
+                ),
+                product.form.as_str(),
+                product.id,
                 if facts.is_empty() {
                     String::new()
                 } else {
@@ -135,11 +140,7 @@ fn item_line(item: &AthleteFuelItem) -> String {
             )
         }
         FuelItemEntry::Pending(pending) => {
-            let label = if pending.variant.trim().is_empty() {
-                format!("{} {}", pending.brand, pending.name)
-            } else {
-                format!("{} {} ({})", pending.brand, pending.name, pending.variant)
-            };
+            let label = fuel_product_label(&pending.brand, &pending.name, &pending.variant);
             let status = if pending.status == ProposalStatus::Rejected {
                 "rejected at review"
             } else {

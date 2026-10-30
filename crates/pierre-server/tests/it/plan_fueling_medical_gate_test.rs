@@ -28,7 +28,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::PlannedDay;
 use pierre_services::medical_flag::FiguresWithheld;
 use pierre_services::parq;
-use pierre_services::plan_calendar_push::desired_entries;
+use pierre_services::plan_calendar_render::desired_entries;
 use pierre_services::plan_card::try_load_plan_card;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::{FuelingDisclosure, FUELING_WITHHELD_CLAUSE};

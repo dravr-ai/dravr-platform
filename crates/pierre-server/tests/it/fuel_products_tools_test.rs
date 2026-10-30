@@ -13,7 +13,7 @@ use anyhow::Result;
 use pierre_core::models::{FuelRejectReason, ProposalSource, ProposalStatus, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_services::plan_calendar_push::desired_entries;
+use pierre_services::plan_calendar_render::desired_entries;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_tool_runtime::protocol::UniversalExecutor;

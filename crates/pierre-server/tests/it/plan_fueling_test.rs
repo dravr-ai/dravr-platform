@@ -22,7 +22,7 @@ use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
 use pierre_services::agent_package::PackagedCatalogue;
-use pierre_services::plan_calendar_push::plan_day_session;
+use pierre_services::plan_calendar_render::plan_day_session;
 use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;

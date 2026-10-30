@@ -10,7 +10,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use dravr_cageux::periodization::MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H;
 use pierre_core::models::{FuelFacts, FuelForm};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -150,7 +149,6 @@ fn capsule() -> FuelFacts {
 
 #[tokio::test]
 async fn the_ceiling_is_sixty_and_a_rate_above_it_states_its_source() -> Result<()> {
-    assert!((MAX_SINGLE_TRANSPORTER_CARBS_G_PER_H - 60.0).abs() < f32::EPSILON);
     let executor = create_executor().await?;
     let (athlete, tenant) = create_athlete(&executor).await?;
 
@@ -161,10 +159,11 @@ async fn the_ceiling_is_sixty_and_a_rate_above_it_states_its_source() -> Result<
 
     // Above it, a day naming no product must say where the second
     // transportable carbohydrate comes from; a blank source says nothing.
-    for source in [None, Some("   ")] {
-        let refusal = save(&executor, long_ride(90.0, source, &[]), athlete, &tenant)
+    // 61 g/h is the first whole rate past the ceiling.
+    for (rate, source) in [(61.0, None), (90.0, None), (90.0, Some("   "))] {
+        let refusal = save(&executor, long_ride(rate, source, &[]), athlete, &tenant)
             .await
-            .expect_err("90 g/h with no stated source is refused");
+            .expect_err("a rate above 60 g/h with no stated source is refused");
         assert!(
             refusal.contains("one carbohydrate source cannot deliver"),
             "{refusal}"
@@ -228,6 +227,26 @@ async fn above_the_ceiling_every_named_carb_product_states_its_ratio() -> Result
     )
     .await
     .expect("60 g/h is reachable from any carbohydrate source");
+
+    // A capsule with no carbohydrate is no carbohydrate source: naming it
+    // alone, a day above the ceiling must still state where its carbohydrate
+    // comes from.
+    let refusal = save(&executor, long_ride(90.0, None, &[salt]), athlete, &tenant)
+        .await
+        .expect_err("a carbohydrate-free product alone cannot back 90 g/h");
+    assert!(
+        refusal.contains("none of the products it names carries carbohydrate"),
+        "{refusal}"
+    );
+    assert!(refusal.contains("carb_source"), "{refusal}");
+    save(
+        &executor,
+        long_ride(90.0, Some("glucose:fructose 1:0.8"), &[salt]),
+        athlete,
+        &tenant,
+    )
+    .await
+    .expect("a stated source beside a carbohydrate-free product backs 90 g/h");
 
     // A blended gel backs 90 g/h, and a capsule with no carbohydrate neither
     // helps nor hurts.

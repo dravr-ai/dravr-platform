@@ -21,8 +21,9 @@ use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::{
     GoalRace, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
 };
-use pierre_services::plan_calendar_push::{
-    desired_entries, diff_against_ledger, entry_author, plan_day_session, plan_sport, DesiredEntry,
+use pierre_services::plan_calendar_push::{diff_against_ledger, entry_author};
+use pierre_services::plan_calendar_render::{
+    desired_entries, plan_day_session, plan_sport, DesiredEntry,
 };
 use pierre_services::plan_fuel_products::PlanFuelProducts;
 use pierre_services::plan_fueling::FuelingDisclosure;
